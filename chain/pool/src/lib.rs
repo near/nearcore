@@ -242,10 +242,20 @@ impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
             while let Some(sorted_group) = self.sorted_groups.pop_front() {
                 if sorted_group.transactions.is_empty() {
                     for hash in sorted_group.removed_transaction_hashes {
-                        if self.pool.unique_transactions.remove(&hash) {
-                            self.pool.transaction_pool_count_metric.dec();
-                        }
+                        self.pool.unique_transactions.remove(&hash);
                     }
+                    // See the comment in `insert_transaction` where we increase the size for reasoning
+                    // why panicing here catches a logic error.
+                    self.pool.total_transaction_size = self
+                        .pool
+                        .total_transaction_size
+                        .checked_sub(sorted_group.removed_transaction_size)
+                        .expect("Total transaction size dropped below zero");
+
+                    self.pool
+                        .transaction_pool_count_metric
+                        .set(self.pool.unique_transactions.len() as i64);
+                    self.pool.transaction_pool_size_metric.set(self.pool.transaction_size() as i64);
                 } else {
                     self.sorted_groups.push_back(sorted_group);
                     return Some(self.sorted_groups.back_mut().expect("just pushed"));
@@ -478,6 +488,9 @@ mod tests {
                 }
             }
         }
+        drop(pool_iter);
+        assert_eq!(pool.len(), 0);
+        assert_eq!(pool.transaction_size(), 0);
         let mut nonces: Vec<_> = res.into_iter().map(|tx| tx.transaction.nonce).collect();
         sort_pairs(&mut nonces[..4]);
         assert_eq!(nonces, vec![1, 21, 3, 23, 25, 27, 29, 31]);
