@@ -560,13 +560,14 @@ impl ShardTries {
     pub fn maybe_open_state_snapshot(
         &self,
         get_shard_uids_fn: impl Fn(CryptoHash) -> Result<Vec<ShardUId>, EpochError>,
-    ) -> Result<Option<StateSnapshot>, anyhow::Error> {
+    ) -> Result<(), anyhow::Error> {
         let _span =
             tracing::info_span!(target: "state_snapshot", "maybe_open_state_snapshot").entered();
+        metrics::HAS_STATE_SNAPSHOT.set(0);
         match &self.0.state_snapshot_config {
             StateSnapshotConfig::Disabled => {
                 tracing::debug!(target: "state_snapshot", "Disabled");
-                return Ok(None);
+                return Ok(());
             }
             StateSnapshotConfig::Enabled { home_dir, hot_store_path, state_snapshot_subdir } => {
                 let path = Self::get_state_snapshot_base_dir(
@@ -583,7 +584,7 @@ impl ShardTries {
                     Err(err) => {
                         if err.kind() == std::io::ErrorKind::NotFound {
                             tracing::debug!(target: "state_snapshot", ?parent_path, "State Snapshot base directory doesn't exist.");
-                            return Ok(None);
+                            return Ok(());
                         } else {
                             return Err(err.into());
                         }
@@ -603,7 +604,7 @@ impl ShardTries {
                 };
 
                 if snapshots.is_empty() {
-                    Ok(None)
+                    Ok(())
                 } else if snapshots.len() == 1 {
                     let (prev_block_hash, snapshot_dir) = &snapshots[0];
 
@@ -615,12 +616,16 @@ impl ShardTries {
                     let flat_storage_manager = FlatStorageManager::new(store.clone());
 
                     let shard_uids = get_shard_uids_fn(*prev_block_hash)?;
-                    Ok(Some(StateSnapshot::new(
+                    let mut guard = self.0.state_snapshot.write().unwrap();
+                    *guard = Some(StateSnapshot::new(
                         store,
                         *prev_block_hash,
                         flat_storage_manager,
                         &shard_uids,
-                    )))
+                    ));
+                    metrics::HAS_STATE_SNAPSHOT.set(1);
+                    tracing::info!(target: "runtime", ?prev_block_hash, ?snapshot_dir, "Detected and opened a state snapshot.");
+                    Ok(())
                 } else {
                     tracing::error!(target: "runtime", ?snapshots, "Detected multiple state snapshots. Please keep at most one snapshot and delete others.");
                     Err(anyhow::anyhow!("More than one state snapshot detected {:?}", snapshots))

@@ -341,6 +341,10 @@ impl FlatStorage {
     }
 }
 
+fn missing_delta_error(block_hash: &CryptoHash) -> FlatStorageError {
+    FlatStorageError::StorageInternalError(format!("delta does not exist for block {block_hash}"))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::flat::delta::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
