@@ -114,6 +114,11 @@ impl EdgeCache {
         *self.p2id.get(peer).unwrap()
     }
 
+    /// Id 0 is always assigned to the local node.
+    pub(crate) fn get_local_node_id(&self) -> u32 {
+        0
+    }
+
     /// Returns the u32 id associated with the given PeerId, assigning one if necessary.
     fn get_or_create_id(&mut self, peer: &PeerId) -> u32 {
         match self.p2id.entry(peer.clone()) {

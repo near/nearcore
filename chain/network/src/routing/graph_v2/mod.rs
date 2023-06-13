@@ -230,17 +230,16 @@ impl Inner {
                 consistent &= tree_distance[id] <= advertised_distances[id];
             }
         }
+        // After this point, we know that the DistanceVector message is valid
         if !consistent {
             return None;
         }
 
-        // After this point, we know that the DistanceVector message is valid
-        let local_node_id = self.edge_cache.get_id(&self.config.node_id) as i32;
-
         // Now, prune any advertised routes which go through the local node; it doesn't make
         // sense to forward a message to a neighbor who will send it back to us
+        let local_node_id = self.edge_cache.get_local_node_id() as usize;
         for id in 0..self.edge_cache.max_id() {
-            if first_step[id] == local_node_id && id != local_node_id as usize {
+            if first_step[id] == local_node_id as i32 && id != local_node_id {
                 advertised_distances[id] = -1;
             }
         }
@@ -257,7 +256,7 @@ impl Inner {
         distance_vector: &network_protocol::DistanceVector,
         mut advertised_distances: Vec<i32>,
     ) -> bool {
-        let local_node_id = self.edge_cache.get_id(&self.config.node_id) as usize;
+        let local_node_id = self.edge_cache.get_local_node_id() as usize;
 
         // A direct peer's distance vector which advertises an indirect path to the local node
         // is outdated and can be ignored.
@@ -428,11 +427,11 @@ impl Inner {
         _unreliable_peers: &HashSet<PeerId>,
     ) -> (NextHopTable, HashMap<PeerId, u32>) {
         let max_id = self.edge_cache.max_id();
-        let local_node_id = self.edge_cache.get_id(&self.config.node_id);
+        let local_node_id = self.edge_cache.get_local_node_id() as usize;
 
         // Calculate the min distance to each routable node
         let mut min_distance: Vec<i32> = vec![-1; max_id];
-        min_distance[local_node_id as usize] = 0;
+        min_distance[local_node_id] = 0;
         for (_, routes) in &mut self.peer_routes {
             // The peer to id mapping in the edge_cache is dynamic. We can still use previous distance
             // calculations because a node incident to an active edge won't be relabelled. However,
