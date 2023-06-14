@@ -567,6 +567,10 @@ impl Genesis {
         Self::new_with_path_validated(genesis_config, records_path, genesis_validation)
     }
 
+    pub fn new_from_state_roots(config: GenesisConfig, state_roots: Vec<StateRoot>) -> Self {
+        Self { config, contents: GenesisContents::StateRoots { state_roots } }
+    }
+
     fn new_validated(
         config: GenesisConfig,
         records: GenesisRecords,
@@ -641,7 +645,7 @@ impl Genesis {
                 stream_records_from_file(reader, callback_move)
                     .expect("error while streaming records");
             }
-            GenesisContents::StateRoots { state_roots } => {
+            GenesisContents::StateRoots { .. } => {
                 unreachable!("Cannot iterate through records when genesis uses state roots");
             }
         }
@@ -662,7 +666,7 @@ impl Genesis {
                     GenesisContents::Records { records: GenesisRecords::from_file(records_file) };
             }
             GenesisContents::Records { .. } => {}
-            GenesisContents::StateRoots { state_roots } => {
+            GenesisContents::StateRoots { .. } => {
                 unreachable!("Cannot iterate through records when genesis uses state roots");
             }
         }
