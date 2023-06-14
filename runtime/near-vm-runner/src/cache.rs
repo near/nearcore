@@ -1,8 +1,8 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::vm_kind::VMKind;
 use borsh::BorshSerialize;
-use near_primitives::contract::ContractCode;
-use near_primitives::hash::CryptoHash;
+use near_primitives_core::contract::ContractCode;
+use near_primitives_core::hash::CryptoHash;
 use near_vm_errors::{CacheError, CompilationError, CompiledContract, CompiledContractCache};
 use near_vm_logic::{ProtocolVersion, VMConfig};
 use std::collections::HashMap;
