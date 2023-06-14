@@ -144,8 +144,10 @@ fn print_results(
     println!("");
 }
 
-
-fn read_all_pairs(db: &DB, col_families: &Vec<String>) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
+fn read_all_pairs(
+    db: &DB,
+    col_families: &Vec<String>,
+) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
     // Initialize counters
     let key_sizes: Arc<Mutex<HashMap<usize, usize>>> = Arc::new(Mutex::new(HashMap::new()));
     let value_sizes: Arc<Mutex<HashMap<usize, usize>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -179,7 +181,11 @@ fn read_all_pairs(db: &DB, col_families: &Vec<String>) -> (Vec<(usize, usize)>, 
                 }
             }
         }
-        println!("In column family {} there are {} number of pairs", col_family, local_key_sizes.len());
+        println!(
+            "In column family {} there are {} number of pairs",
+            col_family,
+            local_key_sizes.values().sum::<usize>()
+        );
         update_map(&key_sizes, &local_key_sizes);
         update_map(&value_sizes, &local_value_sizes);
     });
@@ -213,7 +219,7 @@ fn main() {
     let db = DB::open_cf_for_read_only(&opts, args.db_path, col_families.clone(), false).unwrap();
     let (key_sizes_sorted, value_sizes_sorted) = read_all_pairs(&db, &col_families);
     let total_num_of_pairs = key_sizes_sorted.iter().map(|(_, count)| count).sum::<usize>();
-    
+
     let limit = match args.limit {
         Some(limit) => limit,
         None => 100,
