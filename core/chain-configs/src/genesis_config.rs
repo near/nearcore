@@ -267,10 +267,10 @@ pub enum GenesisContents {
     StateRoots { state_roots: Vec<StateRoot> },
 }
 
-fn contents_are_not_records(contents: &GenesisContents) -> bool {
+fn contents_are_from_record_file(contents: &GenesisContents) -> bool {
     match contents {
-        GenesisContents::Records { .. } => false,
-        _ => true,
+        GenesisContents::RecordsFile { .. } => true,
+        _ => false,
     }
 }
 
@@ -288,7 +288,7 @@ pub struct Genesis {
     #[serde(
         flatten,
         deserialize_with = "no_value_and_null_as_default",
-        skip_serializing_if = "contents_are_not_records"
+        skip_serializing_if = "contents_are_from_record_file"
     )]
     pub contents: GenesisContents,
 }
