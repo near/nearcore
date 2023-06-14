@@ -182,9 +182,10 @@ fn read_all_pairs(
             }
         }
         println!(
-            "In column family {} there are {} number of pairs",
+            "In column family {} there are {} number of pairs, and col size is {}",
             col_family,
-            local_key_sizes.values().sum::<usize>()
+            local_key_sizes.values().sum::<usize>(),
+            local_key_sizes.iter().map(|(&size, &count)| size * count).sum::<usize>()
         );
         update_map(&key_sizes, &local_key_sizes);
         update_map(&value_sizes, &local_value_sizes);
