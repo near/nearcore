@@ -117,8 +117,8 @@ static CHUNK_COMPUTE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
 });
 static CHUNK_TGAS_HIST: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "Tgas burnt by chunk, as a histogram in ms. Reported for all applied chunks, even when not included in a block.",
         "near_chunk_tgas_hist",
+        "Tgas burnt by chunk, as a histogram in ms. Reported for all applied chunks, even when not included in a block.",
         &["shard_id"],
         buckets_for_gas(),
     )
@@ -135,8 +135,8 @@ static CHUNK_LOCAL_RECEIPTS_COMPUTE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
 });
 static CHUNK_LOCAL_RECEIPTS_TGAS_HIST: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "Tgas burnt for applying local receipts by chunk, as a histogram in ms",
         "near_chunk_local_receipt_tgas_hist",
+        "Tgas burnt for applying local receipts by chunk, as a histogram in ms",
         &["shard_id"],
         buckets_for_gas(),
     )
@@ -153,8 +153,8 @@ static CHUNK_DELAYED_RECEIPTS_COMPUTE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
 });
 static CHUNK_DELAYED_RECEIPTS_TGAS_HIST: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "Tgas burnt for applying delayed receipts by chunk, as a histogram in ms",
         "near_chunk_delayed_receipt_tgas_hist",
+        "Tgas burnt for applying delayed receipts by chunk, as a histogram in ms",
         &["shard_id"],
         buckets_for_gas(),
     )
@@ -171,8 +171,8 @@ static CHUNK_INC_RECEIPTS_COMPUTE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
 });
 static CHUNK_INC_RECEIPTS_TGAS_HIST: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "Tgas burnt for applying incoming receipts by chunk, as a histogram in ms",
         "near_chunk_inc_receipt_tgas_hist",
+        "Tgas burnt for applying incoming receipts by chunk, as a histogram in ms",
         &["shard_id"],
         buckets_for_gas(),
     )
