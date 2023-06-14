@@ -1,3 +1,5 @@
+extern crate core;
+
 use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
@@ -23,7 +25,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, CompiledContract, CompiledContractCache, StateRoot};
+use near_primitives::types::{AccountId, StateRoot};
+use near_vm_errors::{CompiledContract, CompiledContractCache};
 
 use crate::db::{
     refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics,
@@ -603,14 +606,6 @@ impl StoreUpdate {
         }
     }
 
-    pub fn update_cache(&self) -> io::Result<()> {
-        if let StoreUpdateStorage::Tries(tries) = &self.storage {
-            tries.update_cache(&self.transaction)
-        } else {
-            Ok(())
-        }
-    }
-
     pub fn commit(self) -> io::Result<()> {
         debug_assert!(
             {
@@ -657,10 +652,7 @@ impl StoreUpdate {
             }
         }
         let storage = match &self.storage {
-            StoreUpdateStorage::Tries(tries) => {
-                tries.update_cache(&self.transaction)?;
-                tries.get_db()
-            }
+            StoreUpdateStorage::Tries(tries) => tries.get_db(),
             StoreUpdateStorage::DB(db) => &db,
         };
         storage.write(self.transaction)
@@ -1047,7 +1039,7 @@ mod tests {
     /// Check StoreCompiledContractCache implementation.
     #[test]
     fn test_store_compiled_contract_cache() {
-        use near_primitives::types::{CompiledContract, CompiledContractCache};
+        use near_vm_errors::{CompiledContract, CompiledContractCache};
         use std::str::FromStr;
 
         let store = crate::test_utils::create_test_store();

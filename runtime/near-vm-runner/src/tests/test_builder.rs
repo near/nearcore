@@ -1,7 +1,7 @@
 use crate::internal::VMKind;
-use near_primitives::{
+use near_primitives::runtime::{config_store::RuntimeConfigStore, fees::RuntimeFeesConfig};
+use near_primitives_core::{
     contract::ContractCode,
-    runtime::{config_store::RuntimeConfigStore, fees::RuntimeFeesConfig},
     types::Gas,
     version::{ProtocolFeature, PROTOCOL_VERSION},
 };
@@ -159,10 +159,12 @@ impl TestBuilder {
         self
     }
 
+    #[track_caller]
     pub(crate) fn expect(self, want: expect_test::Expect) {
         self.expects(&[want])
     }
 
+    #[track_caller]
     pub(crate) fn expects(self, wants: &[expect_test::Expect]) {
         let runtime_config_store = RuntimeConfigStore::new(None);
 

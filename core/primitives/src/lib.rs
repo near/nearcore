@@ -37,3 +37,5 @@ pub mod utils;
 pub mod validator_signer;
 pub mod version;
 pub mod views;
+
+pub use crate::version::checked_feature;

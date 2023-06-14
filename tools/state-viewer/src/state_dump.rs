@@ -449,7 +449,7 @@ mod test {
             "test0".parse().unwrap(),
             &signer0,
             vec![Action::DeployContract(DeployContractAction {
-                code: near_test_contracts::base_rs_contract().to_vec(),
+                code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
             })],
             genesis_hash,
         );
@@ -669,7 +669,7 @@ mod test {
 
     /// If the node does not track a shard, state dump will not give the correct result.
     #[test]
-    #[should_panic(expected = "Trie node missing")]
+    #[should_panic(expected = "MissingTrieValue")]
     fn test_dump_state_not_track_shard() {
         let epoch_length = 4;
         let mut genesis =

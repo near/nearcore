@@ -135,13 +135,12 @@ impl InfoHelper {
         let me = client.validator_signer.as_ref().map(|x| x.validator_id());
         if let Ok(num_shards) = client.epoch_manager.num_shards(&head.epoch_id) {
             for shard_id in 0..num_shards {
-                let tracked = match me {
-                    None => false,
-                    Some(me) => client
-                        .epoch_manager
-                        .cares_about_shard_from_prev_block(&head.last_block_hash, me, shard_id)
-                        .unwrap_or(false),
-                };
+                let tracked = client.shard_tracker.care_about_shard(
+                    me,
+                    &head.last_block_hash,
+                    shard_id,
+                    true,
+                );
                 metrics::TRACKED_SHARDS
                     .with_label_values(&[&shard_id.to_string()])
                     .set(if tracked { 1 } else { 0 });
@@ -195,6 +194,12 @@ impl InfoHelper {
         let blocks_in_epoch = client.config.epoch_length;
         let number_of_shards = client.epoch_manager.num_shards(&head.epoch_id).unwrap_or_default();
         if let Ok(epoch_info) = epoch_info {
+            metrics::VALIDATORS_CHUNKS_EXPECTED_IN_EPOCH.reset();
+            metrics::VALIDATORS_BLOCKS_EXPECTED_IN_EPOCH.reset();
+            metrics::BLOCK_PRODUCER_STAKE.reset();
+
+            let epoch_height = epoch_info.epoch_height().to_string();
+
             let mut stake_per_bp = HashMap::<ValidatorId, Balance>::new();
 
             let stake_to_blocks = |stake: Balance, stake_sum: Balance| -> i64 {
@@ -213,8 +218,17 @@ impl InfoHelper {
             }
 
             stake_per_bp.iter().for_each(|(&id, &stake)| {
+                metrics::BLOCK_PRODUCER_STAKE
+                    .with_label_values(&[
+                        epoch_info.get_validator(id).account_id().as_str(),
+                        &epoch_height,
+                    ])
+                    .set((stake / 1e24 as u128) as i64);
                 metrics::VALIDATORS_BLOCKS_EXPECTED_IN_EPOCH
-                    .with_label_values(&[epoch_info.get_validator(id).account_id().as_str()])
+                    .with_label_values(&[
+                        epoch_info.get_validator(id).account_id().as_str(),
+                        &epoch_height,
+                    ])
                     .set(stake_to_blocks(stake, stake_sum))
             });
 
@@ -232,6 +246,7 @@ impl InfoHelper {
                         .with_label_values(&[
                             epoch_info.get_validator(id).account_id().as_str(),
                             &shard_id.to_string(),
+                            &epoch_height,
                         ])
                         .set(stake_to_blocks(stake, stake_sum))
                 });

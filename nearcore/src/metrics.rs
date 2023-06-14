@@ -15,6 +15,15 @@ pub(crate) static APPLY_CHUNK_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
         .unwrap()
 });
 
+pub(crate) static DELAYED_RECEIPTS_COUNT: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_delayed_receipts_count",
+        "The length of the delayed receipts queue. Indicator of congestion.",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
 pub(crate) static CONFIG_CORRECT: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_config_correct",
@@ -94,7 +103,7 @@ pub(crate) static STATE_SYNC_OBTAIN_PART_DELAY: Lazy<near_o11y::metrics::Histogr
         try_create_histogram_vec(
             "near_state_sync_obtain_part_delay_sec",
             "Latency of applying a state part",
-            &["shard_id"],
+            &["shard_id", "result"],
             Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
         )
         .unwrap()

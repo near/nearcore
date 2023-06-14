@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 
 [workspace.metadata.workspaces]
 # shared version of all public crates in the workspace
-version = "0.16.1"
+version = "0.17.0"
 exclude = ["neard"]
 
 [workspace]
@@ -140,7 +140,7 @@ elastic-array = "0.11"
 enum-map = "2.1.0"
 enumset = "1.0"
 expect-test = "1.3.0"
-finite-wasm = "0.4.0"
+finite-wasm = "0.5.0"
 flate2 = "1.0.22"
 fs2 = "0.4"
 futures = "0.3.5"
@@ -168,7 +168,7 @@ log = "0.4"
 loupe = "0.1"
 lru = "0.7.2"
 memmap2 = "0.5"
-memoffset = "0.6"
+memoffset = "0.8"
 more-asserts = "0.2"
 near-account-id = { path = "core/account-id", features = ["internal_unstable"] }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
@@ -317,7 +317,7 @@ tracing-subscriber = { version = "0.3.15", features = ["env-filter", "fmt", "reg
 trybuild = "1.0.11"
 turn = "0.6"
 validator = "0.12"
-wasm-encoder = "0.11.0"
+wasm-encoder = "0.27.0"
 wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.0" }
 wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.0" }
 wasmer-engine = { package = "wasmer-engine-near", version = "=2.4.0" }
@@ -329,7 +329,7 @@ wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.0" }
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmprinter = "0.2"
 wasm-smith = "0.10"
-wasmtime = { version = "4.0.0", default-features = false, features = ["cranelift"] }
+wasmtime = { version = "9.0.3", default-features = false, features = ["cranelift"] }
 wast = "40.0"
 wat = "1.0.40"
 webrtc-util = "0.7"

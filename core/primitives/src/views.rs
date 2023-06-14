@@ -30,10 +30,10 @@ use crate::transaction::{
     SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
-    AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
-    EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind,
-    StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
-    StoreValue, ValidatorKickoutReason,
+    AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochHeight, EpochId, FunctionArgs, Gas,
+    Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind, StateChangeValue,
+    StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey, StoreValue,
+    ValidatorKickoutReason,
 };
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -42,6 +42,7 @@ use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_primitives_core::config::{ActionCosts, ExtCosts, ParameterCost, VMConfig};
 use near_primitives_core::runtime::fees::Fee;
+use near_vm_errors::CompiledContractCache;
 use num_rational::Rational32;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -221,19 +222,14 @@ impl From<AccessKeyView> for AccessKey {
 pub struct StateItem {
     pub key: StoreKey,
     pub value: StoreValue,
-    /// Deprecated, always empty, eventually will be deleted.
-    // TODO(mina86): This was deprecated in 1.30.  Get rid of the field
-    // altogether at 1.33 or something.
-    #[serde(default)]
-    pub proof: Vec<()>,
 }
 
+#[serde_as]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewStateResult {
     pub values: Vec<StateItem>,
-    // TODO(mina86): Empty proof (i.e. sending proof when include_proof is not
-    // set in the request) was deprecated in 1.30.  Add
-    // `#[serde(skip(Vec::if_empty))` at 1.33 or something.
+    #[serde_as(as = "Vec<Base64>")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub proof: Vec<Arc<[u8]>>,
 }
 
@@ -915,10 +911,10 @@ pub struct BlockHeaderInnerLiteView {
 
 impl From<BlockHeader> for BlockHeaderInnerLiteView {
     fn from(header: BlockHeader) -> Self {
-        let inner_lite = match header {
-            BlockHeader::BlockHeaderV1(ref header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV2(ref header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV3(ref header) => &header.inner_lite,
+        let inner_lite = match &header {
+            BlockHeader::BlockHeaderV1(header) => &header.inner_lite,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_lite,
+            BlockHeader::BlockHeaderV3(header) => &header.inner_lite,
         };
         BlockHeaderInnerLiteView {
             height: inner_lite.height,
@@ -2774,6 +2770,8 @@ mod tests {
         use crate::runtime::config::RuntimeConfig;
         use crate::views::RuntimeConfigView;
 
+        // FIXME(#8202): This is snapshotting a config used for *tests*, rather than proper
+        // production configurations. That seems… subpar?
         let config = RuntimeConfig::test();
         let view = RuntimeConfigView::from(config);
         insta::assert_json_snapshot!(&view);

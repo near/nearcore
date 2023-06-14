@@ -1,5 +1,5 @@
 use borsh::BorshSerialize;
-use near_primitives::checked_feature;
+use near_primitives_core::checked_feature;
 use near_vm_logic::ProtocolVersion;
 use std::hash::Hash;
 
@@ -43,14 +43,15 @@ impl VMKind {
             return VMKind::Wasmer2;
         }
 
-        if cfg!(target_arch = "x86_64") {
-            if checked_feature!("stable", Wasmer2, protocol_version) {
-                VMKind::Wasmer2
-            } else {
-                VMKind::Wasmer0
-            }
-        } else {
-            VMKind::Wasmtime
+        if cfg!(not(target_arch = "x86_64")) {
+            return VMKind::Wasmtime;
         }
+        if checked_feature!("stable", NearVmRuntime, protocol_version) {
+            return VMKind::NearVm;
+        }
+        if checked_feature!("stable", Wasmer2, protocol_version) {
+            return VMKind::Wasmer2;
+        }
+        return VMKind::Wasmer0;
     }
 }

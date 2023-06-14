@@ -1,9 +1,16 @@
 use super::NetworkState;
-use crate::network_protocol::{Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutingTableUpdate};
+use crate::network_protocol::{
+    Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutedMessageV2, RoutingTableUpdate,
+};
+use crate::peer_manager::connection;
+use crate::peer_manager::network_state::PeerIdOrHash;
 use crate::peer_manager::peer_manager_actor::Event;
+use crate::routing::routing_table_view::FindRouteError;
 use crate::stats::metrics;
+use crate::tcp;
 use crate::types::ReasonForBan;
 use near_async::time;
+use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use std::sync::Arc;
 
@@ -26,7 +33,7 @@ impl NetworkState {
     pub async fn add_accounts(self: &Arc<NetworkState>, accounts: Vec<AnnounceAccount>) {
         let this = self.clone();
         self.spawn(async move {
-            let new_accounts = this.graph.routing_table.add_accounts(accounts);
+            let new_accounts = this.account_announcements.add_accounts(accounts);
             tracing::debug!(target: "network", account_id = ?this.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
             this.broadcast_routing_table_update(RoutingTableUpdate::from_accounts(
                 new_accounts.clone(),
@@ -117,5 +124,44 @@ impl NetworkState {
             })
             .await
             .unwrap_or(Ok(()))
+    }
+
+    pub(crate) fn tier2_find_route(
+        &self,
+        clock: &time::Clock,
+        target: &PeerIdOrHash,
+    ) -> Result<PeerId, FindRouteError> {
+        match target {
+            PeerIdOrHash::PeerId(peer_id) => {
+                self.graph.routing_table.find_next_hop_for_target(peer_id)
+            }
+            PeerIdOrHash::Hash(hash) => self
+                .tier2_route_back
+                .lock()
+                .remove(clock, hash)
+                .ok_or(FindRouteError::RouteBackNotFound),
+        }
+    }
+
+    pub(crate) fn tier2_add_route_back(
+        &self,
+        clock: &time::Clock,
+        conn: &connection::Connection,
+        msg: &RoutedMessageV2,
+    ) {
+        if !msg.expect_response() {
+            return;
+        }
+
+        tracing::trace!(target: "network", route_back = ?msg.clone(), "Received peer message that requires response");
+        let from = &conn.peer_info.id;
+        match conn.tier {
+            tcp::Tier::T1 => self.tier1_route_back.lock().insert(&clock, msg.hash(), from.clone()),
+            tcp::Tier::T2 => self.tier2_route_back.lock().insert(&clock, msg.hash(), from.clone()),
+        }
+    }
+
+    pub(crate) fn compare_route_back(&self, hash: CryptoHash, peer_id: &PeerId) -> bool {
+        self.tier2_route_back.lock().get(&hash).map_or(false, |value| value == peer_id)
     }
 }

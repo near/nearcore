@@ -1,14 +1,20 @@
 use crate::commands::*;
 use crate::contract_accounts::ContractAccountFilter;
 use crate::rocksdb_stats::get_rocksdb_stats;
+use crate::trie_iteration_benchmark::TrieIterationBenchmarkCmd;
+
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
+
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
+
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::{load_config, NearConfig};
+
 use std::path::{Path, PathBuf};
+
 use std::str::FromStr;
 
 #[derive(clap::Subcommand)]
@@ -37,6 +43,9 @@ pub enum StateViewerSubCommand {
     CheckBlock,
     /// Looks up a certain chunk.
     Chunks(ChunksCmd),
+    /// Clear recoverable data in CachedContractCode column.
+    #[clap(alias = "clear_cache")]
+    ClearCache,
     /// List account names with contracts deployed.
     #[clap(alias = "contract_accounts")]
     ContractAccounts(ContractAccountsCmd),
@@ -68,6 +77,8 @@ pub enum StateViewerSubCommand {
     /// Dump stats for the RocksDB storage.
     #[clap(name = "rocksdb-stats", alias = "rocksdb_stats")]
     RocksDBStats(RocksDBStatsCmd),
+    /// Reads all rows of a DB column and deserializes keys and values and prints them.
+    ScanDbColumn(ScanDbColumnCmd),
     /// Iterates over a trie and prints the StateRecords.
     State,
     /// Dumps or applies StateChanges.
@@ -75,15 +86,14 @@ pub enum StateViewerSubCommand {
     StateChanges(StateChangesCmd),
     /// Dump or apply state parts.
     StateParts(StatePartsCmd),
+    /// Benchmark how long does it take to iterate the trie.
+    TrieIterationBenchmark(TrieIterationBenchmarkCmd),
     /// View head of the storage.
     #[clap(alias = "view_chain")]
     ViewChain(ViewChainCmd),
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
-    /// Clear recoverable data in CachedContractCode column.
-    #[clap(alias = "clear_cache")]
-    ClearCache,
 }
 
 impl StateViewerSubCommand {
@@ -133,11 +143,15 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(store_opener.path()),
+            StateViewerSubCommand::ScanDbColumn(cmd) => cmd.run(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
             StateViewerSubCommand::StateChanges(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
+            StateViewerSubCommand::TrieIterationBenchmark(cmd) => {
+                cmd.run(home_dir, near_config, store)
+            }
         }
     }
 }
@@ -479,6 +493,57 @@ pub struct RocksDBStatsCmd {
 impl RocksDBStatsCmd {
     pub fn run(self, store_dir: &Path) {
         get_rocksdb_stats(store_dir, self.file).expect("Couldn't get RocksDB stats");
+    }
+}
+
+#[derive(clap::Parser, Debug)]
+pub struct ScanDbColumnCmd {
+    /// Column name, e.g. 'Block' or 'BlockHeader'.
+    #[clap(long)]
+    column: String,
+    #[clap(long)]
+    from: Option<String>,
+    // List of comma-separated u8-values.
+    #[clap(long)]
+    from_bytes: Option<String>,
+    #[clap(long)]
+    to: Option<String>,
+    // List of comma-separated u8-values.
+    // For example, if a column key starts wth ShardUId and you want to scan starting from s2.v1 use `--from-bytes 1,0,0,0,2,0,0,0`.
+    // Note that the numbers are generally saved as low-endian.
+    #[clap(long)]
+    to_bytes: Option<String>,
+    #[clap(long)]
+    max_keys: Option<usize>,
+    #[clap(long, default_value = "false")]
+    no_value: bool,
+}
+
+impl ScanDbColumnCmd {
+    pub fn run(self, store: Store) {
+        let lower_bound = Self::prefix(self.from, self.from_bytes);
+        let upper_bound = Self::prefix(self.to, self.to_bytes);
+        crate::scan_db::scan_db_column(
+            &self.column,
+            lower_bound.as_deref().map(|v| v.as_ref()),
+            upper_bound.as_deref().map(|v| v.as_ref()),
+            self.max_keys,
+            self.no_value,
+            store,
+        )
+    }
+
+    fn prefix(s: Option<String>, bytes: Option<String>) -> Option<Vec<u8>> {
+        match (s, bytes) {
+            (None, None) => None,
+            (Some(s), None) => Some(s.into_bytes()),
+            (None, Some(bytes)) => {
+                Some(bytes.split(",").map(|s| s.parse::<u8>().unwrap()).collect::<Vec<u8>>())
+            }
+            (Some(_), Some(_)) => {
+                panic!("Provided both a Vec and a String as a prefix")
+            }
+        }
     }
 }
 

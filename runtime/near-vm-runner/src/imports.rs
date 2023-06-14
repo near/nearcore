@@ -72,8 +72,8 @@ macro_rules! imports {
                 $(#[cfg(feature = $feature_name2)])?
                 $(#[cfg(feature = $feature_name)])*
                 if true
-                    $(&& near_primitives::checked_feature!($feature_name, $feature, $protocol_version))*
-                    $(&& near_primitives::checked_feature!("stable", $stable_feature, $protocol_version))?
+                    $(&& near_primitives_core::checked_feature!($feature_name, $feature, $protocol_version))*
+                    $(&& near_primitives_core::checked_feature!("stable", $stable_feature, $protocol_version))?
                 {
                     call_with_name!($M => $( @in $mod : )? $( @as $name : )? $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
                 }
@@ -294,7 +294,7 @@ pub(crate) mod wasmer {
             ) => {
                 #[allow(unused_parens)]
                 fn $name( ctx: &mut wasmer_runtime::Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*), VMLogicError> {
-                    const IS_GAS: bool = str_eq(stringify!($name), "gas");
+                    const IS_GAS: bool = str_eq(stringify!($name), "gas") || str_eq(stringify!($name), "finite_wasm_gas");
                     let _span = if IS_GAS {
                         None
                     } else {
@@ -393,7 +393,7 @@ pub(crate) mod wasmer2 {
                     extern "C" fn $name(env: *mut VMLogic<'_>, $( $arg_name: $arg_type ),* )
                     -> Ret {
                         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            const IS_GAS: bool = str_eq(stringify!($name), "gas");
+                            const IS_GAS: bool = str_eq(stringify!($name), "gas") || str_eq(stringify!($name), "finite_wasm_gas");
                             let _span = if IS_GAS {
                                 None
                             } else {
@@ -555,7 +555,7 @@ pub(crate) mod near_vm {
                     extern "C" fn $name(env: *mut VMLogic<'_>, $( $arg_name: $arg_type ),* )
                     -> Ret {
                         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            const IS_GAS: bool = str_eq(stringify!($name), "gas");
+                            const IS_GAS: bool = str_eq(stringify!($name), "gas") || str_eq(stringify!($name), "finite_wasm_gas");
                             let _span = if IS_GAS {
                                 None
                             } else {
@@ -675,11 +675,12 @@ pub(crate) mod wasmtime {
     pub(crate) fn link(
         linker: &mut wasmtime::Linker<()>,
         memory: wasmtime::Memory,
+        store: &wasmtime::Store<()>,
         raw_logic: *mut c_void,
         protocol_version: ProtocolVersion,
     ) {
         CALLER_CONTEXT.with(|caller_context| unsafe { *caller_context.get() = raw_logic });
-        linker.define("env", "memory", memory).expect("cannot define memory");
+        linker.define(store, "env", "memory", memory).expect("cannot define memory");
 
         macro_rules! add_import {
             (
@@ -687,7 +688,7 @@ pub(crate) mod wasmtime {
             ) => {
                 #[allow(unused_parens)]
                 fn $name(caller: wasmtime::Caller<'_, ()>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
-                    const IS_GAS: bool = str_eq(stringify!($name), "gas");
+                    const IS_GAS: bool = str_eq(stringify!($name), "gas") || str_eq(stringify!($name), "finite_wasm_gas");
                     let _span = if IS_GAS {
                         None
                     } else {

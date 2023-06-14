@@ -16,24 +16,25 @@
 //! Moreover, we include all left siblings for each path, because they are
 //! necessary to prove its position in the list of prefix sums.
 
-use std::collections::HashMap;
-
-use borsh::BorshDeserialize;
-
-use near_primitives::challenge::PartialState;
-use near_primitives::state_part::PartId;
-use near_primitives::types::StateRoot;
-
-use crate::flat::{FlatStateChanges, FlatStateValue};
+use crate::flat::{FlatStateChanges, FlatStateIterator};
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
+use crate::trie::trie_storage::TrieMemoryPartialStorage;
 use crate::trie::{
     ApplyStatePartResult, NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize,
 };
-use crate::{PartialStorage, StorageError, Trie, TrieChanges};
+use crate::{metrics, PartialStorage, StorageError, Trie, TrieChanges};
+use borsh::BorshDeserialize;
+use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
-use near_primitives::state::ValueRef;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::state::{FlatStateValue, ValueRef};
+use near_primitives::state_part::PartId;
 use near_primitives::state_record::is_contract_code_key;
+use near_primitives::types::{ShardId, StateRoot};
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
+use std::sync::Arc;
 
 /// Trie key in nibbles corresponding to the right boundary for the last state part.
 /// Guaranteed to be bigger than any existing trie key.
@@ -73,6 +74,13 @@ impl Trie {
         self.find_node_in_dfs_order(&root_node, size_start)
     }
 
+    fn is_flat_storage_head_at(&self, block_hash: &CryptoHash) -> bool {
+        match &self.flat_storage_chunk_view {
+            Some(chunk_view) => chunk_view.get_head_hash() == *block_hash,
+            None => false,
+        }
+    }
+
     /// Computes the set of trie nodes for a state part.
     ///
     /// # Panics
@@ -80,13 +88,190 @@ impl Trie {
     ///
     /// # Errors
     /// StorageError if the storage is corrupted
-    pub fn get_trie_nodes_for_part(&self, part_id: PartId) -> Result<PartialState, StorageError> {
-        let with_recording = self.recording_reads();
-        with_recording.visit_nodes_for_state_part(part_id)?;
-        let recorded = with_recording.recorded_storage().unwrap();
+    pub fn get_trie_nodes_for_part(
+        &self,
+        prev_hash: &CryptoHash,
+        part_id: PartId,
+    ) -> Result<PartialState, StorageError> {
+        let trie_values = if self.is_flat_storage_head_at(prev_hash) {
+            self.get_trie_nodes_for_part_with_flat_storage(part_id)?
+        } else {
+            let with_recording = self.recording_reads();
+            with_recording.visit_nodes_for_state_part(part_id)?;
+            let recorded = with_recording.recorded_storage().unwrap();
+            recorded.nodes
+        };
 
-        let trie_nodes = recorded.nodes;
-        Ok(trie_nodes)
+        Ok(trie_values)
+    }
+
+    /// Helper to create iterator over flat storage entries corresponding to
+    /// its head, shard for which trie was created and the range of keys given
+    /// in nibbles.
+    fn iter_flat_state_entries<'a>(
+        &'a self,
+        nibbles_begin: Vec<u8>,
+        nibbles_end: Vec<u8>,
+    ) -> Result<FlatStateIterator<'a>, StorageError> {
+        let flat_storage_chunk_view = match &self.flat_storage_chunk_view {
+            None => {
+                return Err(StorageError::StorageInconsistentState(
+                    "Flat storage chunk view not found".to_string(),
+                ));
+            }
+            Some(chunk_view) => chunk_view,
+        };
+
+        // If left key in nibbles is already the largest, return empty
+        // iterator. Otherwise convert it to key in bytes.
+        let key_begin = if nibbles_begin == LAST_STATE_PART_BOUNDARY {
+            return Ok(Box::new(std::iter::empty()));
+        } else {
+            Some(NibbleSlice::nibbles_to_bytes(&nibbles_begin))
+        };
+
+        // Convert right key in nibbles to key in bytes.
+        let key_end = if nibbles_end == LAST_STATE_PART_BOUNDARY {
+            None
+        } else {
+            Some(NibbleSlice::nibbles_to_bytes(&nibbles_end))
+        };
+
+        Ok(flat_storage_chunk_view
+            .iter_flat_state_entries(key_begin.as_deref(), key_end.as_deref()))
+    }
+
+    /// Helper to create `PartialState` for given state part using flat storage
+    /// entries for the range of state part keys.
+    /// Assumes that underlying flat storage doesn't change and corresponds to
+    /// `Trie::root`.
+    fn get_trie_nodes_for_part_with_flat_storage(
+        &self,
+        part_id: PartId,
+    ) -> Result<PartialState, StorageError> {
+        let shard_id: ShardId = self.flat_storage_chunk_view.as_ref().map_or(
+            ShardId::MAX, // Fake value for metrics.
+            |chunk_view| chunk_view.shard_uid().shard_id as ShardId,
+        );
+        let _span = tracing::debug_span!(
+            target: "state-parts",
+            "get_trie_nodes_for_part_with_flat_storage",
+            ?shard_id,
+            part_id = part_id.idx,
+            num_parts = part_id.total)
+        .entered();
+        let _timer = metrics::GET_STATE_PART_WITH_FS_ELAPSED
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
+
+        let PartId { idx, total } = part_id;
+
+        // 1. Extract nodes corresponding to state part boundaries.
+        let recording_trie = self.recording_reads();
+        let boundaries_read_timer = metrics::GET_STATE_PART_BOUNDARIES_ELAPSED
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
+        let nibbles_begin = recording_trie.find_state_part_boundary(part_id.idx, part_id.total)?;
+        let nibbles_end =
+            recording_trie.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
+        let boundaries_read_duration = boundaries_read_timer.stop_and_record();
+        let recorded_trie = recording_trie.recorded_storage().unwrap();
+        let PartialState::TrieValues(path_boundary_nodes) = recorded_trie.nodes;
+
+        // 2. Extract all key-value pairs in state part from flat storage.
+        let values_read_timer = metrics::GET_STATE_PART_READ_FS_ELAPSED
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
+        let flat_state_iter = self.iter_flat_state_entries(nibbles_begin, nibbles_end)?;
+        let mut values_ref = 0;
+        let mut values_inlined = 0;
+        let all_state_part_items: Vec<_> = flat_state_iter
+            .map(|result| {
+                let (k, v) = result.expect("failed to read FlatState entry");
+                let value = match v {
+                    FlatStateValue::Ref(value_ref) => {
+                        values_ref += 1;
+                        self.storage.retrieve_raw_bytes(&value_ref.hash).map(|bytes| bytes.to_vec())
+                    }
+                    FlatStateValue::Inlined(value) => {
+                        values_inlined += 1;
+                        Ok(value)
+                    }
+                };
+                value.map(|v| (k, Some(v)))
+            })
+            .collect::<Result<_, _>>()?;
+        let values_read_duration = values_read_timer.stop_and_record();
+
+        // 3. Create trie out of all key-value pairs.
+        let local_trie_creation_timer = metrics::GET_STATE_PART_CREATE_TRIE_ELAPSED
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
+        let local_state_part_trie =
+            Trie::new(Rc::new(TrieMemoryPartialStorage::default()), StateRoot::new(), None);
+        let local_state_part_nodes =
+            local_state_part_trie.update(all_state_part_items.into_iter())?.insertions;
+        let local_trie_creation_duration = local_trie_creation_timer.stop_and_record();
+
+        // 4. Unite all nodes in memory, traverse trie based on them, return set of visited nodes.
+        let final_part_creation_timer = metrics::GET_STATE_PART_COMBINE_ELAPSED
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
+        let boundary_nodes_storage: HashMap<_, _> =
+            path_boundary_nodes.iter().map(|entry| (hash(entry), entry.clone())).collect();
+        let disk_read_hashes: HashSet<_> = boundary_nodes_storage.keys().cloned().collect();
+        let mut all_nodes: HashMap<CryptoHash, Arc<[u8]>> = HashMap::new();
+        all_nodes.extend(boundary_nodes_storage);
+        all_nodes.extend(
+            local_state_part_nodes
+                .iter()
+                .map(|entry| (*entry.hash(), entry.payload().to_vec().into())),
+        );
+        let final_trie =
+            Trie::new(Rc::new(TrieMemoryPartialStorage::new(all_nodes)), self.root, None);
+
+        final_trie.visit_nodes_for_state_part(part_id)?;
+        let final_trie_storage = final_trie.storage.as_partial_storage().unwrap();
+        let final_state_part_nodes = final_trie_storage.partial_state();
+        let PartialState::TrieValues(trie_values) = &final_state_part_nodes;
+        let final_part_creation_duration = final_part_creation_timer.stop_and_record();
+
+        // Compute how many nodes were recreated from memory.
+        let state_part_num_nodes = trie_values.len();
+        let in_memory_created_nodes =
+            trie_values.iter().filter(|entry| !disk_read_hashes.contains(&hash(*entry))).count();
+        tracing::info!(
+            target: "state-parts",
+            %idx,
+            %total,
+            %values_ref,
+            %values_inlined,
+            %in_memory_created_nodes,
+            %state_part_num_nodes,
+            ?boundaries_read_duration,
+            ?values_read_duration,
+            ?local_trie_creation_duration,
+            ?final_part_creation_duration,
+            "Created state part",
+        );
+
+        metrics::GET_STATE_PART_WITH_FS_VALUES_INLINED
+            .with_label_values(&[&shard_id.to_string()])
+            .inc_by(values_inlined);
+        metrics::GET_STATE_PART_WITH_FS_VALUES_REF
+            .with_label_values(&[&shard_id.to_string()])
+            .inc_by(values_ref);
+        metrics::GET_STATE_PART_WITH_FS_NODES_FROM_DISK
+            .with_label_values(&[&shard_id.to_string()])
+            .inc_by(disk_read_hashes.len() as u64);
+        metrics::GET_STATE_PART_WITH_FS_NODES_IN_MEMORY
+            .with_label_values(&[&shard_id.to_string()])
+            .inc_by(in_memory_created_nodes as u64);
+        metrics::GET_STATE_PART_WITH_FS_NODES
+            .with_label_values(&[&shard_id.to_string()])
+            .inc_by(state_part_num_nodes as u64);
+
+        Ok(final_state_part_nodes)
     }
 
     /// Assume we lay out all trie nodes in dfs order visiting children after the parent.
@@ -103,7 +288,7 @@ impl Trie {
         let mut iterator = self.iter()?;
         let nodes_list = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         tracing::debug!(
-            target: "state_parts",
+            target: "state-parts",
             num_nodes = nodes_list.len());
 
         Ok(())
@@ -196,14 +381,9 @@ impl Trie {
         Ok(key_nibbles)
     }
 
-    /// Validate state part
-    ///
-    /// # Panics
-    /// part_id must be in [0..num_parts)
-    ///
-    /// # Errors
-    /// StorageError::TrieNodeWithMissing if some nodes are missing
-    pub fn validate_trie_nodes_for_part(
+    /// Validates state part for given state root.
+    /// Returns error if state part is invalid and Ok otherwise.
+    pub fn validate_state_part(
         state_root: &StateRoot,
         part_id: PartId,
         partial_state: PartialState,
@@ -217,9 +397,9 @@ impl Trie {
         let storage = trie.storage.as_partial_storage().unwrap();
 
         if storage.visited_nodes.borrow().len() != num_nodes {
-            // TODO #1603 not actually TrieNodeMissing.
-            // The error is that the proof has more nodes than needed.
-            return Err(StorageError::TrieNodeMissing);
+            // As all nodes belonging to state part were visited, there is some
+            // unexpected data in downloaded state part.
+            return Err(StorageError::UnexpectedTrieValue);
         }
         Ok(())
     }
@@ -296,6 +476,7 @@ mod tests {
     use std::sync::Arc;
 
     use rand::prelude::ThreadRng;
+    use rand::seq::SliceRandom;
     use rand::Rng;
 
     use near_primitives::hash::{hash, CryptoHash};
@@ -305,16 +486,9 @@ mod tests {
     use crate::trie::{TrieRefcountChange, ValueHandle};
 
     use super::*;
+    use crate::flat::{store_helper, BlockInfo, FlatStorageReadyStatus, FlatStorageStatus};
+    use crate::{DBCol, TrieCachingStorage};
     use near_primitives::shard_layout::ShardUId;
-
-    // Helper to convert nibbles to bytes.
-    fn nibbles_to_bytes(nibbles: &[u8]) -> Vec<u8> {
-        assert_eq!(nibbles.len() % 2, 0);
-        let encoded = NibbleSlice::encode_nibbles(&nibbles, false);
-        // Ignore first element returned by `encode_nibbles` because it contains only
-        // `is_leaf` info for even length.
-        encoded[1..].to_vec()
-    }
 
     /// Checks that sampling state boundaries always gives valid state keys
     /// even if trie contains intermediate nodes.
@@ -345,7 +519,7 @@ mod tests {
         // Note that some state parts can be trivial, which is not a concern.
         for part_id in 1..num_parts {
             let nibbles_boundary = trie.find_state_part_boundary(part_id, num_parts).unwrap();
-            let key_boundary = nibbles_to_bytes(&nibbles_boundary);
+            let key_boundary = NibbleSlice::nibbles_to_bytes(&nibbles_boundary);
             assert_matches!(trie.get(&key_boundary), Ok(Some(_)));
         }
 
@@ -384,7 +558,7 @@ mod tests {
         for part_id in 1..num_parts {
             let nibbles_boundary =
                 trie.find_state_part_boundary(part_id as u64, num_parts as u64).unwrap();
-            let key_boundary = nibbles_to_bytes(&nibbles_boundary);
+            let key_boundary = NibbleSlice::nibbles_to_bytes(&nibbles_boundary);
             assert_eq!(key_boundary, trie_changes[part_id - 1].0);
         }
     }
@@ -516,7 +690,7 @@ mod tests {
     fn test_combine_empty_trie_parts() {
         let state_root = Trie::EMPTY_ROOT;
         let _ = Trie::combine_state_parts_naive(&state_root, &[]).unwrap();
-        let _ = Trie::validate_trie_nodes_for_part(
+        let _ = Trie::validate_state_part(
             &state_root,
             PartId::new(0, 1),
             PartialState::TrieValues(vec![]),
@@ -621,7 +795,7 @@ mod tests {
                 let trie_recording = trie.recording_reads();
                 let left_nibbles_boundary =
                     trie_recording.find_state_part_boundary(part_id, num_parts).unwrap();
-                let left_key_boundary = nibbles_to_bytes(&left_nibbles_boundary);
+                let left_key_boundary = NibbleSlice::nibbles_to_bytes(&left_nibbles_boundary);
                 if part_id != 0 {
                     assert_matches!(trie.get(&left_key_boundary), Ok(Some(_)));
                 }
@@ -637,8 +811,12 @@ mod tests {
                     max_proof_overhead
                 );
 
-                let PartialState::TrieValues(part_nodes) =
-                    trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap();
+                let PartialState::TrieValues(part_nodes) = trie
+                    .get_trie_nodes_for_part(
+                        &CryptoHash::default(),
+                        PartId::new(part_id, num_parts),
+                    )
+                    .unwrap();
                 // TODO (#8997): it's a bit weird that raw lengths are compared to
                 // config values. Consider better defined assertion.
                 let total_size = part_nodes.iter().map(|node| node.len()).sum::<usize>() as u64;
@@ -712,7 +890,11 @@ mod tests {
                 let num_parts = rng.gen_range(2..10);
                 let parts = (0..num_parts)
                     .map(|part_id| {
-                        trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap()
+                        trie.get_trie_nodes_for_part(
+                            &CryptoHash::default(),
+                            PartId::new(part_id, num_parts),
+                        )
+                        .unwrap()
                     })
                     .collect::<Vec<_>>();
 
@@ -736,12 +918,14 @@ mod tests {
                 assert_eq!(all_nodes.len(), trie_changes.insertions.len());
                 let size_of_all = all_nodes.iter().map(|node| node.len()).sum::<usize>();
                 let num_nodes = all_nodes.len();
-                Trie::validate_trie_nodes_for_part(
-                    trie.get_root(),
-                    PartId::new(0, 1),
-                    PartialState::TrieValues(all_nodes),
-                )
-                .expect("validate ok");
+                assert_eq!(
+                    Trie::validate_state_part(
+                        trie.get_root(),
+                        PartId::new(0, 1),
+                        PartialState::TrieValues(all_nodes),
+                    ),
+                    Ok(())
+                );
 
                 let sum_of_sizes = sizes_vec.iter().sum::<usize>();
                 // Manually check that sizes are reasonable
@@ -813,9 +997,78 @@ mod tests {
         trie_changes
     }
 
+    /// Checks that state part with unexpected data or not enough data doesn't
+    /// pass validation.
+    #[test]
+    fn invalid_state_parts() {
+        let tries = create_tries();
+        let shard_uid = ShardUId::single_shard();
+        let block_hash = CryptoHash::default();
+        let part_id = PartId::new(1, 2);
+        let trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
+
+        let state_items = vec![
+            (b"a".to_vec(), vec![1]),
+            (b"aa".to_vec(), vec![2]),
+            (b"ab".to_vec(), vec![3]),
+            (b"b".to_vec(), vec![4]),
+            (b"ba".to_vec(), vec![5]),
+        ];
+
+        let changes_for_trie = state_items.iter().cloned().map(|(k, v)| (k, Some(v)));
+        let trie_changes = trie.update(changes_for_trie).unwrap();
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        store_update.commit().unwrap();
+
+        let trie = tries.get_view_trie_for_shard(shard_uid, root);
+        let PartialState::TrieValues(trie_values) = trie
+            .get_trie_nodes_for_part(&block_hash, part_id)
+            .expect("State part generation using Trie must work");
+        let num_trie_values = trie_values.len();
+        assert!(num_trie_values >= 2);
+
+        // Check that shuffled state part also passes validation.
+        let mut rng = rand::thread_rng();
+        for _ in 0..5 {
+            let mut trie_values_shuffled = trie_values.clone();
+            trie_values_shuffled.shuffle(&mut rng);
+            let state_part = PartialState::TrieValues(trie_values_shuffled);
+            assert_eq!(Trie::validate_state_part(&root, part_id, state_part), Ok(()));
+        }
+
+        // Remove middle element from state part, check that validation fails.
+        let mut trie_values_missing = trie_values.clone();
+        trie_values_missing.remove(num_trie_values / 2);
+        let wrong_state_part = PartialState::TrieValues(trie_values_missing);
+        assert_eq!(
+            Trie::validate_state_part(&root, part_id, wrong_state_part),
+            Err(StorageError::MissingTrieValue)
+        );
+
+        // Add extra value to the state part, check that validation fails.
+        let mut trie_values_extra = trie_values.clone();
+        trie_values_extra.push(vec![11].into());
+        let wrong_state_part = PartialState::TrieValues(trie_values_extra);
+        assert_eq!(
+            Trie::validate_state_part(&root, part_id, wrong_state_part),
+            Err(StorageError::UnexpectedTrieValue)
+        );
+
+        // Duplicate a value in the state part, check that validation fails, because
+        // values in state part must be deduplicated.
+        let mut trie_values_extra_same = trie_values;
+        trie_values_extra_same
+            .push(trie_values_extra_same[trie_values_extra_same.len() / 2].clone());
+        let wrong_state_part = PartialState::TrieValues(trie_values_extra_same);
+        assert_eq!(
+            Trie::validate_state_part(&root, part_id, wrong_state_part),
+            Err(StorageError::UnexpectedTrieValue)
+        );
+    }
+
     /// Check on random samples that state parts can be validated independently
     /// from the entire trie.
-    /// TODO (#8997): add custom tests where incorrect parts don't pass validation.
     #[test]
     fn test_get_trie_nodes_for_part() {
         let mut rng = rand::thread_rng();
@@ -835,15 +1088,117 @@ mod tests {
                 // Test that creating and validating are consistent
                 let num_parts: u64 = rng.gen_range(1..10);
                 let part_id = rng.gen_range(0..num_parts);
-                let trie_nodes =
-                    trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap();
-                Trie::validate_trie_nodes_for_part(
-                    trie.get_root(),
-                    PartId::new(part_id, num_parts),
-                    trie_nodes,
-                )
-                .expect("validate ok");
+                let trie_nodes = trie
+                    .get_trie_nodes_for_part(
+                        &CryptoHash::default(),
+                        PartId::new(part_id, num_parts),
+                    )
+                    .unwrap();
+                assert_eq!(
+                    Trie::validate_state_part(
+                        trie.get_root(),
+                        PartId::new(part_id, num_parts),
+                        trie_nodes,
+                    ),
+                    Ok(())
+                );
             }
         }
+    }
+
+    /// Checks sanity of generating state part using flat storage.
+    #[test]
+    fn get_trie_nodes_for_part_with_flat_storage() {
+        let value_len = 1000usize;
+
+        let tries = create_tries();
+        let shard_uid = ShardUId::single_shard();
+        let block_hash = CryptoHash::default();
+        let part_id = PartId::new(1, 3);
+        let trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
+
+        // Trie with three big independent children.
+        let state_items = vec![
+            (b"a".to_vec(), vec![1; value_len]),
+            (b"aa".to_vec(), vec![2; value_len]),
+            (b"ab".to_vec(), vec![3; value_len]),
+            (b"b".to_vec(), vec![4; value_len]),
+            (b"ba".to_vec(), vec![5; value_len]),
+            (b"bb".to_vec(), vec![6; value_len]),
+            (b"c".to_vec(), vec![7; value_len]),
+            (b"ca".to_vec(), vec![8; value_len]),
+            (b"cb".to_vec(), vec![9; value_len]),
+        ];
+        let changes_for_trie = state_items.iter().cloned().map(|(k, v)| (k, Some(v)));
+        let trie_changes = trie.update(changes_for_trie).unwrap();
+        let mut store_update = tries.store_update();
+        store_helper::set_flat_storage_status(
+            &mut store_update,
+            shard_uid,
+            FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                flat_head: BlockInfo::genesis(block_hash, 0),
+            }),
+        );
+        let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        store_update.commit().unwrap();
+
+        // Get correct state part using trie without flat storage.
+        let trie_without_flat = tries.get_view_trie_for_shard(shard_uid, root);
+        let state_part = trie_without_flat
+            .get_trie_nodes_for_part(&block_hash, part_id)
+            .expect("State part generation using Trie must work");
+        assert_eq!(Trie::validate_state_part(&root, part_id, state_part.clone()), Ok(()));
+        assert!(state_part.len() > 0);
+
+        // Check that if we try to use flat storage but it is empty, state part
+        // creation fails.
+        let trie = tries.get_trie_with_block_hash_for_shard(shard_uid, root, &block_hash, true);
+        assert_eq!(
+            trie.get_trie_nodes_for_part(&block_hash, part_id),
+            Err(StorageError::MissingTrieValue)
+        );
+
+        // Fill flat storage and check that state part creation succeeds.
+        let changes_for_delta =
+            state_items.into_iter().map(|(k, v)| (k, Some(FlatStateValue::inlined(&v))));
+        let delta = FlatStateChanges::from(changes_for_delta);
+        let mut store_update = tries.store_update();
+        delta.apply_to_flat_state(&mut store_update, shard_uid);
+        store_update.commit().unwrap();
+
+        let trie_with_flat =
+            tries.get_trie_with_block_hash_for_shard(shard_uid, root, &block_hash, true);
+        let state_part_with_flat =
+            trie_with_flat.get_trie_nodes_for_part(&block_hash, PartId::new(1, 3));
+        assert_eq!(state_part_with_flat, Ok(state_part.clone()));
+
+        // Remove some key from state part from trie storage.
+        // Check that trie-only state part generation fails but trie & flat
+        // storage generation succeeds, as it doesn't access intermediate nodes.
+        let mut store_update = tries.store_update();
+        let store_value = vec![5; value_len];
+        let value_hash = hash(&store_value);
+        let store_key = TrieCachingStorage::get_key_from_shard_uid_and_hash(shard_uid, &value_hash);
+        store_update.decrement_refcount(DBCol::State, &store_key);
+        store_update.commit().unwrap();
+
+        assert_eq!(
+            trie_without_flat.get_trie_nodes_for_part(&block_hash, part_id),
+            Err(StorageError::MissingTrieValue)
+        );
+        assert_eq!(trie_with_flat.get_trie_nodes_for_part(&block_hash, part_id), Ok(state_part));
+
+        // Remove some key from state part from flat storage.
+        // Check that state part creation succeeds but generated state part
+        // is invalid.
+        let mut store_update = tries.store_update();
+        let delta = FlatStateChanges::from(vec![(b"ba".to_vec(), None)]);
+        delta.apply_to_flat_state(&mut store_update, shard_uid);
+        store_update.commit().unwrap();
+
+        assert_eq!(
+            trie_with_flat.get_trie_nodes_for_part(&block_hash, part_id),
+            Err(StorageError::MissingTrieValue)
+        );
     }
 }
