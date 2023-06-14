@@ -84,7 +84,7 @@ pub(crate) fn encode_flat_state_db_key(shard_uid: ShardUId, key: &[u8]) -> Vec<u
     buffer
 }
 
-pub(crate) fn decode_flat_state_db_key(key: &[u8]) -> io::Result<(ShardUId, Vec<u8>)> {
+pub fn decode_flat_state_db_key(key: &[u8]) -> io::Result<(ShardUId, Vec<u8>)> {
     if key.len() < 8 {
         return Err(io::Error::new(
             io::ErrorKind::Other,

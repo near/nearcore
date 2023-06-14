@@ -124,7 +124,7 @@ pub enum DBCol {
     /// - *Rows*: EpochId (CryptoHash)  -- TODO: where does the epoch_id come from? it looks like blockHash..
     /// - *Content type*: BlockHeight (int)
     EpochStart,
-    /// Map account_id to announce_account (which peer has announced which account in the current epoch). // TODO: explain account annoucement
+    /// Map account_id to announce_account (which peer has announced which account in the current epoch). // TODO: explain account announcement
     /// - *Rows*: AccountId (str)
     /// - *Content type*: AnnounceAccount
     AccountAnnouncements,
@@ -259,7 +259,7 @@ pub enum DBCol {
     TransactionResultForBlock,
     /// Flat state contents. Used to get `ValueRef` by trie key faster than doing a trie lookup.
     /// - *Rows*: `shard_uid` + trie key (Vec<u8>)
-    /// - *Column type*: ValueRef
+    /// - *Column type*: FlatStateValue
     FlatState,
     /// Changes for flat state delta. Stores how flat state should be updated for the given shard and block.
     /// - *Rows*: `KeyForFlatStateDelta { shard_uid, block_hash }`
@@ -342,7 +342,7 @@ impl DBCol {
         }
     }
 
-    /// Whethere this column is reference-counted.
+    /// Whether this column is reference-counted.
     ///
     /// A reference-counted column is one where we store additional 8-byte value
     /// at the end of the payload with the current reference counter value.  For
@@ -389,7 +389,7 @@ impl DBCol {
 
     /// Whether this column should be copied to the cold storage.
     ///
-    /// This doesn’t include DbVersion and BlockMisc columns which are present
+    /// This doesn't include DbVersion and BlockMisc columns which are present
     /// in the cold database but rather than being copied from hot database are
     /// maintained separately.
     pub const fn is_cold(&self) -> bool {
