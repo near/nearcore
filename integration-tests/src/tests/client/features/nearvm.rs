@@ -36,7 +36,7 @@ fn test_nearvm_upgrade() {
         deploy_test_contract(
             &mut env,
             "test0".parse().unwrap(),
-            near_test_contracts::rs_contract(),
+            near_test_contracts::backwards_compatible_rs_contract(),
             epoch_length,
             1,
         );
