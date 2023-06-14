@@ -33,7 +33,8 @@ impl AdjustDbCommand {
 /// This can potentially support db specified not in config, but in command line.
 /// `ChangeRelative { path: Path, archive: bool }`
 /// But it is a pain to implement, because of all the current storage possibilities.
-/// So, I'll live it as a TODO(posvyatokum): implement relative path DbSelector.
+/// So, I'll leave it as a TODO(posvyatokum): implement relative path DbSelector.
+/// This can be useful workaround for config modification.
 #[derive(clap::Subcommand)]
 enum DbSelector {
     ChangeHot,
