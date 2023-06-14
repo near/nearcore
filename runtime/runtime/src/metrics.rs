@@ -207,7 +207,7 @@ fn buckets_for_gas() -> Option<Vec<f64>> {
 }
 /// Buckets used for receipt compute time usage, in ms.
 ///
-/// Ideally the range should be 0-1300 ms. But when we increase te compute cost
+/// Ideally the range should be 0-1300 ms. But when we increase the compute cost
 /// compared to gas cost, it can be higher than that.
 ///
 /// Nevertheless, it should be on the rare side to have > 1300 ms and hence it
@@ -222,11 +222,10 @@ fn buckets_for_compute() -> Option<Vec<f64>> {
 
 /// Helper struct to collect partial costs of `Runtime::apply` and reporting it
 /// atomically.
-///
-/// Note: All numbers below are cumulative, to get partial costs they need to be
-/// subtracted from each other as one in `fn report()`.
 #[derive(Debug, Default)]
 pub struct ApplyMetrics {
+    accumulated_gas: u64,
+    accumulated_compute: u64,
     tx_compute_usage: u64,
     tx_gas: u64,
     local_receipts_compute_usage: u64,
@@ -238,64 +237,66 @@ pub struct ApplyMetrics {
 }
 
 impl ApplyMetrics {
+    /// Updates the internal accumulated counters and returns the difference to
+    /// the old counters.
+    fn update_accumulated(&mut self, gas: u64, compute: u64) -> (u64, u64) {
+        // Use saturating sub, wrong metrics are better than an overflow panic.
+        let delta = (
+            self.accumulated_gas.saturating_sub(gas),
+            self.accumulated_compute.saturating_sub(compute),
+        );
+        self.accumulated_gas = gas;
+        self.accumulated_compute = compute;
+        delta
+    }
+
     pub fn tx_processing_done(&mut self, accumulated_gas: u64, accumulated_compute: u64) {
-        self.tx_gas = accumulated_gas;
-        self.tx_compute_usage = accumulated_compute;
+        (self.tx_gas, self.tx_compute_usage) =
+            self.update_accumulated(accumulated_gas, accumulated_compute);
     }
 
     pub fn local_receipts_done(&mut self, accumulated_gas: u64, accumulated_compute: u64) {
-        self.local_receipts_gas = accumulated_gas;
-        self.local_receipts_compute_usage = accumulated_compute;
+        (self.local_receipts_gas, self.local_receipts_compute_usage) =
+            self.update_accumulated(accumulated_gas, accumulated_compute);
     }
 
     pub fn delayed_receipts_done(&mut self, accumulated_gas: u64, accumulated_compute: u64) {
-        self.delayed_receipts_gas = accumulated_gas;
-        self.delayed_receipts_compute_usage = accumulated_compute;
+        (self.delayed_receipts_gas, self.delayed_receipts_compute_usage) =
+            self.update_accumulated(accumulated_gas, accumulated_compute);
     }
 
     pub fn incoming_receipts_done(&mut self, accumulated_gas: u64, accumulated_compute: u64) {
-        self.incoming_receipts_gas = accumulated_gas;
-        self.incoming_receipts_compute_usage = accumulated_compute;
+        (self.incoming_receipts_gas, self.incoming_receipts_compute_usage) =
+            self.update_accumulated(accumulated_gas, accumulated_compute);
     }
 
     /// Report statistics
-    ///
-    /// Subtract the intermediate values collected previously and reports them
-    /// as histogram metrics.
     pub fn report(&self, shard_id: &str) {
-        // Transactions are processed first, report gas / compute directly.
         CHUNK_TX_TGAS.with_label_values(&[shard_id]).observe(self.tx_gas as f64);
         CHUNK_TX_COMPUTE.with_label_values(&[shard_id]).observe(self.tx_compute_usage as f64);
 
-        // Local receipts are processed after transaction processing, subtract tx cost.
-        // Use saturating sub, wrong metrics are better than an overflow panic.
         CHUNK_LOCAL_RECEIPTS_TGAS
             .with_label_values(&[shard_id])
-            .observe(self.local_receipts_gas.saturating_sub(self.tx_gas) as f64);
-        CHUNK_LOCAL_RECEIPTS_COMPUTE.with_label_values(&[shard_id]).observe(self.local_receipts_compute_usage.saturating_sub(self.tx_compute_usage) as f64);
+            .observe(self.local_receipts_gas as f64);
+        CHUNK_LOCAL_RECEIPTS_COMPUTE
+            .with_label_values(&[shard_id])
+            .observe(self.local_receipts_compute_usage as f64);
 
-        // Delayed receipts are processed after local receipts, subtract cumulative costs at that point.
         CHUNK_DELAYED_RECEIPTS_TGAS
             .with_label_values(&[shard_id])
-            .observe(self.delayed_receipts_gas.saturating_sub(self.local_receipts_gas) as f64);
-        CHUNK_DELAYED_RECEIPTS_COMPUTE.with_label_values(&[shard_id]).observe(
-            self.delayed_receipts_compute_usage.saturating_sub(self.local_receipts_compute_usage)
-                as f64,
-        );
-
-        // Incoming receipts are processed last, the accumulated value is the
-        // total and the delta to delayed receipts is the cost for just incoming
-        // receipts.
-        CHUNK_TGAS.with_label_values(&[shard_id]).observe(self.incoming_receipts_gas as f64);
-        CHUNK_COMPUTE
+            .observe(self.delayed_receipts_gas as f64);
+        CHUNK_DELAYED_RECEIPTS_COMPUTE
             .with_label_values(&[shard_id])
-            .observe(self.incoming_receipts_compute_usage as f64);
+            .observe(self.delayed_receipts_compute_usage as f64);
+
         CHUNK_INC_RECEIPTS_TGAS
             .with_label_values(&[shard_id])
-            .observe(self.incoming_receipts_gas.saturating_sub(self.delayed_receipts_gas) as f64);
-        CHUNK_INC_RECEIPTS_COMPUTE.with_label_values(&[shard_id]).observe(
-            self.incoming_receipts_compute_usage.saturating_sub(self.delayed_receipts_compute_usage)
-                as f64,
-        );
+            .observe(self.incoming_receipts_gas as f64);
+        CHUNK_INC_RECEIPTS_COMPUTE
+            .with_label_values(&[shard_id])
+            .observe(self.incoming_receipts_compute_usage as f64);
+
+        CHUNK_TGAS.with_label_values(&[shard_id]).observe(self.accumulated_gas as f64);
+        CHUNK_COMPUTE.with_label_values(&[shard_id]).observe(self.accumulated_compute as f64);
     }
 }
