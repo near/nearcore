@@ -4,6 +4,7 @@ use plotters::prelude::*;
 use rayon::prelude::*;
 use rocksdb::{Options, DB};
 use std::collections::HashMap;
+use std::println;
 use std::sync::{Arc, Mutex};
 
 #[derive(Parser)]
@@ -118,8 +119,8 @@ fn print_results(
 
     // Print out distributions
     println!("{} Size Distribution:", size_count_type);
-    println!("Maximum size {}: {:?}", size_count_type, sizes_count.first().unwrap());
-    println!("Minimum size {}: {:?}", size_count_type, sizes_count.last().unwrap());
+    println!("Minimum size {}: {:?}", size_count_type, sizes_count.first().unwrap());
+    println!("Maximum size {}: {:?}", size_count_type, sizes_count.last().unwrap());
     let total_sizes_bytes_sum = sizes_count.iter().map(|a| a.0 * a.1).sum::<usize>();
     println!(
         "Average size {}: {:?}",
@@ -178,6 +179,7 @@ fn read_all_pairs(db: &DB, col_families: &Vec<String>) -> (Vec<(usize, usize)>, 
                 }
             }
         }
+        println!("In column family {} there are {} number of pairs", col_family, local_key_sizes.len());
         update_map(&key_sizes, &local_key_sizes);
         update_map(&value_sizes, &local_value_sizes);
     });
