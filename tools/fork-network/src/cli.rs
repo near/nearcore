@@ -2,11 +2,14 @@ use crate::storage_mutator::StorageMutator;
 use near_chain::types::Tip;
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_primitives::account::AccessKey;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::{
     account::Account, borsh::BorshSerialize, hash::CryptoHash, types::AccountInfo,
 };
 use near_store::{flat::FlatStorageStatus, DBCol, Mode, NodeStorage, HEAD_KEY};
-use nearcore::{load_config, NightshadeRuntime};
+use nearcore::{load_config, NightshadeRuntime, NEAR_BASE};
 use std::path::{Path, PathBuf};
 use strum::IntoEnumIterator;
 
@@ -150,7 +153,7 @@ impl ForkNetworkCommand {
         let self_validator = near_config.validator_signer.as_ref().unwrap();
         let self_account = AccountInfo {
             account_id: self_validator.validator_id().clone(),
-            amount: 50000000000000000000000000000_u128,
+            amount: 50_000 * NEAR_BASE,
             public_key: self_validator.public_key().clone(),
         };
 
@@ -162,9 +165,18 @@ impl ForkNetworkCommand {
             &prev_state_roots,
         )?;
 
+        let runtime_config_store = RuntimeConfigStore::new(None);
+        let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
+        let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
+        let liquid_balance = 100_000_000 * NEAR_BASE;
         storage_mutator.set_account(
             self_validator.validator_id().clone(),
-            Account::new(0, self_account.amount, CryptoHash::default(), 0),
+            Account::new(liquid_balance, self_account.amount, CryptoHash::default(), storage_bytes),
+        )?;
+        storage_mutator.set_access_key(
+            self_account.account_id.clone(),
+            self_account.public_key.clone(),
+            AccessKey::full_access(),
         )?;
 
         let new_state_roots = storage_mutator.commit()?;
