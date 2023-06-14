@@ -154,7 +154,7 @@ impl ForkNetworkCommand {
         let self_account = AccountInfo {
             account_id: self_validator.validator_id().clone(),
             amount: 50_000 * NEAR_BASE,
-            public_key: self_validator.public_key().clone(),
+            public_key: self_validator.public_key(),
         };
 
         let mut storage_mutator = StorageMutator::new(
