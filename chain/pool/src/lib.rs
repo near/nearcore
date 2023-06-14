@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use crate::types::{PoolIterator, PoolKey, TransactionGroup};
 use borsh::BorshSerialize;
 use near_crypto::PublicKey;
+use near_o11y::metrics::prometheus::core::{AtomicI64, GenericGauge};
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
@@ -39,10 +40,25 @@ pub struct TransactionPool {
     total_transaction_size_limit: Option<u64>,
     /// Total size of transactions in the pool measured in bytes.
     total_transaction_size: u64,
+    /// Metrics tracked for transaction pool.
+    transaction_pool_count_metric: GenericGauge<AtomicI64>,
+    transaction_pool_size_metric: GenericGauge<AtomicI64>,
 }
 
 impl TransactionPool {
-    pub fn new(key_seed: RngSeed, total_transaction_size_limit: Option<u64>) -> Self {
+    pub fn new(
+        key_seed: RngSeed,
+        total_transaction_size_limit: Option<u64>,
+        metrics_label: &str,
+    ) -> Self {
+        let transaction_pool_count_metric =
+            metrics::TRANSACTION_POOL_COUNT.with_label_values(&[metrics_label]);
+        let transaction_pool_size_metric =
+            metrics::TRANSACTION_POOL_SIZE.with_label_values(&[metrics_label]);
+        // A `get()` call initializes a metric even if its value is zero.
+        transaction_pool_count_metric.get();
+        transaction_pool_size_metric.get();
+
         Self {
             key_seed,
             transactions: BTreeMap::new(),
@@ -50,13 +66,9 @@ impl TransactionPool {
             last_used_key: CryptoHash::default(),
             total_transaction_size_limit,
             total_transaction_size: 0,
+            transaction_pool_count_metric,
+            transaction_pool_size_metric,
         }
-    }
-
-    pub fn init_metrics() {
-        // A `get()` call initializes a metric even if its value is zero.
-        metrics::TRANSACTION_POOL_COUNT.get();
-        metrics::TRANSACTION_POOL_SIZE.get();
     }
 
     fn key(&self, account_id: &AccountId, public_key: &PublicKey) -> PoolKey {
@@ -98,8 +110,8 @@ impl TransactionPool {
             .or_insert_with(Vec::new)
             .push(signed_transaction);
 
-        metrics::TRANSACTION_POOL_COUNT.inc();
-        metrics::TRANSACTION_POOL_SIZE.set(self.total_transaction_size as i64);
+        self.transaction_pool_count_metric.inc();
+        self.transaction_pool_size_metric.set(self.total_transaction_size as i64);
         InsertTransactionResult::Success
     }
 
@@ -150,8 +162,8 @@ impl TransactionPool {
         }
 
         // We can update metrics only once for the whole batch of transactions.
-        metrics::TRANSACTION_POOL_COUNT.set(self.unique_transactions.len() as i64);
-        metrics::TRANSACTION_POOL_SIZE.set(self.total_transaction_size as i64);
+        self.transaction_pool_count_metric.set(self.unique_transactions.len() as i64);
+        self.transaction_pool_size_metric.set(self.total_transaction_size as i64);
     }
 
     /// Returns the number of unique transactions in the pool.
@@ -230,10 +242,20 @@ impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
             while let Some(sorted_group) = self.sorted_groups.pop_front() {
                 if sorted_group.transactions.is_empty() {
                     for hash in sorted_group.removed_transaction_hashes {
-                        if self.pool.unique_transactions.remove(&hash) {
-                            metrics::TRANSACTION_POOL_COUNT.dec();
-                        }
+                        self.pool.unique_transactions.remove(&hash);
                     }
+                    // See the comment in `insert_transaction` where we increase the size for reasoning
+                    // why panicing here catches a logic error.
+                    self.pool.total_transaction_size = self
+                        .pool
+                        .total_transaction_size
+                        .checked_sub(sorted_group.removed_transaction_size)
+                        .expect("Total transaction size dropped below zero");
+
+                    self.pool
+                        .transaction_pool_count_metric
+                        .set(self.pool.unique_transactions.len() as i64);
+                    self.pool.transaction_pool_size_metric.set(self.pool.transaction_size() as i64);
                 } else {
                     self.sorted_groups.push_back(sorted_group);
                     return Some(self.sorted_groups.back_mut().expect("just pushed"));
@@ -266,8 +288,8 @@ impl<'a> Drop for PoolIteratorWrapper<'a> {
             }
         }
         // We can update metrics only once for the whole batch of transactions.
-        metrics::TRANSACTION_POOL_COUNT.set(self.pool.unique_transactions.len() as i64);
-        metrics::TRANSACTION_POOL_SIZE.set(self.pool.transaction_size() as i64);
+        self.pool.transaction_pool_count_metric.set(self.pool.unique_transactions.len() as i64);
+        self.pool.transaction_pool_size_metric.set(self.pool.transaction_size() as i64);
     }
 }
 
@@ -313,7 +335,7 @@ mod tests {
         mut transactions: Vec<SignedTransaction>,
         expected_weight: u32,
     ) -> (Vec<u64>, TransactionPool) {
-        let mut pool = TransactionPool::new(TEST_SEED, None);
+        let mut pool = TransactionPool::new(TEST_SEED, None, "");
         let mut rng = thread_rng();
         transactions.shuffle(&mut rng);
         for tx in transactions {
@@ -424,7 +446,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let mut pool = TransactionPool::new(TEST_SEED, None);
+        let mut pool = TransactionPool::new(TEST_SEED, None, "");
         let mut rng = thread_rng();
         transactions.shuffle(&mut rng);
         for tx in transactions.clone() {
@@ -466,6 +488,9 @@ mod tests {
                 }
             }
         }
+        drop(pool_iter);
+        assert_eq!(pool.len(), 0);
+        assert_eq!(pool.transaction_size(), 0);
         let mut nonces: Vec<_> = res.into_iter().map(|tx| tx.transaction.nonce).collect();
         sort_pairs(&mut nonces[..4]);
         assert_eq!(nonces, vec![1, 21, 3, 23, 25, 27, 29, 31]);
@@ -536,7 +561,7 @@ mod tests {
 
     #[test]
     fn test_transaction_pool_size() {
-        let mut pool = TransactionPool::new(TEST_SEED, None);
+        let mut pool = TransactionPool::new(TEST_SEED, None, "");
         let transactions = generate_transactions("alice.near", "alice.near", 1, 100);
         let mut total_transaction_size = 0;
         // Adding transactions increases the size.
@@ -560,7 +585,7 @@ mod tests {
         // Each transaction is at least 1 byte in size, so the last transaction will not fit.
         let pool_size_limit =
             transactions.iter().map(|tx| tx.get_size()).sum::<u64>().checked_sub(1).unwrap();
-        let mut pool = TransactionPool::new(TEST_SEED, Some(pool_size_limit));
+        let mut pool = TransactionPool::new(TEST_SEED, Some(pool_size_limit), "");
         for (i, tx) in transactions.iter().cloned().enumerate() {
             if i + 1 < transactions.len() {
                 assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
