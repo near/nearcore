@@ -316,6 +316,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "analyse-storage"
+version = "0.0.0"
+dependencies = [
+ "clap 4.2.4",
+ "near-store",
+ "rayon",
+ "rocksdb",
+]
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

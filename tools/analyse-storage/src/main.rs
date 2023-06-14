@@ -1,6 +1,5 @@
 use clap::Parser;
 use near_store::{col_name, DBCol};
-use plotters::prelude::*;
 use rayon::prelude::*;
 use rocksdb::{Options, DB};
 use std::collections::HashMap;
@@ -15,37 +14,7 @@ struct Cli {
     column: Option<String>,
 
     #[arg(short, long)]
-    draw_histogram: bool,
-
-    #[arg(short, long)]
     limit: Option<usize>,
-}
-
-// Function to draw a histogram
-// TODO(jbajic) This fails...
-fn draw_histogram(
-    data: &Vec<(usize, usize)>,
-    title: &str,
-    filename: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let root = SVGBackend::new(filename, (640, 480)).into_drawing_area();
-    root.fill(&WHITE)?;
-
-    let max_size = *data.into_iter().map(|(size, _)| size).max().unwrap();
-    let max_count = *data.into_iter().map(|(_, count)| count).max().unwrap();
-
-    let mut chart = ChartBuilder::on(&root)
-        .caption(title, ("Arial", 20).into_font())
-        .margin(10)
-        .x_label_area_size(50)
-        .y_label_area_size(50)
-        .build_cartesian_2d(0..max_size, 0..max_count)?;
-
-    chart.configure_mesh().draw()?;
-    let series = data.iter().map(|(size, count)| (*size, *count));
-    chart.draw_series(Histogram::vertical(&chart).style(BLUE.filled()).data(series))?;
-
-    Ok(())
 }
 
 fn get_all_col_familiy_names() -> Vec<String> {
@@ -227,20 +196,4 @@ fn main() {
     };
     print_results(&key_sizes_sorted, "Key", limit, total_num_of_pairs);
     print_results(&value_sizes_sorted, "Value", limit, total_num_of_pairs);
-
-    // Draw histograms
-    if args.draw_histogram && !key_sizes_sorted.is_empty() {
-        draw_histogram(
-            &key_sizes_sorted.into_iter().take(limit).collect(),
-            "Key size distribution",
-            "key_sizes.svg",
-        )
-        .unwrap();
-        draw_histogram(
-            &value_sizes_sorted.into_iter().take(limit).collect(),
-            "Value size distribution",
-            "value_sizes.svg",
-        )
-        .unwrap();
-    }
 }
