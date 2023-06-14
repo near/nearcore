@@ -1,10 +1,10 @@
 use crate::errors::{ContractPrecompilatonResult, IntoVMError};
 use crate::internal::VMKind;
 use crate::{imports, prepare};
-use near_primitives::config::VMConfig;
-use near_primitives::contract::ContractCode;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::version::ProtocolVersion;
+use near_primitives_core::config::VMConfig;
+use near_primitives_core::contract::ContractCode;
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
+use near_primitives_core::types::ProtocolVersion;
 use near_vm_errors::{
     CompilationError, CompiledContractCache, FunctionCallError, MethodResolveError, PrepareError,
     VMLogicError, VMRunnerError, WasmTrap,

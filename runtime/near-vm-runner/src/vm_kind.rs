@@ -1,5 +1,5 @@
 use borsh::BorshSerialize;
-use near_primitives::checked_feature;
+use near_primitives_core::checked_feature;
 use near_vm_logic::ProtocolVersion;
 use std::hash::Hash;
 
