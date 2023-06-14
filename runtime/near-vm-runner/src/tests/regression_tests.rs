@@ -19,7 +19,7 @@ fn memory_size_alignment_issue() {
         )
         .method("foo")
         .protocol_features(&[
-            near_primitives::version::ProtocolFeature::PreparationV2,
+            near_primitives_core::version::ProtocolFeature::PreparationV2,
         ])
         .expects(&[
             expect![[r#"

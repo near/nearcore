@@ -1,6 +1,6 @@
 use super::test_builder::test_builder;
 use expect_test::expect;
-use near_primitives::version::ProtocolFeature;
+use near_primitives_core::version::ProtocolFeature;
 
 #[test]
 fn test_initializer_wrong_signature_contract() {

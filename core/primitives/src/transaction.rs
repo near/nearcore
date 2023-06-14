@@ -509,7 +509,7 @@ pub fn verify_transaction_signature(
 }
 
 /// A more compact struct, just for storage.
-#[derive(Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, BorshSerialize, BorshDeserialize, Debug)]
 pub struct ExecutionOutcomeWithProof {
     pub proof: MerklePath,
     pub outcome: ExecutionOutcome,

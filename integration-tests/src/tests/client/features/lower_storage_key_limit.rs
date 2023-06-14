@@ -56,7 +56,7 @@ fn protocol_upgrade() {
         deploy_test_contract_with_protocol_version(
             &mut env,
             "test0".parse().unwrap(),
-            near_test_contracts::base_rs_contract(),
+            near_test_contracts::backwards_compatible_rs_contract(),
             epoch_length,
             1,
             old_protocol_version,
