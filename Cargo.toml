@@ -167,7 +167,7 @@ log = "0.4"
 loupe = "0.1"
 lru = "0.7.2"
 memmap2 = "0.5"
-memoffset = "0.6"
+memoffset = "0.8"
 more-asserts = "0.2"
 near-account-id = { path = "core/account-id", features = ["internal_unstable"] }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
@@ -327,7 +327,7 @@ wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.0" }
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmprinter = "0.2"
 wasm-smith = "0.10"
-wasmtime = { version = "4.0.0", default-features = false, features = ["cranelift"] }
+wasmtime = { version = "9.0.3", default-features = false, features = ["cranelift"] }
 wast = "40.0"
 wat = "1.0.40"
 webrtc-util = "0.7"

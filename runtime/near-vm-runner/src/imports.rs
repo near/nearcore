@@ -675,11 +675,12 @@ pub(crate) mod wasmtime {
     pub(crate) fn link(
         linker: &mut wasmtime::Linker<()>,
         memory: wasmtime::Memory,
+        store: &wasmtime::Store<()>,
         raw_logic: *mut c_void,
         protocol_version: ProtocolVersion,
     ) {
         CALLER_CONTEXT.with(|caller_context| unsafe { *caller_context.get() = raw_logic });
-        linker.define("env", "memory", memory).expect("cannot define memory");
+        linker.define(store, "env", "memory", memory).expect("cannot define memory");
 
         macro_rules! add_import {
             (
