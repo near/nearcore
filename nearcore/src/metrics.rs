@@ -24,9 +24,9 @@ pub(crate) static DELAYED_RECEIPTS_COUNT: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static PREPARE_TX_SIZE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static PREPARE_TX_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_prepare_tx_size_hist",
+        "near_prepare_tx_size",
         "Sum of transaction sizes per produced chunk, as a histogram",
         &["shard_id"],
         // Maximum is < 14MB, typical values are unknown right now so buckets

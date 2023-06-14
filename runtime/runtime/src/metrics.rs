@@ -106,90 +106,90 @@ pub static FUNCTION_CALL_PROCESSED_CACHE_ERRORS: Lazy<IntCounterVec> = Lazy::new
     )
     .unwrap()
 });
-static CHUNK_COMPUTE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_chunk_compute_hist",
+        "near_chunk_compute",
         "Compute time by chunk, as a histogram in ms. Reported for all applied chunks, even when not included in a block.",
         &["shard_id"],
         buckets_for_compute(),
     )
     .unwrap()
 });
-static CHUNK_TGAS_HIST: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_chunk_tgas_hist",
+        "near_chunk_tgas",
         "Tgas burnt by chunk, as a histogram in ms. Reported for all applied chunks, even when not included in a block.",
         &["shard_id"],
         buckets_for_gas(),
     )
     .unwrap()
 });
-static CHUNK_LOCAL_RECEIPTS_COMPUTE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_LOCAL_RECEIPTS_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_chunk_local_receipt_compute_hist",
+        "near_chunk_local_receipt_compute",
         "Compute time for applying local receipts by chunk, as a histogram in ms",
         &["shard_id"],
         buckets_for_compute(),
     )
     .unwrap()
 });
-static CHUNK_LOCAL_RECEIPTS_TGAS_HIST: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_LOCAL_RECEIPTS_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_chunk_local_receipt_tgas_hist",
+        "near_chunk_local_receipt_tgas",
         "Tgas burnt for applying local receipts by chunk, as a histogram in ms",
         &["shard_id"],
         buckets_for_gas(),
     )
     .unwrap()
 });
-static CHUNK_DELAYED_RECEIPTS_COMPUTE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_DELAYED_RECEIPTS_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_chunk_delayed_receipt_compute_hist",
+        "near_chunk_delayed_receipt_compute",
         "Compute time for applying delayed receipts by chunk, as a histogram in ms",
         &["shard_id"],
         buckets_for_compute(),
     )
     .unwrap()
 });
-static CHUNK_DELAYED_RECEIPTS_TGAS_HIST: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_DELAYED_RECEIPTS_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_chunk_delayed_receipt_tgas_hist",
+        "near_chunk_delayed_receipt_tgas",
         "Tgas burnt for applying delayed receipts by chunk, as a histogram in ms",
         &["shard_id"],
         buckets_for_gas(),
     )
     .unwrap()
 });
-static CHUNK_INC_RECEIPTS_COMPUTE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_INC_RECEIPTS_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_chunk_inc_receipt_compute_hist",
+        "near_chunk_inc_receipt_compute",
         "Compute time for applying incoming receipts by chunk, as a histogram in ms",
         &["shard_id"],
         buckets_for_compute(),
     )
     .unwrap()
 });
-static CHUNK_INC_RECEIPTS_TGAS_HIST: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_INC_RECEIPTS_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_chunk_inc_receipt_tgas_hist",
+        "near_chunk_inc_receipt_tgas",
         "Tgas burnt for applying incoming receipts by chunk, as a histogram in ms",
         &["shard_id"],
         buckets_for_gas(),
     )
     .unwrap()
 });
-static CHUNK_TX_COMPUTE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_TX_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_chunk_tx_compute_hist",
+        "near_chunk_tx_compute",
         "Compute time for transaction validation by chunk, as a histogram in ms",
         &["shard_id"],
         Some(vec![50., 100., 200., 300., 400., 500., 600.0]),
     )
     .unwrap()
 });
-static CHUNK_TX_TGAS_HIST: Lazy<HistogramVec> = Lazy::new(|| {
+static CHUNK_TX_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_chunk_tx_tgas_hist",
+        "near_chunk_tx_tgas",
         "Tgas burnt for transaction validation by chunk, as a histogram",
         &["shard_id"],
         Some(vec![50., 100., 200., 300., 400., 500.]),
@@ -264,21 +264,21 @@ impl ApplyMetrics {
     /// as histogram metrics.
     pub fn report(&self, shard_id: &str) {
         // Transactions are processed first, report gas / compute directly.
-        CHUNK_TX_TGAS_HIST.with_label_values(&[shard_id]).observe(self.tx_gas as f64);
-        CHUNK_TX_COMPUTE_HIST.with_label_values(&[shard_id]).observe(self.tx_compute_usage as f64);
+        CHUNK_TX_TGAS.with_label_values(&[shard_id]).observe(self.tx_gas as f64);
+        CHUNK_TX_COMPUTE.with_label_values(&[shard_id]).observe(self.tx_compute_usage as f64);
 
         // Local receipts are processed after transaction processing, subtract tx cost.
         // Use saturating sub, wrong metrics are better than an overflow panic.
-        CHUNK_LOCAL_RECEIPTS_TGAS_HIST
+        CHUNK_LOCAL_RECEIPTS_TGAS
             .with_label_values(&[shard_id])
             .observe(self.local_receipts_gas.saturating_sub(self.tx_gas) as f64);
-        CHUNK_LOCAL_RECEIPTS_COMPUTE_HIST.with_label_values(&[shard_id]).observe(self.local_receipts_compute_usage.saturating_sub(self.tx_compute_usage) as f64);
+        CHUNK_LOCAL_RECEIPTS_COMPUTE.with_label_values(&[shard_id]).observe(self.local_receipts_compute_usage.saturating_sub(self.tx_compute_usage) as f64);
 
         // Delayed receipts are processed after local receipts, subtract cumulative costs at that point.
-        CHUNK_DELAYED_RECEIPTS_TGAS_HIST
+        CHUNK_DELAYED_RECEIPTS_TGAS
             .with_label_values(&[shard_id])
             .observe(self.delayed_receipts_gas.saturating_sub(self.local_receipts_gas) as f64);
-        CHUNK_DELAYED_RECEIPTS_COMPUTE_HIST.with_label_values(&[shard_id]).observe(
+        CHUNK_DELAYED_RECEIPTS_COMPUTE.with_label_values(&[shard_id]).observe(
             self.delayed_receipts_compute_usage.saturating_sub(self.local_receipts_compute_usage)
                 as f64,
         );
@@ -286,14 +286,14 @@ impl ApplyMetrics {
         // Incoming receipts are processed last, the accumulated value is the
         // total and the delta to delayed receipts is the cost for just incoming
         // receipts.
-        CHUNK_TGAS_HIST.with_label_values(&[shard_id]).observe(self.incoming_receipts_gas as f64);
-        CHUNK_COMPUTE_HIST
+        CHUNK_TGAS.with_label_values(&[shard_id]).observe(self.incoming_receipts_gas as f64);
+        CHUNK_COMPUTE
             .with_label_values(&[shard_id])
             .observe(self.incoming_receipts_compute_usage as f64);
-        CHUNK_INC_RECEIPTS_TGAS_HIST
+        CHUNK_INC_RECEIPTS_TGAS
             .with_label_values(&[shard_id])
             .observe(self.incoming_receipts_gas.saturating_sub(self.delayed_receipts_gas) as f64);
-        CHUNK_INC_RECEIPTS_COMPUTE_HIST.with_label_values(&[shard_id]).observe(
+        CHUNK_INC_RECEIPTS_COMPUTE.with_label_values(&[shard_id]).observe(
             self.incoming_receipts_compute_usage.saturating_sub(self.delayed_receipts_compute_usage)
                 as f64,
         );
