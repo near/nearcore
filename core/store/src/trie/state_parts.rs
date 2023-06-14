@@ -16,17 +16,6 @@
 //! Moreover, we include all left siblings for each path, because they are
 //! necessary to prove its position in the list of prefix sums.
 
-use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
-use std::sync::Arc;
-use std::time::Instant;
-
-use borsh::BorshDeserialize;
-
-use near_primitives::challenge::PartialState;
-use near_primitives::state_part::PartId;
-use near_primitives::types::StateRoot;
-
 use crate::flat::{FlatStateChanges, FlatStateIterator};
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
@@ -34,11 +23,18 @@ use crate::trie::trie_storage::TrieMemoryPartialStorage;
 use crate::trie::{
     ApplyStatePartResult, NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize,
 };
-use crate::{PartialStorage, StorageError, Trie, TrieChanges};
+use crate::{metrics, PartialStorage, StorageError, Trie, TrieChanges};
+use borsh::BorshDeserialize;
+use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state::{FlatStateValue, ValueRef};
+use near_primitives::state_part::PartId;
 use near_primitives::state_record::is_contract_code_key;
+use near_primitives::types::{ShardId, StateRoot};
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
+use std::sync::Arc;
 
 /// Trie key in nibbles corresponding to the right boundary for the last state part.
 /// Guaranteed to be bigger than any existing trie key.
@@ -153,20 +149,39 @@ impl Trie {
         &self,
         part_id: PartId,
     ) -> Result<PartialState, StorageError> {
+        let shard_id: ShardId = self.flat_storage_chunk_view.as_ref().map_or(
+            ShardId::MAX, // Fake value for metrics.
+            |chunk_view| chunk_view.shard_uid().shard_id as ShardId,
+        );
+        let _span = tracing::debug_span!(
+            target: "state-parts",
+            "get_trie_nodes_for_part_with_flat_storage",
+            ?shard_id,
+            part_id = part_id.idx,
+            num_parts = part_id.total)
+        .entered();
+        let _timer = metrics::GET_STATE_PART_WITH_FS_ELAPSED
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
+
         let PartId { idx, total } = part_id;
 
         // 1. Extract nodes corresponding to state part boundaries.
         let recording_trie = self.recording_reads();
-        let boundaries_read_start = Instant::now();
+        let boundaries_read_timer = metrics::GET_STATE_PART_BOUNDARIES_ELAPSED
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
         let nibbles_begin = recording_trie.find_state_part_boundary(part_id.idx, part_id.total)?;
         let nibbles_end =
             recording_trie.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
-        let boundaries_read_duration = boundaries_read_start.elapsed();
+        let boundaries_read_duration = boundaries_read_timer.stop_and_record();
         let recorded_trie = recording_trie.recorded_storage().unwrap();
         let PartialState::TrieValues(path_boundary_nodes) = recorded_trie.nodes;
 
         // 2. Extract all key-value pairs in state part from flat storage.
-        let values_read_start = Instant::now();
+        let values_read_timer = metrics::GET_STATE_PART_READ_FS_ELAPSED
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
         let flat_state_iter = self.iter_flat_state_entries(nibbles_begin, nibbles_end)?;
         let mut values_ref = 0;
         let mut values_inlined = 0;
@@ -186,18 +201,22 @@ impl Trie {
                 value.map(|v| (k, Some(v)))
             })
             .collect::<Result<_, _>>()?;
-        let values_read_duration = values_read_start.elapsed();
+        let values_read_duration = values_read_timer.stop_and_record();
 
         // 3. Create trie out of all key-value pairs.
-        let local_trie_creation_start = Instant::now();
+        let local_trie_creation_timer = metrics::GET_STATE_PART_CREATE_TRIE_ELAPSED
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
         let local_state_part_trie =
             Trie::new(Rc::new(TrieMemoryPartialStorage::default()), StateRoot::new(), None);
         let local_state_part_nodes =
             local_state_part_trie.update(all_state_part_items.into_iter())?.insertions;
-        let local_trie_creation_duration = local_trie_creation_start.elapsed();
+        let local_trie_creation_duration = local_trie_creation_timer.stop_and_record();
 
         // 4. Unite all nodes in memory, traverse trie based on them, return set of visited nodes.
-        let final_part_creation_start = Instant::now();
+        let final_part_creation_timer = metrics::GET_STATE_PART_COMBINE_ELAPSED
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
         let boundary_nodes_storage: HashMap<_, _> =
             path_boundary_nodes.iter().map(|entry| (hash(entry), entry.clone())).collect();
         let disk_read_hashes: HashSet<_> = boundary_nodes_storage.keys().cloned().collect();
@@ -215,7 +234,7 @@ impl Trie {
         let final_trie_storage = final_trie.storage.as_partial_storage().unwrap();
         let final_state_part_nodes = final_trie_storage.partial_state();
         let PartialState::TrieValues(trie_values) = &final_state_part_nodes;
-        let final_part_creation_duration = final_part_creation_start.elapsed();
+        let final_part_creation_duration = final_part_creation_timer.stop_and_record();
 
         // Compute how many nodes were recreated from memory.
         let state_part_num_nodes = trie_values.len();
@@ -235,6 +254,22 @@ impl Trie {
             ?final_part_creation_duration,
             "Created state part",
         );
+
+        metrics::GET_STATE_PART_WITH_FS_VALUES_INLINED
+            .with_label_values(&[&shard_id.to_string()])
+            .inc_by(values_inlined);
+        metrics::GET_STATE_PART_WITH_FS_VALUES_REF
+            .with_label_values(&[&shard_id.to_string()])
+            .inc_by(values_ref);
+        metrics::GET_STATE_PART_WITH_FS_NODES_FROM_DISK
+            .with_label_values(&[&shard_id.to_string()])
+            .inc_by(disk_read_hashes.len() as u64);
+        metrics::GET_STATE_PART_WITH_FS_NODES_IN_MEMORY
+            .with_label_values(&[&shard_id.to_string()])
+            .inc_by(in_memory_created_nodes as u64);
+        metrics::GET_STATE_PART_WITH_FS_NODES
+            .with_label_values(&[&shard_id.to_string()])
+            .inc_by(state_part_num_nodes as u64);
 
         Ok(final_state_part_nodes)
     }

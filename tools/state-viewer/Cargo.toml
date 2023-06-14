@@ -23,12 +23,13 @@ regex.workspace = true
 rust-s3.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+strum.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-near-chain.workspace = true
 near-chain-configs.workspace = true
+near-chain.workspace = true
 near-client.workspace = true
 near-crypto.workspace = true
 near-epoch-manager.workspace = true

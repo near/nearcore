@@ -1,8 +1,8 @@
-use near_primitives::contract::ContractCode;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::test_utils::encode;
 use near_primitives::transaction::{Action, FunctionCallAction};
-use near_primitives::types::Balance;
+use near_primitives_core::contract::ContractCode;
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
+use near_primitives_core::types::Balance;
 use near_vm_errors::{FunctionCallError, HostError, WasmTrap};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
@@ -16,8 +16,15 @@ use crate::tests::{
 };
 use crate::vm_kind::VMKind;
 
-fn test_contract() -> ContractCode {
-    let code = near_test_contracts::rs_contract();
+fn test_contract(vm_kind: VMKind) -> ContractCode {
+    let code = match vm_kind {
+        // testing backwards-compatibility, use an old WASM
+        VMKind::Wasmer0 | VMKind::Wasmer2 => {
+            near_test_contracts::backwards_compatible_rs_contract()
+        }
+        // production and developer environment, use a cutting-edge WASM
+        VMKind::Wasmtime | VMKind::NearVm => near_test_contracts::rs_contract(),
+    };
     ContractCode::new(code.to_vec(), None)
 }
 
@@ -39,7 +46,7 @@ fn assert_run_result(result: VMResult, expected_value: u64) {
 pub fn test_read_write() {
     let config = VMConfig::test();
     with_vm_variants(&config, |vm_kind: VMKind| {
-        let code = test_contract();
+        let code = test_contract(vm_kind);
         let mut fake_external = MockedExternal::new();
 
         let context = create_context(encode(&[10u64, 20u64]));
@@ -112,7 +119,7 @@ fn run_test_ext(
     validators: Vec<(&str, Balance)>,
     vm_kind: VMKind,
 ) {
-    let code = test_contract();
+    let code = test_contract(vm_kind);
     let mut fake_external = MockedExternal::new();
     fake_external.validators =
         validators.into_iter().map(|(s, b)| (s.parse().unwrap(), b)).collect();
@@ -218,7 +225,7 @@ pub fn test_out_of_memory() {
             _ => {}
         }
 
-        let code = test_contract();
+        let code = test_contract(vm_kind);
         let mut fake_external = MockedExternal::new();
 
         let context = create_context(Vec::new());

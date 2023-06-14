@@ -38,9 +38,8 @@ use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
-    EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause,
-    StateChangesForSplitStates, StateRoot, StateRootNode,
+    AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
+    NumShards, ShardId, StateChangeCause, StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -55,6 +54,7 @@ use near_store::{
     ApplyStatePartResult, DBCol, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
     StoreUpdate, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
+use near_vm_errors::CompiledContractCache;
 use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::config::RuntimeConfig;
@@ -550,6 +550,10 @@ impl NightshadeRuntime {
         metrics::APPLY_CHUNK_DELAY
             .with_label_values(&[&format_total_gas_burnt(total_gas_burnt)])
             .observe(elapsed.as_secs_f64());
+        metrics::DELAYED_RECEIPTS_COUNT
+            .with_label_values(&[&shard_id.to_string()])
+            .set(apply_result.delayed_receipts_count as i64);
+
         let total_balance_burnt = apply_result
             .stats
             .tx_burnt_amount
@@ -659,6 +663,41 @@ impl NightshadeRuntime {
             return Ok(std::cmp::min(epoch_start_height, cold_epoch_first_block_info.height()));
         }
         Ok(epoch_start_height)
+    }
+
+    fn obtain_state_part_impl(
+        &self,
+        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+        state_root: &StateRoot,
+        part_id: PartId,
+    ) -> Result<Vec<u8>, Error> {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "obtain_state_part",
+            part_id = part_id.idx,
+            shard_id,
+            %prev_hash,
+            num_parts = part_id.total)
+        .entered();
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
+        let trie =
+            self.tries.get_trie_with_block_hash_for_shard(shard_uid, *state_root, &prev_hash, true);
+        let result = match trie.get_trie_nodes_for_part(prev_hash, part_id) {
+            Ok(partial_state) => partial_state,
+            Err(e) => {
+                error!(target: "runtime",
+                    "Can't get trie nodes for state part {}/{} for prev hash \
+                    {prev_hash} and state root {state_root}: {:?}",
+                    part_id.idx, part_id.total, e
+                );
+                return Err(e.into());
+            }
+        }
+        .try_to_vec()
+        .expect("serializer should not fail");
+        Ok(result)
     }
 }
 
@@ -1160,6 +1199,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    // Wrapper to get the metrics.
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
@@ -1175,28 +1215,14 @@ impl RuntimeAdapter for NightshadeRuntime {
             %prev_hash,
             num_parts = part_id.total)
         .entered();
-        let _timer = metrics::STATE_SYNC_OBTAIN_PART_DELAY
-            .with_label_values(&[&shard_id.to_string()])
-            .start_timer();
-
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
-        let trie =
-            self.tries.get_trie_with_block_hash_for_shard(shard_uid, *state_root, &prev_hash, true);
-        let result = match trie.get_trie_nodes_for_part(prev_hash, part_id) {
-            Ok(partial_state) => partial_state,
-            Err(e) => {
-                error!(target: "runtime",
-                    "Can't get trie nodes for state part {}/{} for prev hash \
-                    {prev_hash} and state root {state_root}: {:?}",
-                    part_id.idx, part_id.total, e
-                );
-                return Err(e.into());
-            }
-        }
-        .try_to_vec()
-        .expect("serializer should not fail");
-        Ok(result)
+        let instant = Instant::now();
+        let res = self.obtain_state_part_impl(shard_id, prev_hash, state_root, part_id);
+        let elapsed = instant.elapsed();
+        let is_ok = if res.is_ok() { "ok" } else { "error" };
+        metrics::STATE_SYNC_OBTAIN_PART_DELAY
+            .with_label_values(&[&shard_id.to_string(), is_ok])
+            .observe(elapsed.as_secs_f64());
+        res
     }
 
     fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool {

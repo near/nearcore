@@ -1,10 +1,34 @@
 #![doc = include_str!("../README.md")]
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_account_id::AccountId;
+use near_primitives_core::hash::CryptoHash;
 use near_rpc_error_macro::RpcError;
 use std::any::Any;
 use std::fmt::{self, Error, Formatter};
 use std::io;
+
+// TODO: this does not belong in near-vm-errors but near-vm-runner.
+// See #9176 and #9180 for more context.
+#[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize)]
+pub enum CompiledContract {
+    CompileModuleError(crate::CompilationError),
+    Code(Vec<u8>),
+}
+
+/// Cache for compiled modules
+pub trait CompiledContractCache: Send + Sync {
+    fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()>;
+    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>>;
+    fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
+        self.get(key).map(|entry| entry.is_some())
+    }
+}
+
+impl fmt::Debug for dyn CompiledContractCache {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Compiled contracts cache")
+    }
+}
 
 /// For bugs in the runtime itself, crash and die is the usual response.
 ///

@@ -4,9 +4,9 @@ use crate::vm_estimator::create_context;
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::types::CompiledContractCache;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::StoreCompiledContractCache;
+use near_vm_errors::CompiledContractCache;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use std::fmt::Write;
 

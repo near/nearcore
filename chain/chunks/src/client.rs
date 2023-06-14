@@ -44,7 +44,6 @@ pub struct ShardedTransactionPool {
 
 impl ShardedTransactionPool {
     pub fn new(rng_seed: RngSeed, pool_size_limit: Option<u64>) -> Self {
-        TransactionPool::init_metrics();
         Self { tx_pools: HashMap::new(), rng_seed, pool_size_limit }
     }
 
@@ -80,7 +79,11 @@ impl ShardedTransactionPool {
 
     fn pool_for_shard(&mut self, shard_id: ShardId) -> &mut TransactionPool {
         self.tx_pools.entry(shard_id).or_insert_with(|| {
-            TransactionPool::new(Self::random_seed(&self.rng_seed, shard_id), self.pool_size_limit)
+            TransactionPool::new(
+                Self::random_seed(&self.rng_seed, shard_id),
+                self.pool_size_limit,
+                &shard_id.to_string(),
+            )
         })
     }
 

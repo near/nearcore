@@ -110,6 +110,14 @@ Currently supported load types:
 |---|---|---|---|---|
 | Fungible Token | `FTTransferUser` | `ft` | `--fungible-token-wasm $WASM_PATH` <br> (`--num-ft-contracts $N`) |  Creates `$N` FT contracts per worker, registers each user in one of them. Users transfer FTs between each other. |
 | Social DB  | `SocialDbUser` | `social` | `--social-db-wasm $WASM_PATH` | Creates a single instance of SocialDB and registers users to it. Users post messages and follow other users. (More workload TBD) |
+| Congestion | `CongestionUser` | `congestion` | `--congestion-wasm $WASM_PATH` | Creates a single instance of Congestion contract. Users run large and long transactions. |
+
+For the congestion workload you will need to use the following contract:
+
+```sh
+# This assumes your shell is in nearcore directory
+CONTRACT="${PWD}/runtime/near-test-contracts/res/test_contract_rs.wasm"
+```
 
 In the future, we might have multiple users per load type but for now there is a
 one-to-one mapping from users to load type (and tag).
