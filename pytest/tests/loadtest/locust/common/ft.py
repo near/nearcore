@@ -130,7 +130,8 @@ def on_locust_init(environment, **kwargs):
     if environment.parsed_options.fungible_token_wasm is None:
         raise SystemExit(
             f"Running FT workload requires `--fungible_token_wasm $FT_CONTRACT`. "
-            "Provide the WASM (e.g. nearcore/runtime/near-test-contracts/res/fungible_token.wasm).")
+            "Provide the WASM (e.g. nearcore/runtime/near-test-contracts/res/fungible_token.wasm)."
+        )
 
     # Note: These setup requests are not tracked by locust because we use our own http session
     host, port = environment.host.split(":")
