@@ -1090,6 +1090,7 @@ impl actix::Handler<GetDebugStatus> for PeerManagerActor {
                         EdgeView { peer0: key.0.clone(), peer1: key.1.clone(), nonce: edge.nonce() }
                     })
                     .collect(),
+                next_hops: (*self.state.graph.routing_table.info().next_hops).clone(),
             }),
             GetDebugStatus::RecentOutboundConnections => {
                 DebugStatus::RecentOutboundConnections(RecentOutboundConnectionsView {
