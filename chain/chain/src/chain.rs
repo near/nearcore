@@ -3309,7 +3309,7 @@ impl Chain {
                     }),
                 );
                 store_update.commit()?;
-                flat_storage_manager.create_flat_storage_for_shard(shard_uid);
+                flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             }
         }
 

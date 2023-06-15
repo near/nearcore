@@ -50,7 +50,7 @@ impl FlatStorageManager {
                 }),
             );
             store_update.commit().expect("failed to set flat storage status");
-            flat_storages.insert(*shard_uid, FlatStorage::new(store.clone(), *shard_uid));
+            flat_storages.insert(*shard_uid, FlatStorage::new(store.clone(), *shard_uid).unwrap());
         }
         Self(Arc::new(FlatStorageManagerInner { store, flat_storages: Mutex::new(flat_storages) }))
     }
@@ -82,14 +82,15 @@ impl FlatStorageManager {
     /// the shard's flat storage state hasn't been set before, otherwise it panics.
     /// TODO (#7327): this behavior may change when we implement support for state sync
     /// and resharding.
-    pub fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) {
+    pub fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
         let original_value =
-            flat_storages.insert(shard_uid, FlatStorage::new(self.0.store.clone(), shard_uid));
+            flat_storages.insert(shard_uid, FlatStorage::new(self.0.store.clone(), shard_uid)?);
         // TODO (#7327): maybe we should propagate the error instead of assert here
         // assert is fine now because this function is only called at construction time, but we
         // will need to be more careful when we want to implement flat storage for resharding
         assert!(original_value.is_none());
+        Ok(())
     }
 
     pub fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus {

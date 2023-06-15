@@ -1757,7 +1757,7 @@ mod test {
                         flat_storage_manager.get_flat_storage_status(shard_uid),
                         near_store::flat::FlatStorageStatus::Ready(_)
                     ));
-                    flat_storage_manager.create_flat_storage_for_shard(shard_uid);
+                    flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
                 }
             }
 

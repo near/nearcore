@@ -560,6 +560,7 @@ def doit(s, n, N, k, monkeys, timeout):
                     "nanos": 0
                 }
             },
+            "state_sync_enabled": True,
             "view_client_throttle_period": {
                 "secs": 0,
                 "nanos": 0

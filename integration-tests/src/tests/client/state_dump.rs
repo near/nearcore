@@ -39,7 +39,7 @@ fn test_state_dump() {
             let runtime =
                 NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
                     as Arc<dyn RuntimeAdapter>;
-            (tmp_dir,store,epoch_manager,runtime)
+            (tmp_dir, store, epoch_manager, runtime)
         }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
 
         let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();

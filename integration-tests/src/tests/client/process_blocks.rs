@@ -1821,28 +1821,34 @@ fn test_process_block_after_state_sync() {
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
 
-    let tmp_dir = tempfile::tempdir().unwrap();
-    // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
-    // same configuration as in production.
-    let store = NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
-        .open()
-        .unwrap()
-        .get_hot_store();
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-    let runtime =
-        NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
-            as Arc<dyn RuntimeAdapter>;
+    let num_clients = 1;
+    let env_objects = (0..num_clients).map(|_|{
+        let tmp_dir = tempfile::tempdir().unwrap();
+        // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
+        // same configuration as in production.
+        let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
+            .open()
+            .unwrap()
+            .get_hot_store();
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let runtime =
+            NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+                as Arc<dyn RuntimeAdapter>;
+        (tmp_dir, store, epoch_manager, runtime)
+    }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
 
-    let stores = vec![store];
-    let epoch_managers = vec![epoch_manager];
-    let runtimes = vec![runtime.clone()];
+    let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
+    let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();
+    let runtimes = env_objects.iter().map(|x| x.3.clone()).collect::<Vec<_>>();
 
     let mut env = TestEnv::builder(chain_genesis)
+        .clients_count(env_objects.len())
         .stores(stores)
         .epoch_managers(epoch_managers)
         .runtimes(runtimes)
         .use_state_snapshots()
         .build();
+
     let sync_height = epoch_length * 4 + 1;
     for i in 1..=sync_height {
         env.produce_block(0, i);
@@ -2584,7 +2590,7 @@ fn test_catchup_gas_price_change() {
         let runtime =
             NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
                 as Arc<dyn RuntimeAdapter>;
-        (tmp_dir,store,epoch_manager,runtime)
+        (tmp_dir, store, epoch_manager, runtime)
     }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
 
     let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
@@ -3637,7 +3643,7 @@ mod contract_precompilation_tests {
             let runtime =
                 NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
                     as Arc<dyn RuntimeAdapter>;
-            (tmp_dir,store,epoch_manager,runtime)
+            (tmp_dir, store, epoch_manager, runtime)
         }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
 
         let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
@@ -3750,7 +3756,7 @@ mod contract_precompilation_tests {
             let runtime =
                 NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
                     as Arc<dyn RuntimeAdapter>;
-            (tmp_dir,store,epoch_manager,runtime)
+            (tmp_dir, store, epoch_manager, runtime)
         }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
 
         let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
@@ -3847,7 +3853,7 @@ mod contract_precompilation_tests {
             let runtime =
                 NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
                     as Arc<dyn RuntimeAdapter>;
-            (tmp_dir,store,epoch_manager,runtime)
+            (tmp_dir, store, epoch_manager, runtime)
         }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
 
         let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();

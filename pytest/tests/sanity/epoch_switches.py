@@ -25,6 +25,7 @@ nodes = start_cluster(
                 "secs": 0,
                 "nanos": 0
             },
+            "state_sync_enabled": True,
             "consensus": {
                 "state_sync_timeout": {
                     "secs": 2,
@@ -37,6 +38,7 @@ nodes = start_cluster(
                 "secs": 0,
                 "nanos": 0
             },
+            "state_sync_enabled": True,
             "consensus": {
                 "state_sync_timeout": {
                     "secs": 2,
@@ -50,6 +52,7 @@ nodes = start_cluster(
                 "secs": 0,
                 "nanos": 0
             },
+            "state_sync_enabled": True,
             "consensus": {
                 "state_sync_timeout": {
                     "secs": 2,
@@ -62,6 +65,7 @@ nodes = start_cluster(
                 "secs": 0,
                 "nanos": 0
             },
+            "state_sync_enabled": True,
             "consensus": {
                 "state_sync_timeout": {
                     "secs": 2,
