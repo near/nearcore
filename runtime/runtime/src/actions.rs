@@ -24,8 +24,7 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
-    is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
-    DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
+    ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
@@ -888,7 +887,7 @@ pub(crate) fn check_account_existence(
                 }
                 .into());
             } else {
-                if is_implicit_account_creation_enabled(current_protocol_version)
+                if checked_feature!("stable", ImplicitAccountCreation, current_protocol_version)
                     && account_id.is_implicit()
                 {
                     // If the account doesn't exist and it's 64-length hex account ID, then you
@@ -909,8 +908,11 @@ pub(crate) fn check_account_existence(
         }
         Action::Transfer(_) => {
             if account.is_none() {
-                return if is_implicit_account_creation_enabled(current_protocol_version)
-                    && is_the_only_action
+                return if checked_feature!(
+                    "stable",
+                    ImplicitAccountCreation,
+                    current_protocol_version
+                ) && is_the_only_action
                     && account_id.is_implicit()
                     && !is_refund
                 {
