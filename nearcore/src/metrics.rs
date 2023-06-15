@@ -128,18 +128,10 @@ pub(crate) static STATE_SYNC_OBTAIN_PART_DELAY: Lazy<near_o11y::metrics::Histogr
         .unwrap()
     });
 
-fn log_trie_item(item: Result<(Vec<u8>, Vec<u8>), near_store::StorageError>) -> () {
+fn log_trie_item(key: Vec<u8>, value: Vec<u8>) {
     if !tracing::level_enabled!(tracing::Level::TRACE) {
         return;
     }
-    let item = match item {
-        Ok(item) => item,
-        Err(err) => {
-            tracing::trace!(target: "metrics", "trie-stats - failed to parse item {err:?}");
-            return;
-        }
-    };
-    let (key, value) = item;
     let state_record = StateRecord::from_raw_key_value_impl(key, value);
     match state_record {
         Ok(Some(StateRecord::PostponedReceipt(receipt))) => {
@@ -211,14 +203,29 @@ fn get_postponed_receipt_count_for_shard(
     let storage = Rc::new(storage);
     let flat_storage_chunk_view = None;
     let trie = Trie::new(storage, *state_root, flat_storage_chunk_view);
+    get_postponed_receipt_count_for_trie(trie)
+}
+
+fn get_postponed_receipt_count_for_trie(trie: Trie) -> Result<i64, anyhow::Error> {
     let mut iter = trie.iter()?;
     iter.seek_prefix([trie_key::col::POSTPONED_RECEIPT])?;
     let mut count = 0;
     for item in iter {
+        let (key, value) = match item {
+            Ok(item) => item,
+            Err(err) => {
+                tracing::trace!(target: "metrics", "trie-stats - error when reading item {err:?}");
+                continue;
+            }
+        };
+        if key.len() > 0 && key[0] != trie_key::col::POSTPONED_RECEIPT {
+            tracing::trace!(target: "metrics", "trie-stats - stopping iteration as reached other col type.");
+            break;
+        }
         count += 1;
-        log_trie_item(item);
+        log_trie_item(key, value);
     }
-    tracing::trace!(target: "metrics", "trie-stats - seek postponed receipt count {count}");
+    tracing::trace!(target: "metrics", "trie-stats - postponed receipt count {count}");
     Ok(count)
 }
 
@@ -251,4 +258,62 @@ pub fn spawn_trie_metrics_loop(
     });
 
     Ok(arbiter.handle())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_primitives::trie_key::col;
+    use near_store::test_utils::create_tries;
+    use near_store::test_utils::simplify_changes;
+    use near_store::test_utils::test_populate_trie;
+
+    fn create_item(key: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
+        (key.to_vec(), Some(vec![]))
+    }
+
+    fn create_trie(items: &[(Vec<u8>, Option<Vec<u8>>)]) -> Trie {
+        let tries = create_tries();
+        let shard_uid = ShardUId { version: 1, shard_id: 0 };
+        let trie_changes = simplify_changes(&items);
+        let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes);
+        let trie = tries.get_trie_for_shard(shard_uid, state_root);
+        trie
+    }
+
+    #[test]
+    fn test_get_postponed_receipt_count() {
+        // no postponed receipts
+        let count = get_postponed_receipt_count_for_trie(create_trie(&vec![])).unwrap();
+        assert_eq!(count, 0);
+
+        // one postponed receipts
+        let items = vec![create_item(&[col::POSTPONED_RECEIPT, 1, 2, 3])];
+        let count = get_postponed_receipt_count_for_trie(create_trie(&items)).unwrap();
+        assert_eq!(count, 1);
+
+        // two postponed receipts
+        let items = vec![
+            create_item(&[col::POSTPONED_RECEIPT, 1]),
+            create_item(&[col::POSTPONED_RECEIPT, 2]),
+        ];
+        let count = get_postponed_receipt_count_for_trie(create_trie(&items)).unwrap();
+        assert_eq!(count, 2);
+
+        // three postponed receipts but also other records that are not
+        // postponed receipts and should not be counted
+        let items = vec![
+            create_item(&[col::ACCOUNT, 1]),
+            create_item(&[col::ACCESS_KEY, 1]),
+            create_item(&[col::POSTPONED_RECEIPT_ID, 1]),
+            create_item(&[col::POSTPONED_RECEIPT, 1]),
+            create_item(&[col::POSTPONED_RECEIPT, 2]),
+            create_item(&[col::POSTPONED_RECEIPT, 3]),
+            create_item(&[col::DELAYED_RECEIPT_INDICES, 1]),
+            create_item(&[col::DELAYED_RECEIPT, 1]),
+            create_item(&[col::CONTRACT_DATA, 1]),
+        ];
+        let count = get_postponed_receipt_count_for_trie(create_trie(&items)).unwrap();
+        assert_eq!(count, 3);
+    }
 }
