@@ -109,6 +109,6 @@ def on_locust_init(environment, **kwargs):
 def _(parser):
     parser.add_argument(
         "--congestion-wasm",
-        default="res/test_contract_rs.wasm",
+        default="res/congestion.wasm",
         help="Path to the compiled congestion contract",
     )
