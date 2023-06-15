@@ -550,9 +550,13 @@ impl NightshadeRuntime {
         metrics::APPLY_CHUNK_DELAY
             .with_label_values(&[&format_total_gas_burnt(total_gas_burnt)])
             .observe(elapsed.as_secs_f64());
+        let shard_label = shard_id.to_string();
         metrics::DELAYED_RECEIPTS_COUNT
-            .with_label_values(&[&shard_id.to_string()])
+            .with_label_values(&[&shard_label])
             .set(apply_result.delayed_receipts_count as i64);
+        if let Some(metrics) = apply_result.metrics {
+            metrics.report(&shard_label);
+        }
 
         let total_balance_burnt = apply_result
             .stats
@@ -911,6 +915,9 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         }
         debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", transactions.len(), num_checked_transactions);
+        metrics::PREPARE_TX_SIZE
+            .with_label_values(&[&shard_id.to_string()])
+            .observe(total_size as f64);
         Ok(transactions)
     }
 

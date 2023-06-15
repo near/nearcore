@@ -4,10 +4,10 @@ use crate::memory::WasmerMemory;
 use crate::prepare;
 use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports};
-use near_primitives::config::VMConfig;
-use near_primitives::contract::ContractCode;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::version::ProtocolVersion;
+use near_primitives_core::config::VMConfig;
+use near_primitives_core::contract::ContractCode;
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
+use near_primitives_core::types::ProtocolVersion;
 use near_vm_errors::{
     CacheError, CompilationError, CompiledContract, CompiledContractCache, FunctionCallError,
     MethodResolveError, VMRunnerError, WasmTrap,
@@ -345,7 +345,7 @@ impl Wasmer0VM {
         return {
             static MEM_CACHE: once_cell::sync::Lazy<
                 near_cache::SyncLruCache<
-                    near_primitives::hash::CryptoHash,
+                    near_primitives_core::hash::CryptoHash,
                     Result<wasmer_runtime::Module, CompilationError>,
                 >,
             > = once_cell::sync::Lazy::new(|| {

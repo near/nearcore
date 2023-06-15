@@ -12,7 +12,7 @@ import transaction
 from account import TGAS, NEAR_BASE
 import cluster
 import key
-from common.base import Account, CreateSubAccount, Deploy, NearUser, Transaction, is_tag_active, send_transaction
+from common.base import Account, CreateSubAccount, Deploy, NearUser, Transaction, send_transaction
 from locust import events, runners
 from transaction import create_function_call_action
 
@@ -268,9 +268,6 @@ class TestSocialDbSetMsg(unittest.TestCase):
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
-    if not is_tag_active(environment, "social"):
-        return
-
     # `master_funding_account` is the same on all runners, allowing to share a
     # single instance of SocialDB in its `social` sub account
     funding_account = environment.master_funding_account
@@ -281,8 +278,8 @@ def on_locust_init(environment, **kwargs):
         if environment.parsed_options.social_db_wasm is None:
             raise SystemExit(
                 f"Running SocialDB workload requires `--social_db_wasm $SOCIAL_CONTRACT`. "
-                "Either provide the WASM (can be downloaded from https://github.com/NearSocial/social-db/tree/aa7fafaac92a7dd267993d6c210246420a561370/res) "
-                "or run with `--exclude-tag social`")
+                "Provide the WASM (can be downloaded from https://github.com/NearSocial/social-db/tree/aa7fafaac92a7dd267993d6c210246420a561370/res)."
+            )
 
         social_contract_code = environment.parsed_options.social_db_wasm
         contract_key = key.Key.from_random(environment.social_account_id)
