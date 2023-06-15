@@ -1421,7 +1421,7 @@ pub(crate) fn format_shard_sync_phase(
     shard_sync_download: &ShardSyncDownload,
     use_colour: bool,
 ) -> String {
-    match shard_sync_download.status {
+    match &shard_sync_download.status {
         ShardSyncStatus::StateDownloadHeader => format!(
             "{} requests sent {}, last target {:?}",
             paint("HEADER", Purple.bold(), use_colour),
@@ -1455,7 +1455,7 @@ pub(crate) fn format_shard_sync_phase(
                 num_parts_not_done
             )
         }
-        _ => unreachable!("timeout cannot happen when all state is downloaded"),
+        status => format!("{:?}", status),
     }
 }
 
