@@ -167,9 +167,6 @@ impl EdgeCache {
             max_id -= 1;
         }
         self.degree.truncate(max_id);
-        if self.degree.capacity() > 2 * self.degree.len() {
-            self.degree.shrink_to_fit();
-        }
 
         // Reconstruct the list of unused ids
         self.unused.clear();

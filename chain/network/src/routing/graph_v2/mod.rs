@@ -437,9 +437,6 @@ impl Inner {
             // calculations because a node incident to an active edge won't be relabelled. However,
             // we may need to resize the distance vector.
             routes.distance.resize(max_id, -1);
-            if routes.distance.capacity() > 2 * routes.distance.len() {
-                routes.distance.shrink_to_fit();
-            }
 
             for id in 0..max_id {
                 if routes.distance[id] != -1 {
@@ -555,12 +552,10 @@ impl Inner {
         // If distances in the network have changed,
         // construct and return a message to be broadcasted to peers
         let to_broadcast = if distances != self.my_distances {
-            println!("Distances changed: {:?}", distances);
             self.my_distances = distances;
             self.my_distance_vector = self.construct_distance_vector_message();
             Some(self.my_distance_vector.clone())
         } else {
-            println!("Distances didn't change: {:?}", distances);
             None
         };
 
