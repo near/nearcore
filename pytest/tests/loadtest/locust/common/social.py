@@ -305,8 +305,7 @@ def on_locust_init(environment, **kwargs):
 def _(parser):
     parser.add_argument(
         "--social-db-wasm",
-        type=str,
-        required=False,
+        default="res/social_db.wasm",
         help=
         "Path to the compiled SocialDB contract, get it from https://github.com/NearSocial/social-db/tree/aa7fafaac92a7dd267993d6c210246420a561370/res"
     )
