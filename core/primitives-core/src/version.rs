@@ -10,6 +10,7 @@ use crate::types::ProtocolVersion;
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ProtocolFeature {
     // stable features
+    ImplicitAccountCreation,
     RectifyInflation,
     /// Add `AccessKey` nonce range by setting nonce to `(block_height - 1) * 1e6`, see
     /// <https://github.com/near/nearcore/issues/3779>.
@@ -125,6 +126,7 @@ impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
         match self {
             // Stable features
+            ProtocolFeature::ImplicitAccountCreation => 35,
             ProtocolFeature::LowerStorageCost => 42,
             ProtocolFeature::DeleteActionRestriction => 43,
             ProtocolFeature::FixApplyChunks => 44,
