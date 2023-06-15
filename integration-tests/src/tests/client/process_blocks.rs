@@ -1852,10 +1852,12 @@ fn test_process_block_after_state_sync() {
 
     let header = env.clients[0].chain.compute_state_response_header(0, sync_hash).unwrap();
     let state_root = header.chunk_prev_state_root();
+    let sync_prev_header = env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
+    let sync_prev_prev_hash = sync_prev_header.prev_hash();
 
     let state_part = env.clients[0]
         .runtime_adapter
-        .obtain_state_part(0, &sync_hash, &state_root, PartId::new(0, 1))
+        .obtain_state_part(0, &sync_prev_prev_hash, &state_root, PartId::new(0, 1))
         .unwrap();
     // reset cache
     for i in epoch_length * 3 - 1..sync_height - 1 {
@@ -2585,12 +2587,12 @@ fn test_catchup_gas_price_change() {
         (tmp_dir,store,epoch_manager,runtime)
     }).collect::<Vec<(tempfile::TempDir,Store,Arc<EpochManagerHandle>,Arc<dyn RuntimeAdapter>)>>();
 
-    let stores = vec![env_objects[0].1.clone(), env_objects[1].1.clone()];
-    let epoch_managers = vec![env_objects[0].2.clone(), env_objects[1].2.clone()];
-    let runtimes = vec![env_objects[0].3.clone(), env_objects[1].3.clone()];
+    let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
+    let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();
+    let runtimes = env_objects.iter().map(|x| x.3.clone()).collect::<Vec<_>>();
 
     let mut env = TestEnv::builder(chain_genesis)
-        .clients_count(2)
+        .clients_count(env_objects.len())
         .stores(stores)
         .epoch_managers(epoch_managers)
         .runtimes(runtimes)
@@ -3596,23 +3598,21 @@ mod contract_precompilation_tests {
     fn state_sync_on_height(env: &mut TestEnv, height: BlockHeight) {
         let sync_block = env.clients[0].chain.get_block_by_height(height).unwrap();
         let sync_hash = *sync_block.hash();
-        let chunk_extra =
-            env.clients[0].chain.get_chunk_extra(&sync_hash, &ShardUId::single_shard()).unwrap();
+        let state_sync_header =
+            env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
+        let state_root = state_sync_header.chunk_prev_state_root();
         let epoch_id =
             env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
+        let sync_prev_header =
+            env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
+        let sync_prev_prev_hash = sync_prev_header.prev_hash();
         let state_part = env.clients[0]
             .runtime_adapter
-            .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), PartId::new(0, 1))
+            .obtain_state_part(0, &sync_prev_prev_hash, &state_root, PartId::new(0, 1))
             .unwrap();
         env.clients[1]
             .runtime_adapter
-            .apply_state_part(
-                0,
-                chunk_extra.state_root(),
-                PartId::new(0, 1),
-                &state_part,
-                &epoch_id,
-            )
+            .apply_state_part(0, &state_root, PartId::new(0, 1), &state_part, &epoch_id)
             .unwrap();
     }
 
@@ -3621,17 +3621,37 @@ mod contract_precompilation_tests {
     fn test_sync_and_call_cached_contract() {
         init_integration_logger();
         let num_clients = 2;
-        let stores: Vec<Store> = (0..num_clients).map(|_| create_test_store()).collect();
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
 
+        let env_objects = (0..num_clients).map(|_|{
+            let tmp_dir = tempfile::tempdir().unwrap();
+            // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
+            // same configuration as in production.
+            let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
+                .open()
+                .unwrap()
+                .get_hot_store();
+            let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+            let runtime =
+                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+                    as Arc<dyn RuntimeAdapter>;
+            (tmp_dir,store,epoch_manager,runtime)
+        }).collect::<Vec<(tempfile::TempDir,Store,Arc<EpochManagerHandle>,Arc<dyn RuntimeAdapter>)>>();
+
+        let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
+        let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();
+        let runtimes = env_objects.iter().map(|x| x.3.clone()).collect::<Vec<_>>();
+
         let mut env = TestEnv::builder(ChainGenesis::test())
-            .clients_count(num_clients)
+            .clients_count(env_objects.len())
             .stores(stores.clone())
-            .real_epoch_managers(&genesis.config)
-            .nightshade_runtimes(&genesis)
+            .epoch_managers(epoch_managers)
+            .runtimes(runtimes)
+            .use_state_snapshots()
             .build();
+
         let start_height = 1;
 
         // Process test contract deployment on the first client.
@@ -3640,7 +3660,7 @@ mod contract_precompilation_tests {
             &mut env,
             "test0".parse().unwrap(),
             &wasm_code,
-            EPOCH_LENGTH,
+            EPOCH_LENGTH + 1,
             start_height,
         );
 
@@ -3714,17 +3734,37 @@ mod contract_precompilation_tests {
     #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
     fn test_two_deployments() {
         let num_clients = 2;
-        let stores: Vec<Store> = (0..num_clients).map(|_| create_test_store()).collect();
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
 
+        let env_objects = (0..num_clients).map(|_|{
+            let tmp_dir = tempfile::tempdir().unwrap();
+            // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
+            // same configuration as in production.
+            let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
+                .open()
+                .unwrap()
+                .get_hot_store();
+            let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+            let runtime =
+                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+                    as Arc<dyn RuntimeAdapter>;
+            (tmp_dir,store,epoch_manager,runtime)
+        }).collect::<Vec<(tempfile::TempDir,Store,Arc<EpochManagerHandle>,Arc<dyn RuntimeAdapter>)>>();
+
+        let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
+        let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();
+        let runtimes = env_objects.iter().map(|x| x.3.clone()).collect::<Vec<_>>();
+
         let mut env = TestEnv::builder(ChainGenesis::test())
-            .clients_count(num_clients)
+            .clients_count(env_objects.len())
             .stores(stores.clone())
-            .real_epoch_managers(&genesis.config)
-            .nightshade_runtimes(&genesis)
+            .epoch_managers(epoch_managers)
+            .runtimes(runtimes)
+            .use_state_snapshots()
             .build();
+
         let mut height = 1;
 
         // Process tiny contract deployment on the first client.
@@ -3746,7 +3786,7 @@ mod contract_precompilation_tests {
             &mut env,
             "test0".parse().unwrap(),
             &wasm_code,
-            EPOCH_LENGTH,
+            EPOCH_LENGTH + 1,
             height,
         );
 
@@ -3787,20 +3827,41 @@ mod contract_precompilation_tests {
     #[test]
     #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
     fn test_sync_after_delete_account() {
+        init_test_logger();
         let num_clients = 3;
-        let stores: Vec<Store> = (0..num_clients).map(|_| create_test_store()).collect();
         let mut genesis = Genesis::test(
             vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()],
             1,
         );
         genesis.config.epoch_length = EPOCH_LENGTH;
 
+        let env_objects = (0..num_clients).map(|_|{
+            let tmp_dir = tempfile::tempdir().unwrap();
+            // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
+            // same configuration as in production.
+            let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
+                .open()
+                .unwrap()
+                .get_hot_store();
+            let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+            let runtime =
+                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+                    as Arc<dyn RuntimeAdapter>;
+            (tmp_dir,store,epoch_manager,runtime)
+        }).collect::<Vec<(tempfile::TempDir,Store,Arc<EpochManagerHandle>,Arc<dyn RuntimeAdapter>)>>();
+
+        let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
+        let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();
+        let runtimes = env_objects.iter().map(|x| x.3.clone()).collect::<Vec<_>>();
+
         let mut env = TestEnv::builder(ChainGenesis::test())
-            .clients_count(num_clients)
+            .clients_count(env_objects.len())
             .stores(stores.clone())
-            .real_epoch_managers(&genesis.config)
-            .nightshade_runtimes(&genesis)
+            .epoch_managers(epoch_managers)
+            .runtimes(runtimes)
+            .use_state_snapshots()
             .build();
+
         let mut height = 1;
 
         // Process test contract deployment on the first client.
@@ -3828,7 +3889,7 @@ mod contract_precompilation_tests {
             env.clients[0].process_tx(delete_account_tx, false, false),
             ProcessTxResponse::ValidTx
         );
-        height = produce_blocks_from_height(&mut env, EPOCH_LENGTH, height);
+        height = produce_blocks_from_height(&mut env, EPOCH_LENGTH + 1, height);
 
         // Perform state sync for the second client.
         state_sync_on_height(&mut env, height - 1);
