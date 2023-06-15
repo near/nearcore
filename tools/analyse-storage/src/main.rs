@@ -1,4 +1,5 @@
 use clap::Parser;
+use near_store::db::RocksDB;
 use near_store::{col_name, DBCol};
 use rayon::prelude::*;
 use rocksdb::{Options, DB};
@@ -178,6 +179,8 @@ fn main() {
     opts.set_max_open_files(10_000);
     opts.set_wal_recovery_mode(rocksdb::DBRecoveryMode::SkipAnyCorruptedRecord);
     opts.increase_parallelism(std::cmp::max(1, 32));
+    opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
+    opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
 
     // Define column families
     let col_families = match args.column {
