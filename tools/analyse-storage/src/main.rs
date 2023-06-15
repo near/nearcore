@@ -2,7 +2,7 @@ use clap::Parser;
 use near_store::db::RocksDB;
 use near_store::{col_name, DBCol};
 use rayon::prelude::*;
-use rocksdb::{Options, DB};
+use rocksdb::{ColumnFamilyDescriptor, Options, DB};
 use std::collections::HashMap;
 use std::println;
 use std::sync::{Arc, Mutex};
@@ -18,62 +18,59 @@ struct Cli {
     limit: Option<usize>,
 }
 
-fn get_all_col_familiy_names() -> Vec<String> {
+fn get_all_col_familiy_names() -> Vec<DBCol> {
     Vec::from([
-        col_name(DBCol::BlockMisc),
-        col_name(DBCol::Block),
-        col_name(DBCol::DbVersion),
-        col_name(DBCol::BlockHeader),
-        col_name(DBCol::BlockHeight),
-        col_name(DBCol::State),
-        col_name(DBCol::ChunkExtra),
-        col_name(DBCol::_TransactionResult),
-        col_name(DBCol::OutgoingReceipts),
-        col_name(DBCol::IncomingReceipts),
-        col_name(DBCol::_Peers),
-        col_name(DBCol::EpochInfo),
-        col_name(DBCol::BlockInfo),
-        col_name(DBCol::Chunks),
-        col_name(DBCol::PartialChunks),
-        col_name(DBCol::BlocksToCatchup),
-        col_name(DBCol::StateDlInfos),
-        col_name(DBCol::ChallengedBlocks),
-        col_name(DBCol::StateHeaders),
-        col_name(DBCol::InvalidChunks),
-        col_name(DBCol::BlockExtra),
-        col_name(DBCol::BlockPerHeight),
-        col_name(DBCol::StateParts),
-        col_name(DBCol::EpochStart),
-        col_name(DBCol::AccountAnnouncements),
-        col_name(DBCol::NextBlockHashes),
-        col_name(DBCol::EpochLightClientBlocks),
-        col_name(DBCol::ReceiptIdToShardId),
-        col_name(DBCol::_NextBlockWithNewChunk),
-        col_name(DBCol::_LastBlockWithNewChunk),
-        col_name(DBCol::PeerComponent),
-        col_name(DBCol::ComponentEdges),
-        col_name(DBCol::LastComponentNonce),
-        col_name(DBCol::Transactions),
-        col_name(DBCol::_ChunkPerHeightShard),
-        col_name(DBCol::StateChanges),
-        col_name(DBCol::BlockRefCount),
-        col_name(DBCol::TrieChanges),
-        col_name(DBCol::BlockMerkleTree),
-        col_name(DBCol::ChunkHashesByHeight),
-        col_name(DBCol::BlockOrdinal),
-        col_name(DBCol::_GCCount),
-        col_name(DBCol::OutcomeIds),
-        col_name(DBCol::_TransactionRefCount),
-        col_name(DBCol::ProcessedBlockHeights),
-        col_name(DBCol::Receipts),
-        col_name(DBCol::CachedContractCode),
-        col_name(DBCol::EpochValidatorInfo),
-        col_name(DBCol::HeaderHashesByHeight),
-        col_name(DBCol::StateChangesForSplitStates),
+        DBCol::BlockMisc,
+        DBCol::Block,
+        DBCol::DbVersion,
+        DBCol::BlockHeader,
+        DBCol::BlockHeight,
+        DBCol::State,
+        DBCol::ChunkExtra,
+        DBCol::_TransactionResult,
+        DBCol::OutgoingReceipts,
+        DBCol::IncomingReceipts,
+        DBCol::_Peers,
+        DBCol::EpochInfo,
+        DBCol::BlockInfo,
+        DBCol::Chunks,
+        DBCol::PartialChunks,
+        DBCol::BlocksToCatchup,
+        DBCol::StateDlInfos,
+        DBCol::ChallengedBlocks,
+        DBCol::StateHeaders,
+        DBCol::InvalidChunks,
+        DBCol::BlockExtra,
+        DBCol::BlockPerHeight,
+        DBCol::StateParts,
+        DBCol::EpochStart,
+        DBCol::AccountAnnouncements,
+        DBCol::NextBlockHashes,
+        DBCol::EpochLightClientBlocks,
+        DBCol::ReceiptIdToShardId,
+        DBCol::_NextBlockWithNewChunk,
+        DBCol::_LastBlockWithNewChunk,
+        DBCol::PeerComponent,
+        DBCol::ComponentEdges,
+        DBCol::LastComponentNonce,
+        DBCol::Transactions,
+        DBCol::_ChunkPerHeightShard,
+        DBCol::StateChanges,
+        DBCol::BlockRefCount,
+        DBCol::TrieChanges,
+        DBCol::BlockMerkleTree,
+        DBCol::ChunkHashesByHeight,
+        DBCol::BlockOrdinal,
+        DBCol::_GCCount,
+        DBCol::OutcomeIds,
+        DBCol::_TransactionRefCount,
+        DBCol::ProcessedBlockHeights,
+        DBCol::Receipts,
+        DBCol::CachedContractCode,
+        DBCol::EpochValidatorInfo,
+        DBCol::HeaderHashesByHeight,
+        DBCol::StateChangesForSplitStates,
     ])
-    .into_iter()
-    .map(|s| s.to_string())
-    .collect()
 }
 
 fn print_results(
@@ -112,6 +109,17 @@ fn print_results(
         println!("Size: {}, Count: {}", size, count);
     }
     println!("");
+}
+
+fn rocksdb_column_options(col: DBCol) -> Options {
+    let mut opts = Options::default();
+    opts.set_level_compaction_dynamic_level_bytes(true);
+
+    if col.is_rc() {
+        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
+        opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
+    }
+    opts
 }
 
 fn read_all_pairs(
@@ -170,6 +178,43 @@ fn read_all_pairs(
     (key_sizes_sorted, value_sizes_sorted)
 }
 
+fn get_column_family_options(
+    input_col: Option<String>,
+) -> (Vec<String>, Vec<ColumnFamilyDescriptor>) {
+    match input_col {
+        Some(col_name) => {
+            let mut opts = Options::default();
+            if col_name == "col5" {
+                opts.set_merge_operator(
+                    "refcount merge",
+                    RocksDB::refcount_merge,
+                    RocksDB::refcount_merge,
+                );
+                opts.set_compaction_filter(
+                    "empty value filter",
+                    RocksDB::empty_value_compaction_filter,
+                );
+            }
+            (vec![col_name.clone()], vec![ColumnFamilyDescriptor::new(col_name, opts)])
+        }
+        None => {
+            let col_families = get_all_col_familiy_names();
+            (
+                col_families.iter().map(|db_col| col_name(*db_col).to_string()).collect(),
+                col_families
+                    .iter()
+                    .map(|db_col| {
+                        ColumnFamilyDescriptor::new(
+                            col_name(*db_col),
+                            rocksdb_column_options(*db_col),
+                        )
+                    })
+                    .collect(),
+            )
+        }
+    }
+}
+
 fn main() {
     let args = Cli::parse();
 
@@ -179,17 +224,13 @@ fn main() {
     opts.set_max_open_files(10_000);
     opts.set_wal_recovery_mode(rocksdb::DBRecoveryMode::SkipAnyCorruptedRecord);
     opts.increase_parallelism(std::cmp::max(1, 32));
-    opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
-    opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
 
     // Define column families
-    let col_families = match args.column {
-        Some(col_name) => vec![col_name],
-        None => get_all_col_familiy_names(),
-    };
+    let (col_families, col_families_cf) = get_column_family_options(args.column);
 
     // Open db
-    let db = DB::open_cf_for_read_only(&opts, args.db_path, col_families.clone(), false).unwrap();
+    let db =
+        DB::open_cf_descriptors_read_only(&opts, args.db_path, col_families_cf, false).unwrap();
     let (key_sizes_sorted, value_sizes_sorted) = read_all_pairs(&db, &col_families);
     let total_num_of_pairs = key_sizes_sorted.iter().map(|(_, count)| count).sum::<usize>();
 

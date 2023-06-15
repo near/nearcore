@@ -159,11 +159,7 @@ impl RocksDB {
     }
 
     /// Compaction filter for DBCol::State
-    pub fn empty_value_compaction_filter(
-        _level: u32,
-        _key: &[u8],
-        value: &[u8],
-    ) -> Decision {
+    pub fn empty_value_compaction_filter(_level: u32, _key: &[u8], value: &[u8]) -> Decision {
         if value.is_empty() {
             Decision::Remove
         } else {
