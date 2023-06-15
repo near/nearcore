@@ -302,17 +302,6 @@ def evaluate_rpc_result(rpc_result):
     return result
 
 
-def is_tag_active(environment, tag):
-    run_all = environment.parsed_options.tags is None and \
-        environment.parsed_options.exclude_tags is None
-    opt_in = environment.parsed_options.tags is not None \
-        and tag in environment.parsed_options.tags
-    not_excluded = environment.parsed_options.tags is None \
-        and not environment.parsed_options.exclude_tags is None \
-        and not tag in environment.parsed_options.exclude_tags
-    return run_all or opt_in or not_excluded
-
-
 # called once per process before user initialization
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
