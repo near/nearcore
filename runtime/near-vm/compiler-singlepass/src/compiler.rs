@@ -82,12 +82,14 @@ impl Compiler for SinglepassCompiler {
             })?
             .bytes();
         let vmoffsets = VMOffsets::new(pointer_width).with_module_info(&module);
+        const KB: usize = 1024;
+        let mut assembler = dynasmrt::VecAssembler::new_with_capacity(0, 128 * KB, 0, 0, KB, 0, KB);
         let import_idxs = 0..module.import_counts.functions as usize;
         let import_trampolines: PrimaryMap<SectionIndex, _> =
             tracing::info_span!("import_trampolines", n_imports = import_idxs.len()).in_scope(
                 || {
                     import_idxs
-                        .into_par_iter_if_rayon()
+                        .into_iter()
                         .map(|i| {
                             let i = FunctionIndex::new(i);
                             gen_import_call_trampoline(
@@ -95,6 +97,7 @@ impl Compiler for SinglepassCompiler {
                                 i,
                                 &module.signatures[module.functions[i]],
                                 calling_convention,
+                                &mut assembler,
                             )
                         })
                         .collect::<Vec<_>>()
@@ -105,7 +108,7 @@ impl Compiler for SinglepassCompiler {
         let functions = function_body_inputs
             .iter()
             .collect::<Vec<(LocalFunctionIndex, &FunctionBodyData<'_>)>>()
-            .into_par_iter_if_rayon()
+            .into_iter()
             .map(|(i, input)| {
                 tracing::info_span!("function", i = i.index()).in_scope(|| {
                     let reader =
@@ -120,6 +123,7 @@ impl Compiler for SinglepassCompiler {
                             ))
                         })?;
                     let mut generator = FuncGen::new(
+                        &mut assembler,
                         module,
                         &self.config,
                         &target,
@@ -168,8 +172,10 @@ impl Compiler for SinglepassCompiler {
                     .signatures
                     .values()
                     .collect::<Vec<_>>()
-                    .into_par_iter_if_rayon()
-                    .map(|func_type| gen_std_trampoline(&func_type, calling_convention))
+                    .into_iter()
+                    .map(|func_type| {
+                        gen_std_trampoline(&func_type, calling_convention, &mut assembler)
+                    })
                     .collect::<Vec<_>>()
                     .into_iter()
                     .collect::<PrimaryMap<_, _>>()
@@ -180,12 +186,13 @@ impl Compiler for SinglepassCompiler {
                 module
                     .imported_function_types()
                     .collect::<Vec<_>>()
-                    .into_par_iter_if_rayon()
+                    .into_iter()
                     .map(|func_type| {
                         gen_std_dynamic_import_trampoline(
                             &vmoffsets,
                             &func_type,
                             calling_convention,
+                            &mut assembler,
                         )
                     })
                     .collect::<Vec<_>>()
