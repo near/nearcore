@@ -2585,7 +2585,7 @@ fn test_catchup_gas_price_change() {
             NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
                 as Arc<dyn RuntimeAdapter>;
         (tmp_dir,store,epoch_manager,runtime)
-    }).collect::<Vec<(tempfile::TempDir,Store,Arc<EpochManagerHandle>,Arc<dyn RuntimeAdapter>)>>();
+    }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
 
     let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
     let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();
@@ -3638,7 +3638,7 @@ mod contract_precompilation_tests {
                 NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
                     as Arc<dyn RuntimeAdapter>;
             (tmp_dir,store,epoch_manager,runtime)
-        }).collect::<Vec<(tempfile::TempDir,Store,Arc<EpochManagerHandle>,Arc<dyn RuntimeAdapter>)>>();
+        }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
 
         let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
         let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();
@@ -3751,7 +3751,7 @@ mod contract_precompilation_tests {
                 NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
                     as Arc<dyn RuntimeAdapter>;
             (tmp_dir,store,epoch_manager,runtime)
-        }).collect::<Vec<(tempfile::TempDir,Store,Arc<EpochManagerHandle>,Arc<dyn RuntimeAdapter>)>>();
+        }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
 
         let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
         let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();
@@ -3848,7 +3848,7 @@ mod contract_precompilation_tests {
                 NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
                     as Arc<dyn RuntimeAdapter>;
             (tmp_dir,store,epoch_manager,runtime)
-        }).collect::<Vec<(tempfile::TempDir,Store,Arc<EpochManagerHandle>,Arc<dyn RuntimeAdapter>)>>();
+        }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
 
         let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
         let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();

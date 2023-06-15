@@ -293,6 +293,14 @@ pub fn start_with_config_and_synchronization(
         config.client_config.clone(),
         adv.clone(),
     );
+    let make_state_snapshot_callback =
+        if let (Some(flat_storage_manager), Some(state_snapshot_actor)) =
+            (runtime.get_flat_storage_manager(), state_snapshot_actor)
+        {
+            Some(get_make_snapshot_callback(state_snapshot_actor, flat_storage_manager))
+        } else {
+            None
+        };
     let (client_actor, client_arbiter_handle) = start_client(
         config.client_config.clone(),
         chain_genesis.clone(),
@@ -304,13 +312,7 @@ pub fn start_with_config_and_synchronization(
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
         telemetry,
-        if let (Some(flat_storage_manager), Some(state_snapshot_actor)) =
-            (runtime.get_flat_storage_manager(), state_snapshot_actor)
-        {
-            Some(get_make_snapshot_callback(state_snapshot_actor, flat_storage_manager))
-        } else {
-            None
-        },
+        make_state_snapshot_callback,
         shutdown_signal,
         adv,
         config_updater,
