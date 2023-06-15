@@ -19,7 +19,6 @@ use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
-use near_primitives::hash::CryptoHash;
 use near_store::flat::FlatStateValuesInliningMigrationHandle;
 use near_store::metadata::DbKind;
 use near_store::metrics::spawn_db_metrics_loop;
