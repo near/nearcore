@@ -169,8 +169,7 @@ def on_locust_init(environment, **kwargs):
 @events.init_command_line_parser.add_listener
 def _(parser):
     parser.add_argument("--fungible-token-wasm",
-                        type=str,
-                        required=False,
+                        default="res/fungible_token.wasm",
                         help="Path to the compiled Fungible Token contract")
     parser.add_argument(
         "--num-ft-contracts",
