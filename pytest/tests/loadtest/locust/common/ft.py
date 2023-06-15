@@ -11,7 +11,7 @@ import key
 import transaction
 
 from account import TGAS
-from common.base import Account, CreateSubAccount, Deploy, NearUser, is_tag_active, send_transaction, Transaction
+from common.base import Account, CreateSubAccount, Deploy, NearUser, send_transaction, Transaction
 
 
 class FTContract:
@@ -127,14 +127,11 @@ class InitFTAccount(Transaction):
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
-    if not is_tag_active(environment, "ft"):
-        return
-
     if environment.parsed_options.fungible_token_wasm is None:
         raise SystemExit(
             f"Running FT workload requires `--fungible_token_wasm $FT_CONTRACT`. "
-            "Either provide the WASM (e.g. nearcore/runtime/near-test-contracts/res/fungible_token.wasm) "
-            "or run with `--exclude-tag ft`")
+            "Provide the WASM (e.g. nearcore/runtime/near-test-contracts/res/fungible_token.wasm)."
+        )
 
     # Note: These setup requests are not tracked by locust because we use our own http session
     host, port = environment.host.split(":")
