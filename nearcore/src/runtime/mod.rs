@@ -160,14 +160,14 @@ impl NightshadeRuntime {
             flat_storage_manager.clone(),
             state_snapshot_config,
         );
-            if let Err(err) = tries.maybe_open_state_snapshot(|prev_block_hash: CryptoHash| {
-                let epoch_manager = epoch_manager.read();
-                let epoch_id = epoch_manager.get_epoch_id(&prev_block_hash)?;
-                let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-                Ok(shard_layout.get_shard_uids())
-            }) {
-                tracing::error!(target: "runtime", ?err, "Failed to check if a state snapshot exists");
-            }
+        if let Err(err) = tries.maybe_open_state_snapshot(|prev_block_hash: CryptoHash| {
+            let epoch_manager = epoch_manager.read();
+            let epoch_id = epoch_manager.get_epoch_id(&prev_block_hash)?;
+            let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+            Ok(shard_layout.get_shard_uids())
+        }) {
+            tracing::error!(target: "runtime", ?err, "Failed to check if a state snapshot exists");
+        }
 
         Arc::new(NightshadeRuntime {
             genesis_config,

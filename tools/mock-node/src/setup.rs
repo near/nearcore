@@ -369,7 +369,7 @@ mod tests {
                                 *nonce.write().unwrap() = next_nonce + 1;
                             }
 
-                            if block.header.height >= epoch_length * 2 + 2{
+                            if block.header.height >= epoch_length * 2 + 2 {
                                 System::current().stop()
                             }
                         }
@@ -394,10 +394,10 @@ mod tests {
         run_actix(async {
             let MockNode { rpc_client, .. } = setup_mock_node(
                 dir1.path(),
-                dir0.path(),
+                dir.path(),
                 near_config1,
                 &network_config,
-                epoch_length*2,
+                epoch_length * 2,
                 None,
                 None,
                 false,
@@ -405,7 +405,7 @@ mod tests {
             );
             wait_or_timeout(100, 60000, || async {
                 if let Ok(status) = rpc_client.status().await {
-                    if status.sync_info.latest_block_height >= epoch_length * 2{
+                    if status.sync_info.latest_block_height >= epoch_length * 2 {
                         System::current().stop();
                         return ControlFlow::Break(());
                     }
