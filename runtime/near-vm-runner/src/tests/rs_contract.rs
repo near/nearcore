@@ -1,8 +1,8 @@
-use near_primitives::contract::ContractCode;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::test_utils::encode;
 use near_primitives::transaction::{Action, FunctionCallAction};
-use near_primitives::types::Balance;
+use near_primitives_core::contract::ContractCode;
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
+use near_primitives_core::types::Balance;
 use near_vm_errors::{FunctionCallError, HostError, WasmTrap};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
