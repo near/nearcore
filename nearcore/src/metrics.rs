@@ -218,7 +218,7 @@ fn get_postponed_receipt_count_for_trie(trie: Trie) -> Result<i64, anyhow::Error
                 continue;
             }
         };
-        if key.len() > 0 && key[0] != trie_key::col::POSTPONED_RECEIPT {
+        if !key.is_empty() && key[0] != trie_key::col::POSTPONED_RECEIPT {
             tracing::trace!(target: "metrics", "trie-stats - stopping iteration as reached other col type.");
             break;
         }
