@@ -15,7 +15,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, Transaction,
 };
 use near_primitives::types::{AccountId, Balance, Compute, Gas};
-use near_primitives::version::{is_implicit_account_creation_enabled, ProtocolVersion};
+use near_primitives::version::{checked_feature, ProtocolVersion};
 
 /// Describes the cost of converting this transaction into a receipt.
 #[derive(Debug)]
@@ -102,7 +102,7 @@ pub fn total_send_fees(
             Transfer(_) => {
                 // Account for implicit account creation
                 let is_receiver_implicit =
-                    is_implicit_account_creation_enabled(current_protocol_version)
+                    checked_feature!("stable", ImplicitAccountCreation, current_protocol_version)
                         && receiver_id.is_implicit();
                 transfer_send_fee(config, sender_is_receiver, is_receiver_implicit)
             }
@@ -205,7 +205,7 @@ pub fn exec_fee(
         Transfer(_) => {
             // Account for implicit account creation
             let is_receiver_implicit =
-                is_implicit_account_creation_enabled(current_protocol_version)
+                checked_feature!("stable", ImplicitAccountCreation, current_protocol_version)
                     && receiver_id.is_implicit();
             transfer_exec_fee(config, is_receiver_implicit)
         }
