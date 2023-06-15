@@ -97,7 +97,7 @@ All available workloads can be found in `locustfiles` folder.
 Currently supported load types:
 
 | load type | file | args | description |
-|---|---|---|---|---|
+|---|---|---|---|
 | Fungible Token | ft.py | `--fungible-token-wasm $WASM_PATH` <br> (`--num-ft-contracts $N`) |  Creates `$N` FT contracts per worker, registers each user in one of them. Users transfer FTs between each other. |
 | Social DB  | social.py | `--social-db-wasm $WASM_PATH` | Creates a single instance of SocialDB and registers users to it. Users post messages and follow other users. (More workload TBD) |
 | Congestion | congestion.py | `--congestion-wasm $WASM_PATH` | Creates a single instance of Congestion contract. Users run large and long transactions. |
