@@ -1,10 +1,10 @@
 use crate::errors::{ContractPrecompilatonResult, IntoVMError};
 use crate::internal::VMKind;
 use crate::{imports, prepare};
-use near_primitives::config::VMConfig;
-use near_primitives::contract::ContractCode;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::version::ProtocolVersion;
+use near_primitives_core::config::VMConfig;
+use near_primitives_core::contract::ContractCode;
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
+use near_primitives_core::types::ProtocolVersion;
 use near_vm_errors::{
     CompilationError, CompiledContractCache, FunctionCallError, MethodResolveError, PrepareError,
     VMLogicError, VMRunnerError, WasmTrap,
@@ -211,7 +211,13 @@ impl crate::runner::VM for WasmtimeVM {
         // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
         // lifetimes of the logic instance and pass raw pointers here.
         let raw_logic = &mut logic as *mut _ as *mut c_void;
-        imports::wasmtime::link(&mut linker, memory_copy, raw_logic, current_protocol_version);
+        imports::wasmtime::link(
+            &mut linker,
+            memory_copy,
+            &store,
+            raw_logic,
+            current_protocol_version,
+        );
         match module.get_export(method_name) {
             Some(export) => match export {
                 Func(func_type) => {
