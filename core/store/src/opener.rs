@@ -602,13 +602,20 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     // As only path from config is used in StoreOpener, default config with custom path will do.
     let mut config = StoreConfig::default();
     config.path = Some(checkpoint_path);
-    let opener = StoreOpener::new(checkpoint_base_path, false, &config, None);
+    let archive = hot_store.get_db_kind()? == Some(DbKind::Archive);
+    let opener = StoreOpener::new(checkpoint_base_path, archive, &config, None);
     let node_storage = opener.open()?;
 
     if let Some(columns_to_keep) = columns_to_keep {
         let columns_to_keep_set: std::collections::HashSet<DBCol> =
             std::collections::HashSet::from_iter(columns_to_keep.into_iter());
         let mut transaction = DBTransaction::new();
+        // Force the checkpoint to be a Hot DB kind to simplify opening the snapshots later.
+        transaction.set(
+            DBCol::DbVersion,
+            crate::metadata::KIND_KEY.to_vec(),
+            <&str>::from(DbKind::Hot).as_bytes().to_vec(),
+        );
 
         for col in DBCol::iter() {
             if !columns_to_keep_set.contains(&col) {

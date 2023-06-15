@@ -31,12 +31,13 @@ if not config['local']:
                 "secs": 24,
                 "nanos": 0,
             },
-        }
+        },
     }
     TIMEOUT = 600
 
+client_config_changes['state_sync_enabled'] = True
 client_config_changes['archive'] = True
-client_config_changes['store.state_snapshot_enabled'] = False
+client_config_changes['store.state_snapshot_enabled'] = True
 
 nodes = start_cluster(
     4, 0, 4, None,

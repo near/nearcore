@@ -11,7 +11,7 @@ from cluster import start_cluster
 from configured_logger import logger
 from transaction import sign_staking_tx
 
-EPOCH_LENGTH = 50
+EPOCH_LENGTH = 30
 HEIGHT_GOAL = int(EPOCH_LENGTH * 7.5)
 TIMEOUT = HEIGHT_GOAL * 3
 
