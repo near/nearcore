@@ -24,7 +24,6 @@ hashbrown = { workspace = true, optional = true }
 lazy_static.workspace = true
 memoffset.workspace = true
 more-asserts.workspace = true
-rayon = { workspace = true, optional = true }
 smallvec.workspace = true
 strum.workspace = true
 tracing.workspace = true
@@ -34,6 +33,3 @@ target-lexicon.workspace = true
 
 [badges]
 maintenance = { status = "actively-developed" }
-
-[features]
-default = ["rayon"]

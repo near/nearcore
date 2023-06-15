@@ -4295,7 +4295,6 @@ dependencies = [
  "near-vm-compiler",
  "near-vm-types",
  "near-vm-vm",
- "rayon",
  "smallvec",
  "strum",
  "target-lexicon 0.12.3",

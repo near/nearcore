@@ -17,8 +17,6 @@ use near_vm_types::{
     FunctionIndex, FunctionType, LocalFunctionIndex, MemoryIndex, ModuleInfo, TableIndex,
 };
 use near_vm_vm::{TrapCode, VMOffsets};
-#[cfg(feature = "rayon")]
-use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::sync::Arc;
 
 /// A compiler that compiles a WebAssembly module with Singlepass.
@@ -223,27 +221,6 @@ impl ToCompileError for CodegenError {
 
 fn to_compile_error<T: ToCompileError>(x: T) -> CompileError {
     x.to_compile_error()
-}
-
-trait IntoParIterIfRayon {
-    type Output;
-    fn into_par_iter_if_rayon(self) -> Self::Output;
-}
-
-#[cfg(feature = "rayon")]
-impl<T: IntoParallelIterator + IntoIterator> IntoParIterIfRayon for T {
-    type Output = <T as IntoParallelIterator>::Iter;
-    fn into_par_iter_if_rayon(self) -> Self::Output {
-        return self.into_par_iter();
-    }
-}
-
-#[cfg(not(feature = "rayon"))]
-impl<T: IntoIterator> IntoParIterIfRayon for T {
-    type Output = <T as IntoIterator>::IntoIter;
-    fn into_par_iter_if_rayon(self) -> Self::Output {
-        return self.into_iter();
-    }
 }
 
 #[cfg(test)]
