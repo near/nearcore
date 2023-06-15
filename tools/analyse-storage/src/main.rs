@@ -146,8 +146,8 @@ fn read_all_pairs(
                     let value_len = tuple.1.len();
                     *local_value_sizes.entry(value_len).or_insert(0) += 1;
                 }
-                Err(_) => {
-                    println!("Error occured during iteration");
+                Err(err) => {
+                    panic!("Error occured during iteration of {}: {}", col_family, err);
                 }
             }
         }
