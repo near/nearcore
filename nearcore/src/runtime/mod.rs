@@ -915,7 +915,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         }
         debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", transactions.len(), num_checked_transactions);
-        metrics::PREPARE_TX_SIZE_HIST
+        metrics::PREPARE_TX_SIZE
             .with_label_values(&[&shard_id.to_string()])
             .observe(total_size as f64);
         Ok(transactions)
