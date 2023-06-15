@@ -556,8 +556,8 @@ def doit(s, n, N, k, monkeys, timeout):
             "consensus": {
                 "block_header_fetch_horizon": BLOCK_HEADER_FETCH_HORIZON,
                 "state_sync_timeout": {
-                    "secs": 5,
-                    "nanos": 0
+                    "secs": 0,
+                    "nanos": 500000000
                 }
             },
             "state_sync_enabled": True,

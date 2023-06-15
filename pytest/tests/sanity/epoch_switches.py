@@ -11,9 +11,9 @@ from cluster import start_cluster
 from configured_logger import logger
 from transaction import sign_staking_tx
 
-HEIGHT_GOAL = 150
+EPOCH_LENGTH = 50
+HEIGHT_GOAL = int(EPOCH_LENGTH * 7.5)
 TIMEOUT = HEIGHT_GOAL * 3
-EPOCH_LENGTH = 20
 
 config = None
 nodes = start_cluster(
@@ -28,8 +28,8 @@ nodes = start_cluster(
             "state_sync_enabled": True,
             "consensus": {
                 "state_sync_timeout": {
-                    "secs": 2,
-                    "nanos": 0
+                    "secs": 0,
+                    "nanos": 500000000
                 }
             }
         },
@@ -41,8 +41,8 @@ nodes = start_cluster(
             "state_sync_enabled": True,
             "consensus": {
                 "state_sync_timeout": {
-                    "secs": 2,
-                    "nanos": 0
+                    "secs": 0,
+                    "nanos": 500000000
                 }
             }
         },
@@ -55,8 +55,8 @@ nodes = start_cluster(
             "state_sync_enabled": True,
             "consensus": {
                 "state_sync_timeout": {
-                    "secs": 2,
-                    "nanos": 0
+                    "secs": 0,
+                    "nanos": 500000000
                 }
             }
         },
@@ -68,8 +68,8 @@ nodes = start_cluster(
             "state_sync_enabled": True,
             "consensus": {
                 "state_sync_timeout": {
-                    "secs": 2,
-                    "nanos": 0
+                    "secs": 0,
+                    "nanos": 500000000
                 }
             }
         }
