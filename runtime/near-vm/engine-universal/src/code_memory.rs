@@ -25,10 +25,7 @@ pub struct CodeMemory {
 impl CodeMemory {
     /// Create a new `CodeMemory` instance.
     pub fn new() -> Self {
-        Self {
-            mmap: Mmap::new(),
-            start_of_nonexecutable_pages: 0,
-        }
+        Self { mmap: Mmap::new(), start_of_nonexecutable_pages: 0 }
     }
 
     /// Allocate a single contiguous block of memory for the functions and custom sections, and copy the data in place.
@@ -141,10 +138,7 @@ impl CodeMemory {
     /// Copies the data of the compiled function to the given buffer.
     ///
     /// This will also add the function to the current function table.
-    fn copy_function<'a>(
-        func: FunctionBodyRef<'_>,
-        buf: &'a mut [u8],
-    ) -> &'a mut [VMFunctionBody] {
+    fn copy_function<'a>(func: FunctionBodyRef<'_>, buf: &'a mut [u8]) -> &'a mut [VMFunctionBody] {
         assert_eq!(buf.as_ptr() as usize % ARCH_FUNCTION_ALIGNMENT, 0);
 
         let func_len = func.body.len();

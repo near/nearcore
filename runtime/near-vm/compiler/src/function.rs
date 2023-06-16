@@ -7,10 +7,7 @@
 use crate::lib::std::vec::Vec;
 use crate::section::{CustomSection, SectionIndex};
 use crate::trap::TrapInformation;
-use crate::{
-    FunctionAddressMap,
-    JumpTableOffsets, Relocation,
-};
+use crate::{FunctionAddressMap, JumpTableOffsets, Relocation};
 use near_vm_types::entity::PrimaryMap;
 use near_vm_types::{FunctionIndex, LocalFunctionIndex, SignatureIndex};
 
@@ -47,17 +44,13 @@ pub struct FunctionBodyRef<'a> {
 
 impl<'a> From<&'a FunctionBody> for FunctionBodyRef<'a> {
     fn from(body: &'a FunctionBody) -> Self {
-        FunctionBodyRef {
-            body: &*body.body,
-        }
+        FunctionBodyRef { body: &*body.body }
     }
 }
 
 impl<'a> From<&'a ArchivedFunctionBody> for FunctionBodyRef<'a> {
     fn from(body: &'a ArchivedFunctionBody) -> Self {
-        FunctionBodyRef {
-            body: &*body.body,
-        }
+        FunctionBodyRef { body: &*body.body }
     }
 }
 
