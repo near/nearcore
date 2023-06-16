@@ -53,7 +53,7 @@ mod opener;
 mod rocksdb_metrics;
 mod sync_utils;
 pub mod test_utils;
-mod trie;
+pub mod trie;
 
 pub use crate::config::{Mode, StoreConfig};
 pub use crate::opener::{
