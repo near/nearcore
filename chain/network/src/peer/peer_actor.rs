@@ -2,7 +2,6 @@ use crate::accounts_data::AccountDataError;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
-use crate::network_protocol::SignedIpAddress;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
     PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
@@ -111,8 +110,6 @@ pub(crate) enum ClosingReason {
     TooLargeClockSkew,
     #[error("owned_account.peer_id doesn't match handshake.sender_peer_id")]
     OwnedAccountMismatch,
-    #[error("signed_ip_address's peer address doesn't match tcp stream's peer_addr")]
-    IpAddressMismatch,
     #[error("PeerActor stopped NOT via PeerActor::stop()")]
     Unknown,
 }
@@ -135,7 +132,6 @@ impl ClosingReason {
             ClosingReason::TooLargeClockSkew => true, // reconnect will fail for the same reason
             ClosingReason::OwnedAccountMismatch => true, // misbehaving peer
             ClosingReason::Unknown => false,        // only happens in tests
-            ClosingReason::IpAddressMismatch => true, // invalid ip address or signature must be banned
         }
     }
 }
@@ -290,7 +286,7 @@ impl PeerActor {
         };
         let my_node_info = PeerInfo {
             id: network_state.config.node_id(),
-            addr: Some(stream.local_addr),
+            addr: network_state.config.node_addr.as_ref().map(|a| **a),
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
         // recv is the HandshakeSignal returned by this spawn_inner() call.
@@ -424,10 +420,6 @@ impl PeerActor {
             } else {
                 (0, vec![])
             };
-        let my_signed_ip_address = SignedIpAddress::new(
-            self.my_node_info.addr.unwrap().ip(),
-            &self.network_state.config.node_key,
-        );
         let handshake = Handshake {
             protocol_version: spec.protocol_version,
             oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
@@ -450,7 +442,6 @@ impl PeerActor {
                 }
                 .sign(vc.signer.as_ref())
             }),
-            signed_ip_address: Some(my_signed_ip_address),
         };
         let msg = match spec.tier {
             tcp::Tier::T1 => PeerMessage::Tier1Handshake(handshake),
@@ -573,20 +564,6 @@ impl PeerActor {
                 }
             }
         }
-
-        // Verify the signed IP address is valid.
-        if let Some(signed_ip_address) = &handshake.signed_ip_address {
-            if self.peer_addr.ip() != signed_ip_address.ip_address {
-                self.stop(ctx, ClosingReason::IpAddressMismatch);
-                return;
-            }
-            // Verify signature of the sender on its ip address
-            if !(signed_ip_address.verify(handshake.sender_peer_id.public_key())) {
-                self.stop(ctx, ClosingReason::Ban(ReasonForBan::InvalidSignature));
-                return;
-            }
-        } // else do nothing as temporary leniency for backward compatibility purposes
-          // TODO(soon): Fail the handshake if its doesn't include the required signed_ip_address after all production nodes have upgraded to latest handshake protocol
 
         // Verify that handshake.owned_account is valid.
         if let Some(owned_account) = &handshake.owned_account {

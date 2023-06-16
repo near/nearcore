@@ -454,6 +454,7 @@ pub struct EdgeView {
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub struct NetworkGraphView {
     pub edges: Vec<EdgeView>,
+    pub next_hops: HashMap<PeerId, Vec<PeerId>>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]

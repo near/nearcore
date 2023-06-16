@@ -6,7 +6,11 @@ use nearcore::load_config;
 use std::path::Path;
 
 #[derive(clap::Parser)]
-pub struct UndoBlockCommand {}
+pub struct UndoBlockCommand {
+    /// Only reset the block head to the tail block. Does not reset the header head.
+    #[arg(short, long)]
+    reset_only_body: bool,
+}
 
 impl UndoBlockCommand {
     pub fn run(
@@ -36,6 +40,10 @@ impl UndoBlockCommand {
             near_config.client_config.save_trie_changes,
         );
 
-        crate::undo_block(&mut chain_store, &*epoch_manager)
+        if self.reset_only_body {
+            crate::undo_only_block_head(&mut chain_store, &*epoch_manager)
+        } else {
+            crate::undo_block(&mut chain_store, &*epoch_manager)
+        }
     }
 }
