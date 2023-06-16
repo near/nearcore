@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, AsyncContext, Context};
+use actix_rt::{Arbiter, System};
 use chrono::DateTime;
 use futures::{future, FutureExt};
 use near_async::actix::AddrWithAutoSpanContextExt;
@@ -2396,6 +2397,8 @@ pub fn run_catchup(
         state_split_inside_messages.write().unwrap().push(msg);
     };
     let runtime = client.runtime_adapter.clone();
+    let _ = System::new();
+    let state_parts_arbiter_handle = Arbiter::new().handle();
     loop {
         client.run_catchup(
             highest_height_peers,
@@ -2403,6 +2406,7 @@ pub fn run_catchup(
             &block_catch_up,
             &state_split,
             Arc::new(|_| {}),
+            &state_parts_arbiter_handle,
         )?;
         let mut catchup_done = true;
         for msg in block_messages.write().unwrap().drain(..) {

@@ -9,6 +9,7 @@ use crate::sync::epoch::EpochSync;
 use crate::sync::header::HeaderSync;
 use crate::sync::state::{format_shard_sync_phase, StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
+use actix_rt::ArbiterHandle;
 use lru::LruCache;
 use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
@@ -2115,6 +2116,7 @@ impl Client {
         block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
         apply_chunks_done_callback: DoneApplyChunkCallback,
+        state_parts_arbiter_handle: &ArbiterHandle,
     ) -> Result<(), Error> {
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos()? {
@@ -2186,6 +2188,7 @@ impl Client {
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
                 state_parts_task_scheduler,
                 state_split_scheduler,
+                state_parts_arbiter_handle,
                 use_colour,
             )? {
                 StateSyncResult::Unchanged => {}

@@ -24,6 +24,7 @@ use crate::metrics;
 use crate::sync::external::{
     create_bucket_readonly, external_storage_location, ExternalConnection,
 };
+use actix_rt::ArbiterHandle;
 use ansi_term::Color::{Purple, Yellow};
 use ansi_term::Style;
 use chrono::{DateTime, Duration, Utc};
@@ -52,9 +53,12 @@ use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use std::ops::Add;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::Ordering;
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::time::Duration as TimeDuration;
+use tokio::sync::{Semaphore, TryAcquireError};
+use tracing::{debug, info};
 
 /// Maximum number of state parts to request per peer on each round when node is trying to download the state.
 pub const MAX_STATE_PART_REQUEST: u64 = 16;
@@ -103,6 +107,12 @@ fn make_account_or_peer_id_or_hash(
     }
 }
 
+pub struct StateSyncGetPartResult {
+    sync_hash: CryptoHash,
+    shard_id: ShardId,
+    part_id: PartId,
+    part_result: Result<Vec<u8>, String>,
+}
 /// How to retrieve the state data.
 enum StateSyncInner {
     /// Request both the state header and state parts from the peers.
@@ -117,9 +127,8 @@ enum StateSyncInner {
     PartsFromExternal {
         /// Chain ID.
         chain_id: String,
-        /// The number of requests for state parts from external storage that are
-        /// allowed to be started for this shard.
-        requests_remaining: Arc<AtomicI32>,
+        /// This semaphore imposes a restriction on the maximum number of simultaneous downloads
+        semaphore: Arc<tokio::sync::Semaphore>,
         /// Connection to the external storage.
         external: ExternalConnection,
     },
@@ -146,6 +155,10 @@ pub struct StateSync {
 
     /// Maps shard_id to result of splitting state for resharding.
     split_state_roots: HashMap<ShardId, Result<HashMap<ShardUId, StateRoot>, near_chain::Error>>,
+
+    /// Message queue to process the received state parts.
+    state_parts_mpsc_tx: Sender<StateSyncGetPartResult>,
+    state_parts_mpsc_rx: Receiver<StateSyncGetPartResult>,
 }
 
 impl StateSync {
@@ -178,12 +191,15 @@ impl StateSync {
                 };
                 StateSyncInner::PartsFromExternal {
                     chain_id: chain_id.to_string(),
-                    requests_remaining: Arc::new(AtomicI32::new(*num_concurrent_requests as i32)),
+                    semaphore: Arc::new(tokio::sync::Semaphore::new(
+                        *num_concurrent_requests as usize,
+                    )),
                     external,
                 }
             }
         };
         let timeout = Duration::from_std(timeout).unwrap();
+        let (tx, rx) = channel::<StateSyncGetPartResult>();
         StateSync {
             inner,
             network_adapter,
@@ -191,6 +207,8 @@ impl StateSync {
             timeout,
             state_parts_apply_results: HashMap::new(),
             split_state_roots: HashMap::new(),
+            state_parts_mpsc_rx: rx,
+            state_parts_mpsc_tx: tx,
         }
     }
 
@@ -243,6 +261,7 @@ impl StateSync {
         now: DateTime<Utc>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
+        state_parts_arbiter_handle: &ArbiterHandle,
         use_colour: bool,
     ) -> Result<(bool, bool), near_chain::Error> {
         let mut all_done = true;
@@ -288,7 +307,6 @@ impl StateSync {
                         shard_id,
                         shard_sync_download,
                         sync_hash,
-                        chain,
                         now,
                     );
                     download_timeout = res.0;
@@ -375,12 +393,56 @@ impl StateSync {
                     sync_hash,
                     shard_sync_download,
                     highest_height_peers,
+                    state_parts_arbiter_handle,
                 )?;
             }
             update_sync_status |= shard_sync_download.status != old_status;
         }
 
         Ok((update_sync_status, all_done))
+    }
+
+    // Checks the message queue for new downloaded parts and writes them.
+    fn process_downloaded_parts(
+        &mut self,
+        sync_hash: CryptoHash,
+        new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
+        chain: &mut Chain,
+    ) -> bool {
+        let mut update_sync_status = false;
+        for msg in self.state_parts_mpsc_rx.try_iter() {
+            let shard_id = msg.shard_id;
+            let part_id = msg.part_id.idx;
+            if msg.sync_hash != sync_hash {
+                debug!(target: "sync",
+                    "Recieved message for other sync hash: shard_id {}, part_id {} expected sync_hash {} recieved sync_hash {}.",
+                    &shard_id,
+                    &part_id,
+                    &sync_hash,
+                    &msg.sync_hash
+                );
+                continue;
+            }
+            info!(target: "sync", "downloaded: shard_id {}, part_id {}.", shard_id, part_id );
+            if let Some(shard_sync_download) = new_shard_sync.get_mut(&shard_id) {
+                if shard_sync_download.status != ShardSyncStatus::StateDownloadParts {
+                    continue;
+                }
+                if let Some(part_download) = shard_sync_download.downloads.get_mut(part_id as usize)
+                {
+                    update_sync_status |= process_part_response(
+                        part_id as u64,
+                        msg.part_id.total,
+                        shard_id,
+                        sync_hash,
+                        part_download,
+                        chain,
+                        msg.part_result,
+                    );
+                }
+            }
+        }
+        return update_sync_status;
     }
 
     // Called by the client actor, when it finished applying all the downloaded parts.
@@ -537,6 +599,7 @@ impl StateSync {
         sync_hash: CryptoHash,
         shard_sync_download: &mut ShardSyncDownload,
         highest_height_peers: &[HighestHeightPeerInfo],
+        state_parts_arbiter_handle: &ArbiterHandle,
     ) -> Result<(), near_chain::Error> {
         let possible_targets = self.possible_targets(
             me,
@@ -569,6 +632,7 @@ impl StateSync {
                     possible_targets,
                     shard_sync_download,
                     chain,
+                    state_parts_arbiter_handle,
                 );
             }
             _ => {}
@@ -618,6 +682,7 @@ impl StateSync {
         possible_targets: Vec<AccountOrPeerIdOrHash>,
         new_shard_sync_download: &mut ShardSyncDownload,
         chain: &Chain,
+        state_parts_arbiter_handle: &ArbiterHandle,
     ) {
         // Iterate over all parts that needs to be requested (i.e. download.run_me is true).
         // Parts are ordered such that its index match its part_id.
@@ -655,7 +720,7 @@ impl StateSync {
                     );
                 }
             }
-            StateSyncInner::PartsFromExternal { chain_id, requests_remaining, external } => {
+            StateSyncInner::PartsFromExternal { chain_id, semaphore, external } => {
                 let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
                 let epoch_id = sync_block_header.epoch_id();
                 let epoch_info = chain.epoch_manager.get_epoch_info(epoch_id).unwrap();
@@ -670,13 +735,19 @@ impl StateSync {
                         part_id,
                         download,
                         shard_id,
+                        sync_hash,
                         epoch_id,
                         epoch_height,
                         state_num_parts,
                         &chain_id.clone(),
-                        requests_remaining.clone(),
+                        semaphore.clone(),
                         external.clone(),
+                        state_parts_arbiter_handle,
+                        self.state_parts_mpsc_tx.clone(),
                     );
+                    if semaphore.available_permits() == 0 {
+                        break;
+                    }
                 }
             }
         }
@@ -698,6 +769,7 @@ impl StateSync {
         tracking_shards: Vec<ShardId>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
+        state_parts_arbiter_handle: &ArbiterHandle,
         use_colour: bool,
     ) -> Result<StateSyncResult, near_chain::Error> {
         let _span = tracing::debug_span!(target: "sync", "run", sync = "StateSync").entered();
@@ -720,8 +792,12 @@ impl StateSync {
                 Ok(StateSyncResult::Completed)
             };
         }
-
-        let (update_sync_status, all_done) = self.sync_shards_status(
+        // The downloaded parts are from all shards. This function takes all downloaded parts and
+        // saves them to the DB.
+        // TODO: Ideally, we want to process the downloads on a different thread than the one that runs the Client.
+        let mut update_sync_status =
+            self.process_downloaded_parts(sync_hash, new_shard_sync, chain);
+        let (update, all_done) = self.sync_shards_status(
             me,
             sync_hash,
             new_shard_sync,
@@ -732,8 +808,10 @@ impl StateSync {
             now,
             state_parts_task_scheduler,
             state_split_scheduler,
+            state_parts_arbiter_handle,
             use_colour,
         )?;
+        update_sync_status |= update;
 
         if have_block && all_done {
             return Ok(StateSyncResult::Completed);
@@ -865,7 +943,6 @@ impl StateSync {
         shard_id: ShardId,
         shard_sync_download: &mut ShardSyncDownload,
         sync_hash: CryptoHash,
-        chain: &mut Chain,
         now: DateTime<Utc>,
     ) -> (bool, bool, bool) {
         // Step 2 - download all the parts (each part is usually around 1MB).
@@ -876,18 +953,7 @@ impl StateSync {
         let mut parts_done = true;
         let num_parts = shard_sync_download.downloads.len();
         let mut num_parts_done = 0;
-        for (part_id, part_download) in shard_sync_download.downloads.iter_mut().enumerate() {
-            if !part_download.done {
-                // Check if a download from an external storage is finished.
-                update_sync_status |= check_external_storage_part_response(
-                    part_id as u64,
-                    num_parts as u64,
-                    shard_id,
-                    sync_hash,
-                    part_download,
-                    chain,
-                );
-            }
+        for part_download in shard_sync_download.downloads.iter_mut() {
             if !part_download.done {
                 parts_done = false;
                 let prev = part_download.prev_update_time;
@@ -1100,35 +1166,57 @@ fn request_part_from_external_storage(
     part_id: u64,
     download: &mut DownloadStatus,
     shard_id: ShardId,
+    sync_hash: CryptoHash,
     epoch_id: &EpochId,
     epoch_height: EpochHeight,
     num_parts: u64,
     chain_id: &str,
-    requests_remaining: Arc<AtomicI32>,
+    semaphore: Arc<Semaphore>,
     external: ExternalConnection,
+    state_parts_arbiter_handle: &ArbiterHandle,
+    state_parts_mpsc_tx: Sender<StateSyncGetPartResult>,
 ) {
-    if !allow_request(&requests_remaining) {
+    if !download.run_me.swap(false, Ordering::SeqCst) {
+        tracing::info!(target: "sync", %shard_id, part_id, "run_me is already false");
         return;
-    } else {
-        if !download.run_me.swap(false, Ordering::SeqCst) {
-            tracing::info!(target: "sync", %shard_id, part_id, "run_me is already false");
-            return;
-        }
     }
     download.state_requests_count += 1;
     download.last_target = None;
 
     let location =
         external_storage_location(chain_id, epoch_id, epoch_height, shard_id, part_id, num_parts);
-    let download_response = download.response.clone();
-    near_performance_metrics::actix::spawn("StateSync", {
-        async move {
-            let result = external.get_part(shard_id, &location).await;
-            finished_request(&requests_remaining);
-            let mut lock = download_response.lock().unwrap();
-            *lock = Some(result.map_err(|err| err.to_string()));
+
+    match semaphore.try_acquire_owned() {
+        Ok(permit) => {
+            if state_parts_arbiter_handle.spawn({
+                async move {
+                    let result = external.get_part(shard_id, &location).await;
+                    match state_parts_mpsc_tx.send(StateSyncGetPartResult {
+                        sync_hash,
+                        shard_id,
+                        part_id: PartId { idx: part_id, total: num_parts },
+                        part_result: result.map_err(|err| err.to_string()),
+                    }) {
+                        Ok(_) => tracing::debug!(target: "sync", %shard_id, part_id, "Download response sent to processing thread."),
+                        Err(e) => {
+                            tracing::error!(target: "sync", %shard_id, part_id, "{} {}", e.to_string(), "Unable to send part download response to processing thread.");
+                        },
+                    }
+                    drop(permit)
+                }
+            }) == false
+            {
+                tracing::error!(target: "sync", %shard_id, part_id, "Unable to spawn download. state_parts_arbiter has died.");
+            }
+        },
+        Err(TryAcquireError::NoPermits) => {
+            download.run_me.store(true, Ordering::SeqCst);
+        },
+        Err(TryAcquireError::Closed) => {
+            download.run_me.store(true, Ordering::SeqCst);
+            tracing::warn!(target: "sync", %shard_id, part_id, "Failed to schedule download. Semaphore closed.");
         }
-    });
+    }
 }
 
 /// Asynchronously requests a state part from a suitable peer.
@@ -1184,52 +1272,22 @@ fn sent_request_part(
         .or_insert_with(|| PendingRequestStatus::new(timeout));
 }
 
-/// Verifies that one more concurrent request can be started.
-fn allow_request(requests_remaining: &AtomicI32) -> bool {
-    let remaining = requests_remaining.fetch_sub(1, Ordering::SeqCst);
-    if remaining <= 0 {
-        requests_remaining.fetch_add(1, Ordering::SeqCst);
-        false
-    } else {
-        true
-    }
-}
-
-fn finished_request(requests_remaining: &AtomicI32) {
-    requests_remaining.fetch_add(1, Ordering::SeqCst);
-}
-
 /// Works around how data requests to external storage are done.
-/// The response is stored on the DownloadStatus object.
-/// This function investigates if the response is available and updates `done` and `error` appropriately.
+/// This function investigates if the response is valid and updates `done` and `error` appropriately.
 /// If the response is successful, then also writes the state part to the DB.
 ///
 /// Returns whether something changed in `DownloadStatus` which means it needs to be persisted.
-fn check_external_storage_part_response(
+fn process_part_response(
     part_id: u64,
     num_parts: u64,
     shard_id: ShardId,
     sync_hash: CryptoHash,
     part_download: &mut DownloadStatus,
     chain: &mut Chain,
+    part_data_response: Result<Vec<u8>, String>,
 ) -> bool {
-    let external_storage_response = {
-        let mut lock = part_download.response.lock().unwrap();
-        if let Some(response) = lock.clone() {
-            tracing::debug!(target: "sync", %shard_id, part_id, "Got response from external storage");
-            // Remove the response from DownloadStatus, because
-            // we're going to write state parts to DB and don't need to keep
-            // them in `DownloadStatus`.
-            *lock = None;
-            response
-        } else {
-            return false;
-        }
-    };
-
     let mut err_to_retry = None;
-    match external_storage_response {
-        // HTTP status code 200 means success.
+    match part_data_response {
         Ok(data) => {
             match chain.set_state_part(
                 shard_id,
@@ -1388,6 +1446,7 @@ impl<T: Clone> Iterator for SamplerLimited<T> {
 mod test {
     use super::*;
     use actix::System;
+    use actix_rt::Arbiter;
     use near_actix_test_utils::run_actix;
     use near_chain::test_utils;
     use near_chain::{test_utils::process_block_sync, BlockProcessingArtifact, Provenance};
@@ -1458,6 +1517,7 @@ mod test {
                     vec![0],
                     &apply_parts_fn,
                     &state_split_fn,
+                    &Arbiter::new().handle(),
                     false,
                 )
                 .unwrap();
