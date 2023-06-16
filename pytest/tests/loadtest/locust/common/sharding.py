@@ -26,13 +26,13 @@ def random_char_below(upper, upper_inclusive):
     elif upper >= '1':
         chars = char_range('0', upper, upper_inclusive)
     elif upper == '0':
-        # here just return a . if upper_inclusive is False, since that's called
+        # here just return a - if upper_inclusive is False, since that's called
         # only when we want to finish a prefix of the upper string. Otherwise, don't bother
-        # with returning a . to avoid handling account ID validity in that case
+        # with returning a - to avoid handling account ID validity in that case
         if upper_inclusive:
             chars = ['0']
         else:
-            chars = ['.']
+            chars = ['-']
     else:
         assert upper == '-' or upper == '.'
         return upper
