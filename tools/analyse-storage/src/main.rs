@@ -4,8 +4,9 @@ use near_store::{col_name, DBCol};
 use rayon::prelude::*;
 use rocksdb::{ColumnFamilyDescriptor, Options, DB};
 use std::collections::HashMap;
-use std::println;
+use std::{println, panic};
 use std::sync::{Arc, Mutex};
+use strum::IntoEnumIterator;
 
 #[derive(Parser)]
 struct Cli {
@@ -16,6 +17,15 @@ struct Cli {
 
     #[arg(short, long)]
     limit: Option<usize>,
+}
+
+fn is_col_name_rc(col: &str) -> bool {
+    for db_col in DBCol::iter() {
+        if format!("{}", db_col) == col {
+            return db_col.is_rc();
+        }
+    }
+    return false;
 }
 
 fn get_all_col_familiy_names() -> Vec<DBCol> {
@@ -80,7 +90,7 @@ fn print_results(
     total_num_of_pairs: usize,
 ) {
     println!(
-        "Total number of pairs read {}",
+        "Total number of pairs read {}\n",
         sizes_count.into_iter().map(|(_, count)| count).sum::<usize>()
     );
 
@@ -184,7 +194,7 @@ fn get_column_family_options(
     match input_col {
         Some(col_name) => {
             let mut opts = Options::default();
-            if col_name == "col5" {
+            if is_col_name_rc(&col_name)  {
                 opts.set_merge_operator(
                     "refcount merge",
                     RocksDB::refcount_merge,
@@ -220,11 +230,9 @@ fn main() {
 
     // Set db options
     let mut opts = Options::default();
-    opts.create_if_missing(true);
-    opts.set_max_open_files(10_000);
-    opts.set_wal_recovery_mode(rocksdb::DBRecoveryMode::SkipAnyCorruptedRecord);
-    opts.increase_parallelism(std::cmp::max(1, 32));
-
+    opts.set_max_open_files(20_000);
+    opts.increase_parallelism(std::cmp::max(1, num_cpus::get() as i32 / 2));
+ 
     // Define column families
     let (col_families, col_families_cf) = get_column_family_options(args.column);
 
