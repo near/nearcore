@@ -4,8 +4,8 @@ use near_store::{col_name, DBCol};
 use rayon::prelude::*;
 use rocksdb::{ColumnFamilyDescriptor, Options, DB};
 use std::collections::HashMap;
-use std::{println, panic};
 use std::sync::{Arc, Mutex};
+use std::{panic, println};
 use strum::IntoEnumIterator;
 
 #[derive(Parser)]
@@ -96,8 +96,19 @@ fn print_results(
 
     // Print out distributions
     println!("{} Size Distribution:", size_count_type);
-    println!("Minimum size {}: {:?}", size_count_type, sizes_count.first().unwrap());
-    println!("Maximum size {}: {:?}", size_count_type, sizes_count.last().unwrap());
+    println!(
+        "Minimum size {}: {:?}",
+        size_count_type,
+        sizes_count.iter().map(|(size, _)| size).min()
+    );
+    println!(
+        "Maximum size {}: {:?}",
+        size_count_type,
+        sizes_count.iter().map(|(size, _)| size).max()
+    );
+    println!("Most occuring size {}: {:?}", size_count_type, sizes_count.first().unwrap());
+    println!("Least occuring size {}: {:?}", size_count_type, sizes_count.last().unwrap());
+
     let total_sizes_bytes_sum = sizes_count.iter().map(|a| a.0 * a.1).sum::<usize>();
     println!(
         "Average size {}: {:?}",
@@ -194,7 +205,7 @@ fn get_column_family_options(
     match input_col {
         Some(col_name) => {
             let mut opts = Options::default();
-            if is_col_name_rc(&col_name)  {
+            if is_col_name_rc(&col_name) {
                 opts.set_merge_operator(
                     "refcount merge",
                     RocksDB::refcount_merge,
@@ -232,7 +243,7 @@ fn main() {
     let mut opts = Options::default();
     opts.set_max_open_files(20_000);
     opts.increase_parallelism(std::cmp::max(1, num_cpus::get() as i32 / 2));
- 
+
     // Define column families
     let (col_families, col_families_cf) = get_column_family_options(args.column);
 
