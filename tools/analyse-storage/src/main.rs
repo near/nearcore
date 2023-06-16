@@ -6,7 +6,6 @@ use rocksdb::{ColumnFamilyDescriptor, Options, DB};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::{panic, println};
-use strum::IntoEnumIterator;
 
 #[derive(Parser)]
 struct Cli {
@@ -19,13 +18,60 @@ struct Cli {
     limit: Option<usize>,
 }
 
-fn is_col_name_rc(col: &str) -> bool {
-    for db_col in DBCol::iter() {
-        if format!("{}", db_col) == col {
-            return db_col.is_rc();
-        }
+pub fn get_db_col(col: &str) -> Option<DBCol> {
+    match col {
+        "col0" => Some(DBCol::DbVersion),
+        "col1" => Some(DBCol::BlockMisc),
+        "col2" => Some(DBCol::Block),
+        "col3" => Some(DBCol::BlockHeader),
+        "col4" => Some(DBCol::BlockHeight),
+        "col5" => Some(DBCol::State),
+        "col6" => Some(DBCol::ChunkExtra),
+        "col7" => Some(DBCol::_TransactionResult),
+        "col8" => Some(DBCol::OutgoingReceipts),
+        "col9" => Some(DBCol::IncomingReceipts),
+        "col10" => Some(DBCol::_Peers),
+        "col11" => Some(DBCol::EpochInfo),
+        "col12" => Some(DBCol::BlockInfo),
+        "col13" => Some(DBCol::Chunks),
+        "col14" => Some(DBCol::PartialChunks),
+        "col15" => Some(DBCol::BlocksToCatchup),
+        "col16" => Some(DBCol::StateDlInfos),
+        "col17" => Some(DBCol::ChallengedBlocks),
+        "col18" => Some(DBCol::StateHeaders),
+        "col19" => Some(DBCol::InvalidChunks),
+        "col20" => Some(DBCol::BlockExtra),
+        "col21" => Some(DBCol::BlockPerHeight),
+        "col22" => Some(DBCol::StateParts),
+        "col23" => Some(DBCol::EpochStart),
+        "col24" => Some(DBCol::AccountAnnouncements),
+        "col25" => Some(DBCol::NextBlockHashes),
+        "col26" => Some(DBCol::EpochLightClientBlocks),
+        "col27" => Some(DBCol::ReceiptIdToShardId),
+        "col28" => Some(DBCol::_NextBlockWithNewChunk),
+        "col29" => Some(DBCol::_LastBlockWithNewChunk),
+        "col30" => Some(DBCol::PeerComponent),
+        "col31" => Some(DBCol::ComponentEdges),
+        "col32" => Some(DBCol::LastComponentNonce),
+        "col33" => Some(DBCol::Transactions),
+        "col34" => Some(DBCol::_ChunkPerHeightShard),
+        "col35" => Some(DBCol::StateChanges),
+        "col36" => Some(DBCol::BlockRefCount),
+        "col37" => Some(DBCol::TrieChanges),
+        "col38" => Some(DBCol::BlockMerkleTree),
+        "col39" => Some(DBCol::ChunkHashesByHeight),
+        "col40" => Some(DBCol::BlockOrdinal),
+        "col41" => Some(DBCol::_GCCount),
+        "col42" => Some(DBCol::OutcomeIds),
+        "col43" => Some(DBCol::_TransactionRefCount),
+        "col44" => Some(DBCol::ProcessedBlockHeights),
+        "col45" => Some(DBCol::Receipts),
+        "col46" => Some(DBCol::CachedContractCode),
+        "col47" => Some(DBCol::EpochValidatorInfo),
+        "col48" => Some(DBCol::HeaderHashesByHeight),
+        "col49" => Some(DBCol::StateChangesForSplitStates),
+        _ => None
     }
-    return false;
 }
 
 fn get_all_col_familiy_names() -> Vec<DBCol> {
@@ -205,16 +251,19 @@ fn get_column_family_options(
     match input_col {
         Some(col_name) => {
             let mut opts = Options::default();
-            if is_col_name_rc(&col_name) {
-                opts.set_merge_operator(
-                    "refcount merge",
-                    RocksDB::refcount_merge,
-                    RocksDB::refcount_merge,
-                );
-                opts.set_compaction_filter(
-                    "empty value filter",
-                    RocksDB::empty_value_compaction_filter,
-                );
+            let maybe_db_col = get_db_col(&col_name);
+            if let Some(db_col) = maybe_db_col {
+                if db_col.is_rc() {
+                    opts.set_merge_operator(
+                        "refcount merge",
+                        RocksDB::refcount_merge,
+                        RocksDB::refcount_merge,
+                    );
+                    opts.set_compaction_filter(
+                        "empty value filter",
+                        RocksDB::empty_value_compaction_filter,
+                    );
+                }
             }
             (vec![col_name.clone()], vec![ColumnFamilyDescriptor::new(col_name, opts)])
         }
