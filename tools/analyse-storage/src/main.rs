@@ -99,12 +99,12 @@ fn print_results(
     println!(
         "Minimum size {}: {:?}",
         size_count_type,
-        sizes_count.iter().map(|(size, _)| size).min()
+        sizes_count.iter().map(|(size, _)| size).min().unwrap()
     );
     println!(
         "Maximum size {}: {:?}",
         size_count_type,
-        sizes_count.iter().map(|(size, _)| size).max()
+        sizes_count.iter().map(|(size, _)| size).max().unwrap()
     );
     println!("Most occuring size {}: {:?}", size_count_type, sizes_count.first().unwrap());
     println!("Least occuring size {}: {:?}", size_count_type, sizes_count.last().unwrap());
