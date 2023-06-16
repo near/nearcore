@@ -81,7 +81,7 @@ impl StandaloneRuntime {
             tries.clone(),
             0,
             &[],
-            &runtime_config,
+            &runtime_config.fees.storage_usage_config,
             &genesis,
             account_ids,
         );
