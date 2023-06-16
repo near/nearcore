@@ -45,7 +45,7 @@ use near_primitives::views::{
     ViewStateResult,
 };
 use near_store::flat::FlatStorageManager;
-use near_store::genesis::{create_runtime_config_store, initialize_genesis_state};
+use near_store::genesis::initialize_genesis_state;
 use near_store::metadata::DbKind;
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
@@ -56,6 +56,7 @@ use near_store::{
 use near_vm_errors::CompiledContractCache;
 use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
+use node_runtime::config::RuntimeConfig;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
@@ -119,7 +120,7 @@ impl NightshadeRuntime {
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
-            None => create_runtime_config_store(&genesis.config.chain_id),
+            None => Self::create_runtime_config_store(&genesis.config.chain_id),
         };
 
         let runtime = Runtime::new();
@@ -191,6 +192,22 @@ impl NightshadeRuntime {
         )
     }
 
+    /// Create store of runtime configs for the given chain id.
+    ///
+    /// For mainnet and other chains except testnet we don't need to override runtime config for
+    /// first protocol versions.
+    /// For testnet, runtime config for genesis block was (incorrectly) different, that's why we
+    /// need to override it specifically to preserve compatibility.
+    fn create_runtime_config_store(chain_id: &str) -> RuntimeConfigStore {
+        match chain_id {
+            "testnet" => {
+                let genesis_runtime_config = RuntimeConfig::initial_testnet_config();
+                RuntimeConfigStore::new(Some(&genesis_runtime_config))
+            }
+            _ => RuntimeConfigStore::new(None),
+        }
+    }
+
     /// On first start: compute state roots, load genesis state into storage.
     /// After that: return genesis state roots. The state is not guaranteed to be in storage, as
     /// GC and state sync are allowed to delete it.
@@ -207,8 +224,12 @@ impl NightshadeRuntime {
                 .expect("Store failed on genesis intialization")
                 .expect("Genesis state roots not found in storage")
         } else {
+            let runtime_config_store = Self::create_runtime_config_store(&genesis.config.chain_id);
+            let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
+            let store_usage_config = &runtime_config.fees.storage_usage_config;
             let genesis_hash = genesis.json_hash();
-            let state_roots = initialize_genesis_state(store.clone(), home_dir, genesis);
+            let state_roots =
+                initialize_genesis_state(store.clone(), home_dir, &store_usage_config, genesis);
             let mut store_update = store.store_update();
             set_genesis_hash(&mut store_update, &genesis_hash);
             set_genesis_state_roots(&mut store_update, &state_roots);

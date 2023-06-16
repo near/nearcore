@@ -2,7 +2,7 @@ use crate::actions::*;
 use crate::balance_checker::check_balance;
 use crate::config::{
     exec_fee, safe_add_balance, safe_add_compute, safe_add_gas, safe_gas_to_balance, total_deposit,
-    total_prepaid_exec_fees, total_prepaid_gas, RuntimeConfig,
+    total_prepaid_exec_fees, total_prepaid_gas,
 };
 use crate::prefetch::TriePrefetcher;
 use crate::verifier::{check_storage_stake, validate_receipt, StorageStakingError};
@@ -10,7 +10,6 @@ pub use crate::verifier::{
     validate_transaction, verify_and_charge_transaction, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
 };
 use config::total_prepaid_send_fees;
-use near_chain_configs::Genesis;
 pub use near_crypto;
 pub use near_primitives;
 use near_primitives::account::Account;
@@ -44,8 +43,8 @@ use near_primitives::version::{
 };
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
-    set_account, set_delay_receipt, set_postponed_receipt, set_received_data, PartialStorage,
-    StorageComputer, StorageError, Trie, TrieChanges, TrieUpdate,
+    set_account, set_delayed_receipt, set_postponed_receipt, set_received_data, PartialStorage,
+    StorageError, Trie, TrieChanges, TrieUpdate,
 };
 use near_store::{set_access_key, set_code};
 use near_vm_logic::types::PromiseResult;
@@ -1369,7 +1368,7 @@ impl Runtime {
                     &mut total_compute_usage,
                 )?;
             } else {
-                set_delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
+                set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             }
         }
 
@@ -1440,7 +1439,7 @@ impl Runtime {
                     &mut total_compute_usage,
                 )?;
             } else {
-                set_delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
+                set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             }
         }
 
@@ -1523,30 +1522,6 @@ impl Runtime {
         }
         state_update.commit(StateChangeCause::Migration);
     }
-
-    /// Computes the expected storage per account for a given set of StateRecord(s).
-    pub fn compute_storage_usage(
-        &self,
-        records: &[StateRecord],
-        config: &RuntimeConfig,
-    ) -> HashMap<AccountId, u64> {
-        let mut storage_computer = StorageComputer::new(config);
-        storage_computer.process_records(records);
-        storage_computer.finalize()
-    }
-
-    /// Compute the expected storage per account for genesis records.
-    pub fn compute_genesis_storage_usage(
-        &self,
-        genesis: &Genesis,
-        config: &RuntimeConfig,
-    ) -> HashMap<AccountId, u64> {
-        let mut storage_computer = StorageComputer::new(config);
-        genesis.for_each_record(|record| {
-            storage_computer.process_record(record);
-        });
-        storage_computer.finalize()
-    }
 }
 
 #[cfg(test)]
@@ -1555,6 +1530,7 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
     use near_primitives::account::AccessKey;
     use near_primitives::hash::hash;
+    use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
     use near_primitives::transaction::{

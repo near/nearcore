@@ -1,7 +1,7 @@
 use crate::flat::FlatStateChanges;
 use crate::{
-    get_account, get_received_data, set, set_access_key, set_account, set_code, set_delay_receipt,
-    set_postponed_receipt, set_received_data, ShardTries, TrieUpdate,
+    get_account, get_received_data, set, set_access_key, set_account, set_code,
+    set_delayed_receipt, set_postponed_receipt, set_received_data, ShardTries, TrieUpdate,
 };
 use borsh::BorshSerialize;
 use near_chain_configs::Genesis;
@@ -9,7 +9,6 @@ use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData};
-use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::fees::StorageUsageConfig;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
@@ -21,7 +20,7 @@ use std::sync::atomic;
 /// Computes the expected storage per account for a given stream of StateRecord(s).
 /// For example: the storage for Contract depends on its length, we don't charge storage for receipts
 /// and we compute a fixed (config-configured) number of bytes for each account (to store account id).
-pub struct StorageComputer<'a> {
+struct StorageComputer<'a> {
     /// Map from account id to number of storage bytes used.
     result: HashMap<AccountId, u64>,
     /// Configuration that keeps information like 'how many bytes should accountId consume' etc.
@@ -29,8 +28,8 @@ pub struct StorageComputer<'a> {
 }
 
 impl<'a> StorageComputer<'a> {
-    pub fn new(config: &'a RuntimeConfig) -> Self {
-        Self { result: HashMap::new(), config: &config.fees.storage_usage_config }
+    pub fn new(config: &'a StorageUsageConfig) -> Self {
+        Self { result: HashMap::new(), config: &config }
     }
 
     /// Updates user's storage info based on the StateRecord.
@@ -87,7 +86,7 @@ impl<'a> StorageComputer<'a> {
 /// and the memory usage stays fairly consistent throughout the process.
 const TARGET_OUTSTANDING_WRITES: usize = 100_000;
 
-pub(crate) struct AutoFlushingTrieUpdate<'a> {
+struct AutoFlushingTrieUpdate<'a> {
     tries: &'a ShardTries,
     shard_uid: ShardUId,
     state_root: StateRoot,
@@ -166,7 +165,7 @@ impl GenesisStateApplier {
         delayed_receipts_indices: &mut DelayedReceiptIndices,
         shard_uid: ShardUId,
         validators: &[(AccountId, PublicKey, Balance)],
-        config: &RuntimeConfig,
+        config: &StorageUsageConfig,
         genesis: &Genesis,
         account_ids: HashSet<AccountId>,
     ) {
@@ -242,7 +241,7 @@ impl GenesisStateApplier {
                     })
                 }
                 StateRecord::DelayedReceipt(receipt) => storage.modify(|state_update| {
-                    set_delay_receipt(state_update, delayed_receipts_indices, &*receipt);
+                    set_delayed_receipt(state_update, delayed_receipts_indices, &*receipt);
                 }),
             }
         });
@@ -341,7 +340,7 @@ impl GenesisStateApplier {
         tries: ShardTries,
         shard_id: ShardId,
         validators: &[(AccountId, PublicKey, Balance)],
-        config: &RuntimeConfig,
+        config: &StorageUsageConfig,
         genesis: &Genesis,
         shard_account_ids: HashSet<AccountId>,
     ) -> StateRoot {
@@ -364,4 +363,26 @@ impl GenesisStateApplier {
         // We flush those writes and return the new state root to the caller.
         storage.flush()
     }
+}
+
+/// Computes the expected storage per account for a given set of StateRecord(s).
+pub fn compute_storage_usage(
+    records: &[StateRecord],
+    config: &StorageUsageConfig,
+) -> HashMap<AccountId, u64> {
+    let mut storage_computer = StorageComputer::new(config);
+    storage_computer.process_records(records);
+    storage_computer.finalize()
+}
+
+/// Compute the expected storage per account for genesis records.
+pub fn compute_genesis_storage_usage(
+    genesis: &Genesis,
+    config: &StorageUsageConfig,
+) -> HashMap<AccountId, u64> {
+    let mut storage_computer = StorageComputer::new(config);
+    genesis.for_each_record(|record| {
+        storage_computer.process_record(record);
+    });
+    storage_computer.finalize()
 }

@@ -17,7 +17,6 @@ pub use db::{
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 pub use genesis_state_applier::GenesisStateApplier;
-pub use genesis_state_applier::StorageComputer;
 use near_crypto::PublicKey;
 use near_fmt::{AbbrBytes, StorageKey};
 use near_primitives::account::{AccessKey, Account};
@@ -49,7 +48,7 @@ pub mod config;
 pub mod db;
 pub mod flat;
 pub mod genesis;
-mod genesis_state_applier;
+pub mod genesis_state_applier;
 pub mod metadata;
 pub mod metrics;
 pub mod migrations;
@@ -774,7 +773,7 @@ pub fn get_delayed_receipt_indices(
 }
 
 // Adds the given receipt into the end of the delayed receipt queue in the state.
-pub fn set_delay_receipt(
+pub fn set_delayed_receipt(
     state_update: &mut TrieUpdate,
     delayed_receipts_indices: &mut DelayedReceiptIndices,
     receipt: &Receipt,

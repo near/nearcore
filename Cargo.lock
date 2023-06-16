@@ -6509,6 +6509,7 @@ dependencies = [
  "near-chain-configs",
  "near-o11y",
  "near-primitives",
+ "near-store",
  "node-runtime",
  "serde_json",
  "tokio",

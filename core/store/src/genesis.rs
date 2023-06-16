@@ -1,3 +1,6 @@
+//! This file contains helper functions for accessing flat storage data in DB
+//! initialize_genesis_state is currently called by nightshade runtime but should be moved to chain
+
 use rayon::prelude::*;
 use std::{collections::HashSet, fs, path::Path};
 
@@ -5,7 +8,7 @@ use borsh::BorshDeserialize;
 use near_chain_configs::Genesis;
 use near_primitives::{
     epoch_manager::EpochConfig,
-    runtime::{config::RuntimeConfig, config_store::RuntimeConfigStore},
+    runtime::fees::StorageUsageConfig,
     shard_layout::{account_id_to_shard_id, ShardLayout},
     state_record::{state_record_to_account_id, StateRecord},
     types::{AccountId, ShardId, StateRoot},
@@ -23,6 +26,7 @@ const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 pub fn initialize_genesis_state(
     store: Store,
     home_dir: &Path,
+    config: &StorageUsageConfig,
     genesis: &Genesis,
 ) -> Vec<StateRoot> {
     let has_dump = home_dir.join(STATE_DUMP_FILE).exists();
@@ -32,7 +36,7 @@ pub fn initialize_genesis_state(
         }
         genesis_state_from_dump(store, home_dir)
     } else {
-        genesis_state_from_records(store, genesis)
+        genesis_state_from_records(store, config, genesis)
     }
 }
 
@@ -49,7 +53,11 @@ fn genesis_state_from_dump(store: Store, home_dir: &Path) -> Vec<StateRoot> {
     state_roots
 }
 
-fn genesis_state_from_records(store: Store, genesis: &Genesis) -> Vec<StateRoot> {
+fn genesis_state_from_records(
+    store: Store,
+    config: &StorageUsageConfig,
+    genesis: &Genesis,
+) -> Vec<StateRoot> {
     match genesis.records_len() {
         Ok(count) => {
             info!(
@@ -90,8 +98,6 @@ fn genesis_state_from_records(store: Store, genesis: &Genesis) -> Vec<StateRoot>
         FlatStorageManager::new(store),
     );
 
-    let runtime_config_store = create_runtime_config_store(&genesis.config.chain_id);
-    let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
     let writers = std::sync::atomic::AtomicUsize::new(0);
     (0..num_shards)
         .into_par_iter()
@@ -118,7 +124,7 @@ fn genesis_state_from_records(store: Store, genesis: &Genesis) -> Vec<StateRoot>
                 tries.clone(),
                 shard_id,
                 &validators,
-                runtime_config,
+                config,
                 genesis,
                 shard_account_ids[shard_id as usize].clone(),
             )
@@ -128,20 +134,4 @@ fn genesis_state_from_records(store: Store, genesis: &Genesis) -> Vec<StateRoot>
 
 fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &ShardLayout) -> ShardId {
     account_id_to_shard_id(state_record_to_account_id(state_record), shard_layout)
-}
-
-/// Create store of runtime configs for the given chain id.
-///
-/// For mainnet and other chains except testnet we don't need to override runtime config for
-/// first protocol versions.
-/// For testnet, runtime config for genesis block was (incorrectly) different, that's why we
-/// need to override it specifically to preserve compatibility.
-pub fn create_runtime_config_store(chain_id: &str) -> RuntimeConfigStore {
-    match chain_id {
-        "testnet" => {
-            let genesis_runtime_config = RuntimeConfig::initial_testnet_config();
-            RuntimeConfigStore::new(Some(&genesis_runtime_config))
-        }
-        _ => RuntimeConfigStore::new(None),
-    }
 }
