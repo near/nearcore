@@ -4,7 +4,6 @@ use crate::config::{
     exec_fee, safe_add_balance, safe_add_compute, safe_add_gas, safe_gas_to_balance, total_deposit,
     total_prepaid_exec_fees, total_prepaid_gas, RuntimeConfig,
 };
-use crate::genesis::{GenesisStateApplier, StorageComputer};
 use crate::prefetch::TriePrefetcher;
 use crate::verifier::{check_storage_stake, validate_receipt, StorageStakingError};
 pub use crate::verifier::{
@@ -13,7 +12,6 @@ pub use crate::verifier::{
 use config::total_prepaid_send_fees;
 use near_chain_configs::Genesis;
 pub use near_crypto;
-use near_crypto::PublicKey;
 pub use near_primitives;
 use near_primitives::account::Account;
 use near_primitives::checked_feature;
@@ -36,7 +34,7 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, Balance, Compute, EpochInfoProvider, Gas,
-    RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
+    RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 use near_primitives::utils::{
     create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
@@ -46,8 +44,8 @@ use near_primitives::version::{
 };
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
-    set_account, set_postponed_receipt, set_received_data, PartialStorage, ShardTries,
-    StorageError, Trie, TrieChanges, TrieUpdate,
+    set_account, set_delay_receipt, set_postponed_receipt, set_received_data, PartialStorage,
+    StorageComputer, StorageError, Trie, TrieChanges, TrieUpdate,
 };
 use near_store::{set_access_key, set_code};
 use near_vm_logic::types::PromiseResult;
@@ -63,7 +61,6 @@ pub mod adapter;
 mod balance_checker;
 pub mod config;
 pub mod ext;
-mod genesis;
 mod metrics;
 mod prefetch;
 pub mod state_viewer;
@@ -1372,7 +1369,7 @@ impl Runtime {
                     &mut total_compute_usage,
                 )?;
             } else {
-                Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
+                set_delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             }
         }
 
@@ -1443,7 +1440,7 @@ impl Runtime {
                     &mut total_compute_usage,
                 )?;
             } else {
-                Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
+                set_delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             }
         }
 
@@ -1499,27 +1496,6 @@ impl Runtime {
         })
     }
 
-    // Adds the given receipt into the end of the delayed receipt queue in the state.
-    pub fn delay_receipt(
-        state_update: &mut TrieUpdate,
-        delayed_receipts_indices: &mut DelayedReceiptIndices,
-        receipt: &Receipt,
-    ) -> Result<(), StorageError> {
-        set(
-            state_update,
-            TrieKey::DelayedReceipt { index: delayed_receipts_indices.next_available_index },
-            receipt,
-        );
-        delayed_receipts_indices.next_available_index =
-            delayed_receipts_indices.next_available_index.checked_add(1).ok_or_else(|| {
-                StorageError::StorageInconsistentState(
-                    "Next available index for delayed receipt exceeded the integer limit"
-                        .to_string(),
-                )
-            })?;
-        Ok(())
-    }
-
     fn apply_state_patch(&self, state_update: &mut TrieUpdate, state_patch: SandboxStatePatch) {
         if state_patch.is_empty() {
             return;
@@ -1571,34 +1547,12 @@ impl Runtime {
         });
         storage_computer.finalize()
     }
-
-    /// Balances are account, publickey, initial_balance, initial_tx_stake
-    pub fn apply_genesis_state(
-        &self,
-        op_limit: &std::sync::atomic::AtomicUsize,
-        tries: ShardTries,
-        shard_id: ShardId,
-        validators: &[(AccountId, PublicKey, Balance)],
-        genesis: &Genesis,
-        config: &RuntimeConfig,
-        shard_account_ids: HashSet<AccountId>,
-    ) -> StateRoot {
-        GenesisStateApplier::apply(
-            op_limit,
-            tries,
-            shard_id,
-            validators,
-            config,
-            genesis,
-            shard_account_ids,
-        )
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use near_crypto::{InMemorySigner, KeyType, Signer};
+    use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
     use near_primitives::account::AccessKey;
     use near_primitives::hash::hash;
     use near_primitives::shard_layout::ShardUId;
@@ -1609,7 +1563,7 @@ mod tests {
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_tries;
-    use near_store::{set_access_key, StoreCompiledContractCache};
+    use near_store::{set_access_key, ShardTries, StoreCompiledContractCache};
     use near_vm_logic::{ExtCosts, ParameterCost};
     use testlib::runtime_utils::{alice_account, bob_account};
 
