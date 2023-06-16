@@ -28,12 +28,12 @@ struct StorageComputer<'a> {
 }
 
 impl<'a> StorageComputer<'a> {
-    pub fn new(config: &'a StorageUsageConfig) -> Self {
+    fn new(config: &'a StorageUsageConfig) -> Self {
         Self { result: HashMap::new(), config: &config }
     }
 
     /// Updates user's storage info based on the StateRecord.
-    pub fn process_record(&mut self, record: &StateRecord) {
+    fn process_record(&mut self, record: &StateRecord) {
         // Note: It's okay to use unsafe math here, because this method should only be called on the trusted
         // state records (e.g. at launch from genesis)
         let account_and_storage = match record {
@@ -66,14 +66,14 @@ impl<'a> StorageComputer<'a> {
     }
 
     /// Adds multiple StateRecords to the users' storage info.
-    pub fn process_records(&mut self, records: &[StateRecord]) {
+    fn process_records(&mut self, records: &[StateRecord]) {
         for record in records {
             self.process_record(record);
         }
     }
 
     /// Returns the current storage use for each user.
-    pub fn finalize(self) -> HashMap<AccountId, u64> {
+    fn finalize(self) -> HashMap<AccountId, u64> {
         self.result
     }
 }
@@ -96,7 +96,7 @@ struct AutoFlushingTrieUpdate<'a> {
 }
 
 impl<'a> AutoFlushingTrieUpdate<'a> {
-    pub(crate) fn new(
+    fn new(
         active_writers: &'a atomic::AtomicUsize,
         state_root: StateRoot,
         tries: &'a ShardTries,
