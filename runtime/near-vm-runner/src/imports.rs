@@ -72,8 +72,8 @@ macro_rules! imports {
                 $(#[cfg(feature = $feature_name2)])?
                 $(#[cfg(feature = $feature_name)])*
                 if true
-                    $(&& near_primitives::checked_feature!($feature_name, $feature, $protocol_version))*
-                    $(&& near_primitives::checked_feature!("stable", $stable_feature, $protocol_version))?
+                    $(&& near_primitives_core::checked_feature!($feature_name, $feature, $protocol_version))*
+                    $(&& near_primitives_core::checked_feature!("stable", $stable_feature, $protocol_version))?
                 {
                     call_with_name!($M => $( @in $mod : )? $( @as $name : )? $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
                 }
@@ -675,11 +675,12 @@ pub(crate) mod wasmtime {
     pub(crate) fn link(
         linker: &mut wasmtime::Linker<()>,
         memory: wasmtime::Memory,
+        store: &wasmtime::Store<()>,
         raw_logic: *mut c_void,
         protocol_version: ProtocolVersion,
     ) {
         CALLER_CONTEXT.with(|caller_context| unsafe { *caller_context.get() = raw_logic });
-        linker.define("env", "memory", memory).expect("cannot define memory");
+        linker.define(store, "env", "memory", memory).expect("cannot define memory");
 
         macro_rules! add_import {
             (

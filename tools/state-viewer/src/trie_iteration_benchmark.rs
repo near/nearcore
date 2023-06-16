@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, path::Path, rc::Rc, time::Instant};
+use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Instant};
 
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManager;
@@ -101,7 +101,7 @@ pub struct TrieIterationBenchmarkCmd {
 }
 
 impl TrieIterationBenchmarkCmd {
-    pub fn run(self, _home_dir: &Path, near_config: NearConfig, store: Store) {
+    pub fn run(self, near_config: NearConfig, store: Store) {
         let genesis_config = &near_config.genesis.config;
         let chain_store = ChainStore::new(
             store.clone(),

@@ -5,8 +5,8 @@ use crate::prepare;
 use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports};
 use memoffset::offset_of;
-use near_primitives::contract::ContractCode;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives_core::contract::ContractCode;
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_stable_hasher::StableHasher;
 use near_vm_compiler_singlepass::Singlepass;
 use near_vm_engine::{Engine, Executable};
@@ -391,7 +391,7 @@ impl NearVM {
         return {
             static MEM_CACHE: once_cell::sync::Lazy<
                 near_cache::SyncLruCache<
-                    near_primitives::hash::CryptoHash,
+                    near_primitives_core::hash::CryptoHash,
                     Result<VMArtifact, CompilationError>,
                 >,
             > = once_cell::sync::Lazy::new(|| {
