@@ -6,6 +6,7 @@ use rocksdb::{ColumnFamilyDescriptor, Options, DB};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::{panic, println};
+use strum::IntoEnumIterator;
 
 #[derive(Parser)]
 struct Cli {
@@ -70,63 +71,19 @@ pub fn get_db_col(col: &str) -> Option<DBCol> {
         "col47" => Some(DBCol::EpochValidatorInfo),
         "col48" => Some(DBCol::HeaderHashesByHeight),
         "col49" => Some(DBCol::StateChangesForSplitStates),
-        _ => None
+        _ => {
+            for db_col in DBCol::iter() {
+                if format!("{}", db_col) == col {
+                    return Some(db_col);
+                }
+            }
+            return None;
+        }
     }
 }
 
 fn get_all_col_familiy_names() -> Vec<DBCol> {
-    Vec::from([
-        DBCol::BlockMisc,
-        DBCol::Block,
-        DBCol::DbVersion,
-        DBCol::BlockHeader,
-        DBCol::BlockHeight,
-        DBCol::State,
-        DBCol::ChunkExtra,
-        DBCol::_TransactionResult,
-        DBCol::OutgoingReceipts,
-        DBCol::IncomingReceipts,
-        DBCol::_Peers,
-        DBCol::EpochInfo,
-        DBCol::BlockInfo,
-        DBCol::Chunks,
-        DBCol::PartialChunks,
-        DBCol::BlocksToCatchup,
-        DBCol::StateDlInfos,
-        DBCol::ChallengedBlocks,
-        DBCol::StateHeaders,
-        DBCol::InvalidChunks,
-        DBCol::BlockExtra,
-        DBCol::BlockPerHeight,
-        DBCol::StateParts,
-        DBCol::EpochStart,
-        DBCol::AccountAnnouncements,
-        DBCol::NextBlockHashes,
-        DBCol::EpochLightClientBlocks,
-        DBCol::ReceiptIdToShardId,
-        DBCol::_NextBlockWithNewChunk,
-        DBCol::_LastBlockWithNewChunk,
-        DBCol::PeerComponent,
-        DBCol::ComponentEdges,
-        DBCol::LastComponentNonce,
-        DBCol::Transactions,
-        DBCol::_ChunkPerHeightShard,
-        DBCol::StateChanges,
-        DBCol::BlockRefCount,
-        DBCol::TrieChanges,
-        DBCol::BlockMerkleTree,
-        DBCol::ChunkHashesByHeight,
-        DBCol::BlockOrdinal,
-        DBCol::_GCCount,
-        DBCol::OutcomeIds,
-        DBCol::_TransactionRefCount,
-        DBCol::ProcessedBlockHeights,
-        DBCol::Receipts,
-        DBCol::CachedContractCode,
-        DBCol::EpochValidatorInfo,
-        DBCol::HeaderHashesByHeight,
-        DBCol::StateChangesForSplitStates,
-    ])
+    DBCol::iter().collect()
 }
 
 fn print_results(

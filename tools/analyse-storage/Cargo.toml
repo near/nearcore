@@ -16,4 +16,5 @@ rocksdb.workspace = true
 near-store.workspace = true
 rayon.workspace = true
 num_cpus.workspace = true
+strum.workspace = true
 

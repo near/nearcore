@@ -324,6 +324,7 @@ dependencies = [
  "num_cpus",
  "rayon",
  "rocksdb",
+ "strum",
 ]
 
 [[package]]
