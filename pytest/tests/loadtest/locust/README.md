@@ -13,11 +13,9 @@ pip3 install -r pytest/requirements.txt
 
 ## Run a first load test
 
-The load generator needs access to a FT contract WASM and it needs access to an account key with plenty of tokens.
+The load generator needs access to an account key with plenty of tokens.
 For a local test setup, this works just fine.
 ```sh
-# This assumes your shell is are in nearcore directory
-CONTRACT="${PWD}/runtime/near-test-contracts/res/fungible_token.wasm"
 # This assumes you are running against localnet
 KEY=~/.near/localnet/node0/validator_key.json
 ```
@@ -32,7 +30,6 @@ Then to actually run it, this is the command. (Update ports and IP according to 
 cd pytest/tests/loadtest/locust/
 locust -H 127.0.0.1:3030 \
   -f locustfiles/ft.py \
-  --fungible-token-wasm=$CONTRACT \
   --funding-key=$KEY
 ```
 
@@ -56,7 +53,6 @@ Start the master
 ```sh
 locust -H 127.0.0.1:3030 \
   -f locustfiles/ft.py \
-  --fungible-token-wasm=$CONTRACT \
   --funding-key=$KEY \
   --master
 ```
@@ -69,7 +65,6 @@ ulimit -S -n 100000
 # Run the worker, key must include the same account id as used on master
 locust -H 127.0.0.1:3030 \
   -f locustfiles/ft.py \
-  --fungible-token-wasm=$CONTRACT \
   --funding-key=$KEY \
   --worker
 ```
@@ -80,7 +75,6 @@ for i in {1..16}
 do
    locust -H 127.0.0.1:3030 \
     -f locustfiles/ft.py \
-    --fungible-token-wasm=$CONTRACT \
     --funding-key=$KEY \
     --worker &
 done
@@ -101,13 +95,6 @@ Currently supported load types:
 | Fungible Token | ft.py | `--fungible-token-wasm $WASM_PATH` <br> (`--num-ft-contracts $N`) |  Creates `$N` FT contracts per worker, registers each user in one of them. Users transfer FTs between each other. |
 | Social DB  | social.py | `--social-db-wasm $WASM_PATH` | Creates a single instance of SocialDB and registers users to it. Users post messages and follow other users. (More workload TBD) |
 | Congestion | congestion.py | `--congestion-wasm $WASM_PATH` | Creates a single instance of Congestion contract. Users run large and long transactions. |
-
-For the congestion workload you will need to use the following contract:
-
-```sh
-# This assumes your shell is in nearcore directory
-CONTRACT="${PWD}/runtime/near-test-contracts/res/test_contract_rs.wasm"
-```
 
 In the future, we might have multiple users per load type but for now there is a
 one-to-one mapping from users to load type (and tag).

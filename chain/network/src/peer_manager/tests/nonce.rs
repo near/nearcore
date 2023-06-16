@@ -1,4 +1,4 @@
-use crate::network_protocol::testonly::{self as data, make_signed_ip_addr};
+use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Encoding, Handshake, PartialEdgeInfo, PeerMessage, EDGE_MIN_TIMESTAMP_NONCE,
 };
@@ -64,8 +64,6 @@ async fn test_nonces() {
         let mut stream = stream::Stream::new(Some(Encoding::Proto), stream);
         let peer_key = data::make_secret_key(rng);
         let peer_id = PeerId::new(peer_key.public_key());
-        let ip_addr = stream.stream.local_addr.ip();
-        let signed_ip_address = make_signed_ip_addr(&ip_addr, &peer_key);
         let handshake = PeerMessage::Tier2Handshake(Handshake {
             protocol_version: version::PROTOCOL_VERSION,
             oldest_supported_version: version::PEER_MIN_ALLOWED_PROTOCOL_VERSION,
@@ -77,7 +75,6 @@ async fn test_nonces() {
             sender_chain_info: chain.get_peer_chain_info(),
             partial_edge_info: PartialEdgeInfo::new(&peer_id, &pm.cfg.node_id(), test.0, &peer_key),
             owned_account: None,
-            signed_ip_address: Some(signed_ip_address),
         });
         stream.write(&handshake).await;
         if test.1 {
