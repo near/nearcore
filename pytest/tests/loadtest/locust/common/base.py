@@ -143,6 +143,7 @@ class NearNodeProxy:
         self.request_event = request_event
         url, port = host.split(":")
         self.node = cluster.RpcNode(url, port)
+        self.session = requests.Session()
 
     def send_tx(self, tx: Transaction, locust_name):
         """
@@ -174,9 +175,9 @@ class NearNodeProxy:
         start_perf_counter = time.perf_counter()
 
         # async submit
-        submit_raw_response = requests.post(url="http://%s:%s" %
-                                            self.node.rpc_addr(),
-                                            json=j)
+        submit_raw_response = self.session.post(url="http://%s:%s" %
+                                                self.node.rpc_addr(),
+                                                json=j)
         meta["response_length"] = len(submit_raw_response.text)
 
         # extract transaction ID from response, it should be "{ "result": "id...." }"
@@ -214,9 +215,9 @@ class NearNodeProxy:
            stop_max_delay=DEFAULT_TRANSACTION_TTL_MILLISECONDS,
            retry_on_exception=is_tx_unknown_error)
     def poll_tx_result(self, meta, json):
-        result_response = requests.post(url="http://%s:%s" %
-                                        self.node.rpc_addr(),
-                                        json=json)
+        result_response = self.session.post(url="http://%s:%s" %
+                                            self.node.rpc_addr(),
+                                            json=json)
         # set raw response here in case an error is raised below
         meta["response"] = result_response.content
         # this may raise a `NearError`
