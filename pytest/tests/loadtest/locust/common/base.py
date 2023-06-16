@@ -152,16 +152,6 @@ class NearNodeProxy:
         block_hash = base58.b58decode(self.node.get_latest_block().hash)
         signed_tx = tx.sign_and_serialize(block_hash)
 
-        # doesn't work because it raises on status
-        # rpc_result = self.node.send_tx_and_wait(...)
-
-        j = {
-            "method": "broadcast_tx_async",
-            "params": [base64.b64encode(signed_tx).decode('utf8')],
-            "id": "dontcare",
-            "jsonrpc": "2.0"
-        }
-
         meta = {
             "request_type": "near-rpc",
             "name": locust_name,
@@ -175,9 +165,8 @@ class NearNodeProxy:
         start_perf_counter = time.perf_counter()
 
         # async submit
-        submit_raw_response = self.session.post(url="http://%s:%s" %
-                                                self.node.rpc_addr(),
-                                                json=j)
+        submit_raw_response = self.post_json(
+            "broadcast_tx_async", [base64.b64encode(signed_tx).decode('utf8')])
         meta["response_length"] = len(submit_raw_response.text)
 
         # extract transaction ID from response, it should be "{ "result": "id...." }"
@@ -189,17 +178,8 @@ class NearNodeProxy:
         else:
             tx.transaction_id = submit_response["result"]
             try:
-                # poll for tx result, using "EXPERIMENTAL_tx_status" which waits for
-                # all receipts to finish rather than just the first one, as "tx" would do
-                j = {
-                    "method": "EXPERIMENTAL_tx_status",
-                    "params": [tx.transaction_id,
-                               tx.sender_id()],
-                    "id": "dontcare",
-                    "jsonrpc": "2.0"
-                }
                 # using retrying lib here to poll until a response is ready
-                self.poll_tx_result(meta, j)
+                self.poll_tx_result(meta, [tx.transaction_id, tx.sender_id()])
             except NearError as err:
                 logging.warn(f"marking an error {err.message}, {err.details}")
                 meta["exception"] = err
@@ -211,17 +191,30 @@ class NearNodeProxy:
         self.request_event.fire(**meta)
         return meta["response"]
 
+    def post_json(self, method: str, params: list(str)):
+        j = {
+            "method": method,
+            "params": params,
+            "id": "dontcare",
+            "jsonrpc": "2.0"
+        }
+        return self.session.post(url="http://%s:%s" % self.node.rpc_addr(),
+                                 json=j)
+
     @retry(wait_fixed=500,
            stop_max_delay=DEFAULT_TRANSACTION_TTL_MILLISECONDS,
            retry_on_exception=is_tx_unknown_error)
-    def poll_tx_result(self, meta, json):
-        result_response = self.session.post(url="http://%s:%s" %
-                                            self.node.rpc_addr(),
-                                            json=json)
-        # set raw response here in case an error is raised below
-        meta["response"] = result_response.content
-        # this may raise a `NearError`
-        meta["response"] = evaluate_rpc_result(result_response.json())
+    def poll_tx_result(self, meta, params):
+        # poll for tx result, using "EXPERIMENTAL_tx_status" which waits for
+        # all receipts to finish rather than just the first one, as "tx" would do
+        result_response = self.post_json("EXPERIMENTAL_tx_status", params)
+
+        try:
+            meta["response"] = evaluate_rpc_result(result_response.json())
+        except:
+            # Store raw response to improve error-reporting.
+            meta["response"] = result_response.content
+            raise
 
 
 class NearUser(User):
@@ -380,7 +373,7 @@ def evaluate_rpc_result(rpc_result):
                                message="Unknown receipt result")
         if status == "Failure":
             raise ReceiptError(receipt["outcome"], receipt["id"])
-        if not (status == "SuccessReceiptId" or status == "SuccessValue"):
+        if not status in ["SuccessReceiptId", "SuccessValue"]:
             raise ReceiptError(receipt["outcome"],
                                receipt["id"],
                                message="Unexpected status")
