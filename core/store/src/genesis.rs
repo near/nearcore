@@ -1,4 +1,4 @@
-//! This file contains helper functions for accessing flat storage data in DB
+//! This file contains helper functions for creating genesis data in DB
 //! initialize_genesis_state is currently called by nightshade runtime but should be moved to chain
 
 use rayon::prelude::*;
