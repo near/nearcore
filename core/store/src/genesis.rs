@@ -28,7 +28,7 @@ pub fn initialize_genesis_state(
     let has_dump = home_dir.join(STATE_DUMP_FILE).exists();
     if has_dump {
         if genesis.records_len().is_ok() {
-            warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
+            warn!(target: "store", "Found both records in genesis config and the state dump file. Will ignore the records.");
         }
         genesis_state_from_dump(store, home_dir)
     } else {
@@ -53,13 +53,13 @@ fn genesis_state_from_records(store: Store, genesis: &Genesis) -> Vec<StateRoot>
     match genesis.records_len() {
         Ok(count) => {
             info!(
-                target: "runtime",
+                target: "store",
                 "genesis state has {count} records, computing state roots"
             )
         }
         Err(path) => {
             info!(
-                target: "runtime",
+                target: "store",
                 path=%path.display(),
                 message="computing state roots from records",
             )
@@ -71,10 +71,8 @@ fn genesis_state_from_records(store: Store, genesis: &Genesis) -> Vec<StateRoot>
     let mut shard_account_ids: Vec<HashSet<AccountId>> =
         (0..num_shards).map(|_| HashSet::new()).collect();
     let mut has_protocol_account = false;
-    info!(
-        target: "runtime",
-        "distributing records to shards"
-    );
+    info!(target: "store","distributing records to shards");
+
     genesis.for_each_record(|record: &StateRecord| {
         shard_account_ids[state_record_to_shard_id(record, &shard_layout) as usize]
             .insert(state_record_to_account_id(record).clone());
@@ -91,7 +89,7 @@ fn genesis_state_from_records(store: Store, genesis: &Genesis) -> Vec<StateRoot>
         &genesis.config.shard_layout.get_shard_uids(),
         FlatStorageManager::new(store),
     );
-    // let runtime = Runtime::new();
+
     let runtime_config_store = create_runtime_config_store(&genesis.config.chain_id);
     let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
     let writers = std::sync::atomic::AtomicUsize::new(0);
