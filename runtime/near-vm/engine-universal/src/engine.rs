@@ -484,8 +484,8 @@ impl Engine for UniversalEngine {
     #[cfg(not(feature = "compiler"))]
     fn compile(
         &self,
-        binary: &[u8],
-        tunables: &dyn Tunables,
+        _binary: &[u8],
+        _tunables: &dyn Tunables,
     ) -> Result<Box<dyn near_vm_engine::Executable>, CompileError> {
         return Err(CompileError::Codegen(
             "The UniversalEngine is operating in headless mode, so it can not compile Modules."
@@ -685,10 +685,7 @@ impl UniversalEngineInner {
     }
 
     /// Register DWARF-type exception handling information associated with the code.
-    pub(crate) fn publish_eh_frame(&mut self, eh_frame: &[u8]) -> Result<(), CompileError> {
-        self.code_memory.last_mut().unwrap().unwind_registry_mut().publish(eh_frame).map_err(
-            |e| CompileError::Resource(format!("Error while publishing the unwind code: {}", e)),
-        )?;
+    pub(crate) fn publish_eh_frame(&mut self, _eh_frame: &[u8]) -> Result<(), CompileError> {
         Ok(())
     }
 
