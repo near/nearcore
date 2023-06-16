@@ -41,9 +41,7 @@ use near_primitives::types::{
 use near_primitives::utils::{
     create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
 };
-use near_primitives::version::{
-    is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
-};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
     set_account, set_postponed_receipt, set_received_data, PartialStorage, ShardTries,
@@ -388,7 +386,9 @@ impl Runtime {
                     }
                 } else {
                     // Implicit account creation
-                    debug_assert!(is_implicit_account_creation_enabled(
+                    debug_assert!(checked_feature!(
+                        "stable",
+                        ImplicitAccountCreation,
                         apply_state.current_protocol_version
                     ));
                     debug_assert!(!is_refund);
