@@ -319,22 +319,22 @@ def init_account_generator(parsed_options):
         with open(parsed_options.shard_layout_file, 'r') as f:
             shard_layout = json.load(f)
     elif parsed_options.shard_layout_chain_id is not None:
-        if parsed_options.shard_layout_chain_id in ['mainnet', 'testnet']:
-            shard_layout = {
-                "V1": {
-                    "fixed_shards": [],
-                    "boundary_accounts": [
-                        "aurora", "aurora-0", "kkuuue2akv_1630967379.near"
-                    ],
-                    "shards_split_map": [[0, 1, 2, 3]],
-                    "to_parent_shard_map": [0, 0, 0, 0],
-                    "version": 1
-                }
-            }
-        else:
+        if parsed_options.shard_layout_chain_id not in ['mainnet', 'testnet']:
             sys.exit(
                 f'unexpected --shard-layout-chain-id: {parsed_options.shard_layout_chain_id}'
             )
+
+        shard_layout = {
+            "V1": {
+                "fixed_shards": [],
+                "boundary_accounts": [
+                    "aurora", "aurora-0", "kkuuue2akv_1630967379.near"
+                ],
+                "shards_split_map": [[0, 1, 2, 3]],
+                "to_parent_shard_map": [0, 0, 0, 0],
+                "version": 1
+            }
+        }
     else:
         shard_layout = {
             "V0": {
