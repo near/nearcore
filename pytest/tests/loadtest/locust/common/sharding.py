@@ -1,3 +1,10 @@
+"""Account name generator
+
+Provides tools to generate account names that are distributed evenly across the shards.
+
+For account naming rules and conventions see https://nomicon.io/DataStructures/Account
+"""
+
 import os
 import sys
 import random
