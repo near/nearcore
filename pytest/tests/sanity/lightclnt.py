@@ -85,7 +85,7 @@ def get_up_to(from_, to):
     for height, hash_ in utils.poll_blocks(nodes[0],
                                            timeout=TIMEOUT,
                                            poll_interval=0.01):
-        block = nodes[0].get_block(hash_)
+        block = nodes[0].get_block(hash_, timeout = 5)
 
         hash_to_height[hash_] = height
         height_to_hash[height] = hash_

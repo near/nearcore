@@ -315,8 +315,8 @@ class BaseNode(object):
                 return access_key['access_key']['nonce']
         return None
 
-    def get_block(self, block_id):
-        return self.json_rpc('block', [block_id])
+    def get_block(self, block_id, **kwargs):
+        return self.json_rpc('block', [block_id], kwargs)
 
     def get_chunk(self, chunk_id):
         return self.json_rpc('chunk', [chunk_id])
