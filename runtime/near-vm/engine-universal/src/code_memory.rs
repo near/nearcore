@@ -2,8 +2,7 @@
 // Attributions: https://github.com/wasmerio/wasmer/blob/master/ATTRIBUTIONS.md
 
 //! Memory management for executable code.
-use crate::unwind::UnwindRegistry;
-use near_vm_compiler::{CompiledFunctionUnwindInfoRef, CustomSectionRef, FunctionBodyRef};
+use near_vm_compiler::{CustomSectionRef, FunctionBodyRef};
 use near_vm_vm::{Mmap, VMFunctionBody};
 
 /// The optimal alignment for functions.
@@ -19,7 +18,6 @@ const DATA_SECTION_ALIGNMENT: usize = 64;
 
 /// Memory manager for executable code.
 pub struct CodeMemory {
-    unwind_registry: UnwindRegistry,
     mmap: Mmap,
     start_of_nonexecutable_pages: usize,
 }
@@ -27,16 +25,7 @@ pub struct CodeMemory {
 impl CodeMemory {
     /// Create a new `CodeMemory` instance.
     pub fn new() -> Self {
-        Self {
-            unwind_registry: UnwindRegistry::new(),
-            mmap: Mmap::new(),
-            start_of_nonexecutable_pages: 0,
-        }
-    }
-
-    /// Mutably get the UnwindRegistry.
-    pub fn unwind_registry_mut(&mut self) -> &mut UnwindRegistry {
-        &mut self.unwind_registry
+        Self { mmap: Mmap::new(), start_of_nonexecutable_pages: 0 }
     }
 
     /// Allocate a single contiguous block of memory for the functions and custom sections, and copy the data in place.
@@ -88,7 +77,7 @@ impl CodeMemory {
             buf = next_buf;
             bytes += len;
 
-            let vmfunc = Self::copy_function(&mut self.unwind_registry, *func, func_buf);
+            let vmfunc = Self::copy_function(*func, func_buf);
             assert_eq!(vmfunc.as_ptr() as usize % ARCH_FUNCTION_ALIGNMENT, 0);
             function_result.push(vmfunc);
         }
@@ -143,51 +132,20 @@ impl CodeMemory {
 
     /// Calculates the allocation size of the given compiled function.
     fn function_allocation_size(func: FunctionBodyRef<'_>) -> usize {
-        match &func.unwind_info {
-            Some(CompiledFunctionUnwindInfoRef::WindowsX64(info)) => {
-                // Windows unwind information is required to be emitted into code memory
-                // This is because it must be a positive relative offset from the start of the memory
-                // Account for necessary unwind information alignment padding (32-bit alignment)
-                ((func.body.len() + 3) & !3) + info.len()
-            }
-            _ => func.body.len(),
-        }
+        func.body.len()
     }
 
     /// Copies the data of the compiled function to the given buffer.
     ///
     /// This will also add the function to the current function table.
-    fn copy_function<'a>(
-        registry: &mut UnwindRegistry,
-        func: FunctionBodyRef<'_>,
-        buf: &'a mut [u8],
-    ) -> &'a mut [VMFunctionBody] {
+    fn copy_function<'a>(func: FunctionBodyRef<'_>, buf: &'a mut [u8]) -> &'a mut [VMFunctionBody] {
         assert_eq!(buf.as_ptr() as usize % ARCH_FUNCTION_ALIGNMENT, 0);
 
         let func_len = func.body.len();
 
-        let (body, remainder) = buf.split_at_mut(func_len);
+        let (body, _remainder) = buf.split_at_mut(func_len);
         body.copy_from_slice(&func.body);
-        let vmfunc = Self::view_as_mut_vmfunc_slice(body);
-
-        if let Some(CompiledFunctionUnwindInfoRef::WindowsX64(info)) = &func.unwind_info {
-            // Windows unwind information is written following the function body
-            // Keep unwind information 32-bit aligned (round up to the nearest 4 byte boundary)
-            let unwind_start = (func_len + 3) & !3;
-            let unwind_size = info.len();
-            let padding = unwind_start - func_len;
-            assert_eq!((func_len + padding) % 4, 0);
-            let slice = remainder.split_at_mut(padding + unwind_size).0;
-            slice[padding..].copy_from_slice(&info);
-        }
-
-        if let Some(info) = &func.unwind_info {
-            registry
-                .register(vmfunc.as_ptr() as usize, 0, func_len as u32, *info)
-                .expect("failed to register unwind information");
-        }
-
-        vmfunc
+        Self::view_as_mut_vmfunc_slice(body)
     }
 
     /// Convert mut a slice from u8 to VMFunctionBody.

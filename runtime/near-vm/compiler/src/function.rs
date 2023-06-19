@@ -7,10 +7,7 @@
 use crate::lib::std::vec::Vec;
 use crate::section::{CustomSection, SectionIndex};
 use crate::trap::TrapInformation;
-use crate::{
-    CompiledFunctionUnwindInfo, CompiledFunctionUnwindInfoRef, FunctionAddressMap,
-    JumpTableOffsets, Relocation,
-};
+use crate::{FunctionAddressMap, JumpTableOffsets, Relocation};
 use near_vm_types::entity::PrimaryMap;
 use near_vm_types::{FunctionIndex, LocalFunctionIndex, SignatureIndex};
 
@@ -36,9 +33,6 @@ pub struct CompiledFunctionFrameInfo {
 pub struct FunctionBody {
     /// The function body bytes.
     pub body: Vec<u8>,
-
-    /// The function unwind info
-    pub unwind_info: Option<CompiledFunctionUnwindInfo>,
 }
 
 /// See [`FunctionBody`].
@@ -46,25 +40,17 @@ pub struct FunctionBody {
 pub struct FunctionBodyRef<'a> {
     /// Function body bytes.
     pub body: &'a [u8],
-    /// The function unwind info.
-    pub unwind_info: Option<CompiledFunctionUnwindInfoRef<'a>>,
 }
 
 impl<'a> From<&'a FunctionBody> for FunctionBodyRef<'a> {
     fn from(body: &'a FunctionBody) -> Self {
-        FunctionBodyRef {
-            body: &*body.body,
-            unwind_info: body.unwind_info.as_ref().map(Into::into),
-        }
+        FunctionBodyRef { body: &*body.body }
     }
 }
 
 impl<'a> From<&'a ArchivedFunctionBody> for FunctionBodyRef<'a> {
     fn from(body: &'a ArchivedFunctionBody) -> Self {
-        FunctionBodyRef {
-            body: &*body.body,
-            unwind_info: body.unwind_info.as_ref().map(Into::into),
-        }
+        FunctionBodyRef { body: &*body.body }
     }
 }
 
