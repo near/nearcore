@@ -1520,21 +1520,21 @@ fn test_init_config_localnet() {
             &AccountId::from_str("shard0.test.near").unwrap(),
             &genesis.config.shard_layout
         ),
-        0
+        1
     );
     assert_eq!(
         account_id_to_shard_id(
             &AccountId::from_str("shard1.test.near").unwrap(),
             &genesis.config.shard_layout
         ),
-        1
+        2
     );
     assert_eq!(
         account_id_to_shard_id(
             &AccountId::from_str("foobar.near").unwrap(),
             &genesis.config.shard_layout
         ),
-        2
+        0
     );
 }
 

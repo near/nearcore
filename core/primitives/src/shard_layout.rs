@@ -461,42 +461,41 @@ mod tests {
     #[test]
     fn test_shard_layout_v1() {
         let shard_layout = ShardLayout::v1(
-            vec!["aurora", "bar", "foo", "foo.baz"]
+            vec!["aurora", "bar", "foo", "foo.baz", "paz"]
                 .into_iter()
                 .map(|s| s.parse().unwrap())
                 .collect(),
-            vec!["abc", "foo", "paz"].into_iter().map(|s| s.parse().unwrap()).collect(),
-            Some(vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7]]),
+            Some(vec![vec![0, 1, 2], vec![3, 4, 5]]),
             1,
         );
         assert_eq!(
             shard_layout.get_split_shard_uids(0).unwrap(),
-            (0..4).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
+            (0..3).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
         );
         assert_eq!(
             shard_layout.get_split_shard_uids(1).unwrap(),
-            (4..8).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
+            (3..6).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
         );
-        for x in 0..4 {
+        for x in 0..3 {
             assert_eq!(shard_layout.get_parent_shard_id(x).unwrap(), 0);
-            assert_eq!(shard_layout.get_parent_shard_id(x + 4).unwrap(), 1);
+            assert_eq!(shard_layout.get_parent_shard_id(x + 3).unwrap(), 1);
         }
 
-        assert_eq!(account_id_to_shard_id(&"aurora".parse().unwrap(), &shard_layout), 0);
-        assert_eq!(account_id_to_shard_id(&"foo.aurora".parse().unwrap(), &shard_layout), 0);
-        assert_eq!(account_id_to_shard_id(&"bar.foo.aurora".parse().unwrap(), &shard_layout), 0);
-        assert_eq!(account_id_to_shard_id(&"bar".parse().unwrap(), &shard_layout), 1);
-        assert_eq!(account_id_to_shard_id(&"bar.bar".parse().unwrap(), &shard_layout), 1);
-        assert_eq!(account_id_to_shard_id(&"foo".parse().unwrap(), &shard_layout), 2);
+        assert_eq!(account_id_to_shard_id(&"aurora".parse().unwrap(), &shard_layout), 1);
+        assert_eq!(account_id_to_shard_id(&"foo.aurora".parse().unwrap(), &shard_layout), 3);
+        assert_eq!(account_id_to_shard_id(&"bar.foo.aurora".parse().unwrap(), &shard_layout), 2);
+        assert_eq!(account_id_to_shard_id(&"bar".parse().unwrap(), &shard_layout), 2);
+        assert_eq!(account_id_to_shard_id(&"bar.bar".parse().unwrap(), &shard_layout), 2);
+        assert_eq!(account_id_to_shard_id(&"foo".parse().unwrap(), &shard_layout), 3);
         assert_eq!(account_id_to_shard_id(&"baz.foo".parse().unwrap(), &shard_layout), 2);
-        assert_eq!(account_id_to_shard_id(&"foo.baz".parse().unwrap(), &shard_layout), 3);
-        assert_eq!(account_id_to_shard_id(&"a.foo.baz".parse().unwrap(), &shard_layout), 3);
+        assert_eq!(account_id_to_shard_id(&"foo.baz".parse().unwrap(), &shard_layout), 4);
+        assert_eq!(account_id_to_shard_id(&"a.foo.baz".parse().unwrap(), &shard_layout), 0);
 
-        assert_eq!(account_id_to_shard_id(&"aaa".parse().unwrap(), &shard_layout), 4);
-        assert_eq!(account_id_to_shard_id(&"abc".parse().unwrap(), &shard_layout), 5);
-        assert_eq!(account_id_to_shard_id(&"bbb".parse().unwrap(), &shard_layout), 5);
-        assert_eq!(account_id_to_shard_id(&"foo.goo".parse().unwrap(), &shard_layout), 6);
-        assert_eq!(account_id_to_shard_id(&"goo".parse().unwrap(), &shard_layout), 6);
-        assert_eq!(account_id_to_shard_id(&"zoo".parse().unwrap(), &shard_layout), 7);
+        assert_eq!(account_id_to_shard_id(&"aaa".parse().unwrap(), &shard_layout), 0);
+        assert_eq!(account_id_to_shard_id(&"abc".parse().unwrap(), &shard_layout), 0);
+        assert_eq!(account_id_to_shard_id(&"bbb".parse().unwrap(), &shard_layout), 2);
+        assert_eq!(account_id_to_shard_id(&"foo.goo".parse().unwrap(), &shard_layout), 4);
+        assert_eq!(account_id_to_shard_id(&"goo".parse().unwrap(), &shard_layout), 4);
+        assert_eq!(account_id_to_shard_id(&"zoo".parse().unwrap(), &shard_layout), 5);
     }
 }
