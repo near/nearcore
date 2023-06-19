@@ -138,6 +138,7 @@ target_height = 20 + first_epoch_switch_height
 while target_height not in height_to_hash:
     target_height += 1
     assert target_height <= 20 + first_epoch_switch_height
+
 while True:
     assert time.time() - started < TIMEOUT
 
@@ -174,7 +175,7 @@ if 19 + first_epoch_switch_height in height_to_hash:
     assert res['result']['inner_lite'][
         'height'] == 20 + first_epoch_switch_height
 else:
-    logger.warn(f"Block height {19 + first_epoch_switch_height} was skipped")
+    logger.warning(f"Block height {19 + first_epoch_switch_height} was skipped")
 
 get_up_to(23 + first_epoch_switch_height, 24 + first_epoch_switch_height)
 
@@ -189,6 +190,7 @@ for i in range(2):
     if 19 + first_epoch_switch_height in height_to_hash:
         res = get_light_client_block(
             height_to_hash[19 + first_epoch_switch_height], last_known_block)
+        logger.info(f"Light client block from {19 + first_epoch_switch_height} has result: {res['result']}")
         assert res['result']['inner_lite'][
             'height'] == 21 + first_epoch_switch_height, (
                 res['result']['inner_lite']['height'],
@@ -197,12 +199,14 @@ for i in range(2):
     if 20 + first_epoch_switch_height in height_to_hash:
         res = get_light_client_block(
             height_to_hash[20 + first_epoch_switch_height], last_known_block)
+        logger.info(f"Light client block from {20 + first_epoch_switch_height} has result: {res['result']}")
         assert res['result']['inner_lite'][
             'height'] == 21 + first_epoch_switch_height
 
     if 21 + first_epoch_switch_height in height_to_hash:
         res = get_light_client_block(
             height_to_hash[21 + first_epoch_switch_height], last_known_block)
+        logger.info(f"Light client block from {21 + first_epoch_switch_height} has result: {res['result']}")
         assert res['result'] == {}
 
     get_up_to(i + 25 + first_epoch_switch_height,
@@ -211,5 +215,6 @@ for i in range(2):
 if 21 + first_epoch_switch_height in height_to_hash:
     res = get_light_client_block(height_to_hash[21 + first_epoch_switch_height],
                                  last_known_block)
+    logger.info(f"Light client block from {21 + first_epoch_switch_height} has result: {res['result']}")
     assert res['result']['inner_lite'][
         'height'] == 24 + first_epoch_switch_height
