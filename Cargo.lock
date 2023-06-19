@@ -822,7 +822,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40f9ca3698b2e4cb7c15571db0abc5551dca417a21ae8140460b50309bb2cc62"
 dependencies = [
  "borsh-derive 0.10.2",
- "hashbrown 0.12.3",
+ "hashbrown 0.13.2",
 ]
 
 [[package]]
@@ -1861,13 +1861,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "dynasm"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33dc03612f42465a8ed7f5e354bc2b79ba54cedefa81d5bd3a064f1835adaba8"
+dependencies = [
+ "bitflags 1.3.2",
+ "byteorder",
+ "lazy_static",
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.103",
+]
+
+[[package]]
 name = "dynasmrt"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64fba5a42bd76a17cad4bfa00de168ee1cbfa06a5e8ce992ae880218c05641a9"
 dependencies = [
  "byteorder",
- "dynasm",
+ "dynasm 1.2.3",
+ "memmap2",
+]
+
+[[package]]
+name = "dynasmrt"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7dccc31a678058996aef614f6bd418ced384da70f284e83e2b7bf29b27b6a28"
+dependencies = [
+ "byteorder",
+ "dynasm 2.0.0",
+ "fnv",
  "memmap2",
 ]
 
@@ -4140,6 +4167,7 @@ dependencies = [
  "itertools",
  "itoa",
  "lru",
+ "near-chain-configs",
  "near-crypto",
  "near-fmt",
  "near-o11y",
@@ -4149,6 +4177,7 @@ dependencies = [
  "num_cpus",
  "once_cell",
  "rand 0.8.5",
+ "rayon",
  "rlimit",
  "rocksdb",
  "serde",
@@ -4257,8 +4286,8 @@ dependencies = [
 name = "near-vm-compiler-singlepass"
 version = "0.0.0"
 dependencies = [
- "dynasm",
- "dynasmrt",
+ "dynasm 2.0.0",
+ "dynasmrt 2.0.0",
  "enumset",
  "finite-wasm",
  "hashbrown 0.11.2",
@@ -6507,6 +6536,7 @@ dependencies = [
  "near-chain-configs",
  "near-o11y",
  "near-primitives",
+ "near-store",
  "node-runtime",
  "serde_json",
  "tokio",
@@ -7493,8 +7523,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac4af0e438015585eb27b2c6f6869c58c540bfe27408b686b1778470bf301050"
 dependencies = [
  "byteorder",
- "dynasm",
- "dynasmrt",
+ "dynasm 1.2.3",
+ "dynasmrt 1.2.3",
  "lazy_static",
  "memoffset 0.6.5",
  "more-asserts",
@@ -7596,8 +7626,8 @@ dependencies = [
  "bincode",
  "borsh 0.9.3",
  "byteorder",
- "dynasm",
- "dynasmrt",
+ "dynasm 1.2.3",
+ "dynasmrt 1.2.3",
  "lazy_static",
  "libc",
  "nix 0.15.0",

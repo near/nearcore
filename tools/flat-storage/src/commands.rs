@@ -9,6 +9,7 @@ use near_store::flat::{
     inline_flat_state_values, store_helper, FlatStateDelta, FlatStateDeltaMetadata,
     FlatStorageManager, FlatStorageStatus,
 };
+use near_store::trie::construct_trie_from_flat;
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime};
 use std::sync::atomic::AtomicBool;
@@ -42,6 +43,20 @@ enum SubCommand {
 
     /// Run FlatState value inininig migration
     MigrateValueInlining(MigrateValueInliningCmd),
+
+    /// Construct and store trie in a separate directory from flat storage state for a given shard.
+    /// The trie is constructed for the block height equal to flat_head
+    ConstructTrieFromFlat(ConstructTriedFromFlatCmd),
+}
+
+#[derive(Parser)]
+pub struct ConstructTriedFromFlatCmd {
+    #[clap(long)]
+    shard_id: u64,
+    /// Path to directory where the constructed trie would be stored. Note that there shouldn't be an
+    /// existing DB in the path provided.
+    #[clap(long)]
+    write_store_path: PathBuf,
 }
 
 #[derive(Parser)]
@@ -328,6 +343,28 @@ impl FlatStorageCommand {
                     cmd.num_threads,
                     cmd.batch_size,
                 );
+            }
+            SubCommand::ConstructTrieFromFlat(cmd) => {
+                let (_, epoch_manager, _, chain_store, store) = Self::get_db(
+                    &opener,
+                    home_dir,
+                    &near_config,
+                    near_store::Mode::ReadWriteExisting,
+                );
+
+                let write_opener = NodeStorage::opener(
+                    &cmd.write_store_path,
+                    false,
+                    &near_config.config.store,
+                    None,
+                );
+                let write_node_storage = write_opener.open_in_mode(Mode::Create).unwrap();
+                let write_store = write_node_storage.get_hot_store();
+
+                let tip = chain_store.final_head().unwrap();
+                let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &tip.epoch_id)?;
+
+                construct_trie_from_flat(store, write_store, shard_uid);
             }
         }
 

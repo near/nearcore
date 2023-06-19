@@ -11,7 +11,7 @@ use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{AccountId, AccountInfo, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_tries;
-use near_store::ShardTries;
+use near_store::{GenesisStateApplier, ShardTries};
 use near_vm_logic::ActionCosts;
 use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
@@ -76,13 +76,13 @@ impl StandaloneRuntime {
             account_ids.insert(state_record_to_account_id(record).clone());
         });
         let writers = std::sync::atomic::AtomicUsize::new(0);
-        let root = runtime.apply_genesis_state(
+        let root = GenesisStateApplier::apply(
             &writers,
             tries.clone(),
             0,
             &[],
+            &runtime_config.fees.storage_usage_config,
             &genesis,
-            &runtime_config,
             account_ids,
         );
 
