@@ -177,18 +177,12 @@ impl From<ShardSyncDownload> for ShardSyncDownloadView {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct StateSplitApplyingStatus {
     /// total number of parts to be applied
     pub total_parts: OnceCell<u64>,
     /// number of parts that are done
     pub done_parts: AtomicU64,
-}
-
-impl StateSplitApplyingStatus {
-    pub fn new() -> Self {
-        StateSplitApplyingStatus { total_parts: OnceCell::new(), done_parts: AtomicU64::new(0) }
-    }
 }
 
 /// Stores status of shard sync and statuses of downloading shards.
