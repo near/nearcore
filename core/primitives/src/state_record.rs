@@ -54,7 +54,7 @@ impl StateRecord {
         Self::from_raw_key_value_impl(key, value).unwrap_or(None)
     }
 
-    fn from_raw_key_value_impl(
+    pub fn from_raw_key_value_impl(
         key: Vec<u8>,
         value: Vec<u8>,
     ) -> Result<Option<StateRecord>, std::io::Error> {

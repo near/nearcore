@@ -135,13 +135,12 @@ impl InfoHelper {
         let me = client.validator_signer.as_ref().map(|x| x.validator_id());
         if let Ok(num_shards) = client.epoch_manager.num_shards(&head.epoch_id) {
             for shard_id in 0..num_shards {
-                let tracked = match me {
-                    None => false,
-                    Some(me) => client
-                        .epoch_manager
-                        .cares_about_shard_from_prev_block(&head.last_block_hash, me, shard_id)
-                        .unwrap_or(false),
-                };
+                let tracked = client.shard_tracker.care_about_shard(
+                    me,
+                    &head.last_block_hash,
+                    shard_id,
+                    true,
+                );
                 metrics::TRACKED_SHARDS
                     .with_label_values(&[&shard_id.to_string()])
                     .set(if tracked { 1 } else { 0 });

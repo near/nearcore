@@ -515,18 +515,18 @@ impl Genesis {
 
         let mut json_str = String::new();
         file.read_to_string(&mut json_str).map_err(|_| ValidationError::GenesisFileError {
-            error_message: "Failed to read genesis config file to string. ".to_string(),
+            error_message: format!("Failed to read genesis config file to string. "),
         })?;
 
         let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)
             .map_err(|_| ValidationError::GenesisFileError {
-                error_message: "Failed to strip comments from genesis config file".to_string(),
+                error_message: format!("Failed to strip comments from genesis config file"),
             })?;
 
         let genesis =
             serde_json::from_str::<Genesis>(&json_str_without_comments).map_err(|_| {
                 ValidationError::GenesisFileError {
-                    error_message: "Failed to deserialize the genesis records.".to_string(),
+                    error_message: format!("Failed to deserialize the genesis records."),
                 }
             })?;
 

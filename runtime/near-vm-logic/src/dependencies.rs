@@ -1,8 +1,8 @@
 //! External dependencies of the near-vm-logic.
 
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::TrieNodesCount;
+use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance};
+use near_vm_errors::TrieNodesCount;
 use near_vm_errors::VMLogicError;
 
 use std::borrow::Cow;
