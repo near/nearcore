@@ -26,7 +26,6 @@ use near_primitives::transaction::ExecutionMetadata;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::config::{ExtCosts, ExtCostsConfig};
-use near_primitives_core::profile;
 use near_primitives_core::types::Gas;
 use near_store::test_utils::create_test_store;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
