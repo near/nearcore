@@ -1,7 +1,7 @@
-use crate::hash::hash;
-use crate::types::AccountId;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{Signature, Signer};
+use near_primitives_core::hash::hash;
+use near_primitives_core::types::AccountId;
 
 // These numbers are picked to be compatible with the current protocol and how
 // transactions are defined in it. Introducing this is no protocol change. This

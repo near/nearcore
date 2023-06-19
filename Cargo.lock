@@ -4360,9 +4360,12 @@ version = "0.0.0"
 dependencies = [
  "borsh 0.10.2",
  "near-account-id",
+ "near-crypto",
+ "near-fmt",
  "near-primitives-core",
  "near-rpc-error-macro",
  "serde",
+ "serde_with",
  "strum",
  "thiserror",
 ]

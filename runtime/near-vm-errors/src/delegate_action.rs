@@ -4,13 +4,13 @@
 //! This is the module containing the types introduced for delegate actions.
 
 pub use self::private_non_delegate_action::NonDelegateAction;
-use crate::hash::{hash, CryptoHash};
+use crate::action::Action;
 use crate::signable_message::{SignableMessage, SignableMessageType};
-use crate::transaction::Action;
-use crate::types::{AccountId, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
+use near_primitives_core::hash::{hash, CryptoHash};
 use near_primitives_core::types::BlockHeight;
+use near_primitives_core::types::{AccountId, Nonce};
 use serde::{Deserialize, Serialize};
 use std::io::{Error, ErrorKind};
 
