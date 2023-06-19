@@ -167,7 +167,7 @@ impl ShardTries {
     }
 
     pub fn store_update(&self) -> StoreUpdate {
-        StoreUpdate::new_with_tries(self.clone())
+        StoreUpdate::new(self.get_db().clone())
     }
 
     pub fn get_store(&self) -> Store {

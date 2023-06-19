@@ -419,12 +419,7 @@ impl Store {
 /// Keeps track of current changes to the database and can commit all of them to the database.
 pub struct StoreUpdate {
     transaction: DBTransaction,
-    storage: StoreUpdateStorage,
-}
-
-enum StoreUpdateStorage {
-    DB(Arc<dyn Database>),
-    Tries(ShardTries),
+    storage: Arc<dyn Database>,
 }
 
 impl StoreUpdate {
@@ -434,11 +429,7 @@ impl StoreUpdate {
     };
 
     pub(crate) fn new(db: Arc<dyn Database>) -> Self {
-        StoreUpdate { transaction: DBTransaction::new(), storage: StoreUpdateStorage::DB(db) }
-    }
-
-    pub fn new_with_tries(tries: ShardTries) -> Self {
-        StoreUpdate { transaction: DBTransaction::new(), storage: StoreUpdateStorage::Tries(tries) }
+        StoreUpdate { transaction: DBTransaction::new(), storage: db }
     }
 
     /// Inserts a new value into the database.
@@ -573,18 +564,7 @@ impl StoreUpdate {
     ///
     /// Panics if `self`’s and `other`’s storage are incompatible.
     pub fn merge(&mut self, other: StoreUpdate) {
-        match other.storage {
-            StoreUpdateStorage::Tries(tries) => {
-                self.storage = StoreUpdateStorage::Tries(tries);
-            }
-            StoreUpdateStorage::DB(other_db) => {
-                let self_db = match &self.storage {
-                    StoreUpdateStorage::Tries(tries) => tries.get_db(),
-                    StoreUpdateStorage::DB(db) => &db,
-                };
-                assert!(same_db(self_db, &other_db));
-            }
-        }
+        assert!(same_db(&self.storage, &other.storage));
         self.transaction.merge(other.transaction)
     }
 
@@ -633,11 +613,7 @@ impl StoreUpdate {
                 }
             }
         }
-        let storage = match &self.storage {
-            StoreUpdateStorage::Tries(tries) => tries.get_db(),
-            StoreUpdateStorage::DB(db) => &db,
-        };
-        storage.write(self.transaction)
+        self.storage.write(self.transaction)
     }
 }
 
