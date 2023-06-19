@@ -22,7 +22,6 @@ use near_primitives::challenge::ChallengesResult;
 use near_primitives::config::ExtCosts;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
-use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -33,7 +32,6 @@ use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
 use near_primitives::state_part::PartId;
-use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStakeIter;
@@ -47,6 +45,7 @@ use near_primitives::views::{
     ViewStateResult,
 };
 use near_store::flat::FlatStorageManager;
+use near_store::genesis::initialize_genesis_state;
 use near_store::metadata::DbKind;
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
@@ -63,18 +62,13 @@ use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
     ValidatorAccountsUpdate,
 };
-use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error};
 
 pub mod errors;
-
-const STATE_DUMP_FILE: &str = "state_dump";
-const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 
 /// Defines Nightshade state transition and validator rotation.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
@@ -126,7 +120,7 @@ impl NightshadeRuntime {
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
-            None => NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id),
+            None => Self::create_runtime_config_store(&genesis.config.chain_id),
         };
 
         let runtime = Runtime::new();
@@ -214,105 +208,10 @@ impl NightshadeRuntime {
         }
     }
 
-    fn genesis_state_from_dump(store: Store, home_dir: &Path) -> Vec<StateRoot> {
-        error!(target: "near", "Loading genesis from a state dump file. Do not use this outside of genesis-tools");
-        let mut state_file = home_dir.to_path_buf();
-        state_file.push(STATE_DUMP_FILE);
-        store.load_state_from_file(state_file.as_path()).expect("Failed to read state dump");
-        let mut roots_files = home_dir.to_path_buf();
-        roots_files.push(GENESIS_ROOTS_FILE);
-        let data = fs::read(roots_files).expect("Failed to read genesis roots file.");
-        let state_roots: Vec<StateRoot> =
-            BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
-        state_roots
-    }
-
-    fn genesis_state_from_records(store: Store, genesis: &Genesis) -> Vec<StateRoot> {
-        match genesis.records_len() {
-            Ok(count) => {
-                info!(
-                    target: "runtime",
-                    "genesis state has {count} records, computing state roots"
-                )
-            }
-            Err(path) => {
-                info!(
-                    target: "runtime",
-                    path=%path.display(),
-                    message="computing state roots from records",
-                )
-            }
-        }
-        let initial_epoch_config = EpochConfig::from(&genesis.config);
-        let shard_layout = initial_epoch_config.shard_layout;
-        let num_shards = shard_layout.num_shards();
-        let mut shard_account_ids: Vec<HashSet<AccountId>> =
-            (0..num_shards).map(|_| HashSet::new()).collect();
-        let mut has_protocol_account = false;
-        info!(
-            target: "runtime",
-            "distributing records to shards"
-        );
-        genesis.for_each_record(|record: &StateRecord| {
-            shard_account_ids[state_record_to_shard_id(record, &shard_layout) as usize]
-                .insert(state_record_to_account_id(record).clone());
-            if let StateRecord::Account { account_id, .. } = record {
-                if account_id == &genesis.config.protocol_treasury_account {
-                    has_protocol_account = true;
-                }
-            }
-        });
-        assert!(has_protocol_account, "Genesis spec doesn't have protocol treasury account");
-        let tries = ShardTries::new(
-            store.clone(),
-            TrieConfig::default(),
-            &genesis.config.shard_layout.get_shard_uids(),
-            FlatStorageManager::new(store),
-        );
-        let runtime = Runtime::new();
-        let runtime_config_store =
-            NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id);
-        let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
-        let writers = std::sync::atomic::AtomicUsize::new(0);
-        (0..num_shards)
-            .into_par_iter()
-            .map(|shard_id| {
-                let validators = genesis
-                    .config
-                    .validators
-                    .iter()
-                    .filter_map(|account_info| {
-                        if account_id_to_shard_id(&account_info.account_id, &shard_layout)
-                            == shard_id
-                        {
-                            Some((
-                                account_info.account_id.clone(),
-                                account_info.public_key.clone(),
-                                account_info.amount,
-                            ))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>();
-
-                runtime.apply_genesis_state(
-                    &writers,
-                    tries.clone(),
-                    shard_id,
-                    &validators,
-                    genesis,
-                    runtime_config,
-                    shard_account_ids[shard_id as usize].clone(),
-                )
-            })
-            .collect()
-    }
-
     /// On first start: compute state roots, load genesis state into storage.
     /// After that: return genesis state roots. The state is not guaranteed to be in storage, as
     /// GC and state sync are allowed to delete it.
-    pub fn initialize_genesis_state_if_needed(
+    fn initialize_genesis_state_if_needed(
         store: Store,
         home_dir: &Path,
         genesis: &Genesis,
@@ -325,29 +224,17 @@ impl NightshadeRuntime {
                 .expect("Store failed on genesis intialization")
                 .expect("Genesis state roots not found in storage")
         } else {
+            let runtime_config_store = Self::create_runtime_config_store(&genesis.config.chain_id);
+            let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
+            let store_usage_config = &runtime_config.fees.storage_usage_config;
             let genesis_hash = genesis.json_hash();
-            let state_roots = Self::initialize_genesis_state(store.clone(), home_dir, genesis);
+            let state_roots =
+                initialize_genesis_state(store.clone(), home_dir, &store_usage_config, genesis);
             let mut store_update = store.store_update();
             set_genesis_hash(&mut store_update, &genesis_hash);
             set_genesis_state_roots(&mut store_update, &state_roots);
             store_update.commit().expect("Store failed on genesis intialization");
             state_roots
-        }
-    }
-
-    pub fn initialize_genesis_state(
-        store: Store,
-        home_dir: &Path,
-        genesis: &Genesis,
-    ) -> Vec<StateRoot> {
-        let has_dump = home_dir.join(STATE_DUMP_FILE).exists();
-        if has_dump {
-            if genesis.records_len().is_ok() {
-                warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
-            }
-            Self::genesis_state_from_dump(store, home_dir)
-        } else {
-            Self::genesis_state_from_records(store, genesis)
         }
     }
 
@@ -736,10 +623,6 @@ fn apply_delayed_receipts<'a>(
     }
 
     Ok(new_state_roots)
-}
-
-pub fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &ShardLayout) -> ShardId {
-    account_id_to_shard_id(state_record_to_account_id(state_record), shard_layout)
 }
 
 impl RuntimeAdapter for NightshadeRuntime {

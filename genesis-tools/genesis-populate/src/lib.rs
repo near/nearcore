@@ -17,6 +17,7 @@ use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
+use near_store::genesis_state_applier::compute_storage_usage;
 use near_store::{get_account, set_access_key, set_account, set_code, Store, TrieUpdate};
 use nearcore::{NearConfig, NightshadeRuntime};
 use std::collections::BTreeMap;
@@ -172,12 +173,10 @@ impl GenesisBuilder {
         let mut state_update =
             self.state_updates.remove(&shard_idx).expect("State updates are always available");
         let protocol_config = self.runtime.get_protocol_config(&EpochId::default())?;
-        let runtime_config = protocol_config.runtime_config;
+        let storage_usage_config = protocol_config.runtime_config.fees.storage_usage_config;
 
         // Compute storage usage and update accounts.
-        for (account_id, storage_usage) in
-            self.runtime.runtime.compute_storage_usage(&records, &runtime_config)
-        {
+        for (account_id, storage_usage) in compute_storage_usage(&records, &storage_usage_config) {
             let mut account =
                 get_account(&state_update, &account_id)?.expect("We should've created account");
             account.set_storage_usage(storage_usage);

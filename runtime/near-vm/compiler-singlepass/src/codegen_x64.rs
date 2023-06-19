@@ -7689,7 +7689,7 @@ impl<'a> FuncGen<'a> {
         let address_map = get_function_address_map(instructions_address_map, data, body_len);
         let body = self.assembler.drain().unwrap().collect();
         CompiledFunction {
-            body: FunctionBody { body, unwind_info: None },
+            body: FunctionBody { body },
             relocations: self.relocations,
             jt_offsets: SecondaryMap::new(),
             frame_info: CompiledFunctionFrameInfo { traps: vec![], address_map },
@@ -7848,7 +7848,7 @@ pub(crate) fn gen_std_trampoline(
     a.emit_pop(Size::S64, Location::GPR(GPR::R15));
 
     a.emit_ret();
-    FunctionBody { body: a.drain().unwrap().collect(), unwind_info: None }
+    FunctionBody { body: a.drain().unwrap().collect() }
 }
 
 /// Generates dynamic import function call trampoline for a function type.
@@ -7966,7 +7966,7 @@ pub(crate) fn gen_std_dynamic_import_trampoline(
     // Return.
     a.emit_ret();
 
-    FunctionBody { body: a.drain().unwrap().collect(), unwind_info: None }
+    FunctionBody { body: a.drain().unwrap().collect() }
 }
 
 // Singlepass calls import functions through a trampoline.

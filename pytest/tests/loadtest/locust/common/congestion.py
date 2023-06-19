@@ -39,6 +39,9 @@ class ComputeSha256(base.Transaction):
             block_hash,
         )
 
+    def sender_id(self) -> str:
+        return self.sender.key.account_id
+
 
 class ComputeSum(base.Transaction):
     """Large computation that consumes a specified amount of gas."""
@@ -66,6 +69,9 @@ class ComputeSum(base.Transaction):
             self.sender.use_nonce(),
             block_hash,
         )
+
+    def sender_id(self) -> str:
+        return self.sender.key.account_id
 
 
 @events.init.add_listener

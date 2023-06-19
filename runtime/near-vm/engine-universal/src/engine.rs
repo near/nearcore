@@ -269,15 +269,6 @@ impl UniversalEngine {
 
         // Make all code loaded executable.
         inner_engine.publish_compiled_code();
-        if let Some(ref d) = executable.debug {
-            unsafe {
-                // TODO: safety comment
-                inner_engine.publish_eh_frame(std::slice::from_raw_parts(
-                    *custom_sections[d.eh_frame],
-                    executable.custom_sections[d.eh_frame].bytes.len(),
-                ))?;
-            }
-        }
         let exports = module
             .exports
             .iter()
@@ -419,16 +410,6 @@ impl UniversalEngine {
 
         // Make all code compiled thus far executable.
         inner_engine.publish_compiled_code();
-        if let rkyv::option::ArchivedOption::Some(ref d) = executable.debug {
-            unsafe {
-                // TODO: safety comment
-                let s = CustomSectionRef::from(&executable.custom_sections[&d.eh_frame]);
-                inner_engine.publish_eh_frame(std::slice::from_raw_parts(
-                    *custom_sections[unrkyv(&d.eh_frame)],
-                    s.bytes.len(),
-                ))?;
-            }
-        }
         let exports = module
             .exports
             .iter()
@@ -484,8 +465,8 @@ impl Engine for UniversalEngine {
     #[cfg(not(feature = "compiler"))]
     fn compile(
         &self,
-        binary: &[u8],
-        tunables: &dyn Tunables,
+        _binary: &[u8],
+        _tunables: &dyn Tunables,
     ) -> Result<Box<dyn near_vm_engine::Executable>, CompileError> {
         return Err(CompileError::Codegen(
             "The UniversalEngine is operating in headless mode, so it can not compile Modules."
@@ -682,14 +663,6 @@ impl UniversalEngineInner {
     /// Make memory containing compiled code executable.
     pub(crate) fn publish_compiled_code(&mut self) {
         self.code_memory.last_mut().unwrap().publish();
-    }
-
-    /// Register DWARF-type exception handling information associated with the code.
-    pub(crate) fn publish_eh_frame(&mut self, eh_frame: &[u8]) -> Result<(), CompileError> {
-        self.code_memory.last_mut().unwrap().unwind_registry_mut().publish(eh_frame).map_err(
-            |e| CompileError::Resource(format!("Error while publishing the unwind code: {}", e)),
-        )?;
-        Ok(())
     }
 
     /// Shared func metadata registry.
