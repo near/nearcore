@@ -729,7 +729,7 @@ pub(crate) fn print_receipt_costs(
     store: Store,
 ) {
     let chain_store = ChainStore::new(
-        store,
+        store.clone(),
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
@@ -742,11 +742,9 @@ pub(crate) fn print_receipt_costs(
         Some(height) => height,
         None => chain_store.tail().unwrap(),
     };
-    let new_store = create_test_store();
-    let epoch_manager =
-        EpochManager::new_arc_handle(new_store.clone(), &near_config.genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let num_shards = epoch_manager.num_shards(&head.epoch_id).unwrap();
-    let runtime = NightshadeRuntime::from_config(home_dir, new_store, &near_config, epoch_manager);
+    let runtime = NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager);
     // assume same protocol version...
     let protocol_config = runtime.get_protocol_config(&head.epoch_id).unwrap();
     let runtime_config = protocol_config.runtime_config;
