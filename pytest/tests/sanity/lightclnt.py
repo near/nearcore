@@ -20,11 +20,11 @@ if not config['local']:
     client_config_changes = {
         "consensus": {
             "min_block_production_delay": {
-                "secs": 4,
+                "secs": 8,
                 "nanos": 0,
             },
             "max_block_production_delay": {
-                "secs": 8,
+                "secs": 16,
                 "nanos": 0,
             },
             "max_block_wait_delay": {
