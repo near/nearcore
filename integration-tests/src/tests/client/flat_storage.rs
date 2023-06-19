@@ -431,11 +431,6 @@ fn test_flat_storage_iter() {
         let items: Vec<_> =
             store_helper::iter_flat_state_entries(shard_uid, &store, None, None).collect();
 
-        println!("shard id {} items len {}", shard_id, items.len());
-        for item in &items {
-            println!("item {:?}", item);
-        }
-
         match shard_id {
             0 => {
                 assert_eq!(2, items.len());

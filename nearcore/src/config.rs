@@ -1112,10 +1112,9 @@ pub fn init_configs(
                 CryptoHash::default(),
             );
             add_protocol_account(&mut records);
-
             let shards = if num_shards > 1 {
                 ShardLayout::v1(
-                    (0..num_shards - 1)
+                    (1..num_shards)
                         .map(|f| {
                             AccountId::from_str(format!("shard{}.test.near", f).as_str()).unwrap()
                         })

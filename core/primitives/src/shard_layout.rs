@@ -75,8 +75,10 @@ type ShardSplitMap = Vec<Vec<ShardId>>;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardLayoutV1 {
-    /// TODO(wacban) better description.
-    /// The rest are divided by boundary_accounts to ranges, each range is mapped to a shard
+    /// The boundary accounts are the accounts on boundaries between shards.
+    /// Each shard contains a range of accounts from one boundary account to
+    /// another - or the the smallest or largest account possible. The total
+    /// number of shards is equal to the number of boundary accounts plus 1.
     boundary_accounts: Vec<AccountId>,
     /// Maps shards from the last shard layout to shards that it splits to in this shard layout,
     /// Useful for constructing states for the shards.
@@ -227,8 +229,9 @@ pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout
             u64::from_le_bytes(*bytes) % num_shards
         }
         ShardLayout::V1(ShardLayoutV1 { boundary_accounts, .. }) => {
-            // TODO As we scale up the number of shards we can consider changing
-            // that to a binary search.
+            // Note: As we scale up the number of shards we can consider
+            // changing this method to do a binary search rather than linear
+            // scan. For the time being, with only 4 shards, this is perfectly fine.
             let mut shard_id = 0 as ShardId;
             for boundary_account in boundary_accounts {
                 if boundary_account.cmp(account_id) == Greater {
