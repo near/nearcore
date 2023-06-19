@@ -351,8 +351,12 @@ def evaluate_rpc_result(rpc_result):
     and failure cases. Failures are raised as exceptions.
     """
     if "error" in rpc_result:
-        if rpc_result["error"]["cause"]["name"] == "UNKNOWN_TRANSACTION":
-            raise TxUnknownError("UNKNOWN_TRANSACTION")
+        err_name = rpc_result["error"]["cause"]["name"]
+        # The sync API returns "UNKNOWN_TRANSACTION" after a timeout.
+        # The async API returns "TIMEOUT_ERROR" if the tx was not accepted in the chain after 10s.
+        # In either case, the identical transaction should be retried.
+        if err_name in ["UNKNOWN_TRANSACTION", "TIMEOUT_ERROR"]:
+            raise TxUnknownError(err_name)
         else:
             raise RpcError(rpc_result["error"])
 
