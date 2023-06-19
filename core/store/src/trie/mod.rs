@@ -30,6 +30,7 @@ use std::rc::Rc;
 use std::str;
 
 mod config;
+mod from_flat;
 mod insert_delete;
 pub mod iterator;
 mod nibble_slice;
@@ -42,6 +43,8 @@ mod trie_storage;
 #[cfg(test)]
 mod trie_tests;
 pub mod update;
+
+pub use from_flat::construct_trie_from_flat;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 

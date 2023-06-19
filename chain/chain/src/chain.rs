@@ -514,8 +514,8 @@ impl Chain {
         doomslug_threshold_mode: DoomslugThresholdMode,
         save_trie_changes: bool,
     ) -> Result<Chain, Error> {
-        let (store, _) = runtime_adapter.genesis_state();
-        let store = ChainStore::new(store, chain_genesis.height, save_trie_changes);
+        let store = runtime_adapter.store();
+        let store = ChainStore::new(store.clone(), chain_genesis.height, save_trie_changes);
         let genesis = Self::make_genesis_block(
             epoch_manager.as_ref(),
             runtime_adapter.as_ref(),
