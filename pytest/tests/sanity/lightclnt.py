@@ -132,12 +132,16 @@ last_known_block_hash = height_to_hash[4]
 last_known_block = None
 iter_ = 1
 
+target_height = 20 + first_epoch_switch_height
+while target_height not in height_to_hash:
+    target_height += 1
+    assert target_height <= 20 + first_epoch_switch_height
 while True:
     assert time.time() - started < TIMEOUT
 
     res = get_light_client_block(last_known_block_hash, last_known_block)
 
-    if last_known_block_hash == height_to_hash[20 + first_epoch_switch_height]:
+    if last_known_block_hash == height_to_hash[target_height]:
         assert res['result'] == {}
         break
 
