@@ -1168,7 +1168,7 @@ impl StateSync {
         state_split_scheduler: &dyn Fn(StateSplitRequest),
         me: &Option<AccountId>,
     ) -> Result<(), near_chain::Error> {
-        let status = Arc::new(StateSplitApplyingStatus::new());
+        let status = Arc::new(StateSplitApplyingStatus::default());
         chain.build_state_for_split_shards_preprocessing(
             &sync_hash,
             shard_id,
