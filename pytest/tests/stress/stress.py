@@ -485,7 +485,8 @@ def blocks_tracker(stopped, error, nodes, nonces):
                     assert False, "Block production took more than %s seconds" % block_timeout
 
                 if hash_ not in mapping:
-                    block_info = nodes[val_id].json_rpc('block', [hash_], timeout=10)
+                    block_info = nodes[val_id].json_rpc('block', [hash_],
+                                                        timeout=10)
                     confirm_height = block_info['result']['header']['height']
                     assert height == confirm_height
                     prev_hash = block_info['result']['header']['prev_hash']
@@ -623,7 +624,9 @@ def doit(s, n, N, k, monkeys, timeout):
     min_epoch_length = (int((balances_timeout * 2) * 1.7) + 4) // 3
     epoch_length = max(epoch_length, min_epoch_length)
 
-    logger.info(f"block_timeout: {block_timeout}, balances_timeout: {balances_timeout}, tx_tolerance: {tx_tolerance}, epoch_length: {epoch_length}, wait_if_restart: {wait_if_restart}, wipe_data: {wipe_data}, restart_sync_timeout: {restart_sync_timeout}")
+    logger.info(
+        f"block_timeout: {block_timeout}, balances_timeout: {balances_timeout}, tx_tolerance: {tx_tolerance}, epoch_length: {epoch_length}, wait_if_restart: {wait_if_restart}, wipe_data: {wipe_data}, restart_sync_timeout: {restart_sync_timeout}"
+    )
 
     near_root, node_dirs = init_cluster(
         N, k + 1, s, config,

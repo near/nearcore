@@ -278,9 +278,11 @@ mod tests {
     use actix::{Actor, System};
     use futures::{future, FutureExt};
     use near_actix_test_utils::{run_actix, spawn_interruptible};
+    use near_chain::{ChainStore, ChainStoreAccess};
     use near_chain_configs::Genesis;
     use near_client::{GetBlock, ProcessTxRequest};
     use near_crypto::{InMemorySigner, KeyType};
+    use near_epoch_manager::{EpochManager, EpochManagerAdapter};
     use near_network::tcp;
     use near_network::test_utils::{wait_or_timeout, WaitOrTimeoutActor};
     use near_o11y::testonly::init_integration_logger;
@@ -293,8 +295,6 @@ mod tests {
     use std::ops::ControlFlow;
     use std::sync::{Arc, RwLock};
     use std::time::Duration;
-    use near_chain::{ChainStore, ChainStoreAccess};
-    use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 
     // Just a test to test that the basic mocknet setup works
     // This test first starts a localnet with one validator node that generates 20 blocks
@@ -395,18 +395,25 @@ mod tests {
         let network_config = MockNetworkConfig::with_delay(Duration::from_millis(10));
 
         let client_start_height = {
-            let store = near_store::NodeStorage::opener(dir.path(), near_config1.config.archive, &near_config1.config.store, None)
-                .open()
-                .unwrap()
-                .get_hot_store();
-            let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config1.genesis.config);
+            let store = near_store::NodeStorage::opener(
+                dir.path(),
+                near_config1.config.archive,
+                &near_config1.config.store,
+                None,
+            )
+            .open()
+            .unwrap()
+            .get_hot_store();
+            let epoch_manager =
+                EpochManager::new_arc_handle(store.clone(), &near_config1.genesis.config);
             let chain_store = ChainStore::new(
                 store.clone(),
                 near_config1.genesis.config.genesis_height,
                 near_config1.client_config.save_trie_changes,
             );
             let network_head_hash = chain_store.head().unwrap().last_block_hash;
-            let last_epoch_start_height  = epoch_manager.get_epoch_start_height(&network_head_hash).unwrap();
+            let last_epoch_start_height =
+                epoch_manager.get_epoch_start_height(&network_head_hash).unwrap();
             // Needs to be the last block of an epoch.
             last_epoch_start_height - 1
         };
