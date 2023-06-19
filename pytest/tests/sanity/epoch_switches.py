@@ -104,10 +104,8 @@ epoch_switch_height = -2
 blocks_by_height = {}
 
 
-def wait_until_available(get_fn, timeout_fn):
+def wait_until_available(get_fn):
     while True:
-        if timeout_fn():
-            return None
         res = get_fn()
         logger.info(f"res: {res}")
         if 'result' in res:
@@ -119,8 +117,7 @@ for largest_height in range(2, HEIGHT_GOAL + 1):
     assert time.time() - started < TIMEOUT
 
     block = wait_until_available(
-        lambda: nodes[0].get_block_by_height(largest_height),
-        lambda: time.time() - started >= TIMEOUT)
+        lambda: nodes[0].get_block_by_height(largest_height, timeout = 5),
     assert block is not None
     hash_ = block['result']['header']['hash']
     epoch_id = block['result']['header']['epoch_id']

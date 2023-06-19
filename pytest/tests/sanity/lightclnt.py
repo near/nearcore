@@ -95,7 +95,7 @@ def get_up_to(from_, to):
 
     for height in range(from_, to + 1):
         block = wait_until_available(
-            lambda: nodes[0].get_block_by_height(height), lambda: False)
+            lambda: nodes[0].get_block_by_height(height, timeout=5), lambda: False)
         assert block is not None
         hash_ = block['result']['header']['hash']
 
