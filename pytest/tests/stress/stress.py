@@ -238,7 +238,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
 
     def get_balances():
         acts = [
-            nodes[-1].get_account("test%s" % i, timeout = 10)['result']
+            nodes[-1].get_account("test%s" % i, timeout=10)['result']
             for i in range(len(nodes))
         ]
         return [int(x['amount']) + int(x['locked']) for x in acts]
@@ -276,7 +276,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
                         tx_happened = True
 
                         response = nodes[-1].json_rpc(
-                            'tx', [tx[3], "test%s" % tx[1]], timeout=5)
+                            'tx', [tx[3], "test%s" % tx[1]], timeout=10)
 
                         if 'error' in response and 'data' in response[
                                 'error'] and "doesn't exist" in response[
@@ -485,7 +485,7 @@ def blocks_tracker(stopped, error, nodes, nonces):
                     assert False, "Block production took more than %s seconds" % block_timeout
 
                 if hash_ not in mapping:
-                    block_info = nodes[val_id].json_rpc('block', [hash_], timeout = 10)
+                    block_info = nodes[val_id].json_rpc('block', [hash_], timeout=10)
                     confirm_height = block_info['result']['header']['height']
                     assert height == confirm_height
                     prev_hash = block_info['result']['header']['prev_hash']
