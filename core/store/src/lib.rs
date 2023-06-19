@@ -569,21 +569,12 @@ impl StoreUpdate {
         self.transaction.delete_range(column, from.to_vec(), to.to_vec());
     }
 
-    /// Sets reference to the trie to clear cache on the commit.
-    ///
-    /// Panics if shard_tries are already set to a different object.
-    fn set_shard_tries(&mut self, tries: &ShardTries) {
-        assert!(self.check_compatible_shard_tries(tries));
-        self.storage = StoreUpdateStorage::Tries(tries.clone())
-    }
-
     /// Merge another store update into this one.
     ///
     /// Panics if `self`’s and `other`’s storage are incompatible.
     pub fn merge(&mut self, other: StoreUpdate) {
         match other.storage {
             StoreUpdateStorage::Tries(tries) => {
-                assert!(self.check_compatible_shard_tries(&tries));
                 self.storage = StoreUpdateStorage::Tries(tries);
             }
             StoreUpdateStorage::DB(other_db) => {
@@ -595,18 +586,6 @@ impl StoreUpdate {
             }
         }
         self.transaction.merge(other.transaction)
-    }
-
-    /// Verifies that given shard tries are compatible with this object.
-    ///
-    /// The [`ShardTries`] object is compatible if a) this object’s storage is
-    /// a database which is the same as tries’ one or b) this object’s storage
-    /// is the given shard tries.
-    fn check_compatible_shard_tries(&self, tries: &ShardTries) -> bool {
-        match &self.storage {
-            StoreUpdateStorage::DB(db) => same_db(&db, tries.get_db()),
-            StoreUpdateStorage::Tries(our) => our.is_same(tries),
-        }
     }
 
     pub fn commit(self) -> io::Result<()> {
