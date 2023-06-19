@@ -63,7 +63,6 @@ use node_runtime::{
     ValidatorAccountsUpdate,
 };
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
