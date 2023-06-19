@@ -19,10 +19,6 @@ client_config_changes = {}
 if not config['local']:
     client_config_changes = {
         "consensus": {
-            "block_production_tracking_delay": {
-                "secs": 2,
-                "nanos": 0,
-            },
             "min_block_production_delay": {
                 "secs": 4,
                 "nanos": 0,
@@ -32,10 +28,10 @@ if not config['local']:
                 "nanos": 0,
             },
             "max_block_wait_delay": {
-                "secs": 4,
+                "secs": 24,
                 "nanos": 0,
             },
-        },
+        }
     }
     TIMEOUT = 600
 
@@ -84,13 +80,11 @@ def get_light_client_block(hash_, last_known_block):
 
 def get_up_to(from_, to):
     global first_epoch_switch_height, last_epoch
-    print(f'get_up_to {from_} {to}')
 
     for height, hash_ in utils.poll_blocks(nodes[0],
                                            timeout=TIMEOUT,
-                                           poll_interval=0.1):
+                                           poll_interval=0.01):
         block = nodes[0].get_block(hash_)
-        print(f'height: {height}, hash_: {hash_}, cur_epoch: {block["result"]["header"]["epoch_id"]}, next_epoch_id: {block["result"]["header"]["next_epoch_id"]}, first_epoch_switch_height: {first_epoch_switch_height}, last_epoch: {last_epoch}')
 
         hash_to_height[hash_] = height
         height_to_hash[height] = hash_
@@ -109,12 +103,15 @@ def get_up_to(from_, to):
             break
 
     for i in range(from_, to + 1):
-        hash_ = height_to_hash[i]
-        logger.info(
-            f"{i} {hash_} {hash_to_epoch[hash_]} {hash_to_next_epoch[hash_]}")
+        if i not in height_to_hash:
+            logger.info(f"Skipped height {i}")
+        else:
+            hash_ = height_to_hash[i]
+            logger.info(
+                f"{i} {hash_} {hash_to_epoch[hash_]} {hash_to_next_epoch[hash_]}")
 
-        if len(epochs) == 0 or epochs[-1] != hash_to_epoch[hash_]:
-            epochs.append(hash_to_epoch[hash_])
+            if len(epochs) == 0 or epochs[-1] != hash_to_epoch[hash_]:
+                epochs.append(hash_to_epoch[hash_])
 
 
 # don't start from 1, since couple heights get produced while the nodes spin up
