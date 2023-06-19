@@ -76,7 +76,7 @@ use near_store::flat::{
     FlatStorageReadyStatus, FlatStorageStatus,
 };
 use near_store::StorageError;
-use near_store::{DBCol, ShardTries, StoreUpdate, WrappedTrieChanges};
+use near_store::{DBCol, ShardTries, WrappedTrieChanges};
 use once_cell::sync::OnceCell;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -1910,7 +1910,7 @@ impl Chain {
 
         let tries = self.runtime_adapter.get_tries();
         let mut chain_store_update = self.mut_store().store_update();
-        let mut store_update = StoreUpdate::new_with_tries(tries);
+        let mut store_update = tries.store_update();
         store_update.delete_all(DBCol::State);
         chain_store_update.merge(store_update);
 
