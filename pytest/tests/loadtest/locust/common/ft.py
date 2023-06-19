@@ -84,6 +84,9 @@ class TransferFT(Transaction):
             sender.use_nonce(),
             block_hash)
 
+    def sender_id(self) -> str:
+        return self.sender.key.account_id
+
 
 class InitFT(Transaction):
 
@@ -105,6 +108,9 @@ class InitFT(Transaction):
                                                  contract.use_nonce(),
                                                  block_hash)
 
+    def sender_id(self) -> str:
+        return self.contract.key.account_id
+
 
 class InitFTAccount(Transaction):
 
@@ -123,6 +129,9 @@ class InitFTAccount(Transaction):
                                                  int(3E14), int(1E23),
                                                  account.use_nonce(),
                                                  block_hash)
+
+    def sender_id(self) -> str:
+        return self.account.key.account_id
 
 
 @events.init.add_listener
