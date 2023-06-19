@@ -16,9 +16,8 @@ use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::EpochManagerHandle;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
-use near_primitives::block::{Block, BlockHeader, ChunksCollection};
+use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardProof};
@@ -761,7 +760,6 @@ pub(crate) fn print_receipt_costs(
             }
         };
         let block = chain_store.get_block(&block_hash).unwrap();
-        let chunks_collection = block.chunks();
 
         let mut receipt_proofs_by_shard_id = HashMap::new();
         for shard_id in 0..num_shards {
