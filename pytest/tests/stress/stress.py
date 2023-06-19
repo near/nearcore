@@ -622,6 +622,8 @@ def doit(s, n, N, k, monkeys, timeout):
     min_epoch_length = (int((balances_timeout * 2) * 1.7) + 4) // 5
     epoch_length = max(epoch_length, min_epoch_length)
 
+    logger.info(f"block_timeout: {block_timeout}, balances_timeout: {balances_timeout}, tx_tolerance: {tx_tolerance}, epoch_length: {epoch_length}, wait_if_restart: {wait_if_restart}, wipe_data: {wipe_data}, restart_sync_timeout: {restart_sync_timeout}")
+
     near_root, node_dirs = init_cluster(
         N, k + 1, s, config,
         [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
