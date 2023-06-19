@@ -2,7 +2,7 @@
 
 use near_vm_compiler::{CompileError, Target};
 use near_vm_types::FunctionType;
-use near_vm_vm::{Artifact, Tunables, VMCallerCheckedAnyfunc, VMFuncRef, VMSharedSignatureIndex};
+use near_vm_vm::{VMCallerCheckedAnyfunc, VMFuncRef, VMSharedSignatureIndex};
 use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use std::sync::Arc;
 
@@ -31,17 +31,6 @@ pub trait Engine {
 
     /// Validates a WebAssembly module
     fn validate(&self, binary: &[u8]) -> Result<(), CompileError>;
-
-    /// Compile a WebAssembly binary
-    fn compile(
-        &self,
-        binary: &[u8],
-        tunables: &dyn Tunables,
-    ) -> Result<Box<dyn crate::Executable>, CompileError>;
-
-    /// Load a compiled executable with this engine.
-    fn load(&self, executable: &(dyn crate::Executable))
-        -> Result<Arc<dyn Artifact>, CompileError>;
 
     /// A unique identifier for this object.
     ///
@@ -97,6 +86,22 @@ impl dyn Engine {
             unsafe { Some(&*(self as *const dyn Engine as *const T)) }
         } else {
             None
+        }
+    }
+}
+
+impl dyn Engine + Send + Sync {
+    /// Downcast a dynamic Executable object to a concrete implementation of the trait.
+    pub fn downcast_arc<T: Engine + 'static>(self: Arc<Self>) -> Result<Arc<T>, Arc<Self>> {
+        if std::any::TypeId::of::<T>() == Engine::type_id(&*self, private::Internal(())) {
+            // SAFETY: The data pointer is the same between the dynamically and statically typed
+            // `Arc`s.
+            unsafe {
+                let ptr = Arc::into_raw(self).cast::<T>();
+                Ok(Arc::from_raw(ptr))
+            }
+        } else {
+            Err(self)
         }
     }
 }

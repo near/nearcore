@@ -268,7 +268,7 @@ impl Function {
         let address = std::ptr::null() as *const VMFunctionBody;
         let vmctx = VMFunctionEnvironment { host_env };
         let signature = store
-            .engine()
+            .dyn_engine()
             // TODO(0-copy):
             .register_signature(ty);
 
@@ -319,7 +319,7 @@ impl Function {
         let address = function.address() as *const VMFunctionBody;
         let vmctx = VMFunctionEnvironment { host_env: std::ptr::null_mut() as *mut _ };
         let signature = store
-            .engine()
+            .dyn_engine()
             // TODO(0-copy):
             .register_signature(function.ty());
 
@@ -382,7 +382,7 @@ impl Function {
             build_export_function_metadata::<Env>(env, Env::init_with_instance);
 
         let vmctx = VMFunctionEnvironment { host_env };
-        let signature = store.engine().register_signature(function.ty());
+        let signature = store.dyn_engine().register_signature(function.ty());
         Self {
             store: store.clone(),
             exported: ExportFunction {
@@ -418,7 +418,7 @@ impl Function {
     /// ```
     pub fn ty(&self) -> FunctionType {
         self.store
-            .engine()
+            .dyn_engine()
             .lookup_signature(self.exported.vm_function.signature)
             .expect("Could not resolve VMSharedFunctionIndex! Mixing engines?")
     }
@@ -590,7 +590,7 @@ impl Function {
     }
 
     pub(crate) fn vm_funcref(&self) -> VMFuncRef {
-        let engine = self.store.engine();
+        let engine = self.store.dyn_engine();
         engine.register_function_metadata(VMCallerCheckedAnyfunc {
             func_ptr: self.exported.vm_function.address,
             type_index: self.exported.vm_function.signature,
@@ -678,7 +678,7 @@ impl Function {
         Args: WasmTypeList,
         Rets: WasmTypeList,
     {
-        let engine = self.store().engine();
+        let engine = self.store().dyn_engine();
         let signature = engine
             .lookup_signature(self.exported.vm_function.signature)
             .expect("Could not resolve VMSharedSignatureIndex! Wrong engine?");

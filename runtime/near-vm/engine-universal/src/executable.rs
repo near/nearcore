@@ -1,17 +1,14 @@
-use std::sync::Arc;
-
 use enumset::EnumSet;
 use near_vm_compiler::{
-    CompileError, CompileModuleInfo, CompiledFunctionFrameInfo, CpuFeature, CustomSection, Dwarf,
+    CompileModuleInfo, CompiledFunctionFrameInfo, CpuFeature, CustomSection, Dwarf,
     Features, FunctionBody, JumpTableOffsets, Relocation, SectionIndex, TrampolinesSection,
 };
-use near_vm_engine::{DeserializeError, Engine};
+use near_vm_engine::DeserializeError;
 use near_vm_types::entity::PrimaryMap;
 use near_vm_types::{
     ExportIndex, FunctionIndex, ImportIndex, LocalFunctionIndex, OwnedDataInitializer,
     SignatureIndex,
 };
-use near_vm_vm::Artifact;
 use rkyv::de::deserializers::SharedDeserializeMap;
 use rkyv::ser::serializers::{
     AllocScratchError, AllocSerializer, CompositeSerializerError, SharedSerializeMapError,
@@ -127,17 +124,6 @@ pub enum ExecutableSerializeError {
 }
 
 impl near_vm_engine::Executable for UniversalExecutable {
-    fn load(
-        &self,
-        engine: &(dyn Engine + 'static),
-    ) -> Result<std::sync::Arc<dyn Artifact>, CompileError> {
-        engine
-            .downcast_ref::<crate::UniversalEngine>()
-            .ok_or(CompileError::EngineDowncast)?
-            .load_universal_executable(self)
-            .map(|a| Arc::new(a) as _)
-    }
-
     fn features(&self) -> Features {
         self.compile_info.features.clone()
     }
@@ -189,17 +175,6 @@ impl near_vm_engine::Executable for UniversalExecutable {
 }
 
 impl<'a> near_vm_engine::Executable for UniversalExecutableRef<'a> {
-    fn load(
-        &self,
-        engine: &(dyn Engine + 'static),
-    ) -> Result<std::sync::Arc<dyn Artifact>, CompileError> {
-        engine
-            .downcast_ref::<crate::UniversalEngine>()
-            .ok_or_else(|| CompileError::Codegen("can't downcast TODO FIXME".into()))?
-            .load_universal_executable_ref(self)
-            .map(|a| Arc::new(a) as _)
-    }
-
     fn features(&self) -> Features {
         unrkyv(&self.archive.compile_info.features)
     }

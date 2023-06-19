@@ -3,8 +3,8 @@ use crate::sys::InstantiationError;
 use near_vm_compiler::CompileError;
 #[cfg(feature = "wat")]
 use near_vm_compiler::WasmError;
+use near_vm_engine::Engine;
 use near_vm_engine::RuntimeError;
-use near_vm_engine_universal::UniversalArtifact;
 use near_vm_types::InstanceConfig;
 use near_vm_vm::{InstanceHandle, Instantiatable, Resolver};
 use std::fmt;
@@ -114,19 +114,21 @@ impl Module {
     /// this crate).
     #[tracing::instrument(skip_all)]
     pub(crate) fn from_binary(store: &Store, binary: &[u8]) -> Result<Self, CompileError> {
-        store.engine().validate(binary)?;
-        let module = {
-            let executable = store.engine().compile(binary, store.tunables())?;
-            let artifact = store.engine().load(&*executable)?;
-            match artifact.downcast_arc::<UniversalArtifact>() {
-                Ok(universal) => Self { store: store.clone(), artifact: universal },
-                // We're are probably given an externally defined artifact type
-                // which I imagine we don't care about for now since this entire crate
-                // is only used for tests and this crate only defines universal engine.
-                Err(_) => panic!("unhandled artifact type"),
+        match store.engine::<near_vm_engine_universal::UniversalEngine>() {
+            Ok(engine) => {
+                engine.validate(binary)?;
+                let executable = engine.compile_universal(binary, store.tunables())?;
+                let artifact = engine.load_universal_executable(&executable)?;
+                Ok(Self {
+                    store: store.clone(),
+                    artifact: Arc::new(artifact),
+                })
             }
-        };
-        Ok(module)
+            // We're are probably given an externally defined artifact type
+            // which I imagine we don't care about for now since this entire crate
+            // is only used for tests and this crate only defines universal engine.
+            Err(_) => panic!("unhandled engine type"),
+        }
     }
 
     pub(crate) fn instantiate(
