@@ -1,5 +1,6 @@
 from configured_logger import new_logger
-from locust import HttpUser, events, runners
+from datetime import timedelta
+from locust import User, events, runners
 from retrying import retry
 import abc
 import utils
@@ -14,17 +15,22 @@ import ctypes
 import logging
 import multiprocessing
 import pathlib
+import requests
 import sys
 import time
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
-DEFAULT_TRANSACTION_TTL_SECONDS = 20
+DEFAULT_TRANSACTION_TTL = timedelta(minutes=30)
 logger = new_logger(level=logging.WARN)
 
 
 def is_key_error(exception):
     return isinstance(exception, KeyError)
+
+
+def is_tx_unknown_error(exception):
+    return isinstance(exception, TxUnknownError)
 
 
 class Account:
@@ -81,6 +87,13 @@ class Transaction:
         sign the transaction and return the raw message to be sent.
         """
 
+    @abc.abstractmethod
+    def sender_id(self) -> str:
+        """
+        Account id of the sender that signs the tx, which must be known to map
+        the tx-result request to the right shard.
+        """
+
 
 class Deploy(Transaction):
 
@@ -97,6 +110,9 @@ class Deploy(Transaction):
         return transaction.sign_deploy_contract_tx(account.key, wasm_binary,
                                                    account.use_nonce(),
                                                    block_hash)
+
+    def sender_id(self) -> str:
+        return self.account.key.account_id
 
 
 class CreateSubAccount(Transaction):
@@ -115,8 +131,94 @@ class CreateSubAccount(Transaction):
             sender.key, sub.account_id, sub, int(self.balance * 1E24),
             sender.use_nonce(), block_hash)
 
+    def sender_id(self) -> str:
+        return self.sender.key.account_id
 
-class NearUser(HttpUser):
+
+class NearNodeProxy:
+    """
+    Wrapper around a RPC node connection that tracks requests on locust.
+    """
+
+    def __init__(self, host, request_event):
+        self.request_event = request_event
+        url, port = host.split(":")
+        self.node = cluster.RpcNode(url, port)
+        self.session = requests.Session()
+
+    def send_tx(self, tx: Transaction, locust_name):
+        """
+        Send a transaction and return the result, no retry attempted.
+        """
+        block_hash = base58.b58decode(self.node.get_latest_block().hash)
+        signed_tx = tx.sign_and_serialize(block_hash)
+
+        meta = {
+            "request_type": "near-rpc",
+            "name": locust_name,
+            "start_time": time.time(),
+            "response_time": 0,  # overwritten later  with end-to-end time
+            "response_length": 0,  # overwritten later
+            "response": None,  # overwritten later
+            "context": {},  # not used  right now
+            "exception": None,  # maybe overwritten later
+        }
+        start_perf_counter = time.perf_counter()
+
+        # async submit
+        submit_raw_response = self.post_json(
+            "broadcast_tx_async", [base64.b64encode(signed_tx).decode('utf8')])
+        meta["response_length"] = len(submit_raw_response.text)
+
+        # extract transaction ID from response, it should be "{ "result": "id...." }"
+        submit_response = submit_raw_response.json()
+        if not "result" in submit_response:
+            meta["exception"] = RpcError(submit_response,
+                                         message="Didn't get a TX ID")
+            meta["response"] = submit_response.content
+        else:
+            tx.transaction_id = submit_response["result"]
+            try:
+                # using retrying lib here to poll until a response is ready
+                self.poll_tx_result(meta, [tx.transaction_id, tx.sender_id()])
+            except NearError as err:
+                logging.warn(f"marking an error {err.message}, {err.details}")
+                meta["exception"] = err
+
+        meta["response_time"] = (time.perf_counter() -
+                                 start_perf_counter) * 1000
+
+        # Track request + response in Locust
+        self.request_event.fire(**meta)
+        return meta["response"]
+
+    def post_json(self, method: str, params: list(str)):
+        j = {
+            "method": method,
+            "params": params,
+            "id": "dontcare",
+            "jsonrpc": "2.0"
+        }
+        return self.session.post(url="http://%s:%s" % self.node.rpc_addr(),
+                                 json=j)
+
+    @retry(wait_fixed=500,
+           stop_max_delay=DEFAULT_TRANSACTION_TTL / timedelta(milliseconds=1),
+           retry_on_exception=is_tx_unknown_error)
+    def poll_tx_result(self, meta, params):
+        # poll for tx result, using "EXPERIMENTAL_tx_status" which waits for
+        # all receipts to finish rather than just the first one, as "tx" would do
+        result_response = self.post_json("EXPERIMENTAL_tx_status", params)
+
+        try:
+            meta["response"] = evaluate_rpc_result(result_response.json())
+        except:
+            # Store raw response to improve error-reporting.
+            meta["response"] = result_response.content
+            raise
+
+
+class NearUser(User):
     abstract = True
     id_counter = 0
     INIT_BALANCE = 100.0
@@ -137,8 +239,7 @@ class NearUser(HttpUser):
     def __init__(self, environment):
         super().__init__(environment)
         assert self.host is not None, "Near user requires the RPC node address"
-        host, port = self.host.split(":")
-        self.node = cluster.RpcNode(host, port)
+        self.node = NearNodeProxy(self.host, environment.events.request)
         self.id = NearUser.get_next_id()
         self.account_id = NearUser.generate_account_id(self.id)
 
@@ -152,43 +253,13 @@ class NearUser(HttpUser):
                              self.account.key,
                              balance=NearUser.INIT_BALANCE))
 
-        self.account.refresh_nonce(self.node)
+        self.account.refresh_nonce(self.node.node)
 
     def send_tx(self, tx: Transaction, locust_name="generic send_tx"):
         """
         Send a transaction and return the result, no retry attempted.
         """
-        block_hash = base58.b58decode(self.node.get_latest_block().hash)
-        signed_tx = tx.sign_and_serialize(block_hash)
-
-        # doesn't work because it raises on status etc
-        # rpc_result = self.node.send_tx_and_wait(signed_tx, timeout=DEFAULT_TRANSACTION_TTL_SECONDS)
-
-        params = [base64.b64encode(signed_tx).decode('utf8')]
-        j = {
-            "method": "broadcast_tx_commit",
-            "params": params,
-            "id": "dontcare",
-            "jsonrpc": "2.0"
-        }
-
-        # This is tracked by locust
-        with self.client.post(url="http://%s:%s" % self.node.rpc_addr(),
-                              json=j,
-                              timeout=DEFAULT_TRANSACTION_TTL_SECONDS,
-                              catch_response=True,
-                              name=locust_name) as response:
-            try:
-                rpc_result = json.loads(response.content)
-                tx_result = evaluate_rpc_result(rpc_result)
-                tx.transaction_id = tx_result["transaction_outcome"]["id"]
-                logger.debug(
-                    f"{tx.transaction_id} for {self.account_id} is successful: {tx_result}"
-                )
-            except NearError as err:
-                logging.warn(f"marking an error {err.message}, {err.details}")
-                response.failure(err.message)
-        return response
+        return self.node.send_tx(tx, locust_name)
 
     def send_tx_retry(self,
                       tx: Transaction,
@@ -202,7 +273,7 @@ class NearUser(HttpUser):
         # error, as long as it is one defined by us (inherits from NearError)
         while True:
             try:
-                result = self.send_tx(tx, locust_name=locust_name)
+                result = self.node.send_tx(tx, locust_name=locust_name)
                 return result
             except NearError as error:
                 logger.warn(
@@ -220,8 +291,7 @@ def send_transaction(node, tx):
     while True:
         block_hash = base58.b58decode(node.get_latest_block().hash)
         signed_tx = tx.sign_and_serialize(block_hash)
-        tx_result = node.send_tx_and_wait(
-            signed_tx, timeout=DEFAULT_TRANSACTION_TTL_SECONDS)
+        tx_result = node.send_tx_and_wait(signed_tx, timeout=20)
         success = "error" not in tx_result
         if success:
             logger.debug(
@@ -280,25 +350,35 @@ def evaluate_rpc_result(rpc_result):
     Take the json RPC response and translate it into success
     and failure cases. Failures are raised as exceptions.
     """
-    if not "result" in rpc_result:
-        raise NearError("No result returned", f"Error: {rpc_result}")
+    if "error" in rpc_result:
+        if rpc_result["error"]["cause"]["name"] == "UNKNOWN_TRANSACTION":
+            raise TxUnknownError("UNKNOWN_TRANSACTION")
+        else:
+            raise RpcError(rpc_result["error"])
 
     result = rpc_result["result"]
-
-    if "UNKNOWN_TRANSACTION" in result:
-        raise TxUnknownError("UNKNOWN_TRANSACTION")
-    elif not "transaction_outcome" in result:
-        raise RpcError(result)
-
     transaction_outcome = result["transaction_outcome"]
     if not "SuccessReceiptId" in transaction_outcome["outcome"]["status"]:
         raise TxError(transaction_outcome["outcome"]["status"])
 
     receipt_outcomes = result["receipts_outcome"]
     for receipt in receipt_outcomes:
-        outcome = receipt["outcome"]
-        if not "SuccessValue" in outcome["status"]:
-            raise ReceiptError(outcome["status"], receipt["id"])
+        # For each receipt, we get
+        # `{ "outcome": { ..., "status": { <ExecutionStatusView>: "..." } } }`
+        # and the key for `ExecutionStatusView` tells us whether it was successful
+        status = list(receipt["outcome"]["status"].keys())[0]
+
+        if status == "Unknown":
+            raise ReceiptError(receipt["outcome"],
+                               receipt["id"],
+                               message="Unknown receipt result")
+        if status == "Failure":
+            raise ReceiptError(receipt["outcome"], receipt["id"])
+        if not status in ["SuccessReceiptId", "SuccessValue"]:
+            raise ReceiptError(receipt["outcome"],
+                               receipt["id"],
+                               message="Unexpected status")
+
     return result
 
 
