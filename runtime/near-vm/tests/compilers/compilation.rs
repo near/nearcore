@@ -11,16 +11,16 @@ fn slow_to_compile_contract(n_fns: usize, n_locals: usize) -> Vec<u8> {
 
 fn compile_uncached<'a>(
     store: &'a Store,
-    engine: &'a dyn Engine,
+    engine: &'a UniversalEngine,
     code: &'a [u8],
     time: bool,
-) -> Result<Box<dyn near_vm_engine::Executable>, CompileError> {
+) -> Result<near_vm_engine_universal::UniversalExecutable, CompileError> {
     use std::time::Instant;
     let now = Instant::now();
     engine.validate(code)?;
     let validate = now.elapsed().as_millis();
     let now = Instant::now();
-    let res = engine.compile(code, store.tunables());
+    let res = engine.compile_universal(code, store.tunables());
     let compile = now.elapsed().as_millis();
     if time {
         println!("validate {}ms compile {}ms", validate, compile);

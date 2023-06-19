@@ -86,7 +86,8 @@ impl dyn Artifact {
     /// Downcast a dynamic Executable object to a concrete implementation of the trait.
     pub fn downcast_arc<T: Artifact + 'static>(self: Arc<Self>) -> Result<Arc<T>, Arc<Self>> {
         if std::any::TypeId::of::<T>() == Artifact::type_id(&*self, private::Internal(())) {
-            // SAFETY: err, its probably sound, we effectively construct a transmute here.
+            // SAFETY: The data pointer is the same between the dynamically and statically typed
+            // `Arc`s.
             unsafe {
                 let ptr = Arc::into_raw(self).cast::<T>();
                 Ok(Arc::from_raw(ptr))

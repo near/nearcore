@@ -45,8 +45,13 @@ impl Store {
     }
 
     /// Returns the [`Engine`].
-    pub fn engine(&self) -> &Arc<dyn Engine + Send + Sync> {
-        &self.engine
+    pub fn engine<E: Engine + 'static>(&self) -> Result<Arc<E>, Arc<dyn Engine + Send + Sync>> {
+        Arc::clone(&self.engine).downcast_arc()
+    }
+
+    /// Returns the [`Engine`].
+    pub fn dyn_engine(&self) -> &(dyn Engine + Send + Sync) {
+        &*self.engine
     }
 
     /// Checks whether two stores are identical. A store is considered
