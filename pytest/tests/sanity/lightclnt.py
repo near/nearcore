@@ -80,11 +80,13 @@ def get_light_client_block(hash_, last_known_block):
 
 def get_up_to(from_, to):
     global first_epoch_switch_height, last_epoch
+    print(f'get_up_to {from_} {to}')
 
     for height, hash_ in utils.poll_blocks(nodes[0],
                                            timeout=TIMEOUT,
                                            poll_interval=0.01):
         block = nodes[0].get_block(hash_)
+        print(f'height: {height}, hash_: {hash_}, cur_epoch: {block["result"]["header"]["epoch_id"]}, next_epoch_id: {block["result"]["header"]["next_epoch_id"]}, first_epoch_switch_height: {first_epoch_switch_height}, last_epoch: {last_epoch}')
 
         hash_to_height[hash_] = height
         height_to_hash[height] = hash_
