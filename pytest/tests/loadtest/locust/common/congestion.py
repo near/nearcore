@@ -39,8 +39,8 @@ class ComputeSha256(base.Transaction):
             block_hash,
         )
 
-    def sender_id(self) -> str:
-        return self.sender.key.account_id
+    def sender_account(self) -> base.Account:
+        return self.sender
 
 
 class ComputeSum(base.Transaction):
@@ -70,8 +70,8 @@ class ComputeSum(base.Transaction):
             block_hash,
         )
 
-    def sender_id(self) -> str:
-        return self.sender.key.account_id
+    def sender_account(self) -> base.Account:
+        return self.sender
 
 
 @events.init.add_listener
