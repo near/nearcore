@@ -564,7 +564,8 @@ def doit(s, n, N, k, monkeys, timeout):
             "view_client_throttle_period": {
                 "secs": 0,
                 "nanos": 0
-            }
+            },
+            "store.state_snapshot_enabled": False,
         }
     for i in range(N, N + k + 1):
         # make all the observers track all the shards
@@ -619,7 +620,7 @@ def doit(s, n, N, k, monkeys, timeout):
     # We need to make sure that the blocks that include txs are not garbage collected. From the first tx sent until
     # we check balances time equal to `balances_timeout * 2` passes, and the block production is capped at 1.7/s.
     # The GC keeps five epochs of blocks.
-    min_epoch_length = (int((balances_timeout * 2) * 1.7) + 4) // 5
+    min_epoch_length = (int((balances_timeout * 2) * 1.7) + 4) // 3
     epoch_length = max(epoch_length, min_epoch_length)
 
     logger.info(f"block_timeout: {block_timeout}, balances_timeout: {balances_timeout}, tx_tolerance: {tx_tolerance}, epoch_length: {epoch_length}, wait_if_restart: {wait_if_restart}, wipe_data: {wipe_data}, restart_sync_timeout: {restart_sync_timeout}")
