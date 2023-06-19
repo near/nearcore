@@ -114,6 +114,7 @@ while True:
     # we expect no skipped heights
     height_to_num_approvals[height] = len(
         block['result']['header']['approvals'])
+    logger.info(f"Added height_to_num_approvals {height}={len(block['result']['header']['approvals'])}")
 
     if height > largest_height:
         logger.info("... %s" % height)
@@ -157,6 +158,7 @@ while True:
         logger.info("EPOCH %s, VALS %s" % (epoch_id, get_validators()))
 
         if len(seen_epochs) > 2:  # the first two epochs share the validator set
+            logger.info(f"Checking height_to_num_approvals {height}, {height_to_num_approvals}")
             assert height_to_num_approvals[height] == 2
 
             has_prev = height - 1 in height_to_num_approvals
@@ -174,7 +176,7 @@ while True:
         else:
             for i in range(height):
                 if i in height_to_num_approvals:
-                    assert height_to_num_approvals[i] == 2
+                    assert height_to_num_approvals[i] == 2, (i, height_to_num_approvals[i], height_to_num_approvals)
 
         cur_vals, next_vals = next_vals, cur_vals
         epoch_switch_height = height
