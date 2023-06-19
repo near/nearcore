@@ -90,7 +90,7 @@ class Transaction:
     def sender_id(self) -> str:
         """
         Account id of the sender that signs the tx, which must be known to map
-        the tx-result quest to the right shard.
+        the tx-result request to the right shard.
         """
 
 
