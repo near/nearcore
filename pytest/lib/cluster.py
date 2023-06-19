@@ -318,6 +318,9 @@ class BaseNode(object):
     def get_block(self, block_id, **kwargs):
         return self.json_rpc('block', [block_id], **kwargs)
 
+    def get_block_by_height(self, block_height, **kwargs):
+        return self.json_rpc('block', {'block_id': block_height}, **kwargs)
+
     def get_chunk(self, chunk_id):
         return self.json_rpc('chunk', [chunk_id])
 
