@@ -1,6 +1,7 @@
-use near_vm::*;
-use near_vm_engine::{Engine, Executable};
-use near_vm_engine_universal::Universal;
+use std::sync::Arc;
+
+use near_vm_test_api::*;
+use near_vm_engine::universal::Universal;
 use near_vm_vm::Artifact;
 
 fn slow_to_compile_contract(n_fns: usize, n_locals: usize) -> Vec<u8> {
@@ -14,7 +15,7 @@ fn compile_uncached<'a>(
     engine: &'a UniversalEngine,
     code: &'a [u8],
     time: bool,
-) -> Result<near_vm_engine_universal::UniversalExecutable, CompileError> {
+) -> Result<near_vm_engine::universal::UniversalExecutable, CompileError> {
     use std::time::Instant;
     let now = Instant::now();
     engine.validate(code)?;
@@ -32,8 +33,8 @@ fn compile_uncached<'a>(
 #[ignore]
 fn compilation_test() {
     let compiler = Singlepass::default();
-    let engine = Universal::new(compiler).engine();
-    let store = Store::new(&engine);
+    let engine = Arc::new(Universal::new(compiler).engine());
+    let store = Store::new(Arc::clone(&engine));
     for factor in 1..1000 {
         let code = slow_to_compile_contract(3, 25 * factor);
         match compile_uncached(&store, &engine, &code, false) {
@@ -73,13 +74,13 @@ fn profiling() {
     "#;
     let wasm = wat2wasm(wat.as_bytes()).unwrap();
     let compiler = Singlepass::default();
-    let engine = Universal::new(compiler).engine();
-    let store = Store::new(&engine);
+    let engine = Arc::new(Universal::new(compiler).engine());
+    let store = Store::new(Arc::clone(&engine));
     match compile_uncached(&store, &engine, &wasm, false) {
         Ok(art) => unsafe {
             let serialized = art.serialize().unwrap();
             let executable =
-                near_vm_engine_universal::UniversalExecutableRef::deserialize(&serialized).unwrap();
+                near_vm_engine::universal::UniversalExecutableRef::deserialize(&serialized).unwrap();
             let artifact = engine.load_universal_executable_ref(&executable).unwrap();
             let info = artifact
                 .functions()

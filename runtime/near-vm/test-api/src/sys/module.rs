@@ -3,7 +3,6 @@ use crate::sys::InstantiationError;
 use near_vm_compiler::CompileError;
 #[cfg(feature = "wat")]
 use near_vm_compiler::WasmError;
-use near_vm_engine::Engine;
 use near_vm_engine::RuntimeError;
 use near_vm_types::InstanceConfig;
 use near_vm_vm::{InstanceHandle, Instantiatable, Resolver};
@@ -33,7 +32,7 @@ pub enum IoCompileError {
 #[derive(Clone)]
 pub struct Module {
     store: Store,
-    artifact: Arc<near_vm_engine_universal::UniversalArtifact>,
+    artifact: Arc<near_vm_engine::universal::UniversalArtifact>,
 }
 
 impl Module {
@@ -73,7 +72,7 @@ impl Module {
     /// Reading from bytes:
     ///
     /// ```
-    /// use near_vm::*;
+    /// use near_vm_test_api::*;
     /// # fn main() -> anyhow::Result<()> {
     /// # let store = Store::default();
     /// // The following is the same as:
@@ -114,21 +113,14 @@ impl Module {
     /// this crate).
     #[tracing::instrument(skip_all)]
     pub(crate) fn from_binary(store: &Store, binary: &[u8]) -> Result<Self, CompileError> {
-        match store.engine::<near_vm_engine_universal::UniversalEngine>() {
-            Ok(engine) => {
-                engine.validate(binary)?;
-                let executable = engine.compile_universal(binary, store.tunables())?;
-                let artifact = engine.load_universal_executable(&executable)?;
-                Ok(Self {
-                    store: store.clone(),
-                    artifact: Arc::new(artifact),
-                })
-            }
-            // We're are probably given an externally defined artifact type
-            // which I imagine we don't care about for now since this entire crate
-            // is only used for tests and this crate only defines universal engine.
-            Err(_) => panic!("unhandled engine type"),
-        }
+        let engine = store.engine();
+        engine.validate(binary)?;
+        let executable = engine.compile_universal(binary, store.tunables())?;
+        let artifact = engine.load_universal_executable(&executable)?;
+        Ok(Self {
+            store: store.clone(),
+            artifact: Arc::new(artifact),
+        })
     }
 
     pub(crate) fn instantiate(

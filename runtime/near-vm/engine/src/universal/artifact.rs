@@ -1,7 +1,7 @@
 //! Define `UniversalArtifact` to allow compiling and instantiating to be
 //! done as separate steps.
 
-use near_vm_engine::InstantiationError;
+use crate::InstantiationError;
 use near_vm_types::entity::{BoxedSlice, EntityRef, PrimaryMap};
 use near_vm_types::{
     DataIndex, ElemIndex, FunctionIndex, GlobalInit, GlobalType, ImportCounts, LocalFunctionIndex,
@@ -20,7 +20,7 @@ use std::sync::Arc;
 /// A compiled wasm module, containing everything necessary for instantiation.
 pub struct UniversalArtifact {
     // TODO: figure out how to allocate fewer distinct structures onto heap. Maybe have an arena…?
-    pub(crate) engine: crate::UniversalEngine,
+    pub(crate) engine: crate::universal::UniversalEngine,
     pub(crate) import_counts: ImportCounts,
     pub(crate) start_function: Option<FunctionIndex>,
     pub(crate) vmoffsets: VMOffsets,
@@ -47,7 +47,7 @@ impl UniversalArtifact {
     }
 
     /// Return the engine instance this artifact is loaded into.
-    pub fn engine(&self) -> &crate::UniversalEngine {
+    pub fn engine(&self) -> &crate::universal::UniversalEngine {
         &self.engine
     }
 }
@@ -63,7 +63,7 @@ impl Instantiatable for UniversalArtifact {
         config: near_vm_types::InstanceConfig,
     ) -> Result<InstanceHandle, Self::Error> {
         let (imports, import_function_envs) = {
-            let mut imports = near_vm_engine::resolve_imports(
+            let mut imports = crate::resolve_imports(
                 &self.engine,
                 resolver,
                 &self.import_counts,
@@ -89,7 +89,7 @@ impl Instantiatable for UniversalArtifact {
             let memory = tunables
                 .create_vm_memory(&ty, &style, memory_definition_locations[idx as usize])
                 .map_err(|e| {
-                    InstantiationError::Link(near_vm_engine::LinkError::Resource(format!(
+                    InstantiationError::Link(crate::LinkError::Resource(format!(
                         "Failed to create memory: {}",
                         e
                     )))
@@ -103,7 +103,7 @@ impl Instantiatable for UniversalArtifact {
         for (idx, (ty, style)) in (self.import_counts.tables..).zip(self.local_tables.iter()) {
             let table = tunables
                 .create_vm_table(ty, style, table_definition_locations[idx as usize])
-                .map_err(|e| InstantiationError::Link(near_vm_engine::LinkError::Resource(e)))?;
+                .map_err(|e| InstantiationError::Link(crate::LinkError::Resource(e)))?;
             tables.push(table);
         }
 

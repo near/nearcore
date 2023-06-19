@@ -1,4 +1,5 @@
-use near_vm::{CompilerConfig, Engine as WasmerEngine, Features, Store};
+use near_vm_engine::universal::UniversalEngine;
+use near_vm_test_api::{CompilerConfig, Features, Store};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Compiler {
@@ -34,30 +35,24 @@ impl Config {
     pub fn store(&self) -> Store {
         let compiler_config = self.compiler_config(self.canonicalize_nans);
         let engine = self.engine(compiler_config);
-        Store::new(&*engine)
+        Store::new(engine.into())
     }
 
     pub fn headless_store(&self) -> Store {
         let engine = self.engine_headless();
-        Store::new(&*engine)
+        Store::new(engine.into())
     }
 
-    pub fn engine(&self, compiler_config: Box<dyn CompilerConfig>) -> Box<dyn WasmerEngine> {
-        match &self.engine {
-            Engine::Universal => {
-                let mut engine = near_vm_engine_universal::Universal::new(compiler_config);
-                if let Some(ref features) = self.features {
-                    engine = engine.features(features.clone())
-                }
-                Box::new(engine.engine())
-            }
+    pub fn engine(&self, compiler_config: Box<dyn CompilerConfig>) -> UniversalEngine {
+        let mut engine = near_vm_engine::universal::Universal::new(compiler_config);
+        if let Some(ref features) = self.features {
+            engine = engine.features(features.clone())
         }
+        engine.engine()
     }
 
-    pub fn engine_headless(&self) -> Box<dyn WasmerEngine> {
-        match &self.engine {
-            Engine::Universal => Box::new(near_vm_engine_universal::Universal::headless().engine()),
-        }
+    pub fn engine_headless(&self) -> UniversalEngine {
+        near_vm_engine::universal::Universal::headless().engine()
     }
 
     pub fn compiler_config(&self, canonicalize_nans: bool) -> Box<dyn CompilerConfig> {

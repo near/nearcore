@@ -1,5 +1,5 @@
 use anyhow::Result;
-use near_vm::*;
+use near_vm_test_api::*;
 
 #[compiler_test(serialize)]
 fn test_serialize(config: crate::Config) -> Result<()> {
@@ -14,12 +14,11 @@ fn test_serialize(config: crate::Config) -> Result<()> {
         .as_bytes(),
     )
     .unwrap();
-    if let Ok(engine) = store.engine::<UniversalEngine>() {
-        let tunables = BaseTunables::for_target(engine.target());
-        let executable = engine.compile_universal(&wasm, &tunables).unwrap();
-        let serialized = near_vm_engine::Executable::serialize(&executable).unwrap();
-        assert!(!serialized.is_empty());
-    }
+    let engine = store.engine();
+    let tunables = BaseTunables::for_target(engine.target());
+    let executable = engine.compile_universal(&wasm, &tunables).unwrap();
+    let serialized = executable.serialize().unwrap();
+    assert!(!serialized.is_empty());
     Ok(())
 }
 

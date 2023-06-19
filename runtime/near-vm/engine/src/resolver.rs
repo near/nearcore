@@ -1,7 +1,7 @@
 //! Define the `Resolver` trait, allowing custom resolution for external
 //! references.
 
-use crate::{Engine, ImportError, LinkError};
+use crate::{ImportError, LinkError};
 use more_asserts::assert_ge;
 use near_vm_types::entity::{BoxedSlice, EntityRef, PrimaryMap};
 use near_vm_types::{ExternType, FunctionIndex, ImportCounts, MemoryType, TableType};
@@ -31,7 +31,7 @@ fn is_compatible_memory(ex: &MemoryType, im: &MemoryType) -> bool {
 ///
 /// If all imports are satisfied returns an `Imports` instance required for a module instantiation.
 pub fn resolve_imports(
-    engine: &dyn Engine,
+    engine: &crate::universal::UniversalEngine,
     resolver: &dyn Resolver,
     import_counts: &ImportCounts,
     imports: &[VMImport],

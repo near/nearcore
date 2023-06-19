@@ -1,4 +1,4 @@
-use crate::UniversalEngine;
+use crate::universal::UniversalEngine;
 use near_vm_compiler::{CompilerConfig, Features, Target};
 
 /// The Universal builder
@@ -36,7 +36,6 @@ impl Universal {
     }
 
     /// Build the `UniversalEngine` for this configuration
-    #[cfg(feature = "compiler")]
     pub fn engine(self) -> UniversalEngine {
         let target = self.target.unwrap_or_default();
         if let Some(compiler_config) = self.compiler_config {
@@ -48,11 +47,5 @@ impl Universal {
         } else {
             UniversalEngine::headless()
         }
-    }
-
-    /// Build the `UniversalEngine` for this configuration
-    #[cfg(not(feature = "compiler"))]
-    pub fn engine(self) -> UniversalEngine {
-        UniversalEngine::headless()
     }
 }
