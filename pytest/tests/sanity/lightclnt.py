@@ -189,10 +189,10 @@ get_up_to(23 + first_epoch_switch_height, 24 + first_epoch_switch_height)
 # check that the light client block now corresponds to 24 + C, which is in the same epoch as 26 + C.
 for i in range(2):
     res = get_light_client_block(height_to_hash[19 + first_epoch_switch_height], last_known_block)
-    assert res['result']['inner_lite']['epoch_id'] == hash_to_epoch[height_to_hash[21 + first_epoch_switch_height]], (res['result']['inner_lite']['epoch_id'], 21 + first_epoch_switch_height)
+    assert res['result']['inner_lite']['epoch_id'] == hash_to_epoch[height_to_hash[21 + first_epoch_switch_height]], (res['result']['inner_lite']['epoch_id'], height_to_hash[21 + first_epoch_switch_height], hash_to_epoch[height_to_hash[21 + first_epoch_switch_height]])
 
     res = get_light_client_block(height_to_hash[20 + first_epoch_switch_height], last_known_block)
-    assert res['result']['inner_lite']['epoch_id'] == hash_to_epoch[height_to_hash[21 + first_epoch_switch_height]]
+    assert res['result']['inner_lite']['epoch_id'] == hash_to_epoch[height_to_hash[21 + first_epoch_switch_height]], (res['result']['inner_lite']['epoch_id'], height_to_hash[21 + first_epoch_switch_height], hash_to_epoch[height_to_hash[21 + first_epoch_switch_height]])
 
     res = get_light_client_block(height_to_hash[21 + first_epoch_switch_height], last_known_block)
     assert res['result'] == {}
@@ -200,4 +200,4 @@ for i in range(2):
     get_up_to(i + 25 + first_epoch_switch_height, i + 25 + first_epoch_switch_height)
 
 res = get_light_client_block(height_to_hash[21 + first_epoch_switch_height], last_known_block)
-assert res['result']['inner_lite']['epoch_id'] == hash_to_epoch[height_to_hash[24 + first_epoch_switch_height]]
+assert res['result']['inner_lite']['epoch_id'] == hash_to_epoch[height_to_hash[24 + first_epoch_switch_height]], (res['result']['inner_lite']['epoch_id'], height_to_hash[21 + first_epoch_switch_height], hash_to_epoch[height_to_hash[21 + first_epoch_switch_height]])
