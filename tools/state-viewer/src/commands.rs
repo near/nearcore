@@ -674,10 +674,12 @@ pub(crate) fn replay_chain(
 }
 
 fn print_receipt_costs_for_chunk(
-    receipt_proofs: &[ReceiptProof],
+    block_hash: &CryptoHash,
+    shard_id: ShardId,
     chain_store: &ChainStore,
     ext_costs: &ExtCostsConfig,
 ) {
+    let receipt_proofs = chain_store.get_incoming_receipts(block_hash, shard_id).unwrap();
     // let chunk_header = chunks_collection.get(shard_id as usize);
     // let chunk_hash = match chunk_header {
     //     None => {
@@ -686,7 +688,7 @@ fn print_receipt_costs_for_chunk(
     //     Some(chunk_header) => chunk_header.chunk_hash(),
     // };
     // let chunk = chain_store.get_chunk(&chunk_hash).unwrap();
-    for receipt_proof in receipt_proofs {
+    for receipt_proof in receipt_proofs.iter() {
         let receipts = &receipt_proof.0;
         for receipt in receipts {
             let receipt_id = receipt.receipt_id;
@@ -710,7 +712,7 @@ fn print_receipt_costs_for_chunk(
                 new_burnt_gas += write_bytes * 74_000_000_000;
                 println!(
                     "GAS BYTE_FACTOR = {} {} {} {} {} {}",
-                    new_burnt_gas / old_burnt_gas,
+                    (new_burnt_gas as f64) / (old_burnt_gas as f64),
                     (old_burnt_gas as f64) / (10u64.pow(9) as f64),
                     (new_burnt_gas as f64) / (10u64.pow(9) as f64),
                     profile.total_compute_usage(ext_costs),
@@ -730,7 +732,7 @@ pub(crate) fn print_receipt_costs(
     near_config: NearConfig,
     store: Store,
 ) {
-    let chain_store = ChainStore::new(
+    let mut chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
@@ -759,44 +761,44 @@ pub(crate) fn print_receipt_costs(
                 return;
             }
         };
-        let block = chain_store.get_block(&block_hash).unwrap();
+        // let block = chain_store.get_block(&block_hash).unwrap();
 
-        let mut receipt_proofs_by_shard_id = HashMap::new();
-        for shard_id in 0..num_shards {
-            receipt_proofs_by_shard_id.entry(shard_id).or_insert_with(Vec::new);
-        }
-
-        for chunk_header in block.chunks().iter() {
-            if chunk_header.height_included() == height {
-                let partial_encoded_chunk =
-                    chain_store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
-                for receipt in partial_encoded_chunk.receipts().iter() {
-                    let ReceiptProof(_, shard_proof) = receipt;
-                    let ShardProof { from_shard_id: _, to_shard_id, proof: _ } = shard_proof;
-                    receipt_proofs_by_shard_id
-                        .entry(*to_shard_id)
-                        .or_insert_with(Vec::new)
-                        .push(receipt.clone());
-                }
-            }
-        }
+        // let mut receipt_proofs_by_shard_id = HashMap::new();
+        // for shard_id in 0..num_shards {
+        //     receipt_proofs_by_shard_id.entry(shard_id).or_insert_with(Vec::new);
+        // }
+        //
+        // for chunk_header in block.chunks().iter() {
+        //     if chunk_header.height_included() == height {
+        //         let partial_encoded_chunk =
+        //             chain_store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
+        //         for receipt in partial_encoded_chunk.receipts().iter() {
+        //             let ReceiptProof(_, shard_proof) = receipt;
+        //             let ShardProof { from_shard_id: _, to_shard_id, proof: _ } = shard_proof;
+        //             receipt_proofs_by_shard_id
+        //                 .entry(*to_shard_id)
+        //                 .or_insert_with(Vec::new)
+        //                 .push(receipt.clone());
+        //         }
+        //     }
+        // }
+        // let chain_store_update = ChainStoreUpdate::new(&mut chain_store);
+        // let receipt_proof_response = chain_store_update
+        //     .get_incoming_receipts_for_shard(
+        //         shard_id,
+        //         block_hash,
+        //         prev_block.chunks()[shard_id as usize].height_included(),
+        //     )
+        //     .unwrap();
 
         match shard_id {
             None => {
                 for shard_id in 0..num_shards {
-                    print_receipt_costs_for_chunk(
-                        receipt_proofs_by_shard_id.get(&shard_id).unwrap(),
-                        &chain_store,
-                        &ext_costs,
-                    );
+                    print_receipt_costs_for_chunk(&block_hash, shard_id, &chain_store, &ext_costs);
                 }
             }
             Some(shard_id) => {
-                print_receipt_costs_for_chunk(
-                    receipt_proofs_by_shard_id.get(&shard_id).unwrap(),
-                    &chain_store,
-                    &ext_costs,
-                );
+                print_receipt_costs_for_chunk(&block_hash, shard_id, &chain_store, &ext_costs);
             }
         }
     }
