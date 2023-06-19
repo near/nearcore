@@ -84,7 +84,7 @@ impl<'a> ConfigValidator<'a> {
                 if let Some(restart_dump_for_shards) = &dump_config.restart_dump_for_shards {
                     let unique_values: HashSet<_> = restart_dump_for_shards.iter().collect();
                     if unique_values.len() != restart_dump_for_shards.len() {
-                        let error_message = "'config.state_sync.dump.restart_dump_for_shards' contains duplicate values.".to_string();
+                        let error_message = format!("'config.state_sync.dump.restart_dump_for_shards' contains duplicate values.");
                         self.validation_errors.push_config_semantics_error(error_message);
                     }
                 }
@@ -92,13 +92,13 @@ impl<'a> ConfigValidator<'a> {
                 match &dump_config.location {
                     ExternalStorageLocation::S3 { bucket, region } => {
                         if bucket.is_empty() || region.is_empty() {
-                            let error_message = "'config.state_sync.dump.location.S3.bucket' and 'config.state_sync.dump.location.S3.region' need to be specified when 'config.state_sync.dump.location.S3' is present.".to_string();
+                            let error_message = format!("'config.state_sync.dump.location.S3.bucket' and 'config.state_sync.dump.location.S3.region' need to be specified when 'config.state_sync.dump.location.S3' is present.");
                             self.validation_errors.push_config_semantics_error(error_message);
                         }
                     }
                     ExternalStorageLocation::Filesystem { root_dir } => {
                         if root_dir.as_path() == Path::new("") {
-                            let error_message = "'config.state_sync.dump.location.Filesystem.root_dir' needs to be specified when 'config.state_sync.dump.location.Filesystem' is present.".to_string();
+                            let error_message = format!("'config.state_sync.dump.location.Filesystem.root_dir' needs to be specified when 'config.state_sync.dump.location.Filesystem' is present.");
                             self.validation_errors.push_config_semantics_error(error_message);
                         }
                     }
@@ -110,19 +110,19 @@ impl<'a> ConfigValidator<'a> {
                     match &config.location {
                         ExternalStorageLocation::S3 { bucket, region } => {
                             if bucket.is_empty() || region.is_empty() {
-                                let error_message = "'config.state_sync.sync.ExternalStorage.location.S3.bucket' and 'config.state_sync.sync.ExternalStorage.location.S3.region' need to be specified when 'config.state_sync.sync.ExternalStorage.location.S3' is present.".to_string();
+                                let error_message = format!("'config.state_sync.sync.ExternalStorage.location.S3.bucket' and 'config.state_sync.sync.ExternalStorage.location.S3.region' need to be specified when 'config.state_sync.sync.ExternalStorage.location.S3' is present.");
                                 self.validation_errors.push_config_semantics_error(error_message);
                             }
                         }
                         ExternalStorageLocation::Filesystem { root_dir } => {
                             if root_dir.as_path() == Path::new("") {
-                                let error_message = "'config.state_sync.sync.ExternalStorage.location.Filesystem.root_dir' needs to be specified when 'config.state_sync.sync.ExternalStorage.location.Filesystem' is present.".to_string();
+                                let error_message = format!("'config.state_sync.sync.ExternalStorage.location.Filesystem.root_dir' needs to be specified when 'config.state_sync.sync.ExternalStorage.location.Filesystem' is present.");
                                 self.validation_errors.push_config_semantics_error(error_message);
                             }
                         }
                     }
                     if config.num_concurrent_requests == 0 {
-                        let error_message = "'config.state_sync.sync.ExternalStorage.num_concurrent_requests' needs to be greater than 0".to_string();
+                        let error_message = format!("'config.state_sync.sync.ExternalStorage.num_concurrent_requests' needs to be greater than 0");
                         self.validation_errors.push_config_semantics_error(error_message);
                     }
                 }

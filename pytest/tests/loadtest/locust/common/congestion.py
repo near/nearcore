@@ -39,6 +39,9 @@ class ComputeSha256(base.Transaction):
             block_hash,
         )
 
+    def sender_id(self) -> str:
+        return self.sender.key.account_id
+
 
 class ComputeSum(base.Transaction):
     """Large computation that consumes a specified amount of gas."""
@@ -67,12 +70,12 @@ class ComputeSum(base.Transaction):
             block_hash,
         )
 
+    def sender_id(self) -> str:
+        return self.sender.key.account_id
+
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
-    if not base.is_tag_active(environment, "congestion"):
-        return
-
     # `master_funding_account` is the same on all runners, allowing to share a
     # single instance of congestion contract.
     funding_account = environment.master_funding_account
@@ -112,7 +115,6 @@ def on_locust_init(environment, **kwargs):
 def _(parser):
     parser.add_argument(
         "--congestion-wasm",
-        type=str,
-        required=False,
+        default="res/congestion.wasm",
         help="Path to the compiled congestion contract",
     )

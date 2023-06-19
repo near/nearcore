@@ -1,5 +1,5 @@
 """
-TODO
+A workload that simulates SocialDB traffic.
 """
 
 import logging
@@ -7,42 +7,14 @@ import pathlib
 import random
 import sys
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[3] / 'lib'))
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
 from configured_logger import new_logger
-from locust import between, tag, task
-from common.base import NearUser, is_tag_active
-from common.ft import TransferFT
+from locust import between, task
+from common.base import NearUser
 from common.social import Follow, InitSocialDbAccount, SubmitPost
-from common.congestion import ComputeSha256, ComputeSum
 
 logger = new_logger(level=logging.WARN)
-
-
-class FTTransferUser(NearUser):
-    """
-    Registers itself on an FT contract in the setup phase, then just sends FTs to
-    random users.
-    """
-    wait_time = between(1, 3)  # random pause between transactions
-
-    @tag("ft")
-    @task
-    def ft_transfer(self):
-        receiver = self.ft.random_receiver(self.account_id)
-        tx = TransferFT(self.ft.account, self.account, receiver, how_much=1)
-        self.send_tx(tx, locust_name="FT transfer")
-
-    def on_start(self):
-        super().on_start()
-        if not is_tag_active(self.environment, "ft"):
-            raise SystemExit("FTTransferUser requires --tag ft")
-
-        self.ft = random.choice(self.environment.ft_contracts)
-        self.ft.register_user(self)
-        logger.debug(
-            f"{self.account_id} ready to use FT contract {self.ft.account.key.account_id}"
-        )
 
 
 class SocialDbUser(NearUser):
@@ -53,7 +25,6 @@ class SocialDbUser(NearUser):
     wait_time = between(1, 3)  # random pause between transactions
     registered_users = []
 
-    @tag("social")
     @task
     def follow(self):
         users_to_follow = [random.choice(SocialDbUser.registered_users)]
@@ -61,7 +32,6 @@ class SocialDbUser(NearUser):
                             users_to_follow),
                      locust_name="Social Follow")
 
-    @tag("social")
     @task
     def post(self):
         seed = random.randrange(2**32)
@@ -72,9 +42,6 @@ class SocialDbUser(NearUser):
 
     def on_start(self):
         super().on_start()
-        if not is_tag_active(self.environment, "social"):
-            raise SystemExit("SocialDbUser requires --tag social")
-
         self.contract_account_id = self.environment.social_account_id
 
         self.send_tx(InitSocialDbAccount(self.contract_account_id,
@@ -98,30 +65,3 @@ class SocialDbUser(NearUser):
             post = f"{post}\nI'll say it again: \n**{quote}**"
 
         return post[:length]
-
-
-class CongestionUser(NearUser):
-    """
-    Runs a resource-heavy workload that is likely to cause congestion.
-    """
-    wait_time = between(1, 3)  # random pause between transactions
-
-    @tag("congestion")
-    @task
-    def compute_sha256(self):
-        self.send_tx(ComputeSha256(self.contract_account_id, self.account,
-                                   100000),
-                     locust_name="SHA256, 100 KiB")
-
-    @tag("congestion")
-    @task
-    def compute_sum(self):
-        self.send_tx(ComputeSum(self.contract_account_id, self.account, 250),
-                     locust_name="Sum, 250 TGas")
-
-    def on_start(self):
-        super().on_start()
-        if not is_tag_active(self.environment, "congestion"):
-            raise SystemExit("Congestion requires --tag congestion")
-
-        self.contract_account_id = self.environment.congestion_account_id

@@ -12,7 +12,7 @@ import transaction
 from account import TGAS, NEAR_BASE
 import cluster
 import key
-from common.base import Account, CreateSubAccount, Deploy, NearUser, Transaction, is_tag_active, send_transaction
+from common.base import Account, CreateSubAccount, Deploy, NearUser, Transaction, send_transaction
 from locust import events, runners
 from transaction import create_function_call_action
 
@@ -36,6 +36,9 @@ class SocialDbSet(Transaction):
                                                  300 * TGAS, 0,
                                                  self.sender.use_nonce(),
                                                  block_hash)
+
+    def sender_id(self) -> str:
+        return self.sender.key.account_id
 
 
 class SubmitPost(SocialDbSet):
@@ -83,6 +86,9 @@ class InitSocialDB(Transaction):
             key.account_id, nonce, [call_new_action, call_set_status_action],
             block_hash, key.account_id, key.decoded_pk(), key.decoded_sk())
 
+    def sender_id(self) -> str:
+        return self.contract.key.account_id
+
 
 class InitSocialDbAccount(Transaction):
     """
@@ -106,6 +112,9 @@ class InitSocialDbAccount(Transaction):
                                                  300 * TGAS, 1 * NEAR_BASE,
                                                  self.account.use_nonce(),
                                                  block_hash)
+
+    def sender_id(self) -> str:
+        return self.account.key.account_id
 
 
 def social_db_build_index_obj(key_list_pairs: dict) -> dict:
@@ -268,9 +277,6 @@ class TestSocialDbSetMsg(unittest.TestCase):
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
-    if not is_tag_active(environment, "social"):
-        return
-
     # `master_funding_account` is the same on all runners, allowing to share a
     # single instance of SocialDB in its `social` sub account
     funding_account = environment.master_funding_account
@@ -281,8 +287,8 @@ def on_locust_init(environment, **kwargs):
         if environment.parsed_options.social_db_wasm is None:
             raise SystemExit(
                 f"Running SocialDB workload requires `--social_db_wasm $SOCIAL_CONTRACT`. "
-                "Either provide the WASM (can be downloaded from https://github.com/NearSocial/social-db/tree/aa7fafaac92a7dd267993d6c210246420a561370/res) "
-                "or run with `--exclude-tag social`")
+                "Provide the WASM (can be downloaded from https://github.com/NearSocial/social-db/tree/aa7fafaac92a7dd267993d6c210246420a561370/res)."
+            )
 
         social_contract_code = environment.parsed_options.social_db_wasm
         contract_key = key.Key.from_random(environment.social_account_id)
@@ -308,8 +314,7 @@ def on_locust_init(environment, **kwargs):
 def _(parser):
     parser.add_argument(
         "--social-db-wasm",
-        type=str,
-        required=False,
+        default="res/social_db.wasm",
         help=
         "Path to the compiled SocialDB contract, get it from https://github.com/NearSocial/social-db/tree/aa7fafaac92a7dd267993d6c210246420a561370/res"
     )
