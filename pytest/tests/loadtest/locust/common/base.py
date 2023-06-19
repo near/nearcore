@@ -1,4 +1,5 @@
 from configured_logger import new_logger
+from datetime import timedelta
 from locust import User, events, runners
 from retrying import retry
 import abc
@@ -20,7 +21,7 @@ import time
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
-DEFAULT_TRANSACTION_TTL_MILLISECONDS = 1_800_000  # 30 minutes.
+DEFAULT_TRANSACTION_TTL = timedelta(minutes=30)
 logger = new_logger(level=logging.WARN)
 
 
@@ -202,7 +203,7 @@ class NearNodeProxy:
                                  json=j)
 
     @retry(wait_fixed=500,
-           stop_max_delay=DEFAULT_TRANSACTION_TTL_MILLISECONDS,
+           stop_max_delay=DEFAULT_TRANSACTION_TTL / timedelta(milliseconds=1),
            retry_on_exception=is_tx_unknown_error)
     def poll_tx_result(self, meta, params):
         # poll for tx result, using "EXPERIMENTAL_tx_status" which waits for
