@@ -16,14 +16,17 @@ use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::EpochManagerHandle;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
-use near_primitives::block::{Block, BlockHeader};
+use near_primitives::block::{Block, BlockHeader, ChunksCollection};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
+use near_primitives::transaction::ExecutionMetadata;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
+use near_primitives_core::config::{ExtCosts, ExtCostsConfig};
+use near_primitives_core::profile;
 use near_primitives_core::types::Gas;
 use near_store::test_utils::create_test_store;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
@@ -667,6 +670,117 @@ pub(crate) fn replay_chain(
                 .unwrap()
                 .commit()
                 .unwrap();
+        }
+    }
+}
+
+fn print_receipt_costs_for_chunk(
+    chunks_collection: &ChunksCollection,
+    shard_id: ShardId,
+    chain_store: &ChainStore,
+    ext_costs: &ExtCostsConfig,
+) {
+    let chunk_header = chunks_collection.get(shard_id as usize);
+    let chunk_hash = match chunk_header {
+        None => {
+            return;
+        }
+        Some(chunk_header) => chunk_header.chunk_hash(),
+    };
+    let chunk = chain_store.get_chunk(&chunk_hash).unwrap();
+    for receipt in chunk.receipts() {
+        let receipt_id = receipt.receipt_id;
+        let outcomes = chain_store.get_outcomes_by_id(&receipt_id).unwrap();
+
+        for outcome_with_id in outcomes {
+            let receipt_id = outcome_with_id.outcome_with_id.id;
+            let outcome = outcome_with_id.outcome_with_id.outcome;
+            let old_burnt_gas = outcome.gas_burnt;
+            let profile = match outcome.metadata {
+                ExecutionMetadata::V3(profile) => profile,
+                _ => {
+                    panic!("bad profile");
+                }
+            };
+            let mut new_burnt_gas = old_burnt_gas;
+            new_burnt_gas -= profile.get_ext_cost(ExtCosts::touching_trie_node);
+            new_burnt_gas -= profile.get_ext_cost(ExtCosts::read_cached_trie_node);
+            let write_bytes = profile.get_ext_cost(ExtCosts::storage_write_key_byte)
+                / ext_costs.gas_cost(ExtCosts::storage_write_key_byte);
+            new_burnt_gas += write_bytes * 74_000_000_000;
+            println!(
+                "GAS BYTE_FACTOR = {} {} {} {} {} {}",
+                new_burnt_gas / old_burnt_gas,
+                (old_burnt_gas as f64) / (10u64.pow(9) as f64),
+                (new_burnt_gas as f64) / (10u64.pow(9) as f64),
+                profile.total_compute_usage(ext_costs),
+                receipt_id,
+                write_bytes,
+            );
+        }
+    }
+}
+
+pub(crate) fn print_receipt_costs(
+    start_height: Option<BlockHeight>,
+    end_height: Option<BlockHeight>,
+    shard_id: Option<ShardId>,
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+) {
+    let chain_store = ChainStore::new(
+        store,
+        near_config.genesis.config.genesis_height,
+        near_config.client_config.save_trie_changes,
+    );
+    let head = chain_store.head().unwrap();
+    let end_height = match end_height {
+        Some(height) => height,
+        None => head.height,
+    };
+    let start_height = match start_height {
+        Some(height) => height,
+        None => chain_store.tail().unwrap(),
+    };
+    let new_store = create_test_store();
+    let epoch_manager =
+        EpochManager::new_arc_handle(new_store.clone(), &near_config.genesis.config);
+    let num_shards = epoch_manager.num_shards(&head.epoch_id).unwrap();
+    let runtime = NightshadeRuntime::from_config(home_dir, new_store, &near_config, epoch_manager);
+    // assume same protocol version...
+    let protocol_config = runtime.get_protocol_config(&head.epoch_id).unwrap();
+    let runtime_config = protocol_config.runtime_config;
+    let ext_costs = runtime_config.wasm_config.ext_costs;
+    for height in (start_height..=end_height).rev() {
+        println!("{}", height);
+        let block_hash = match chain_store.get_block_hash_by_height(height) {
+            Ok(block_hash) => block_hash,
+            Err(_) => {
+                return;
+            }
+        };
+        let block = chain_store.get_block(&block_hash).unwrap();
+        let chunks_collection = block.chunks();
+        match shard_id {
+            None => {
+                for shard_id in 0..num_shards {
+                    print_receipt_costs_for_chunk(
+                        &chunks_collection,
+                        shard_id,
+                        &chain_store,
+                        &ext_costs,
+                    );
+                }
+            }
+            Some(shard_id) => {
+                print_receipt_costs_for_chunk(
+                    &chunks_collection,
+                    shard_id,
+                    &chain_store,
+                    &ext_costs,
+                );
+            }
         }
     }
 }

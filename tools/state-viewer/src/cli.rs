@@ -72,6 +72,8 @@ pub enum StateViewerSubCommand {
     PartialChunks(PartialChunksCmd),
     /// Looks up a certain receipt.
     Receipts(ReceiptsCmd),
+    /// Recomputes receipt costs for a range of blocks.
+    ReceiptCosts(ReceiptCostsCmd),
     /// Replay headers from chain.
     Replay(ReplayCmd),
     /// Dump stats for the RocksDB storage.
@@ -141,6 +143,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ReceiptCosts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(store_opener.path()),
             StateViewerSubCommand::ScanDbColumn(cmd) => cmd.run(store),
@@ -464,6 +467,30 @@ pub struct ReceiptsCmd {
 impl ReceiptsCmd {
     pub fn run(self, near_config: NearConfig, store: Store) {
         get_receipt(CryptoHash::from_str(&self.receipt_id).unwrap(), near_config, store)
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct ReceiptCostsCmd {
+    #[clap(long)]
+    start_index: Option<BlockHeight>,
+    #[clap(long)]
+    end_index: Option<BlockHeight>,
+    /// Shard id.
+    #[clap(long)]
+    shard_id: Option<ShardId>,
+}
+
+impl ReceiptCostsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        print_receipt_costs(
+            self.start_index,
+            self.end_index,
+            self.shard_id,
+            home_dir,
+            near_config,
+            store,
+        )
     }
 }
 
