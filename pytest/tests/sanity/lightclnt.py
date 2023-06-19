@@ -38,6 +38,7 @@ if not config['local']:
 client_config_changes['state_sync_enabled'] = True
 client_config_changes['archive'] = True
 client_config_changes['store.state_snapshot_enabled'] = True
+client_config_changes['tracked_shards'] = [0] # Track all shards
 
 nodes = start_cluster(
     4, 0, 4, None,
@@ -97,6 +98,7 @@ def get_up_to(from_, to):
         if (first_epoch_switch_height is None and last_epoch is not None and
                 last_epoch != cur_epoch):
             first_epoch_switch_height = height
+            logger.info(f"Recorded first_epoch_switch_height = {first_epoch_switch_height}")
         last_epoch = cur_epoch
 
         if height >= to:
