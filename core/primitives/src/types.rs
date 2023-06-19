@@ -9,6 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
+pub use near_vm_errors::TrieNodesCount;
 use once_cell::sync::Lazy;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -969,25 +970,6 @@ pub enum TrieCacheMode {
     /// only once during a single chunk processing. Such nodes remain in cache until the chunk processing is finished,
     /// and thus users (potentially different) are not required to pay twice for retrieval of the same node.
     CachingChunk,
-}
-
-/// Counts trie nodes reads during tx/receipt execution for proper storage costs charging.
-#[derive(Debug, PartialEq)]
-pub struct TrieNodesCount {
-    /// Potentially expensive trie node reads which are served from disk in the worst case.
-    pub db_reads: u64,
-    /// Cheap trie node reads which are guaranteed to be served from RAM.
-    pub mem_reads: u64,
-}
-
-impl TrieNodesCount {
-    /// Used to determine the number of trie nodes charged during some operation.
-    pub fn checked_sub(self, other: &Self) -> Option<Self> {
-        Some(Self {
-            db_reads: self.db_reads.checked_sub(other.db_reads)?,
-            mem_reads: self.mem_reads.checked_sub(other.mem_reads)?,
-        })
-    }
 }
 
 /// State changes for a range of blocks.

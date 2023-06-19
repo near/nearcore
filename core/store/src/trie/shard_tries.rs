@@ -84,10 +84,6 @@ impl ShardTries {
             .collect()
     }
 
-    pub(crate) fn is_same(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
-    }
-
     pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: StateRoot) -> TrieUpdate {
         TrieUpdate::new(self.get_trie_for_shard(shard_uid, state_root))
     }
@@ -171,7 +167,7 @@ impl ShardTries {
     }
 
     pub fn store_update(&self) -> StoreUpdate {
-        StoreUpdate::new_with_tries(self.clone())
+        StoreUpdate::new(self.get_db().clone())
     }
 
     pub fn get_store(&self) -> Store {
@@ -197,7 +193,6 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
-        store_update.set_shard_tries(self);
         let mut ops = Vec::new();
         for TrieRefcountChange { trie_node_or_value_hash, rc, .. } in deletions.iter() {
             let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
@@ -217,7 +212,6 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
-        store_update.set_shard_tries(self);
         let mut ops = Vec::new();
         for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
             insertions.iter()

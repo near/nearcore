@@ -7,6 +7,7 @@ use std::any::Any;
 use std::fmt::{self, Error, Formatter};
 use std::io;
 
+// ----------8<----------
 // TODO: this does not belong in near-vm-errors but near-vm-runner.
 // See #9176 and #9180 for more context.
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize)]
@@ -29,6 +30,26 @@ impl fmt::Debug for dyn CompiledContractCache {
         write!(f, "Compiled contracts cache")
     }
 }
+
+/// Counts trie nodes reads during tx/receipt execution for proper storage costs charging.
+#[derive(Debug, PartialEq)]
+pub struct TrieNodesCount {
+    /// Potentially expensive trie node reads which are served from disk in the worst case.
+    pub db_reads: u64,
+    /// Cheap trie node reads which are guaranteed to be served from RAM.
+    pub mem_reads: u64,
+}
+
+impl TrieNodesCount {
+    /// Used to determine the number of trie nodes charged during some operation.
+    pub fn checked_sub(self, other: &Self) -> Option<Self> {
+        Some(Self {
+            db_reads: self.db_reads.checked_sub(other.db_reads)?,
+            mem_reads: self.mem_reads.checked_sub(other.mem_reads)?,
+        })
+    }
+}
+// ---------->8----------
 
 /// For bugs in the runtime itself, crash and die is the usual response.
 ///

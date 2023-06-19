@@ -2,7 +2,7 @@
 version = "0.0.0" # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
-rust-version = "1.69.0"
+rust-version = "1.70.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -316,14 +316,14 @@ trybuild = "1.0.11"
 turn = "0.6"
 validator = "0.12"
 wasm-encoder = "0.27.0"
-wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.0" }
-wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.0" }
-wasmer-engine = { package = "wasmer-engine-near", version = "=2.4.0" }
-wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.4.0", features = ["compiler"] }
+wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.1" }
+wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.1" }
+wasmer-engine = { package = "wasmer-engine-near", version = "=2.4.1" }
+wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.4.1", features = ["compiler"] }
 wasmer-runtime = { version = "0.18.0", package = "wasmer-runtime-near", features = ["default-backend-singlepass"], default-features = false }
 wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near" }
-wasmer-types = { package = "wasmer-types-near", version = "=2.4.0" }
-wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.0" }
+wasmer-types = { package = "wasmer-types-near", version = "=2.4.1" }
+wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.1" }
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmprinter = "0.2"
 wasm-smith = "0.10"
