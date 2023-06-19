@@ -19,16 +19,20 @@ client_config_changes = {}
 if not config['local']:
     client_config_changes = {
         "consensus": {
+            "block_production_tracking_delay": {
+                "secs": 2,
+                "nanos": 0,
+            },
             "min_block_production_delay": {
-                "secs": 8,
+                "secs": 4,
                 "nanos": 0,
             },
             "max_block_production_delay": {
-                "secs": 16,
+                "secs": 8,
                 "nanos": 0,
             },
             "max_block_wait_delay": {
-                "secs": 24,
+                "secs": 4,
                 "nanos": 0,
             },
         },
@@ -84,7 +88,7 @@ def get_up_to(from_, to):
 
     for height, hash_ in utils.poll_blocks(nodes[0],
                                            timeout=TIMEOUT,
-                                           poll_interval=0.01):
+                                           poll_interval=0.1):
         block = nodes[0].get_block(hash_)
         print(f'height: {height}, hash_: {hash_}, cur_epoch: {block["result"]["header"]["epoch_id"]}, next_epoch_id: {block["result"]["header"]["next_epoch_id"]}, first_epoch_switch_height: {first_epoch_switch_height}, last_epoch: {last_epoch}')
 
