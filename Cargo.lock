@@ -3798,6 +3798,7 @@ name = "near-jsonrpc-tests"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "assert_matches",
  "awc",
  "borsh 0.10.2",
  "futures",
@@ -4024,6 +4025,7 @@ dependencies = [
  "enum-map",
  "hex",
  "insta",
+ "near-account-id",
  "near-crypto",
  "near-fmt",
  "near-primitives-core",

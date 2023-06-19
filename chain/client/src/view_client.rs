@@ -43,14 +43,14 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
-use near_primitives::sharding::ShardChunk;
+use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::syncing::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV1,
     ShardStateSyncResponseV2,
 };
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
-    ShardId, SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
+    AccountId, BlockHeight, BlockId, BlockReference, ChunkReference, EpochReference, Finality,
+    MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
@@ -596,10 +596,19 @@ impl Handler<WithSpanContext<GetChunk>> for ViewClientActor {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetChunk"]).start_timer();
-        let get_chunk_from_block = |block: Block,
-                                    shard_id: ShardId,
-                                    chain: &Chain|
-         -> Result<ShardChunk, near_chain::Error> {
+
+        fn get_block(chain: &Chain, block_id: BlockId) -> Result<Block, near_chain::Error> {
+            match block_id {
+                BlockId::Height(height) => chain.get_block_by_height(height),
+                BlockId::Hash(hash) => chain.get_block(&hash),
+            }
+        }
+
+        fn get_chunk_from_block(
+            chain: &Chain,
+            block: Block,
+            shard_id: ShardId,
+        ) -> Result<ShardChunk, near_chain::Error> {
             let chunk_header = block
                 .chunks()
                 .get(shard_id as usize)
@@ -614,20 +623,33 @@ impl Handler<WithSpanContext<GetChunk>> for ViewClientActor {
                 )),
             )?;
             Ok(res)
-        };
+        }
 
-        let chunk = match msg {
-            GetChunk::ChunkHash(chunk_hash) => {
-                let chunk = self.chain.get_chunk(&chunk_hash)?;
+        let chunk = match msg.0 {
+            ChunkReference::ChunkHash { chunk_id } => {
+                let chunk = self.chain.get_chunk(&ChunkHash(chunk_id))?;
                 ShardChunk::clone(&chunk)
             }
-            GetChunk::BlockHash(block_hash, shard_id) => {
-                let block = self.chain.get_block(&block_hash)?;
-                get_chunk_from_block(block, shard_id, &self.chain)?
+            ChunkReference::BlockShardId { block_id, shard_id } => {
+                let block = get_block(&self.chain, block_id)?;
+                get_chunk_from_block(&self.chain, block, shard_id)?
             }
-            GetChunk::Height(height, shard_id) => {
-                let block = self.chain.get_block_by_height(height)?;
-                get_chunk_from_block(block, shard_id, &self.chain)?
+            ChunkReference::BlockAccountId { block_id, account_id } => {
+                let block = get_block(&self.chain, block_id)?;
+                let epoch_id = block.header().epoch_id();
+                let shard_id = self
+                    .epoch_manager
+                    .account_id_to_shard_id(&account_id, epoch_id)
+                    .map_err(|err| match err {
+                        near_primitives::errors::EpochError::IOErr(error_message) => {
+                            GetChunkError::IOError { error_message }
+                        }
+                        near_primitives::errors::EpochError::EpochOutOfBounds(epoch_id) => {
+                            GetChunkError::EpochOutOfBounds { epoch_id }
+                        }
+                        err => GetChunkError::Unreachable { error_message: err.to_string() },
+                    })?;
+                get_chunk_from_block(&self.chain, block, shard_id)?
             }
         };
 

@@ -35,6 +35,7 @@ thiserror.workspace = true
 time.workspace = true
 tracing.workspace = true
 
+near-account-id = { workspace = true, features = ["arbitrary"] }
 near-crypto.workspace = true
 near-fmt.workspace = true
 near-primitives-core.workspace = true

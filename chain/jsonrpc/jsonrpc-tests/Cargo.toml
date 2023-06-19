@@ -28,6 +28,7 @@ near-jsonrpc.workspace = true
 near-jsonrpc-primitives.workspace = true
 
 [dev-dependencies]
+assert_matches.workspace = true
 near-actix-test-utils.workspace = true
 
 [features]

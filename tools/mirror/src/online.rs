@@ -12,7 +12,8 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, Finality, TransactionOrReceiptId,
+    AccountId, BlockHeight, BlockId, BlockReference, ChunkReference, Finality,
+    TransactionOrReceiptId,
 };
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionOutcomeWithIdView, QueryRequest, QueryResponseKind,
@@ -119,10 +120,12 @@ impl crate::ChainAccess for ChainAccess {
     ) -> Result<SourceBlock, ChainError> {
         let block_hash = self.block_height_to_hash(height).await?;
         let mut chunks = Vec::new();
-        for shard_id in shards.iter() {
+        for shard_id in shards.iter().copied() {
+            let block_id = BlockId::Height(height);
+            let chunk_ref = ChunkReference::BlockShardId { block_id, shard_id };
             let chunk = match self
                 .view_client
-                .send(GetChunk::Height(height, *shard_id).with_span_context())
+                .send(GetChunk(chunk_ref).with_span_context())
                 .await
                 .unwrap()
             {
@@ -140,7 +143,7 @@ impl crate::ChainAccess for ChainAccess {
             };
             if chunk.header.height_included == height {
                 chunks.push(SourceChunk {
-                    shard_id: *shard_id,
+                    shard_id,
                     transactions: chunk.transactions.into_iter().map(Into::into).collect(),
                     receipts: chunk.receipts.into_iter().map(|r| r.try_into().unwrap()).collect(),
                 })
