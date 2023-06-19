@@ -20,7 +20,7 @@ import time
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
-DEFAULT_TRANSACTION_TTL_MILLISECONDS = 1_800_000 # 30 minutes.
+DEFAULT_TRANSACTION_TTL_MILLISECONDS = 1_800_000  # 30 minutes.
 logger = new_logger(level=logging.WARN)
 
 
