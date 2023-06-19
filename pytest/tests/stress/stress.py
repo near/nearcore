@@ -485,7 +485,7 @@ def blocks_tracker(stopped, error, nodes, nonces):
                     assert False, "Block production took more than %s seconds" % block_timeout
 
                 if hash_ not in mapping:
-                    block_info = nodes[val_id].json_rpc('block', [hash_])
+                    block_info = nodes[val_id].json_rpc('block', [hash_], timeout = 5)
                     confirm_height = block_info['result']['header']['height']
                     assert height == confirm_height
                     prev_hash = block_info['result']['header']['prev_hash']
