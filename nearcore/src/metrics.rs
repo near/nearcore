@@ -118,7 +118,7 @@ pub(crate) static STATE_SYNC_DUMP_EPOCH_HEIGHT: Lazy<IntGaugeVec> = Lazy::new(||
     .unwrap()
 });
 
-pub(crate) static STATE_SYNC_APPLY_PART_DELAY: Lazy<near_o11y::metrics::HistogramVec> =
+pub(crate) static STATE_SYNC_APPLY_PART_DELAY: Lazy<HistogramVec> =
     Lazy::new(|| {
         try_create_histogram_vec(
             "near_state_sync_apply_part_delay_sec",
@@ -129,7 +129,7 @@ pub(crate) static STATE_SYNC_APPLY_PART_DELAY: Lazy<near_o11y::metrics::Histogra
         .unwrap()
     });
 
-pub(crate) static STATE_SYNC_OBTAIN_PART_DELAY: Lazy<near_o11y::metrics::HistogramVec> =
+pub(crate) static STATE_SYNC_OBTAIN_PART_DELAY: Lazy<HistogramVec> =
     Lazy::new(|| {
         try_create_histogram_vec(
             "near_state_sync_obtain_part_delay_sec",

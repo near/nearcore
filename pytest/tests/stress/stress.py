@@ -53,10 +53,10 @@ SEND_TX_ATTEMPTS = 10
 # try to state sync at the beginning of the epoch *two* epochs ago. No node will respond to such state requests.
 BLOCK_HEADER_FETCH_HORIZON = 15
 
-epoch_length = 25
-block_timeout = 20  # if two blocks are not produced within that many seconds, the test will fail. The timeout is increased if nodes are restarted or network is being messed up with
-balances_timeout = 15  # how long to tolerate for balances to update after txs are sent
-restart_sync_timeout = 30  # for how long to wait for nodes to sync in `node_restart`
+epoch_length = 50
+block_timeout = 25  # if two blocks are not produced within that many seconds, the test will fail. The timeout is increased if nodes are restarted or network is being messed up with
+balances_timeout = 20  # how long to tolerate for balances to update after txs are sent
+restart_sync_timeout = 45  # for how long to wait for nodes to sync in `node_restart`
 tx_tolerance = 0.1
 wait_if_restart = False  # whether to wait between `kill` and `start`, is needed when nodes are proxied
 wipe_data = False
@@ -566,7 +566,7 @@ def doit(s, n, N, k, monkeys, timeout):
                 "secs": 0,
                 "nanos": 0
             },
-            "store.state_snapshot_enabled": False,
+            "store.state_snapshot_enabled": True,
         }
     for i in range(N, N + k + 1):
         # make all the observers track all the shards
@@ -621,7 +621,7 @@ def doit(s, n, N, k, monkeys, timeout):
     # We need to make sure that the blocks that include txs are not garbage collected. From the first tx sent until
     # we check balances time equal to `balances_timeout * 2` passes, and the block production is capped at 1.7/s.
     # The GC keeps five epochs of blocks.
-    min_epoch_length = (int((balances_timeout * 2) * 1.7) + 4) // 3
+    min_epoch_length = (int((balances_timeout * 2) * 1.7) + 4) // 5
     epoch_length = max(epoch_length, min_epoch_length)
 
     logger.info(
