@@ -614,7 +614,7 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
         transaction.set(
             DBCol::DbVersion,
             crate::metadata::KIND_KEY.to_vec(),
-            <&str>::from(DbKind::Hot).as_bytes().to_vec(),
+            <&str>::from(DbKind::RPC).as_bytes().to_vec(),
         );
 
         for col in DBCol::iter() {
