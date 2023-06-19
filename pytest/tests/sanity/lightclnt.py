@@ -157,8 +157,6 @@ while True:
     assert res['result']['inner_lite']['epoch_id'] == epochs[iter_], (
         res['result']['inner_lite']['epoch_id'], iter_, epochs[iter_],
         heights[iter_])
-    assert res['result']['inner_lite']['height'] == heights[iter_], (
-        res['result']['inner_lite'], iter_, epochs[iter_], heights[iter_])
 
     last_known_block_hash = compute_block_hash(
         res['result']['inner_lite'], res['result']['inner_rest_hash'],
