@@ -49,6 +49,24 @@ impl TrieNodesCount {
         })
     }
 }
+
+/// The outgoing (egress) data which will be transformed
+/// to a `DataReceipt` to be sent to a `receipt.receiver`
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Hash,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub struct DataReceiver {
+    pub data_id: CryptoHash,
+    pub receiver_id: AccountId,
+}
 // ---------->8----------
 
 /// For bugs in the runtime itself, crash and die is the usual response.
