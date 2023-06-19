@@ -746,6 +746,7 @@ pub(crate) fn print_receipt_costs(
         Some(height) => height,
         None => chain_store.tail().unwrap(),
     };
+    println!("iterating {start_height}..={end_height}");
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let num_shards = epoch_manager.num_shards(&head.epoch_id).unwrap();
     let runtime = NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager);
@@ -758,7 +759,7 @@ pub(crate) fn print_receipt_costs(
         let block_hash = match chain_store.get_block_hash_by_height(height) {
             Ok(block_hash) => block_hash,
             Err(_) => {
-                return;
+                continue;
             }
         };
         // let block = chain_store.get_block(&block_hash).unwrap();
