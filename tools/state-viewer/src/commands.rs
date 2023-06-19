@@ -18,9 +18,10 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader, ChunksCollection};
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::ChunkHash;
+use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardProof};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::ExecutionMetadata;
 use near_primitives::trie_key::TrieKey;
@@ -674,48 +675,50 @@ pub(crate) fn replay_chain(
 }
 
 fn print_receipt_costs_for_chunk(
-    chunks_collection: &ChunksCollection,
-    shard_id: ShardId,
+    receipt_proofs: &[ReceiptProof],
     chain_store: &ChainStore,
     ext_costs: &ExtCostsConfig,
 ) {
-    let chunk_header = chunks_collection.get(shard_id as usize);
-    let chunk_hash = match chunk_header {
-        None => {
-            return;
-        }
-        Some(chunk_header) => chunk_header.chunk_hash(),
-    };
-    let chunk = chain_store.get_chunk(&chunk_hash).unwrap();
-    for receipt in chunk.receipts() {
-        let receipt_id = receipt.receipt_id;
-        let outcomes = chain_store.get_outcomes_by_id(&receipt_id).unwrap();
+    // let chunk_header = chunks_collection.get(shard_id as usize);
+    // let chunk_hash = match chunk_header {
+    //     None => {
+    //         return;
+    //     }
+    //     Some(chunk_header) => chunk_header.chunk_hash(),
+    // };
+    // let chunk = chain_store.get_chunk(&chunk_hash).unwrap();
+    for receipt_proof in receipt_proofs {
+        let receipts = &receipt_proof.0;
+        for receipt in receipts {
+            let receipt_id = receipt.receipt_id;
+            let outcomes = chain_store.get_outcomes_by_id(&receipt_id).unwrap();
 
-        for outcome_with_id in outcomes {
-            let receipt_id = outcome_with_id.outcome_with_id.id;
-            let outcome = outcome_with_id.outcome_with_id.outcome;
-            let old_burnt_gas = outcome.gas_burnt;
-            let profile = match outcome.metadata {
-                ExecutionMetadata::V3(profile) => profile,
-                _ => {
-                    panic!("bad profile");
-                }
-            };
-            let mut new_burnt_gas = old_burnt_gas;
-            new_burnt_gas -= profile.get_ext_cost(ExtCosts::touching_trie_node);
-            new_burnt_gas -= profile.get_ext_cost(ExtCosts::read_cached_trie_node);
-            let write_bytes = profile.get_ext_cost(ExtCosts::storage_write_key_byte)
-                / ext_costs.gas_cost(ExtCosts::storage_write_key_byte);
-            new_burnt_gas += write_bytes * 74_000_000_000;
-            println!(
-                "GAS BYTE_FACTOR = {} {} {} {} {} {}",
-                new_burnt_gas / old_burnt_gas,
-                (old_burnt_gas as f64) / (10u64.pow(9) as f64),
-                (new_burnt_gas as f64) / (10u64.pow(9) as f64),
-                profile.total_compute_usage(ext_costs),
-                receipt_id,
-                write_bytes,
-            );
+            for outcome_with_id in outcomes {
+                let receipt_id = outcome_with_id.outcome_with_id.id;
+                let outcome = outcome_with_id.outcome_with_id.outcome;
+                let old_burnt_gas = outcome.gas_burnt;
+                let profile = match outcome.metadata {
+                    ExecutionMetadata::V3(profile) => profile,
+                    _ => {
+                        panic!("bad profile");
+                    }
+                };
+                let mut new_burnt_gas = old_burnt_gas;
+                new_burnt_gas -= profile.get_ext_cost(ExtCosts::touching_trie_node);
+                new_burnt_gas -= profile.get_ext_cost(ExtCosts::read_cached_trie_node);
+                let write_bytes = profile.get_ext_cost(ExtCosts::storage_write_key_byte)
+                    / ext_costs.gas_cost(ExtCosts::storage_write_key_byte);
+                new_burnt_gas += write_bytes * 74_000_000_000;
+                println!(
+                    "GAS BYTE_FACTOR = {} {} {} {} {} {}",
+                    new_burnt_gas / old_burnt_gas,
+                    (old_burnt_gas as f64) / (10u64.pow(9) as f64),
+                    (new_burnt_gas as f64) / (10u64.pow(9) as f64),
+                    profile.total_compute_usage(ext_costs),
+                    receipt_id,
+                    write_bytes,
+                );
+            }
         }
     }
 }
@@ -759,12 +762,32 @@ pub(crate) fn print_receipt_costs(
         };
         let block = chain_store.get_block(&block_hash).unwrap();
         let chunks_collection = block.chunks();
+
+        let mut receipt_proofs_by_shard_id = HashMap::new();
+        for shard_id in 0..num_shards {
+            receipt_proofs_by_shard_id.entry(shard_id).or_insert_with(Vec::new);
+        }
+
+        for chunk_header in block.chunks().iter() {
+            if chunk_header.height_included() == height {
+                let partial_encoded_chunk =
+                    chain_store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
+                for receipt in partial_encoded_chunk.receipts().iter() {
+                    let ReceiptProof(_, shard_proof) = receipt;
+                    let ShardProof { from_shard_id: _, to_shard_id, proof: _ } = shard_proof;
+                    receipt_proofs_by_shard_id
+                        .entry(*to_shard_id)
+                        .or_insert_with(Vec::new)
+                        .push(receipt.clone());
+                }
+            }
+        }
+
         match shard_id {
             None => {
                 for shard_id in 0..num_shards {
                     print_receipt_costs_for_chunk(
-                        &chunks_collection,
-                        shard_id,
+                        receipt_proofs_by_shard_id.get(&shard_id).unwrap(),
                         &chain_store,
                         &ext_costs,
                     );
@@ -772,8 +795,7 @@ pub(crate) fn print_receipt_costs(
             }
             Some(shard_id) => {
                 print_receipt_costs_for_chunk(
-                    &chunks_collection,
-                    shard_id,
+                    receipt_proofs_by_shard_id.get(&shard_id).unwrap(),
                     &chain_store,
                     &ext_costs,
                 );
