@@ -84,10 +84,6 @@ impl ShardTries {
             .collect()
     }
 
-    pub(crate) fn is_same(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
-    }
-
     pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: StateRoot) -> TrieUpdate {
         TrieUpdate::new(self.get_trie_for_shard(shard_uid, state_root))
     }
