@@ -148,18 +148,13 @@ while True:
         assert res['result'] == {}
         break
 
-    assert res['result']['inner_lite']['epoch_id'] == epochs[iter_]
-    logger.info(f"{iter_} {heights[iter_]}")
-    assert res['result']['inner_lite']['height'] == heights[iter_], (
-        res['result']['inner_lite'], first_epoch_switch_height)
+    assert res['result']['inner_lite']['epoch_id'] == epochs[iter_], (res['result']['inner_lite']['epoch_id'], iter_, epochs[iter_], heights[iter_])
+    assert res['result']['inner_lite']['height'] == heights[iter_], (res['result']['inner_lite'], iter_, epochs[iter_], heights[iter_])
 
     last_known_block_hash = compute_block_hash(
         res['result']['inner_lite'], res['result']['inner_rest_hash'],
         res['result']['prev_block_hash']).decode('ascii')
-    assert last_known_block_hash == height_to_hash[
-        res['result']['inner_lite']['height']], "%s != %s" % (
-            last_known_block_hash,
-            height_to_hash[res['result']['inner_lite']['height']])
+    assert last_known_block_hash == height_to_hash[res['result']['inner_lite']['height']], (last_known_block_hash, height_to_hash[res['result']['inner_lite']['height']])
 
     if last_known_block is None:
         block_producers_map[res['result']['inner_lite']
@@ -171,9 +166,7 @@ while True:
 if 19 + first_epoch_switch_height in height_to_hash:
     res = get_light_client_block(height_to_hash[19 + first_epoch_switch_height],
                                  last_known_block)
-    logger.info(f"Check0 Light client block from {19 + first_epoch_switch_height} has result: {res['result']}")
-    assert res['result']['inner_lite'][
-        'height'] == 20 + first_epoch_switch_height
+    assert res['result']['inner_lite']['height'] == 20 + first_epoch_switch_height, ("Check0", 19 + first_epoch_switch_height, 20 + first_epoch_switch_height, res['result'])
 else:
     logger.warning(f"Block height {19 + first_epoch_switch_height} was skipped")
 
@@ -190,24 +183,17 @@ for i in range(2):
     if 19 + first_epoch_switch_height in height_to_hash:
         res = get_light_client_block(
             height_to_hash[19 + first_epoch_switch_height], last_known_block)
-        logger.info(f"Check1 Light client block from {19 + first_epoch_switch_height} has result: {res['result']}")
-        assert res['result']['inner_lite'][
-            'height'] == 21 + first_epoch_switch_height, (
-                res['result']['inner_lite']['height'],
-                21 + first_epoch_switch_height)
+        assert res['result']['inner_lite']['height'] == 21 + first_epoch_switch_height, ("Check1", 19 + first_epoch_switch_height, 20 + first_epoch_switch_height, res['result'])
 
     if 20 + first_epoch_switch_height in height_to_hash:
         res = get_light_client_block(
             height_to_hash[20 + first_epoch_switch_height], last_known_block)
-        logger.info(f"Check2 Light client block from {20 + first_epoch_switch_height} has result: {res['result']}")
-        assert res['result']['inner_lite'][
-            'height'] == 21 + first_epoch_switch_height
+        assert res['result']['inner_lite']['height'] == 21 + first_epoch_switch_height, ("Check2", 20 + first_epoch_switch_height, 21 + first_epoch_switch_height, res['result'])
 
     if 21 + first_epoch_switch_height in height_to_hash:
         res = get_light_client_block(
             height_to_hash[21 + first_epoch_switch_height], last_known_block)
-        logger.info(f"Check3 Light client block from {21 + first_epoch_switch_height} has result: {res['result']}")
-        assert res['result'] == {}
+        assert res['result'] == {}, ("Check3", 21 + first_epoch_switch_height, res['result'])
 
     get_up_to(i + 25 + first_epoch_switch_height,
               i + 25 + first_epoch_switch_height)
@@ -215,6 +201,4 @@ for i in range(2):
 if 21 + first_epoch_switch_height in height_to_hash:
     res = get_light_client_block(height_to_hash[21 + first_epoch_switch_height],
                                  last_known_block)
-    logger.info(f"Check4 Light client block from {21 + first_epoch_switch_height} has result: {res['result']}")
-    assert res['result']['inner_lite'][
-        'height'] == 24 + first_epoch_switch_height
+    assert res['result']['inner_lite']['height'] == 24 + first_epoch_switch_height, ("Check4", 21 + first_epoch_switch_height, 24 + first_epoch_switch_height, res['result'])
