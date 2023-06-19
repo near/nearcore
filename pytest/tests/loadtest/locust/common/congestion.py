@@ -87,7 +87,7 @@ def on_locust_init(environment, **kwargs):
 
     node = base.NearNodeProxy(environment)
     funding_account = base.NearUser.funding_account
-    funding_account.refresh_nonce(node)
+    funding_account.refresh_nonce(node.node)
 
     account = base.Account(
         key.Key.from_seed_testonly(environment.congestion_account_id,

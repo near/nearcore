@@ -300,7 +300,7 @@ def on_locust_init(environment, **kwargs):
                              social_account.key,
                              balance=50000.0),
             "create socialDB funding account")
-        social_account.refresh_nonce(node)
+        social_account.refresh_nonce(node.node)
         node.send_tx_retry(
             Deploy(social_account, social_contract_code, "Social DB"),
             "deploy socialDB contract")

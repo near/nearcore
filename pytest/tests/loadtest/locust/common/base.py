@@ -167,6 +167,9 @@ class NearNodeProxy:
                 result = self.send_tx(tx, locust_name)
                 return result
             except InvalidNonceError as error:
+                logger.debug(
+                    f"{error} for {tx.sender_account().key.account_id}, updating nonce and retrying"
+                )
                 tx.sender_account().fast_forward_nonce(error.ak_nonce)
             except NearError as error:
                 logger.warn(
@@ -417,7 +420,6 @@ def on_locust_init(environment, **kwargs):
         for id in range(num_funding_accounts):
             account_id = f"funds_worker_{id}.{master_funding_account.key.account_id}"
             worker_key = key.Key.from_seed_testonly(account_id, account_id)
-            logger.info(f"Creating {account_id}")
             node.send_tx_retry(
                 CreateSubAccount(master_funding_account,
                                  worker_key,
