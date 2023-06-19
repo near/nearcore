@@ -1,21 +1,34 @@
 # Analyse storage
 
-This script serve as a way to analyse RocksDB SST files data, to get a better
-sense of data key and value size distribution.
+The analyse-storage script provides an efficient way to assess the size distribution
+of keys and values within RocksDB.
 
 ## Usage
-Example of running script:
+
+To run the script, use the following example:
 ```bash
 cargo run --bin analyse-storage <db_path> --column col5 --limit 50
 ```
-where first argument is the path to RocksDB directory, second which column
-to inspect and limit how much counts to show.
+The arguments are as follows:
 
-## Tips
-Since the script is written to start reading as much column families as possible one
-might need to adjust `max_open_files` on you OS. E.g. for Ubuntu 18.04 you can get
-the value by writing `ulimit -Hn`. Adjust it by modifying the file 
-`/etc/security/limits.conf` and adding this entry (adjust parameters accordingly):
+ - `<db_path>`: The path to the RocksDB directory.
+ - `--column`: The specific column to inspect.
+ - `--limit`: The maximum number of counts to display.
+
+The resulting output will show the following:
+
+ - Total number of key-value pairs per column family
+ - Sizes of each column family
+ - Key and value size distribution
+
+
+## Tips for Handling Large Column Families
+As this script is designed to read as many column families as possible at the start,
+you may need to adjust the max_open_files limit on your operating system.
+
+For Ubuntu 18.04, you can check the current limit by using the command `ulimit -Hn`.
+To adjust this limit, modify the `/etc/security/limits.conf` file and add the following
+entry (adjust parameters to suit your needs):
 ```
 * soft nofile 100000
 * hard nofile 100000
