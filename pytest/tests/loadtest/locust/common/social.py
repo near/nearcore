@@ -280,7 +280,7 @@ def on_locust_init(environment, **kwargs):
     # `master_funding_account` is the same on all runners, allowing to share a
     # single instance of SocialDB in its `social` sub account
     funding_account = environment.master_funding_account
-    environment.social_account_id = f"social{environment.parsed_options.social_db_index}.{funding_account.key.account_id}"
+    environment.social_account_id = f"social{environment.parsed_options.run_id}.{funding_account.key.account_id}"
 
     # Create SocialDB account, unless we are a worker, in which case the master already did it
     if not isinstance(environment.runner, runners.WorkerRunner):
@@ -316,10 +316,4 @@ def _(parser):
         default="res/social_db.wasm",
         help=
         "Path to the compiled SocialDB contract, get it from https://github.com/NearSocial/social-db/tree/aa7fafaac92a7dd267993d6c210246420a561370/res"
-    )
-    parser.add_argument(
-        "--social-db-index",
-        default="",
-        help="Unique index to append to the social db account. "
-        "Change between runs if you need a new state. Keep at default if you want to reuse the old state"
     )

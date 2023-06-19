@@ -454,3 +454,9 @@ def _(parser):
         required=False,
         default=16,
         help="How many funding accounts to generate for workers")
+    parser.add_argument(
+        "--run-id",
+        default="",
+        help="Unique index to append to static account ids. "
+        "Change between runs if you need a new state. Keep at default if you want to reuse the old state"
+    )
