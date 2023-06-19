@@ -81,12 +81,16 @@ def wait_until_available(get_fn, timeout_fn):
 def get_light_client_block(hash_, last_known_block):
     global block_producers_map
 
+    logger.info(f"get_light_client_block {hash_} last_known_block:{last_known_block}")
+
     ret = nodes[0].json_rpc('next_light_client_block', [hash_])
     if ret['result'] != {} and last_known_block is not None:
         validate_light_client_block(last_known_block,
                                     ret['result'],
                                     block_producers_map,
                                     panic=True)
+    if ret['result'] != {}:
+        print(f"epoch_id: ret['result']['inner_lite']['epoch_id'], height: ret['result']['inner_lite']['height']")
     return ret
 
 
