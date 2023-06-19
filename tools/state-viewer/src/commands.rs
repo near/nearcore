@@ -20,7 +20,7 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardProof};
+use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::ExecutionMetadata;
 use near_primitives::trie_key::TrieKey;
@@ -732,7 +732,7 @@ pub(crate) fn print_receipt_costs(
     near_config: NearConfig,
     store: Store,
 ) {
-    let mut chain_store = ChainStore::new(
+    let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
