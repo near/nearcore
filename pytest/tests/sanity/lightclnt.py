@@ -35,9 +35,7 @@ if not config['local']:
     }
     TIMEOUT = 600
 
-client_config_changes['state_sync_enabled'] = True
 client_config_changes['archive'] = True
-client_config_changes['store.state_snapshot_enabled'] = True
 client_config_changes['tracked_shards'] = [0]  # Track all shards
 
 no_state_snapshots_config = client_config_changes
@@ -70,21 +68,8 @@ last_epoch = None
 block_producers_map = {}
 
 
-def wait_until_available(get_fn, timeout_fn):
-    while True:
-        if timeout_fn():
-            return None
-        res = get_fn()
-        logger.info(f"res: {res}")
-        if 'result' in res:
-            return res
-        time.sleep(0.1)
-
-
 def get_light_client_block(hash_, last_known_block):
     global block_producers_map
-
-    logger.info(f"get_light_client_block {hash_} last_known_block:{last_known_block}")
 
     ret = nodes[0].json_rpc('next_light_client_block', [hash_])
     if ret['result'] != {} and last_known_block is not None:
@@ -92,19 +77,16 @@ def get_light_client_block(hash_, last_known_block):
                                     ret['result'],
                                     block_producers_map,
                                     panic=True)
-    if ret['result'] != {}:
-        print(f"epoch_id: ret['result']['inner_lite']['epoch_id'], height: ret['result']['inner_lite']['height']")
     return ret
 
 
 def get_up_to(from_, to):
     global first_epoch_switch_height, last_epoch
 
-    for height in range(from_, to + 1):
-        block = wait_until_available(
-            lambda: nodes[0].get_block_by_height(height, timeout=5), lambda: False)
-        assert block is not None
-        hash_ = block['result']['header']['hash']
+    for height, hash_ in utils.poll_blocks(nodes[0],
+                                           timeout=TIMEOUT,
+                                           poll_interval=0.01):
+        block = nodes[0].get_block(hash_)
 
         hash_to_height[hash_] = height
         height_to_hash[height] = hash_
@@ -117,22 +99,18 @@ def get_up_to(from_, to):
         if (first_epoch_switch_height is None and last_epoch is not None and
                 last_epoch != cur_epoch):
             first_epoch_switch_height = height
-            logger.info(
-                f"Recorded first_epoch_switch_height = {first_epoch_switch_height}"
-            )
         last_epoch = cur_epoch
 
-    for i in range(from_, to + 1):
-        if i not in height_to_hash:
-            logger.info(f"Skipped height {i}")
-        else:
-            hash_ = height_to_hash[i]
-            logger.info(
-                f"{i} {hash_} {hash_to_epoch[hash_]} {hash_to_next_epoch[hash_]}"
-            )
+        if height >= to:
+            break
 
-            if len(epochs) == 0 or epochs[-1] != hash_to_epoch[hash_]:
-                epochs.append(hash_to_epoch[hash_])
+    for i in range(from_, to + 1):
+        hash_ = height_to_hash[i]
+        logger.info(
+            f"{i} {hash_} {hash_to_epoch[hash_]} {hash_to_next_epoch[hash_]}")
+
+        if len(epochs) == 0 or epochs[-1] != hash_to_epoch[hash_]:
+            epochs.append(hash_to_epoch[hash_])
 
 
 # don't start from 1, since couple heights get produced while the nodes spin up
@@ -161,15 +139,16 @@ while True:
         assert res['result'] == {}
         break
 
-    assert res['result']['inner_lite']['epoch_id'] == epochs[iter_], (
-        res['result']['inner_lite']['epoch_id'], iter_, epochs[iter_],
-        heights[iter_])
+    assert res['result']['inner_lite']['epoch_id'] == epochs[iter_]
+    logger.info(f"{iter_} {heights[iter_]}")
+    assert res['result']['inner_lite']['height'] == heights[iter_], (
+        res['result']['inner_lite'], first_epoch_switch_height)
 
     last_known_block_hash = compute_block_hash(
         res['result']['inner_lite'], res['result']['inner_rest_hash'],
         res['result']['prev_block_hash']).decode('ascii')
     assert last_known_block_hash == height_to_hash[
-        res['result']['inner_lite']['height']], (
+        res['result']['inner_lite']['height']], "%s != %s" % (
             last_known_block_hash,
             height_to_hash[res['result']['inner_lite']['height']])
 
@@ -195,16 +174,25 @@ get_up_to(23 + first_epoch_switch_height, 24 + first_epoch_switch_height)
 # we still expect 21 + C to be returned. We then move again to 26 + C, and (in the section after the loop)
 # check that the light client block now corresponds to 24 + C, which is in the same epoch as 26 + C.
 for i in range(2):
-    res = get_light_client_block(height_to_hash[19 + first_epoch_switch_height], last_known_block)
-    assert res['result']['inner_lite']['epoch_id'] == hash_to_epoch[height_to_hash[21 + first_epoch_switch_height]], (res['result']['inner_lite']['height'], res['result']['inner_lite']['epoch_id'], height_to_hash[21 + first_epoch_switch_height], hash_to_epoch[height_to_hash[21 + first_epoch_switch_height]], height_to_hash, hash_to_epoch)
+    res = get_light_client_block(height_to_hash[19 + first_epoch_switch_height],
+                                 last_known_block)
+    assert res['result']['inner_lite'][
+        'height'] == 21 + first_epoch_switch_height, (
+            res['result']['inner_lite']['height'],
+            21 + first_epoch_switch_height)
 
-    res = get_light_client_block(height_to_hash[20 + first_epoch_switch_height], last_known_block)
-    assert res['result']['inner_lite']['epoch_id'] == hash_to_epoch[height_to_hash[21 + first_epoch_switch_height]], (res['result']['inner_lite']['height'], res['result']['inner_lite']['epoch_id'], height_to_hash[21 + first_epoch_switch_height], hash_to_epoch[height_to_hash[21 + first_epoch_switch_height]])
+    res = get_light_client_block(height_to_hash[20 + first_epoch_switch_height],
+                                 last_known_block)
+    assert res['result']['inner_lite'][
+        'height'] == 21 + first_epoch_switch_height
 
-    res = get_light_client_block(height_to_hash[21 + first_epoch_switch_height], last_known_block)
+    res = get_light_client_block(height_to_hash[21 + first_epoch_switch_height],
+                                 last_known_block)
     assert res['result'] == {}
 
-    get_up_to(i + 25 + first_epoch_switch_height, i + 25 + first_epoch_switch_height)
+    get_up_to(i + 25 + first_epoch_switch_height,
+              i + 25 + first_epoch_switch_height)
 
-res = get_light_client_block(height_to_hash[21 + first_epoch_switch_height], last_known_block)
-assert res['result']['inner_lite']['epoch_id'] == hash_to_epoch[height_to_hash[24 + first_epoch_switch_height]], (res['result']['inner_lite']['height'], res['result']['inner_lite']['epoch_id'], height_to_hash[21 + first_epoch_switch_height], hash_to_epoch[height_to_hash[21 + first_epoch_switch_height]])
+res = get_light_client_block(height_to_hash[21 + first_epoch_switch_height],
+                             last_known_block)
+assert res['result']['inner_lite']['height'] == 24 + first_epoch_switch_height
