@@ -274,12 +274,12 @@ class BaseNode(object):
             args = {'epoch_id': epoch_id}
         return self.json_rpc('validators', args)
 
-    def get_account(self, acc, finality='optimistic', do_assert=True):
+    def get_account(self, acc, finality='optimistic', do_assert=True, **kwargs):
         res = self.json_rpc('query', {
             "request_type": "view_account",
             "account_id": acc,
             "finality": finality
-        })
+        }, **kwargs)
         if do_assert:
             assert 'error' not in res, res
 

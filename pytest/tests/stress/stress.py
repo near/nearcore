@@ -238,7 +238,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
 
     def get_balances():
         acts = [
-            nodes[-1].get_account("test%s" % i)['result']
+            nodes[-1].get_account("test%s" % i, timeout = 10)['result']
             for i in range(len(nodes))
         ]
         return [int(x['amount']) + int(x['locked']) for x in acts]
