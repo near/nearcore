@@ -23,5 +23,8 @@ near-fmt.workspace = true
 near-primitives-core.workspace = true
 near-rpc-error-macro.workspace = true
 
+[dev-dependencies]
+hex.workspace = true
+
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]

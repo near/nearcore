@@ -290,7 +290,7 @@ pub struct ExecutionOutcomeWithProof {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::account::{AccessKeyPermission, FunctionCallPermission};
+    use crate::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
     use borsh::BorshDeserialize;
     use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 

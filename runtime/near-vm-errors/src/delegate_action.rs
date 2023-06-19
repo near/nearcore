@@ -133,7 +133,7 @@ mod private_non_delegate_action {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transaction::CreateAccountAction;
+    use crate::action::CreateAccountAction;
     use near_crypto::KeyType;
 
     /// A serialized `Action::Delegate(SignedDelegateAction)` for testing.
