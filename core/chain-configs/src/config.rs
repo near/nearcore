@@ -6,13 +6,13 @@ use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use crate::genesis_config::GenesisConfigLoader;
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
 pub struct ChainConfig {
     /// Protocol treasury rate
     pub protocol_reward_rate: Rational32,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
 pub struct ChainConfigLoader {
     /// Protocol treasury rate
     pub protocol_reward_rate: Option<Rational32>,
