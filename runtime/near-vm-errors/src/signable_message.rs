@@ -1,7 +1,7 @@
-use crate::hash::hash;
-use crate::types::AccountId;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{Signature, Signer};
+use near_primitives_core::hash::hash;
+use near_primitives_core::types::AccountId;
 
 // These numbers are picked to be compatible with the current protocol and how
 // transactions are defined in it. Introducing this is no protocol change. This
@@ -220,11 +220,17 @@ impl From<SignableMessageType> for MessageDiscriminant {
 
 #[cfg(test)]
 mod tests {
-    use near_crypto::PublicKey;
+    use near_crypto::{InMemorySigner, KeyType, PublicKey};
 
     use super::*;
     use crate::delegate_action::{DelegateAction, SignedDelegateAction};
-    use crate::test_utils::create_user_test_signer;
+
+    // Note: this is currently a simplified copy of near-primitives::test_utils::create_user_test_signer
+    // TODO: consider whether it’s worth re-unifying them? it’s test-only code anyway.
+    fn create_user_test_signer(account_name: &str) -> InMemorySigner {
+        let account_id = account_name.parse().unwrap();
+        InMemorySigner::from_seed(account_id, KeyType::ED25519, account_name)
+    }
 
     // happy path for NEP-366 signature
     #[test]
