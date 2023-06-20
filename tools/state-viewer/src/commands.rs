@@ -680,14 +680,6 @@ fn print_receipt_costs_for_chunk(
     ext_costs: &ExtCostsConfig,
 ) {
     let receipt_proofs = chain_store.get_incoming_receipts(block_hash, shard_id).unwrap();
-    // let chunk_header = chunks_collection.get(shard_id as usize);
-    // let chunk_hash = match chunk_header {
-    //     None => {
-    //         return;
-    //     }
-    //     Some(chunk_header) => chunk_header.chunk_hash(),
-    // };
-    // let chunk = chain_store.get_chunk(&chunk_hash).unwrap();
     for receipt_proof in receipt_proofs.iter() {
         let receipts = &receipt_proof.0;
         for receipt in receipts {
@@ -749,11 +741,9 @@ pub(crate) fn print_receipt_costs(
     println!("iterating {start_height}..={end_height}");
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let num_shards = epoch_manager.num_shards(&head.epoch_id).unwrap();
-    let runtime = NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager);
-    // assume same protocol version...
-    let protocol_config = runtime.get_protocol_config(&head.epoch_id).unwrap();
-    let runtime_config = protocol_config.runtime_config;
-    let ext_costs = runtime_config.wasm_config.ext_costs;
+    let runtime =
+        NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone());
+
     for height in (start_height..=end_height).rev() {
         println!("{}", height);
         let block_hash = match chain_store.get_block_hash_by_height(height) {
@@ -762,35 +752,10 @@ pub(crate) fn print_receipt_costs(
                 continue;
             }
         };
-        // let block = chain_store.get_block(&block_hash).unwrap();
-
-        // let mut receipt_proofs_by_shard_id = HashMap::new();
-        // for shard_id in 0..num_shards {
-        //     receipt_proofs_by_shard_id.entry(shard_id).or_insert_with(Vec::new);
-        // }
-        //
-        // for chunk_header in block.chunks().iter() {
-        //     if chunk_header.height_included() == height {
-        //         let partial_encoded_chunk =
-        //             chain_store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
-        //         for receipt in partial_encoded_chunk.receipts().iter() {
-        //             let ReceiptProof(_, shard_proof) = receipt;
-        //             let ShardProof { from_shard_id: _, to_shard_id, proof: _ } = shard_proof;
-        //             receipt_proofs_by_shard_id
-        //                 .entry(*to_shard_id)
-        //                 .or_insert_with(Vec::new)
-        //                 .push(receipt.clone());
-        //         }
-        //     }
-        // }
-        // let chain_store_update = ChainStoreUpdate::new(&mut chain_store);
-        // let receipt_proof_response = chain_store_update
-        //     .get_incoming_receipts_for_shard(
-        //         shard_id,
-        //         block_hash,
-        //         prev_block.chunks()[shard_id as usize].height_included(),
-        //     )
-        //     .unwrap();
+        let epoch_id = epoch_manager.get_epoch_id(&block_hash).unwrap();
+        let protocol_config = runtime.get_protocol_config(&epoch_id).unwrap();
+        let runtime_config = protocol_config.runtime_config;
+        let ext_costs = runtime_config.wasm_config.ext_costs;
 
         match shard_id {
             None => {
