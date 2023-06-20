@@ -227,7 +227,7 @@ mod tests {
 
     // Note: this is currently a simplified copy of near-primitives::test_utils::create_user_test_signer
     // TODO: consider whether it’s worth re-unifying them? it’s test-only code anyway.
-    pub fn create_user_test_signer(account_name: &str) -> InMemorySigner {
+    fn create_user_test_signer(account_name: &str) -> InMemorySigner {
         let account_id = account_name.parse().unwrap();
         InMemorySigner::from_seed(account_id, KeyType::ED25519, account_name)
     }
