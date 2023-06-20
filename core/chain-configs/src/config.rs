@@ -4,16 +4,15 @@ use serde_json::{Serializer, Value};
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
-use smart_default::SmartDefault;
 use crate::genesis_config::GenesisConfigLoader;
 
-#[derive(Clone, SmartDefault, serde::Serialize, serde::Deserialize, Debug)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
 pub struct ChainConfig {
     /// Protocol treasury rate
     pub protocol_reward_rate: Rational32,
 }
 
-#[derive(Clone, SmartDefault, serde::Serialize, serde::Deserialize, Debug)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
 pub struct ChainConfigLoader {
     /// Protocol treasury rate
     pub protocol_reward_rate: Option<Rational32>,
