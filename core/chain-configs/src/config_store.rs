@@ -6,7 +6,7 @@ use crate::config::ChainConfigLoader;
 use crate::genesis_config::GenesisConfigLoader;
 
 /// Stores chain config for each epoch where it was updated.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ChainConfigStore {
     /// Mirko: dodaj tu komentar
     initial_chain_config: Arc<ChainConfig>,
@@ -17,6 +17,13 @@ pub struct ChainConfigStore {
 impl ChainConfigStore {
     pub fn new(genesis_config_loader: GenesisConfigLoader) -> Self {
         let initial_chain_config = Arc::new(ChainConfig::new(genesis_config_loader));
+        let mut store = BTreeMap::new();
+        // Mirko: tu dodaj čitanja iz fileova
+        Self { initial_chain_config, store }
+    }
+
+    pub fn from_chain_config(chain_config: ChainConfig) -> Self {
+        let initial_chain_config = Arc::new(chain_config);
         let mut store = BTreeMap::new();
         // Mirko: tu dodaj čitanja iz fileova
         Self { initial_chain_config, store }

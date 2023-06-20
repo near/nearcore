@@ -1120,11 +1120,15 @@ pub fn init_configs(
                 ShardLayout::v0_single_shard()
             };
 
+            let chain_config = ChainConfig::from_values(PROTOCOL_REWARD_RATE);
+            let chain_config_store = ChainConfigStore::from_chain_config(chain_config);
+
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
                 genesis_time: StaticClock::utc(),
                 chain_id,
                 genesis_height: 0,
+                chain_config_store: chain_config_store,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,
                 num_block_producer_seats_per_shard: get_num_seats_per_shard(
                     num_shards,
@@ -1146,7 +1150,6 @@ pub fn init_configs(
                     amount: TESTING_INIT_STAKE,
                 }],
                 transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
-                protocol_reward_rate: PROTOCOL_REWARD_RATE,
                 max_inflation_rate: MAX_INFLATION_RATE,
                 total_supply: get_initial_supply(&records),
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,

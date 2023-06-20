@@ -5,10 +5,12 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use crate::genesis_config::GenesisConfigLoader;
+use smart_default::SmartDefault;
 
-#[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
+#[derive(Clone, SmartDefault, serde::Serialize, serde::Deserialize, Debug)]
 pub struct ChainConfig {
     /// Protocol treasury rate
+    #[default(Rational32::from_integer(0))]
     pub protocol_reward_rate: Rational32,
 }
 
@@ -21,6 +23,10 @@ pub struct ChainConfigLoader {
 impl ChainConfig {
     pub fn new(genesis_config_loader: GenesisConfigLoader) -> Self {
         Self { protocol_reward_rate: genesis_config_loader.protocol_reward_rate }
+    }
+
+    pub fn from_values(protocol_reward_rate: Rational32) -> Self {
+        Self{ protocol_reward_rate }
     }
 
     fn merge_jsons(base: Value, patch: Value) -> Value {
