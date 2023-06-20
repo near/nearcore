@@ -13,7 +13,7 @@ use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_pool::types::PoolIterator;
-use near_primitives::challenge::{ChallengesResult, SlashedValidator};
+use near_primitives::challenge::ChallengesResult;
 use near_primitives::checked_feature;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -32,7 +32,7 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
-use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
+use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 
 pub use near_epoch_manager::EpochManagerAdapter;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
@@ -115,43 +115,6 @@ impl ApplyTransactionResult {
             result.push(outcome_with_id.to_hashes());
         }
         merklize(&result)
-    }
-}
-
-/// Compressed information about block.
-/// Useful for epoch manager.
-#[derive(Default, Clone, Debug)]
-pub struct BlockHeaderInfo {
-    pub hash: CryptoHash,
-    pub prev_hash: CryptoHash,
-    pub height: BlockHeight,
-    pub random_value: CryptoHash,
-    pub last_finalized_height: BlockHeight,
-    pub last_finalized_block_hash: CryptoHash,
-    pub proposals: Vec<ValidatorStake>,
-    pub slashed_validators: Vec<SlashedValidator>,
-    pub chunk_mask: Vec<bool>,
-    pub total_supply: Balance,
-    pub latest_protocol_version: ProtocolVersion,
-    pub timestamp_nanosec: u64,
-}
-
-impl BlockHeaderInfo {
-    pub fn new(header: &BlockHeader, last_finalized_height: u64) -> Self {
-        Self {
-            hash: *header.hash(),
-            prev_hash: *header.prev_hash(),
-            height: header.height(),
-            random_value: *header.random_value(),
-            last_finalized_height,
-            last_finalized_block_hash: *header.last_final_block(),
-            proposals: header.validator_proposals().collect(),
-            slashed_validators: vec![],
-            chunk_mask: header.chunk_mask().to_vec(),
-            total_supply: header.total_supply(),
-            latest_protocol_version: header.latest_protocol_version(),
-            timestamp_nanosec: header.raw_timestamp(),
-        }
     }
 }
 
@@ -349,12 +312,6 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Get the block height for which garbage collection should not go over
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight;
-
-    /// Add proposals for validators.
-    fn add_validator_proposals(
-        &self,
-        block_header_info: BlockHeaderInfo,
-    ) -> Result<StoreUpdate, Error>;
 
     /// Apply transactions to given state root and return store update and new state root.
     /// Also returns transaction result for each transaction and new receipts.

@@ -4,9 +4,7 @@ use crate::NearConfig;
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
-use near_chain::types::{
-    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, RuntimeAdapter, Tip,
-};
+use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter, Tip};
 use near_chain::Error;
 use near_chain_configs::{
     Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
@@ -21,7 +19,6 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::config::ExtCosts;
 use near_primitives::contract::ContractCode;
-use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -51,7 +48,7 @@ use near_store::split_state::get_delayed_receipts;
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
     ApplyStatePartResult, DBCol, PartialStorage, ShardTries, StateSnapshotConfig, Store,
-    StoreCompiledContractCache, StoreUpdate, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
+    StoreCompiledContractCache, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_errors::CompiledContractCache;
 use near_vm_runner::precompile_contract;
@@ -856,39 +853,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn add_validator_proposals(
-        &self,
-        block_header_info: BlockHeaderInfo,
-    ) -> Result<StoreUpdate, Error> {
-        // Check that genesis block doesn't have any proposals.
-        assert!(
-            block_header_info.height > 0
-                || (block_header_info.proposals.is_empty()
-                    && block_header_info.slashed_validators.is_empty())
-        );
-        debug!(target: "runtime",
-            height = block_header_info.height,
-            proposals = ?block_header_info.proposals,
-            "add_validator_proposals");
-        // Deal with validator proposals and epoch finishing.
-        let mut epoch_manager = self.epoch_manager.write();
-        let block_info = BlockInfo::new(
-            block_header_info.hash,
-            block_header_info.height,
-            block_header_info.last_finalized_height,
-            block_header_info.last_finalized_block_hash,
-            block_header_info.prev_hash,
-            block_header_info.proposals,
-            block_header_info.chunk_mask,
-            block_header_info.slashed_validators,
-            block_header_info.total_supply,
-            block_header_info.latest_protocol_version,
-            block_header_info.timestamp_nanosec,
-        );
-        let rng_seed = block_header_info.random_value.0;
-        epoch_manager.record_block_info(block_info, rng_seed).map_err(|err| err.into())
-    }
-
     fn apply_transactions_with_optional_storage_proof(
         &self,
         shard_id: ShardId,
@@ -1444,6 +1408,7 @@ mod test {
     use std::collections::BTreeSet;
 
     use near_chain::{Chain, ChainGenesis};
+    use near_epoch_manager::types::BlockHeaderInfo;
     use near_epoch_manager::EpochManager;
     use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::validator_stake::ValidatorStake;
@@ -1651,7 +1616,7 @@ mod test {
                 }
             }
 
-            runtime
+            epoch_manager
                 .add_validator_proposals(BlockHeaderInfo {
                     prev_hash: CryptoHash::default(),
                     hash: genesis_hash,
@@ -1719,7 +1684,7 @@ mod test {
                 all_proposals.append(&mut proposals.clone());
                 self.last_shard_proposals.insert(i as ShardId, proposals);
             }
-            self.runtime
+            self.epoch_manager
                 .add_validator_proposals(BlockHeaderInfo {
                     prev_hash: self.head.last_block_hash,
                     hash: new_hash,
@@ -2158,7 +2123,7 @@ mod test {
                 vec![]
             };
             new_env
-                .runtime
+                .epoch_manager
                 .add_validator_proposals(BlockHeaderInfo {
                     prev_hash,
                     hash: cur_hash,
