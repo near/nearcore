@@ -84,6 +84,7 @@ node1_height, _ = utils.wait_for_blocks(nodes[1], target=node0_height)
 # all fresh data should be synced
 blocks_count = 0
 for height in range(node1_height - 10, node1_height):
+    logger.info(f'Check block at height {height}')
     block0 = nodes[0].json_rpc('block', [height], timeout=15)
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
     assert block0 == block1, (
@@ -96,6 +97,7 @@ time.sleep(1)
 # all old data should be GCed
 blocks_count = 0
 for height in range(1, 30):
+    logger.info(f'Check old block at height {height}')
     block0 = nodes[0].json_rpc('block', [height], timeout=15)
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
     assert block0 == block1, (
@@ -107,6 +109,7 @@ assert blocks_count == 0
 # all data after first sync should be GCed
 blocks_count = 0
 for height in range(60, 80):
+    logger.info(f'Check block after first sync at height {height}')
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
     if 'result' in block1:
         blocks_count += 1
@@ -115,6 +118,7 @@ assert blocks_count == 0
 # all data before second sync should be GCed
 blocks_count = 0
 for height in range(130, 150):
+    logger.info(f'Check block before second sync at height {height}')
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
     if 'result' in block1:
         blocks_count += 1

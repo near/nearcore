@@ -274,12 +274,12 @@ class BaseNode(object):
             args = {'epoch_id': epoch_id}
         return self.json_rpc('validators', args)
 
-    def get_account(self, acc, finality='optimistic', do_assert=True):
+    def get_account(self, acc, finality='optimistic', do_assert=True, **kwargs):
         res = self.json_rpc('query', {
             "request_type": "view_account",
             "account_id": acc,
             "finality": finality
-        })
+        }, **kwargs)
         if do_assert:
             assert 'error' not in res, res
 
@@ -315,8 +315,11 @@ class BaseNode(object):
                 return access_key['access_key']['nonce']
         return None
 
-    def get_block(self, block_id):
-        return self.json_rpc('block', [block_id])
+    def get_block(self, block_id, **kwargs):
+        return self.json_rpc('block', [block_id], **kwargs)
+
+    def get_block_by_height(self, block_height, **kwargs):
+        return self.json_rpc('block', {'block_id': block_height}, **kwargs)
 
     def get_chunk(self, chunk_id):
         return self.json_rpc('chunk', [chunk_id])
@@ -812,8 +815,9 @@ def apply_config_changes(node_dir, client_config_change):
         'max_gas_burnt_view',
         'rosetta_rpc',
         'save_trie_changes',
-        'state_sync_enabled',
         'split_storage',
+        'state_sync_enabled',
+        'store.state_snapshot_enabled',
     )
 
     for k, v in client_config_change.items():
@@ -822,7 +826,16 @@ def apply_config_changes(node_dir, client_config_change):
         if k in config_json and isinstance(v, dict):
             config_json[k].update(v)
         else:
-            config_json[k] = v
+            # Support keys in the form of "a.b.c".
+            parts = k.split('.')
+            current = config_json
+            for part in parts[:-1]:
+                if part not in current:
+                    raise ValueError(
+                        f'{part} is not found in config.json. Key={k}, Value={v}'
+                    )
+                current = current[part]
+            current[parts[-1]] = v
 
     with open(fname, 'w') as fd:
         json.dump(config_json, fd, indent=2)

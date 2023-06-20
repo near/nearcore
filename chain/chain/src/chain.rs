@@ -7,6 +7,7 @@ use crate::lightclient::get_epoch_block_producers_view;
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
 use crate::state_request_tracker::StateRequestTracker;
+use crate::state_snapshot_actor::MakeSnapshotCallback;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplySplitStateResultOrStateChanges,
@@ -469,6 +470,19 @@ pub struct Chain {
     /// Used to store state parts already requested along with elapsed time
     /// to create the parts. This information is used for debugging
     pub(crate) requested_state_parts: StateRequestTracker,
+
+    /// Lets trigger new state snapshots.
+    state_snapshot_helper: Option<StateSnapshotHelper>,
+}
+
+/// Lets trigger new state snapshots.
+struct StateSnapshotHelper {
+    /// A callback to initiate state snapshot.
+    make_snapshot_callback: MakeSnapshotCallback,
+
+    /// Test-only. Artificially triggers state snapshots every N blocks.
+    /// The value is (countdown, N).
+    test_snapshot_countdown_and_frequency: Option<(u64, u64)>,
 }
 
 impl Drop for Chain {
@@ -542,6 +556,7 @@ impl Chain {
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
+            state_snapshot_helper: None,
         })
     }
 
@@ -552,6 +567,7 @@ impl Chain {
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_config: ChainConfig,
+        make_snapshot_callback: Option<MakeSnapshotCallback>,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let (store, state_roots) = runtime_adapter.genesis_state();
@@ -705,6 +721,12 @@ impl Chain {
             last_time_head_updated: StaticClock::instant(),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
+            state_snapshot_helper: make_snapshot_callback.map(|callback| StateSnapshotHelper {
+                make_snapshot_callback: callback,
+                test_snapshot_countdown_and_frequency: chain_config
+                    .state_snapshot_every_n_blocks
+                    .map(|n| (0, n)),
+            }),
         })
     }
 
@@ -2071,6 +2093,13 @@ impl Chain {
             }
         };
         let (apply_chunk_work, block_preprocess_info) = preprocess_res;
+
+        let need_state_snapshot = block_preprocess_info.need_state_snapshot
+            | self.need_test_state_snapshot(block_preprocess_info.need_state_snapshot);
+        if let Err(err) = self.maybe_start_state_snapshot(need_state_snapshot) {
+            tracing::error!(target: "state_snapshot", ?err, "Failed to make a state snapshot");
+        }
+
         let block = block.into_inner();
         let block_hash = *block.hash();
         let block_height = block.header().height();
@@ -2408,7 +2437,7 @@ impl Chain {
             return Err(Error::InvalidBlockHeight(prev_height));
         }
 
-        let (is_caught_up, state_dl_info) =
+        let (is_caught_up, state_dl_info, need_state_snapshot) =
             if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
                 if !self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
                     // The previous block is not caught up for the next epoch relative to the previous
@@ -2421,9 +2450,11 @@ impl Chain {
                 // shards that we will care about in the next epoch. If there is no state to be downloaded,
                 // we consider that we are caught up, otherwise not
                 let state_dl_info = self.get_state_dl_info(me, block)?;
-                (state_dl_info.is_none(), state_dl_info)
+                let is_genesis = prev_prev_hash == CryptoHash::default();
+                let need_state_snapshot = !is_genesis;
+                (state_dl_info.is_none(), state_dl_info, need_state_snapshot)
             } else {
-                (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None)
+                (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None, false)
             };
 
         self.check_if_challenged_block_on_chain(block.header())?;
@@ -2516,6 +2547,7 @@ impl Chain {
                 provenance: provenance.clone(),
                 apply_chunks_done: Arc::new(OnceCell::new()),
                 block_start_processing_time: block_received_time,
+                need_state_snapshot,
             },
         ))
     }
@@ -3277,7 +3309,7 @@ impl Chain {
                     }),
                 );
                 store_update.commit()?;
-                flat_storage_manager.create_flat_storage_for_shard(shard_uid);
+                flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             }
         }
 
@@ -4113,6 +4145,39 @@ impl Chain {
                 }
             })
             .collect()
+    }
+
+    /// Checks if the time has come to make a state snapshot for testing purposes.
+    /// If a state snapshot was requested for another reason, then resets the countdown.
+    fn need_test_state_snapshot(&mut self, need_state_snapshot: bool) -> bool {
+        let mut res = false;
+        if let Some(helper) = &mut self.state_snapshot_helper {
+            if let Some((countdown, frequency)) = helper.test_snapshot_countdown_and_frequency {
+                helper.test_snapshot_countdown_and_frequency = if need_state_snapshot {
+                    Some((frequency, frequency))
+                } else if countdown == 0 {
+                    res = true;
+                    Some((frequency, frequency))
+                } else {
+                    Some((countdown - 1, frequency))
+                };
+            }
+        }
+        res
+    }
+
+    /// Makes a state snapshot.
+    /// If there was already a state snapshot, deletes that first.
+    fn maybe_start_state_snapshot(&self, need_state_snapshot: bool) -> Result<(), Error> {
+        if need_state_snapshot {
+            if let Some(helper) = &self.state_snapshot_helper {
+                let head = self.head()?;
+                let epoch_id = self.epoch_manager.get_epoch_id(&head.prev_block_hash)?;
+                let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+                (helper.make_snapshot_callback)(head.prev_block_hash, shard_layout.get_shard_uids())
+            }
+        }
+        Ok(())
     }
 }
 

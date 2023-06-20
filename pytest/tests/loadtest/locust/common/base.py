@@ -200,7 +200,7 @@ class NearNodeProxy:
         self.request_event.fire(**meta)
         return meta["response"]
 
-    def post_json(self, method: str, params: list(str)):
+    def post_json(self, method: str, params: list[str]):
         j = {
             "method": method,
             "params": params,
@@ -375,8 +375,11 @@ def evaluate_rpc_result(rpc_result):
     """
     if "error" in rpc_result:
         err_name = rpc_result["error"]["cause"]["name"]
-        if err_name == "UNKNOWN_TRANSACTION":
-            raise TxUnknownError("UNKNOWN_TRANSACTION")
+        # The sync API returns "UNKNOWN_TRANSACTION" after a timeout.
+        # The async API returns "TIMEOUT_ERROR" if the tx was not accepted in the chain after 10s.
+        # In either case, the identical transaction should be retried.
+        if err_name in ["UNKNOWN_TRANSACTION", "TIMEOUT_ERROR"]:
+            raise TxUnknownError(err_name)
         # When reusing keys across test runs, the nonce is higher than expected.
         elif err_name == "INVALID_TRANSACTION":
             err_description = rpc_result["error"]["data"]["TxExecutionError"][
@@ -385,7 +388,6 @@ def evaluate_rpc_result(rpc_result):
                 raise InvalidNonceError(
                     err_description["InvalidNonce"]["tx_nonce"],
                     err_description["InvalidNonce"]["ak_nonce"])
-
         raise RpcError(rpc_result["error"])
 
     result = rpc_result["result"]

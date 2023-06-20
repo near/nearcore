@@ -118,27 +118,25 @@ pub(crate) static STATE_SYNC_DUMP_EPOCH_HEIGHT: Lazy<IntGaugeVec> = Lazy::new(||
     .unwrap()
 });
 
-pub(crate) static STATE_SYNC_APPLY_PART_DELAY: Lazy<near_o11y::metrics::HistogramVec> =
-    Lazy::new(|| {
-        try_create_histogram_vec(
-            "near_state_sync_apply_part_delay_sec",
-            "Latency of applying a state part",
-            &["shard_id"],
-            Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
-        )
-        .unwrap()
-    });
+pub(crate) static STATE_SYNC_APPLY_PART_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_state_sync_apply_part_delay_sec",
+        "Latency of applying a state part",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
+    )
+    .unwrap()
+});
 
-pub(crate) static STATE_SYNC_OBTAIN_PART_DELAY: Lazy<near_o11y::metrics::HistogramVec> =
-    Lazy::new(|| {
-        try_create_histogram_vec(
-            "near_state_sync_obtain_part_delay_sec",
-            "Latency of applying a state part",
-            &["shard_id", "result"],
-            Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
-        )
-        .unwrap()
-    });
+pub(crate) static STATE_SYNC_OBTAIN_PART_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_state_sync_obtain_part_delay_sec",
+        "Latency of applying a state part",
+        &["shard_id", "result"],
+        Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
+    )
+    .unwrap()
+});
 
 fn log_trie_item(key: Vec<u8>, value: Vec<u8>) {
     if !tracing::level_enabled!(tracing::Level::TRACE) {
