@@ -18,7 +18,7 @@ use near_primitives::config::ExtCosts;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{Receipt, DelayedReceiptIndices};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -27,6 +27,7 @@ use near_primitives::shard_layout::{
 };
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
@@ -689,6 +690,9 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
+        let delayed_receipts_indices: DelayedReceiptIndices =
+            near_store::get(&state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
+
         // In general, we limit the number of transactions via send_fees.
         // However, as a second line of defense, we want to limit the byte size
         // of transaction as well. Rather than introducing a separate config for
@@ -701,6 +705,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 + runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_read_value_byte));
 
         while total_gas_burnt < transactions_gas_limit && total_size < size_limit {
+            if delayed_receipts_indices.len() > 50 {
+                break;
+            }
             if let Some(iter) = pool_iterator.next() {
                 while let Some(tx) = iter.next() {
                     num_checked_transactions += 1;
