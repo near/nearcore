@@ -13,12 +13,18 @@ publish = true
 [dependencies]
 borsh.workspace = true
 serde.workspace = true
+serde_with.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 
 near-account-id.workspace = true
+near-crypto.workspace = true
+near-fmt.workspace = true
 near-primitives-core.workspace = true
 near-rpc-error-macro.workspace = true
+
+[dev-dependencies]
+hex.workspace = true
 
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
