@@ -37,8 +37,8 @@ class SocialDbSet(Transaction):
                                                  self.sender.use_nonce(),
                                                  block_hash)
 
-    def sender_id(self) -> str:
-        return self.sender.key.account_id
+    def sender_account(self) -> Account:
+        return self.sender
 
 
 class SubmitPost(SocialDbSet):
@@ -86,8 +86,8 @@ class InitSocialDB(Transaction):
             key.account_id, nonce, [call_new_action, call_set_status_action],
             block_hash, key.account_id, key.decoded_pk(), key.decoded_sk())
 
-    def sender_id(self) -> str:
-        return self.contract.key.account_id
+    def sender_account(self) -> Account:
+        return self.contract
 
 
 class InitSocialDbAccount(Transaction):
@@ -113,8 +113,8 @@ class InitSocialDbAccount(Transaction):
                                                  self.account.use_nonce(),
                                                  block_hash)
 
-    def sender_id(self) -> str:
-        return self.account.key.account_id
+    def sender_account(self) -> Account:
+        return self.account
 
 
 def social_db_build_index_obj(key_list_pairs: dict) -> dict:

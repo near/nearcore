@@ -62,6 +62,11 @@ class Account:
             self.current_nonce.value = new_nonce
             return new_nonce
 
+    def fast_forward_nonce(self, ak_nonce):
+        with self.current_nonce.get_lock():
+            self.current_nonce.value = max(self.current_nonce.value,
+                                           ak_nonce + 1)
+
 
 class Transaction:
     """
@@ -88,9 +93,9 @@ class Transaction:
         """
 
     @abc.abstractmethod
-    def sender_id(self) -> str:
+    def sender_account(self) -> Account:
         """
-        Account id of the sender that signs the tx, which must be known to map
+        Account of the sender that signs the tx, which must be known to map
         the tx-result request to the right shard.
         """
 
@@ -111,8 +116,8 @@ class Deploy(Transaction):
                                                    account.use_nonce(),
                                                    block_hash)
 
-    def sender_id(self) -> str:
-        return self.account.key.account_id
+    def sender_account(self) -> Account:
+        return self.account
 
 
 class CreateSubAccount(Transaction):
@@ -131,8 +136,8 @@ class CreateSubAccount(Transaction):
             sender.key, sub.account_id, sub, int(self.balance * 1E24),
             sender.use_nonce(), block_hash)
 
-    def sender_id(self) -> str:
-        return self.sender.key.account_id
+    def sender_account(self) -> Account:
+        return self.sender
 
 
 class NearNodeProxy:
@@ -180,7 +185,10 @@ class NearNodeProxy:
             tx.transaction_id = submit_response["result"]
             try:
                 # using retrying lib here to poll until a response is ready
-                self.poll_tx_result(meta, [tx.transaction_id, tx.sender_id()])
+                self.poll_tx_result(
+                    meta,
+                    [tx.transaction_id,
+                     tx.sender_account().key.account_id])
             except NearError as err:
                 logging.warn(f"marking an error {err.message}, {err.details}")
                 meta["exception"] = err
@@ -267,7 +275,8 @@ class NearUser(User):
         """
         Send a transaction and retry until it succeeds
         """
-        # expected error: UNKNOWN_TRANSACTION means TX has not been executed yet
+        # expected error: UnknownTransactionError means TX has not been executed yet
+        # expected error: InvalidNonceError means we are using an outdated nonce
         # other errors: probably bugs in the test setup (e.g. invalid signer)
         # this method is very simple and just retries no matter the kind of
         # error, as long as it is one defined by us (inherits from NearError)
@@ -275,6 +284,8 @@ class NearUser(User):
             try:
                 result = self.node.send_tx(tx, locust_name=locust_name)
                 return result
+            except InvalidNonceError as error:
+                tx.sender_account().fast_forward_nonce(error.ak_nonce)
             except NearError as error:
                 logger.warn(
                     f"transaction {tx.transaction_id} failed: {error}, retrying in 0.25s"
@@ -331,6 +342,19 @@ class TxUnknownError(RpcError):
         super().__init__(message)
 
 
+class InvalidNonceError(RpcError):
+
+    def __init__(
+        self,
+        used_nonce,
+        ak_nonce,
+    ):
+        super().__init__(
+            f"Tried to use nonce {used_nonce} but access key nonce is {ak_nonce}"
+        )
+        self.ak_nonce = ak_nonce
+
+
 class TxError(NearError):
 
     def __init__(self,
@@ -357,8 +381,15 @@ def evaluate_rpc_result(rpc_result):
         # In either case, the identical transaction should be retried.
         if err_name in ["UNKNOWN_TRANSACTION", "TIMEOUT_ERROR"]:
             raise TxUnknownError(err_name)
-        else:
-            raise RpcError(rpc_result["error"])
+        # When reusing keys across test runs, the nonce is higher than expected.
+        elif err_name == "INVALID_TRANSACTION":
+            err_description = rpc_result["error"]["data"]["TxExecutionError"][
+                "InvalidTxError"]
+            if "InvalidNonce" in err_description:
+                raise InvalidNonceError(
+                    err_description["InvalidNonce"]["tx_nonce"],
+                    err_description["InvalidNonce"]["ak_nonce"])
+        raise RpcError(rpc_result["error"])
 
     result = rpc_result["result"]
     transaction_outcome = result["transaction_outcome"]
