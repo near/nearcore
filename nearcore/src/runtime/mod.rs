@@ -1403,7 +1403,20 @@ impl RuntimeAdapter for NightshadeRuntime {
         genesis_config.shard_layout = shard_config.shard_layout;
         let runtime_config =
             self.runtime_config_store.get_config(protocol_version).as_ref().clone();
-        Ok(ProtocolConfig { genesis_config, runtime_config })
+
+        let epoch_manager = self.epoch_manager.read();
+        match epoch_manager.get_epoch_info(epoch_id) {
+            Ok(epoch_info) => {
+                let e = epoch_info.as_ref();
+                let visina = e.epoch_height();
+                let chain_config_pom = genesis_config.chain_config_store.get_config(visina);
+                let chain_config = chain_config_pom.as_ref().clone();
+                Ok(ProtocolConfig { genesis_config, chain_config, runtime_config })
+            }
+            Err(error) => {
+                return Error(error.to_string());
+            }
+        }
     }
 
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {

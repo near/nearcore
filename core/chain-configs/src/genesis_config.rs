@@ -4,7 +4,7 @@
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
 use crate::genesis_validate::validate_genesis;
-use crate::ChainConfigStore;
+use crate::{ChainConfigStore, ChainConfig};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_config_utils::ValidationError;
@@ -887,12 +887,13 @@ pub struct ProtocolConfigView {
 
 pub struct ProtocolConfig {
     pub genesis_config: GenesisConfig,
+    pub chain_config: ChainConfig,
     pub runtime_config: RuntimeConfig,
 }
 
 impl From<ProtocolConfig> for ProtocolConfigView {
     fn from(protocol_config: ProtocolConfig) -> Self {
-        let ProtocolConfig { genesis_config, runtime_config } = protocol_config;
+        let ProtocolConfig { genesis_config, chain_config, runtime_config } = protocol_config;
 
         ProtocolConfigView {
             protocol_version: genesis_config.protocol_version,
@@ -916,7 +917,7 @@ impl From<ProtocolConfig> for ProtocolConfigView {
             gas_price_adjustment_rate: genesis_config.gas_price_adjustment_rate,
             runtime_config: RuntimeConfigView::from(runtime_config),
             transaction_validity_period: genesis_config.transaction_validity_period,
-            protocol_reward_rate: genesis_config.protocol_reward_rate,
+            protocol_reward_rate: chain_config.protocol_reward_rate,
             max_inflation_rate: genesis_config.max_inflation_rate,
             num_blocks_per_year: genesis_config.num_blocks_per_year,
             protocol_treasury_account: genesis_config.protocol_treasury_account,
