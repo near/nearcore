@@ -48,16 +48,15 @@ impl actix::Handler<WithSpanContext<MakeSnapshotRequest>> for StateSnapshotActor
         let MakeSnapshotRequest { prev_block_hash, shard_uids } = msg;
 
         let res = self.tries.make_state_snapshot(&prev_block_hash, &shard_uids);
-        assert!(
-            self.flat_storage_manager.set_flat_state_updates_mode(true),
-            "Failed to unlock flat state updates"
-        );
+        if !self.flat_storage_manager.set_flat_state_updates_mode(true) {
+            tracing::error!(target: "state_snapshot", ?prev_block_hash, ?shard_uids, "Failed to unlock flat state updates");
+        }
         match res {
-            Err(err) => {
-                tracing::error!(target: "state_snapshot", ?err, "State snapshot creation failed")
-            }
             Ok(_) => {
                 _ctx.address().do_send(CompactSnapshotRequest {}.with_span_context());
+            }
+            Err(err) => {
+                tracing::error!(target: "state_snapshot", ?err, "State snapshot creation failed")
             }
         }
     }
