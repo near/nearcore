@@ -18,7 +18,7 @@ use near_primitives::config::ExtCosts;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::receipt::{Receipt, DelayedReceiptIndices};
+use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
