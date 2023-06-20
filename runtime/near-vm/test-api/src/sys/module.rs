@@ -60,7 +60,7 @@ impl Module {
     /// Reading from a WAT file.
     ///
     /// ```
-    /// use near_vm::*;
+    /// use near_vm_test_api::*;
     /// # fn main() -> anyhow::Result<()> {
     /// # let store = Store::default();
     /// let wat = "(module)";

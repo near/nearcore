@@ -17,7 +17,7 @@ impl<'a, T> WasmCell<'a, T> {
     ///
     /// ```
     /// use std::cell::Cell;
-    /// use near_vm::WasmCell;
+    /// use near_vm_test_api::WasmCell;
     ///
     /// let cell = Cell::new(5);
     /// let wasm_cell = WasmCell::new(&cell);

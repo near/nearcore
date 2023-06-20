@@ -1,3 +1,7 @@
+// This is test code...
+#![allow(clippy::vtable_address_comparisons)]
+
+
 use crate::sys::exports::Exportable;
 use crate::sys::store::Store;
 use crate::sys::types::{Val, ValFuncRef};

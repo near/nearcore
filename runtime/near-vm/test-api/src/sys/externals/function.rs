@@ -155,7 +155,7 @@ impl Function {
     /// # Examples
     ///
     /// ```
-    /// # use near_vm::{Function, FunctionType, Type, Store, Value};
+    /// # use near_vm_test_api::{Function, FunctionType, Type, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let signature = FunctionType::new(vec![Type::I32, Type::I32], vec![Type::I32]);
@@ -169,7 +169,7 @@ impl Function {
     /// With constant signature:
     ///
     /// ```
-    /// # use near_vm::{Function, FunctionType, Type, Store, Value};
+    /// # use near_vm_test_api::{Function, FunctionType, Type, Store, Value};
     /// # let store = Store::default();
     /// #
     /// const I32_I32_TO_I32: ([Type; 2], [Type; 1]) = ([Type::I32, Type::I32], [Type::I32]);
@@ -199,7 +199,7 @@ impl Function {
     /// # Examples
     ///
     /// ```
-    /// # use near_vm::{Function, FunctionType, Type, Store, Value, WasmerEnv};
+    /// # use near_vm_test_api::{Function, FunctionType, Type, Store, Value, WasmerEnv};
     /// # let store = Store::default();
     /// #
     /// #[derive(Clone)]
@@ -220,7 +220,7 @@ impl Function {
     /// With constant signature:
     ///
     /// ```
-    /// # use near_vm::{Function, FunctionType, Type, Store, Value, WasmerEnv};
+    /// # use near_vm_test_api::{Function, FunctionType, Type, Store, Value, WasmerEnv};
     /// # let store = Store::default();
     /// const I32_I32_TO_I32: ([Type; 2], [Type; 1]) = ([Type::I32, Type::I32], [Type::I32]);
     ///
@@ -293,7 +293,7 @@ impl Function {
     /// # Example
     ///
     /// ```
-    /// # use near_vm::{Store, Function};
+    /// # use near_vm_test_api::{Store, Function};
     /// # let store = Store::default();
     /// #
     /// fn sum(a: i32, b: i32) -> i32 {
@@ -343,7 +343,7 @@ impl Function {
     /// # Example
     ///
     /// ```
-    /// # use near_vm::{Store, Function, WasmerEnv};
+    /// # use near_vm_test_api::{Store, Function, WasmerEnv};
     /// # let store = Store::default();
     /// #
     /// #[derive(Clone)]
@@ -398,7 +398,7 @@ impl Function {
     /// # Example
     ///
     /// ```
-    /// # use near_vm::{Function, Store, Type};
+    /// # use near_vm_test_api::{Function, Store, Type};
     /// # let store = Store::default();
     /// #
     /// fn sum(a: i32, b: i32) -> i32 {
@@ -492,7 +492,7 @@ impl Function {
     /// # Example
     ///
     /// ```
-    /// # use near_vm::{Function, Store, Type};
+    /// # use near_vm_test_api::{Function, Store, Type};
     /// # let store = Store::default();
     /// #
     /// fn sum(a: i32, b: i32) -> i32 {
@@ -512,7 +512,7 @@ impl Function {
     /// # Example
     ///
     /// ```
-    /// # use near_vm::{Function, Store, Type};
+    /// # use near_vm_test_api::{Function, Store, Type};
     /// # let store = Store::default();
     /// #
     /// fn sum(a: i32, b: i32) -> i32 {
@@ -538,7 +538,7 @@ impl Function {
     /// # Examples
     ///
     /// ```
-    /// # use near_vm::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value};
+    /// # use near_vm_test_api::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value};
     /// # let store = Store::default();
     /// # let wasm_bytes = wat2wasm(r#"
     /// # (module
@@ -598,7 +598,7 @@ impl Function {
     /// # Examples
     ///
     /// ```
-    /// # use near_vm::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value};
+    /// # use near_vm_test_api::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value};
     /// # let store = Store::default();
     /// # let wasm_bytes = wat2wasm(r#"
     /// # (module
@@ -624,7 +624,7 @@ impl Function {
     /// an error will be raised:
     ///
     /// ```should_panic
-    /// # use near_vm::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value};
+    /// # use near_vm_test_api::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value};
     /// # let store = Store::default();
     /// # let wasm_bytes = wat2wasm(r#"
     /// # (module
@@ -648,7 +648,7 @@ impl Function {
     /// an error will be raised:
     ///
     /// ```should_panic
-    /// # use near_vm::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value};
+    /// # use near_vm_test_api::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value};
     /// # let store = Store::default();
     /// # let wasm_bytes = wat2wasm(r#"
     /// # (module

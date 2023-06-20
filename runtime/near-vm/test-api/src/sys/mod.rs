@@ -53,7 +53,7 @@ pub use near_vm_vm::{
 };
 pub use target_lexicon::{Architecture, CallingConvention, OperatingSystem, Triple, HOST};
 
-// TODO: should those be moved into near_vm::vm as well?
+// TODO: should those be moved into near_vm_test_api::vm as well?
 pub use near_vm_vm::{raise_user_trap, MemoryError};
 pub mod vm {
     //! The `vm` module re-exports near_vm-vm types.
