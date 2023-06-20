@@ -407,7 +407,7 @@ mod tests {
             let epoch_manager =
                 EpochManager::new_arc_handle(store.clone(), &near_config1.genesis.config);
             let chain_store = ChainStore::new(
-                store.clone(),
+                store,
                 near_config1.genesis.config.genesis_height,
                 near_config1.client_config.save_trie_changes,
             );
