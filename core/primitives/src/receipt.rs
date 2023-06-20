@@ -11,6 +11,8 @@ use serde_with::serde_as;
 use std::borrow::Borrow;
 use std::fmt;
 
+pub use near_vm_errors::DataReceiver;
+
 /// Receipts are used for a cross-shard communication.
 /// Receipts could be 2 types (determined by a `ReceiptEnum`): `ReceiptEnum::Action` of `ReceiptEnum::Data`.
 #[derive(
@@ -168,24 +170,6 @@ impl fmt::Debug for DataReceipt {
             .field("data", &format_args!("{}", AbbrBytes(self.data.as_deref())))
             .finish()
     }
-}
-
-/// The outgoing (egress) data which will be transformed
-/// to a `DataReceipt` to be sent to a `receipt.receiver`
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Hash,
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-pub struct DataReceiver {
-    pub data_id: CryptoHash,
-    pub receiver_id: AccountId,
 }
 
 /// A temporary data which is created by processing of DataReceipt
