@@ -350,7 +350,7 @@ class InvalidNonceError(RpcError):
         ak_nonce,
     ):
         super().__init__(
-            f"Tried to use nonce {used_nonce} but AK nonce is {ak_nonce}")
+            f"Tried to use nonce {used_nonce} but access key nonce is {ak_nonce}")
         self.ak_nonce = ak_nonce
 
 
