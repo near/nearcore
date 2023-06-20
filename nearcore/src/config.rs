@@ -1,9 +1,6 @@
 use crate::download_file::{run_download_file, FileDownloadError};
 use anyhow::{anyhow, bail, Context};
-use near_chain_configs::{
-    get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
-    LogSummaryStyle, MutableConfigValue, StateSyncConfig,
-};
+use near_chain_configs::{get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode, LogSummaryStyle, MutableConfigValue, StateSyncConfig, ChainConfig, ChainConfigStore};
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
@@ -549,10 +546,15 @@ impl Genesis {
             );
         }
         add_protocol_account(&mut records);
+        let mirko = ChainConfig {
+            protocol_reward_rate: PROTOCOL_REWARD_RATE,
+        };
+        let chain_config_store = ChainConfigStore::test(mirko);
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
             genesis_time: StaticClock::utc(),
             chain_id: random_chain_id(),
+            chain_config_store: chain_config_store,
             num_block_producer_seats: num_validator_seats,
             num_block_producer_seats_per_shard: num_validator_seats_per_shard.clone(),
             avg_hidden_validator_seats_per_shard: vec![0; num_validator_seats_per_shard.len()],
@@ -563,7 +565,6 @@ impl Genesis {
             gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
             block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
             validators,
-            protocol_reward_rate: PROTOCOL_REWARD_RATE,
             total_supply: get_initial_supply(&records),
             max_inflation_rate: MAX_INFLATION_RATE,
             num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
