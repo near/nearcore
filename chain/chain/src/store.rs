@@ -3166,6 +3166,7 @@ mod tests {
             &chain_genesis,
             DoomslugThresholdMode::NoApprovals,
             ChainConfig::test(),
+            None,
         )
         .unwrap()
     }

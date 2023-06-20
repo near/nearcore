@@ -26,6 +26,7 @@ use tracing::info;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use chrono::Utc;
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
+use near_chain::state_snapshot_actor::MakeSnapshotCallback;
 use near_chain::test_utils::{
     wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
     MockEpochManager, ValidatorSchedule,
@@ -176,7 +177,7 @@ impl Client {
         accepted_blocks
     }
 
-    /// This function finishes processing block with hash `hash`, if the procesing of that block
+    /// This function finishes processing block with hash `hash`, if the processing of that block
     /// has started.
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
         if let Ok(()) = wait_for_block_in_processing(&mut self.chain, hash) {
@@ -198,6 +199,7 @@ pub fn setup(
     enable_doomslug: bool,
     archive: bool,
     epoch_sync_enabled: bool,
+    state_sync_enabled: bool,
     network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
@@ -231,7 +233,12 @@ pub fn setup(
         runtime.clone(),
         &chain_genesis,
         doomslug_threshold_mode,
-        ChainConfig { save_trie_changes: true, background_migration_threads: 1 },
+        ChainConfig {
+            save_trie_changes: true,
+            background_migration_threads: 1,
+            state_snapshot_every_n_blocks: None,
+        },
+        None,
     )
     .unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
@@ -246,6 +253,7 @@ pub fn setup(
         archive,
         true,
         epoch_sync_enabled,
+        state_sync_enabled,
     );
 
     let adv = crate::adversarial::Controls::default();
@@ -283,6 +291,7 @@ pub fn setup(
         Some(signer.clone()),
         enable_doomslug,
         TEST_SEED,
+        None,
     )
     .unwrap();
     let client_actor = ClientActor::new(
@@ -312,6 +321,7 @@ pub fn setup_only_view(
     enable_doomslug: bool,
     archive: bool,
     epoch_sync_enabled: bool,
+    state_sync_enabled: bool,
     network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
@@ -345,7 +355,12 @@ pub fn setup_only_view(
         runtime.clone(),
         &chain_genesis,
         doomslug_threshold_mode,
-        ChainConfig { save_trie_changes: true, background_migration_threads: 1 },
+        ChainConfig {
+            save_trie_changes: true,
+            background_migration_threads: 1,
+            state_snapshot_every_n_blocks: None,
+        },
+        None,
     )
     .unwrap();
 
@@ -359,6 +374,7 @@ pub fn setup_only_view(
         archive,
         true,
         epoch_sync_enabled,
+        state_sync_enabled,
     );
 
     let adv = crate::adversarial::Controls::default();
@@ -428,6 +444,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
             enable_doomslug,
             false,
             false,
+            true,
             network_adapter.clone().into(),
             transaction_validity_period,
             StaticClock::utc(),
@@ -1067,6 +1084,7 @@ pub fn setup_mock_all_validators(
                 enable_doomslug,
                 archive1[index],
                 epoch_sync_enabled1[index],
+                true,
                 Arc::new(pm).into(),
                 10000,
                 genesis_time,
@@ -1141,11 +1159,20 @@ pub fn setup_client_with_runtime(
     rng_seed: RngSeed,
     archive: bool,
     save_trie_changes: bool,
+    make_state_snapshot_callback: Option<MakeSnapshotCallback>,
 ) -> Client {
     let validator_signer =
         account_id.map(|x| Arc::new(create_test_signer(x.as_str())) as Arc<dyn ValidatorSigner>);
-    let mut config =
-        ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
+    let mut config = ClientConfig::test(
+        true,
+        10,
+        20,
+        num_validator_seats,
+        archive,
+        save_trie_changes,
+        true,
+        true,
+    );
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
@@ -1158,6 +1185,7 @@ pub fn setup_client_with_runtime(
         validator_signer,
         enable_doomslug,
         rng_seed,
+        make_state_snapshot_callback,
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;
@@ -1194,6 +1222,7 @@ pub fn setup_client(
         rng_seed,
         archive,
         save_trie_changes,
+        None,
     )
 }
 
@@ -1217,7 +1246,12 @@ pub fn setup_synchronous_shards_manager(
         runtime,
         chain_genesis,
         DoomslugThresholdMode::TwoThirds, // irrelevant
-        ChainConfig { save_trie_changes: true, background_migration_threads: 1 }, // irrelevant
+        ChainConfig {
+            save_trie_changes: true,
+            background_migration_threads: 1,
+            state_snapshot_every_n_blocks: None,
+        }, // irrelevant
+        None,
     )
     .unwrap();
     let chain_head = chain.head().unwrap();
@@ -1275,6 +1309,7 @@ pub fn setup_client_with_synchronous_shards_manager(
         rng_seed,
         archive,
         save_trie_changes,
+        None,
     )
 }
 
@@ -1342,6 +1377,7 @@ pub struct TestEnvBuilder {
     seeds: HashMap<AccountId, RngSeed>,
     archive: bool,
     save_trie_changes: bool,
+    add_state_snapshots: bool,
 }
 
 /// Builder for the [`TestEnv`] structure.
@@ -1364,6 +1400,7 @@ impl TestEnvBuilder {
             seeds,
             archive: false,
             save_trie_changes: true,
+            add_state_snapshots: false,
         }
     }
 
@@ -1413,7 +1450,7 @@ impl TestEnvBuilder {
 
     /// Overrides the stores that are used to create epoch managers and runtimes.
     pub fn stores(mut self, stores: Vec<Store>) -> Self {
-        assert!(stores.len() == self.clients.len());
+        assert_eq!(stores.len(), self.clients.len());
         assert!(self.stores.is_none(), "Cannot override twice");
         assert!(self.epoch_managers.is_none(), "Cannot override store after epoch_managers");
         assert!(self.runtimes.is_none(), "Cannot override store after runtimes");
@@ -1438,7 +1475,7 @@ impl TestEnvBuilder {
     /// (one by default).  If that does not hold, [`Self::build`] method will
     /// panic.
     pub fn mock_epoch_managers(mut self, epoch_managers: Vec<Arc<MockEpochManager>>) -> Self {
-        assert!(epoch_managers.len() == self.clients.len());
+        assert_eq!(epoch_managers.len(), self.clients.len());
         assert!(self.epoch_managers.is_none(), "Cannot override twice");
         assert!(
             self.num_shards.is_none(),
@@ -1461,7 +1498,7 @@ impl TestEnvBuilder {
     /// (one by default).  If that does not hold, [`Self::build`] method will
     /// panic.
     pub fn epoch_managers(mut self, epoch_managers: Vec<Arc<EpochManagerHandle>>) -> Self {
-        assert!(epoch_managers.len() == self.clients.len());
+        assert_eq!(epoch_managers.len(), self.clients.len());
         assert!(self.epoch_managers.is_none(), "Cannot override twice");
         assert!(
             self.num_shards.is_none(),
@@ -1550,7 +1587,7 @@ impl TestEnvBuilder {
     /// Specifies custom ShardTracker for each client.  This allows us to
     /// construct [`TestEnv`] with a custom implementation.
     pub fn shard_trackers(mut self, shard_trackers: Vec<ShardTracker>) -> Self {
-        assert!(shard_trackers.len() == self.clients.len());
+        assert_eq!(shard_trackers.len(), self.clients.len());
         assert!(self.shard_trackers.is_none(), "Cannot override twice");
         self.shard_trackers = Some(shard_trackers);
         self
@@ -1598,7 +1635,7 @@ impl TestEnvBuilder {
     /// Specifies custom RuntimeAdapter for each client.  This allows us to
     /// construct [`TestEnv`] with a custom implementation.
     pub fn runtimes(mut self, runtimes: Vec<Arc<dyn RuntimeAdapter>>) -> Self {
-        assert!(runtimes.len() == self.clients.len());
+        assert_eq!(runtimes.len(), self.clients.len());
         assert!(self.runtimes.is_none(), "Cannot override twice");
         self.runtimes = Some(runtimes);
         self
@@ -1724,6 +1761,16 @@ impl TestEnvBuilder {
                     Some(seed) => *seed,
                     None => TEST_SEED,
                 };
+                let make_state_snapshot_callback : Option<MakeSnapshotCallback> = if self.add_state_snapshots {
+                    let runtime = runtime.clone();
+                    let snapshot : MakeSnapshotCallback = Arc::new(move |prev_block_hash, shard_uids| {
+                        tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
+                        runtime.get_tries().make_state_snapshot(&prev_block_hash, &shard_uids).unwrap();
+                    });
+                    Some(snapshot)
+                } else {
+                    None
+                };
                 setup_client_with_runtime(
                     u64::try_from(num_validators).unwrap(),
                     Some(account_id),
@@ -1737,6 +1784,7 @@ impl TestEnvBuilder {
                     rng_seed,
                     self.archive,
                     self.save_trie_changes,
+                    make_state_snapshot_callback,
                 )
             })
             .collect();
@@ -1763,6 +1811,11 @@ impl TestEnvBuilder {
 
     fn make_accounts(count: usize) -> Vec<AccountId> {
         (0..count).map(|i| format!("test{}", i).parse().unwrap()).collect()
+    }
+
+    pub fn use_state_snapshots(mut self) -> Self {
+        self.add_state_snapshots = true;
+        self
     }
 }
 
@@ -2070,6 +2123,7 @@ impl TestEnv {
             rng_seed,
             self.archive,
             self.save_trie_changes,
+            None,
         )
     }
 

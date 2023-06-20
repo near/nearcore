@@ -59,7 +59,8 @@ fn setup_network_node(
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
 
     let db = store.into_inner(near_store::Temperature::Hot);
-    let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true, true);
+    let mut client_config =
+        ClientConfig::test(false, 100, 200, num_validators, false, true, true, true);
     client_config.archive = config.archive;
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
     let genesis_block =
@@ -83,6 +84,7 @@ fn setup_network_node(
         shards_manager_adapter.as_sender(),
         Some(signer.clone()),
         telemetry_actor,
+        None,
         None,
         adv.clone(),
         None,
