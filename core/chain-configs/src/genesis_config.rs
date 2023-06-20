@@ -402,7 +402,7 @@ pub struct GenesisLoader {
 /// However, we can't enforce that invariant. All fields are public, but the clients are expected to
 /// use the provided methods for instantiation, serialization and deserialization.
 /// Refer to `test_loading_localnet_genesis` to see an example of serialized Genesis JSON.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Genesis {
     #[serde(flatten)]
     pub config: GenesisConfig,
