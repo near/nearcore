@@ -186,7 +186,6 @@ pub struct GenesisConfig {
     /// Protocol version that this genesis works with.
     pub protocol_version: ProtocolVersion,
     /// Official time of blockchain start.
-    #[default(Utc::now())]
     pub genesis_time: DateTime<Utc>,
     /// ID of the blockchain. This must be unique for every blockchain.
     /// If your testnet blockchains do not have unique chain IDs, you will have a bad time.
@@ -206,78 +205,50 @@ pub struct GenesisConfig {
     /// Enable dynamic re-sharding.
     pub dynamic_resharding: bool,
     /// Threshold of stake that needs to indicate that they ready for upgrade.
-    #[serde(default = "default_protocol_upgrade_stake_threshold")]
-    #[default(Rational32::new(8, 10))]
     pub protocol_upgrade_stake_threshold: Rational32,
     /// Epoch length counted in block heights.
     pub epoch_length: BlockHeightDelta,
     /// Initial gas limit.
     pub gas_limit: Gas,
     /// Minimum gas price. It is also the initial gas price.
-    #[serde(with = "dec_format")]
     pub min_gas_price: Balance,
-    #[serde(with = "dec_format")]
-    #[default(MAX_GAS_PRICE)]
     pub max_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
     pub block_producer_kickout_threshold: u8,
     /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
     pub chunk_producer_kickout_threshold: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
-    #[serde(default = "default_online_min_threshold")]
-    #[default(Rational32::new(90, 100))]
     pub online_min_threshold: Rational32,
     /// Online maximum threshold above which validator gets full reward.
-    #[serde(default = "default_online_max_threshold")]
-    #[default(Rational32::new(99, 100))]
     pub online_max_threshold: Rational32,
     /// Gas price adjustment rate
-    #[default(Rational32::from_integer(0))]
     pub gas_price_adjustment_rate: Rational32,
     /// List of initial validators.
     pub validators: Vec<AccountInfo>,
     /// Number of blocks for which a given transaction is valid
     pub transaction_validity_period: NumBlocks,
     /// Maximum inflation on the total supply every epoch.
-    #[default(Rational32::from_integer(0))]
     pub max_inflation_rate: Rational32,
     /// Total supply of tokens at genesis.
-    #[serde(with = "dec_format")]
     pub total_supply: Balance,
     /// Expected number of blocks per year
     pub num_blocks_per_year: NumBlocks,
     /// Protocol treasury account
-    #[default("near".parse().unwrap())]
     pub protocol_treasury_account: AccountId,
     /// Fishermen stake threshold.
-    #[serde(with = "dec_format")]
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
-    #[serde(default = "default_minimum_stake_divisor")]
-    #[default(10)]
     pub minimum_stake_divisor: u64,
     /// Layout information regarding how to split accounts to shards
-    #[serde(default = "default_shard_layout")]
-    #[default(ShardLayout::v0_single_shard())]
     pub shard_layout: ShardLayout,
-    #[serde(default = "default_num_chunk_only_producer_seats")]
-    #[default(300)]
     pub num_chunk_only_producer_seats: NumSeats,
     /// The minimum number of validators each shard must have
-    #[serde(default = "default_minimum_validators_per_shard")]
-    #[default(1)]
     pub minimum_validators_per_shard: NumSeats,
-    #[serde(default = "default_max_kickout_stake_threshold")]
-    #[default(100)]
     /// Max stake percentage of the validators we will kick out.
     pub max_kickout_stake_perc: u8,
     /// The lowest ratio s/s_total any block producer can have.
     /// See <https://github.com/near/NEPs/pull/167> for details
-    #[serde(default = "default_minimum_stake_ratio")]
-    #[default(Rational32::new(160, 1_000_000))]
     pub minimum_stake_ratio: Rational32,
-    #[serde(default = "default_use_production_config")]
-    #[default(false)]
     /// This is only for test purposes. We hard code some configs for mainnet and testnet
     /// in AllEpochConfig, and we want to have a way to test that code path. This flag is for that.
     /// If set to true, the node will use the same config override path as mainnet and testnet.
