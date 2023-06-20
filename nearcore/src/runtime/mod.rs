@@ -1414,7 +1414,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 Ok(ProtocolConfig { genesis_config, chain_config, runtime_config })
             }
             Err(error) => {
-                return Error::Other(error.to_string());
+                return Err(Error::Other(error.to_string()));
             }
         }
     }
