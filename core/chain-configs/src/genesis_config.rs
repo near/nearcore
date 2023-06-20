@@ -690,7 +690,7 @@ impl Genesis {
             })?;
 
         let genesis = Self {
-            config: GenesisConfig::new(genesis_loader.config),
+            config: GenesisConfig::from_genesis_config_loader(genesis_loader.config),
             contents: genesis_loader.contents,
         };
 
