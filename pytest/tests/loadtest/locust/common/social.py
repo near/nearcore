@@ -295,17 +295,18 @@ def on_locust_init(environment, **kwargs):
         social_account = Account(contract_key)
 
         node = NearNodeProxy(environment)
-        node.send_tx_retry(
-            CreateSubAccount(funding_account,
-                             social_account.key,
-                             balance=50000.0),
-            "create socialDB funding account")
-        social_account.refresh_nonce(node.node)
-        node.send_tx_retry(
-            Deploy(social_account, social_contract_code, "Social DB"),
-            "deploy socialDB contract")
-        node.send_tx_retry(InitSocialDB(social_account),
-                           "init socialDB contract")
+        if not node.account_exists(social_account.key.account_id):
+            node.send_tx_retry(
+                CreateSubAccount(funding_account,
+                                 social_account.key,
+                                 balance=50000.0),
+                "create socialDB funding account")
+            social_account.refresh_nonce(node.node)
+            node.send_tx_retry(
+                Deploy(social_account, social_contract_code, "Social DB"),
+                "deploy socialDB contract")
+            node.send_tx_retry(InitSocialDB(social_account),
+                               "init socialDB contract")
 
 
 # Social specific CLI args
