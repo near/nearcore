@@ -304,7 +304,7 @@ def on_locust_init(environment, **kwargs):
         node.send_tx_retry(
             Deploy(social_account, social_contract_code, "Social DB"),
             "deploy socialDB contract")
-        node.send_tx_retry(node, InitSocialDB(social_account),
+        node.send_tx_retry(InitSocialDB(social_account),
                            "init socialDB contract")
 
 
