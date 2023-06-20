@@ -257,12 +257,13 @@ pub struct GenesisConfig {
 
 impl GenesisConfig {
     pub fn from_genesis_config_loader(genesis_config_loader: GenesisConfigLoader) -> Self {
+        let chain_config_store = ChainConfigStore::new(genesis_config_loader.clone());
         Self {
             protocol_version: genesis_config_loader.protocol_version,
             genesis_time: genesis_config_loader.genesis_time,
             chain_id: genesis_config_loader.chain_id,
             genesis_height: genesis_config_loader.genesis_height,
-            chain_config_store: ChainConfigStore::new(genesis_config_loader.clone()),
+            chain_config_store: chain_config_store,
             num_block_producer_seats: genesis_config_loader.num_block_producer_seats,
             num_block_producer_seats_per_shard: genesis_config_loader.num_block_producer_seats_per_shard,
             avg_hidden_validator_seats_per_shard: genesis_config_loader.avg_hidden_validator_seats_per_shard,
