@@ -24,22 +24,22 @@ near_root, node_dirs = init_cluster(
      ["epoch_length", EPOCH_LENGTH], ["protocol_version", 47],
      ["use_production_config", True], ["block_producer_kickout_threshold", 80]],
     {
-         0: {
-             "tracked_shards": [0],
-             "state_sync_enabled": True,
-         },
-         1: {
-             "tracked_shards": [0],
-             "state_sync_enabled": True,
-         },
-         2: {
-             "tracked_shards": [0],
-             "consensus": {
-                 "block_fetch_horizon": EPOCH_LENGTH * 2,
-             },
-             "state_sync_enabled": True,
-         }
-     })
+        0: {
+            "tracked_shards": [0],
+            "state_sync_enabled": True,
+        },
+        1: {
+            "tracked_shards": [0],
+            "state_sync_enabled": True,
+        },
+        2: {
+            "tracked_shards": [0],
+            "consensus": {
+                "block_fetch_horizon": EPOCH_LENGTH * 2,
+            },
+            "state_sync_enabled": True,
+        }
+    })
 
 started = time.time()
 
