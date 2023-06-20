@@ -1,6 +1,6 @@
-use near_vm_test_api::*;
 use near_vm_compiler_singlepass::Singlepass;
 use near_vm_engine::universal::Universal;
+use near_vm_test_api::*;
 use near_vm_types::InstanceConfig;
 use near_vm_vm::TrapCode;
 

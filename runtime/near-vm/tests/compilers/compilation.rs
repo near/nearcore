@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use near_vm_test_api::*;
 use near_vm_engine::universal::Universal;
+use near_vm_test_api::*;
 use near_vm_vm::Artifact;
 
 fn slow_to_compile_contract(n_fns: usize, n_locals: usize) -> Vec<u8> {
@@ -80,7 +80,8 @@ fn profiling() {
         Ok(art) => unsafe {
             let serialized = art.serialize().unwrap();
             let executable =
-                near_vm_engine::universal::UniversalExecutableRef::deserialize(&serialized).unwrap();
+                near_vm_engine::universal::UniversalExecutableRef::deserialize(&serialized)
+                    .unwrap();
             let artifact = engine.load_universal_executable_ref(&executable).unwrap();
             let info = artifact
                 .functions()

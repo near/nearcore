@@ -29,8 +29,10 @@ impl Store {
     }
 
     /// Creates a new `Store` with a specific [`Engine`] and [`Tunables`].
-    pub fn new_with_tunables(engine: Arc<UniversalEngine>, tunables: impl Tunables + Send + Sync + 'static) -> Self
-    {
+    pub fn new_with_tunables(
+        engine: Arc<UniversalEngine>,
+        tunables: impl Tunables + Send + Sync + 'static,
+    ) -> Self {
         Self { engine, tunables: Arc::new(tunables) }
     }
 

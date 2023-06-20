@@ -4,7 +4,6 @@ mod code_memory;
 mod engine;
 mod executable;
 mod link;
-mod unwind;
 
 pub use self::artifact::UniversalArtifact;
 pub use self::builder::Universal;

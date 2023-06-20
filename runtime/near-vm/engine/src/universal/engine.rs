@@ -2,12 +2,12 @@
 
 use crate::universal::executable::{unrkyv, UniversalExecutableRef};
 use crate::universal::{CodeMemory, UniversalArtifact, UniversalExecutable};
+use crate::EngineId;
 use near_vm_compiler::Compiler;
 use near_vm_compiler::{
     CompileError, CustomSectionProtection, CustomSectionRef, FunctionBodyRef, JumpTable,
     SectionIndex, Target,
 };
-use crate::EngineId;
 use near_vm_types::entity::{EntityRef, PrimaryMap};
 use near_vm_types::{
     DataInitializer, ExportIndex, Features, FunctionIndex, FunctionType, FunctionTypeRef,

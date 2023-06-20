@@ -1,8 +1,8 @@
-use near_vm_compiler::{
-    CompileModuleInfo, CompiledFunctionFrameInfo, CustomSection, Dwarf,
-    FunctionBody, JumpTableOffsets, Relocation, SectionIndex, TrampolinesSection,
-};
 use crate::DeserializeError;
+use near_vm_compiler::{
+    CompileModuleInfo, CompiledFunctionFrameInfo, CustomSection, Dwarf, FunctionBody,
+    JumpTableOffsets, Relocation, SectionIndex, TrampolinesSection,
+};
 use near_vm_types::entity::PrimaryMap;
 use near_vm_types::{
     ExportIndex, FunctionIndex, ImportIndex, LocalFunctionIndex, OwnedDataInitializer,
@@ -122,7 +122,9 @@ pub enum ExecutableSerializeError {
 
 impl UniversalExecutable {
     /// Serialize the executable into bytes for storage.
-    pub fn serialize(&self) -> Result<Vec<u8>, Box<(dyn std::error::Error + Send + Sync + 'static)>> {
+    pub fn serialize(
+        &self,
+    ) -> Result<Vec<u8>, Box<(dyn std::error::Error + Send + Sync + 'static)>> {
         // The format is as thus:
         //
         // HEADER

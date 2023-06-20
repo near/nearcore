@@ -117,10 +117,7 @@ impl Module {
         engine.validate(binary)?;
         let executable = engine.compile_universal(binary, store.tunables())?;
         let artifact = engine.load_universal_executable(&executable)?;
-        Ok(Self {
-            store: store.clone(),
-            artifact: Arc::new(artifact),
-        })
+        Ok(Self { store: store.clone(), artifact: Arc::new(artifact) })
     }
 
     pub(crate) fn instantiate(

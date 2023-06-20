@@ -267,9 +267,7 @@ impl Function {
         // generated dynamic trampoline.
         let address = std::ptr::null() as *const VMFunctionBody;
         let vmctx = VMFunctionEnvironment { host_env };
-        let signature = store
-            .engine()
-            .register_signature(ty);
+        let signature = store.engine().register_signature(ty);
 
         Self {
             store: store.clone(),
@@ -317,9 +315,7 @@ impl Function {
         let function = inner::Function::<Args, Rets>::new(func);
         let address = function.address() as *const VMFunctionBody;
         let vmctx = VMFunctionEnvironment { host_env: std::ptr::null_mut() as *mut _ };
-        let signature = store
-            .engine()
-            .register_signature(function.ty());
+        let signature = store.engine().register_signature(function.ty());
 
         Self {
             store: store.clone(),
