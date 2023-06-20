@@ -4383,7 +4383,6 @@ dependencies = [
  "near-crypto",
  "near-fmt",
  "near-o11y",
- "near-primitives",
  "near-primitives-core",
  "near-stdx",
  "near-vm-errors",
