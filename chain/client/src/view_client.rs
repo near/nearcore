@@ -1,27 +1,22 @@
 //! Readonly view of the chain and state of the database.
 //! Useful for querying from RPC.
 
+use crate::adapter::{
+    AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, StateRequestHeader,
+    StateRequestPart, StateResponse, TxStatusRequest, TxStatusResponse,
+};
+use crate::{
+    metrics, sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
+    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
+};
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
 use near_async::messaging::CanSend;
 use near_chain::types::{RuntimeAdapter, Tip};
-use near_chain_primitives::error::EpochErrorResultToChainError;
-use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::receipt::Receipt;
-use near_primitives::static_clock::StaticClock;
-use near_store::{DBCol, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
-use std::cmp::Ordering;
-use std::collections::{HashMap, VecDeque};
-use std::hash::Hash;
-use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, Instant};
-
-use tracing::{debug, error, info, trace, warn};
-
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
 };
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
+use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
     GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
@@ -32,6 +27,8 @@ use near_client_primitives::types::{
     GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
     TxStatus, TxStatusError,
 };
+use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{
     NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, ReasonForBan,
     StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
@@ -43,7 +40,9 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
+use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
+use near_primitives::static_clock::StaticClock;
 use near_primitives::syncing::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV1,
     ShardStateSyncResponseV2,
@@ -59,15 +58,13 @@ use near_primitives::views::{
     MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, SplitStorageInfoView,
     StateChangesKindsView, StateChangesView,
 };
-
-use crate::adapter::{
-    AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, StateRequestHeader,
-    StateRequestPart, StateResponse, TxStatusRequest, TxStatusResponse,
-};
-use crate::{
-    metrics, sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
-    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
-};
+use near_store::{DBCol, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
+use std::cmp::Ordering;
+use std::collections::{HashMap, VecDeque};
+use std::hash::Hash;
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant};
+use tracing::{debug, error, info, trace, warn};
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -1305,7 +1302,7 @@ impl Handler<WithSpanContext<StateRequestPart>> for ViewClientActor {
         if !self.check_state_sync_request() {
             return None;
         }
-        trace!(target: "sync", "Computing state request part {} {} {}", shard_id, sync_hash, part_id);
+        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, ?part_id, "Computing state request part");
         let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
             Ok(true) => {
                 let part = match self.chain.get_state_response_part(shard_id, part_id, sync_hash) {

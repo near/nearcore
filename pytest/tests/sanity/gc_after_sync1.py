@@ -14,9 +14,10 @@ from cluster import start_cluster
 from configured_logger import logger
 import utils
 
-TARGET_HEIGHT1 = 15
-TARGET_HEIGHT2 = 35
-TARGET_HEIGHT3 = 105
+EPOCH_LENGTH = 20
+TARGET_HEIGHT1 = EPOCH_LENGTH + (EPOCH_LENGTH // 2)
+TARGET_HEIGHT2 = EPOCH_LENGTH * 3 + (EPOCH_LENGTH // 2)
+TARGET_HEIGHT3 = EPOCH_LENGTH * 10 + (EPOCH_LENGTH // 2)
 
 node0_config = {"gc_blocks_limit": 10}
 
@@ -32,7 +33,7 @@ node1_config = {
 
 nodes = start_cluster(
     1, 1, 1, None,
-    [["epoch_length", 10], ["block_producer_kickout_threshold", 80],
+    [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 80],
      ["chunk_producer_kickout_threshold", 80]], {
          0: node0_config,
          1: node1_config
@@ -54,10 +55,10 @@ utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT3)
 
 nodes[0].kill()
 
-for i in range(1, 60):
+for i in range(1, EPOCH_LENGTH * 6):
     res = nodes[1].json_rpc('block', [i], timeout=10)
     assert 'error' in res, f'height {i}, {res}'
 
-for i in range(60, 101):
+for i in range(EPOCH_LENGTH * 6, EPOCH_LENGTH * 10 + 1):
     res = nodes[1].json_rpc('block', [i], timeout=10)
     assert 'result' in res, f'height {i}, {res}'

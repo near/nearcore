@@ -20,6 +20,7 @@ mod metrics;
 pub mod migrations;
 pub mod missing_chunks;
 mod state_request_tracker;
+pub mod state_snapshot_actor;
 mod store;
 pub mod store_validator;
 pub mod test_utils;

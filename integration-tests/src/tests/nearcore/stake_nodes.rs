@@ -43,6 +43,7 @@ fn init_test_staking(
     epoch_length: BlockHeightDelta,
     enable_rewards: bool,
     minimum_stake_divisor: u64,
+    state_snapshot_enabled: bool,
 ) -> Vec<TestNode> {
     init_integration_logger();
 
@@ -66,6 +67,9 @@ fn init_test_staking(
             if i == 0 { first_node } else { tcp::ListenerAddr::reserve_for_test() },
             genesis.clone(),
         );
+        // Disable state snapshots, because they don't work with epochs that are too short.
+        // And they are not needed in these tests.
+        config.config.store.state_snapshot_enabled = state_snapshot_enabled;
         if i != 0 {
             config.network_config.peer_store.boot_nodes =
                 convert_boot_nodes(vec![("near.0", *first_node)]);
@@ -97,13 +101,13 @@ fn init_test_staking(
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_stake_nodes() {
     heavy_test(|| {
-        run_actix(async move {
-            let num_nodes = 2;
-            let dirs = (0..num_nodes)
-                .map(|i| {
-                    tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap()
-                })
-                .collect::<Vec<_>>();
+        let num_nodes = 2;
+        let dirs = (0..num_nodes)
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap()
+            })
+            .collect::<Vec<_>>();
+        run_actix(async {
             let test_nodes = init_test_staking(
                 dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
                 num_nodes,
@@ -111,6 +115,7 @@ fn test_stake_nodes() {
                 10,
                 false,
                 10,
+                false,
             );
 
             let tx = SignedTransaction::stake(
@@ -178,16 +183,16 @@ fn test_stake_nodes() {
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_validator_kickout() {
     heavy_test(|| {
-        run_actix(async move {
-            let num_nodes = 4;
-            let dirs = (0..num_nodes)
-                .map(|i| {
-                    tempfile::Builder::new()
-                        .prefix(&format!("validator_kickout_{}", i))
-                        .tempdir()
-                        .unwrap()
-                })
-                .collect::<Vec<_>>();
+        let num_nodes = 4;
+        let dirs = (0..num_nodes)
+            .map(|i| {
+                tempfile::Builder::new()
+                    .prefix(&format!("validator_kickout_{}", i))
+                    .tempdir()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        run_actix(async {
             let test_nodes = init_test_staking(
                 dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
                 num_nodes,
@@ -195,6 +200,7 @@ fn test_validator_kickout() {
                 15,
                 false,
                 (TESTING_INIT_STAKE / NEAR_BASE) as u64 + 1,
+                false,
             );
             let mut rng = rand::thread_rng();
             let stakes = (0..num_nodes / 2).map(|_| NEAR_BASE + rng.gen_range(1..100));
@@ -329,23 +335,21 @@ fn test_validator_kickout() {
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_validator_join() {
     heavy_test(|| {
-        run_actix(async move {
-            let num_nodes = 4;
-            let dirs = (0..num_nodes)
-                .map(|i| {
-                    tempfile::Builder::new()
-                        .prefix(&format!("validator_join_{}", i))
-                        .tempdir()
-                        .unwrap()
-                })
-                .collect::<Vec<_>>();
+        let num_nodes = 4;
+        let dirs = (0..num_nodes)
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("validator_join_{}", i)).tempdir().unwrap()
+            })
+            .collect::<Vec<_>>();
+        run_actix(async {
             let test_nodes = init_test_staking(
                 dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
                 num_nodes,
                 2,
-                16,
+                30,
                 false,
                 10,
+                true,
             );
             let signer = Arc::new(InMemorySigner::from_seed(
                 test_nodes[1].account_id.clone(),
@@ -487,16 +491,18 @@ fn test_validator_join() {
 
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
+/// Checks that during the first epoch, total_supply matches total_supply in genesis.
+/// Checks that during the second epoch, total_supply matches the expected inflation rate.
 fn test_inflation() {
     heavy_test(|| {
-        run_actix(async move {
-            let num_nodes = 1;
-            let dirs = (0..num_nodes)
-                .map(|i| {
-                    tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap()
-                })
-                .collect::<Vec<_>>();
-            let epoch_length = 10;
+        let num_nodes = 1;
+        let dirs = (0..num_nodes)
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap()
+            })
+            .collect::<Vec<_>>();
+        let epoch_length = 10;
+        run_actix(async {
             let test_nodes = init_test_staking(
                 dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
                 num_nodes,
@@ -504,6 +510,7 @@ fn test_inflation() {
                 epoch_length,
                 true,
                 10,
+                false,
             );
             let initial_total_supply = test_nodes[0].config.genesis.config.total_supply;
             let max_inflation_rate = test_nodes[0].config.genesis.config.max_inflation_rate;
@@ -519,9 +526,12 @@ fn test_inflation() {
                     let actor = actor.then(move |res| {
                         if let Ok(Ok(block)) = res {
                             if block.header.height >= 2 && block.header.height <= epoch_length {
+                                tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, "Step1: epoch1");
                                 if block.header.total_supply == initial_total_supply {
                                     done1_copy2.store(true, Ordering::SeqCst);
                                 }
+                            } else {
+                                tracing::info!("Step1: not epoch1");
                             }
                         }
                         future::ready(())
@@ -535,6 +545,7 @@ fn test_inflation() {
                             if block.header.height > epoch_length
                                 && block.header.height < epoch_length * 2
                             {
+                                tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, "Step2: epoch2");
                                 // It's expected that validator will miss first chunk, hence will only be 95% online, getting 5/9 of their reward.
                                 // +10% of protocol reward = 60% of max inflation are allocated.
                                 let base_reward = {
@@ -570,9 +581,12 @@ fn test_inflation() {
                                 let protocol_reward = base_reward * 1 / 10;
                                 let inflation =
                                     base_reward * 1 / 10 + (base_reward - protocol_reward) * 5 / 9;
+                                tracing::info!(?block.header.total_supply, ?block.header.height, ?initial_total_supply, epoch_length, ?inflation, "Step2: epoch2");
                                 if block.header.total_supply == initial_total_supply + inflation {
                                     done2_copy2.store(true, Ordering::SeqCst);
                                 }
+                            } else {
+                                tracing::info!("Step2: not epoch2");
                             }
                         }
                     });

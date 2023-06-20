@@ -14,30 +14,32 @@ from configured_logger import logger
 import requests
 import utils
 
-START_AT_BLOCK = 25
+EPOCH_LENGTH = 10
+START_AT_BLOCK = int(EPOCH_LENGTH * 2.5)
 
 config = load_config()
 near_root, node_dirs = init_cluster(
     2, 1, 1, config,
-    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
-     ["protocol_version", 47], ["use_production_config", True],
-     ["block_producer_kickout_threshold", 80]], {
-         0: {
-             "tracked_shards": [0],
-             "state_sync_enabled": True,
-         },
-         1: {
-             "tracked_shards": [0],
-             "state_sync_enabled": True,
-         },
-         2: {
-             "tracked_shards": [0],
-             "consensus": {
-                 "block_fetch_horizon": 20,
-             },
-             "state_sync_enabled": True,
-         }
-     })
+    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
+     ["epoch_length", EPOCH_LENGTH], ["protocol_version", 47],
+     ["use_production_config", True], ["block_producer_kickout_threshold", 80]],
+    {
+        0: {
+            "tracked_shards": [0],
+            "state_sync_enabled": True,
+        },
+        1: {
+            "tracked_shards": [0],
+            "state_sync_enabled": True,
+        },
+        2: {
+            "tracked_shards": [0],
+            "consensus": {
+                "block_fetch_horizon": EPOCH_LENGTH * 2,
+            },
+            "state_sync_enabled": True,
+        }
+    })
 
 started = time.time()
 

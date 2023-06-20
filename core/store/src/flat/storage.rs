@@ -43,6 +43,8 @@ pub(crate) struct FlatStorageInner {
     deltas: HashMap<CryptoHash, CachedFlatStateDelta>,
     /// This flag enables skipping flat head moves, needed temporarily for FlatState
     /// values inlining migration.
+    /// The flag has a numerical value and not a bool, to let us detect attempts
+    /// to disable move head multiple times.
     move_head_enabled: bool,
     metrics: FlatStorageMetrics,
 }
@@ -131,12 +133,14 @@ impl FlatStorage {
     /// Create a new FlatStorage for `shard_uid` using flat head if it is stored on storage.
     /// We also load all blocks with height between flat head to `latest_block_height`
     /// including those on forks into the returned FlatStorage.
-    pub fn new(store: Store, shard_uid: ShardUId) -> Self {
+    pub fn new(store: Store, shard_uid: ShardUId) -> Result<Self, StorageError> {
         let shard_id = shard_uid.shard_id();
         let flat_head = match store_helper::get_flat_storage_status(&store, shard_uid) {
             Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
             status => {
-                panic!("cannot create flat storage for shard {shard_id} with status {status:?}")
+                return Err(StorageError::StorageInconsistentState(format!(
+                    "Cannot create flat storage for shard {shard_id} with status {status:?}"
+                )));
             }
         };
         let metrics = FlatStorageMetrics::new(shard_id);
@@ -171,7 +175,7 @@ impl FlatStorage {
             metrics,
         };
         inner.update_delta_metrics();
-        Self(Arc::new(RwLock::new(inner)))
+        Ok(Self(Arc::new(RwLock::new(inner))))
     }
 
     /// Get sequence of blocks `target_block_hash` (inclusive) to flat head (exclusive)
@@ -327,9 +331,15 @@ impl FlatStorage {
         guard.shard_uid
     }
 
-    pub(crate) fn set_flat_head_update_mode(&self, enabled: bool) {
+    /// Updates `move_head_enabled` and returns whether the change was done.
+    pub(crate) fn set_flat_head_update_mode(&self, enabled: bool) -> bool {
         let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
-        guard.move_head_enabled = enabled;
+        if enabled != guard.move_head_enabled {
+            guard.move_head_enabled = enabled;
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -475,7 +485,7 @@ mod tests {
         store_update.commit().unwrap();
 
         let flat_storage_manager = FlatStorageManager::new(store.clone());
-        flat_storage_manager.create_flat_storage_for_shard(shard_uid);
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
 
         // Check `BlockNotSupported` errors which are fine to occur during regular block processing.
@@ -534,7 +544,7 @@ mod tests {
 
         // Check that flat storage state is created correctly for chain which has skipped heights.
         let flat_storage_manager = FlatStorageManager::new(store);
-        flat_storage_manager.create_flat_storage_for_shard(shard_uid);
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
 
         // Check that flat head can be moved to block 8.
@@ -578,7 +588,7 @@ mod tests {
         store_update.commit().unwrap();
 
         let flat_storage_manager = FlatStorageManager::new(store.clone());
-        flat_storage_manager.create_flat_storage_for_shard(shard_uid);
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
 
         // 2. Check that the chunk_view at block i reads the value of key &[1] as &[i]
