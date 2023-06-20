@@ -12,7 +12,7 @@ pub use client_config::{
     LogSummaryStyle, StateSyncConfig, SyncConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
     MIN_GC_NUM_EPOCHS_TO_KEEP, TEST_STATE_SYNC_TIMEOUT,
 };
-pub use config::ChainConfig;
+pub use config::{ChainConfig, ChainConfigLoader};
 pub use config_store::ChainConfigStore;
 pub use genesis_config::{
     get_initial_supply, stream_records_from_file, Genesis, GenesisChangeConfig, GenesisConfig,
