@@ -285,6 +285,44 @@ pub struct GenesisConfig {
 }
 
 impl GenesisConfig {
+    pub fn from_genesis_config_loader(genesis_config_loader: GenesisConfigLoader) -> Self {
+        Self {
+            protocol_version: genesis_config_loader.protocol_version,
+            genesis_time: genesis_config_loader.genesis_time,
+            chain_id: genesis_config_loader.chain_id,
+            genesis_height: genesis_config_loader.genesis_height,
+            chain_config_store: ChainConfigStore::new(genesis_config_loader.clone()),
+            num_block_producer_seats: genesis_config_loader.num_block_producer_seats,
+            num_block_producer_seats_per_shard: genesis_config_loader.num_block_producer_seats_per_shard,
+            avg_hidden_validator_seats_per_shard: genesis_config_loader.avg_hidden_validator_seats_per_shard,
+            dynamic_resharding: genesis_config_loader.dynamic_resharding,
+            protocol_upgrade_stake_threshold: genesis_config_loader.protocol_upgrade_stake_threshold,
+            epoch_length: genesis_config_loader.epoch_length,
+            gas_limit: genesis_config_loader.gas_limit,
+            min_gas_price: genesis_config_loader.min_gas_price,
+            max_gas_price: genesis_config_loader.max_gas_price,
+            block_producer_kickout_threshold: genesis_config_loader.block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold: genesis_config_loader.chunk_producer_kickout_threshold,
+            online_min_threshold: genesis_config_loader.online_min_threshold,
+            online_max_threshold: genesis_config_loader.online_max_threshold,
+            gas_price_adjustment_rate: genesis_config_loader.gas_price_adjustment_rate,
+            validators: genesis_config_loader.validators,
+            transaction_validity_period: genesis_config_loader.transaction_validity_period,
+            max_inflation_rate: genesis_config_loader.max_inflation_rate,
+            total_supply: genesis_config_loader.total_supply,
+            num_blocks_per_year: genesis_config_loader.num_blocks_per_year,
+            protocol_treasury_account: genesis_config_loader.protocol_treasury_account,
+            fishermen_threshold: genesis_config_loader.fishermen_threshold,
+            minimum_stake_divisor: genesis_config_loader.minimum_stake_divisor,
+            shard_layout: genesis_config_loader.shard_layout,
+            num_chunk_only_producer_seats: genesis_config_loader.num_chunk_only_producer_seats,
+            minimum_validators_per_shard: genesis_config_loader.minimum_validators_per_shard,
+            max_kickout_stake_perc: genesis_config_loader.max_kickout_stake_perc,
+            minimum_stake_ratio: genesis_config_loader.minimum_stake_ratio,
+            use_production_config: genesis_config_loader.use_production_config,
+        }
+    }
+
     pub fn use_production_config(&self) -> bool {
         self.use_production_config || self.chain_id == "testnet" || self.chain_id == "mainnet"
     }
@@ -372,6 +410,21 @@ fn contents_are_not_records(contents: &GenesisContents) -> bool {
         GenesisContents::Records { .. } => false,
         _ => true,
     }
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct GenesisLoader {
+    #[serde(flatten)]
+    pub config: GenesisConfigLoader,
+    /// Custom deserializer used instead of serde(default),
+    /// because serde(flatten) doesn't work with default for some reason
+    /// The corresponding issue has been open since 2019, so any day now.
+    #[serde(
+    flatten,
+    deserialize_with = "no_value_and_null_as_default",
+    skip_serializing_if = "contents_are_not_records"
+    )]
+    pub contents: GenesisContents,
 }
 
 /// `Genesis` has an invariant that `total_supply` is equal to the supply seen in the records.
@@ -627,12 +680,19 @@ impl Genesis {
                 error_message: "Failed to strip comments from genesis config file".to_string(),
             })?;
 
-        let genesis =
-            serde_json::from_str::<Genesis>(&json_str_without_comments).map_err(|_| {
+        // Mirko: tu dole dodaj laodera
+
+        let genesis_loader =
+            serde_json::from_str::<GenesisLoader>(&json_str_without_comments).map_err(|_| {
                 ValidationError::GenesisFileError {
                     error_message: "Failed to deserialize the genesis records.".to_string(),
                 }
             })?;
+
+        let genesis = Self {
+            config: GenesisConfig::new(genesis_loader.config),
+            contents: genesis_loader.contents,
+        };
 
         genesis.validate(genesis_validation)?;
         Ok(genesis)
