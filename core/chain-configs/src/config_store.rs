@@ -3,10 +3,11 @@ use near_primitives::types::EpochHeight;
 use std::sync::Arc;
 use crate::ChainConfig;
 use crate::config::ChainConfigLoader;
+use smart_default::SmartDefault;
 use crate::genesis_config::GenesisConfigLoader;
 
 /// Stores chain config for each epoch where it was updated.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, SmartDefault, serde::Serialize, serde::Deserialize)]
 pub struct ChainConfigStore {
     /// Mirko: dodaj tu komentar
     initial_chain_config: Arc<ChainConfig>,
