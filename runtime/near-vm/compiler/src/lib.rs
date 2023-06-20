@@ -38,7 +38,6 @@ mod module;
 mod relocation;
 mod target;
 mod trap;
-mod unwind;
 #[cfg(feature = "translator")]
 #[macro_use]
 mod translator;
@@ -72,7 +71,6 @@ pub use crate::translator::{
     ModuleTranslationState,
 };
 pub use crate::trap::TrapInformation;
-pub use crate::unwind::{CompiledFunctionUnwindInfo, CompiledFunctionUnwindInfoRef};
 pub use near_vm_types::Features;
 
 #[cfg(feature = "translator")]

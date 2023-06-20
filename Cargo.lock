@@ -7502,9 +7502,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-compiler-near"
-version = "2.4.0"
+version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34d09dc0ba83ddaceb9b0846ed11a6c26a449b69fa2709e0335d268f44491921"
+checksum = "46fdae7245128f284476e6db9653ef0a15b011975091bcd7f9d7303132409662"
 dependencies = [
  "enumset",
  "rkyv",
@@ -7518,9 +7518,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-compiler-singlepass-near"
-version = "2.4.0"
+version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86f34bf0625219766759851c1f92e0797787b8b10b424c0a273ee4e0328a2ff7"
+checksum = "ac4af0e438015585eb27b2c6f6869c58c540bfe27408b686b1778470bf301050"
 dependencies = [
  "byteorder",
  "dynasm 1.2.3",
@@ -7537,9 +7537,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-engine-near"
-version = "2.4.0"
+version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa8353167be3099f3bd033cb9c8479a02d69917777cf4c2e52a09946d5582457"
+checksum = "4048411cabb2c94c7d8d11d9d0282cc6b15308b61ebc1e122c40e89865ebb5c5"
 dependencies = [
  "backtrace",
  "enumset",
@@ -7556,9 +7556,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-engine-universal-near"
-version = "2.4.0"
+version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c34fb4f6af2209a36c5e6ed407c9e057fdd2e722e762f702dbd8575896349c62"
+checksum = "c5f31c3d2850ac7957406d3c9581d9435ea8126a26478709fa7e931b6f562b4d"
 dependencies = [
  "cfg-if 1.0.0",
  "enumset",
@@ -7639,9 +7639,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-types-near"
-version = "2.4.0"
+version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1131dfac4d92947acef554a75b433122ca635414c23934f53434ec0efc5994d"
+checksum = "1ba154adffb0fbd33f5dabd3788a1744d846b43e6e090d44269c7ee8fa5743e4"
 dependencies = [
  "indexmap",
  "rkyv",
@@ -7650,9 +7650,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-vm-near"
-version = "2.4.0"
+version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a47f13d5c412974a38bba01a8b009e1e49bffbee45387198403b269a74d7374"
+checksum = "70a5585596f6e9915d606de944aece51626736fb1191aefb5b2ef108c6f7604a"
 dependencies = [
  "backtrace",
  "cc",

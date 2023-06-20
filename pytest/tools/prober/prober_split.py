@@ -113,15 +113,14 @@ def check_view_call(legacy_url, split_url):
         "method_name": "get_num",
         "args_base64": "e30="
     }
-    legacy_response = json_rpc('query', params, legacy_url)
-    split_response = json_rpc('query', params, split_url)
+    legacy_resp = json_rpc('query', params, legacy_url)
+    split_resp = json_rpc('query', params, split_url)
 
-    if legacy_response['result']['result'] != split_response['result'][
-            'result']:
+    if legacy_resp['result']['result'] != split_resp['result']['result']:
         logger.error(
             f'View call check failed, the legacy response and the split response are different'
-            f'\nlegacy response\n{legacy_response}'
-            f'\nsplit response\n{split_response}')
+            f'\nlegacy response\n{legacy_resp}'
+            f'\nsplit response\n{split_resp}')
         sys.exit(1)
 
 

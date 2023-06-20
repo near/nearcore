@@ -29,7 +29,6 @@ mod code_memory;
 mod engine;
 mod executable;
 mod link;
-mod unwind;
 
 pub use crate::artifact::UniversalArtifact;
 pub use crate::builder::Universal;

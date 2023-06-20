@@ -183,7 +183,7 @@ static CHUNK_TX_COMPUTE: Lazy<HistogramVec> = Lazy::new(|| {
         "near_chunk_tx_compute",
         "Compute time for transaction validation by chunk, as a histogram in ms",
         &["shard_id"],
-        Some(vec![50., 100., 200., 300., 400., 500., 600.0]),
+        Some(vec![0., 50., 100., 200., 300., 400., 500., 600.0]),
     )
     .unwrap()
 });
@@ -192,7 +192,7 @@ static CHUNK_TX_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
         "near_chunk_tx_tgas",
         "Tgas burnt for transaction validation by chunk, as a histogram",
         &["shard_id"],
-        Some(vec![50., 100., 200., 300., 400., 500.]),
+        Some(vec![0., 50., 100., 200., 300., 400., 500.]),
     )
     .unwrap()
 });
@@ -203,7 +203,7 @@ static CHUNK_TX_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
 /// But due to the split between types of receipts, it should be quite rare to
 /// see more than 1000.
 fn buckets_for_gas() -> Option<Vec<f64>> {
-    Some(vec![50., 100., 200., 300., 400., 500., 600., 700., 800., 900., 1000., 1100., 1200.])
+    Some(vec![0., 50., 100., 200., 300., 400., 500., 600., 700., 800., 900., 1000., 1100., 1200.])
 }
 /// Buckets used for receipt compute time usage, in ms.
 ///
@@ -215,7 +215,7 @@ fn buckets_for_gas() -> Option<Vec<f64>> {
 /// bucket split at 2000 ms to easily single out heavy undercharging.
 fn buckets_for_compute() -> Option<Vec<f64>> {
     Some(vec![
-        50., 100., 200., 300., 400., 500., 600., 700., 800., 900., 1000., 1100., 1200., 1300.,
+        0., 50., 100., 200., 300., 400., 500., 600., 700., 800., 900., 1000., 1100., 1200., 1300.,
         2000.,
     ])
 }
@@ -242,8 +242,8 @@ impl ApplyMetrics {
     fn update_accumulated(&mut self, gas: u64, compute: u64) -> (u64, u64) {
         // Use saturating sub, wrong metrics are better than an overflow panic.
         let delta = (
-            self.accumulated_gas.saturating_sub(gas),
-            self.accumulated_compute.saturating_sub(compute),
+            gas.saturating_sub(self.accumulated_gas),
+            compute.saturating_sub(self.accumulated_compute),
         );
         self.accumulated_gas = gas;
         self.accumulated_compute = compute;
@@ -272,31 +272,37 @@ impl ApplyMetrics {
 
     /// Report statistics
     pub fn report(&self, shard_id: &str) {
-        CHUNK_TX_TGAS.with_label_values(&[shard_id]).observe(self.tx_gas as f64);
-        CHUNK_TX_COMPUTE.with_label_values(&[shard_id]).observe(self.tx_compute_usage as f64);
+        const TERA: f64 = 1_000_000_000_000_f64;
+
+        CHUNK_TX_TGAS.with_label_values(&[shard_id]).observe(self.tx_gas as f64 / TERA);
+        CHUNK_TX_COMPUTE
+            .with_label_values(&[shard_id])
+            .observe(self.tx_compute_usage as f64 / TERA);
 
         CHUNK_LOCAL_RECEIPTS_TGAS
             .with_label_values(&[shard_id])
-            .observe(self.local_receipts_gas as f64);
+            .observe(self.local_receipts_gas as f64 / TERA);
         CHUNK_LOCAL_RECEIPTS_COMPUTE
             .with_label_values(&[shard_id])
-            .observe(self.local_receipts_compute_usage as f64);
+            .observe(self.local_receipts_compute_usage as f64 / TERA);
 
         CHUNK_DELAYED_RECEIPTS_TGAS
             .with_label_values(&[shard_id])
-            .observe(self.delayed_receipts_gas as f64);
+            .observe(self.delayed_receipts_gas as f64 / TERA);
         CHUNK_DELAYED_RECEIPTS_COMPUTE
             .with_label_values(&[shard_id])
-            .observe(self.delayed_receipts_compute_usage as f64);
+            .observe(self.delayed_receipts_compute_usage as f64 / TERA);
 
         CHUNK_INC_RECEIPTS_TGAS
             .with_label_values(&[shard_id])
-            .observe(self.incoming_receipts_gas as f64);
+            .observe(self.incoming_receipts_gas as f64 / TERA);
         CHUNK_INC_RECEIPTS_COMPUTE
             .with_label_values(&[shard_id])
-            .observe(self.incoming_receipts_compute_usage as f64);
+            .observe(self.incoming_receipts_compute_usage as f64 / TERA);
 
-        CHUNK_TGAS.with_label_values(&[shard_id]).observe(self.accumulated_gas as f64);
-        CHUNK_COMPUTE.with_label_values(&[shard_id]).observe(self.accumulated_compute as f64);
+        CHUNK_TGAS.with_label_values(&[shard_id]).observe(self.accumulated_gas as f64 / TERA);
+        CHUNK_COMPUTE
+            .with_label_values(&[shard_id])
+            .observe(self.accumulated_compute as f64 / TERA);
     }
 }
