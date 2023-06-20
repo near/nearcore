@@ -25,7 +25,7 @@ use near_store::test_utils::create_test_store;
 
 use near_primitives::shard_layout::ShardLayout;
 use {crate::reward_calculator::NUM_NS_IN_SECOND, crate::NUM_SECONDS_IN_A_YEAR};
-use near_chain_configs::{ChainConfigStore, GenesisConfig, GenesisConfigLoader};
+use near_chain_configs::{ChainConfigStore, GenesisConfig, ChainConfig};
 
 pub const DEFAULT_GAS_PRICE: u128 = 100;
 pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
@@ -186,10 +186,10 @@ pub fn stake(account_id: AccountId, amount: Balance) -> ValidatorStake {
 
 /// No-op reward calculator. Will produce no reward
 pub fn default_reward_calculator() -> RewardCalculator {
-    let mirko = GenesisConfigLoader {
+    let mirko = ChainConfig {
         protocol_reward_rate: Ratio::from_integer(0),
     };
-    let chain_config_store = ChainConfigStore::new(mirko);
+    let chain_config_store = ChainConfigStore::test(mirko);
 
     RewardCalculator {
         max_inflation_rate: Ratio::from_integer(0),

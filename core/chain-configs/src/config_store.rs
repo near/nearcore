@@ -22,6 +22,12 @@ impl ChainConfigStore {
         Self { initial_chain_config, store }
     }
 
+    pub fn test(chain_config: ChainConfig) -> Self {
+        let initial_chain_config = Arc::new(chain_config);
+        let mut store = BTreeMap::new();
+        Self { initial_chain_config, store }
+    }
+
     pub fn get_config(&self, epoch_height: EpochHeight) -> &Arc<ChainConfig> {
         &self.initial_chain_config
     }
