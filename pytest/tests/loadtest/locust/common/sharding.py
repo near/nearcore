@@ -183,6 +183,10 @@ def finish_upper(lower, upper, prefix, free_chars, free_length):
 # to be chosen from a large range. For example, if lower='aaa', upper='aaa0',
 # then we want a string of length 4 + free_length, because the first 4 characters
 # are constricted
+# TODO: This could hopefully be made simpler by successively appending either an
+# alphanumeric character or one of ['-', '.', '_'] followed by an alphanumeric character,
+# choosing one of the ones that keeps us between the bounds each time.
+# See https://github.com/near/nearcore/pull/9194#pullrequestreview-1488492798
 def random_prefix_between(lower, upper, free_length=6):
     assert lower is None or upper is None or lower < upper, (lower, upper)
 
