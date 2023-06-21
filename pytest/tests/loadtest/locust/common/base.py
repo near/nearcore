@@ -426,7 +426,7 @@ def on_locust_init(environment, **kwargs):
         # TODO: Create accounts in parallel
         for id in range(num_funding_accounts):
             account_id = f"funds_worker_{id}.{master_funding_account.key.account_id}"
-            worker_key = key.Key.from_seed_testonly(account_id, account_id)
+            worker_key = key.Key.from_seed_testonly(account_id)
             if not node.account_exists(account_id):
                 node.send_tx_retry(
                     CreateSubAccount(master_funding_account,
@@ -437,8 +437,7 @@ def on_locust_init(environment, **kwargs):
     elif isinstance(environment.runner, runners.WorkerRunner):
         worker_id = environment.runner.worker_index
         worker_account_id = f"funds_worker_{worker_id}.{master_funding_account.key.account_id}"
-        worker_key = key.Key.from_seed_testonly(worker_account_id,
-                                                worker_account_id)
+        worker_key = key.Key.from_seed_testonly(worker_account_id)
         funding_account = Account(worker_key)
     elif isinstance(environment.runner, runners.LocalRunner):
         funding_account = master_funding_account

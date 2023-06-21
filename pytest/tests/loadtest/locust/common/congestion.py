@@ -90,8 +90,7 @@ def on_locust_init(environment, **kwargs):
     funding_account.refresh_nonce(node.node)
 
     account = base.Account(
-        key.Key.from_seed_testonly(environment.congestion_account_id,
-                                   environment.congestion_account_id))
+        key.Key.from_seed_testonly(environment.congestion_account_id))
     if not node.account_exists(account.key.account_id):
         node.send_tx_retry(
             base.CreateSubAccount(funding_account, account.key,
