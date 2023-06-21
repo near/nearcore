@@ -12,7 +12,7 @@ import transaction
 from account import TGAS, NEAR_BASE
 import cluster
 import key
-from common.base import Account, CreateSubAccount, Deploy, NearUser, Transaction, send_transaction
+from common.base import Account, CreateSubAccount, Deploy, NearNodeProxy, Transaction
 from locust import events, runners
 from transaction import create_function_call_action
 
@@ -37,8 +37,8 @@ class SocialDbSet(Transaction):
                                                  self.sender.use_nonce(),
                                                  block_hash)
 
-    def sender_id(self) -> str:
-        return self.sender.key.account_id
+    def sender_account(self) -> Account:
+        return self.sender
 
 
 class SubmitPost(SocialDbSet):
@@ -86,8 +86,8 @@ class InitSocialDB(Transaction):
             key.account_id, nonce, [call_new_action, call_set_status_action],
             block_hash, key.account_id, key.decoded_pk(), key.decoded_sk())
 
-    def sender_id(self) -> str:
-        return self.contract.key.account_id
+    def sender_account(self) -> Account:
+        return self.contract
 
 
 class InitSocialDbAccount(Transaction):
@@ -113,8 +113,8 @@ class InitSocialDbAccount(Transaction):
                                                  self.account.use_nonce(),
                                                  block_hash)
 
-    def sender_id(self) -> str:
-        return self.account.key.account_id
+    def sender_account(self) -> Account:
+        return self.account
 
 
 def social_db_build_index_obj(key_list_pairs: dict) -> dict:
@@ -294,19 +294,18 @@ def on_locust_init(environment, **kwargs):
         contract_key = key.Key.from_random(environment.social_account_id)
         social_account = Account(contract_key)
 
-        # Note: These setup requests are not tracked by locust because we use our own http session
-        host, port = environment.host.split(":")
-        node = cluster.RpcNode(host, port)
-
-        send_transaction(
-            node,
+        node = NearNodeProxy(environment)
+        node.send_tx_retry(
             CreateSubAccount(funding_account,
                              social_account.key,
-                             balance=50000.0))
-        social_account.refresh_nonce(node)
-        send_transaction(
-            node, Deploy(social_account, social_contract_code, "Social DB"))
-        send_transaction(node, InitSocialDB(social_account))
+                             balance=50000.0),
+            "create socialDB funding account")
+        social_account.refresh_nonce(node.node)
+        node.send_tx_retry(
+            Deploy(social_account, social_contract_code, "Social DB"),
+            "deploy socialDB contract")
+        node.send_tx_retry(InitSocialDB(social_account),
+                           "init socialDB contract")
 
 
 # Social specific CLI args

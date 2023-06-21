@@ -62,6 +62,11 @@ class Account:
             self.current_nonce.value = new_nonce
             return new_nonce
 
+    def fast_forward_nonce(self, ak_nonce):
+        with self.current_nonce.get_lock():
+            self.current_nonce.value = max(self.current_nonce.value,
+                                           ak_nonce + 1)
+
 
 class Transaction:
     """
@@ -88,9 +93,9 @@ class Transaction:
         """
 
     @abc.abstractmethod
-    def sender_id(self) -> str:
+    def sender_account(self) -> Account:
         """
-        Account id of the sender that signs the tx, which must be known to map
+        Account of the sender that signs the tx, which must be known to map
         the tx-result request to the right shard.
         """
 
@@ -111,8 +116,8 @@ class Deploy(Transaction):
                                                    account.use_nonce(),
                                                    block_hash)
 
-    def sender_id(self) -> str:
-        return self.account.key.account_id
+    def sender_account(self) -> Account:
+        return self.account
 
 
 class CreateSubAccount(Transaction):
@@ -131,8 +136,8 @@ class CreateSubAccount(Transaction):
             sender.key, sub.account_id, sub, int(self.balance * 1E24),
             sender.use_nonce(), block_hash)
 
-    def sender_id(self) -> str:
-        return self.sender.key.account_id
+    def sender_account(self) -> Account:
+        return self.sender
 
 
 class NearNodeProxy:
@@ -140,11 +145,36 @@ class NearNodeProxy:
     Wrapper around a RPC node connection that tracks requests on locust.
     """
 
-    def __init__(self, host, request_event):
-        self.request_event = request_event
-        url, port = host.split(":")
+    def __init__(self, environment):
+        self.request_event = environment.events.request
+        url, port = environment.host.split(":")
         self.node = cluster.RpcNode(url, port)
         self.session = requests.Session()
+
+    def send_tx_retry(self, tx: Transaction, locust_name):
+        """
+        Send a transaction and retry until it succeeds
+        
+        This method retries no matter the kind of error, but it tries to be
+        smart about what to do depending on the error.
+        
+        Expected error: UnknownTransactionError means TX has not been executed yet.
+        Expected error: InvalidNonceError means we are using an outdated nonce.
+        Other errors: Probably bugs in the test setup (e.g. invalid signer).
+        """
+        while True:
+            try:
+                return self.send_tx(tx, locust_name)
+            except InvalidNonceError as error:
+                logger.debug(
+                    f"{error} for {tx.sender_account().key.account_id}, updating nonce and retrying"
+                )
+                tx.sender_account().fast_forward_nonce(error.ak_nonce)
+            except NearError as error:
+                logger.warn(
+                    f"transaction {tx.transaction_id} failed: {error}, retrying in 0.25s"
+                )
+                time.sleep(0.25)
 
     def send_tx(self, tx: Transaction, locust_name):
         """
@@ -180,7 +210,10 @@ class NearNodeProxy:
             tx.transaction_id = submit_response["result"]
             try:
                 # using retrying lib here to poll until a response is ready
-                self.poll_tx_result(meta, [tx.transaction_id, tx.sender_id()])
+                self.poll_tx_result(
+                    meta,
+                    [tx.transaction_id,
+                     tx.sender_account().key.account_id])
             except NearError as err:
                 logging.warn(f"marking an error {err.message}, {err.details}")
                 meta["exception"] = err
@@ -239,7 +272,7 @@ class NearUser(User):
     def __init__(self, environment):
         super().__init__(environment)
         assert self.host is not None, "Near user requires the RPC node address"
-        self.node = NearNodeProxy(self.host, environment.events.request)
+        self.node = NearNodeProxy(environment)
         self.id = NearUser.get_next_id()
         self.account_id = NearUser.generate_account_id(self.id)
 
@@ -267,45 +300,7 @@ class NearUser(User):
         """
         Send a transaction and retry until it succeeds
         """
-        # expected error: UNKNOWN_TRANSACTION means TX has not been executed yet
-        # other errors: probably bugs in the test setup (e.g. invalid signer)
-        # this method is very simple and just retries no matter the kind of
-        # error, as long as it is one defined by us (inherits from NearError)
-        while True:
-            try:
-                result = self.node.send_tx(tx, locust_name=locust_name)
-                return result
-            except NearError as error:
-                logger.warn(
-                    f"transaction {tx.transaction_id} failed: {error}, retrying in 0.25s"
-                )
-                time.sleep(0.25)
-
-
-def send_transaction(node, tx):
-    """
-    Send a transaction without a user.
-    Retry until it is successful.
-    Used for setting up accounts before actual users start their load.
-    """
-    while True:
-        block_hash = base58.b58decode(node.get_latest_block().hash)
-        signed_tx = tx.sign_and_serialize(block_hash)
-        tx_result = node.send_tx_and_wait(signed_tx, timeout=20)
-        success = "error" not in tx_result
-        if success:
-            logger.debug(
-                f"transaction {tx.transaction_id} (for no account) is successful: {tx_result}"
-            )
-            return True, tx_result
-        elif "UNKNOWN_TRANSACTION" in tx_result:
-            logger.debug(
-                f"transaction {tx.transaction_id} (for no account) timed out")
-        else:
-            logger.warn(
-                f"transaction {tx.transaction_id} (for no account) is not successful: {tx_result}"
-            )
-        logger.info(f"re-submitting transaction {tx.transaction_id}")
+        return self.node.send_tx_retry(tx, locust_name=locust_name)
 
 
 class NearError(Exception):
@@ -331,6 +326,19 @@ class TxUnknownError(RpcError):
         super().__init__(message)
 
 
+class InvalidNonceError(RpcError):
+
+    def __init__(
+        self,
+        used_nonce,
+        ak_nonce,
+    ):
+        super().__init__(
+            f"Tried to use nonce {used_nonce} but access key nonce is {ak_nonce}"
+        )
+        self.ak_nonce = ak_nonce
+
+
 class TxError(NearError):
 
     def __init__(self,
@@ -351,10 +359,21 @@ def evaluate_rpc_result(rpc_result):
     and failure cases. Failures are raised as exceptions.
     """
     if "error" in rpc_result:
-        if rpc_result["error"]["cause"]["name"] == "UNKNOWN_TRANSACTION":
-            raise TxUnknownError("UNKNOWN_TRANSACTION")
-        else:
-            raise RpcError(rpc_result["error"])
+        err_name = rpc_result["error"]["cause"]["name"]
+        # The sync API returns "UNKNOWN_TRANSACTION" after a timeout.
+        # The async API returns "TIMEOUT_ERROR" if the tx was not accepted in the chain after 10s.
+        # In either case, the identical transaction should be retried.
+        if err_name in ["UNKNOWN_TRANSACTION", "TIMEOUT_ERROR"]:
+            raise TxUnknownError(err_name)
+        # When reusing keys across test runs, the nonce is higher than expected.
+        elif err_name == "INVALID_TRANSACTION":
+            err_description = rpc_result["error"]["data"]["TxExecutionError"][
+                "InvalidTxError"]
+            if "InvalidNonce" in err_description:
+                raise InvalidNonceError(
+                    err_description["InvalidNonce"]["tx_nonce"],
+                    err_description["InvalidNonce"]["ak_nonce"])
+        raise RpcError(rpc_result["error"])
 
     result = rpc_result["result"]
     transaction_outcome = result["transaction_outcome"]
@@ -385,9 +404,7 @@ def evaluate_rpc_result(rpc_result):
 # called once per process before user initialization
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
-    # Note: These setup requests are not tracked by locust because we use our own http session
-    host, port = environment.host.split(":")
-    node = cluster.RpcNode(host, port)
+    node = NearNodeProxy(environment)
 
     master_funding_key = key.Key.from_json_file(
         environment.parsed_options.funding_key)
@@ -402,12 +419,11 @@ def on_locust_init(environment, **kwargs):
         for id in range(num_funding_accounts):
             account_id = f"funds_worker_{id}.{master_funding_account.key.account_id}"
             worker_key = key.Key.from_seed_testonly(account_id, account_id)
-            logger.info(f"Creating {account_id}")
-            send_transaction(
-                node,
+            node.send_tx_retry(
                 CreateSubAccount(master_funding_account,
                                  worker_key,
-                                 balance=funding_balance))
+                                 balance=funding_balance),
+                "create funding account")
         funding_account = master_funding_account
     elif isinstance(environment.runner, runners.WorkerRunner):
         worker_id = environment.runner.worker_index
