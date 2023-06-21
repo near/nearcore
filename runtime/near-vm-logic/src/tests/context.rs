@@ -1,5 +1,5 @@
 use crate::tests::vm_logic_builder::VMLogicBuilder;
-use near_primitives::config::{VMLimitConfig, ViewConfig};
+use near_primitives_core::config::{VMLimitConfig, ViewConfig};
 
 macro_rules! decl_test_bytes {
     ($testname:ident, $method:ident, $ctx:ident, $want:expr) => {
