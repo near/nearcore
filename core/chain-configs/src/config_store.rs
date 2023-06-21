@@ -5,6 +5,9 @@ use crate::ChainConfig;
 use crate::config::ChainConfigLoader;
 use crate::genesis_config::GenesisConfigLoader;
 
+pub const RESOURCES_DIR: &str = "../res/";
+pub const CONFIG_CHANGE_FILENAME: &str = "genesis.json";
+
 /// Stores chain config for each epoch where it was updated.
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ChainConfigStore {
@@ -16,6 +19,8 @@ pub struct ChainConfigStore {
 
 impl ChainConfigStore {
     pub fn new(genesis_config_loader: GenesisConfigLoader) -> Self {
+        let mirko = RESOURCES_DIR + CONFIG_CHANGE_FILENAME;
+        println!("Mirko: {}", mirko);
         let initial_chain_config = Arc::new(ChainConfig::new(genesis_config_loader));
         let mut store = BTreeMap::new();
         // Mirko: tu dodaj čitanja iz fileova
@@ -36,7 +41,7 @@ impl ChainConfigStore {
     }
 
     pub fn get_config(&self, epoch_height: EpochHeight) -> &Arc<ChainConfig> {
-        println!("Mirko: dohvaca se config");
+        // Mirko: fixaj da se ne vraca samo initial config nego da se zapravo applya store
         &self.initial_chain_config
     }
 }
