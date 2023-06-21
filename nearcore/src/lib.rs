@@ -1,4 +1,5 @@
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
+use crate::metrics::spawn_trie_metrics_loop;
 pub use crate::runtime::NightshadeRuntime;
 
 use crate::cold_storage::spawn_cold_store_loop;
@@ -10,6 +11,7 @@ use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{IntoSender, LateBoundSender};
 use near_async::time;
+use near_chain::state_snapshot_actor::{get_make_snapshot_callback, StateSnapshotActor};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chunks::shards_manager_actor::start_shards_manager;
@@ -152,6 +154,9 @@ pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Re
         Err(StoreOpenerError::MigrationError(err)) => {
             Err(err)
         },
+        Err(StoreOpenerError::CheckpointError(err)) => {
+            Err(err)
+        },
     }.with_context(|| format!("unable to open database at {}", opener.path().display()))?;
 
     near_config.config.archive = storage.is_archive()?;
@@ -221,6 +226,12 @@ pub fn start_with_config_and_synchronization(
         None
     };
 
+    let trie_metrics_arbiter = spawn_trie_metrics_loop(
+        config.clone(),
+        storage.get_hot_store(),
+        config.client_config.log_summary_period,
+    )?;
+
     let epoch_manager =
         EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config);
     let shard_tracker =
@@ -271,6 +282,14 @@ pub fn start_with_config_and_synchronization(
     let client_adapter_for_shards_manager = Arc::new(LateBoundSender::default());
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
+    let state_snapshot_actor = if config.config.store.state_snapshot_enabled {
+        runtime.get_flat_storage_manager().map(|flat_storage_manager| {
+            Arc::new(StateSnapshotActor::new(flat_storage_manager, runtime.get_tries()).start())
+        })
+    } else {
+        None
+    };
+
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
@@ -281,6 +300,14 @@ pub fn start_with_config_and_synchronization(
         config.client_config.clone(),
         adv.clone(),
     );
+    let make_state_snapshot_callback =
+        if let (Some(flat_storage_manager), Some(state_snapshot_actor)) =
+            (runtime.get_flat_storage_manager(), state_snapshot_actor)
+        {
+            Some(get_make_snapshot_callback(state_snapshot_actor, flat_storage_manager))
+        } else {
+            None
+        };
     let (client_actor, client_arbiter_handle) = start_client(
         config.client_config.clone(),
         chain_genesis.clone(),
@@ -292,6 +319,7 @@ pub fn start_with_config_and_synchronization(
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
         telemetry,
+        make_state_snapshot_callback,
         shutdown_signal,
         adv,
         config_updater,
@@ -371,7 +399,8 @@ pub fn start_with_config_and_synchronization(
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
-    let mut arbiters = vec![client_arbiter_handle, shards_manager_arbiter_handle];
+    let mut arbiters =
+        vec![client_arbiter_handle, shards_manager_arbiter_handle, trie_metrics_arbiter];
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);
     }

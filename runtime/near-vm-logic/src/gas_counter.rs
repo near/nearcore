@@ -1,5 +1,4 @@
 use crate::{HostError, VMLogicError};
-use near_primitives::types::TrieNodesCount;
 use near_primitives_core::config::ExtCosts::read_cached_trie_node;
 use near_primitives_core::config::ExtCosts::touching_trie_node;
 use near_primitives_core::{
@@ -7,6 +6,7 @@ use near_primitives_core::{
     profile::ProfileDataV3,
     types::Gas,
 };
+use near_vm_errors::TrieNodesCount;
 use std::collections::HashMap;
 
 #[inline]
@@ -355,13 +355,15 @@ mod tests {
     #[test]
     fn test_profile_compute_cost_is_accurate() {
         let mut counter = make_test_counter(MAX_GAS, MAX_GAS, false);
-        counter.pay_base(near_primitives::config::ExtCosts::storage_write_base).unwrap();
-        counter.pay_per(near_primitives::config::ExtCosts::storage_write_value_byte, 10).unwrap();
+        counter.pay_base(near_primitives_core::config::ExtCosts::storage_write_base).unwrap();
+        counter
+            .pay_per(near_primitives_core::config::ExtCosts::storage_write_value_byte, 10)
+            .unwrap();
         counter
             .pay_action_accumulated(
                 100,
                 100,
-                near_primitives::config::ActionCosts::new_data_receipt_byte,
+                near_primitives_core::config::ActionCosts::new_data_receipt_byte,
             )
             .unwrap();
 
@@ -376,7 +378,8 @@ mod tests {
         fn test(burn: Gas, prepaid: Gas, want: Result<(), HostError>) {
             let mut counter = make_test_counter(burn, prepaid, false);
             assert_eq!(
-                counter.pay_per(near_primitives::config::ExtCosts::storage_write_value_byte, 100),
+                counter
+                    .pay_per(near_primitives_core::config::ExtCosts::storage_write_value_byte, 100),
                 want.map_err(Into::into)
             );
             let mut profile = counter.profile_data();
@@ -398,7 +401,7 @@ mod tests {
                 counter.pay_action_accumulated(
                     10_000_000_000,
                     10_000_000_000,
-                    near_primitives::config::ActionCosts::new_data_receipt_byte
+                    near_primitives_core::config::ActionCosts::new_data_receipt_byte
                 ),
                 want.map_err(Into::into)
             );

@@ -5,7 +5,7 @@ use crate::VMLogic;
 use borsh::BorshSerialize;
 use near_account_id::AccountId;
 use near_crypto::PublicKey;
-use near_primitives::transaction::Action;
+use near_vm_errors::action::Action;
 use serde_json;
 
 #[derive(serde::Serialize)]

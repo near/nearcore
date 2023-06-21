@@ -2,7 +2,7 @@ use near_chain_configs::{Genesis, GenesisValidationMode};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::state_record::StateRecord;
 use near_primitives::version::PROTOCOL_VERSION;
-use node_runtime::Runtime;
+use near_store::genesis_state_applier::compute_genesis_storage_usage;
 use std::fs::File;
 use tracing::debug;
 
@@ -21,7 +21,8 @@ async fn main() -> anyhow::Result<()> {
 
     let config_store = RuntimeConfigStore::new(None);
     let config = config_store.get_config(PROTOCOL_VERSION);
-    let storage_usage = Runtime::new().compute_genesis_storage_usage(&genesis, config);
+    let storage_usage_config = &config.fees.storage_usage_config;
+    let storage_usage = compute_genesis_storage_usage(&genesis, storage_usage_config);
     debug!(target: "storage-calculator", "Storage usage calculated");
 
     let mut result = Vec::new();

@@ -6,13 +6,12 @@ use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::{ReceiptMetadata, StorageGetMode, ValuePtr};
 use near_crypto::Secp256K1Signature;
-use near_primitives::checked_feature;
-use near_primitives::config::ViewConfig;
-use near_primitives::profile::ProfileDataV3;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::version::is_implicit_account_creation_enabled;
+use near_primitives_core::checked_feature;
 use near_primitives_core::config::ExtCosts::*;
+use near_primitives_core::config::ViewConfig;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
+use near_primitives_core::profile::ProfileDataV3;
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::runtime::fees::{transfer_exec_fee, transfer_send_fee};
 use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasDistribution, GasWeight, ProtocolVersion,
@@ -1796,7 +1795,7 @@ impl<'a> VMLogic<'a> {
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.get_account_by_receipt(receipt_idx);
         let is_receiver_implicit =
-            is_implicit_account_creation_enabled(self.current_protocol_version)
+            checked_feature!("stable", ImplicitAccountCreation, self.current_protocol_version)
                 && receiver_id.is_implicit();
 
         let send_fee = transfer_send_fee(self.fees_config, sir, is_receiver_implicit);

@@ -5,9 +5,9 @@ use crate::types::Gas;
 use crate::{MemSlice, VMConfig};
 use borsh::BorshSerialize;
 use expect_test::expect;
-use near_primitives::config::{ActionCosts, ExtCosts};
-use near_primitives::runtime::fees::Fee;
-use near_primitives::transaction::{Action, FunctionCallAction};
+use near_primitives_core::config::{ActionCosts, ExtCosts};
+use near_primitives_core::runtime::fees::Fee;
+use near_vm_errors::action::{Action, FunctionCallAction};
 use near_vm_errors::{HostError, VMLogicError};
 
 #[test]

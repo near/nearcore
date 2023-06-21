@@ -4,6 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_part::PartId;
@@ -45,9 +46,7 @@ use near_store::{
     DBCol, PartialStorage, ShardTries, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
-use crate::types::{
-    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, RuntimeAdapter,
-};
+use crate::types::{ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter};
 use crate::BlockHeader;
 
 use near_primitives::epoch_manager::ShardConfig;
@@ -741,6 +740,13 @@ impl EpochManagerAdapter for MockEpochManager {
         })
     }
 
+    fn add_validator_proposals(
+        &self,
+        _block_header_info: BlockHeaderInfo,
+    ) -> Result<StoreUpdate, EpochError> {
+        Ok(self.store.store_update())
+    }
+
     fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, EpochError> {
         Ok(0)
     }
@@ -1003,13 +1009,6 @@ impl RuntimeAdapter for KeyValueRuntime {
             res.push(iter.next().unwrap());
         }
         Ok(res)
-    }
-
-    fn add_validator_proposals(
-        &self,
-        _block_header_info: BlockHeaderInfo,
-    ) -> Result<StoreUpdate, Error> {
-        Ok(self.store.store_update())
     }
 
     fn apply_transactions_with_optional_storage_proof(

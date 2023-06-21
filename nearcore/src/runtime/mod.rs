@@ -4,9 +4,7 @@ use crate::NearConfig;
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
-use near_chain::types::{
-    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, RuntimeAdapter, Tip,
-};
+use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter, Tip};
 use near_chain::Error;
 use near_chain_configs::{
     Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
@@ -21,8 +19,6 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::config::ExtCosts;
 use near_primitives::contract::ContractCode;
-use near_primitives::epoch_manager::block_info::BlockInfo;
-use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -33,7 +29,6 @@ use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
 use near_primitives::state_part::PartId;
-use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStakeIter;
@@ -47,12 +42,13 @@ use near_primitives::views::{
     ViewStateResult,
 };
 use near_store::flat::FlatStorageManager;
+use near_store::genesis::initialize_genesis_state;
 use near_store::metadata::DbKind;
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
-    ApplyStatePartResult, DBCol, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
-    StoreUpdate, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
+    ApplyStatePartResult, DBCol, PartialStorage, ShardTries, StateSnapshotConfig, Store,
+    StoreCompiledContractCache, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_errors::CompiledContractCache;
 use near_vm_runner::precompile_contract;
@@ -63,18 +59,13 @@ use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
     ValidatorAccountsUpdate,
 };
-use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error};
 
 pub mod errors;
-
-const STATE_DUMP_FILE: &str = "state_dump";
-const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 
 /// Defines Nightshade state transition and validator rotation.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
@@ -100,6 +91,15 @@ impl NightshadeRuntime {
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> Arc<Self> {
+        let state_snapshot_config = if config.config.store.state_snapshot_enabled {
+            StateSnapshotConfig::Enabled {
+                home_dir: home_dir.to_path_buf(),
+                hot_store_path: config.config.store.path.clone().unwrap_or(PathBuf::from("data")),
+                state_snapshot_subdir: PathBuf::from("state_snapshot"),
+            }
+        } else {
+            StateSnapshotConfig::Disabled
+        };
         Self::new(
             home_dir,
             store,
@@ -110,6 +110,7 @@ impl NightshadeRuntime {
             None,
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
+            state_snapshot_config,
         )
     }
 
@@ -123,10 +124,11 @@ impl NightshadeRuntime {
         runtime_config_store: Option<RuntimeConfigStore>,
         gc_num_epochs_to_keep: u64,
         trie_config: TrieConfig,
+        state_snapshot_config: StateSnapshotConfig,
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
-            None => NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id),
+            None => Self::create_runtime_config_store(&genesis.config.chain_id),
         };
 
         let runtime = Runtime::new();
@@ -142,12 +144,22 @@ impl NightshadeRuntime {
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
-        let tries = ShardTries::new(
+        let tries = ShardTries::new_with_state_snapshot(
             store.clone(),
             trie_config,
             &genesis_config.shard_layout.get_shard_uids(),
             flat_storage_manager.clone(),
+            state_snapshot_config,
         );
+        if let Err(err) = tries.maybe_open_state_snapshot(|prev_block_hash: CryptoHash| {
+            let epoch_manager = epoch_manager.read();
+            let epoch_id = epoch_manager.get_epoch_id(&prev_block_hash)?;
+            let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+            Ok(shard_layout.get_shard_uids())
+        }) {
+            tracing::error!(target: "runtime", ?err, "Failed to check if a state snapshot exists");
+        }
+
         Arc::new(NightshadeRuntime {
             genesis_config,
             runtime_config_store,
@@ -180,6 +192,11 @@ impl NightshadeRuntime {
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
+            StateSnapshotConfig::Enabled {
+                home_dir: home_dir.to_path_buf(),
+                hot_store_path: PathBuf::from("data"),
+                state_snapshot_subdir: PathBuf::from("state_snapshot"),
+            },
         )
     }
 
@@ -214,105 +231,10 @@ impl NightshadeRuntime {
         }
     }
 
-    fn genesis_state_from_dump(store: Store, home_dir: &Path) -> Vec<StateRoot> {
-        error!(target: "near", "Loading genesis from a state dump file. Do not use this outside of genesis-tools");
-        let mut state_file = home_dir.to_path_buf();
-        state_file.push(STATE_DUMP_FILE);
-        store.load_state_from_file(state_file.as_path()).expect("Failed to read state dump");
-        let mut roots_files = home_dir.to_path_buf();
-        roots_files.push(GENESIS_ROOTS_FILE);
-        let data = fs::read(roots_files).expect("Failed to read genesis roots file.");
-        let state_roots: Vec<StateRoot> =
-            BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
-        state_roots
-    }
-
-    fn genesis_state_from_records(store: Store, genesis: &Genesis) -> Vec<StateRoot> {
-        match genesis.records_len() {
-            Ok(count) => {
-                info!(
-                    target: "runtime",
-                    "genesis state has {count} records, computing state roots"
-                )
-            }
-            Err(path) => {
-                info!(
-                    target: "runtime",
-                    path=%path.display(),
-                    message="computing state roots from records",
-                )
-            }
-        }
-        let initial_epoch_config = EpochConfig::from(&genesis.config);
-        let shard_layout = initial_epoch_config.shard_layout;
-        let num_shards = shard_layout.num_shards();
-        let mut shard_account_ids: Vec<HashSet<AccountId>> =
-            (0..num_shards).map(|_| HashSet::new()).collect();
-        let mut has_protocol_account = false;
-        info!(
-            target: "runtime",
-            "distributing records to shards"
-        );
-        genesis.for_each_record(|record: &StateRecord| {
-            shard_account_ids[state_record_to_shard_id(record, &shard_layout) as usize]
-                .insert(state_record_to_account_id(record).clone());
-            if let StateRecord::Account { account_id, .. } = record {
-                if account_id == &genesis.config.protocol_treasury_account {
-                    has_protocol_account = true;
-                }
-            }
-        });
-        assert!(has_protocol_account, "Genesis spec doesn't have protocol treasury account");
-        let tries = ShardTries::new(
-            store.clone(),
-            TrieConfig::default(),
-            &genesis.config.shard_layout.get_shard_uids(),
-            FlatStorageManager::new(store),
-        );
-        let runtime = Runtime::new();
-        let runtime_config_store =
-            NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id);
-        let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
-        let writers = std::sync::atomic::AtomicUsize::new(0);
-        (0..num_shards)
-            .into_par_iter()
-            .map(|shard_id| {
-                let validators = genesis
-                    .config
-                    .validators
-                    .iter()
-                    .filter_map(|account_info| {
-                        if account_id_to_shard_id(&account_info.account_id, &shard_layout)
-                            == shard_id
-                        {
-                            Some((
-                                account_info.account_id.clone(),
-                                account_info.public_key.clone(),
-                                account_info.amount,
-                            ))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>();
-
-                runtime.apply_genesis_state(
-                    &writers,
-                    tries.clone(),
-                    shard_id,
-                    &validators,
-                    genesis,
-                    runtime_config,
-                    shard_account_ids[shard_id as usize].clone(),
-                )
-            })
-            .collect()
-    }
-
     /// On first start: compute state roots, load genesis state into storage.
     /// After that: return genesis state roots. The state is not guaranteed to be in storage, as
     /// GC and state sync are allowed to delete it.
-    pub fn initialize_genesis_state_if_needed(
+    fn initialize_genesis_state_if_needed(
         store: Store,
         home_dir: &Path,
         genesis: &Genesis,
@@ -325,29 +247,17 @@ impl NightshadeRuntime {
                 .expect("Store failed on genesis intialization")
                 .expect("Genesis state roots not found in storage")
         } else {
+            let runtime_config_store = Self::create_runtime_config_store(&genesis.config.chain_id);
+            let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
+            let store_usage_config = &runtime_config.fees.storage_usage_config;
             let genesis_hash = genesis.json_hash();
-            let state_roots = Self::initialize_genesis_state(store.clone(), home_dir, genesis);
+            let state_roots =
+                initialize_genesis_state(store.clone(), home_dir, &store_usage_config, genesis);
             let mut store_update = store.store_update();
             set_genesis_hash(&mut store_update, &genesis_hash);
             set_genesis_state_roots(&mut store_update, &state_roots);
             store_update.commit().expect("Store failed on genesis intialization");
             state_roots
-        }
-    }
-
-    pub fn initialize_genesis_state(
-        store: Store,
-        home_dir: &Path,
-        genesis: &Genesis,
-    ) -> Vec<StateRoot> {
-        let has_dump = home_dir.join(STATE_DUMP_FILE).exists();
-        if has_dump {
-            if genesis.records_len().is_ok() {
-                warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
-            }
-            Self::genesis_state_from_dump(store, home_dir)
-        } else {
-            Self::genesis_state_from_records(store, genesis)
         }
     }
 
@@ -550,9 +460,13 @@ impl NightshadeRuntime {
         metrics::APPLY_CHUNK_DELAY
             .with_label_values(&[&format_total_gas_burnt(total_gas_burnt)])
             .observe(elapsed.as_secs_f64());
+        let shard_label = shard_id.to_string();
         metrics::DELAYED_RECEIPTS_COUNT
-            .with_label_values(&[&shard_id.to_string()])
+            .with_label_values(&[&shard_label])
             .set(apply_result.delayed_receipts_count as i64);
+        if let Some(metrics) = apply_result.metrics {
+            metrics.report(&shard_label);
+        }
 
         let total_balance_burnt = apply_result
             .stats
@@ -680,24 +594,39 @@ impl NightshadeRuntime {
             %prev_hash,
             num_parts = part_id.total)
         .entered();
+        tracing::debug!(target: "state-parts", ?shard_id, ?prev_hash, ?state_root, ?part_id, "obtain_state_part");
+
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
-        let trie =
+
+        let trie_with_state =
             self.tries.get_trie_with_block_hash_for_shard(shard_uid, *state_root, &prev_hash, true);
-        let result = match trie.get_trie_nodes_for_part(prev_hash, part_id) {
+        let (partial_state, nibbles_begin, nibbles_end) = match trie_with_state
+            .get_state_part_boundaries(part_id)
+        {
+            Ok(res) => res,
+            Err(err) => {
+                error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part boundaries");
+                return Err(err.into());
+            }
+        };
+
+        // TODO: Make it impossible for the snapshot data to be deleted while the snapshot is in use.
+        let snapshot_trie = self
+            .tries
+            .get_trie_with_block_hash_for_shard_from_snapshot(shard_uid, *state_root, &prev_hash)
+            .map_err(|err| Error::Other(err.to_string()))?;
+        let state_part = match snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, partial_state, nibbles_begin, nibbles_end, trie_with_state.storage.clone()) {
             Ok(partial_state) => partial_state,
-            Err(e) => {
-                error!(target: "runtime",
-                    "Can't get trie nodes for state part {}/{} for prev hash \
-                    {prev_hash} and state root {state_root}: {:?}",
-                    part_id.idx, part_id.total, e
-                );
-                return Err(e.into());
+            Err(err) => {
+                error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part");
+                return Err(err.into());
             }
         }
-        .try_to_vec()
-        .expect("serializer should not fail");
-        Ok(result)
+            .try_to_vec()
+            .expect("serializer should not fail");
+
+        Ok(state_part)
     }
 }
 
@@ -732,10 +661,6 @@ fn apply_delayed_receipts<'a>(
     }
 
     Ok(new_state_roots)
-}
-
-pub fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &ShardLayout) -> ShardId {
-    account_id_to_shard_id(state_record_to_account_id(state_record), shard_layout)
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
@@ -911,6 +836,9 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         }
         debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", transactions.len(), num_checked_transactions);
+        metrics::PREPARE_TX_SIZE
+            .with_label_values(&[&shard_id.to_string()])
+            .observe(total_size as f64);
         Ok(transactions)
     }
 
@@ -923,39 +851,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                 self.genesis_config.genesis_height
             }
         }
-    }
-
-    fn add_validator_proposals(
-        &self,
-        block_header_info: BlockHeaderInfo,
-    ) -> Result<StoreUpdate, Error> {
-        // Check that genesis block doesn't have any proposals.
-        assert!(
-            block_header_info.height > 0
-                || (block_header_info.proposals.is_empty()
-                    && block_header_info.slashed_validators.is_empty())
-        );
-        debug!(target: "runtime",
-            height = block_header_info.height,
-            proposals = ?block_header_info.proposals,
-            "add_validator_proposals");
-        // Deal with validator proposals and epoch finishing.
-        let mut epoch_manager = self.epoch_manager.write();
-        let block_info = BlockInfo::new(
-            block_header_info.hash,
-            block_header_info.height,
-            block_header_info.last_finalized_height,
-            block_header_info.last_finalized_block_hash,
-            block_header_info.prev_hash,
-            block_header_info.proposals,
-            block_header_info.chunk_mask,
-            block_header_info.slashed_validators,
-            block_header_info.total_supply,
-            block_header_info.latest_protocol_version,
-            block_header_info.timestamp_nanosec,
-        );
-        let rng_seed = block_header_info.random_value.0;
-        epoch_manager.record_block_info(block_info, rng_seed).map_err(|err| err.into())
     }
 
     fn apply_transactions_with_optional_storage_proof(
@@ -1213,6 +1108,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             part_id = part_id.idx,
             shard_id,
             %prev_hash,
+            ?state_root,
             num_parts = part_id.total)
         .entered();
         let instant = Instant::now();
@@ -1512,6 +1408,7 @@ mod test {
     use std::collections::BTreeSet;
 
     use near_chain::{Chain, ChainGenesis};
+    use near_epoch_manager::types::BlockHeaderInfo;
     use near_epoch_manager::EpochManager;
     use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::validator_stake::ValidatorStake;
@@ -1688,6 +1585,11 @@ mod test {
                 Some(RuntimeConfigStore::free()),
                 DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
                 Default::default(),
+                StateSnapshotConfig::Enabled {
+                    home_dir: PathBuf::from(dir.path()),
+                    hot_store_path: PathBuf::from("data"),
+                    state_snapshot_subdir: PathBuf::from("state_snapshot"),
+                },
             );
             let (store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&[0]);
@@ -1710,11 +1612,11 @@ mod test {
                         flat_storage_manager.get_flat_storage_status(shard_uid),
                         near_store::flat::FlatStorageStatus::Ready(_)
                     ));
-                    flat_storage_manager.create_flat_storage_for_shard(shard_uid);
+                    flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
                 }
             }
 
-            runtime
+            epoch_manager
                 .add_validator_proposals(BlockHeaderInfo {
                     prev_hash: CryptoHash::default(),
                     hash: genesis_hash,
@@ -1782,7 +1684,7 @@ mod test {
                 all_proposals.append(&mut proposals.clone());
                 self.last_shard_proposals.insert(i as ShardId, proposals);
             }
-            self.runtime
+            self.epoch_manager
                 .add_validator_proposals(BlockHeaderInfo {
                     prev_hash: self.head.last_block_hash,
                     hash: new_hash,
@@ -2221,7 +2123,7 @@ mod test {
                 vec![]
             };
             new_env
-                .runtime
+                .epoch_manager
                 .add_validator_proposals(BlockHeaderInfo {
                     prev_hash,
                     hash: cur_hash,

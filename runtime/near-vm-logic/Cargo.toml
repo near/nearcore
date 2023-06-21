@@ -25,7 +25,6 @@ near-crypto.workspace = true
 near-account-id.workspace = true
 near-fmt.workspace = true
 near-o11y.workspace = true
-near-primitives.workspace = true
 near-primitives-core.workspace = true
 near-vm-errors.workspace = true
 
@@ -37,11 +36,11 @@ expect-test.workspace = true
 [features]
 default = []
 protocol_feature_fix_contract_loading_cost = [
-    "near-primitives/protocol_feature_fix_contract_loading_cost",
+    "near-primitives-core/protocol_feature_fix_contract_loading_cost",
 ]
 
 io_trace = ["tracing"]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []
-sandbox = ["tracing","near-primitives/sandbox"]
+sandbox = ["tracing"]
