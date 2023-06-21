@@ -1,6 +1,8 @@
 use clap::Parser;
 use near_store::db::RocksDB;
 use near_store::{col_name, DBCol};
+use nearcore::get_default_home;
+use once_cell::sync::Lazy;
 use rayon::prelude::*;
 use rocksdb::{ColumnFamilyDescriptor, Options, DB};
 use std::collections::HashMap;
@@ -8,15 +10,13 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::{panic, println};
 use strum::IntoEnumIterator;
-use nearcore::get_default_home;
-use once_cell::sync::Lazy;
 
 static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(get_default_home);
 
 #[derive(Parser)]
 struct Cli {
     #[clap(long, value_parser, default_value_os = DEFAULT_HOME.as_os_str())]
-    home: PathBuf, 
+    home: PathBuf,
 
     #[arg(short, long)]
     column: Option<String>,
@@ -200,7 +200,7 @@ fn read_all_pairs(
     });
 
     // The reason we sort here is because we want to display sorted
-    // output that shows the most occurring sizes (the ones with the 
+    // output that shows the most occurring sizes (the ones with the
     // biggest count) in descending order, to have histogram like order
     let mut key_sizes_sorted: Vec<(usize, usize)> =
         key_sizes.lock().unwrap().clone().into_iter().collect();
@@ -263,8 +263,13 @@ fn main() {
     let (col_families, col_families_cf) = get_column_family_options(args.column);
 
     // Open db
-    let db =
-        DB::open_cf_descriptors_read_only(&opts, args.home.to_str().unwrap(), col_families_cf, false).unwrap();
+    let db = DB::open_cf_descriptors_read_only(
+        &opts,
+        args.home.to_str().unwrap(),
+        col_families_cf,
+        false,
+    )
+    .unwrap();
     let (key_sizes_sorted, value_sizes_sorted) = read_all_pairs(&db, &col_families);
     let total_num_of_pairs = key_sizes_sorted.iter().map(|(_, count)| count).sum::<usize>();
 
