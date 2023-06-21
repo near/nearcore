@@ -160,13 +160,14 @@ def on_locust_init(environment, **kwargs):
         prefix = str(hash(str(worker_id) + str(i)))[-6:]
         contract_key = key.Key.from_random(f"{prefix}_ft.{parent_id}")
         ft_account = Account(contract_key)
-        node.send_tx_retry(
-            CreateSubAccount(funding_account,
-                             ft_account.key,
-                             balance=FTContract.INIT_BALANCE),
-            "create ft funding account")
-        ft_contract = FTContract(ft_account, ft_contract_code)
-        ft_contract.install(node)
+        if not node.account_exists(ft_account.key.account_id):
+            node.send_tx_retry(
+                CreateSubAccount(funding_account,
+                                 ft_account.key,
+                                 balance=FTContract.INIT_BALANCE),
+                "create ft funding account")
+            ft_contract = FTContract(ft_account, ft_contract_code)
+            ft_contract.install(node)
         environment.ft_contracts.append(ft_contract)
 
 

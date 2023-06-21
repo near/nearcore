@@ -242,6 +242,10 @@ class NearNodeProxy:
         # poll for tx result, using "EXPERIMENTAL_tx_status" which waits for
         # all receipts to finish rather than just the first one, as "tx" would do
         result_response = self.post_json("EXPERIMENTAL_tx_status", params)
+        # very verbose, but very useful to see what's happening when things are stuck
+        logger.debug(
+            f"polling, got: {result_response.status_code} {result_response.json()}"
+        )
 
         try:
             meta["response"] = evaluate_rpc_result(result_response.json())
@@ -249,6 +253,9 @@ class NearNodeProxy:
             # Store raw response to improve error-reporting.
             meta["response"] = result_response.content
             raise
+
+    def account_exists(self, account_id: str) -> bool:
+        return "error" not in self.node.get_account(account_id, do_assert=False)
 
 
 class NearUser(User):
@@ -281,10 +288,11 @@ class NearUser(User):
         Called once per user, creating the account on chain
         """
         self.account = Account(key.Key.from_random(self.account_id))
-        self.send_tx_retry(
-            CreateSubAccount(NearUser.funding_account,
-                             self.account.key,
-                             balance=NearUser.INIT_BALANCE))
+        if not self.node.account_exists(self.account_id):
+            self.send_tx_retry(
+                CreateSubAccount(NearUser.funding_account,
+                                 self.account.key,
+                                 balance=NearUser.INIT_BALANCE))
 
         self.account.refresh_nonce(self.node.node)
 
@@ -419,11 +427,12 @@ def on_locust_init(environment, **kwargs):
         for id in range(num_funding_accounts):
             account_id = f"funds_worker_{id}.{master_funding_account.key.account_id}"
             worker_key = key.Key.from_seed_testonly(account_id, account_id)
-            node.send_tx_retry(
-                CreateSubAccount(master_funding_account,
-                                 worker_key,
-                                 balance=funding_balance),
-                "create funding account")
+            if not node.account_exists(account_id):
+                node.send_tx_retry(
+                    CreateSubAccount(master_funding_account,
+                                     worker_key,
+                                     balance=funding_balance),
+                    "create funding account")
         funding_account = master_funding_account
     elif isinstance(environment.runner, runners.WorkerRunner):
         worker_id = environment.runner.worker_index
@@ -454,3 +463,9 @@ def _(parser):
         required=False,
         default=16,
         help="How many funding accounts to generate for workers")
+    parser.add_argument(
+        "--run-id",
+        default="",
+        help="Unique index to append to static account ids. "
+        "Change between runs if you need a new state. Keep at default if you want to reuse the old state"
+    )
