@@ -255,7 +255,7 @@ class NearNodeProxy:
             raise
 
     def account_exists(self, account_id: str) -> bool:
-        return not "error" in self.node.get_account(account_id, do_assert=False)
+        return "error" not in self.node.get_account(account_id, do_assert=False)
 
 
 class NearUser(User):
