@@ -541,27 +541,40 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
         init_test_logger();
         let epoch_length = 10;
 
-        for num_last_chunks_missing in 0..(epoch_length/2) {
+        for num_last_chunks_missing in 0..(epoch_length / 2) {
             let mut genesis =
                 Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
             genesis.config.epoch_length = epoch_length;
             let chain_genesis = ChainGenesis::new(&genesis);
 
             let num_clients = 1;
-            let env_objects = (0..num_clients).map(|_| {
-                let tmp_dir = tempfile::tempdir().unwrap();
-                // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
-                // same configuration as in production.
-                let store = NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
-                    .open()
-                    .unwrap()
-                    .get_hot_store();
-                let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-                let runtime =
-                    NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
-                        as Arc<dyn RuntimeAdapter>;
-                (tmp_dir, store, epoch_manager, runtime)
-            }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
+            let env_objects =
+                (0..num_clients)
+                    .map(|_| {
+                        let tmp_dir = tempfile::tempdir().unwrap();
+                        // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
+                        // same configuration as in production.
+                        let store =
+                            NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
+                                .open()
+                                .unwrap()
+                                .get_hot_store();
+                        let epoch_manager =
+                            EpochManager::new_arc_handle(store.clone(), &genesis.config);
+                        let runtime = NightshadeRuntime::test(
+                            tmp_dir.path(),
+                            store.clone(),
+                            &genesis,
+                            epoch_manager.clone(),
+                        ) as Arc<dyn RuntimeAdapter>;
+                        (tmp_dir, store, epoch_manager, runtime)
+                    })
+                    .collect::<Vec<(
+                        tempfile::TempDir,
+                        Store,
+                        Arc<EpochManagerHandle>,
+                        Arc<dyn RuntimeAdapter>,
+                    )>>();
 
             let stores = env_objects.iter().map(|x| x.1.clone()).collect();
             let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect();
@@ -577,12 +590,15 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
 
             let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
             let mut blocks = vec![genesis_block.clone()];
-            let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+            let signer =
+                InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
             let target_height = epoch_length + 1;
             for i in 1..=target_height {
                 let block = env.clients[0].produce_block(i).unwrap().unwrap();
                 blocks.push(block.clone());
-                if (i % epoch_length) != 0 && epoch_length - (i % epoch_length) <= num_last_chunks_missing {
+                if (i % epoch_length) != 0
+                    && epoch_length - (i % epoch_length) <= num_last_chunks_missing
+                {
                     // Don't produce chunks for the last blocks of an epoch.
                     env.clients[0]
                         .process_block_test_no_produce_chunk(
@@ -590,10 +606,16 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                             Provenance::PRODUCED,
                         )
                         .unwrap();
-                    tracing::info!("Block {i}: {:?} -- produced no chunk", block.header().epoch_id());
+                    tracing::info!(
+                        "Block {i}: {:?} -- produced no chunk",
+                        block.header().epoch_id()
+                    );
                 } else {
                     env.process_block(0, block.clone(), Provenance::PRODUCED);
-                    tracing::info!("Block {i}: {:?} -- also produced a chunk", block.header().epoch_id());
+                    tracing::info!(
+                        "Block {i}: {:?} -- also produced a chunk",
+                        block.header().epoch_id()
+                    );
                 }
 
                 let tx = SignedTransaction::send_money(

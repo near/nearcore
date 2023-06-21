@@ -2917,18 +2917,16 @@ impl Chain {
             state_root
         } else {
             let sync_prev_prev_hash = sync_prev_block.header().prev_hash();
-            let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(&sync_prev_prev_hash)?;
+            let shard_layout =
+                self.epoch_manager.get_shard_layout_from_prev_block(&sync_prev_prev_hash)?;
             let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
             let chunk_extra = self.get_chunk_extra(sync_prev_prev_hash, &shard_uid)?;
             let state_root = *chunk_extra.state_root();
             tracing::debug!(target: "sync", ?shard_uid, ?state_root, ?sync_hash, ?sync_prev_prev_hash, "Needed chunk is missing. Using chunk extra instead.");
             state_root
         };
-        let state_root_node = self.runtime_adapter.get_state_root_node(
-            shard_id,
-            &sync_prev_hash,
-            &state_root,
-        )?;
+        let state_root_node =
+            self.runtime_adapter.get_state_root_node(shard_id, &sync_prev_hash, &state_root)?;
 
         let shard_state_header = match chunk {
             ShardChunk::V1(chunk) => {
