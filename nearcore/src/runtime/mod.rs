@@ -139,6 +139,7 @@ impl NightshadeRuntime {
             genesis_config.shard_layout.num_shards(),
             genesis_config.num_block_producer_seats_per_shard.len() as NumShards,
         );
+        // Mirko: tu trebam proslijedit genesis_loader-a
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
@@ -325,7 +326,7 @@ impl NightshadeRuntime {
                 .expect("Store failed on genesis intialization")
                 .expect("Genesis state roots not found in storage")
         } else {
-            let genesis_hash = genesis.json_hash();
+            let genesis_hash = genesis.get_initial_config_loader().json_hash();
             let state_roots = Self::initialize_genesis_state(store.clone(), home_dir, genesis);
             let mut store_update = store.store_update();
             set_genesis_hash(&mut store_update, &genesis_hash);
@@ -1532,7 +1533,7 @@ mod test {
     use num_rational::Ratio;
 
     use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-    use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
+    use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, GenesisLoader};
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_o11y::testonly::init_test_logger;
     use near_primitives::block::Tip;
@@ -1673,23 +1674,24 @@ mod test {
                 acc.union(&x.iter().cloned().collect()).cloned().collect()
             });
             let validators_len = all_validators.len() as ValidatorId;
-            let mut genesis = Genesis::test_sharded_new_version(
+            let mut genesis_loader = GenesisLoader::test_sharded_new_version(
                 all_validators.into_iter().collect(),
                 validators_len,
                 validators.iter().map(|x| x.len() as ValidatorId).collect(),
             );
             // No fees mode.
-            genesis.config.epoch_length = epoch_length;
-            genesis.config.chunk_producer_kickout_threshold =
-                genesis.config.block_producer_kickout_threshold;
+            genesis_loader.config.epoch_length = epoch_length;
+            genesis_loader.config.chunk_producer_kickout_threshold =
+                genesis_loader.config.block_producer_kickout_threshold;
             if !has_reward {
-                genesis.config.max_inflation_rate = Ratio::from_integer(0);
+                genesis_loader.config.max_inflation_rate = Ratio::from_integer(0);
             }
             if let Some(minimum_stake_divisor) = minimum_stake_divisor {
-                genesis.config.minimum_stake_divisor = minimum_stake_divisor;
+                genesis_loader.config.minimum_stake_divisor = minimum_stake_divisor;
             }
-            let genesis_total_supply = genesis.config.total_supply;
-            let genesis_protocol_version = genesis.config.protocol_version;
+            let genesis_total_supply = genesis_loader.config.total_supply;
+            let genesis_protocol_version = genesis_loader.config.protocol_version;
+            let genesis = Genesis::from_genesis_loader(genesis_loader);
             let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
             let runtime = NightshadeRuntime::new(
                 dir.path(),

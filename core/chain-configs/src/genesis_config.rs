@@ -34,6 +34,7 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use tracing::warn;
+use near_primitives::types::EpochHeight;
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
 
@@ -283,12 +284,6 @@ pub struct GenesisConfig {
     pub use_production_config: bool,
 }
 
-impl GenesisConfigLoader {
-    pub fn use_production_config(&self) -> bool {
-        self.use_production_config || self.chain_id == "testnet" || self.chain_id == "mainnet"
-    }
-}
-
 impl GenesisConfig {
     pub fn from_genesis_config_loader(genesis_config_loader: GenesisConfigLoader) -> Self {
         let chain_config_store = ChainConfigStore::new(genesis_config_loader.clone());
@@ -328,10 +323,28 @@ impl GenesisConfig {
             use_production_config: genesis_config_loader.use_production_config,
         }
     }
+
+    pub fn use_production_config(&self) -> bool {
+        self.use_production_config || self.chain_id == "testnet" || self.chain_id == "mainnet"
+    }
+
+    /// Get validators from genesis config
+    pub fn validators(&self) -> Vec<ValidatorStake> {
+        self.validators
+            .iter()
+            .map(|account_info| {
+                ValidatorStake::new(
+                    account_info.account_id.clone(),
+                    account_info.public_key.clone(),
+                    account_info.amount,
+                )
+            })
+            .collect()
+    }
 }
 
-impl From<&GenesisConfigLoader> for EpochConfig {
-    fn from(config: &GenesisConfigLoader) -> Self {
+impl From<&GenesisConfig> for EpochConfig {
+    fn from(config: &GenesisConfig) -> Self {
         EpochConfig {
             epoch_length: config.epoch_length,
             num_block_producer_seats: config.num_block_producer_seats,
@@ -357,10 +370,10 @@ impl From<&GenesisConfigLoader> for EpochConfig {
     }
 }
 
-impl From<&GenesisConfigLoader> for AllEpochConfig {
-    fn from(genesis_config_loader: &GenesisConfigLoader) -> Self {
-        let initial_epoch_config = EpochConfig::from(genesis_config_loader);
-        let epoch_config = Self::new(genesis_config_loader.use_production_config(), initial_epoch_config);
+impl From<&GenesisConfig> for AllEpochConfig {
+    fn from(genesis_config: &GenesisConfig) -> Self {
+        let initial_epoch_config = EpochConfig::from(genesis_config);
+        let epoch_config = Self::new(genesis_config.use_production_config(), initial_epoch_config);
         epoch_config
     }
 }
@@ -449,6 +462,44 @@ pub struct Genesis {
 }
 
 impl GenesisConfigLoader {
+    pub fn from_genesis_config(genesis_config: GenesisConfig, chain_config: &ChainConfig) -> Self {
+        Self {
+            protocol_version: genesis_config.protocol_version,
+            genesis_time: genesis_config.genesis_time,
+            chain_id: genesis_config.chain_id,
+            genesis_height: genesis_config.genesis_height,
+            num_block_producer_seats: genesis_config.num_block_producer_seats,
+            num_block_producer_seats_per_shard: genesis_config.num_block_producer_seats_per_shard,
+            avg_hidden_validator_seats_per_shard: genesis_config.avg_hidden_validator_seats_per_shard,
+            dynamic_resharding: genesis_config.dynamic_resharding,
+            protocol_upgrade_stake_threshold: genesis_config.protocol_upgrade_stake_threshold,
+            epoch_length: genesis_config.epoch_length,
+            gas_limit: genesis_config.gas_limit,
+            min_gas_price: genesis_config.min_gas_price,
+            max_gas_price: genesis_config.max_gas_price,
+            block_producer_kickout_threshold: genesis_config.block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold: genesis_config.chunk_producer_kickout_threshold,
+            online_min_threshold: genesis_config.online_min_threshold,
+            online_max_threshold: genesis_config.online_max_threshold,
+            gas_price_adjustment_rate: genesis_config.gas_price_adjustment_rate,
+            validators: genesis_config.validators,
+            transaction_validity_period: genesis_config.transaction_validity_period,
+            protocol_reward_rate: chain_config.protocol_reward_rate,
+            max_inflation_rate: genesis_config.max_inflation_rate,
+            total_supply: genesis_config.total_supply,
+            num_blocks_per_year: genesis_config.num_blocks_per_year,
+            protocol_treasury_account: genesis_config.protocol_treasury_account,
+            fishermen_threshold: genesis_config.fishermen_threshold,
+            minimum_stake_divisor: genesis_config.minimum_stake_divisor,
+            shard_layout: genesis_config.shard_layout,
+            num_chunk_only_producer_seats: genesis_config.num_chunk_only_producer_seats,
+            minimum_validators_per_shard: genesis_config.minimum_validators_per_shard,
+            max_kickout_stake_perc: genesis_config.max_kickout_stake_perc,
+            minimum_stake_ratio: genesis_config.minimum_stake_ratio,
+            use_production_config: genesis_config.use_production_config,
+        }
+    }
+
     /// Parses GenesisConfig from a JSON string.
     /// The string can be a JSON with comments.
     /// It panics if the contents cannot be parsed from JSON to the GenesisConfig structure.
@@ -482,20 +533,6 @@ impl GenesisConfigLoader {
             serde_json::to_vec_pretty(self).expect("Error serializing the genesis config."),
         )
         .expect("Failed to create / write a genesis config file.");
-    }
-
-    /// Get validators from genesis config
-    pub fn validators(&self) -> Vec<ValidatorStake> {
-        self.validators
-            .iter()
-            .map(|account_info| {
-                ValidatorStake::new(
-                    account_info.account_id.clone(),
-                    account_info.public_key.clone(),
-                    account_info.amount,
-                )
-            })
-            .collect()
     }
 }
 
@@ -650,6 +687,22 @@ pub enum GenesisValidationMode {
 impl GenesisLoader {
     pub fn new(config_loader: GenesisConfigLoader, records: GenesisRecords) -> Result<Self, ValidationError> {
         Self::new_validated(config_loader, records, GenesisValidationMode::Full)
+    }
+
+    pub fn from_genesis(genesis: Genesis, epoch_height: EpochHeight) -> Self {
+        let chain_config = genesis.config.chain_config_store.get_config(epoch_height).as_ref();
+        Self {
+            config: GenesisConfigLoader::from_genesis_config(genesis.config.clone(), chain_config),
+            contents: genesis.contents.clone()
+        }
+    }
+
+    pub fn from_genesis_for_initial_config(genesis: &Genesis) -> Self {
+        let chain_config = genesis.config.chain_config_store.initial_chain_config.as_ref();
+        Self {
+            config: GenesisConfigLoader::from_genesis_config(genesis.config.clone(), chain_config),
+            contents: genesis.contents.clone()
+        }
     }
 
     pub fn new_with_path<P: AsRef<Path>>(
@@ -826,6 +879,49 @@ impl Genesis {
         Self {
             config: GenesisConfig::from_genesis_config_loader(genesis_loader.config),
             contents: genesis_loader.contents,
+        }
+    }
+
+    pub fn get_initial_config_loader(&self) -> GenesisLoader {
+        GenesisLoader::from_genesis_for_initial_config(self)
+    }
+
+    /// Writes GenesisConfig to the file.
+    pub fn to_file<P: AsRef<Path>>(&self, path: P, epoch_height: EpochHeight) {
+        std::fs::write(
+            path,
+            serde_json::to_vec_pretty(self).expect("Error serializing the genesis config."),
+        )
+            .expect("Failed to create / write a genesis config file.");
+    }
+
+    /// If records vector is empty processes records stream from records_file.
+    /// May panic if records_file is removed or is in wrong format.
+    pub fn for_each_record(&self, mut callback: impl FnMut(&StateRecord)) {
+        match &self.contents {
+            GenesisContents::Records { records } => {
+                for record in &records.0 {
+                    callback(record);
+                }
+            }
+            GenesisContents::RecordsFile { records_file } => {
+                let callback_move = |record: StateRecord| {
+                    callback(&record);
+                };
+                let reader = BufReader::new(
+                    File::open(&records_file).expect("error while opening records file"),
+                );
+                stream_records_from_file(reader, callback_move)
+                    .expect("error while streaming records");
+            }
+        }
+    }
+
+    /// Returns number of records in the genesis or path to records file.
+    pub fn records_len(&self) -> Result<usize, &Path> {
+        match &self.contents {
+            GenesisContents::Records { records } => Ok(records.0.len()),
+            GenesisContents::RecordsFile { records_file } => Err(&records_file),
         }
     }
 }

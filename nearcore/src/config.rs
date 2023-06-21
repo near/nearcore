@@ -1,6 +1,6 @@
 use crate::download_file::{run_download_file, FileDownloadError};
 use anyhow::{anyhow, bail, Context};
-use near_chain_configs::{get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode, LogSummaryStyle, MutableConfigValue, StateSyncConfig, ChainConfig, ChainConfigStore};
+use near_chain_configs::{get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode, LogSummaryStyle, MutableConfigValue, StateSyncConfig, ChainConfig, ChainConfigStore, GenesisConfigLoader, GenesisLoader};
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
@@ -15,10 +15,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
-    NumShards, ShardId,
-};
+use near_primitives::types::{AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, NumShards, ShardId, EpochHeight};
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -514,7 +511,7 @@ impl Config {
 }
 
 #[easy_ext::ext(GenesisExt)]
-impl Genesis {
+impl GenesisLoader {
     // Creates new genesis with a given set of accounts and shard layout.
     // The first num_validator_seats from accounts will be treated as 'validators'.
     pub fn test_with_seeds(
@@ -546,15 +543,10 @@ impl Genesis {
             );
         }
         add_protocol_account(&mut records);
-        let mirko = ChainConfig {
-            protocol_reward_rate: PROTOCOL_REWARD_RATE,
-        };
-        let chain_config_store = ChainConfigStore::test(mirko);
-        let config = GenesisConfig {
+        let config_loader = GenesisConfigLoader {
             protocol_version: PROTOCOL_VERSION,
             genesis_time: StaticClock::utc(),
             chain_id: random_chain_id(),
-            chain_config_store: chain_config_store,
             num_block_producer_seats: num_validator_seats,
             num_block_producer_seats_per_shard: num_validator_seats_per_shard.clone(),
             avg_hidden_validator_seats_per_shard: vec![0; num_validator_seats_per_shard.len()],
@@ -569,6 +561,7 @@ impl Genesis {
             max_inflation_rate: MAX_INFLATION_RATE,
             num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
             protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
+            protocol_reward_rate: PROTOCOL_REWARD_RATE,
             transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
             chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
             fishermen_threshold: FISHERMEN_THRESHOLD,
@@ -576,7 +569,7 @@ impl Genesis {
             shard_layout,
             ..Default::default()
         };
-        Genesis::new(config, records.into()).unwrap()
+        GenesisLoader::new(config_loader, records.into()).unwrap()
     }
 
     pub fn test(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
@@ -724,7 +717,7 @@ impl NearConfig {
 impl NearConfig {
     /// Test tool to save configs back to the folder.
     /// Useful for dynamic creating testnet configs and then saving them in different folders.
-    pub fn save_to_dir(&self, dir: &Path) {
+    pub fn save_to_dir(&self, dir: &Path, epoch_height: EpochHeight) {
         fs::create_dir_all(dir).expect("Failed to create directory");
 
         self.config.write_to_file(&dir.join(CONFIG_FILENAME)).expect("Error writing config");
@@ -743,7 +736,8 @@ impl NearConfig {
             .write_to_file(&dir.join(&self.config.node_key_file))
             .expect("Error writing key file");
 
-        self.genesis.to_file(dir.join(&self.config.genesis_file));
+        // Mirko: vidi treba li tu zakucat inicijalni config ili ovaj promijenjen nakon epoha, vjv promijenjen
+        self.genesis.to_file(dir.join(&self.config.genesis_file), epoch_height);
     }
 }
 
@@ -954,7 +948,7 @@ pub fn init_configs(
         // Check that Genesis exists and can be read.
         // If `config.json` exists, but `genesis.json` doesn't exist,
         // that isn't supported by the `init` command.
-        let _genesis = GenesisConfig::from_file(file_path).with_context(move || {
+        let _genesis = GenesisConfigLoader::from_file(file_path).with_context(move || {
             anyhow!("Failed to read genesis config {}/{}", dir.display(), genesis_file)
         })?;
         // Check that `node_key.json` and `validator_key.json` exist.
@@ -1058,24 +1052,24 @@ pub fn init_configs(
                 };
             }
 
-            let mut genesis = match &config.genesis_records_file {
+            let mut genesis_loader = match &config.genesis_records_file {
                 Some(records_file) => {
                     let records_path = dir.join(records_file);
                     let records_path_str = records_path
                         .to_str()
                         .with_context(|| "Records path must be initialized")?;
-                    Genesis::from_files(
+                    GenesisLoader::from_files(
                         genesis_path_str,
                         records_path_str,
                         GenesisValidationMode::Full,
                     )
                 }
-                None => Genesis::from_file(genesis_path_str, GenesisValidationMode::Full),
+                None => GenesisLoader::from_file(genesis_path_str, GenesisValidationMode::Full),
             }?;
 
-            genesis.config.chain_id = chain_id.clone();
+            genesis_loader.config.chain_id = chain_id.clone();
 
-            genesis.to_file(dir.join(config.genesis_file));
+            genesis_loader.to_file(dir.join(config.genesis_file));
             info!(target: "near", "Generated for {} network node key and genesis file in {}", chain_id, dir.display());
         }
         _ => {
@@ -1120,15 +1114,12 @@ pub fn init_configs(
                 ShardLayout::v0_single_shard()
             };
 
-            let chain_config = ChainConfig::from_values(PROTOCOL_REWARD_RATE);
-            let chain_config_store = ChainConfigStore::from_chain_config(chain_config);
-
-            let genesis_config = GenesisConfig {
+            let genesis_config = GenesisConfigLoader {
                 protocol_version: PROTOCOL_VERSION,
                 genesis_time: StaticClock::utc(),
                 chain_id,
                 genesis_height: 0,
-                chain_config_store: chain_config_store,
+                protocol_reward_rate: PROTOCOL_REWARD_RATE,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,
                 num_block_producer_seats_per_shard: get_num_seats_per_shard(
                     num_shards,
@@ -1159,8 +1150,8 @@ pub fn init_configs(
                 min_gas_price: MIN_GAS_PRICE,
                 ..Default::default()
             };
-            let genesis = Genesis::new(genesis_config, records.into())?;
-            genesis.to_file(dir.join(config.genesis_file));
+            let genesis_loader = GenesisLoader::new(genesis_config, records.into())?;
+            genesis_loader.to_file(dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
         }
     }
@@ -1175,7 +1166,7 @@ pub fn create_testnet_configs_from_seeds(
     archive: bool,
     fixed_shards: Option<Vec<String>>,
     tracked_shards: Vec<u64>,
-) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis) {
+) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, GenesisLoader) {
     let num_validator_seats = (seeds.len() - num_non_validator_seats as usize) as NumSeats;
     let validator_signers =
         seeds.iter().map(|seed| create_test_signer(seed.as_str())).collect::<Vec<_>>();
@@ -1205,7 +1196,7 @@ pub fn create_testnet_configs_from_seeds(
             fixed_shards_accounts.iter().map(|s| s.parse().unwrap()).collect::<Vec<AccountId>>(),
         );
     };
-    let genesis = Genesis::test_with_seeds(
+    let genesis_loader = GenesisLoader::test_with_seeds(
         accounts_to_add_to_genesis,
         num_validator_seats,
         get_num_seats_per_shard(num_shards, num_validator_seats),
@@ -1238,7 +1229,7 @@ pub fn create_testnet_configs_from_seeds(
             std::cmp::min(num_validator_seats as usize - 1, config.consensus.min_num_peers);
         configs.push(config);
     }
-    (configs, validator_signers, network_signers, genesis)
+    (configs, validator_signers, network_signers, genesis_loader)
 }
 
 /// Create testnet configuration. If `local_ports` is true,
@@ -1252,7 +1243,7 @@ pub fn create_testnet_configs(
     archive: bool,
     fixed_shards: bool,
     tracked_shards: Vec<u64>,
-) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis, Vec<InMemorySigner>)
+) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, GenesisLoader, Vec<InMemorySigner>)
 {
     let fixed_shards = if fixed_shards {
         Some((0..(num_shards - 1)).map(|i| format!("shard{}", i)).collect::<Vec<_>>())
@@ -1268,7 +1259,7 @@ pub fn create_testnet_configs(
         vec![]
     };
 
-    let (configs, validator_signers, network_signers, genesis) = create_testnet_configs_from_seeds(
+    let (configs, validator_signers, network_signers, genesis_loader) = create_testnet_configs_from_seeds(
         (0..(num_validator_seats + num_non_validator_seats))
             .map(|i| format!("{}{}", prefix, i))
             .collect::<Vec<_>>(),
@@ -1280,7 +1271,7 @@ pub fn create_testnet_configs(
         tracked_shards,
     );
 
-    (configs, validator_signers, network_signers, genesis, shard_keys)
+    (configs, validator_signers, network_signers, genesis_loader, shard_keys)
 }
 
 pub fn init_testnet_configs(
@@ -1452,24 +1443,24 @@ pub fn load_config(
     };
 
     let genesis_file = dir.join(&config.genesis_file);
-    let genesis_result = match &config.genesis_records_file {
+    let genesis_loader_result = match &config.genesis_records_file {
         // only load Genesis from file. Skip test for now.
         // this allows us to know the chain_id in order to check tracked_shards even if semantics checks fail.
-        Some(records_file) => Genesis::from_files(
+        Some(records_file) => GenesisLoader::from_files(
             &genesis_file,
             dir.join(records_file),
             GenesisValidationMode::UnsafeFast,
         ),
-        None => Genesis::from_file(&genesis_file, GenesisValidationMode::UnsafeFast),
+        None => GenesisLoader::from_file(&genesis_file, GenesisValidationMode::UnsafeFast),
     };
 
-    let genesis = match genesis_result {
-        Ok(genesis) => {
-            if let Err(e) = genesis.validate(genesis_validation) {
+    let genesis_loader = match genesis_loader_result {
+        Ok(genesis_loader) => {
+            if let Err(e) = genesis_loader.validate(genesis_validation) {
                 validation_errors.push_errors(e)
             };
             if validator_signer.is_some()
-                && matches!(genesis.config.chain_id.as_ref(), MAINNET | TESTNET | BETANET)
+                && matches!(genesis_loader.config.chain_id.as_ref(), MAINNET | TESTNET | BETANET)
                 && config.tracked_shards.is_empty()
             {
                 // Make sure validators tracks all shards, see
@@ -1477,7 +1468,7 @@ pub fn load_config(
                 let error_message = "The `chain_id` field specified in genesis is among mainnet/betanet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector";
                 validation_errors.push_cross_file_semantics_error(error_message.to_string());
             }
-            Some(genesis)
+            Some(genesis_loader)
         }
         Err(error) => {
             validation_errors.push_errors(error);
@@ -1487,12 +1478,12 @@ pub fn load_config(
 
     validation_errors.return_ok_or_error()?;
 
-    if genesis.is_none() || network_signer.is_none() {
+    if genesis_loader.is_none() || network_signer.is_none() {
         panic!("Genesis and network_signer should not be None by now.")
     }
     let near_config = NearConfig::new(
         config,
-        genesis.unwrap(),
+        Genesis::from_genesis_loader(genesis_loader.unwrap()),
         network_signer.unwrap().into(),
         validator_signer,
     )?;

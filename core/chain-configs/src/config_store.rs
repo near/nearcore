@@ -9,7 +9,7 @@ use crate::genesis_config::GenesisConfigLoader;
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ChainConfigStore {
     /// Mirko: dodaj tu komentar
-    initial_chain_config: Arc<ChainConfig>,
+    pub initial_chain_config: Arc<ChainConfig>,
     /// Maps epoch to the config.
     store: BTreeMap<EpochHeight, Arc<ChainConfigLoader>>,
 }
