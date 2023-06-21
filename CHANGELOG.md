@@ -5,7 +5,18 @@
 ### Protocol Changes
 
 ### Non-protocol Changes
+
+## 1.35.0
+
+### Protocol Changes
+
+* Upgrade the contract preparation code to use [finite-wasm](https://github.com/near/finite-wasm), which guarantees deterministic limits on execution time and space of compiled contracts
+
+### Non-protocol Changes
 * Dump state by multiple nodes, each node will refer to s3 for which parts need to be dumped. [#9049](https://github.com/near/nearcore/pull/9049)
+* Small values in the flat storage trie are inlined for faster accesses [#9029](https://github.com/near/nearcore/pull/9029)
+* A current protocol version metric is added to the prometheus metrics under near_current_protocol_version [#9030](https://github.com/near/nearcore/pull/9030)
+* The transaction pool size is tracked, and if the `transaction_pool_size_limit` config option is set, we now avoid storing more than the specified size of transactions in each shard's transaction pool [#8970](https://github.com/near/nearcore/pull/8970) and [#9036](https://github.com/near/nearcore/pull/9036)
 
 ## 1.34.0
 
