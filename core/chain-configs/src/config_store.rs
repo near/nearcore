@@ -41,7 +41,7 @@ impl ChainConfigStore {
         let initial_chain_config = Arc::new(ChainConfig::new(genesis_config_loader));
         let mut store = BTreeMap::new();
         // Mirko: tu dodaj čitanja iz fileova
-        populate_config_store(&store);
+        Self::populate_config_store(&store);
         Self { initial_chain_config, store }
     }
 
