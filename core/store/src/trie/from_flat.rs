@@ -1,5 +1,5 @@
 use crate::flat::store_helper;
-use crate::{Store, TrieDBStorage, TrieStorage};
+use crate::Store;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::{shard_layout::ShardUId, state::FlatStateValue};
 use std::collections::{BTreeMap, HashMap};
@@ -14,7 +14,6 @@ struct TrieValueData {
 
 pub fn construct_trie_from_flat(store: Store, shard_uid: ShardUId) {
     let timer = Instant::now();
-    let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
     let mut hash_map: HashMap<CryptoHash, TrieValueData> = HashMap::new();
 
     for (i, (trie_key, value)) in
@@ -23,13 +22,7 @@ pub fn construct_trie_from_flat(store: Store, shard_uid: ShardUId) {
             .enumerate()
     {
         let (hash_key, value_len) = match value {
-            FlatStateValue::Ref(ref_value) => {
-                let len = hash_map.get(&ref_value.hash).map_or_else(
-                    || trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec().len(),
-                    |entry| entry.len,
-                );
-                (ref_value.hash, len)
-            }
+            FlatStateValue::Ref(ref_value) => (ref_value.hash, ref_value.length as usize),
             FlatStateValue::Inlined(inline_value) => (hash(&inline_value), inline_value.len()),
         };
         hash_map
@@ -48,6 +41,7 @@ pub fn construct_trie_from_flat(store: Store, shard_uid: ShardUId) {
 
 #[derive(Default, Debug)]
 struct ConsolidatedData {
+    total_storage_bytes: usize,
     total_dup_count: u32,
     total_dup_bytes: usize,
     type_dup_count: BTreeMap<u8, u32>,
@@ -60,6 +54,7 @@ fn interpret_trie_value_data(hash_map: HashMap<CryptoHash, TrieValueData>) {
     for entry in hash_map.values() {
         let dup_count = entry.count - 1;
         let dup_bytes = dup_count as usize * entry.len;
+        data.total_storage_bytes += entry.len;
         data.total_dup_count += dup_count;
         data.total_dup_bytes += dup_bytes;
         *data.type_dup_count.entry(entry.entry_type).or_default() += dup_count;
@@ -67,5 +62,17 @@ fn interpret_trie_value_data(hash_map: HashMap<CryptoHash, TrieValueData>) {
         *data.count_distribution.entry(entry.count).or_default() += 1;
     }
 
-    println!("Statistics {:#?}", data);
+    println!("{:#?}", data);
+    println!(
+        "current leaf storage: {:.2} GB",
+        data.total_storage_bytes as f32 / (1024.0 * 1024.0 * 1024.0)
+    );
+    println!(
+        "non deduped leaf storage: {:.2} GB",
+        (data.total_storage_bytes + data.total_dup_bytes) as f32 / (1024.0 * 1024.0 * 1024.0)
+    );
+    println!(
+        "% increase: {:.2}%",
+        100.0 * data.total_dup_bytes as f32 / data.total_storage_bytes as f32
+    );
 }
