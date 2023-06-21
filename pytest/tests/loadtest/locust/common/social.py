@@ -291,8 +291,7 @@ def on_locust_init(environment, **kwargs):
             )
 
         social_contract_code = environment.parsed_options.social_db_wasm
-        contract_key = key.Key.from_seed_testonly(environment.social_account_id,
-                                                  environment.social_account_id)
+        contract_key = key.Key.from_seed_testonly(environment.social_account_id)
         social_account = Account(contract_key)
 
         node = NearNodeProxy(environment)
