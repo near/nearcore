@@ -875,6 +875,49 @@ impl GenesisLoader {
 }
 
 impl Genesis {
+    pub fn new(config: GenesisConfig, records: GenesisRecords, epoch_height: EpochHeight) -> Result<Self, ValidationError> {
+        Self::new_validated(config, records, GenesisValidationMode::Full, epoch_height)
+    }
+
+    fn new_validated(
+        config: GenesisConfig,
+        records: GenesisRecords,
+        genesis_validation: GenesisValidationMode,
+        epoch_height: EpochHeight,
+    ) -> Result<Self, ValidationError> {
+        let genesis = Self { config: config, contents: GenesisContents::Records { records } };
+        let genesis_loader = GenesisLoader::from_genesis(genesis.clone(), epoch_height);
+        genesis_loader.validate(genesis_validation)?;
+        Ok(genesis)
+    }
+
+    pub fn new_with_path<P: AsRef<Path>>(
+        genesis_config: GenesisConfig,
+        records_file: P,
+        epoch_height: EpochHeight,
+    ) -> Result<Self, ValidationError> {
+        Self::new_with_path_validated(genesis_config, records_file, GenesisValidationMode::Full, epoch_height)
+    }
+
+    fn new_with_path_validated<P: AsRef<Path>>(
+        genesis_config: GenesisConfig,
+        records_file: P,
+        genesis_validation: GenesisValidationMode,
+        epoch_height: EpochHeight,
+    ) -> Result<Self, ValidationError> {
+        let genesis = Self {
+            config: genesis_config,
+            contents: GenesisContents::RecordsFile {
+                records_file: records_file.as_ref().to_path_buf(),
+            },
+        };
+        let chain_config = genesis.config.chain_config_store.get_config(epoch_height).as_ref();
+
+        let genesis_loader = GenesisLoader::from_genesis(genesis.clone(), epoch_height);
+        genesis_loader.validate(genesis_validation)?;
+        Ok(genesis)
+    }
+
     pub fn from_genesis_loader(genesis_loader: GenesisLoader) -> Self {
         Self {
             config: GenesisConfig::from_genesis_config_loader(genesis_loader.config),
