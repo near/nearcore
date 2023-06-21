@@ -164,8 +164,7 @@ class NearNodeProxy:
         """
         while True:
             try:
-                result = self.send_tx(tx, locust_name)
-                return result
+                return self.send_tx(tx, locust_name)
             except InvalidNonceError as error:
                 logger.debug(
                     f"{error} for {tx.sender_account().key.account_id}, updating nonce and retrying"
