@@ -154,11 +154,9 @@ def on_locust_init(environment, **kwargs):
     environment.ft_contracts = []
     # TODO: Create accounts in parallel
     for i in range(num_ft_contracts):
-        # Prefix that makes accounts unique across workers
-        # Shuffling with a hash avoids locality in the state trie.
-        # TODO: Also make sure these are spread evenly across shards
-        prefix = str(hash(str(worker_id) + str(i)))[-6:]
-        contract_key = key.Key.from_random(f"{prefix}_ft.{parent_id}")
+        account_id = environment.account_generator.random_account_id(
+            parent_id, '_ft')
+        contract_key = key.Key.from_random(account_id)
         ft_account = Account(contract_key)
         if not node.account_exists(ft_account.key.account_id):
             node.send_tx_retry(
