@@ -11,10 +11,12 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+near-store.workspace = true
+nearcore.workspace = true
 clap.workspace = true
 rocksdb.workspace = true
-near-store.workspace = true
 rayon.workspace = true
 num_cpus.workspace = true
 strum.workspace = true
+once_cell.workspace = true
 

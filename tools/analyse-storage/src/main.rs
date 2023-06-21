@@ -4,13 +4,19 @@ use near_store::{col_name, DBCol};
 use rayon::prelude::*;
 use rocksdb::{ColumnFamilyDescriptor, Options, DB};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::{panic, println};
 use strum::IntoEnumIterator;
+use nearcore::get_default_home;
+use once_cell::sync::Lazy;
+
+static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(get_default_home);
 
 #[derive(Parser)]
 struct Cli {
-    db_path: String,
+    #[clap(long, value_parser, default_value_os = DEFAULT_HOME.as_os_str())]
+    home: PathBuf, 
 
     #[arg(short, long)]
     column: Option<String>,
@@ -73,7 +79,7 @@ pub fn get_db_col(col: &str) -> Option<DBCol> {
         "col49" => Some(DBCol::StateChangesForSplitStates),
         _ => {
             for db_col in DBCol::iter() {
-                if format!("{}", db_col) == col {
+                if col_name(db_col) == col {
                     return Some(db_col);
                 }
             }
@@ -82,7 +88,7 @@ pub fn get_db_col(col: &str) -> Option<DBCol> {
     }
 }
 
-fn get_all_col_familiy_names() -> Vec<DBCol> {
+fn get_all_col_family_names() -> Vec<DBCol> {
     DBCol::iter().collect()
 }
 
@@ -157,9 +163,9 @@ fn read_all_pairs(
     // Iterate over key-value pairs
     let update_map = |global_map: &Arc<Mutex<HashMap<usize, usize>>>,
                       local_map: &HashMap<usize, usize>| {
-        let mut key_sizes_guard = global_map.lock().unwrap();
+        let mut global_sizes_guard = global_map.lock().unwrap();
         for (key, value) in local_map {
-            *key_sizes_guard.entry(*key).or_insert(0) += *value;
+            *global_sizes_guard.entry(*key).or_insert(0) += *value;
         }
     };
     col_families.par_iter().for_each(|col_family| {
@@ -193,6 +199,9 @@ fn read_all_pairs(
         update_map(&value_sizes, &local_value_sizes);
     });
 
+    // The reason we sort here is because we want to display sorted
+    // output that shows the most occurring sizes (the ones with the 
+    // biggest count) in descending order, to have histogram like order
     let mut key_sizes_sorted: Vec<(usize, usize)> =
         key_sizes.lock().unwrap().clone().into_iter().collect();
     key_sizes_sorted.sort_by(|a, b| b.1.cmp(&a.1));
@@ -225,7 +234,7 @@ fn get_column_family_options(
             (vec![col_name.clone()], vec![ColumnFamilyDescriptor::new(col_name, opts)])
         }
         None => {
-            let col_families = get_all_col_familiy_names();
+            let col_families = get_all_col_family_names();
             (
                 col_families.iter().map(|db_col| col_name(*db_col).to_string()).collect(),
                 col_families
@@ -255,7 +264,7 @@ fn main() {
 
     // Open db
     let db =
-        DB::open_cf_descriptors_read_only(&opts, args.db_path, col_families_cf, false).unwrap();
+        DB::open_cf_descriptors_read_only(&opts, args.home.to_str().unwrap(), col_families_cf, false).unwrap();
     let (key_sizes_sorted, value_sizes_sorted) = read_all_pairs(&db, &col_families);
     let total_num_of_pairs = key_sizes_sorted.iter().map(|(_, count)| count).sum::<usize>();
 
