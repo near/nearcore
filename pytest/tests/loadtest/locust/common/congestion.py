@@ -85,29 +85,23 @@ def on_locust_init(environment, **kwargs):
     if isinstance(environment.runner, runners.WorkerRunner):
         return
 
-    # Note: These setup requests are not tracked by locust because we use our own http session.
-    host, port = environment.host.split(":")
-    node = cluster.RpcNode(host, port)
-
+    node = base.NearNodeProxy(environment)
     funding_account = base.NearUser.funding_account
-    funding_account.refresh_nonce(node)
+    funding_account.refresh_nonce(node.node)
 
     account = base.Account(
         key.Key.from_seed_testonly(environment.congestion_account_id,
                                    environment.congestion_account_id))
-    base.send_transaction(
-        node,
+    node.send_tx_retry(
         base.CreateSubAccount(funding_account, account.key, balance=50000.0),
-    )
-    account.refresh_nonce(node)
-    base.send_transaction(
-        node,
+        "create congestion funding account")
+    account.refresh_nonce(node.node)
+    node.send_tx_retry(
         base.Deploy(
             account,
             environment.parsed_options.congestion_wasm,
             "Congestion",
-        ),
-    )
+        ), "deploy congestion contract")
 
 
 # Congestion specific CLI args

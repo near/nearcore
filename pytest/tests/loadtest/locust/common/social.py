@@ -12,7 +12,7 @@ import transaction
 from account import TGAS, NEAR_BASE
 import cluster
 import key
-from common.base import Account, CreateSubAccount, Deploy, NearUser, Transaction, send_transaction
+from common.base import Account, CreateSubAccount, Deploy, NearNodeProxy, Transaction
 from locust import events, runners
 from transaction import create_function_call_action
 
@@ -294,19 +294,18 @@ def on_locust_init(environment, **kwargs):
         contract_key = key.Key.from_random(environment.social_account_id)
         social_account = Account(contract_key)
 
-        # Note: These setup requests are not tracked by locust because we use our own http session
-        host, port = environment.host.split(":")
-        node = cluster.RpcNode(host, port)
-
-        send_transaction(
-            node,
+        node = NearNodeProxy(environment)
+        node.send_tx_retry(
             CreateSubAccount(funding_account,
                              social_account.key,
-                             balance=50000.0))
-        social_account.refresh_nonce(node)
-        send_transaction(
-            node, Deploy(social_account, social_contract_code, "Social DB"))
-        send_transaction(node, InitSocialDB(social_account))
+                             balance=50000.0),
+            "create socialDB funding account")
+        social_account.refresh_nonce(node.node)
+        node.send_tx_retry(
+            Deploy(social_account, social_contract_code, "Social DB"),
+            "deploy socialDB contract")
+        node.send_tx_retry(InitSocialDB(social_account),
+                           "init socialDB contract")
 
 
 # Social specific CLI args
