@@ -11,8 +11,8 @@ use crate::state_snapshot_actor::MakeSnapshotCallback;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplySplitStateResultOrStateChanges,
-    ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader, BlockHeaderInfo, BlockStatus,
-    ChainConfig, ChainGenesis, Provenance, RuntimeAdapter,
+    ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader, BlockStatus, ChainConfig,
+    ChainGenesis, Provenance, RuntimeAdapter,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -29,6 +29,7 @@ use lru::LruCache;
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::log_assert;
 use near_primitives::block::{genesis_chunks, Tip};
@@ -625,13 +626,11 @@ impl Chain {
                 for chunk in genesis_chunks {
                     store_update.save_chunk(chunk.clone());
                 }
-                store_update.merge(runtime_adapter.add_validator_proposals(
-                    BlockHeaderInfo::new(
-                        genesis.header(),
-                        // genesis height is considered final
-                        chain_genesis.height,
-                    ),
-                )?);
+                store_update.merge(epoch_manager.add_validator_proposals(BlockHeaderInfo::new(
+                    genesis.header(),
+                    // genesis height is considered final
+                    chain_genesis.height,
+                ))?);
                 store_update.save_block_header(genesis.header().clone())?;
                 store_update.save_block(genesis.clone());
                 store_update
@@ -1814,7 +1813,7 @@ impl Chain {
                 let last_finalized_height =
                     chain_update.chain_store_update.get_block_height(header.last_final_block())?;
                 let epoch_manager_update = chain_update
-                    .runtime_adapter
+                    .epoch_manager
                     .add_validator_proposals(BlockHeaderInfo::new(header, last_finalized_height))?;
                 chain_update.chain_store_update.merge(epoch_manager_update);
                 chain_update.commit()?;
@@ -5257,7 +5256,7 @@ impl<'a> ChainUpdate<'a> {
         };
 
         let epoch_manager_update = self
-            .runtime_adapter
+            .epoch_manager
             .add_validator_proposals(BlockHeaderInfo::new(block.header(), last_finalized_height))?;
         self.chain_store_update.merge(epoch_manager_update);
 
