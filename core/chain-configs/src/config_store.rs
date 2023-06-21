@@ -19,7 +19,7 @@ pub struct ChainConfigStore {
 
 impl ChainConfigStore {
     pub fn new(genesis_config_loader: GenesisConfigLoader) -> Self {
-        let mirko = RESOURCES_DIR + CONFIG_CHANGE_FILENAME;
+        let mirko = String::from(RESOURCES_DIR) + CONFIG_CHANGE_FILENAME;
         println!("Mirko: {}", mirko);
         let initial_chain_config = Arc::new(ChainConfig::new(genesis_config_loader));
         let mut store = BTreeMap::new();
