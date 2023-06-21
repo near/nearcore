@@ -15,7 +15,7 @@ pub use client_config::{
 pub use config::{ChainConfig};
 pub use config_store::ChainConfigStore;
 pub use genesis_config::{
-    get_initial_supply, stream_records_from_file, Genesis, GenesisChangeConfig, GenesisConfig,
+    get_initial_supply, stream_records_from_file, Genesis, GenesisLoader, GenesisChangeConfig, GenesisConfig,
     GenesisConfigLoader, GenesisRecords, GenesisValidationMode, ProtocolConfig, ProtocolConfigView,
 };
 pub use updateable_config::{MutableConfigValue, UpdateableClientConfig};

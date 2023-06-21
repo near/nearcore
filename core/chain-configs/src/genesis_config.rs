@@ -283,6 +283,12 @@ pub struct GenesisConfig {
     pub use_production_config: bool,
 }
 
+impl GenesisConfigLoader {
+    pub fn use_production_config(&self) -> bool {
+        self.use_production_config || self.chain_id == "testnet" || self.chain_id == "mainnet"
+    }
+}
+
 impl GenesisConfig {
     pub fn from_genesis_config_loader(genesis_config_loader: GenesisConfigLoader) -> Self {
         let chain_config_store = ChainConfigStore::new(genesis_config_loader.clone());
@@ -322,14 +328,10 @@ impl GenesisConfig {
             use_production_config: genesis_config_loader.use_production_config,
         }
     }
-
-    pub fn use_production_config(&self) -> bool {
-        self.use_production_config || self.chain_id == "testnet" || self.chain_id == "mainnet"
-    }
 }
 
-impl From<&GenesisConfig> for EpochConfig {
-    fn from(config: &GenesisConfig) -> Self {
+impl From<&GenesisConfigLoader> for EpochConfig {
+    fn from(config: &GenesisConfigLoader) -> Self {
         EpochConfig {
             epoch_length: config.epoch_length,
             num_block_producer_seats: config.num_block_producer_seats,
@@ -355,10 +357,10 @@ impl From<&GenesisConfig> for EpochConfig {
     }
 }
 
-impl From<&GenesisConfig> for AllEpochConfig {
-    fn from(genesis_config: &GenesisConfig) -> Self {
-        let initial_epoch_config = EpochConfig::from(genesis_config);
-        let epoch_config = Self::new(genesis_config.use_production_config(), initial_epoch_config);
+impl From<&GenesisConfigLoader> for AllEpochConfig {
+    fn from(genesis_config_loader: &GenesisConfigLoader) -> Self {
+        let initial_epoch_config = EpochConfig::from(genesis_config_loader);
+        let epoch_config = Self::new(genesis_config_loader.use_production_config(), initial_epoch_config);
         epoch_config
     }
 }
@@ -446,7 +448,7 @@ pub struct Genesis {
     pub contents: GenesisContents,
 }
 
-impl GenesisConfig {
+impl GenesisConfigLoader {
     /// Parses GenesisConfig from a JSON string.
     /// The string can be a JSON with comments.
     /// It panics if the contents cannot be parsed from JSON to the GenesisConfig structure.
@@ -468,7 +470,7 @@ impl GenesisConfig {
         file.read_to_string(&mut json_str)?;
         let json_str_without_comments: String =
             near_config_utils::strip_comments_from_json_str(&json_str)?;
-        let genesis_config: GenesisConfig = serde_json::from_str(&json_str_without_comments)
+        let genesis_config: GenesisConfigLoader = serde_json::from_str(&json_str_without_comments)
             .with_context(|| "Failed to deserialize the genesis config.")?;
         Ok(genesis_config)
     }
@@ -618,7 +620,7 @@ impl GenesisJsonHasher {
         Self { digest: sha2::Sha256::new() }
     }
 
-    pub fn process_config(&mut self, config: &GenesisConfig) {
+    pub fn process_config(&mut self, config: &GenesisConfigLoader) {
         let mut ser = Serializer::pretty(&mut self.digest);
         config.serialize(&mut ser).expect("Error serializing the genesis config.");
     }
@@ -628,7 +630,7 @@ impl GenesisJsonHasher {
         record.serialize(&mut ser).expect("Error serializing the genesis record.");
     }
 
-    pub fn process_genesis(&mut self, genesis: &Genesis) {
+    pub fn process_genesis(&mut self, genesis: &GenesisLoader) {
         self.process_config(&genesis.config);
         genesis.for_each_record(|record: &StateRecord| {
             self.process_record(record);
@@ -645,16 +647,16 @@ pub enum GenesisValidationMode {
     UnsafeFast,
 }
 
-impl Genesis {
-    pub fn new(config: GenesisConfig, records: GenesisRecords) -> Result<Self, ValidationError> {
-        Self::new_validated(config, records, GenesisValidationMode::Full)
+impl GenesisLoader {
+    pub fn new(config_loader: GenesisConfigLoader, records: GenesisRecords) -> Result<Self, ValidationError> {
+        Self::new_validated(config_loader, records, GenesisValidationMode::Full)
     }
 
     pub fn new_with_path<P: AsRef<Path>>(
-        config: GenesisConfig,
+        config_loader: GenesisConfigLoader,
         records_file: P,
     ) -> Result<Self, ValidationError> {
-        Self::new_with_path_validated(config, records_file, GenesisValidationMode::Full)
+        Self::new_with_path_validated(config_loader, records_file, GenesisValidationMode::Full)
     }
 
     /// Reads Genesis from a single JSON file, the file can be JSON with comments
@@ -680,8 +682,6 @@ impl Genesis {
                 error_message: "Failed to strip comments from genesis config file".to_string(),
             })?;
 
-        // Mirko: tu dole dodaj laodera
-
         let genesis_loader =
             serde_json::from_str::<GenesisLoader>(&json_str_without_comments).map_err(|_| {
                 ValidationError::GenesisFileError {
@@ -689,13 +689,8 @@ impl Genesis {
                 }
             })?;
 
-        let genesis = Self {
-            config: GenesisConfig::from_genesis_config_loader(genesis_loader.config),
-            contents: genesis_loader.contents,
-        };
-
-        genesis.validate(genesis_validation)?;
-        Ok(genesis)
+        genesis_loader.validate(genesis_validation)?;
+        Ok(genesis_loader)
     }
 
     /// Reads Genesis from config and records files.
@@ -704,40 +699,41 @@ impl Genesis {
         records_path: P2,
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError>
-    where
-        P1: AsRef<Path>,
-        P2: AsRef<Path>,
+        where
+            P1: AsRef<Path>,
+            P2: AsRef<Path>,
     {
-        let genesis_config = GenesisConfig::from_file(config_path).map_err(|error| {
+        let genesis_config_loader = GenesisConfigLoader::from_file(config_path).map_err(|error| {
             let error_message = error.to_string();
             ValidationError::GenesisFileError { error_message: error_message }
         })?;
-        Self::new_with_path_validated(genesis_config, records_path, genesis_validation)
+        Self::new_with_path_validated(genesis_config_loader, records_path, genesis_validation)
     }
 
     fn new_validated(
-        config: GenesisConfig,
+        config_loader: GenesisConfigLoader,
         records: GenesisRecords,
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError> {
-        let genesis = Self { config, contents: GenesisContents::Records { records } };
-        genesis.validate(genesis_validation)?;
-        Ok(genesis)
+        let genesis_loader = Self { config: config_loader, contents: GenesisContents::Records { records } };
+        genesis_loader.validate(genesis_validation)?;
+        Ok(genesis_loader)
     }
 
+
     fn new_with_path_validated<P: AsRef<Path>>(
-        config: GenesisConfig,
+        config_loader: GenesisConfigLoader,
         records_file: P,
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError> {
-        let genesis = Self {
-            config,
+        let genesis_loader = Self {
+            config: config_loader,
             contents: GenesisContents::RecordsFile {
                 records_file: records_file.as_ref().to_path_buf(),
             },
         };
-        genesis.validate(genesis_validation)?;
-        Ok(genesis)
+        genesis_loader.validate(genesis_validation)?;
+        Ok(genesis_loader)
     }
 
     pub fn validate(
@@ -759,7 +755,7 @@ impl Genesis {
             path,
             serde_json::to_vec_pretty(self).expect("Error serializing the genesis config."),
         )
-        .expect("Failed to create / write a genesis config file.");
+            .expect("Failed to create / write a genesis config file.");
     }
 
     /// Hash of the json-serialized input.
@@ -821,6 +817,15 @@ impl Genesis {
             _ => {
                 unreachable!("Records should have been set previously");
             }
+        }
+    }
+}
+
+impl Genesis {
+    pub fn from_genesis_loader(genesis_loader: GenesisLoader) -> Self {
+        Self {
+            config: GenesisConfig::from_genesis_config_loader(genesis_loader.config),
+            contents: genesis_loader.contents,
         }
     }
 }

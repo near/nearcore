@@ -5,13 +5,14 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::types::AccountId;
 use num_rational::Rational32;
 use std::collections::{HashMap, HashSet};
+use crate::{GenesisLoader, GenesisConfigLoader};
 
 /// Validate genesis config and records. Returns ValidationError if semantic checks of genesis failed.
-pub fn validate_genesis(genesis: &Genesis) -> Result<(), ValidationError> {
+pub fn validate_genesis(genesis_loader: &GenesisLoader) -> Result<(), ValidationError> {
     let mut validation_errors = ValidationErrors::new();
-    let mut genesis_validator = GenesisValidator::new(&genesis.config, &mut validation_errors);
+    let mut genesis_validator = GenesisValidator::new(&genesis_loader.config, &mut validation_errors);
     tracing::info!(target: "config", "Validating Genesis config and records. This could take a few minutes...");
-    genesis.for_each_record(|record: &StateRecord| {
+    genesis_loader.for_each_record(|record: &StateRecord| {
         genesis_validator.process_record(record);
     });
     genesis_validator.validate_processed_records();
@@ -19,7 +20,7 @@ pub fn validate_genesis(genesis: &Genesis) -> Result<(), ValidationError> {
 }
 
 struct GenesisValidator<'a> {
-    genesis_config: &'a GenesisConfig,
+    genesis_config_loader: &'a GenesisConfigLoader,
     total_supply: u128,
     staked_accounts: HashMap<AccountId, u128>,
     account_ids: HashSet<AccountId>,
@@ -30,11 +31,11 @@ struct GenesisValidator<'a> {
 
 impl<'a> GenesisValidator<'a> {
     pub fn new(
-        genesis_config: &'a GenesisConfig,
+        genesis_config_loader: &'a GenesisConfigLoader,
         validation_errors: &'a mut ValidationErrors,
     ) -> Self {
         Self {
-            genesis_config,
+            genesis_config_loader,
             total_supply: 0,
             staked_accounts: HashMap::new(),
             account_ids: HashSet::new(),
@@ -75,7 +76,7 @@ impl<'a> GenesisValidator<'a> {
 
     pub fn validate_processed_records(&mut self) {
         let validators = self
-            .genesis_config
+            .genesis_config_loader
             .validators
             .clone()
             .into_iter()
@@ -88,7 +89,7 @@ impl<'a> GenesisValidator<'a> {
             })
             .collect::<HashMap<_, _>>();
 
-        if validators.len() != self.genesis_config.validators.len() {
+        if validators.len() != self.genesis_config_loader.validators.len() {
             let error_message = format!("Duplicate account in validators. The number of account_ids: {} does not match the number of validators: {}.", self.account_ids.len(), validators.len());
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
@@ -98,8 +99,8 @@ impl<'a> GenesisValidator<'a> {
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
-        if self.total_supply != self.genesis_config.total_supply {
-            let error_message = format!("wrong total supply. account.locked() + account.amount() = {} is not equal to the total supply = {} specified in genesis config.", self.total_supply, self.genesis_config.total_supply);
+        if self.total_supply != self.genesis_config_loader.total_supply {
+            let error_message = format!("wrong total supply. account.locked() + account.amount() = {} is not equal to the total supply = {} specified in genesis config.", self.total_supply, self.genesis_config_loader.total_supply);
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
@@ -122,57 +123,57 @@ impl<'a> GenesisValidator<'a> {
             }
         }
 
-        if self.genesis_config.online_max_threshold <= self.genesis_config.online_min_threshold {
+        if self.genesis_config_loader.online_max_threshold <= self.genesis_config_loader.online_min_threshold {
             let error_message = format!(
                 "Online max threshold {} smaller than min threshold {}",
-                self.genesis_config.online_max_threshold, self.genesis_config.online_min_threshold
+                self.genesis_config_loader.online_max_threshold, self.genesis_config_loader.online_min_threshold
             );
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
-        if self.genesis_config.online_max_threshold > Rational32::from_integer(1) {
+        if self.genesis_config_loader.online_max_threshold > Rational32::from_integer(1) {
             let error_message = format!(
                 "Online max threshold must be less or equal than 1, but current value is {}",
-                self.genesis_config.online_max_threshold
+                self.genesis_config_loader.online_max_threshold
             );
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
-        if *self.genesis_config.online_max_threshold.numer() >= 10_000_000 {
+        if *self.genesis_config_loader.online_max_threshold.numer() >= 10_000_000 {
             let error_message =
                 "online_max_threshold's numerator is too large, may lead to overflow.".to_string();
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
-        if *self.genesis_config.online_min_threshold.numer() >= 10_000_000 {
+        if *self.genesis_config_loader.online_min_threshold.numer() >= 10_000_000 {
             let error_message =
                 "online_min_threshold's numerator is too large, may lead to overflow.".to_string();
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
-        if *self.genesis_config.online_max_threshold.denom() >= 10_000_000 {
+        if *self.genesis_config_loader.online_max_threshold.denom() >= 10_000_000 {
             let error_message =
                 "online_max_threshold's denominator is too large, may lead to overflow."
                     .to_string();
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
-        if *self.genesis_config.online_min_threshold.denom() >= 10_000_000 {
+        if *self.genesis_config_loader.online_min_threshold.denom() >= 10_000_000 {
             let error_message =
                 "online_min_threshold's denominator is too large, may lead to overflow."
                     .to_string();
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
-        if self.genesis_config.gas_price_adjustment_rate >= Rational32::from_integer(1) {
+        if self.genesis_config_loader.gas_price_adjustment_rate >= Rational32::from_integer(1) {
             let error_message = format!(
                 "Gas price adjustment rate must be less than 1, value in config is {}",
-                self.genesis_config.gas_price_adjustment_rate
+                self.genesis_config_loader.gas_price_adjustment_rate
             );
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
-        if self.genesis_config.epoch_length == 0 {
+        if self.genesis_config_loader.epoch_length == 0 {
             let error_message = "Epoch Length must be greater than 0".to_string();
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
