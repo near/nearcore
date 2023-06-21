@@ -53,10 +53,6 @@ enum SubCommand {
 pub struct ConstructTriedFromFlatCmd {
     #[clap(long)]
     shard_id: u64,
-    /// Path to directory where the constructed trie would be stored. Note that there shouldn't be an
-    /// existing DB in the path provided.
-    #[clap(long)]
-    write_store_path: PathBuf,
 }
 
 #[derive(Parser)]
@@ -352,20 +348,10 @@ impl FlatStorageCommand {
                     &near_config,
                     near_store::Mode::ReadWriteExisting,
                 );
-
-                let write_opener = NodeStorage::opener(
-                    &cmd.write_store_path,
-                    false,
-                    &near_config.config.store,
-                    None,
-                );
-                let write_node_storage = write_opener.open_in_mode(Mode::Create).unwrap();
-                let write_store = write_node_storage.get_hot_store();
-
                 let tip = chain_store.final_head().unwrap();
                 let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &tip.epoch_id)?;
 
-                construct_trie_from_flat(store, write_store, shard_uid);
+                construct_trie_from_flat(store, shard_uid);
             }
         }
 

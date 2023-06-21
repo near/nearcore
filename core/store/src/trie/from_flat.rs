@@ -1,70 +1,71 @@
-use crate::flat::{store_helper, FlatStorageError, FlatStorageManager};
-use crate::{ShardTries, Store, Trie, TrieConfig, TrieDBStorage, TrieStorage};
+use crate::flat::store_helper;
+use crate::{Store, TrieDBStorage, TrieStorage};
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::{shard_layout::ShardUId, state::FlatStateValue};
+use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
 
-// This function creates a new trie from flat storage for a given shard_uid
-// store: location of RocksDB store from where we read flatstore
-// write_store: location of RocksDB store where we write the newly constructred trie
-// shard_uid: The shard which we are recreating
-//
-// Please note that the trie is created for the block state with height equal to flat_head
-// flat state can comtain deltas after flat_head and can be different from tip of the blockchain.
-pub fn construct_trie_from_flat(store: Store, write_store: Store, shard_uid: ShardUId) {
-    let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
-    let flat_state_to_trie_kv =
-        |entry: Result<(Vec<u8>, FlatStateValue), FlatStorageError>| -> (Vec<u8>, Vec<u8>) {
-            let (key, value) = entry.unwrap();
-            let value = match value {
-                FlatStateValue::Ref(ref_value) => {
-                    trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()
-                }
-                FlatStateValue::Inlined(inline_value) => inline_value,
-            };
-            (key, value)
-        };
-
-    let mut iter = store_helper::iter_flat_state_entries(shard_uid, &store, None, None)
-        .map(flat_state_to_trie_kv);
-
-    // new ShardTries for write storage location
-    let tries = ShardTries::new(
-        write_store.clone(),
-        TrieConfig::default(),
-        &[shard_uid],
-        FlatStorageManager::new(write_store),
-    );
-    let mut trie_root = Trie::EMPTY_ROOT;
-
-    let timer = Instant::now();
-    while let Some(batch) = get_trie_update_batch(&mut iter) {
-        // Apply and commit changes
-        let batch_size = batch.len();
-        let new_trie = tries.get_trie_for_shard(shard_uid, trie_root);
-        let trie_changes = new_trie.update(batch).unwrap();
-        let mut store_update = tries.store_update();
-        tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        store_update.commit().unwrap();
-        trie_root = trie_changes.new_root;
-
-        println!("{:.2?} : Processed {} entries", timer.elapsed(), batch_size);
-    }
-
-    println!("{:.2?} : Completed building trie with root {}", timer.elapsed(), trie_root);
+#[derive(Debug)]
+struct TrieValueData {
+    entry_type: u8,
+    count: u32,
+    len: usize,
 }
 
-fn get_trie_update_batch(
-    iter: &mut impl Iterator<Item = (Vec<u8>, Vec<u8>)>,
-) -> Option<Vec<(Vec<u8>, Option<Vec<u8>>)>> {
-    let size_limit = 500 * 1000_000; // 500 MB
-    let mut size = 0;
-    let mut entries = Vec::new();
-    while let Some((key, value)) = iter.next() {
-        size += key.len() + value.len();
-        entries.push((key, Some(value)));
-        if size > size_limit {
-            break;
+pub fn construct_trie_from_flat(store: Store, shard_uid: ShardUId) {
+    let timer = Instant::now();
+    let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
+    let mut hash_map: HashMap<CryptoHash, TrieValueData> = HashMap::new();
+
+    for (i, (trie_key, value)) in
+        store_helper::iter_flat_state_entries(shard_uid, &store, None, None)
+            .map(|t| t.unwrap())
+            .enumerate()
+    {
+        let (hash_key, value_len) = match value {
+            FlatStateValue::Ref(ref_value) => {
+                let len = hash_map.get(&ref_value.hash).map_or_else(
+                    || trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec().len(),
+                    |entry| entry.len,
+                );
+                (ref_value.hash, len)
+            }
+            FlatStateValue::Inlined(inline_value) => (hash(&inline_value), inline_value.len()),
+        };
+        hash_map
+            .entry(hash_key)
+            .or_insert(TrieValueData { entry_type: trie_key[0], count: 0, len: value_len })
+            .count += 1;
+
+        if i % 1_000_000 == 0 {
+            println!("{:.2?} : i {}, hash_map len {}", timer.elapsed(), i, hash_map.len());
         }
     }
-    (!entries.is_empty()).then_some(entries)
+    println!("{:.2?} : Completed", timer.elapsed());
+
+    interpret_trie_value_data(hash_map);
+}
+
+#[derive(Default, Debug)]
+struct ConsolidatedData {
+    total_dup_count: u32,
+    total_dup_bytes: usize,
+    type_dup_count: BTreeMap<u8, u32>,
+    type_dup_bytes: BTreeMap<u8, usize>,
+    count_distribution: BTreeMap<u32, u32>, // map num_replications -> count
+}
+
+fn interpret_trie_value_data(hash_map: HashMap<CryptoHash, TrieValueData>) {
+    let mut data = ConsolidatedData::default();
+    for entry in hash_map.values() {
+        let dup_count = entry.count - 1;
+        let dup_bytes = dup_count as usize * entry.len;
+        data.total_dup_count += dup_count;
+        data.total_dup_bytes += dup_bytes;
+        *data.type_dup_count.entry(entry.entry_type).or_default() += dup_count;
+        *data.type_dup_bytes.entry(entry.entry_type).or_default() += dup_bytes;
+        *data.count_distribution.entry(entry.count).or_default() += 1;
+    }
+
+    println!("Statistics {:#?}", data);
 }
