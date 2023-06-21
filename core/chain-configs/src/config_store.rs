@@ -11,7 +11,7 @@ use serde_json;
 pub const RESOURCES_DIR: &str = "../res/";
 pub const CONFIG_CHANGE_FILENAME: &str = "genesis.json";
 
-#[derive(Debug)]
+#[derive(Debug, serde::Deserialize)]
 pub struct ConfigChangeList {
     epoch_changes: Vec<i32>,
 }
