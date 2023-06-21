@@ -26,7 +26,6 @@ use std::time::Duration;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn sync_state_nodes() {
     heavy_test(|| {
         init_integration_logger();
@@ -123,9 +122,7 @@ fn sync_state_nodes() {
 }
 
 /// One client is in front, another must sync to it using state (fast) sync.
-#[cfg(feature = "expensive_tests")]
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn sync_state_nodes_multishard() {
     heavy_test(|| {
         init_integration_logger();
@@ -284,7 +281,6 @@ fn sync_state_nodes_multishard() {
 /// Start a validator that validators four shards. Since we only have 3 accounts one shard must have
 /// empty state. Start another node that does state sync. Check state sync on empty state works.
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn sync_empty_state() {
     heavy_test(|| {
         init_integration_logger();
@@ -409,7 +405,6 @@ fn sync_empty_state() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 /// Runs one node for some time, which dumps state to a temp directory.
 /// Start the second node which gets state parts from that temp directory.
 fn sync_state_dump() {
@@ -542,7 +537,6 @@ fn sync_state_dump() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_dump_epoch_missing_chunk_in_last_block() {
     heavy_test(|| {
         init_test_logger();
