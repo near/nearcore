@@ -14,7 +14,6 @@ use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout, WaitOrTimeoutActor};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
-use near_primitives::shard_layout::ShardUId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::MaybeValidated;
@@ -540,114 +539,93 @@ fn sync_state_dump() {
 fn test_dump_epoch_missing_chunk_in_last_block() {
     heavy_test(|| {
         init_test_logger();
-        let epoch_length = 4;
-        let mut genesis =
-            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        genesis.config.epoch_length = epoch_length;
-        let chain_genesis = ChainGenesis::new(&genesis);
+        let epoch_length = 10;
 
-        let num_clients = 1;
-        let env_objects = (0..num_clients).map(|_| {
-            let tmp_dir = tempfile::tempdir().unwrap();
-            // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
-            // same configuration as in production.
-            let store = NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
-                .open()
-                .unwrap()
-                .get_hot_store();
-            let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-            let runtime =
-                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
-                    as Arc<dyn RuntimeAdapter>;
-            (tmp_dir, store, epoch_manager, runtime)
-        }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
+        for num_last_chunks_missing in 0..(epoch_length/2) {
+            let mut genesis =
+                Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+            genesis.config.epoch_length = epoch_length;
+            let chain_genesis = ChainGenesis::new(&genesis);
 
-        let stores = env_objects.iter().map(|x| x.1.clone()).collect();
-        let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect();
-        let runtimes = env_objects.iter().map(|x| x.3.clone()).collect();
+            let num_clients = 1;
+            let env_objects = (0..num_clients).map(|_| {
+                let tmp_dir = tempfile::tempdir().unwrap();
+                // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
+                // same configuration as in production.
+                let store = NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
+                    .open()
+                    .unwrap()
+                    .get_hot_store();
+                let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+                let runtime =
+                    NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+                        as Arc<dyn RuntimeAdapter>;
+                (tmp_dir, store, epoch_manager, runtime)
+            }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
 
-        let mut env = TestEnv::builder(chain_genesis)
-            .clients_count(num_clients)
-            .stores(stores)
-            .epoch_managers(epoch_managers)
-            .runtimes(runtimes)
-            .use_state_snapshots()
-            .build();
+            let stores = env_objects.iter().map(|x| x.1.clone()).collect();
+            let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect();
+            let runtimes = env_objects.iter().map(|x| x.3.clone()).collect();
 
-        let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-        let mut blocks = vec![genesis_block.clone()];
-        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-        let target_height = epoch_length + 1;
-        for i in 1..=target_height {
-            let block = env.clients[0].produce_block(i).unwrap().unwrap();
-            blocks.push(block.clone());
-            if (i + 1) % epoch_length == 0 {
-                // Don't produce chunks for the last block of an epoch.
-                env.clients[0]
-                    .process_block_test_no_produce_chunk(
-                        MaybeValidated::from(block.clone()),
-                        Provenance::PRODUCED,
-                    )
-                    .unwrap();
-                tracing::info!("Block {i}: {:?} -- produced no chunk", block.header().epoch_id());
-            } else {
-                env.process_block(0, block.clone(), Provenance::PRODUCED);
-                tracing::info!(
-                    "Block {i}: {:?} -- also produced a chunk",
-                    block.header().epoch_id()
+            let mut env = TestEnv::builder(chain_genesis)
+                .clients_count(num_clients)
+                .stores(stores)
+                .epoch_managers(epoch_managers)
+                .runtimes(runtimes)
+                .use_state_snapshots()
+                .build();
+
+            let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+            let mut blocks = vec![genesis_block.clone()];
+            let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+            let target_height = epoch_length + 1;
+            for i in 1..=target_height {
+                let block = env.clients[0].produce_block(i).unwrap().unwrap();
+                blocks.push(block.clone());
+                if (i % epoch_length) != 0 && epoch_length - (i % epoch_length) <= num_last_chunks_missing {
+                    // Don't produce chunks for the last blocks of an epoch.
+                    env.clients[0]
+                        .process_block_test_no_produce_chunk(
+                            MaybeValidated::from(block.clone()),
+                            Provenance::PRODUCED,
+                        )
+                        .unwrap();
+                    tracing::info!("Block {i}: {:?} -- produced no chunk", block.header().epoch_id());
+                } else {
+                    env.process_block(0, block.clone(), Provenance::PRODUCED);
+                    tracing::info!("Block {i}: {:?} -- also produced a chunk", block.header().epoch_id());
+                }
+
+                let tx = SignedTransaction::send_money(
+                    i + 1,
+                    "test0".parse().unwrap(),
+                    "test1".parse().unwrap(),
+                    &signer,
+                    1,
+                    *genesis_block.hash(),
                 );
+                assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
             }
-            tracing::info!(
-                "Chunk Extra {:?}",
-                env.clients[0].chain.get_chunk_extra(block.hash(), &ShardUId::single_shard())
+
+            // Simulate state sync
+
+            // No blocks were skipped, therefore we can compute the block height of the first block of the current epoch.
+            let sync_hash_height = ((target_height / epoch_length) * epoch_length + 1) as usize;
+            let sync_hash = *blocks[sync_hash_height].hash();
+            assert_ne!(
+                blocks[sync_hash_height].header().epoch_id(),
+                blocks[sync_hash_height - 1].header().epoch_id()
             );
 
-            let tx = SignedTransaction::send_money(
-                i + 1,
-                "test0".parse().unwrap(),
-                "test1".parse().unwrap(),
-                &signer,
-                1,
-                *genesis_block.hash(),
-            );
-            assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+            let state_sync_header =
+                env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
+            let state_root_node = state_sync_header.state_root_node();
+            let num_parts = get_num_state_parts(state_root_node.memory_usage);
+            // Check that state parts can be obtained.
+            (0..num_parts).for_each(|i| {
+                // This should obviously not fail, aka succeed.
+                env.clients[0].chain.get_state_response_part(0, i, sync_hash).unwrap();
+            });
         }
-
-        // Simulate state sync
-
-        // No blocks were skipped, therefore we can compute the block height of the first block of the current epoch.
-        let sync_hash_height = ((target_height / epoch_length) * epoch_length + 1) as usize;
-        let sync_hash = *blocks[sync_hash_height].hash();
-        assert_ne!(
-            blocks[sync_hash_height].header().epoch_id(),
-            blocks[sync_hash_height - 1].header().epoch_id()
-        );
-
-        // Check that the last block of the previous epoch has no chunk.
-        assert_eq!(
-            // Don't understand why this ChunkExtra is present. The block contained no chunk and therefore should contain no chunk extra.
-            env.clients[0]
-                .chain
-                .get_chunk_extra(blocks[sync_hash_height - 1].hash(), &ShardUId::single_shard())
-                .unwrap()
-                .state_root(),
-            env.clients[0]
-                .chain
-                .get_chunk_extra(blocks[sync_hash_height - 2].hash(), &ShardUId::single_shard())
-                .unwrap()
-                .state_root()
-        );
-
-        let state_sync_header =
-            env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
-        let state_root = state_sync_header.chunk_prev_state_root();
-        let state_root_node =
-            env.clients[0].runtime_adapter.get_state_root_node(0, &sync_hash, &state_root).unwrap();
-        let num_parts = get_num_state_parts(state_root_node.memory_usage);
-        // Check that state parts can be obtained.
-        (0..num_parts).for_each(|i| {
-            // This should obviously not fail, aka succeed.
-            env.clients[0].chain.get_state_response_part(0, i, sync_hash).unwrap();
-        });
     });
 }

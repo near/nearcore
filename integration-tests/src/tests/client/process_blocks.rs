@@ -2646,9 +2646,7 @@ fn test_catchup_gas_price_change() {
     assert_ne!(blocks[4].header().epoch_id(), blocks[5].header().epoch_id());
     assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
     let state_sync_header = env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
-    let state_root = state_sync_header.chunk_prev_state_root();
-    let state_root_node =
-        env.clients[0].runtime_adapter.get_state_root_node(0, &sync_hash, &state_root).unwrap();
+    let state_root_node = state_sync_header.state_root_node();
     let num_parts = get_num_state_parts(state_root_node.memory_usage);
     let state_sync_parts = (0..num_parts)
         .map(|i| env.clients[0].chain.get_state_response_part(0, i, sync_hash).unwrap())

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives_core::hash::hash;
 use near_primitives_core::types::EpochHeight;
 
 use crate::block_header::BlockHeader;
@@ -91,7 +92,7 @@ impl ShardStateSyncResponseHeader {
     pub fn chunk_prev_state_root(&self) -> StateRoot {
         match self {
             Self::V1(header) => header.chunk.header.inner.prev_state_root,
-            Self::V2(header) => header.chunk.prev_state_root(),
+            Self::V2(header) => hash(header.state_root_node.data.as_ref()),
         }
     }
 

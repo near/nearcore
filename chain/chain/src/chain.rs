@@ -2911,10 +2911,23 @@ impl Chain {
             root_proofs.push(root_proofs_cur);
         }
 
+        let state_root = if chunk_header.height_included() == sync_prev_block.header().height() {
+            let state_root = chunk_header.prev_state_root();
+            tracing::debug!(target: "sync", ?shard_id, ?state_root, ?sync_hash, "Needed chunk is present. Using `prev_state_root().");
+            state_root
+        } else {
+            let sync_prev_prev_hash = sync_prev_block.header().prev_hash();
+            let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(&sync_prev_prev_hash)?;
+            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+            let chunk_extra = self.get_chunk_extra(sync_prev_prev_hash, &shard_uid)?;
+            let state_root = *chunk_extra.state_root();
+            tracing::debug!(target: "sync", ?shard_uid, ?state_root, ?sync_hash, ?sync_prev_prev_hash, "Needed chunk is missing. Using chunk extra instead.");
+            state_root
+        };
         let state_root_node = self.runtime_adapter.get_state_root_node(
             shard_id,
             &sync_prev_hash,
-            &chunk_header.prev_state_root(),
+            &state_root,
         )?;
 
         let shard_state_header = match chunk {
@@ -2994,31 +3007,18 @@ impl Chain {
             return Ok(state_part.into());
         }
 
+        // Assume sync_hash was validated by `get_state_response_header()`.
+        let state_response_header = self.get_state_response_header(shard_id, sync_hash)?;
+        let state_root = state_response_header.chunk_prev_state_root();
+        let state_root_node = state_response_header.state_root_node();
+        let num_parts = get_num_state_parts(state_root_node.memory_usage);
+
         let sync_block = self
             .get_block(&sync_hash)
             .log_storage_error("block has already been checked for existence")?;
         let sync_block_header = sync_block.header().clone();
-        let sync_block_epoch_id = sync_block.header().epoch_id().clone();
-        if shard_id as usize >= sync_block.chunks().len() {
-            return Err(Error::InvalidStateRequest("shard_id out of bounds".into()));
-        }
         let sync_prev_block = self.get_block(sync_block_header.prev_hash())?;
-        if &sync_block_epoch_id == sync_prev_block.header().epoch_id() {
-            return Err(Error::InvalidStateRequest(
-                "sync_hash is not the first hash of the epoch".into(),
-            ));
-        }
-        if shard_id as usize >= sync_prev_block.chunks().len() {
-            return Err(Error::InvalidStateRequest("shard_id out of bounds".into()));
-        }
-        let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
-        let sync_prev_hash = *sync_prev_block.hash();
         let sync_prev_prev_hash = *sync_prev_block.header().prev_hash();
-        let state_root_node = self
-            .runtime_adapter
-            .get_state_root_node(shard_id, &sync_prev_hash, &state_root)
-            .log_storage_error("get_state_root_node fail")?;
-        let num_parts = get_num_state_parts(state_root_node.memory_usage);
 
         if part_id >= num_parts {
             return Err(Error::InvalidStateRequest("part_id out of bound".to_string()));
