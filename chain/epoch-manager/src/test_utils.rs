@@ -186,10 +186,10 @@ pub fn stake(account_id: AccountId, amount: Balance) -> ValidatorStake {
 
 /// No-op reward calculator. Will produce no reward
 pub fn default_reward_calculator() -> RewardCalculator {
-    let mirko = ChainConfig {
+    let chain_config = ChainConfig {
         protocol_reward_rate: Ratio::from_integer(0),
     };
-    let chain_config_store = ChainConfigStore::test(mirko);
+    let chain_config_store = ChainConfigStore::test(chain_config);
 
     RewardCalculator {
         max_inflation_rate: Ratio::from_integer(0),
