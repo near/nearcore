@@ -36,6 +36,7 @@ impl ChainConfigStore {
     }
 
     pub fn get_config(&self, epoch_height: EpochHeight) -> &Arc<ChainConfig> {
+        println!("Mirko: dohvaca se config");
         &self.initial_chain_config
     }
 }
