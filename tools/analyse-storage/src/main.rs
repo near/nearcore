@@ -109,8 +109,8 @@ fn print_results(
         size_count_type,
         sizes_count.iter().map(|(size, _)| size).max().unwrap()
     );
-    println!("Most occuring size {}: {:?}", size_count_type, sizes_count.first().unwrap());
-    println!("Least occuring size {}: {:?}", size_count_type, sizes_count.last().unwrap());
+    println!("Most occurring size {}: {:?}", size_count_type, sizes_count.first().unwrap());
+    println!("Least occurring size {}: {:?}", size_count_type, sizes_count.last().unwrap());
 
     let total_sizes_bytes_sum = sizes_count.iter().map(|a| a.0 * a.1).sum::<usize>();
     println!(
@@ -179,12 +179,12 @@ fn read_all_pairs(
                     *local_value_sizes.entry(value_len).or_insert(0) += 1;
                 }
                 Err(err) => {
-                    panic!("Error occured during iteration of {}: {}", col_family, err);
+                    panic!("Error occurred during iteration of {}: {}", col_family, err);
                 }
             }
         }
         println!(
-            "In column family {} there are {} number of pairs, and col size is {}",
+            "In column family {} there are {} pairs, and col size is {}",
             col_family,
             local_key_sizes.values().sum::<usize>(),
             local_key_sizes.iter().map(|(&size, &count)| size * count).sum::<usize>()
