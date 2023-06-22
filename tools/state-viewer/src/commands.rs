@@ -30,7 +30,7 @@ use near_primitives_core::types::Gas;
 use near_store::test_utils::create_test_store;
 use near_store::{
     DBCol, KeyForStateChanges, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig,
-    TrieDBStorage,
+    TrieDBStorage, TrieMemoryPartialStorage,
 };
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;

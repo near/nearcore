@@ -9,7 +9,7 @@ pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
-use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
+pub use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::challenge::PartialState;
