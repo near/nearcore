@@ -15,7 +15,7 @@ pub const CONFIG_CHANGE_FILENAME: &str = "config_change_list.json";
 
 #[derive(Debug, serde::Deserialize)]
 pub struct ConfigChangeList {
-    epoch_changes: Vec<i32>,
+    epoch_changes: Vec<EpochHeight>,
 }
 
 /// Stores chain config for each epoch where it was updated.
@@ -37,11 +37,13 @@ impl ChainConfigStore {
     }
 
     fn populate_config_store(store: &BTreeMap<EpochHeight, Arc<ChainConfigLoader>>) {
+        let config_change_list = Self::get_config_change_list();
+        println!("Mirko: config_change_list: {:?}", config_change_list);
+    }
+
+    fn get_config_change_list() -> ConfigChangeList {
         let current_dir = env::current_dir().expect("Failed to get the current directory");
         let path = current_dir.join(RESOURCES_DIR).join(CONFIG_CHANGE_FILENAME);
-        println!("Mirko: {:?}", current_dir);
-        println!("Mirko: {:?}", path);
-        println!("Mirko: {:?}", env::current_dir().unwrap());
         let mut file = File::open(&path).expect("Failed to open config change list file.");
         let mut json_str = String::new();
         file.read_to_string(&mut json_str)
@@ -49,10 +51,8 @@ impl ChainConfigStore {
         let json_str_without_comments: String =
             near_config_utils::strip_comments_from_json_str(&json_str)
                 .expect("Failed to strip comments from config change list file.");
-        let config_change_list: ConfigChangeList = serde_json::from_str(&json_str_without_comments)
-            .expect("Failed to deserialize the config change list file.");
-
-        println!("Mirko: config_change_list: {:?}", config_change_list);
+        serde_json::from_str(&json_str_without_comments)
+            .expect("Failed to deserialize the config change list file.")
     }
 
     pub fn from_chain_config(chain_config: ChainConfig) -> Self {
