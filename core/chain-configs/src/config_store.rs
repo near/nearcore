@@ -47,8 +47,8 @@ impl ChainConfigStore {
     }
 
     fn populate_config_store(store: &BTreeMap<EpochHeight, Arc<ChainConfigLoader>>) {
-        //let path = Path::new(String::from(RESOURCES_DIR) + CONFIG_CHANGE_FILENAME);
-        let mut file = File::open(String::from(RESOURCES_DIR) + CONFIG_CHANGE_FILENAME).expect("Failed to open config change list file.");
+        let path = Path::new(RESOURCES_DIR).join(CONFIG_CHANGE_FILENAME);
+        let mut file = File::open(&path).expect("Failed to open config change list file.");
         let mut json_str = String::new();
         file.read_to_string(&mut json_str)
             .expect("Failed to read the config change list file to string. ");
