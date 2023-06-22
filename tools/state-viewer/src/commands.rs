@@ -751,7 +751,7 @@ fn print_receipt_costs_for_chunk(
         let total_trie_len_2 = state_changes_results.2 as u64;
 
         // let total_len = state_changes_keys.len();
-        let total_key_len = state_changes_keys.iter().map(|key| key.len()).sum() as u64;
+        let total_key_len = state_changes_keys.iter().map(|key| key.len() as u64).sum() as u64;
         // REPLACE TTN WITH POTENTIALLY BIGGER BYTES FROM STATE CHANGES
         let new_burnt_gas_2 = new_burnt_gas + total_key_len * 2 * nibble_cost;
         // REPLACE TTN WITH MINI-TRIE COST V1
