@@ -49,11 +49,13 @@ impl ChainConfigStore {
 
     fn populate_config_store(store: &BTreeMap<EpochHeight, Arc<ChainConfigLoader>>) {
         let current_dir = env::current_dir().expect("Failed to get the current directory");
-        let path = current_dir.join(RESOURCES_DIR).join(CONFIG_CHANGE_FILENAME);
+        let path1 = current_dir.join(RESOURCES_DIR);
+        let path2 = path1.join(CONFIG_CHANGE_FILENAME);
         println!("Mirko: {:?}", current_dir);
-        println!("Mirko: {:?}", path);
+        println!("Mirko: {:?}", path1);
+        println!("Mirko: {:?}", path2);
         println!("Mirko: {:?}", env::current_dir().unwrap());
-        let mut file = File::open(&path).expect("Failed to open config change list file.");
+        let mut file = File::open(&path2).expect("Failed to open config change list file.");
         let mut json_str = String::new();
         file.read_to_string(&mut json_str)
             .expect("Failed to read the config change list file to string. ");
