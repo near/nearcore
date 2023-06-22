@@ -537,8 +537,9 @@ impl Trie {
         old_root: &CryptoHash,
         memory: NodesStorage,
         node: StorageHandle,
-    ) -> Result<TrieChanges, StorageError> {
+    ) -> Result<(TrieChanges, usize), StorageError> {
         let mut stack: Vec<(StorageHandle, FlattenNodesCrumb)> = Vec::new();
+        let mut total_len = 0usize;
         stack.push((node, FlattenNodesCrumb::Entering));
         let mut last_hash = CryptoHash::default();
         let mut buffer: Vec<u8> = Vec::new();
@@ -567,6 +568,7 @@ impl Trie {
                                         node,
                                         FlattenNodesCrumb::AtChild(new_children, i + 1),
                                     ));
+                                    total_len += 1;
                                     stack.push((handle, FlattenNodesCrumb::Entering));
                                     continue 'outer;
                                 }
@@ -584,6 +586,7 @@ impl Trie {
                 TrieNode::Extension(key, child) => match position {
                     FlattenNodesCrumb::Entering => match child {
                         NodeHandle::InMemory(child) => {
+                            total_len += key.len() * 2; // maybe -1
                             stack.push((node, FlattenNodesCrumb::Exiting));
                             stack.push((*child, FlattenNodesCrumb::Entering));
                             continue;
@@ -594,6 +597,7 @@ impl Trie {
                     _ => unreachable!(),
                 },
                 TrieNode::Leaf(key, value) => {
+                    total_len += key.len() * 2; // maybe -1
                     let key = key.clone();
                     let value = value.clone();
                     let value = Trie::flatten_value(&mut memory, value);
@@ -612,7 +616,10 @@ impl Trie {
         }
         let (insertions, deletions) =
             Trie::convert_to_insertions_and_deletions(memory.refcount_changes);
-        Ok(TrieChanges { old_root: *old_root, new_root: last_hash, insertions, deletions })
+        Ok((
+            TrieChanges { old_root: *old_root, new_root: last_hash, insertions, deletions },
+            total_len,
+        ))
     }
 
     fn flatten_value(memory: &mut NodesStorage, value: ValueHandle) -> ValueRef {
