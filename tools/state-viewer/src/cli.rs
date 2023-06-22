@@ -479,6 +479,8 @@ pub struct ReceiptCostsCmd {
     /// Shard id.
     #[clap(long)]
     shard_id: Option<ShardId>,
+    #[clap(long)]
+    account_ids: Option<AccountId>,
 }
 
 impl ReceiptCostsCmd {
@@ -487,6 +489,7 @@ impl ReceiptCostsCmd {
             self.start_index,
             self.end_index,
             self.shard_id,
+            self.account_ids,
             home_dir,
             near_config,
             store,

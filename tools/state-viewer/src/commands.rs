@@ -22,17 +22,20 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::ExecutionMetadata;
-use near_primitives::trie_key::TrieKey;
+use near_primitives::transaction::{ExecutionMetadata, ExecutionStatus};
+use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::config::{ExtCosts, ExtCostsConfig};
 use near_primitives_core::types::Gas;
 use near_store::test_utils::create_test_store;
-use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
+use near_store::{
+    DBCol, KeyForStateChanges, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig,
+    TrieDBStorage,
+};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -676,6 +679,7 @@ pub(crate) fn replay_chain(
 fn print_receipt_costs_for_chunk(
     block_hash: &CryptoHash,
     shard_id: ShardId,
+    account_ids: Option<AccountId>,
     chain_store: &ChainStore,
     ext_costs: &ExtCostsConfig,
 ) {
@@ -687,11 +691,14 @@ fn print_receipt_costs_for_chunk(
     //     shard_outcomes.iter().map(|outcome| outcome.outcome_with_id.id).collect();
     // let mut incoming_executed_receipt_ids: HashSet<_> = Default::default();
 
+    let mut total_write_bytes = 0;
+    let mut total_write_num = 0;
     for outcome in shard_outcomes {
         let outcome_with_id = &outcome.outcome_with_id;
         let receipt_or_tx_id = outcome_with_id.id;
         let outcome = &outcome_with_id.outcome;
         let old_burnt_gas = outcome.gas_burnt;
+        let status = &outcome.status;
         let profile = match &outcome.metadata {
             ExecutionMetadata::V3(profile) => profile,
             _ => {
@@ -701,18 +708,45 @@ fn print_receipt_costs_for_chunk(
         let mut new_burnt_gas = old_burnt_gas;
         new_burnt_gas -= profile.get_ext_cost(ExtCosts::touching_trie_node);
         new_burnt_gas -= profile.get_ext_cost(ExtCosts::read_cached_trie_node);
+        let write_num = profile.get_ext_cost(ExtCosts::storage_write_base)
+            / ext_costs.gas_cost(ExtCosts::storage_write_base);
         let write_bytes = profile.get_ext_cost(ExtCosts::storage_write_key_byte)
             / ext_costs.gas_cost(ExtCosts::storage_write_key_byte);
         new_burnt_gas += write_bytes * 75_000_000_000;
-        println!(
-            "GAS BYTE_FACTOR = {} {} {} {} {} {}",
-            (new_burnt_gas as f64) / (old_burnt_gas as f64),
-            (old_burnt_gas as f64) / (10u64.pow(9) as f64),
-            (new_burnt_gas as f64) / (10u64.pow(9) as f64),
-            profile.total_compute_usage(ext_costs),
-            receipt_or_tx_id,
-            write_bytes,
-        );
+        match status {
+            ExecutionStatus::Failure(_) => {
+                println!("FOUND FAILURE {} {} {}", receipt_or_tx_id, write_num, write_bytes);
+            }
+            _ => {
+                total_write_num += write_num as usize;
+                total_write_bytes += write_bytes as usize;
+                println!(
+                    "GAS BYTE_FACTOR = {} {} {} {} {} {}",
+                    (new_burnt_gas as f64) / (old_burnt_gas as f64),
+                    (old_burnt_gas as f64) / (10u64.pow(9) as f64),
+                    (new_burnt_gas as f64) / (10u64.pow(9) as f64),
+                    profile.total_compute_usage(ext_costs),
+                    receipt_or_tx_id,
+                    write_bytes,
+                );
+            }
+        }
+    }
+
+    if let Some(input_account_id) = account_ids.clone() {
+        let data_key = trie_key_parsers::get_raw_prefix_for_contract_data(&input_account_id, &[]);
+        let storage_key = KeyForStateChanges::from_raw_key(&block_hash, &data_key);
+        let changes_per_key_prefix = storage_key.find_iter(chain_store.store());
+        let state_changes_keys: Vec<_> =
+            changes_per_key_prefix.map(|it| it.unwrap().trie_key.to_vec()).collect();
+        let total_len = state_changes_keys.len();
+        let total_key_len: usize = state_changes_keys.iter().map(|key| key.len()).sum();
+        for key in state_changes_keys {
+            println!("changed {:?}", key);
+        }
+        println!("{} {}", total_write_bytes, total_key_len);
+        assert!(total_write_bytes <= total_key_len);
+        assert!(total_write_num <= total_len);
     }
 
     // let executed_not_incoming =
@@ -732,6 +766,7 @@ pub(crate) fn print_receipt_costs(
     start_height: Option<BlockHeight>,
     end_height: Option<BlockHeight>,
     shard_id: Option<ShardId>,
+    account_ids: Option<AccountId>,
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
@@ -772,11 +807,23 @@ pub(crate) fn print_receipt_costs(
         match shard_id {
             None => {
                 for shard_id in 0..num_shards {
-                    print_receipt_costs_for_chunk(&block_hash, shard_id, &chain_store, &ext_costs);
+                    print_receipt_costs_for_chunk(
+                        &block_hash,
+                        shard_id,
+                        account_ids.clone(),
+                        &chain_store,
+                        &ext_costs,
+                    );
                 }
             }
             Some(shard_id) => {
-                print_receipt_costs_for_chunk(&block_hash, shard_id, &chain_store, &ext_costs);
+                print_receipt_costs_for_chunk(
+                    &block_hash,
+                    shard_id,
+                    account_ids.clone(),
+                    &chain_store,
+                    &ext_costs,
+                );
             }
         }
     }
