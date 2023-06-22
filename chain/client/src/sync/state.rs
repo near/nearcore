@@ -1596,21 +1596,19 @@ pub fn get_part_id_from_filename(s: &str) -> Option<u64> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::test_utils::TestEnv;
     use actix::System;
     use near_actix_test_utils::run_actix;
-    use near_chain::test_utils;
-    use near_chain::{test_utils::process_block_sync, BlockProcessingArtifact, Provenance};
-    use near_epoch_manager::EpochManagerAdapter;
+    use near_chain::ChainGenesis;
+    use near_chain::Provenance;
     use near_network::test_utils::MockPeerManagerAdapter;
-    use near_primitives::{
-        syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseV2},
-        test_utils::TestBlockBuilder,
-        types::EpochId,
-    };
+    use near_o11y::testonly::init_test_logger;
+    use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseV2};
 
     #[test]
     // Start a new state sync - and check that it asks for a header.
     fn test_ask_for_header() {
+        init_test_logger();
         let mock_peer_manager = Arc::new(MockPeerManagerAdapter::default());
         let mut state_sync = StateSync::new(
             mock_peer_manager.clone().into(),
@@ -1620,33 +1618,21 @@ mod test {
         );
         let mut new_shard_sync = HashMap::new();
 
-        let (mut chain, kv, _, signer) = test_utils::setup();
+        let epoch_length = 10;
+        let mut chain_genesis = ChainGenesis::test();
+        chain_genesis.epoch_length = epoch_length;
+        let mut env = TestEnv::builder(chain_genesis).clients_count(1).build();
 
-        // TODO: lower the epoch length
-        for _ in 0..(chain.epoch_length + 1) {
-            let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
-            let block = if kv.is_next_block_epoch_start(prev.hash()).unwrap() {
-                TestBlockBuilder::new(&prev, signer.clone())
-                    .epoch_id(prev.header().next_epoch_id().clone())
-                    .next_epoch_id(EpochId { 0: *prev.hash() })
-                    .next_bp_hash(*prev.header().next_bp_hash())
-                    .build()
-            } else {
-                TestBlockBuilder::new(&prev, signer.clone()).build()
-            };
-
-            process_block_sync(
-                &mut chain,
-                &None,
-                block.into(),
-                Provenance::PRODUCED,
-                &mut BlockProcessingArtifact::default(),
-            )
-            .unwrap();
+        let mut blocks = vec![];
+        for i in 1..=epoch_length + 1 {
+            let block = env.clients[0].produce_block(i as u64).unwrap().unwrap();
+            blocks.push(block.clone());
+            env.process_block(0, block, Provenance::PRODUCED);
         }
+        let client = &mut env.clients[0];
 
-        let request_hash = &chain.head().unwrap().last_block_hash;
-        let state_sync_header = chain.get_state_response_header(0, *request_hash).unwrap();
+        let request_hash = blocks.last().unwrap().hash();
+        let state_sync_header = client.chain.get_state_response_header(0, *request_hash).unwrap();
         let state_sync_header = match state_sync_header {
             ShardStateSyncResponseHeader::V1(_) => panic!("Invalid header"),
             ShardStateSyncResponseHeader::V2(internal) => internal,
@@ -1661,8 +1647,8 @@ mod test {
                     &None,
                     *request_hash,
                     &mut new_shard_sync,
-                    &mut chain,
-                    kv.as_ref(),
+                    &mut client.chain,
+                    &*client.epoch_manager,
                     &[],
                     vec![0],
                     &apply_parts_fn,
@@ -1679,7 +1665,7 @@ mod test {
                 NetworkRequests::StateRequestHeader {
                     shard_id: 0,
                     sync_hash: *request_hash,
-                    target: AccountOrPeerIdOrHash::AccountId("test".parse().unwrap())
+                    target: AccountOrPeerIdOrHash::AccountId("test0".parse().unwrap())
                 },
                 request.as_network_requests()
             );
@@ -1700,7 +1686,7 @@ mod test {
             assert_eq!(
                 download_status.last_target,
                 Some(near_client_primitives::types::AccountOrPeerIdOrHash::AccountId(
-                    "test".parse().unwrap()
+                    "test0".parse().unwrap()
                 ))
             );
 
@@ -1716,7 +1702,7 @@ mod test {
                 *request_hash,
                 0,
                 state_response,
-                &mut chain,
+                &mut client.chain,
             );
 
             let download = new_shard_sync.get(&0).unwrap();
