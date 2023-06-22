@@ -5,14 +5,14 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::types::AccountId;
 use num_rational::Rational32;
 use std::collections::{HashMap, HashSet};
-use crate::{GenesisLoader, GenesisConfigLoader};
+use crate::{GenesisSnapshot, GenesisConfigSnapshot};
 
 /// Validate genesis config and records. Returns ValidationError if semantic checks of genesis failed.
-pub fn validate_genesis(genesis_loader: &GenesisLoader) -> Result<(), ValidationError> {
+pub fn validate_genesis(genesis_snapshot: &GenesisSnapshot) -> Result<(), ValidationError> {
     let mut validation_errors = ValidationErrors::new();
-    let mut genesis_validator = GenesisValidator::new(&genesis_loader.config, &mut validation_errors);
+    let mut genesis_validator = GenesisValidator::new(&genesis_snapshot.config, &mut validation_errors);
     tracing::info!(target: "config", "Validating Genesis config and records. This could take a few minutes...");
-    genesis_loader.for_each_record(|record: &StateRecord| {
+    genesis_snapshot.for_each_record(|record: &StateRecord| {
         genesis_validator.process_record(record);
     });
     genesis_validator.validate_processed_records();
@@ -20,7 +20,7 @@ pub fn validate_genesis(genesis_loader: &GenesisLoader) -> Result<(), Validation
 }
 
 struct GenesisValidator<'a> {
-    genesis_config_loader: &'a GenesisConfigLoader,
+    genesis_config_loader: &'a GenesisConfigSnapshot,
     total_supply: u128,
     staked_accounts: HashMap<AccountId, u128>,
     account_ids: HashSet<AccountId>,
@@ -31,7 +31,7 @@ struct GenesisValidator<'a> {
 
 impl<'a> GenesisValidator<'a> {
     pub fn new(
-        genesis_config_loader: &'a GenesisConfigLoader,
+        genesis_config_loader: &'a GenesisConfigSnapshot,
         validation_errors: &'a mut ValidationErrors,
     ) -> Self {
         Self {

@@ -4,7 +4,7 @@ use serde_json::{Serializer, Value};
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
-use crate::genesis_config::GenesisConfigLoader;
+use crate::genesis_config::GenesisConfigSnapshot;
 use smart_default::SmartDefault;
 
 #[derive(Clone, SmartDefault, serde::Serialize, serde::Deserialize, Debug)]
@@ -15,13 +15,13 @@ pub struct ChainConfig {
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
-pub struct ChainConfigLoader {
+pub struct ChainConfigPatch {
     /// Protocol treasury rate
     pub protocol_reward_rate: Option<Rational32>,
 }
 
 impl ChainConfig {
-    pub fn new(genesis_config_loader: GenesisConfigLoader) -> Self {
+    pub fn new(genesis_config_loader: GenesisConfigSnapshot) -> Self {
         Self { protocol_reward_rate: genesis_config_loader.protocol_reward_rate }
     }
 
@@ -42,7 +42,8 @@ impl ChainConfig {
         Value::Object(base_obj)
     }
 
-    pub fn apply_loader(&self, patch: &ChainConfigLoader) -> ChainConfig {
+    /// Applies all defined fields in patch to this chain config.
+    pub fn apply_patch(&self, patch: &ChainConfigPatch) -> ChainConfig {
         let patch_fields = serde_json::to_value(&patch).expect("Failed to serialize struct");
         let config_fields = serde_json::to_value(self.clone()).unwrap();
         let merged_fields = Self::merge_jsons(config_fields, patch_fields);
@@ -50,7 +51,7 @@ impl ChainConfig {
     }
 }
 
-impl ChainConfigLoader {
+impl ChainConfigPatch {
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, ValidationError> {
         let mut file = File::open(&path).map_err(|_| ValidationError::GenesisFileError {
             error_message: format!(
@@ -67,7 +68,7 @@ impl ChainConfigLoader {
                 error_message: "Failed to strip comments from chain config file".to_string(),
             })?;
         let chain_config =
-            serde_json::from_str::<ChainConfigLoader>(&json_str_without_comments).map_err(|_| {
+            serde_json::from_str::<ChainConfigPatch>(&json_str_without_comments).map_err(|_| {
                 ValidationError::GenesisFileError {
                     error_message: "Failed to deserialize the chain config records.".to_string(),
                 }

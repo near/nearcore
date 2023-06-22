@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use near_primitives::types::EpochHeight;
 use std::sync::Arc;
 use crate::ChainConfig;
-use crate::config::ChainConfigLoader;
-use crate::genesis_config::GenesisConfigLoader;
+use crate::config::ChainConfigPatch;
+use crate::genesis_config::GenesisConfigSnapshot;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -26,27 +26,27 @@ pub struct ChainConfigStore {
     /// Mirko: dodaj tu komentar
     pub initial_chain_config: Arc<ChainConfig>,
     /// Maps epoch to the config.
-    store: BTreeMap<EpochHeight, Arc<ChainConfigLoader>>,
+    store: BTreeMap<EpochHeight, Arc<ChainConfigPatch>>,
 }
 
 impl ChainConfigStore {
-    pub fn new(genesis_config_loader: GenesisConfigLoader) -> Self {
+    pub fn new(genesis_config_loader: GenesisConfigSnapshot) -> Self {
         let initial_chain_config = Arc::new(ChainConfig::new(genesis_config_loader));
         let mut store = BTreeMap::new();
         Self::populate_config_store(&mut store);
         Self { initial_chain_config, store }
     }
 
-    fn populate_config_store(store: &mut BTreeMap<EpochHeight, Arc<ChainConfigLoader>>) {
+    fn populate_config_store(store: &mut BTreeMap<EpochHeight, Arc<ChainConfigPatch>>) {
         let config_change_list = Self::get_config_change_list();
 
         for epoch_height in config_change_list.epoch_changes {
-            let chain_config_loader = Self::load_chain_config(epoch_height);
-            store.insert(epoch_height, Arc::new(chain_config_loader));
+            let chain_config_patch = Self::load_chain_config(epoch_height);
+            store.insert(epoch_height, Arc::new(chain_config_patch));
         }
     }
 
-    fn load_chain_config(epoch_height: EpochHeight) -> ChainConfigLoader {
+    fn load_chain_config(epoch_height: EpochHeight) -> ChainConfigPatch {
         let current_dir = env::current_dir().expect("Failed to get the current directory");
         let path = current_dir.join(RESOURCES_DIR).join(epoch_height.to_string() + ".json");
         let mut file = File::open(&path).expect("Failed to open config change file.");
@@ -88,23 +88,11 @@ impl ChainConfigStore {
         Self { initial_chain_config, store }
     }
 
-    /*
-    fn merge_config_with_loader(mut chain_config: ChainConfig, chain_config_override: &ChainConfigLoader) -> ChainConfig {
-        if chain_config_override.protocol_reward_rate.is_some() {
-            chain_config.protocol_reward_rate = chain_config_override.protocol_reward_rate.unwrap();
-        }
-
-        chain_config
-    }
-     */
-
     /// Returns initial config with applied all relevat config overrides for provided epoch.
     pub fn get_config(&self, epoch_height: EpochHeight) -> Arc<ChainConfig> {
         let mut config = self.initial_chain_config.as_ref().clone();
-        for (_, config_change_override) in self.store.range(..=epoch_height) {
-            // Mirko: izbrisi ovo ispod
-            // config = Self::merge_config_with_loader(config, config_change_override.as_ref());
-            config = config.apply_loader(config_change_override.as_ref());
+        for (_, config_change_patch) in self.store.range(..=epoch_height) {
+            config = config.apply_patch(config_change_patch.as_ref());
         }
         Arc::new(config)
     }

@@ -79,7 +79,7 @@ fn default_max_kickout_stake_threshold() -> u8 {
 }
 
 #[derive(Debug, Clone, SmartDefault, serde::Serialize, serde::Deserialize)]
-pub struct GenesisConfigLoader {
+pub struct GenesisConfigSnapshot {
     /// Protocol version that this genesis works with.
     pub protocol_version: ProtocolVersion,
     /// Official time of blockchain start.
@@ -285,7 +285,7 @@ pub struct GenesisConfig {
 }
 
 impl GenesisConfig {
-    pub fn from_genesis_config_loader(genesis_config_loader: GenesisConfigLoader) -> Self {
+    pub fn from_genesis_config_loader(genesis_config_loader: GenesisConfigSnapshot) -> Self {
         let chain_config_store = ChainConfigStore::new(genesis_config_loader.clone());
         Self {
             protocol_version: genesis_config_loader.protocol_version,
@@ -428,9 +428,9 @@ fn contents_are_not_records(contents: &GenesisContents) -> bool {
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct GenesisLoader {
+pub struct GenesisSnapshot {
     #[serde(flatten)]
-    pub config: GenesisConfigLoader,
+    pub config: GenesisConfigSnapshot,
     /// Custom deserializer used instead of serde(default),
     /// because serde(flatten) doesn't work with default for some reason
     /// The corresponding issue has been open since 2019, so any day now.
@@ -461,7 +461,7 @@ pub struct Genesis {
     pub contents: GenesisContents,
 }
 
-impl GenesisConfigLoader {
+impl GenesisConfigSnapshot {
     pub fn from_genesis_config(genesis_config: GenesisConfig, chain_config: &ChainConfig) -> Self {
         Self {
             protocol_version: genesis_config.protocol_version,
@@ -521,7 +521,7 @@ impl GenesisConfigLoader {
         file.read_to_string(&mut json_str)?;
         let json_str_without_comments: String =
             near_config_utils::strip_comments_from_json_str(&json_str)?;
-        let genesis_config: GenesisConfigLoader = serde_json::from_str(&json_str_without_comments)
+        let genesis_config: GenesisConfigSnapshot = serde_json::from_str(&json_str_without_comments)
             .with_context(|| "Failed to deserialize the genesis config.")?;
         Ok(genesis_config)
     }
@@ -657,7 +657,7 @@ impl GenesisJsonHasher {
         Self { digest: sha2::Sha256::new() }
     }
 
-    pub fn process_config(&mut self, config: &GenesisConfigLoader) {
+    pub fn process_config(&mut self, config: &GenesisConfigSnapshot) {
         let mut ser = Serializer::pretty(&mut self.digest);
         config.serialize(&mut ser).expect("Error serializing the genesis config.");
     }
@@ -667,7 +667,7 @@ impl GenesisJsonHasher {
         record.serialize(&mut ser).expect("Error serializing the genesis record.");
     }
 
-    pub fn process_genesis(&mut self, genesis: &GenesisLoader) {
+    pub fn process_genesis(&mut self, genesis: &GenesisSnapshot) {
         self.process_config(&genesis.config);
         genesis.for_each_record(|record: &StateRecord| {
             self.process_record(record);
@@ -684,15 +684,15 @@ pub enum GenesisValidationMode {
     UnsafeFast,
 }
 
-impl GenesisLoader {
-    pub fn new(config_loader: GenesisConfigLoader, records: GenesisRecords) -> Result<Self, ValidationError> {
-        Self::new_validated(config_loader, records, GenesisValidationMode::Full)
+impl GenesisSnapshot {
+    pub fn new(config_snapshot: GenesisConfigSnapshot, records: GenesisRecords) -> Result<Self, ValidationError> {
+        Self::new_validated(config_snapshot, records, GenesisValidationMode::Full)
     }
 
     pub fn from_genesis(genesis: Genesis, epoch_height: EpochHeight) -> Self {
         let chain_config = genesis.config.chain_config_store.get_config(epoch_height);
         Self {
-            config: GenesisConfigLoader::from_genesis_config(genesis.config.clone(), &chain_config),
+            config: GenesisConfigSnapshot::from_genesis_config(genesis.config.clone(), &chain_config),
             contents: genesis.contents.clone()
         }
     }
@@ -700,13 +700,13 @@ impl GenesisLoader {
     pub fn from_genesis_for_initial_config(genesis: &Genesis) -> Self {
         let chain_config = genesis.config.chain_config_store.initial_chain_config.as_ref();
         Self {
-            config: GenesisConfigLoader::from_genesis_config(genesis.config.clone(), chain_config),
+            config: GenesisConfigSnapshot::from_genesis_config(genesis.config.clone(), chain_config),
             contents: genesis.contents.clone()
         }
     }
 
     pub fn new_with_path<P: AsRef<Path>>(
-        config_loader: GenesisConfigLoader,
+        config_loader: GenesisConfigSnapshot,
         records_file: P,
     ) -> Result<Self, ValidationError> {
         Self::new_with_path_validated(config_loader, records_file, GenesisValidationMode::Full)
@@ -735,15 +735,15 @@ impl GenesisLoader {
                 error_message: "Failed to strip comments from genesis config file".to_string(),
             })?;
 
-        let genesis_loader =
-            serde_json::from_str::<GenesisLoader>(&json_str_without_comments).map_err(|_| {
+        let genesis_snapshot =
+            serde_json::from_str::<GenesisSnapshot>(&json_str_without_comments).map_err(|_| {
                 ValidationError::GenesisFileError {
                     error_message: "Failed to deserialize the genesis records.".to_string(),
                 }
             })?;
 
-        genesis_loader.validate(genesis_validation)?;
-        Ok(genesis_loader)
+        genesis_snapshot.validate(genesis_validation)?;
+        Ok(genesis_snapshot)
     }
 
     /// Reads Genesis from config and records files.
@@ -756,7 +756,7 @@ impl GenesisLoader {
             P1: AsRef<Path>,
             P2: AsRef<Path>,
     {
-        let genesis_config_loader = GenesisConfigLoader::from_file(config_path).map_err(|error| {
+        let genesis_config_loader = GenesisConfigSnapshot::from_file(config_path).map_err(|error| {
             let error_message = error.to_string();
             ValidationError::GenesisFileError { error_message: error_message }
         })?;
@@ -764,29 +764,29 @@ impl GenesisLoader {
     }
 
     fn new_validated(
-        config_loader: GenesisConfigLoader,
+        config_shapshot: GenesisConfigSnapshot,
         records: GenesisRecords,
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError> {
-        let genesis_loader = Self { config: config_loader, contents: GenesisContents::Records { records } };
+        let genesis_loader = Self { config: config_shapshot, contents: GenesisContents::Records { records } };
         genesis_loader.validate(genesis_validation)?;
         Ok(genesis_loader)
     }
 
 
     fn new_with_path_validated<P: AsRef<Path>>(
-        config_loader: GenesisConfigLoader,
+        config_snapshot: GenesisConfigSnapshot,
         records_file: P,
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError> {
-        let genesis_loader = Self {
-            config: config_loader,
+        let genesis_snapshot = Self {
+            config: config_snapshot,
             contents: GenesisContents::RecordsFile {
                 records_file: records_file.as_ref().to_path_buf(),
             },
         };
-        genesis_loader.validate(genesis_validation)?;
-        Ok(genesis_loader)
+        genesis_snapshot.validate(genesis_validation)?;
+        Ok(genesis_snapshot)
     }
 
     pub fn validate(
@@ -886,8 +886,8 @@ impl Genesis {
         epoch_height: EpochHeight,
     ) -> Result<Self, ValidationError> {
         let genesis = Self { config: config, contents: GenesisContents::Records { records } };
-        let genesis_loader = GenesisLoader::from_genesis(genesis.clone(), epoch_height);
-        genesis_loader.validate(genesis_validation)?;
+        let genesis_snapshot = GenesisSnapshot::from_genesis(genesis.clone(), epoch_height);
+        genesis_snapshot.validate(genesis_validation)?;
         Ok(genesis)
     }
 
@@ -913,20 +913,20 @@ impl Genesis {
         };
         let chain_config = genesis.config.chain_config_store.get_config(epoch_height).as_ref();
 
-        let genesis_loader = GenesisLoader::from_genesis(genesis.clone(), epoch_height);
-        genesis_loader.validate(genesis_validation)?;
+        let genesis_snapshot = GenesisSnapshot::from_genesis(genesis.clone(), epoch_height);
+        genesis_snapshot.validate(genesis_validation)?;
         Ok(genesis)
     }
 
-    pub fn from_genesis_loader(genesis_loader: GenesisLoader) -> Self {
+    pub fn from_genesis_snapshot(genesis_snapshot: GenesisSnapshot) -> Self {
         Self {
-            config: GenesisConfig::from_genesis_config_loader(genesis_loader.config),
-            contents: genesis_loader.contents,
+            config: GenesisConfig::from_genesis_config_loader(genesis_snapshot.config),
+            contents: genesis_snapshot.contents,
         }
     }
 
-    pub fn get_initial_config_loader(&self) -> GenesisLoader {
-        GenesisLoader::from_genesis_for_initial_config(self)
+    pub fn get_initial_config_loader(&self) -> GenesisSnapshot {
+        GenesisSnapshot::from_genesis_for_initial_config(self)
     }
 
     /// Writes GenesisConfig to the file.

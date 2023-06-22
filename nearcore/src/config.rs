@@ -1,6 +1,6 @@
 use crate::download_file::{run_download_file, FileDownloadError};
 use anyhow::{anyhow, bail, Context};
-use near_chain_configs::{get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode, LogSummaryStyle, MutableConfigValue, StateSyncConfig, ChainConfig, ChainConfigStore, GenesisConfigLoader, GenesisLoader};
+use near_chain_configs::{get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode, LogSummaryStyle, MutableConfigValue, StateSyncConfig, ChainConfig, ChainConfigStore, GenesisConfigSnapshot, GenesisSnapshot};
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
@@ -511,7 +511,7 @@ impl Config {
 }
 
 #[easy_ext::ext(GenesisExt)]
-impl GenesisLoader {
+impl GenesisSnapshot {
     // Creates new genesis with a given set of accounts and shard layout.
     // The first num_validator_seats from accounts will be treated as 'validators'.
     pub fn test_with_seeds(
@@ -543,7 +543,7 @@ impl GenesisLoader {
             );
         }
         add_protocol_account(&mut records);
-        let config_loader = GenesisConfigLoader {
+        let config_snapshot = GenesisConfigSnapshot {
             protocol_version: PROTOCOL_VERSION,
             genesis_time: StaticClock::utc(),
             chain_id: random_chain_id(),
@@ -569,7 +569,7 @@ impl GenesisLoader {
             shard_layout,
             ..Default::default()
         };
-        GenesisLoader::new(config_loader, records.into()).unwrap()
+        GenesisSnapshot::new(config_snapshot, records.into()).unwrap()
     }
 
     pub fn test(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
@@ -948,7 +948,7 @@ pub fn init_configs(
         // Check that Genesis exists and can be read.
         // If `config.json` exists, but `genesis.json` doesn't exist,
         // that isn't supported by the `init` command.
-        let _genesis = GenesisConfigLoader::from_file(file_path).with_context(move || {
+        let _genesis = GenesisConfigSnapshot::from_file(file_path).with_context(move || {
             anyhow!("Failed to read genesis config {}/{}", dir.display(), genesis_file)
         })?;
         // Check that `node_key.json` and `validator_key.json` exist.
@@ -1052,24 +1052,24 @@ pub fn init_configs(
                 };
             }
 
-            let mut genesis_loader = match &config.genesis_records_file {
+            let mut genesis_snapshot = match &config.genesis_records_file {
                 Some(records_file) => {
                     let records_path = dir.join(records_file);
                     let records_path_str = records_path
                         .to_str()
                         .with_context(|| "Records path must be initialized")?;
-                    GenesisLoader::from_files(
+                    GenesisSnapshot::from_files(
                         genesis_path_str,
                         records_path_str,
                         GenesisValidationMode::Full,
                     )
                 }
-                None => GenesisLoader::from_file(genesis_path_str, GenesisValidationMode::Full),
+                None => GenesisSnapshot::from_file(genesis_path_str, GenesisValidationMode::Full),
             }?;
 
-            genesis_loader.config.chain_id = chain_id.clone();
+            genesis_snapshot.config.chain_id = chain_id.clone();
 
-            genesis_loader.to_file(dir.join(config.genesis_file));
+            genesis_snapshot.to_file(dir.join(config.genesis_file));
             info!(target: "near", "Generated for {} network node key and genesis file in {}", chain_id, dir.display());
         }
         _ => {
@@ -1114,7 +1114,7 @@ pub fn init_configs(
                 ShardLayout::v0_single_shard()
             };
 
-            let genesis_config = GenesisConfigLoader {
+            let genesis_config = GenesisConfigSnapshot {
                 protocol_version: PROTOCOL_VERSION,
                 genesis_time: StaticClock::utc(),
                 chain_id,
@@ -1150,8 +1150,8 @@ pub fn init_configs(
                 min_gas_price: MIN_GAS_PRICE,
                 ..Default::default()
             };
-            let genesis_loader = GenesisLoader::new(genesis_config, records.into())?;
-            genesis_loader.to_file(dir.join(config.genesis_file));
+            let genesis_snapshot = GenesisSnapshot::new(genesis_config, records.into())?;
+            genesis_snapshot.to_file(dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
         }
     }
@@ -1166,7 +1166,7 @@ pub fn create_testnet_configs_from_seeds(
     archive: bool,
     fixed_shards: Option<Vec<String>>,
     tracked_shards: Vec<u64>,
-) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, GenesisLoader) {
+) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, GenesisSnapshot) {
     let num_validator_seats = (seeds.len() - num_non_validator_seats as usize) as NumSeats;
     let validator_signers =
         seeds.iter().map(|seed| create_test_signer(seed.as_str())).collect::<Vec<_>>();
@@ -1196,7 +1196,7 @@ pub fn create_testnet_configs_from_seeds(
             fixed_shards_accounts.iter().map(|s| s.parse().unwrap()).collect::<Vec<AccountId>>(),
         );
     };
-    let genesis_loader = GenesisLoader::test_with_seeds(
+    let genesis_snapshot = GenesisSnapshot::test_with_seeds(
         accounts_to_add_to_genesis,
         num_validator_seats,
         get_num_seats_per_shard(num_shards, num_validator_seats),
@@ -1229,7 +1229,7 @@ pub fn create_testnet_configs_from_seeds(
             std::cmp::min(num_validator_seats as usize - 1, config.consensus.min_num_peers);
         configs.push(config);
     }
-    (configs, validator_signers, network_signers, genesis_loader)
+    (configs, validator_signers, network_signers, genesis_snapshot)
 }
 
 /// Create testnet configuration. If `local_ports` is true,
@@ -1243,7 +1243,7 @@ pub fn create_testnet_configs(
     archive: bool,
     fixed_shards: bool,
     tracked_shards: Vec<u64>,
-) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, GenesisLoader, Vec<InMemorySigner>)
+) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, GenesisSnapshot, Vec<InMemorySigner>)
 {
     let fixed_shards = if fixed_shards {
         Some((0..(num_shards - 1)).map(|i| format!("shard{}", i)).collect::<Vec<_>>())
@@ -1259,7 +1259,7 @@ pub fn create_testnet_configs(
         vec![]
     };
 
-    let (configs, validator_signers, network_signers, genesis_loader) = create_testnet_configs_from_seeds(
+    let (configs, validator_signers, network_signers, genesis_snapshot) = create_testnet_configs_from_seeds(
         (0..(num_validator_seats + num_non_validator_seats))
             .map(|i| format!("{}{}", prefix, i))
             .collect::<Vec<_>>(),
@@ -1271,7 +1271,7 @@ pub fn create_testnet_configs(
         tracked_shards,
     );
 
-    (configs, validator_signers, network_signers, genesis_loader, shard_keys)
+    (configs, validator_signers, network_signers, genesis_snapshot, shard_keys)
 }
 
 pub fn init_testnet_configs(
@@ -1443,24 +1443,24 @@ pub fn load_config(
     };
 
     let genesis_file = dir.join(&config.genesis_file);
-    let genesis_loader_result = match &config.genesis_records_file {
+    let genesis_snapshot_result = match &config.genesis_records_file {
         // only load Genesis from file. Skip test for now.
         // this allows us to know the chain_id in order to check tracked_shards even if semantics checks fail.
-        Some(records_file) => GenesisLoader::from_files(
+        Some(records_file) => GenesisSnapshot::from_files(
             &genesis_file,
             dir.join(records_file),
             GenesisValidationMode::UnsafeFast,
         ),
-        None => GenesisLoader::from_file(&genesis_file, GenesisValidationMode::UnsafeFast),
+        None => GenesisSnapshot::from_file(&genesis_file, GenesisValidationMode::UnsafeFast),
     };
 
-    let genesis_loader = match genesis_loader_result {
-        Ok(genesis_loader) => {
-            if let Err(e) = genesis_loader.validate(genesis_validation) {
+    let genesis_snapshot = match genesis_snapshot_result {
+        Ok(genesis_snapshot) => {
+            if let Err(e) = genesis_snapshot.validate(genesis_validation) {
                 validation_errors.push_errors(e)
             };
             if validator_signer.is_some()
-                && matches!(genesis_loader.config.chain_id.as_ref(), MAINNET | TESTNET | BETANET)
+                && matches!(genesis_snapshot.config.chain_id.as_ref(), MAINNET | TESTNET | BETANET)
                 && config.tracked_shards.is_empty()
             {
                 // Make sure validators tracks all shards, see
@@ -1468,7 +1468,7 @@ pub fn load_config(
                 let error_message = "The `chain_id` field specified in genesis is among mainnet/betanet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector";
                 validation_errors.push_cross_file_semantics_error(error_message.to_string());
             }
-            Some(genesis_loader)
+            Some(genesis_snapshot)
         }
         Err(error) => {
             validation_errors.push_errors(error);
@@ -1478,12 +1478,12 @@ pub fn load_config(
 
     validation_errors.return_ok_or_error()?;
 
-    if genesis_loader.is_none() || network_signer.is_none() {
+    if genesis_snapshot.is_none() || network_signer.is_none() {
         panic!("Genesis and network_signer should not be None by now.")
     }
     let near_config = NearConfig::new(
         config,
-        Genesis::from_genesis_loader(genesis_loader.unwrap()),
+        Genesis::from_genesis_snapshot(genesis_snapshot.unwrap()),
         network_signer.unwrap().into(),
         validator_signer,
     )?;

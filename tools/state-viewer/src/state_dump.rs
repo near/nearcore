@@ -1,7 +1,7 @@
 use borsh::BorshSerialize;
 use chrono::Utc;
 use near_chain::types::RuntimeAdapter;
-use near_chain_configs::{Genesis, GenesisChangeConfig, GenesisConfig, GenesisLoader, GenesisConfigLoader};
+use near_chain_configs::{Genesis, GenesisChangeConfig, GenesisConfig, GenesisSnapshot, GenesisConfigSnapshot};
 use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::EpochManagerHandle;

@@ -1,6 +1,6 @@
 use anyhow::Context;
 use borsh::BorshSerialize;
-use near_chain_configs::{GenesisLoader, GenesisValidationMode};
+use near_chain_configs::{GenesisSnapshot, GenesisValidationMode};
 use near_crypto::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -269,7 +269,7 @@ pub fn amend_genesis(
     num_bytes_account: u64,
     num_extra_bytes_record: u64,
 ) -> anyhow::Result<()> {
-    let mut genesis = GenesisLoader::from_file(genesis_file_in, GenesisValidationMode::UnsafeFast)?;
+    let mut genesis = GenesisSnapshot::from_file(genesis_file_in, GenesisValidationMode::UnsafeFast)?;
 
     let shard_layout = if let Some(path) = shard_layout_file {
         let s = std::fs::read_to_string(path)
