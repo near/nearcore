@@ -179,7 +179,6 @@ fn test_wasmer2_artifact_output_stability() {
 fn test_near_vm_artifact_output_stability() {
     use crate::near_vm_runner::NearVM;
     use near_vm_compiler::{CpuFeature, Target};
-    use near_vm_engine::Executable;
     // If this test has failed, you want to adjust the necessary constants so that `cache::vm_hash`
     // changes (and only then the hashes here).
     //

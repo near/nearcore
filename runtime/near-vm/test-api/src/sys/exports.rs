@@ -15,7 +15,7 @@ use thiserror::Error;
 /// ## Incompatible export type
 ///
 /// ```should_panic
-/// # use near_vm::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value, ExportError};
+/// # use near_vm_test_api::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value, ExportError};
 /// # let store = Store::default();
 /// # let wasm_bytes = wat2wasm(r#"
 /// # (module
@@ -32,7 +32,7 @@ use thiserror::Error;
 /// ## Missing export
 ///
 /// ```should_panic
-/// # use near_vm::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value, ExportError};
+/// # use near_vm_test_api::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value, ExportError};
 /// # let store = Store::default();
 /// # let wasm_bytes = wat2wasm("(module)".as_bytes()).unwrap();
 /// # let module = Module::new(&store, wasm_bytes).unwrap();

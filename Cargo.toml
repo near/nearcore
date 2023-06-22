@@ -46,11 +46,10 @@ members = [
     "integration-tests",
     "nearcore",
     "neard",
-    "runtime/near-vm/api",
+    "runtime/near-vm/test-api",
     "runtime/near-vm/compiler",
     "runtime/near-vm/compiler-singlepass",
     "runtime/near-vm/engine",
-    "runtime/near-vm/engine-universal",
     "runtime/near-vm/vm",
     "runtime/near-vm/types",
     "runtime/near-vm/wast",
@@ -216,7 +215,7 @@ near-store = { path = "core/store" }
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
 near-undo-block = { path = "tools/undo-block" }
-near-vm = { path = "runtime/near-vm/api" }
+near-vm-test-api = { path = "runtime/near-vm/test-api" }
 near-vm-compiler = { path = "runtime/near-vm/compiler" }
 near-vm-compiler-singlepass = { path = "runtime/near-vm/compiler-singlepass" }
 near-vm-compiler-test-derive = { path = "runtime/near-vm/compiler-test-derive" }
