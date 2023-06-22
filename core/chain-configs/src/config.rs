@@ -1,9 +1,9 @@
 use near_config_utils::ValidationError;
 use near_primitives::num_rational::Rational32;
-use serde_json::{Serializer, Value};
+use serde_json::Value;
 use std::fs::File;
-use std::io::{BufReader, Read};
-use std::path::{Path, PathBuf};
+use std::io::Read;
+use std::path::Path;
 use crate::genesis_config::GenesisConfigSnapshot;
 use smart_default::SmartDefault;
 

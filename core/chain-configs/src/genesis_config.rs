@@ -911,7 +911,6 @@ impl Genesis {
                 records_file: records_file.as_ref().to_path_buf(),
             },
         };
-        let chain_config = genesis.config.chain_config_store.get_config(epoch_height).as_ref();
 
         let genesis_snapshot = GenesisSnapshot::from_genesis(genesis.clone(), epoch_height);
         genesis_snapshot.validate(genesis_validation)?;
@@ -931,11 +930,8 @@ impl Genesis {
 
     /// Writes GenesisConfig to the file.
     pub fn to_file<P: AsRef<Path>>(&self, path: P, epoch_height: EpochHeight) {
-        std::fs::write(
-            path,
-            serde_json::to_vec_pretty(self).expect("Error serializing the genesis config."),
-        )
-            .expect("Failed to create / write a genesis config file.");
+        let genesis_snapshot = GenesisSnapshot::from_genesis(self.clone(), epoch_height);
+        genesis_snapshot.to_file(path);
     }
 
     /// If records vector is empty processes records stream from records_file.

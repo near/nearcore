@@ -1,5 +1,5 @@
 use near_account_id::AccountId;
-use near_chain_configs::{Genesis, GenesisSnapshot};
+use near_chain_configs::{GenesisSnapshot};
 use near_primitives::receipt::ReceiptResult;
 
 pub fn mainnet_restored_receipts() -> ReceiptResult {

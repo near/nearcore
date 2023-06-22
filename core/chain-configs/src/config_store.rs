@@ -6,7 +6,6 @@ use crate::config::ChainConfigPatch;
 use crate::genesis_config::GenesisConfigSnapshot;
 use std::fs::File;
 use std::io::Read;
-use std::path::Path;
 use serde_json;
 use std::env;
 
