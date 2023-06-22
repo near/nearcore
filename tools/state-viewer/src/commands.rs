@@ -679,60 +679,53 @@ fn print_receipt_costs_for_chunk(
     chain_store: &ChainStore,
     ext_costs: &ExtCostsConfig,
 ) {
-    let receipt_proofs = chain_store.get_incoming_receipts(block_hash, shard_id).unwrap();
+    // let receipt_proofs = chain_store.get_incoming_receipts(block_hash, shard_id).unwrap();
     let outcomes = chain_store.get_block_execution_outcomes(block_hash).unwrap();
     let tmp = vec![];
     let shard_outcomes = outcomes.get(&shard_id).unwrap_or(&tmp);
-    let executed_receipt_ids: HashSet<_> =
-        shard_outcomes.iter().map(|outcome| outcome.outcome_with_id.id).collect();
-    let mut incoming_executed_receipt_ids: HashSet<_> = Default::default();
+    // let executed_receipt_ids: Vec<_> =
+    //     shard_outcomes.iter().map(|outcome| outcome.outcome_with_id.id).collect();
+    // let mut incoming_executed_receipt_ids: HashSet<_> = Default::default();
 
-    for receipt_proof in receipt_proofs.iter() {
-        let receipts = &receipt_proof.0;
-        for receipt in receipts {
-            let receipt_id = receipt.receipt_id;
-            let maybe_outcome_with_id =
-                chain_store.get_outcome_by_id_and_block_hash(&receipt_id, block_hash).unwrap();
-            if let Some(outcome_with_id) = maybe_outcome_with_id {
-                incoming_executed_receipt_ids.insert(receipt_id);
-                let outcome = outcome_with_id.outcome;
-                let old_burnt_gas = outcome.gas_burnt;
-                let profile = match outcome.metadata {
-                    ExecutionMetadata::V3(profile) => profile,
-                    _ => {
-                        panic!("bad profile");
-                    }
-                };
-                let mut new_burnt_gas = old_burnt_gas;
-                new_burnt_gas -= profile.get_ext_cost(ExtCosts::touching_trie_node);
-                new_burnt_gas -= profile.get_ext_cost(ExtCosts::read_cached_trie_node);
-                let write_bytes = profile.get_ext_cost(ExtCosts::storage_write_key_byte)
-                    / ext_costs.gas_cost(ExtCosts::storage_write_key_byte);
-                new_burnt_gas += write_bytes * 74_000_000_000;
-                println!(
-                    "GAS BYTE_FACTOR = {} {} {} {} {} {}",
-                    (new_burnt_gas as f64) / (old_burnt_gas as f64),
-                    (old_burnt_gas as f64) / (10u64.pow(9) as f64),
-                    (new_burnt_gas as f64) / (10u64.pow(9) as f64),
-                    profile.total_compute_usage(ext_costs),
-                    receipt_id,
-                    write_bytes,
-                );
+    for outcome in shard_outcomes {
+        let outcome_with_id = &outcome.outcome_with_id;
+        let receipt_or_tx_id = outcome_with_id.id;
+        let outcome = &outcome_with_id.outcome;
+        let old_burnt_gas = outcome.gas_burnt;
+        let profile = match &outcome.metadata {
+            ExecutionMetadata::V3(profile) => profile,
+            _ => {
+                panic!("bad profile");
             }
-        }
+        };
+        let mut new_burnt_gas = old_burnt_gas;
+        new_burnt_gas -= profile.get_ext_cost(ExtCosts::touching_trie_node);
+        new_burnt_gas -= profile.get_ext_cost(ExtCosts::read_cached_trie_node);
+        let write_bytes = profile.get_ext_cost(ExtCosts::storage_write_key_byte)
+            / ext_costs.gas_cost(ExtCosts::storage_write_key_byte);
+        new_burnt_gas += write_bytes * 75_000_000_000;
+        println!(
+            "GAS BYTE_FACTOR = {} {} {} {} {} {}",
+            (new_burnt_gas as f64) / (old_burnt_gas as f64),
+            (old_burnt_gas as f64) / (10u64.pow(9) as f64),
+            (new_burnt_gas as f64) / (10u64.pow(9) as f64),
+            profile.total_compute_usage(ext_costs),
+            receipt_or_tx_id,
+            write_bytes,
+        );
     }
 
-    let executed_not_incoming =
-        executed_receipt_ids.difference(&incoming_executed_receipt_ids).count();
-    let incoming_missing = incoming_executed_receipt_ids.difference(&executed_receipt_ids).count();
-    println!(
-        "COUNTS: {} {} DIFFERENCES: {} {}",
-        executed_receipt_ids.len(),
-        incoming_executed_receipt_ids.len(),
-        executed_not_incoming,
-        incoming_missing
-    );
-    assert_eq!(incoming_missing, 0);
+    // let executed_not_incoming =
+    //     executed_receipt_ids.difference(&incoming_executed_receipt_ids).count();
+    // let incoming_missing = incoming_executed_receipt_ids.difference(&executed_receipt_ids).count();
+    // println!(
+    //     "COUNTS: {} {} DIFFERENCES: {} {}",
+    //     executed_receipt_ids.len(),
+    //     incoming_executed_receipt_ids.len(),
+    //     executed_not_incoming,
+    //     incoming_missing
+    // );
+    // assert_eq!(incoming_missing, 0);
 }
 
 pub(crate) fn print_receipt_costs(
