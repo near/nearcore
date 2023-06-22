@@ -14,6 +14,7 @@ use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout, WaitOrTimeoutActor};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
+use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::MaybeValidated;
@@ -536,18 +537,20 @@ fn sync_state_dump() {
 }
 
 #[test]
+// Test that state sync behaves well when the chunks are absent at the end of the epoch.
 fn test_dump_epoch_missing_chunk_in_last_block() {
     heavy_test(|| {
         init_test_logger();
         let epoch_length = 10;
 
-        for num_last_chunks_missing in 0..(epoch_length / 2) {
+        for num_last_chunks_missing in 0..3 {
+            assert!(num_last_chunks_missing < epoch_length);
             let mut genesis =
                 Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
             genesis.config.epoch_length = epoch_length;
             let chain_genesis = ChainGenesis::new(&genesis);
 
-            let num_clients = 1;
+            let num_clients = 2;
             let env_objects =
                 (0..num_clients)
                     .map(|_| {
@@ -617,6 +620,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                         block.header().epoch_id()
                     );
                 }
+                env.process_block(1, block, Provenance::NONE);
 
                 let tx = SignedTransaction::send_money(
                     i + 1,
@@ -641,13 +645,31 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
 
             let state_sync_header =
                 env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
+            let state_root = state_sync_header.chunk_prev_state_root();
             let state_root_node = state_sync_header.state_root_node();
             let num_parts = get_num_state_parts(state_root_node.memory_usage);
             // Check that state parts can be obtained.
-            (0..num_parts).for_each(|i| {
-                // This should obviously not fail, aka succeed.
-                env.clients[0].chain.get_state_response_part(0, i, sync_hash).unwrap();
-            });
+            let state_parts: Vec<_> = (0..num_parts)
+                .map(|i| {
+                    // This should obviously not fail, aka succeed.
+                    env.clients[0].chain.get_state_response_part(0, i, sync_hash).unwrap()
+                })
+                .collect();
+
+            env.clients[1].chain.reset_data_pre_state_sync(sync_hash).unwrap();
+            let epoch_id = blocks.last().unwrap().header().epoch_id();
+            for i in 0..num_parts {
+                env.clients[1]
+                    .runtime_adapter
+                    .apply_state_part(
+                        0,
+                        &state_root,
+                        PartId::new(i, num_parts),
+                        &state_parts[i as usize],
+                        &epoch_id,
+                    )
+                    .unwrap();
+            }
         }
     });
 }
