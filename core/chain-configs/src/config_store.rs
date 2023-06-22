@@ -32,27 +32,14 @@ impl ChainConfigStore {
         let initial_chain_config = Arc::new(ChainConfig::new(genesis_config_loader));
         let mut store = BTreeMap::new();
         Self::populate_config_store(&mut store);
-        println!("Mirko: store: {:?}", store);
-        println!("Mirko: initial_chain_config: {:?}", initial_chain_config);
-        let mut config = initial_chain_config.as_ref().clone();
-        for (key, value) in store.range(..=25) {
-            println!("key {:?}", key);
-            println!("value {:?}", value);
-            config = Self::merge_config_with_loader(config, value.as_ref());
-        }
-        println!("Mirko: config: {:?}", config);
-        println!("Mirko: initial_chain_config: {:?}", initial_chain_config);
         Self { initial_chain_config, store }
     }
 
     fn populate_config_store(store: &mut BTreeMap<EpochHeight, Arc<ChainConfigLoader>>) {
         let config_change_list = Self::get_config_change_list();
-        println!("Mirko: config_change_list: {:?}", config_change_list);
 
         for epoch_height in config_change_list.epoch_changes {
-            println!("{}", epoch_height);
             let chain_config_loader = Self::load_chain_config(epoch_height);
-            println!("Mirko: chain_config_loader: {:?}", chain_config_loader);
             store.insert(epoch_height, Arc::new(chain_config_loader));
         }
     }
@@ -88,7 +75,7 @@ impl ChainConfigStore {
     pub fn from_chain_config(chain_config: ChainConfig) -> Self {
         let initial_chain_config = Arc::new(chain_config);
         let mut store = BTreeMap::new();
-        // Mirko: tu dodaj čitanja iz fileova
+        Self::populate_config_store(&mut store);
         Self { initial_chain_config, store }
     }
 
@@ -107,7 +94,10 @@ impl ChainConfigStore {
     }
 
     pub fn get_config(&self, epoch_height: EpochHeight) -> &Arc<ChainConfig> {
-        // Mirko: fixaj da se ne vraca samo initial config nego da se zapravo applya store
-        &self.initial_chain_config
+        let mut config = initial_chain_config.as_ref().clone();
+        for (_, config_change_override) in store.range(..=epoch_height) {
+            config = Self::merge_config_with_loader(config, config_change_override.as_ref());
+        }
+        config
     }
 }
