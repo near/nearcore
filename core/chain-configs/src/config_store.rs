@@ -41,7 +41,7 @@ impl ChainConfigStore {
         println!("Mirko: config_change_list: {:?}", config_change_list);
 
         for epoch_height in config_change_list.epoch_changes {
-            println!(epoch_height);
+            println!("{}", epoch_height);
             let chain_config_loader = Self::load_chain_config(epoch_height);
             println!("Mirko: chain_config_loader: {:?}", chain_config_loader);
         }
