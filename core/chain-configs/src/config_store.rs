@@ -8,6 +8,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use serde_json;
+use std::env;
 
 pub const RESOURCES_DIR: &str = "../res/";
 pub const CONFIG_CHANGE_FILENAME: &str = "config_change_list.json";
@@ -49,6 +50,7 @@ impl ChainConfigStore {
     fn populate_config_store(store: &BTreeMap<EpochHeight, Arc<ChainConfigLoader>>) {
         let path = Path::new(RESOURCES_DIR).join(CONFIG_CHANGE_FILENAME);
         println!("Mirko: {:?}", path);
+        println!("Mirko: {:?}", env::current_dir().unwrap());
         let mut file = File::open(&path).expect("Failed to open config change list file.");
         let mut json_str = String::new();
         file.read_to_string(&mut json_str)
