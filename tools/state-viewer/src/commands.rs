@@ -32,7 +32,7 @@ use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, 
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -680,15 +680,22 @@ fn print_receipt_costs_for_chunk(
     ext_costs: &ExtCostsConfig,
 ) {
     let receipt_proofs = chain_store.get_incoming_receipts(block_hash, shard_id).unwrap();
+    let outcomes = chain_store.get_block_execution_outcomes(block_hash).unwrap();
+    let tmp = vec![];
+    let shard_outcomes = outcomes.get(&shard_id).unwrap_or(&tmp);
+    let executed_receipt_ids: HashSet<_> =
+        shard_outcomes.iter().map(|outcome| outcome.outcome_with_id.id).collect();
+    let mut incoming_executed_receipt_ids: HashSet<_> = Default::default();
+
     for receipt_proof in receipt_proofs.iter() {
         let receipts = &receipt_proof.0;
         for receipt in receipts {
             let receipt_id = receipt.receipt_id;
-            let outcomes = chain_store.get_outcomes_by_id(&receipt_id).unwrap();
-
-            for outcome_with_id in outcomes {
-                let receipt_id = outcome_with_id.outcome_with_id.id;
-                let outcome = outcome_with_id.outcome_with_id.outcome;
+            let maybe_outcome_with_id =
+                chain_store.get_outcome_by_id_and_block_hash(&receipt_id, block_hash).unwrap();
+            if let Some(outcome_with_id) = maybe_outcome_with_id {
+                incoming_executed_receipt_ids.insert(receipt_id);
+                let outcome = outcome_with_id.outcome;
                 let old_burnt_gas = outcome.gas_burnt;
                 let profile = match outcome.metadata {
                     ExecutionMetadata::V3(profile) => profile,
@@ -714,6 +721,18 @@ fn print_receipt_costs_for_chunk(
             }
         }
     }
+
+    let executed_not_incoming =
+        executed_receipt_ids.difference(&incoming_executed_receipt_ids).count();
+    let incoming_missing = incoming_executed_receipt_ids.difference(&executed_receipt_ids).count();
+    println!(
+        "COUNTS: {} {} DIFFERENCES: {} {}",
+        executed_receipt_ids.len(),
+        incoming_executed_receipt_ids.len(),
+        executed_not_incoming,
+        incoming_missing
+    );
+    assert_eq!(incoming_missing, 0);
 }
 
 pub(crate) fn print_receipt_costs(
