@@ -49,7 +49,7 @@ impl ChainConfigStore {
 
     fn load_chain_config(epoch_height: EpochHeight) -> ChainConfigLoader {
         let current_dir = env::current_dir().expect("Failed to get the current directory");
-        let path = current_dir.join(RESOURCES_DIR).join(epoch_height.to_string());
+        let path = current_dir.join(RESOURCES_DIR).join(epoch_height.to_string() + ".json");
         let mut file = File::open(&path).expect("Failed to open config change file.");
         let mut json_str = String::new();
         file.read_to_string(&mut json_str)
