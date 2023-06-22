@@ -32,11 +32,12 @@ impl ChainConfigStore {
         let initial_chain_config = Arc::new(ChainConfig::new(genesis_config_loader));
         let mut store = BTreeMap::new();
         // Mirko: tu dodaj čitanja iz fileova
-        Self::populate_config_store(&store);
+        Self::populate_config_store(&mut store);
+        println!("Mirko: store: {:?}", store);
         Self { initial_chain_config, store }
     }
 
-    fn populate_config_store(store: &BTreeMap<EpochHeight, Arc<ChainConfigLoader>>) {
+    fn populate_config_store(store: &mut BTreeMap<EpochHeight, Arc<ChainConfigLoader>>) {
         let config_change_list = Self::get_config_change_list();
         println!("Mirko: config_change_list: {:?}", config_change_list);
 
@@ -44,6 +45,7 @@ impl ChainConfigStore {
             println!("{}", epoch_height);
             let chain_config_loader = Self::load_chain_config(epoch_height);
             println!("Mirko: chain_config_loader: {:?}", chain_config_loader);
+            store.insert(epoch_height, Arc::new(chain_config_loader));
         }
     }
 
