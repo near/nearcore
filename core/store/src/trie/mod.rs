@@ -871,7 +871,7 @@ impl Trie {
         {
             self.memory_usage_verify(&memory, NodeHandle::InMemory(root_node));
         }
-        Trie::flatten_nodes(&self.root, memory, root_node).map(|(a, b)| a)
+        Trie::flatten_nodes(&self.root, memory, root_node).map(|(a, _)| a)
     }
 
     pub fn update_with_len<I>(&self, changes: I) -> Result<(TrieChanges, usize), StorageError>
