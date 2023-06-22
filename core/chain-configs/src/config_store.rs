@@ -13,6 +13,8 @@ use std::env;
 pub const RESOURCES_DIR: &str = "core/chain-configs/res/";
 pub const CONFIG_CHANGE_FILENAME: &str = "config_change_list.json";
 
+/// Stores epochs when new config changes should be applied.
+/// This list is used to load files with config changes.
 #[derive(Debug, serde::Deserialize)]
 pub struct ConfigChangeList {
     epoch_changes: Vec<EpochHeight>,
@@ -79,12 +81,14 @@ impl ChainConfigStore {
         Self { initial_chain_config, store }
     }
 
+    /// Instantiates new chain config with provided chain config without any overrides.
     pub fn test(chain_config: ChainConfig) -> Self {
         let initial_chain_config = Arc::new(chain_config);
         let store = BTreeMap::new();
         Self { initial_chain_config, store }
     }
 
+    /*
     fn merge_config_with_loader(mut chain_config: ChainConfig, chain_config_override: &ChainConfigLoader) -> ChainConfig {
         if chain_config_override.protocol_reward_rate.is_some() {
             chain_config.protocol_reward_rate = chain_config_override.protocol_reward_rate.unwrap();
@@ -92,11 +96,15 @@ impl ChainConfigStore {
 
         chain_config
     }
+     */
 
+    /// Returns initial config with applied all relevat config overrides for provided epoch.
     pub fn get_config(&self, epoch_height: EpochHeight) -> Arc<ChainConfig> {
         let mut config = self.initial_chain_config.as_ref().clone();
         for (_, config_change_override) in self.store.range(..=epoch_height) {
-            config = Self::merge_config_with_loader(config, config_change_override.as_ref());
+            // Mirko: izbrisi ovo ispod
+            // config = Self::merge_config_with_loader(config, config_change_override.as_ref());
+            config = config.apply_loader(config_change_override.as_ref());
         }
         Arc::new(config)
     }

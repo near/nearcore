@@ -42,7 +42,7 @@ impl ChainConfig {
         Value::Object(base_obj)
     }
 
-    pub fn apply_loader(&self, patch: ChainConfigLoader) -> ChainConfig {
+    pub fn apply_loader(&self, patch: &ChainConfigLoader) -> ChainConfig {
         let patch_fields = serde_json::to_value(&patch).expect("Failed to serialize struct");
         let config_fields = serde_json::to_value(self.clone()).unwrap();
         let merged_fields = Self::merge_jsons(config_fields, patch_fields);
