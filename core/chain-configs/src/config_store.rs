@@ -35,7 +35,7 @@ impl ChainConfigStore {
         println!("Mirko: store: {:?}", store);
         println!("Mirko: initial_chain_config: {:?}", initial_chain_config);
         let mut config = initial_chain_config.as_ref().clone();
-        for (key, value) in store.range(..=10) {
+        for (key, value) in store.range(..=25) {
             println!("key {:?}", key);
             println!("value {:?}", value);
             config = Self::merge_config_with_loader(config, value.as_ref());
