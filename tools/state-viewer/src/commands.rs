@@ -744,9 +744,12 @@ fn print_receipt_costs_for_chunk(
         for key in state_changes_keys {
             println!("changed {:?}", key);
         }
-        println!("{} {} | {} {}", total_write_bytes, total_key_len, total_write_num, total_len);
-        assert!(total_write_bytes <= total_key_len);
-        assert!(total_write_num <= total_len);
+        if total_write_num > total_len {
+            println!("UNEXPECTED COUNT {} {}", total_write_num, total_len);
+        }
+        if total_write_bytes > total_key_len {
+            println!("UNEXPECTED KEY LEN {} {}", total_write_bytes, total_key_len);
+        }
     }
 
     // let executed_not_incoming =
