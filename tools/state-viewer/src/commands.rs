@@ -693,7 +693,7 @@ fn print_receipt_costs_for_chunk(
     //     shard_outcomes.iter().map(|outcome| outcome.outcome_with_id.id).collect();
     // let mut incoming_executed_receipt_ids: HashSet<_> = Default::default();
 
-    let mut total_write_bytes = 0;
+    // let mut total_write_bytes = 0;
     // let mut total_write_num = 0;
     let mut total_profile = ProfileDataV3::default();
     let mut total_old_burnt_gas = 0;
@@ -777,9 +777,9 @@ fn print_receipt_costs_for_chunk(
         // if total_write_num * 9 > total_len * 10 {
         //     println!("UNEXPECTED COUNT {} {}", total_write_num, total_len);
         // }
-        if total_write_bytes > total_key_len + 3 {
-            println!("UNEXPECTED KEY LEN {} {}", total_write_bytes, total_key_len);
-        }
+        // if total_write_bytes > total_key_len + 3 {
+        //     println!("UNEXPECTED KEY LEN {} {}", total_write_bytes, total_key_len);
+        // }
     }
 
     // let executed_not_incoming =
