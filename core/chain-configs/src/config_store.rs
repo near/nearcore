@@ -94,10 +94,10 @@ impl ChainConfigStore {
     }
 
     pub fn get_config(&self, epoch_height: EpochHeight) -> &Arc<ChainConfig> {
-        let mut config = initial_chain_config.as_ref().clone();
-        for (_, config_change_override) in store.range(..=epoch_height) {
+        let mut config = self.initial_chain_config.as_ref().clone();
+        for (_, config_change_override) in self.store.range(..=epoch_height) {
             config = Self::merge_config_with_loader(config, config_change_override.as_ref());
         }
-        config
+        &Arc::new(config)
     }
 }
