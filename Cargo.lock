@@ -4236,36 +4236,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-vm"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "cfg-if 1.0.0",
- "finite-wasm",
- "indexmap",
- "more-asserts",
- "near-vm-compiler",
- "near-vm-compiler-singlepass",
- "near-vm-compiler-test-derive",
- "near-vm-engine",
- "near-vm-engine-universal",
- "near-vm-test-generator",
- "near-vm-types",
- "near-vm-vm",
- "near-vm-wast",
- "prefix-sum-vec",
- "serial_test",
- "target-lexicon 0.12.3",
- "tempfile",
- "test-log",
- "thiserror",
- "tracing",
- "tracing-subscriber",
- "wat",
- "winapi",
-]
-
-[[package]]
 name = "near-vm-compiler"
 version = "0.0.0"
 dependencies = [
@@ -4320,6 +4290,7 @@ name = "near-vm-engine"
 version = "0.0.0"
 dependencies = [
  "backtrace",
+ "cfg-if 1.0.0",
  "enumset",
  "finite-wasm",
  "lazy_static",
@@ -4328,30 +4299,12 @@ dependencies = [
  "near-vm-compiler",
  "near-vm-types",
  "near-vm-vm",
+ "region",
+ "rkyv",
  "rustc-demangle",
  "target-lexicon 0.12.3",
  "thiserror",
-]
-
-[[package]]
-name = "near-vm-engine-universal"
-version = "0.0.0"
-dependencies = [
- "cfg-if 1.0.0",
- "enumset",
- "finite-wasm",
- "leb128",
- "near-vm-compiler",
- "near-vm-engine",
- "near-vm-types",
- "near-vm-vm",
- "prefix-sum-vec",
- "region",
- "rkyv",
- "thiserror",
  "tracing",
- "wasmparser 0.99.0",
- "winapi",
 ]
 
 [[package]]
@@ -4418,7 +4371,6 @@ dependencies = [
  "near-vm-compiler",
  "near-vm-compiler-singlepass",
  "near-vm-engine",
- "near-vm-engine-universal",
  "near-vm-errors",
  "near-vm-logic",
  "near-vm-types",
@@ -4460,6 +4412,35 @@ dependencies = [
  "near-vm-runner",
  "wasm-smith",
  "wasmprinter",
+]
+
+[[package]]
+name = "near-vm-test-api"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "cfg-if 1.0.0",
+ "finite-wasm",
+ "indexmap",
+ "more-asserts",
+ "near-vm-compiler",
+ "near-vm-compiler-singlepass",
+ "near-vm-compiler-test-derive",
+ "near-vm-engine",
+ "near-vm-test-generator",
+ "near-vm-types",
+ "near-vm-vm",
+ "near-vm-wast",
+ "prefix-sum-vec",
+ "serial_test",
+ "target-lexicon 0.12.3",
+ "tempfile",
+ "test-log",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+ "wat",
+ "winapi",
 ]
 
 [[package]]
@@ -4507,7 +4488,7 @@ name = "near-vm-wast"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "near-vm",
+ "near-vm-test-api",
  "tempfile",
  "thiserror",
  "wast",

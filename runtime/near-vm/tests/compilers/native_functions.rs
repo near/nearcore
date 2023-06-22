@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
-use near_vm::*;
+use near_vm_test_api::*;
 
 fn long_f(a: u32, b: u32, c: u32, d: u32, e: u32, f: u16, g: u64, h: u64, i: u16, j: u32) -> u64 {
     j as u64

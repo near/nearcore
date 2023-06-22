@@ -1,7 +1,7 @@
 use crate::sys::tunables::BaseTunables;
 #[cfg(all(feature = "compiler", feature = "engine"))]
 use near_vm_compiler::CompilerConfig;
-use near_vm_engine::Engine;
+use near_vm_engine::universal::UniversalEngine;
 use near_vm_vm::Tunables;
 use std::fmt;
 use std::sync::Arc;
@@ -18,25 +18,22 @@ use std::sync::Arc;
 /// Spec: <https://webassembly.github.io/spec/core/exec/runtime.html#store>
 #[derive(Clone)]
 pub struct Store {
-    engine: Arc<dyn Engine + Send + Sync>,
+    engine: Arc<UniversalEngine>,
     tunables: Arc<dyn Tunables + Send + Sync>,
 }
 
 impl Store {
     /// Creates a new `Store` with a specific [`Engine`].
-    pub fn new<E>(engine: &E) -> Self
-    where
-        E: Engine + ?Sized,
-    {
-        Self::new_with_tunables(engine, BaseTunables::for_target(engine.target()))
+    pub fn new(engine: Arc<UniversalEngine>) -> Self {
+        Self::new_with_tunables(Arc::clone(&engine), BaseTunables::for_target(engine.target()))
     }
 
     /// Creates a new `Store` with a specific [`Engine`] and [`Tunables`].
-    pub fn new_with_tunables<E>(engine: &E, tunables: impl Tunables + Send + Sync + 'static) -> Self
-    where
-        E: Engine + ?Sized,
-    {
-        Self { engine: engine.cloned(), tunables: Arc::new(tunables) }
+    pub fn new_with_tunables(
+        engine: Arc<UniversalEngine>,
+        tunables: impl Tunables + Send + Sync + 'static,
+    ) -> Self {
+        Self { engine, tunables: Arc::new(tunables) }
     }
 
     /// Returns the [`Tunables`].
@@ -45,8 +42,8 @@ impl Store {
     }
 
     /// Returns the [`Engine`].
-    pub fn engine(&self) -> &Arc<dyn Engine + Send + Sync> {
-        &self.engine
+    pub fn engine(&self) -> Arc<UniversalEngine> {
+        Arc::clone(&self.engine)
     }
 
     /// Checks whether two stores are identical. A store is considered
@@ -85,10 +82,10 @@ impl Default for Store {
         }
 
         #[allow(unreachable_code, unused_mut)]
-        fn get_engine(mut config: impl CompilerConfig + 'static) -> impl Engine + Send + Sync {
+        fn get_engine(mut config: impl CompilerConfig + 'static) -> UniversalEngine {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "default-universal")] {
-                    near_vm_engine_universal::Universal::new(config)
+                    near_vm_engine::universal::Universal::new(config)
                         .engine()
                 } else if #[cfg(feature = "default-dylib")] {
                     near_vm_engine_dylib::Dylib::new(config)
@@ -102,7 +99,7 @@ impl Default for Store {
         let config = get_config();
         let engine = get_engine(config);
         let tunables = BaseTunables::for_target(engine.target());
-        Self::new_with_tunables(&engine, tunables)
+        Self::new_with_tunables(engine.into(), tunables)
     }
 }
 

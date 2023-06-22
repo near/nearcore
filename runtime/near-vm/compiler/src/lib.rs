@@ -29,7 +29,6 @@ mod lib {
 }
 
 mod address_map;
-#[cfg(feature = "translator")]
 mod compiler;
 mod error;
 mod function;
@@ -38,14 +37,12 @@ mod module;
 mod relocation;
 mod target;
 mod trap;
-#[cfg(feature = "translator")]
 #[macro_use]
 mod translator;
 mod section;
 mod sourceloc;
 
 pub use crate::address_map::{FunctionAddressMap, InstructionAddressMap};
-#[cfg(feature = "translator")]
 pub use crate::compiler::{Compiler, CompilerConfig, Symbol, SymbolRegistry};
 pub use crate::error::{
     CompileError, MiddlewareError, ParseCpuFeatureError, WasmError, WasmResult,
@@ -65,7 +62,6 @@ pub use crate::target::{
     Architecture, BinaryFormat, CallingConvention, CpuFeature, Endianness, OperatingSystem,
     PointerWidth, Target, Triple,
 };
-#[cfg(feature = "translator")]
 pub use crate::translator::{
     translate_module, wptype_to_type, FunctionBodyData, FunctionReader, ModuleEnvironment,
     ModuleTranslationState,
@@ -73,7 +69,6 @@ pub use crate::translator::{
 pub use crate::trap::TrapInformation;
 pub use near_vm_types::Features;
 
-#[cfg(feature = "translator")]
 /// wasmparser is exported as a module to slim compiler dependencies
 pub use wasmparser;
 

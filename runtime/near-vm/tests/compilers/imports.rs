@@ -3,7 +3,7 @@
 //! dynamic ones) work properly.
 
 use anyhow::Result;
-use near_vm::*;
+use near_vm_test_api::*;
 use std::convert::Infallible;
 use std::sync::atomic::AtomicBool;
 use std::sync::{

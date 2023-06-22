@@ -9,8 +9,7 @@ use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_stable_hasher::StableHasher;
 use near_vm_compiler_singlepass::Singlepass;
-use near_vm_engine::{Engine, Executable};
-use near_vm_engine_universal::{
+use near_vm_engine::universal::{
     Universal, UniversalEngine, UniversalExecutable, UniversalExecutableRef,
 };
 use near_vm_errors::{
@@ -124,7 +123,7 @@ impl MemoryLike for NearVmMemory {
 }
 
 fn get_entrypoint_index(
-    artifact: &near_vm_engine_universal::UniversalArtifact,
+    artifact: &near_vm_engine::universal::UniversalArtifact,
     method_name: &str,
 ) -> Result<FunctionIndex, FunctionCallError> {
     if method_name.is_empty() {
@@ -229,7 +228,7 @@ pub(crate) fn near_vm_vm_hash() -> u64 {
     VM_CONFIG.config_hash()
 }
 
-pub(crate) type VMArtifact = Arc<near_vm_engine_universal::UniversalArtifact>;
+pub(crate) type VMArtifact = Arc<near_vm_engine::universal::UniversalArtifact>;
 
 pub(crate) struct NearVM {
     pub(crate) config: VMConfig,

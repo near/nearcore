@@ -19,6 +19,8 @@ import requests
 import sys
 import time
 
+from common.sharding import AccountGenerator
+
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
 DEFAULT_TRANSACTION_TTL = timedelta(minutes=30)
@@ -270,18 +272,17 @@ class NearUser(User):
         return cls.id_counter
 
     @classmethod
-    def generate_account_id(cls, id) -> str:
-        # Pseudo-random 6-digit prefix to spread the users in the state tree
-        # TODO: Also make sure these are spread evenly across shards
-        prefix = str(hash(str(id)))[-6:]
-        return f"{prefix}_user{id}.{cls.funding_account.key.account_id}"
+    def generate_account_id(cls, account_generator, id) -> str:
+        return account_generator.random_account_id(
+            cls.funding_account.key.account_id, f'_user{id}')
 
     def __init__(self, environment):
         super().__init__(environment)
         assert self.host is not None, "Near user requires the RPC node address"
         self.node = NearNodeProxy(environment)
         self.id = NearUser.get_next_id()
-        self.account_id = NearUser.generate_account_id(self.id)
+        self.account_id = NearUser.generate_account_id(
+            environment.account_generator, self.id)
 
     def on_start(self):
         """
@@ -409,6 +410,38 @@ def evaluate_rpc_result(rpc_result):
     return result
 
 
+def init_account_generator(parsed_options):
+    if parsed_options.shard_layout_file is not None:
+        with open(parsed_options.shard_layout_file, 'r') as f:
+            shard_layout = json.load(f)
+    elif parsed_options.shard_layout_chain_id is not None:
+        if parsed_options.shard_layout_chain_id not in ['mainnet', 'testnet']:
+            sys.exit(
+                f'unexpected --shard-layout-chain-id: {parsed_options.shard_layout_chain_id}'
+            )
+
+        shard_layout = {
+            "V1": {
+                "fixed_shards": [],
+                "boundary_accounts": [
+                    "aurora", "aurora-0", "kkuuue2akv_1630967379.near"
+                ],
+                "shards_split_map": [[0, 1, 2, 3]],
+                "to_parent_shard_map": [0, 0, 0, 0],
+                "version": 1
+            }
+        }
+    else:
+        shard_layout = {
+            "V0": {
+                "num_shards": 1,
+                "version": 0,
+            },
+        }
+
+    return AccountGenerator(shard_layout)
+
+
 # called once per process before user initialization
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
@@ -418,6 +451,8 @@ def on_locust_init(environment, **kwargs):
         environment.parsed_options.funding_key)
     master_funding_account = Account(master_funding_key)
 
+    environment.account_generator = init_account_generator(
+        environment.parsed_options)
     funding_account = None
     # every worker needs a funding account to create its users, eagerly create them in the master
     if isinstance(environment.runner, runners.MasterRunner):
@@ -462,6 +497,16 @@ def _(parser):
         required=False,
         default=16,
         help="How many funding accounts to generate for workers")
+    parser.add_argument(
+        "--shard-layout-file",
+        required=False,
+        help="file containing a shard layout JSON object for the target chain")
+    parser.add_argument(
+        "--shard-layout-chain-id",
+        required=False,
+        help=
+        "chain ID whose shard layout we should consult when generating account IDs. Convenience option to avoid using --shard-layout-file for mainnet and testnet"
+    )
     parser.add_argument(
         "--run-id",
         default="",
