@@ -744,7 +744,7 @@ fn print_receipt_costs_for_chunk(
         for key in state_changes_keys {
             println!("changed {:?}", key);
         }
-        println!("{} {}", total_write_bytes, total_key_len);
+        println!("{} {} | {} {}", total_write_bytes, total_key_len, total_write_num, total_len);
         assert!(total_write_bytes <= total_key_len);
         assert!(total_write_num <= total_len);
     }
