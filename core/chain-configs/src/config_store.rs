@@ -39,6 +39,26 @@ impl ChainConfigStore {
     fn populate_config_store(store: &BTreeMap<EpochHeight, Arc<ChainConfigLoader>>) {
         let config_change_list = Self::get_config_change_list();
         println!("Mirko: config_change_list: {:?}", config_change_list);
+
+        for epoch_height in config_change_list.epoch_changes {
+            println!(epoch_height);
+            let chain_config_loader = Self::load_chain_config(epoch_height);
+            println!("Mirko: chain_config_loader: {:?}", chain_config_loader);
+        }
+    }
+
+    fn load_chain_config(epoch_height: EpochHeight) -> ChainConfigLoader {
+        let current_dir = env::current_dir().expect("Failed to get the current directory");
+        let path = current_dir.join(RESOURCES_DIR).join(epoch_height.to_string());
+        let mut file = File::open(&path).expect("Failed to open config change file.");
+        let mut json_str = String::new();
+        file.read_to_string(&mut json_str)
+            .expect("Failed to read the config change file to string. ");
+        let json_str_without_comments: String =
+            near_config_utils::strip_comments_from_json_str(&json_str)
+                .expect("Failed to strip comments from config change file.");
+        serde_json::from_str(&json_str_without_comments)
+            .expect("Failed to deserialize the config change file.")
     }
 
     fn get_config_change_list() -> ConfigChangeList {
