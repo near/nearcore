@@ -2910,6 +2910,14 @@ impl Chain {
             root_proofs.push(root_proofs_cur);
         }
 
+        // We are looking for the state_root before the last block of the previous epoch.
+        // State Sync works as follows:
+        // * Downloading state
+        // * Getting the last block with the relevant chunks of the previous epoch
+        // * Processing the last block of the previous epoch.
+        // In case the last block has a chunk, the prev_state_root of that chunk is exactly the state root we're looking for.
+        // In case the last block has no chunk, we'd ideally need the first included chunk in the current epoch. But there are no guarantees that they exist.
+        // Instead we check ChunkExtra of the preceding block. It contains the state root after applying receipts.
         let state_root = if chunk_header.height_included() == sync_prev_block.header().height() {
             let state_root = chunk_header.prev_state_root();
             tracing::debug!(target: "sync", ?shard_id, ?state_root, ?sync_hash, "Needed chunk is present. Using `prev_state_root().");
