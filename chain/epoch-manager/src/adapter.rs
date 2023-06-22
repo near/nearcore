@@ -1,3 +1,4 @@
+use crate::types::BlockHeaderInfo;
 use crate::EpochManagerHandle;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -17,7 +18,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
-use near_store::ShardUId;
+use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
 use std::sync::Arc;
 
@@ -198,6 +199,11 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         epoch_id: ValidatorInfoIdentifier,
     ) -> Result<EpochValidatorInfo, EpochError>;
+
+    fn add_validator_proposals(
+        &self,
+        block_header_info: BlockHeaderInfo,
+    ) -> Result<StoreUpdate, EpochError>;
 
     /// Amount of tokens minted in given epoch.
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, EpochError>;
@@ -642,7 +648,15 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_id: ValidatorInfoIdentifier,
     ) -> Result<EpochValidatorInfo, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_validator_info(epoch_id).map_err(|e| e.into())
+        epoch_manager.get_validator_info(epoch_id)
+    }
+
+    fn add_validator_proposals(
+        &self,
+        block_header_info: BlockHeaderInfo,
+    ) -> Result<StoreUpdate, EpochError> {
+        let mut epoch_manager = self.write();
+        epoch_manager.add_validator_proposals(block_header_info)
     }
 
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, EpochError> {

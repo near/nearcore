@@ -4312,10 +4312,14 @@ name = "near-vm-errors"
 version = "0.0.0"
 dependencies = [
  "borsh 0.10.2",
+ "hex",
  "near-account-id",
+ "near-crypto",
+ "near-fmt",
  "near-primitives-core",
  "near-rpc-error-macro",
  "serde",
+ "serde_with",
  "strum",
  "thiserror",
 ]
@@ -4332,7 +4336,6 @@ dependencies = [
  "near-crypto",
  "near-fmt",
  "near-o11y",
- "near-primitives",
  "near-primitives-core",
  "near-stdx",
  "near-vm-errors",

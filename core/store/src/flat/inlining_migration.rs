@@ -233,7 +233,8 @@ pub fn inline_flat_state_values(
             // while updates are disabled. This way we prevent updating the values that
             // were updated since migration start.
             let batch_inlining_start = std::time::Instant::now();
-            flat_storage_manager.set_flat_state_updates_mode(false);
+            assert!(flat_storage_manager.set_flat_state_updates_mode(false));
+            tracing::info!(target: "store", "Locked flat storage for the inlining migration");
             let mut store_update = store.store_update();
             // rockdb API accepts the exclusive end of the range, so we append
             // `0u8` here to make sure `max_key` is included in the range
@@ -260,7 +261,8 @@ pub fn inline_flat_state_values(
                 }
             }
             store_update.commit().expect("failed to commit inlined values");
-            flat_storage_manager.set_flat_state_updates_mode(true);
+            assert!(flat_storage_manager.set_flat_state_updates_mode(true));
+            tracing::info!(target: "store", "Unlocked flat storage after the inlining migration");
             inlined_total_count += inlined_batch_count;
             batch_duration = batch_inlining_start.elapsed();
             FLAT_STATE_PAUSED_DURATION.observe(batch_duration.as_secs_f64());

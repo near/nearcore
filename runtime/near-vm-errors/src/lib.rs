@@ -8,6 +8,10 @@ use std::fmt::{self, Error, Formatter};
 use std::io;
 
 // ----------8<----------
+pub mod action;
+pub mod delegate_action;
+pub mod signable_message;
+
 // TODO: this does not belong in near-vm-errors but near-vm-runner.
 // See #9176 and #9180 for more context.
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize)]
