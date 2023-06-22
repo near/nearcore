@@ -30,7 +30,7 @@ use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
     StorageError, TrieUpdate,
 };
-use near_vm_errors::{
+use near_vm_logic::errors::{
     CompilationError, FunctionCallError, FunctionCallErrorSer, InconsistentStateError,
     VMRunnerError,
 };

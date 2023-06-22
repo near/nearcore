@@ -1,5 +1,11 @@
+use crate::action::{
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
+    DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
+};
+use crate::errors::HostError;
 use crate::logic;
 use crate::types::ReceiptIndex;
+use crate::DataReceiver;
 use crate::External;
 use near_crypto::PublicKey;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -7,11 +13,6 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Gas};
 use near_primitives_core::types::{Balance, Nonce};
 use near_primitives_core::types::{GasDistribution, GasWeight};
-use near_vm_errors::action::{
-    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
-};
-use near_vm_errors::{DataReceiver, HostError};
 
 type ActionReceipts = Vec<(AccountId, ReceiptMetadata)>;
 

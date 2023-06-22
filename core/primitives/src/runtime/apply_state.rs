@@ -5,7 +5,7 @@ use crate::{
     types::{Balance, BlockHeight, EpochHeight, EpochId, Gas},
     version::ProtocolVersion,
 };
-use near_vm_errors::CompiledContractCache;
+use near_vm_logic::CompiledContractCache;
 use std::sync::Arc;
 
 #[derive(Debug)]

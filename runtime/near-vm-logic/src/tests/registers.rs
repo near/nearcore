@@ -1,6 +1,6 @@
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::VMConfig;
-use near_vm_errors::{HostError, VMLogicError};
+use crate::{HostError, VMLogicError};
 
 #[test]
 fn test_one_register() {

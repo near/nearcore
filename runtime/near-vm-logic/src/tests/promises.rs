@@ -1,3 +1,4 @@
+use crate::action::Action;
 use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::types::PromiseResult;
@@ -5,7 +6,6 @@ use crate::VMLogic;
 use borsh::BorshSerialize;
 use near_account_id::AccountId;
 use near_crypto::PublicKey;
-use near_vm_errors::action::Action;
 use serde_json;
 
 #[derive(serde::Serialize)]

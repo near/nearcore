@@ -412,7 +412,7 @@ pub(crate) mod wasmer2 {
                         // We want to ensure that the only kind of error that host function calls
                         // return are VMLogicError. This is important because we later attempt to
                         // downcast the `RuntimeError`s into `VMLogicError`.
-                        let result: Result<Result<_, near_vm_errors::VMLogicError>, _>  = result;
+                        let result: Result<Result<_, near_vm_logic::VMLogicError>, _>  = result;
                         #[allow(unused_parens)]
                         match result {
                             Ok(Ok(($($returns),*))) => make_ret($($returns),*),
@@ -573,7 +573,7 @@ pub(crate) mod near_vm {
                         // We want to ensure that the only kind of error that host function calls
                         // return are VMLogicError. This is important because we later attempt to
                         // downcast the `RuntimeError`s into `VMLogicError`.
-                        let result: Result<Result<_, near_vm_errors::VMLogicError>, _>  = result;
+                        let result: Result<Result<_, near_vm_logic::VMLogicError>, _>  = result;
                         #[allow(unused_parens)]
                         match result {
                             Ok(Ok(($($returns),*))) => make_ret($($returns),*),
