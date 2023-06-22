@@ -740,19 +740,26 @@ fn print_receipt_costs_for_chunk(
         let state_changes_keys: Vec<_> =
             changes_per_key_prefix.map(|it| it.unwrap().trie_key.to_vec()).collect();
         let state_changes_for_trie: Vec<_> =
-            state_changes_keys.iter().map(|key| (key.clone(), None)).collect();
+            state_changes_keys.iter().map(|key| (key.clone(), Some(vec![0]))).collect();
         let state_changes_trie =
             Trie::new(Rc::new(TrieMemoryPartialStorage::default()), StateRoot::new(), None);
         let state_changes_results =
             state_changes_trie.update_with_len(state_changes_for_trie.into_iter()).unwrap();
         let total_trie_len: usize = state_changes_results.1;
+        let total_trie_len_2: usize = state_changes_results.2;
 
         let total_len = state_changes_keys.len();
         let total_key_len: usize = state_changes_keys.iter().map(|key| key.len()).sum();
         for key in state_changes_keys {
             println!("changed {:?}", key);
         }
-        println!("NIBBLES COMPARISON: {} {} {}", total_len, total_key_len * 2, total_trie_len);
+        println!(
+            "NIBBLES COMPARISON: {} {} {} {}",
+            total_len,
+            total_key_len * 2,
+            total_trie_len,
+            total_trie_len_2
+        );
         if total_write_num * 9 > total_len * 10 {
             println!("UNEXPECTED COUNT {} {}", total_write_num, total_len);
         }

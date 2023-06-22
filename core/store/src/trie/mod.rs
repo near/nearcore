@@ -862,9 +862,12 @@ impl Trie {
         for (key, value) in changes {
             let key = NibbleSlice::new(&key);
             root_node = match value {
-                Some(arr) => self.insert(&mut memory, root_node, key, arr),
-                None => self.delete(&mut memory, root_node, key),
-            }?;
+                Some(arr) => {
+                    let (node, _) = self.insert(&mut memory, root_node, key, arr)?;
+                    node
+                }
+                None => self.delete(&mut memory, root_node, key)?,
+            };
         }
 
         #[cfg(test)]
@@ -874,25 +877,33 @@ impl Trie {
         Trie::flatten_nodes(&self.root, memory, root_node).map(|(a, _)| a)
     }
 
-    pub fn update_with_len<I>(&self, changes: I) -> Result<(TrieChanges, usize), StorageError>
+    pub fn update_with_len<I>(
+        &self,
+        changes: I,
+    ) -> Result<(TrieChanges, usize, usize), StorageError>
     where
         I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
         let mut memory = NodesStorage::new();
         let mut root_node = self.move_node_to_mutable(&mut memory, &self.root)?;
+        let mut sum_len = 0usize;
         for (key, value) in changes {
             let key = NibbleSlice::new(&key);
             root_node = match value {
-                Some(arr) => self.insert(&mut memory, root_node, key, arr),
-                None => self.delete(&mut memory, root_node, key),
-            }?;
+                Some(arr) => {
+                    let (node, len) = self.insert(&mut memory, root_node, key, arr)?;
+                    sum_len += len;
+                    node
+                }
+                None => self.delete(&mut memory, root_node, key)?,
+            };
         }
 
         #[cfg(test)]
         {
             self.memory_usage_verify(&memory, NodeHandle::InMemory(root_node));
         }
-        Trie::flatten_nodes(&self.root, memory, root_node)
+        Trie::flatten_nodes(&self.root, memory, root_node).map(|(a, b)| (a, b, sum_len))
     }
 
     pub fn iter<'a>(&'a self) -> Result<TrieIterator<'a>, StorageError> {

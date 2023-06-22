@@ -89,12 +89,13 @@ impl Trie {
         node: StorageHandle,
         partial: NibbleSlice<'_>,
         value: Vec<u8>,
-    ) -> Result<StorageHandle, StorageError> {
+    ) -> Result<(StorageHandle, usize), StorageError> {
         let root_handle = node;
         let mut handle = node;
         let mut value = Some(value);
         let mut partial = partial;
         let mut path = Vec::new();
+        let mut add_len = 0usize;
         loop {
             path.push(handle);
             let TrieNodeWithSize { node, memory_usage } = memory.destroy(handle);
@@ -102,6 +103,7 @@ impl Trie {
             match node {
                 TrieNode::Empty => {
                     let value_handle = memory.store_value(value.take().unwrap());
+                    add_len += partial.len();
                     let leaf_node = TrieNode::Leaf(
                         partial.encoded(true).into_vec(),
                         ValueHandle::InMemory(value_handle),
@@ -122,11 +124,13 @@ impl Trie {
                         let new_memory_usage =
                             children_memory_usage + new_node.memory_usage_direct(memory);
                         memory.store_at(handle, TrieNodeWithSize::new(new_node, new_memory_usage));
+                        add_len += 0;
                         break;
                     } else {
                         let child = &mut children[partial.at(0)];
                         let new_handle = match child.take() {
                             Some(NodeHandle::Hash(hash)) => {
+                                add_len += 1;
                                 self.move_node_to_mutable(memory, &hash)?
                             }
                             Some(NodeHandle::InMemory(handle)) => handle,
@@ -155,6 +159,7 @@ impl Trie {
                         let node = TrieNode::Leaf(key, ValueHandle::InMemory(value_handle));
                         let memory_usage = node.memory_usage_direct(memory);
                         memory.store_at(handle, TrieNodeWithSize { node, memory_usage });
+                        add_len += 0;
                         break;
                     } else if common_prefix == 0 {
                         let mut children = Default::default();
@@ -163,6 +168,7 @@ impl Trie {
                             children_memory_usage = 0;
                             TrieNode::Branch(children, Some(existing_value))
                         } else {
+                            add_len += 1;
                             let idx = existing_key.at(0);
                             let new_leaf = TrieNode::Leaf(
                                 existing_key.mid(1).encoded(true).into_vec(),
@@ -220,6 +226,7 @@ impl Trie {
                     let existing_key = NibbleSlice::from_encoded(&key).0;
                     let common_prefix = partial.common_prefix(&existing_key);
                     if common_prefix == 0 {
+                        add_len += 1; // ??
                         let idx = existing_key.at(0);
                         let child_memory_usage;
                         let child = if existing_key.len() == 1 {
@@ -284,7 +291,7 @@ impl Trie {
             let child_memory_usage = memory.node_ref(*child).memory_usage;
             memory.node_mut(*node).memory_usage += child_memory_usage;
         }
-        Ok(root_handle)
+        Ok((root_handle, add_len))
     }
 
     /// On insert/delete, we want to recompute subtree sizes without touching nodes that aren't on
