@@ -49,7 +49,6 @@ wasmer-vm = { workspace = true, optional = true }
 near-vm-compiler = { workspace = true, optional = true }
 near-vm-compiler-singlepass = { workspace = true, optional = true }
 near-vm-engine = { workspace = true, optional = true }
-near-vm-engine-universal = { workspace = true, features = ["compiler"], optional = true }
 near-vm-types = { workspace = true, optional = true }
 near-vm-vm = { workspace = true, optional = true }
 
@@ -88,7 +87,6 @@ near_vm = [
     "near-vm-compiler",
     "near-vm-compiler-singlepass",
     "near-vm-engine",
-    "near-vm-engine-universal",
     "near-vm-types",
     "near-vm-vm"
 ]

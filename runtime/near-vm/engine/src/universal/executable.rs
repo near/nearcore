@@ -1,17 +1,13 @@
-use std::sync::Arc;
-
-use enumset::EnumSet;
+use crate::DeserializeError;
 use near_vm_compiler::{
-    CompileError, CompileModuleInfo, CompiledFunctionFrameInfo, CpuFeature, CustomSection, Dwarf,
-    Features, FunctionBody, JumpTableOffsets, Relocation, SectionIndex, TrampolinesSection,
+    CompileModuleInfo, CompiledFunctionFrameInfo, CustomSection, Dwarf, FunctionBody,
+    JumpTableOffsets, Relocation, SectionIndex, TrampolinesSection,
 };
-use near_vm_engine::{DeserializeError, Engine};
 use near_vm_types::entity::PrimaryMap;
 use near_vm_types::{
     ExportIndex, FunctionIndex, ImportIndex, LocalFunctionIndex, OwnedDataInitializer,
     SignatureIndex,
 };
-use near_vm_vm::Artifact;
 use rkyv::de::deserializers::SharedDeserializeMap;
 use rkyv::ser::serializers::{
     AllocScratchError, AllocSerializer, CompositeSerializerError, SharedSerializeMapError,
@@ -26,7 +22,6 @@ const MAGIC_HEADER: [u8; 32] = {
 /// A 0-copy view of the encoded `UniversalExecutable` payload.
 #[derive(Clone, Copy)]
 pub struct UniversalExecutableRef<'a> {
-    buffer: &'a [u8],
     archive: &'a ArchivedUniversalExecutable,
 }
 
@@ -72,7 +67,6 @@ impl<'a> UniversalExecutableRef<'a> {
         position_value.copy_from_slice(position);
         let (_, data) = archive.split_at(MAGIC_HEADER.len());
         Ok(UniversalExecutableRef {
-            buffer: data,
             archive: rkyv::archived_value::<UniversalExecutable>(
                 data,
                 u64::from_le_bytes(position_value) as usize,
@@ -126,27 +120,11 @@ pub enum ExecutableSerializeError {
     ),
 }
 
-impl near_vm_engine::Executable for UniversalExecutable {
-    fn load(
+impl UniversalExecutable {
+    /// Serialize the executable into bytes for storage.
+    pub fn serialize(
         &self,
-        engine: &(dyn Engine + 'static),
-    ) -> Result<std::sync::Arc<dyn Artifact>, CompileError> {
-        engine
-            .downcast_ref::<crate::UniversalEngine>()
-            .ok_or(CompileError::EngineDowncast)?
-            .load_universal_executable(self)
-            .map(|a| Arc::new(a) as _)
-    }
-
-    fn features(&self) -> Features {
-        self.compile_info.features.clone()
-    }
-
-    fn cpu_features(&self) -> EnumSet<CpuFeature> {
-        EnumSet::from_u64(self.cpu_features)
-    }
-
-    fn serialize(&self) -> Result<Vec<u8>, Box<(dyn std::error::Error + Send + Sync + 'static)>> {
+    ) -> Result<Vec<u8>, Box<(dyn std::error::Error + Send + Sync + 'static)>> {
         // The format is as thus:
         //
         // HEADER
@@ -165,54 +143,13 @@ impl near_vm_engine::Executable for UniversalExecutable {
         out.extend(&pos_bytes);
         Ok(out)
     }
-
-    fn function_name(&self, index: FunctionIndex) -> Option<&str> {
-        let module = &self.compile_info.module;
-        // First, lets see if there's a name by which this function is exported.
-        for (name, idx) in module.exports.iter() {
-            match idx {
-                &ExportIndex::Function(fi) if fi == index => return Some(&*name),
-                _ => continue,
-            }
-        }
-        if let Some(r) = module.function_names.get(&index) {
-            return Some(&**r);
-        }
-        for ((_, field, _), idx) in module.imports.iter() {
-            match idx {
-                &ImportIndex::Function(fi) if fi == index => return Some(&*field),
-                _ => continue,
-            }
-        }
-        None
-    }
 }
 
-impl<'a> near_vm_engine::Executable for UniversalExecutableRef<'a> {
-    fn load(
-        &self,
-        engine: &(dyn Engine + 'static),
-    ) -> Result<std::sync::Arc<dyn Artifact>, CompileError> {
-        engine
-            .downcast_ref::<crate::UniversalEngine>()
-            .ok_or_else(|| CompileError::Codegen("can't downcast TODO FIXME".into()))?
-            .load_universal_executable_ref(self)
-            .map(|a| Arc::new(a) as _)
-    }
-
-    fn features(&self) -> Features {
-        unrkyv(&self.archive.compile_info.features)
-    }
-
-    fn cpu_features(&self) -> EnumSet<CpuFeature> {
-        EnumSet::from_u64(unrkyv(&self.archive.cpu_features))
-    }
-
-    fn serialize(&self) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(self.buffer.to_vec())
-    }
-
-    fn function_name(&self, index: FunctionIndex) -> Option<&str> {
+impl<'a> UniversalExecutableRef<'a> {
+    /// Get the name for specified function index.
+    ///
+    /// Test-only API
+    pub fn function_name(&self, index: FunctionIndex) -> Option<&str> {
         let module = &self.compile_info.module;
         // First, lets see if there's a name by which this function is exported.
         for (name, idx) in module.exports.iter() {

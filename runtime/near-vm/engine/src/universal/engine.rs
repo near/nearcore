@@ -1,14 +1,13 @@
 //! Universal compilation.
 
-use crate::executable::{unrkyv, UniversalExecutableRef};
-use crate::{CodeMemory, UniversalArtifact, UniversalExecutable};
-#[cfg(feature = "compiler")]
+use crate::universal::executable::{unrkyv, UniversalExecutableRef};
+use crate::universal::{CodeMemory, UniversalArtifact, UniversalExecutable};
+use crate::EngineId;
 use near_vm_compiler::Compiler;
 use near_vm_compiler::{
     CompileError, CustomSectionProtection, CustomSectionRef, FunctionBodyRef, JumpTable,
     SectionIndex, Target,
 };
-use near_vm_engine::{Engine, EngineId};
 use near_vm_types::entity::{EntityRef, PrimaryMap};
 use near_vm_types::{
     DataInitializer, ExportIndex, Features, FunctionIndex, FunctionType, FunctionTypeRef,
@@ -36,7 +35,6 @@ pub struct UniversalEngine {
 
 impl UniversalEngine {
     /// Create a new `UniversalEngine` with the given config
-    #[cfg(feature = "compiler")]
     pub fn new(compiler: Box<dyn Compiler>, target: Target, features: Features) -> Self {
         Self {
             inner: Arc::new(Mutex::new(UniversalEngineInner {
@@ -67,7 +65,6 @@ impl UniversalEngine {
     pub fn headless() -> Self {
         Self {
             inner: Arc::new(Mutex::new(UniversalEngineInner {
-                #[cfg(feature = "compiler")]
                 compiler: None,
                 code_memory: vec![],
                 signatures: SignatureRegistry::new(),
@@ -88,13 +85,12 @@ impl UniversalEngine {
     }
 
     /// Compile a WebAssembly binary
-    #[cfg(feature = "compiler")]
     #[tracing::instrument(skip_all)]
     pub fn compile_universal(
         &self,
         binary: &[u8],
         tunables: &dyn Tunables,
-    ) -> Result<crate::UniversalExecutable, CompileError> {
+    ) -> Result<super::UniversalExecutable, CompileError> {
         // Compute the needed instrumentation
         let instrumentation = finite_wasm::Analysis::new()
             .with_stack(tunables.stack_limiter_cfg())
@@ -161,7 +157,7 @@ impl UniversalEngine {
             .iter()
             .map(|(_, section)| section.relocations.clone())
             .collect::<PrimaryMap<SectionIndex, _>>();
-        Ok(crate::UniversalExecutable {
+        Ok(super::UniversalExecutable {
             function_bodies,
             function_relocations,
             function_jt_offsets,
@@ -258,7 +254,7 @@ impl UniversalEngine {
 
         let function_relocations = executable.function_relocations.iter();
         let section_relocations = executable.custom_section_relocations.iter();
-        crate::link_module(
+        crate::universal::link_module(
             &functions,
             |func_idx, jt_idx| executable.function_jt_offsets[func_idx][jt_idx],
             function_relocations.map(|(i, rs)| (i, rs.iter().cloned())),
@@ -395,7 +391,7 @@ impl UniversalEngine {
 
         let function_relocations = executable.function_relocations.iter();
         let section_relocations = executable.custom_section_relocations.iter();
-        crate::link_module(
+        crate::universal::link_module(
             &functions,
             |func_idx, jt_idx| {
                 let func_idx = rkyv::Archived::<LocalFunctionIndex>::new(func_idx.index());
@@ -434,78 +430,42 @@ impl UniversalEngine {
             local_globals,
         })
     }
-}
 
-impl Engine for UniversalEngine {
     /// The target
-    fn target(&self) -> &Target {
+    pub fn target(&self) -> &Target {
         &self.target
     }
 
     /// Register a signature
-    fn register_signature(&self, func_type: FunctionType) -> VMSharedSignatureIndex {
+    pub fn register_signature(&self, func_type: FunctionType) -> VMSharedSignatureIndex {
         self.inner().signatures.register(func_type)
     }
 
-    fn register_function_metadata(&self, func_data: VMCallerCheckedAnyfunc) -> VMFuncRef {
+    /// Register some function metadata
+    pub fn register_function_metadata(&self, func_data: VMCallerCheckedAnyfunc) -> VMFuncRef {
         self.inner().func_data().register(func_data)
     }
 
     /// Lookup a signature
-    fn lookup_signature(&self, sig: VMSharedSignatureIndex) -> Option<FunctionType> {
+    pub fn lookup_signature(&self, sig: VMSharedSignatureIndex) -> Option<FunctionType> {
         self.inner().signatures.lookup(sig).cloned()
     }
 
     /// Validates a WebAssembly module
     #[tracing::instrument(skip_all)]
-    fn validate(&self, binary: &[u8]) -> Result<(), CompileError> {
+    pub fn validate(&self, binary: &[u8]) -> Result<(), CompileError> {
         self.inner().validate(binary)
     }
 
-    #[cfg(not(feature = "compiler"))]
-    fn compile(
-        &self,
-        _binary: &[u8],
-        _tunables: &dyn Tunables,
-    ) -> Result<Box<dyn near_vm_engine::Executable>, CompileError> {
-        return Err(CompileError::Codegen(
-            "The UniversalEngine is operating in headless mode, so it can not compile Modules."
-                .to_string(),
-        ));
-    }
-
-    /// Compile a WebAssembly binary
-    #[cfg(feature = "compiler")]
-    #[tracing::instrument(skip_all)]
-    fn compile(
-        &self,
-        binary: &[u8],
-        tunables: &dyn Tunables,
-    ) -> Result<Box<dyn near_vm_engine::Executable>, CompileError> {
-        self.compile_universal(binary, tunables).map(|ex| Box::new(ex) as _)
-    }
-
-    #[tracing::instrument(skip_all)]
-    fn load(
-        &self,
-        executable: &(dyn near_vm_engine::Executable),
-    ) -> Result<Arc<dyn near_vm_vm::Artifact>, CompileError> {
-        executable.load(self)
-    }
-
-    fn id(&self) -> &EngineId {
+    /// Engine ID
+    pub fn id(&self) -> &EngineId {
         &self.engine_id
-    }
-
-    fn cloned(&self) -> Arc<dyn Engine + Send + Sync> {
-        Arc::new(self.clone())
     }
 }
 
 /// The inner contents of `UniversalEngine`
 pub struct UniversalEngineInner {
     /// The compiler
-    #[cfg(feature = "compiler")]
     compiler: Option<Box<dyn Compiler>>,
     /// The features to compile the Wasm module with
     features: Features,
@@ -523,7 +483,6 @@ pub struct UniversalEngineInner {
 
 impl UniversalEngineInner {
     /// Gets the compiler associated to this engine.
-    #[cfg(feature = "compiler")]
     pub fn compiler(&self) -> Result<&dyn Compiler, CompileError> {
         if self.compiler.is_none() {
             return Err(CompileError::Codegen("The UniversalEngine is operating in headless mode, so it can only execute already compiled Modules.".to_string()));
@@ -532,18 +491,8 @@ impl UniversalEngineInner {
     }
 
     /// Validate the module
-    #[cfg(feature = "compiler")]
     pub fn validate<'data>(&self, data: &'data [u8]) -> Result<(), CompileError> {
         self.compiler()?.validate_module(self.features(), data)
-    }
-
-    /// Validate the module
-    #[cfg(not(feature = "compiler"))]
-    pub fn validate<'data>(&self, _data: &'data [u8]) -> Result<(), CompileError> {
-        Err(CompileError::Validate(
-            "The UniversalEngine is not compiled with compiler support, which is required for validating"
-                .to_string(),
-        ))
     }
 
     /// The Wasm features

@@ -39,12 +39,11 @@ pub use crate::sys::types::{
     ValType,
 };
 pub use crate::sys::types::{Val as Value, ValType as Type};
-#[cfg(feature = "compiler")]
 pub use near_vm_compiler::{wasmparser, CompilerConfig};
 pub use near_vm_compiler::{
     CompileError, CpuFeature, Features, ParseCpuFeatureError, Target, WasmError, WasmResult,
 };
-pub use near_vm_engine::{DeserializeError, Engine, FrameInfo, LinkError, RuntimeError};
+pub use near_vm_engine::{DeserializeError, FrameInfo, LinkError, RuntimeError};
 pub use near_vm_types::{
     Atomically, Bytes, ExportIndex, ExternRef, GlobalInit, LocalFunctionIndex, MemoryView, Pages,
     ValueType, WASM_MAX_PAGES, WASM_MIN_PAGES, WASM_PAGE_SIZE,
@@ -54,7 +53,7 @@ pub use near_vm_vm::{
 };
 pub use target_lexicon::{Architecture, CallingConvention, OperatingSystem, Triple, HOST};
 
-// TODO: should those be moved into near_vm::vm as well?
+// TODO: should those be moved into near_vm_test_api::vm as well?
 pub use near_vm_vm::{raise_user_trap, MemoryError};
 pub mod vm {
     //! The `vm` module re-exports near_vm-vm types.
@@ -72,13 +71,10 @@ pub use wat::parse_bytes as wat2wasm;
 pub use near_vm_compiler_singlepass::Singlepass;
 
 #[cfg(feature = "universal")]
-pub use near_vm_engine_universal::{Universal, UniversalArtifact, UniversalEngine};
+pub use near_vm_engine::universal::{Universal, UniversalArtifact, UniversalEngine};
 
 #[cfg(feature = "dylib")]
 pub use near_vm_engine_dylib::{Dylib, DylibArtifact, DylibEngine};
-
-/// Version number of this crate.
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The Deprecated JIT Engine (please use `Universal` instead)
 #[cfg(feature = "jit")]

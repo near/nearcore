@@ -1,5 +1,5 @@
 [package]
-name = "near-vm"
+name = "near-vm-test-api"
 version.workspace = true
 description = "High-performance WebAssembly runtime"
 categories = ["wasm"]
@@ -37,7 +37,6 @@ near-vm-types.workspace = true
 target-lexicon.workspace = true
 # - Optional dependencies for `sys`.
 near-vm-compiler-singlepass = { workspace = true, optional = true}
-near-vm-engine-universal = { workspace = true, optional = true }
 
 # - Mandatory dependencies for `sys` on Windows.
 [target.'cfg(all(not(target_arch = "wasm32"), target_os = "windows"))'.dependencies]
@@ -69,8 +68,6 @@ sys-default = ["sys", "wat", "default-singlepass", "default-universal"]
 # - Compilers.
 compiler = [
     "sys",
-    "near-vm-compiler/translator",
-    "near-vm-engine-universal/compiler",
 ]
     singlepass = [
         "compiler",
@@ -85,7 +82,6 @@ default-compiler = []
 engine = ["sys"]
     universal = [
         "engine",
-        "near-vm-engine-universal",
     ]
 default-engine = []
     default-universal = [

@@ -194,7 +194,6 @@ fn near_vm_and_wasmtime_agree() {
 fn near_vm_is_reproducible() {
     use crate::near_vm_runner::NearVM;
     use near_primitives::hash::CryptoHash;
-    use near_vm_engine::Executable;
 
     bolero::check!().for_each(|data: &[u8]| {
         if let Ok(module) = ArbitraryModule::arbitrary(&mut arbitrary::Unstructured::new(data)) {
