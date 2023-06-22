@@ -726,6 +726,10 @@ fn print_receipt_costs_for_chunk(
         }
     }
 
+    if total_outcomes == 0 {
+        return;
+    }
+
     if let Some(input_account_id) = account_ids.clone() {
         // GET OLD AND NEW COSTS
         let mut diff_profile = ProfileDataV3::new();
