@@ -861,7 +861,7 @@ pub(crate) fn print_receipt_costs(
     let csv_file_mutex = Mutex::new(csv_file);
 
     (start_height..=end_height).into_par_iter().for_each(|height| {
-        let mut chain_store = ChainStore::new(
+        let chain_store = ChainStore::new(
             store.clone(),
             near_config.genesis.config.genesis_height,
             near_config.client_config.save_trie_changes,
