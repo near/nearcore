@@ -34,6 +34,10 @@ impl ChainConfigStore {
         // Mirko: tu dodaj čitanja iz fileova
         Self::populate_config_store(&mut store);
         println!("Mirko: store: {:?}", store);
+        for (key, value) in store.range(..=15) {
+            println!("key {:?}", key);
+            println!("value {:?}", value);
+        }
         Self { initial_chain_config, store }
     }
 
