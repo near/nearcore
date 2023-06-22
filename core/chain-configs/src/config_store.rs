@@ -6,10 +6,11 @@ use crate::config::ChainConfigLoader;
 use crate::genesis_config::GenesisConfigLoader;
 use std::fs::File;
 use std::io::Read;
+use std::path::Path;
 use serde_json;
 
 pub const RESOURCES_DIR: &str = "../res/";
-pub const CONFIG_CHANGE_FILENAME: &str = "genesis.json";
+pub const CONFIG_CHANGE_FILENAME: &str = "config_change_list.json";
 
 #[derive(Debug, serde::Deserialize)]
 pub struct ConfigChangeList {
@@ -46,6 +47,7 @@ impl ChainConfigStore {
     }
 
     fn populate_config_store(store: &BTreeMap<EpochHeight, Arc<ChainConfigLoader>>) {
+        //let path = Path::new(String::from(RESOURCES_DIR) + CONFIG_CHANGE_FILENAME);
         let mut file = File::open(String::from(RESOURCES_DIR) + CONFIG_CHANGE_FILENAME).expect("Failed to open config change list file.");
         let mut json_str = String::new();
         file.read_to_string(&mut json_str)
