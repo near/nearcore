@@ -10,7 +10,8 @@ use std::path::Path;
 use serde_json;
 use std::env;
 
-pub const RESOURCES_DIR: &str = "./core/chain-configs/res/";
+//pub const RESOURCES_DIR: &str = "./core/chain-configs/res/";
+pub const RESOURCES_DIR: &str = "core/chain-configs/res/";
 pub const CONFIG_CHANGE_FILENAME: &str = "config_change_list.json";
 
 #[derive(Debug, serde::Deserialize)]
