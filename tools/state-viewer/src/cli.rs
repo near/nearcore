@@ -481,6 +481,8 @@ pub struct ReceiptCostsCmd {
     shard_id: Option<ShardId>,
     #[clap(long)]
     account_ids: Option<AccountId>,
+    #[clap(long, value_parser)]
+    csv_file: Option<PathBuf>,
 }
 
 impl ReceiptCostsCmd {
@@ -493,6 +495,7 @@ impl ReceiptCostsCmd {
             home_dir,
             near_config,
             store,
+            self.csv_file,
         )
     }
 }

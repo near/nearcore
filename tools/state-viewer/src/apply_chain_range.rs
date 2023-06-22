@@ -102,7 +102,7 @@ fn old_outcomes(
         .collect()
 }
 
-fn maybe_add_to_csv(csv_file_mutex: &Mutex<Option<&mut File>>, s: &str) {
+pub fn maybe_add_to_csv(csv_file_mutex: &Mutex<Option<&mut File>>, s: &str) {
     let mut csv_file = csv_file_mutex.lock().unwrap();
     if let Some(csv_file) = csv_file.as_mut() {
         writeln!(csv_file, "{}", s).unwrap();

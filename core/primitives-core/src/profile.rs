@@ -98,7 +98,7 @@ impl ProfileDataV3 {
         self.wasm_gas
     }
 
-    fn host_gas(&self) -> Gas {
+    pub fn host_gas(&self) -> Gas {
         self.wasm_ext_profile.as_slice().iter().copied().fold(0, Gas::saturating_add)
     }
 
