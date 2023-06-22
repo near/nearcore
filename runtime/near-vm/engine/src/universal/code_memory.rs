@@ -69,7 +69,7 @@ impl<'a> CodeMemoryWriter<'a> {
 /// Mappings to regions of memory storing the executable JIT code.
 pub struct CodeMemory {
     /// Where to return this memory to when dropped.
-    source_pool: Option<Arc<crossbeam_queue::ArrayQueue<CodeMemory>>>,
+    source_pool: Option<Arc<crossbeam_queue::ArrayQueue<Self>>>,
 
     /// The mapping
     map: *mut u8,
@@ -82,7 +82,7 @@ pub struct CodeMemory {
 }
 
 impl CodeMemory {
-    fn create(size: usize) -> rustix::io::Result<CodeMemory> {
+    fn create(size: usize) -> rustix::io::Result<Self> {
         // Make sure callers don’t pass in a 0-sized map request. That is most likely a bug.
         assert!(size != 0);
         let size = round_up(size, rustix::param::page_size());
@@ -94,7 +94,7 @@ impl CodeMemory {
                 MapFlags::SHARED,
             )?
         };
-        Ok(CodeMemory { source_pool: None, map: map.cast(), executable_size: 0, size })
+        Ok(Self { source_pool: None, map: map.cast(), executable_size: 0, size })
     }
 
     fn as_slice_mut(&mut self) -> &mut [u8] {
@@ -187,7 +187,7 @@ impl Drop for CodeMemory {
                     );
                 }
             }
-            drop(source_pool.push(CodeMemory {
+            drop(source_pool.push(Self {
                 source_pool: None,
                 map: self.map,
                 size: self.size,
