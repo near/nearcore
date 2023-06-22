@@ -40,6 +40,7 @@ impl ChainConfigStore {
             println!("value {:?}", value);
             config = Self::merge_config_with_loader(config, value.as_ref());
         }
+        println!("Mirko: config: {:?}", config);
         println!("Mirko: initial_chain_config: {:?}", initial_chain_config);
         Self { initial_chain_config, store }
     }
