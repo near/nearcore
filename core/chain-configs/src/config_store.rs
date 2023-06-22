@@ -81,7 +81,7 @@ impl ChainConfigStore {
 
     pub fn test(chain_config: ChainConfig) -> Self {
         let initial_chain_config = Arc::new(chain_config);
-        let mut store = BTreeMap::new();
+        let store = BTreeMap::new();
         Self { initial_chain_config, store }
     }
 
@@ -93,11 +93,11 @@ impl ChainConfigStore {
         chain_config
     }
 
-    pub fn get_config(&self, epoch_height: EpochHeight) -> &Arc<ChainConfig> {
+    pub fn get_config(&self, epoch_height: EpochHeight) -> Arc<ChainConfig> {
         let mut config = self.initial_chain_config.as_ref().clone();
         for (_, config_change_override) in self.store.range(..=epoch_height) {
             config = Self::merge_config_with_loader(config, config_change_override.as_ref());
         }
-        &Arc::new(config)
+        Arc::new(config)
     }
 }

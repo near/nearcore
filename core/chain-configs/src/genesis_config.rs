@@ -690,9 +690,9 @@ impl GenesisLoader {
     }
 
     pub fn from_genesis(genesis: Genesis, epoch_height: EpochHeight) -> Self {
-        let chain_config = genesis.config.chain_config_store.get_config(epoch_height).as_ref();
+        let chain_config = genesis.config.chain_config_store.get_config(epoch_height);
         Self {
-            config: GenesisConfigLoader::from_genesis_config(genesis.config.clone(), chain_config),
+            config: GenesisConfigLoader::from_genesis_config(genesis.config.clone(), &chain_config),
             contents: genesis.contents.clone()
         }
     }
