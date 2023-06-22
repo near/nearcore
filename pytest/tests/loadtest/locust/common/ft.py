@@ -6,7 +6,6 @@ from locust import events
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
-import cluster
 import key
 import transaction
 
@@ -136,18 +135,11 @@ class InitFTAccount(Transaction):
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
-    if environment.parsed_options.fungible_token_wasm is None:
-        raise SystemExit(
-            f"Running FT workload requires `--fungible_token_wasm $FT_CONTRACT`. "
-            "Provide the WASM (e.g. nearcore/runtime/near-test-contracts/res/fungible_token.wasm)."
-        )
-
     node = NearNodeProxy(environment)
     ft_contract_code = environment.parsed_options.fungible_token_wasm
     num_ft_contracts = environment.parsed_options.num_ft_contracts
     funding_account = NearUser.funding_account
     parent_id = funding_account.key.account_id
-    worker_id = getattr(environment.runner, "worker_id", "local_id")
 
     funding_account.refresh_nonce(node.node)
 
