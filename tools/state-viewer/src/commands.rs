@@ -26,6 +26,7 @@ use near_primitives::transaction::{ExecutionMetadata, ExecutionStatus};
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::config::{ExtCosts, ExtCostsConfig};
+use near_primitives_core::profile::ProfileDataV3;
 use near_primitives_core::types::Gas;
 use near_store::test_utils::create_test_store;
 use near_store::{
@@ -677,6 +678,7 @@ pub(crate) fn replay_chain(
 }
 
 fn print_receipt_costs_for_chunk(
+    height: BlockHeight,
     block_hash: &CryptoHash,
     shard_id: ShardId,
     account_ids: Option<AccountId>,
@@ -692,7 +694,10 @@ fn print_receipt_costs_for_chunk(
     // let mut incoming_executed_receipt_ids: HashSet<_> = Default::default();
 
     let mut total_write_bytes = 0;
-    let mut total_write_num = 0;
+    // let mut total_write_num = 0;
+    let mut total_profile = ProfileDataV3::default();
+    let mut total_old_burnt_gas = 0;
+
     for outcome in shard_outcomes {
         let outcome_with_id = &outcome.outcome_with_id;
         let receipt_or_tx_id = outcome_with_id.id;
@@ -705,35 +710,32 @@ fn print_receipt_costs_for_chunk(
                 panic!("bad profile");
             }
         };
-        let mut new_burnt_gas = old_burnt_gas;
-        new_burnt_gas -= profile.get_ext_cost(ExtCosts::touching_trie_node);
-        new_burnt_gas -= profile.get_ext_cost(ExtCosts::read_cached_trie_node);
-        let write_num = profile.get_ext_cost(ExtCosts::storage_write_base)
-            / ext_costs.gas_cost(ExtCosts::storage_write_base);
-        let write_bytes = profile.get_ext_cost(ExtCosts::storage_write_key_byte)
-            / ext_costs.gas_cost(ExtCosts::storage_write_key_byte);
-        new_burnt_gas += write_bytes * 75_000_000_000;
+
         match status {
             ExecutionStatus::Failure(_) => {
-                println!("FOUND FAILURE {} {} {}", receipt_or_tx_id, write_num, write_bytes);
+                println!("FOUND FAILURE {} gas burnt = {}", receipt_or_tx_id, old_burnt_gas);
             }
             _ => {
-                total_write_num += write_num as usize;
-                total_write_bytes += write_bytes as usize;
-                println!(
-                    "GAS BYTE_FACTOR = {} {} {} {} {} {}",
-                    (new_burnt_gas as f64) / (old_burnt_gas as f64),
-                    (old_burnt_gas as f64) / (10u64.pow(9) as f64),
-                    (new_burnt_gas as f64) / (10u64.pow(9) as f64),
-                    profile.total_compute_usage(ext_costs),
-                    receipt_or_tx_id,
-                    write_bytes,
-                );
+                total_old_burnt_gas += old_burnt_gas;
+                total_profile.merge(profile);
             }
         }
     }
 
     if let Some(input_account_id) = account_ids.clone() {
+        // GET OLD AND NEW COSTS
+        let mut new_burnt_gas = total_old_burnt_gas;
+        new_burnt_gas -= total_profile.get_ext_cost(ExtCosts::touching_trie_node);
+        new_burnt_gas -= total_profile.get_ext_cost(ExtCosts::read_cached_trie_node);
+        // let write_num = total_profile.get_ext_cost(ExtCosts::storage_write_base)
+        //     / ext_costs.gas_cost(ExtCosts::storage_write_base);
+        let write_bytes = total_profile.get_ext_cost(ExtCosts::storage_write_key_byte)
+            / ext_costs.gas_cost(ExtCosts::storage_write_key_byte);
+        let nibble_cost = 37_500_000_000;
+        // REPLACE TTN WITH PESSIMISTIC BYTE_COST
+        let new_burnt_gas_1 = new_burnt_gas + write_bytes * 2 * nibble_cost;
+
+        // GET TRIE VALUES
         let data_key = trie_key_parsers::get_raw_prefix_for_contract_data(&input_account_id, &[]);
         let storage_key = KeyForStateChanges::from_raw_key(&block_hash, &data_key);
         let changes_per_key_prefix = storage_key.find_iter(chain_store.store());
@@ -745,24 +747,36 @@ fn print_receipt_costs_for_chunk(
             Trie::new(Rc::new(TrieMemoryPartialStorage::default()), StateRoot::new(), None);
         let state_changes_results =
             state_changes_trie.update_with_len(state_changes_for_trie.into_iter()).unwrap();
-        let total_trie_len: usize = state_changes_results.1;
-        let total_trie_len_2: usize = state_changes_results.2;
+        let total_trie_len = state_changes_results.1 as u64;
+        let total_trie_len_2 = state_changes_results.2 as u64;
 
-        let total_len = state_changes_keys.len();
-        let total_key_len: usize = state_changes_keys.iter().map(|key| key.len()).sum();
-        for key in state_changes_keys {
-            println!("changed {:?}", key);
-        }
+        // let total_len = state_changes_keys.len();
+        let total_key_len = state_changes_keys.iter().map(|key| key.len()).sum() as u64;
+        // REPLACE TTN WITH POTENTIALLY BIGGER BYTES FROM STATE CHANGES
+        let new_burnt_gas_2 = new_burnt_gas + total_key_len * 2 * nibble_cost;
+        // REPLACE TTN WITH MINI-TRIE COST V1
+        let new_burnt_gas_3 = new_burnt_gas + total_trie_len * nibble_cost;
+        // REPLACE TTN WITH MINI-TRIE COST V2
+        let new_burnt_gas_4 = new_burnt_gas + total_trie_len_2 * nibble_cost;
+        // for key in state_changes_keys {
+        //     println!("changed {:?}", key);
+        // }
         println!(
-            "NIBBLES COMPARISON: {} {} {} {}",
-            total_len,
-            total_key_len * 2,
-            total_trie_len,
-            total_trie_len_2
+            "H = {} C1 = {} C2 = {} | {} {} {} {} {} {} {}",
+            height,
+            (new_burnt_gas_3 as f64) / (total_old_burnt_gas as f64),
+            (new_burnt_gas_1 as f64) / (total_old_burnt_gas as f64),
+            (total_old_burnt_gas as f64) / (10u64.pow(9) as f64),
+            (new_burnt_gas_1 as f64) / (10u64.pow(9) as f64),
+            (new_burnt_gas_2 as f64) / (10u64.pow(9) as f64),
+            (new_burnt_gas_3 as f64) / (10u64.pow(9) as f64),
+            (new_burnt_gas_4 as f64) / (10u64.pow(9) as f64),
+            write_bytes,
+            total_key_len
         );
-        if total_write_num * 9 > total_len * 10 {
-            println!("UNEXPECTED COUNT {} {}", total_write_num, total_len);
-        }
+        // if total_write_num * 9 > total_len * 10 {
+        //     println!("UNEXPECTED COUNT {} {}", total_write_num, total_len);
+        // }
         if total_write_bytes > total_key_len + 3 {
             println!("UNEXPECTED KEY LEN {} {}", total_write_bytes, total_key_len);
         }
@@ -811,7 +825,7 @@ pub(crate) fn print_receipt_costs(
         NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone());
 
     for height in (start_height..=end_height).rev() {
-        println!("{}", height);
+        // println!("{}", height);
         let block_hash = match chain_store.get_block_hash_by_height(height) {
             Ok(block_hash) => block_hash,
             Err(_) => {
@@ -827,6 +841,7 @@ pub(crate) fn print_receipt_costs(
             None => {
                 for shard_id in 0..num_shards {
                     print_receipt_costs_for_chunk(
+                        height,
                         &block_hash,
                         shard_id,
                         account_ids.clone(),
@@ -837,6 +852,7 @@ pub(crate) fn print_receipt_costs(
             }
             Some(shard_id) => {
                 print_receipt_costs_for_chunk(
+                    height,
                     &block_hash,
                     shard_id,
                     account_ids.clone(),
