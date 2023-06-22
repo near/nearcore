@@ -2,9 +2,9 @@
 // Attributions: https://github.com/wasmerio/wasmer/blob/master/ATTRIBUTIONS.md
 
 //! Memory management for executable code.
+use near_vm_compiler::CompileError;
 use rustix::mm::{self, MapFlags, MprotectFlags, ProtFlags};
 use std::sync::Arc;
-use near_vm_compiler::CompileError;
 
 /// The optimal alignment for functions.
 ///
@@ -94,12 +94,7 @@ impl CodeMemory {
                 MapFlags::SHARED,
             )?
         };
-        Ok(CodeMemory {
-            source_pool: None,
-            map: map.cast(),
-            executable_size: 0,
-            size,
-        })
+        Ok(CodeMemory { source_pool: None, map: map.cast(), executable_size: 0, size })
     }
 
     fn as_slice_mut(&mut self) -> &mut [u8] {
@@ -140,10 +135,7 @@ impl CodeMemory {
     /// to are invalidated as soon as this method is invoked.
     pub unsafe fn writer(&mut self) -> CodeMemoryWriter<'_> {
         self.executable_size = 0;
-        CodeMemoryWriter {
-            memory: self,
-            offset: 0,
-        }
+        CodeMemoryWriter { memory: self, offset: 0 }
     }
 
     /// Publish the specified number of bytes as executable code.

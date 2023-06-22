@@ -19,7 +19,7 @@ use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_stable_hasher::StableHasher;
 use near_vm_compiler_singlepass::Singlepass;
 use near_vm_engine::universal::{
-    Universal, UniversalEngine, UniversalExecutable, UniversalExecutableRef, LimitedMemoryPool,
+    LimitedMemoryPool, Universal, UniversalEngine, UniversalExecutable, UniversalExecutableRef,
 };
 use near_vm_types::{FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
 use near_vm_vm::{
@@ -247,19 +247,24 @@ impl NearVM {
 
         // FIXME: should have as many code memories as there are possible parallel invocations of
         // the runtime… How do we determine that?
-
         static CODE_MEMORY_POOL_CELL: OnceLock<LimitedMemoryPool> = OnceLock::new();
-        let code_memory_pool = CODE_MEMORY_POOL_CELL.get_or_init(|| {
-            LimitedMemoryPool::new(128, 256 * 1024).unwrap_or_else(|e| {
-                panic!("could not pre-allocate resources for the runtime: {e}");
+        let code_memory_pool = CODE_MEMORY_POOL_CELL
+            .get_or_init(|| {
+                LimitedMemoryPool::new(128, 256 * 1024).unwrap_or_else(|e| {
+                    panic!("could not pre-allocate resources for the runtime: {e}");
+                })
             })
-        }).clone();
+            .clone();
 
         let features =
             crate::features::WasmFeatures::from(config.limit_config.contract_prepare_version);
         Self {
             config,
-            engine: Universal::new(compiler).target(target).features(features.into()).code_memory_pool(code_memory_pool).engine(),
+            engine: Universal::new(compiler)
+                .target(target)
+                .features(features.into())
+                .code_memory_pool(code_memory_pool)
+                .engine(),
         }
     }
 
@@ -350,8 +355,7 @@ impl NearVM {
             None => None,
             Some(CompiledContract::CompileModuleError(err)) => return Ok(Err(err)),
             Some(CompiledContract::Code(serialized_module)) => {
-                let _span =
-                    tracing::debug_span!(target: "vm", "NearVM::read_from_cache").entered();
+                let _span = tracing::debug_span!(target: "vm", "NearVM::read_from_cache").entered();
                 unsafe {
                     // (UN-)SAFETY: the `serialized_module` must have been produced by a prior call to
                     // `serialize`.

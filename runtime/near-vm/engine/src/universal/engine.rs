@@ -1,8 +1,8 @@
 //! Universal compilation.
 
+use super::code_memory::{ARCH_FUNCTION_ALIGNMENT, DATA_SECTION_ALIGNMENT};
 use super::executable::{unrkyv, UniversalExecutableRef};
 use super::{CodeMemory, UniversalArtifact, UniversalExecutable};
-use super::code_memory::{ARCH_FUNCTION_ALIGNMENT, DATA_SECTION_ALIGNMENT};
 use crate::EngineId;
 use near_vm_compiler::Compiler;
 use near_vm_compiler::{
@@ -68,9 +68,7 @@ impl UniversalEngine {
     ///
     /// Headless engines can't compile or validate any modules,
     /// they just take already processed Modules (via `Module::serialize`).
-    pub fn headless(
-        memory_allocator: super::LimitedMemoryPool,
-    ) -> Self {
+    pub fn headless(memory_allocator: super::LimitedMemoryPool) -> Self {
         Self {
             inner: Arc::new(Mutex::new(UniversalEngineInner {
                 compiler: None,
@@ -223,8 +221,8 @@ impl UniversalEngine {
             .map(|(_, sig)| inner_engine.signatures.register(sig.clone()))
             .collect::<PrimaryMap<SignatureIndex, _>>()
             .into_boxed_slice();
-        let (functions, trampolines, dynamic_trampolines, custom_sections, mut code_memory) = inner_engine
-            .allocate(
+        let (functions, trampolines, dynamic_trampolines, custom_sections, mut code_memory) =
+            inner_engine.allocate(
                 local_functions,
                 function_call_trampolines.iter().map(|(_, b)| b.into()),
                 dynamic_function_trampolines.iter().map(|(_, b)| b.into()),
@@ -364,8 +362,8 @@ impl UniversalEngine {
             })
             .collect::<PrimaryMap<SignatureIndex, _>>()
             .into_boxed_slice();
-        let (functions, trampolines, dynamic_trampolines, custom_sections, mut code_memory) = inner_engine
-            .allocate(
+        let (functions, trampolines, dynamic_trampolines, custom_sections, mut code_memory) =
+            inner_engine.allocate(
                 local_functions,
                 call_trampolines.map(|(_, b)| b.into()),
                 dynamic_trampolines.map(|(_, b)| b.into()),
@@ -569,19 +567,16 @@ impl UniversalEngineInner {
         let page_size = rustix::param::page_size();
         let total_len = round_up(
             function_bodies.iter().fold(0, |acc, func| {
-                round_up(
-                    acc + function_allocation_size(*func),
-                    ARCH_FUNCTION_ALIGNMENT.into(),
-                )
+                round_up(acc + function_allocation_size(*func), ARCH_FUNCTION_ALIGNMENT.into())
             }) + executable_sections.iter().fold(0, |acc, exec| {
                 round_up(acc + exec.bytes.len(), ARCH_FUNCTION_ALIGNMENT.into())
             }),
             page_size,
-        ) + data_sections.iter().fold(0, |acc, data| {
-            round_up(acc + data.bytes.len(), DATA_SECTION_ALIGNMENT.into())
-        });
+        ) + data_sections
+            .iter()
+            .fold(0, |acc, data| round_up(acc + data.bytes.len(), DATA_SECTION_ALIGNMENT.into()));
 
-                let mut code_memory = code_memory_pool.get(total_len).map_err(|e| {
+        let mut code_memory = code_memory_pool.get(total_len).map_err(|e| {
             CompileError::Resource(format!("could not allocate code memory: {}", e))
         })?;
         let mut code_writer = unsafe {
@@ -624,7 +619,7 @@ impl UniversalEngineInner {
                 std::mem::transmute::<_, VMTrampoline>(code_memory.executable_address(offset))
             };
             allocated_function_call_trampolines.push(trampoline);
-        };
+        }
 
         let allocated_functions_result = allocated_functions
             .drain(0..function_count)
@@ -654,13 +649,9 @@ impl UniversalEngineInner {
             .into_iter()
             .map(|protection| {
                 SectionBodyPtr(if protection == CustomSectionProtection::ReadExecute {
-                    code_memory
-                        .executable_address(*exec_iter.next().unwrap())
-                        .cast()
+                    code_memory.executable_address(*exec_iter.next().unwrap()).cast()
                 } else {
-                    code_memory
-                        .writable_address(*data_iter.next().unwrap())
-                        .cast()
+                    code_memory.writable_address(*data_iter.next().unwrap()).cast()
                 })
             })
             .collect::<PrimaryMap<SectionIndex, _>>();
@@ -679,7 +670,6 @@ impl UniversalEngineInner {
         &self.func_data
     }
 }
-
 
 fn round_up(size: usize, multiple: usize) -> usize {
     debug_assert!(multiple.is_power_of_two());

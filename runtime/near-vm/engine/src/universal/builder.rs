@@ -16,7 +16,12 @@ impl Universal {
     where
         T: Into<Box<dyn CompilerConfig>>,
     {
-        Self { compiler_config: Some(compiler_config.into()), target: None, features: None, pool: None }
+        Self {
+            compiler_config: Some(compiler_config.into()),
+            target: None,
+            features: None,
+            pool: None,
+        }
     }
 
     /// Create a new headless Universal
