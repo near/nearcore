@@ -31,13 +31,16 @@ impl ChainConfigStore {
     pub fn new(genesis_config_loader: GenesisConfigLoader) -> Self {
         let initial_chain_config = Arc::new(ChainConfig::new(genesis_config_loader));
         let mut store = BTreeMap::new();
-        // Mirko: tu dodaj čitanja iz fileova
         Self::populate_config_store(&mut store);
         println!("Mirko: store: {:?}", store);
+        println!("Mirko: initial_chain_config: {:?}", initial_chain_config);
+        let mut config = initial_chain_config.as_ref().clone();
         for (key, value) in store.range(..=10) {
             println!("key {:?}", key);
             println!("value {:?}", value);
+            config = Self::merge_config_with_loader(*config, value.as_ref());
         }
+        println!("Mirko: initial_chain_config: {:?}", initial_chain_config);
         Self { initial_chain_config, store }
     }
 
@@ -92,6 +95,14 @@ impl ChainConfigStore {
         let initial_chain_config = Arc::new(chain_config);
         let mut store = BTreeMap::new();
         Self { initial_chain_config, store }
+    }
+
+    fn merge_config_with_loader(mut chain_config: ChainConfig, chain_config_override: &ChainConfigLoader) -> ChainConfig {
+        if chain_config_override.protocol_reward_rate.is_some() {
+            chain_config.protocol_reward_rate = chain_config_override.protocol_reward_rate.unwrap();
+        }
+
+        chain_config
     }
 
     pub fn get_config(&self, epoch_height: EpochHeight) -> &Arc<ChainConfig> {
