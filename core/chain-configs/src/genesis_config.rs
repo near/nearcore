@@ -285,42 +285,42 @@ pub struct GenesisConfig {
 }
 
 impl GenesisConfig {
-    pub fn from_genesis_config_loader(genesis_config_loader: GenesisConfigSnapshot) -> Self {
-        let chain_config_store = ChainConfigStore::new(genesis_config_loader.clone());
+    pub fn from_genesis_config_snapshot(genesis_config_snapshot: GenesisConfigSnapshot) -> Self {
+        let chain_config_store = ChainConfigStore::new(genesis_config_snapshot.clone());
         Self {
-            protocol_version: genesis_config_loader.protocol_version,
-            genesis_time: genesis_config_loader.genesis_time,
-            chain_id: genesis_config_loader.chain_id,
-            genesis_height: genesis_config_loader.genesis_height,
+            protocol_version: genesis_config_snapshot.protocol_version,
+            genesis_time: genesis_config_snapshot.genesis_time,
+            chain_id: genesis_config_snapshot.chain_id,
+            genesis_height: genesis_config_snapshot.genesis_height,
             chain_config_store: chain_config_store,
-            num_block_producer_seats: genesis_config_loader.num_block_producer_seats,
-            num_block_producer_seats_per_shard: genesis_config_loader.num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard: genesis_config_loader.avg_hidden_validator_seats_per_shard,
-            dynamic_resharding: genesis_config_loader.dynamic_resharding,
-            protocol_upgrade_stake_threshold: genesis_config_loader.protocol_upgrade_stake_threshold,
-            epoch_length: genesis_config_loader.epoch_length,
-            gas_limit: genesis_config_loader.gas_limit,
-            min_gas_price: genesis_config_loader.min_gas_price,
-            max_gas_price: genesis_config_loader.max_gas_price,
-            block_producer_kickout_threshold: genesis_config_loader.block_producer_kickout_threshold,
-            chunk_producer_kickout_threshold: genesis_config_loader.chunk_producer_kickout_threshold,
-            online_min_threshold: genesis_config_loader.online_min_threshold,
-            online_max_threshold: genesis_config_loader.online_max_threshold,
-            gas_price_adjustment_rate: genesis_config_loader.gas_price_adjustment_rate,
-            validators: genesis_config_loader.validators,
-            transaction_validity_period: genesis_config_loader.transaction_validity_period,
-            max_inflation_rate: genesis_config_loader.max_inflation_rate,
-            total_supply: genesis_config_loader.total_supply,
-            num_blocks_per_year: genesis_config_loader.num_blocks_per_year,
-            protocol_treasury_account: genesis_config_loader.protocol_treasury_account,
-            fishermen_threshold: genesis_config_loader.fishermen_threshold,
-            minimum_stake_divisor: genesis_config_loader.minimum_stake_divisor,
-            shard_layout: genesis_config_loader.shard_layout,
-            num_chunk_only_producer_seats: genesis_config_loader.num_chunk_only_producer_seats,
-            minimum_validators_per_shard: genesis_config_loader.minimum_validators_per_shard,
-            max_kickout_stake_perc: genesis_config_loader.max_kickout_stake_perc,
-            minimum_stake_ratio: genesis_config_loader.minimum_stake_ratio,
-            use_production_config: genesis_config_loader.use_production_config,
+            num_block_producer_seats: genesis_config_snapshot.num_block_producer_seats,
+            num_block_producer_seats_per_shard: genesis_config_snapshot.num_block_producer_seats_per_shard,
+            avg_hidden_validator_seats_per_shard: genesis_config_snapshot.avg_hidden_validator_seats_per_shard,
+            dynamic_resharding: genesis_config_snapshot.dynamic_resharding,
+            protocol_upgrade_stake_threshold: genesis_config_snapshot.protocol_upgrade_stake_threshold,
+            epoch_length: genesis_config_snapshot.epoch_length,
+            gas_limit: genesis_config_snapshot.gas_limit,
+            min_gas_price: genesis_config_snapshot.min_gas_price,
+            max_gas_price: genesis_config_snapshot.max_gas_price,
+            block_producer_kickout_threshold: genesis_config_snapshot.block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold: genesis_config_snapshot.chunk_producer_kickout_threshold,
+            online_min_threshold: genesis_config_snapshot.online_min_threshold,
+            online_max_threshold: genesis_config_snapshot.online_max_threshold,
+            gas_price_adjustment_rate: genesis_config_snapshot.gas_price_adjustment_rate,
+            validators: genesis_config_snapshot.validators,
+            transaction_validity_period: genesis_config_snapshot.transaction_validity_period,
+            max_inflation_rate: genesis_config_snapshot.max_inflation_rate,
+            total_supply: genesis_config_snapshot.total_supply,
+            num_blocks_per_year: genesis_config_snapshot.num_blocks_per_year,
+            protocol_treasury_account: genesis_config_snapshot.protocol_treasury_account,
+            fishermen_threshold: genesis_config_snapshot.fishermen_threshold,
+            minimum_stake_divisor: genesis_config_snapshot.minimum_stake_divisor,
+            shard_layout: genesis_config_snapshot.shard_layout,
+            num_chunk_only_producer_seats: genesis_config_snapshot.num_chunk_only_producer_seats,
+            minimum_validators_per_shard: genesis_config_snapshot.minimum_validators_per_shard,
+            max_kickout_stake_perc: genesis_config_snapshot.max_kickout_stake_perc,
+            minimum_stake_ratio: genesis_config_snapshot.minimum_stake_ratio,
+            use_production_config: genesis_config_snapshot.use_production_config,
         }
     }
 
@@ -706,10 +706,10 @@ impl GenesisSnapshot {
     }
 
     pub fn new_with_path<P: AsRef<Path>>(
-        config_loader: GenesisConfigSnapshot,
+        config_snapshot: GenesisConfigSnapshot,
         records_file: P,
     ) -> Result<Self, ValidationError> {
-        Self::new_with_path_validated(config_loader, records_file, GenesisValidationMode::Full)
+        Self::new_with_path_validated(config_snapshot, records_file, GenesisValidationMode::Full)
     }
 
     /// Reads Genesis from a single JSON file, the file can be JSON with comments
@@ -756,11 +756,11 @@ impl GenesisSnapshot {
             P1: AsRef<Path>,
             P2: AsRef<Path>,
     {
-        let genesis_config_loader = GenesisConfigSnapshot::from_file(config_path).map_err(|error| {
+        let genesis_config_snapshot = GenesisConfigSnapshot::from_file(config_path).map_err(|error| {
             let error_message = error.to_string();
             ValidationError::GenesisFileError { error_message: error_message }
         })?;
-        Self::new_with_path_validated(genesis_config_loader, records_path, genesis_validation)
+        Self::new_with_path_validated(genesis_config_snapshot, records_path, genesis_validation)
     }
 
     fn new_validated(
@@ -768,9 +768,9 @@ impl GenesisSnapshot {
         records: GenesisRecords,
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError> {
-        let genesis_loader = Self { config: config_shapshot, contents: GenesisContents::Records { records } };
-        genesis_loader.validate(genesis_validation)?;
-        Ok(genesis_loader)
+        let genesis_snapshot = Self { config: config_shapshot, contents: GenesisContents::Records { records } };
+        genesis_snapshot.validate(genesis_validation)?;
+        Ok(genesis_snapshot)
     }
 
 
@@ -920,12 +920,12 @@ impl Genesis {
 
     pub fn from_genesis_snapshot(genesis_snapshot: GenesisSnapshot) -> Self {
         Self {
-            config: GenesisConfig::from_genesis_config_loader(genesis_snapshot.config),
+            config: GenesisConfig::from_genesis_config_snapshot(genesis_snapshot.config),
             contents: genesis_snapshot.contents,
         }
     }
 
-    pub fn get_initial_config_loader(&self) -> GenesisSnapshot {
+    pub fn get_initial_config_snapshot(&self) -> GenesisSnapshot {
         GenesisSnapshot::from_genesis_for_initial_config(self)
     }
 

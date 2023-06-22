@@ -21,8 +21,8 @@ pub struct ChainConfigPatch {
 }
 
 impl ChainConfig {
-    pub fn new(genesis_config_loader: GenesisConfigSnapshot) -> Self {
-        Self { protocol_reward_rate: genesis_config_loader.protocol_reward_rate }
+    pub fn new(genesis_config_snapshot: GenesisConfigSnapshot) -> Self {
+        Self { protocol_reward_rate: genesis_config_snapshot.protocol_reward_rate }
     }
 
     pub fn from_values(protocol_reward_rate: Rational32) -> Self {

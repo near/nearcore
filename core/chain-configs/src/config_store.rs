@@ -30,8 +30,8 @@ pub struct ChainConfigStore {
 }
 
 impl ChainConfigStore {
-    pub fn new(genesis_config_loader: GenesisConfigSnapshot) -> Self {
-        let initial_chain_config = Arc::new(ChainConfig::new(genesis_config_loader));
+    pub fn new(genesis_config_snapshot: GenesisConfigSnapshot) -> Self {
+        let initial_chain_config = Arc::new(ChainConfig::new(genesis_config_snapshot));
         let mut store = BTreeMap::new();
         Self::populate_config_store(&mut store);
         Self { initial_chain_config, store }

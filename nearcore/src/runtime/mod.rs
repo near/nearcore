@@ -326,7 +326,7 @@ impl NightshadeRuntime {
                 .expect("Store failed on genesis intialization")
                 .expect("Genesis state roots not found in storage")
         } else {
-            let genesis_hash = genesis.get_initial_config_loader().json_hash();
+            let genesis_hash = genesis.get_initial_config_snapshot().json_hash();
             let state_roots = Self::initialize_genesis_state(store.clone(), home_dir, genesis);
             let mut store_update = store.store_update();
             set_genesis_hash(&mut store_update, &genesis_hash);
