@@ -159,9 +159,11 @@ def on_locust_init(environment, **kwargs):
         num_oracles = int(environment.parsed_options.max_workers)
         # TODO: Add oracles in parallel
         for worker_id in range(num_oracles):
-            id = worker_oracle_id(worker_id, run_id, funding_account)
+            id = worker_oracle_id(worker_id, run_id,
+                                  environment.master_funding_account)
             worker_oracle = Account(key.Key.from_seed_testonly(id))
-            node.prepare_account(worker_oracle, funding_account, 100000,
+            node.prepare_account(worker_oracle,
+                                 environment.master_funding_account, 100000,
                                  "create contract account")
             environment.sweat.register_oracle(node, id)
             environment.sweat.top_up(node, id)
