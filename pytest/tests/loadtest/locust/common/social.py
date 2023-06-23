@@ -11,7 +11,7 @@ import transaction
 
 from account import TGAS, NEAR_BASE
 import key
-from common.base import Account, CreateSubAccount, Deploy, NearNodeProxy, Transaction
+from common.base import Account, Deploy, NearNodeProxy, Transaction
 from locust import events, runners
 from transaction import create_function_call_action
 
@@ -289,11 +289,8 @@ def on_locust_init(environment, **kwargs):
 
         node = NearNodeProxy(environment)
         if not node.account_exists(social_account.key.account_id):
-            node.send_tx_retry(
-                CreateSubAccount(funding_account,
-                                 social_account.key,
-                                 balance=50000.0),
-                "create socialDB funding account")
+            node.create_contract_account(funding_account, social_account.key,
+                                         50000.0)
             social_account.refresh_nonce(node.node)
             node.send_tx_retry(
                 Deploy(social_account, social_contract_code, "Social DB"),

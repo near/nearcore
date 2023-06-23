@@ -1,3 +1,4 @@
+from account import TGAS
 from configured_logger import new_logger
 from datetime import timedelta
 from locust import User, events, runners
@@ -23,7 +24,7 @@ from common.sharding import AccountGenerator
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
-DEFAULT_TRANSACTION_TTL = timedelta(minutes=30)
+DEFAULT_TRANSACTION_TTL = timedelta(seconds=10)
 logger = new_logger(level=logging.WARN)
 
 
@@ -100,6 +101,35 @@ class Transaction:
         Account of the sender that signs the tx, which must be known to map
         the tx-result request to the right shard.
         """
+
+
+class FunctionCall(Transaction):
+
+    def __init__(self,
+                 sender: Account,
+                 receiver_id: str,
+                 method: str,
+                 balance: int = 0):
+        super().__init__()
+        self.sender = sender
+        self.receiver_id = receiver_id
+        self.method = method
+        self.balance = balance
+
+    @abc.abstractmethod
+    def args(self) -> dict:
+        """
+        Function call arguments to be serialized and sent with the call.
+        """
+
+    def sign_and_serialize(self, block_hash) -> bytes:
+        return transaction.sign_function_call_tx(
+            self.sender.key, self.receiver_id, self.method,
+            json.dumps(self.args()).encode('utf-8'), 300 * TGAS, self.balance,
+            self.sender.use_nonce(), block_hash)
+
+    def sender_account(self) -> Account:
+        return self.sender
 
 
 class Deploy(Transaction):
@@ -212,10 +242,7 @@ class NearNodeProxy:
             tx.transaction_id = submit_response["result"]
             try:
                 # using retrying lib here to poll until a response is ready
-                self.poll_tx_result(
-                    meta,
-                    [tx.transaction_id,
-                     tx.sender_account().key.account_id])
+                self.poll_tx_result(meta, tx)
             except NearError as err:
                 logging.warn(f"marking an error {err.message}, {err.details}")
                 meta["exception"] = err
@@ -240,7 +267,8 @@ class NearNodeProxy:
     @retry(wait_fixed=500,
            stop_max_delay=DEFAULT_TRANSACTION_TTL / timedelta(milliseconds=1),
            retry_on_exception=is_tx_unknown_error)
-    def poll_tx_result(self, meta, params):
+    def poll_tx_result(self, meta, tx: Transaction):
+        params = [tx.transaction_id, tx.sender_account().key.account_id]
         # poll for tx result, using "EXPERIMENTAL_tx_status" which waits for
         # all receipts to finish rather than just the first one, as "tx" would do
         result_response = self.post_json("EXPERIMENTAL_tx_status", params)
@@ -258,6 +286,14 @@ class NearNodeProxy:
 
     def account_exists(self, account_id: str) -> bool:
         return "error" not in self.node.get_account(account_id, do_assert=False)
+
+    def create_contract_account(self,
+                                funding_account: Account,
+                                key: key.Key,
+                                balance: float = 50000.0):
+        self.send_tx_retry(
+            CreateSubAccount(funding_account, key, balance=balance),
+            "create contract account")
 
 
 class NearUser(User):

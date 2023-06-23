@@ -10,7 +10,7 @@ import key
 import transaction
 
 from account import TGAS
-from common.base import Account, CreateSubAccount, Deploy, NearNodeProxy, NearUser, Transaction
+from common.base import Account, Deploy, NearNodeProxy, NearUser, Transaction
 
 
 class FTContract:
@@ -18,18 +18,26 @@ class FTContract:
     # going to pay for storage
     INIT_BALANCE = NearUser.INIT_BALANCE
 
-    def __init__(self, account: Account, code):
+    def __init__(self, account: Account, code: str):
         self.account = account
         self.registered_users = []
         self.code = code
 
-    def install(self, node: NearNodeProxy):
+    def install(self, node: NearNodeProxy, parent: Account):
         """
         Deploy and initialize the contract on chain.
-        The account should already exist at this point.
+        The account is created if it doesn't exist yet.
         """
+        if not node.account_exists(self.account.key.account_id):
+            node.create_contract_account(parent,
+                                         self.account.key,
+                                         balance=FTContract.INIT_BALANCE)
+
         self.account.refresh_nonce(node.node)
         node.send_tx_retry(Deploy(self.account, self.code, "FT"), "deploy ft")
+        self.init_contract(node)
+
+    def init_contract(self, node: NearNodeProxy):
         node.send_tx_retry(InitFT(self.account), "init ft")
 
     def register_user(self, user: NearUser):
@@ -43,14 +51,17 @@ class FTContract:
         self.registered_users.append(user.account_id)
 
     def random_receiver(self, sender: str) -> str:
+        return self.random_receivers(sender, 1)[0]
+
+    def random_receivers(self, sender: str, num) -> list[str]:
         rng = random.Random()
-        receiver = rng.choice(self.registered_users)
+        receivers = rng.sample(self.registered_users, num)
         # Sender must be != receiver but maybe there is no other registered user
         # yet, so we just send to the contract account which is registered
         # implicitly from the start
-        if receiver == sender:
-            receiver = self.account.key.account_id
-        return receiver
+        return list(
+            map(lambda a: a.replace(sender, self.account.key.account_id),
+                receivers))
 
 
 class TransferFT(Transaction):
@@ -150,14 +161,8 @@ def on_locust_init(environment, **kwargs):
             parent_id, '_ft')
         contract_key = key.Key.from_random(account_id)
         ft_account = Account(contract_key)
-        if not node.account_exists(ft_account.key.account_id):
-            node.send_tx_retry(
-                CreateSubAccount(funding_account,
-                                 ft_account.key,
-                                 balance=FTContract.INIT_BALANCE),
-                "create ft funding account")
-            ft_contract = FTContract(ft_account, ft_contract_code)
-            ft_contract.install(node)
+        ft_contract = FTContract(ft_account, ft_contract_code)
+        ft_contract.install(node, funding_account)
         environment.ft_contracts.append(ft_contract)
 
 

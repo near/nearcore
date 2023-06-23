@@ -91,10 +91,7 @@ def on_locust_init(environment, **kwargs):
     account = base.Account(
         key.Key.from_seed_testonly(environment.congestion_account_id))
     if not node.account_exists(account.key.account_id):
-        node.send_tx_retry(
-            base.CreateSubAccount(funding_account, account.key,
-                                  balance=50000.0),
-            "create congestion funding account")
+        node.create_contract_account(funding_account, account.key)
     account.refresh_nonce(node.node)
     node.send_tx_retry(
         base.Deploy(
