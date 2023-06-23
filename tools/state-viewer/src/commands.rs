@@ -855,7 +855,6 @@ pub(crate) fn print_receipt_costs(
     start_height: Option<BlockHeight>,
     end_height: Option<BlockHeight>,
     shard_id: Option<ShardId>,
-    account_ids: Option<AccountId>,
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
