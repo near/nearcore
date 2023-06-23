@@ -709,8 +709,9 @@ fn print_receipt_costs_for_chunk(
         let status = &outcome.status;
         let profile = match &outcome.metadata {
             ExecutionMetadata::V3(profile) => profile,
-            _ => {
-                panic!("bad profile");
+            metadata @ _ => {
+                println!("FOUND BAD PROFILE {} {:?}", receipt_or_tx_id, metadata);
+                continue;
             }
         };
 
