@@ -681,76 +681,96 @@ pub(crate) fn replay_chain(
 fn print_receipt_costs_for_chunk(
     height: BlockHeight,
     block_hash: &CryptoHash,
-    shard_id: ShardId,
-    account_ids: Option<AccountId>,
+    maybe_shard_id: Option<ShardId>,
     chain_store: &ChainStore,
     ext_costs: &ExtCostsConfig,
     csv_file_mutex: &Mutex<Option<&mut File>>,
 ) {
     // let receipt_proofs = chain_store.get_incoming_receipts(block_hash, shard_id).unwrap();
-    let outcomes = chain_store.get_block_execution_outcomes(block_hash).unwrap();
-    let tmp = vec![];
-    let shard_outcomes = outcomes.get(&shard_id).unwrap_or(&tmp);
+    let mut outcomes = chain_store.get_block_execution_outcomes(block_hash).unwrap();
     // let executed_receipt_ids: Vec<_> =
     //     shard_outcomes.iter().map(|outcome| outcome.outcome_with_id.id).collect();
     // let mut incoming_executed_receipt_ids: HashSet<_> = Default::default();
 
     // let mut total_write_bytes = 0;
     // let mut total_write_num = 0;
-    let mut total_profile = ProfileDataV3::default();
-    let mut total_old_burnt_gas = 0;
-    let mut total_outcomes = 0;
+    #[derive(Default)]
+    struct ReceiptData {
+        profile: ProfileDataV3,
+        burnt_gas: Gas,
+        outcomes: usize,
+    }
+    let mut total_profiles = HashMap::new();
 
-    for outcome in shard_outcomes {
-        let outcome_with_id = &outcome.outcome_with_id;
-        let receipt_or_tx_id = outcome_with_id.id;
-        let outcome = &outcome_with_id.outcome;
-        let old_burnt_gas = outcome.gas_burnt;
-        let status = &outcome.status;
-        let profile = match &outcome.metadata {
-            ExecutionMetadata::V3(profile) => profile,
-            metadata @ _ => {
-                println!("FOUND BAD PROFILE {} {:?}", receipt_or_tx_id, metadata);
+    for (outcomes_shard_id, shard_outcomes) in outcomes.drain().into_iter() {
+        if let Some(shard_id) = maybe_shard_id {
+            if outcomes_shard_id != shard_id {
                 continue;
             }
-        };
+        }
 
-        match status {
-            ExecutionStatus::Unknown | ExecutionStatus::Failure(_) => {
-                println!("FOUND FAILURE {} gas burnt = {}", receipt_or_tx_id, old_burnt_gas);
-            }
-            _ => {
-                total_old_burnt_gas += old_burnt_gas;
-                total_outcomes += 1;
-                total_profile.merge(profile);
+        for outcome in shard_outcomes {
+            let outcome_with_id = &outcome.outcome_with_id;
+            let receipt_or_tx_id = outcome_with_id.id;
+            let outcome = &outcome_with_id.outcome;
+            let burnt_gas = outcome.gas_burnt;
+            let status = &outcome.status;
+            let profile = match &outcome.metadata {
+                ExecutionMetadata::V3(profile) => profile,
+                metadata @ _ => {
+                    println!("FOUND BAD PROFILE {} {:?}", receipt_or_tx_id, metadata);
+                    continue;
+                }
+            };
+            let account_id = outcome.executor_id.clone();
+
+            match status {
+                ExecutionStatus::Unknown | ExecutionStatus::Failure(_) => {
+                    println!("FOUND FAILURE {} gas burnt = {}", receipt_or_tx_id, burnt_gas);
+                }
+                _ => {
+                    if profile.host_gas() > 0 {
+                        let mut total_profile = total_profiles
+                            .entry(account_id)
+                            .or_insert_with(|| ReceiptData::default());
+                        total_profile.profile.merge(&profile);
+                        total_profile.burnt_gas += burnt_gas;
+                        total_profile.outcomes += 1;
+                    } else {
+                        println!("FOUND EMPTY {} gas burnt = {}", receipt_or_tx_id, burnt_gas);
+                    }
+                }
             }
         }
     }
 
-    if total_outcomes == 0 {
-        return;
-    }
+    for (account_id, receipt_data) in total_profiles.drain().into_iter() {
+        let total_profile = receipt_data.profile;
+        let total_old_burnt_gas = receipt_data.burnt_gas;
+        let total_outcomes = receipt_data.outcomes;
 
-    if let Some(input_account_id) = account_ids.clone() {
         // GET OLD AND NEW COSTS
         let mut diff_profile = ProfileDataV3::new();
         for cost in [ExtCosts::touching_trie_node, ExtCosts::read_cached_trie_node] {
             diff_profile.add_ext_cost(cost, total_profile.get_ext_cost(cost));
         }
-        let new_burnt_gas = total_old_burnt_gas - diff_profile.host_gas();
+        let new_burnt_gas_base = total_old_burnt_gas - diff_profile.host_gas();
         let old_compute_usage = total_profile.total_compute_usage(ext_costs);
-        let new_compute_usage = old_compute_usage - diff_profile.total_compute_usage(ext_costs);
+        let new_compute_usage_base =
+            old_compute_usage - diff_profile.total_compute_usage(ext_costs);
 
         // let write_num = total_profile.get_ext_cost(ExtCosts::storage_write_base)
         //     / ext_costs.gas_cost(ExtCosts::storage_write_base);
-        let write_bytes = total_profile.get_ext_cost(ExtCosts::storage_write_key_byte)
-            / ext_costs.gas_cost(ExtCosts::storage_write_key_byte);
-        let nibble_cost = 37_500_000_000;
+        let write_nibbles = total_profile.get_ext_cost(ExtCosts::storage_write_key_byte)
+            / ext_costs.gas_cost(ExtCosts::storage_write_key_byte)
+            * 2;
+        let nibble_gas_cost = 12_500_000_000;
+        // let nibble_compute_cost = 37_500_000_000;
         // REPLACE TTN WITH PESSIMISTIC BYTE_COST
-        let new_burnt_gas_1 = new_burnt_gas + write_bytes * 2 * nibble_cost;
+        let new_burnt_gas_1 = new_burnt_gas_base + write_nibbles * nibble_gas_cost;
 
         // GET TRIE VALUES
-        let data_key = trie_key_parsers::get_raw_prefix_for_contract_data(&input_account_id, &[]);
+        let data_key = trie_key_parsers::get_raw_prefix_for_contract_data(&account_id, &[]);
         let storage_key = KeyForStateChanges::from_raw_key(&block_hash, &data_key);
         let changes_per_key_prefix = storage_key.find_iter(chain_store.store());
         let state_changes_keys: Vec<_> =
@@ -765,13 +785,13 @@ fn print_receipt_costs_for_chunk(
         let total_trie_len_2 = state_changes_results.2 as u64;
 
         // let total_len = state_changes_keys.len();
-        let total_key_len = state_changes_keys.iter().map(|key| key.len() as u64).sum::<u64>();
+        // let total_key_len = state_changes_keys.iter().map(|key| key.len() as u64).sum::<u64>();
         // REPLACE TTN WITH POTENTIALLY BIGGER BYTES FROM STATE CHANGES
-        let new_burnt_gas_2 = new_burnt_gas + total_key_len * 2 * nibble_cost;
+        // let new_burnt_gas_2 = new_burnt_gas_base + total_key_len * 2 * nibble_cost;
         // REPLACE TTN WITH MINI-TRIE COST V1
-        let new_burnt_gas_3 = new_burnt_gas + total_trie_len * nibble_cost;
+        let new_burnt_gas_3 = new_burnt_gas_base + total_trie_len * nibble_gas_cost;
         // REPLACE TTN WITH MINI-TRIE COST V2
-        let new_burnt_gas_4 = new_burnt_gas + total_trie_len_2 * nibble_cost;
+        // let new_burnt_gas_4 = new_burnt_gas_base + total_trie_len_2 * nibble_cost;
         // for key in state_changes_keys {
         //     println!("changed {:?}", key);
         // }
@@ -780,16 +800,19 @@ fn print_receipt_costs_for_chunk(
             &format!(
                 "{},{},{},{},{},{},{},{},{},{},{},{}",
                 height,
+                account_id,
                 total_old_burnt_gas,
-                new_burnt_gas,
+                new_burnt_gas_base,
                 new_burnt_gas_1,
-                new_burnt_gas_2,
+                // new_burnt_gas_2,
                 new_burnt_gas_3,
-                new_burnt_gas_4,
+                // new_burnt_gas_4,
                 old_compute_usage,
-                new_compute_usage,
-                write_bytes * 2,
-                total_key_len,
+                new_compute_usage_base,
+                write_nibbles,
+                // total_key_len,
+                total_trie_len,
+                total_trie_len_2,
                 total_outcomes,
             ),
         );
@@ -856,7 +879,6 @@ pub(crate) fn print_receipt_costs(
     };
     println!("iterating {start_height}..={end_height}");
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
-    let num_shards = epoch_manager.num_shards(&head.epoch_id).unwrap();
     let runtime = NightshadeRuntime::from_config(
         home_dir,
         store.clone(),
@@ -877,33 +899,14 @@ pub(crate) fn print_receipt_costs(
                 let protocol_config = runtime.get_protocol_config(&epoch_id).unwrap();
                 let runtime_config = protocol_config.runtime_config;
                 let ext_costs = runtime_config.wasm_config.ext_costs;
-
-                match shard_id {
-                    None => {
-                        for shard_id in 0..num_shards {
-                            print_receipt_costs_for_chunk(
-                                height,
-                                &block_hash,
-                                shard_id,
-                                account_ids.clone(),
-                                &chain_store,
-                                &ext_costs,
-                                &csv_file_mutex,
-                            );
-                        }
-                    }
-                    Some(shard_id) => {
-                        print_receipt_costs_for_chunk(
-                            height,
-                            &block_hash,
-                            shard_id,
-                            account_ids.clone(),
-                            &chain_store,
-                            &ext_costs,
-                            &csv_file_mutex,
-                        );
-                    }
-                }
+                print_receipt_costs_for_chunk(
+                    height,
+                    &block_hash,
+                    shard_id,
+                    &chain_store,
+                    &ext_costs,
+                    &csv_file_mutex,
+                );
             }
             Err(_) => {}
         };
