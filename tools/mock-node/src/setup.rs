@@ -314,6 +314,7 @@ mod tests {
         let mut near_config =
             load_test_config("test0", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
         near_config.client_config.min_num_peers = 0;
+        near_config.config.store.state_snapshot_enabled = true;
 
         let dir = tempfile::Builder::new().prefix("test0").tempdir().unwrap();
         let path1 = dir.path();
