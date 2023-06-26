@@ -19,7 +19,7 @@ class Crate:
     def load_toml(self):
         self.toml = toml.load(self.dir + "/Cargo.toml")
         self.name = self.toml["package"]["name"]
-        self.features = self.toml["features"] if 'features' in self.toml else {}
+        self.features = self.toml.get("features")
 
         self.has_nightly_feature = "nightly" in self.features
         self.has_nightly_protocol_feature = "nightly_protocol" in self.features
@@ -73,17 +73,17 @@ class Crate:
         visited = set()
         result = []
 
-        def helper(crate):
+        def recursion_helper(crate):
             result.append(crate)
             for dep in crate.deps:
                 if dep.name not in visited:
                     visited.add(dep.name)
-                    helper(dep)
+                    recursion_helper(dep)
 
         for dep in self.deps:
             if dep.name not in visited:
                 visited.add(dep.name)
-                helper(dep)
+                recursion_helper(dep)
         self.transitive_deps = result
 
     def write_toml(self, apply_fix):
