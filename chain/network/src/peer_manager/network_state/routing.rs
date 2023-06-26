@@ -201,13 +201,8 @@ impl NetworkState {
                 let (to_broadcast, oks) =
                     this.graph_v2.batch_process_network_changes(&clock, events).await;
 
-                match to_broadcast {
-                    Some(my_distance_vector) => {
-                        // TODO: should we put some event type here?
-                        // this.config.event_sink.push(Event::EdgesAdded(spt.edges.clone()));
-                        this.broadcast_distance_vector(my_distance_vector);
-                    }
-                    None => {}
+                if let Some(my_distance_vector) = to_broadcast {
+                    this.broadcast_distance_vector(my_distance_vector);
                 }
 
                 oks.iter()
