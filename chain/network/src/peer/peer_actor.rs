@@ -1430,7 +1430,7 @@ impl PeerActor {
         }
 
         if let Err(ban_reason) = network_state
-            .update_routes(&clock, NetworkTopologyChange::PeerAdvertisedRoutes(distance_vector))
+            .update_routes(&clock, NetworkTopologyChange::PeerAdvertisedDistances(distance_vector))
             .await
         {
             conn.stop(Some(ban_reason));

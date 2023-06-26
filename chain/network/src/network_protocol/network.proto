@@ -272,7 +272,7 @@ message RoutingTableUpdate {
 }
 
 // Denotes a route to `destination` of length `length`
-message AdvertisedRoute {
+message AdvertisedPeerDistance {
   PublicKey destination = 1;
   uint32 length = 2;
 }
@@ -286,7 +286,7 @@ message DistanceVector {
   // PeerId of the node sending the message
   PublicKey root = 1;
   // List of routes the root node has available
-  repeated AdvertisedRoute routes = 2;
+  repeated AdvertisedPeerDistance routes = 2;
   // List of edges which together form a tree
   // achieving the advertised routing distances
   repeated Edge edges = 3;

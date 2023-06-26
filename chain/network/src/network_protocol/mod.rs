@@ -319,16 +319,23 @@ impl RoutingTableUpdate {
     }
 }
 
+/// Denotes a network path to `destination` of length `length`.
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub struct AdvertisedRoute {
+pub struct AdvertisedPeerDistance {
     pub destination: PeerId,
     pub length: u32,
 }
 
+/// Struct shared by a peer listing the distances it has
+/// to other peers in the NEAR network.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct DistanceVector {
+    /// PeerId of the node sending the message.
     pub root: PeerId,
-    pub routes: Vec<AdvertisedRoute>,
+    /// List of distances the peer has to other peers in the network.
+    pub routes: Vec<AdvertisedPeerDistance>,
+    /// List of edges which together form a spanning tree
+    /// achieving the advertised routing distances.
     pub edges: Vec<Edge>,
 }
 

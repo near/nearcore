@@ -1,6 +1,6 @@
 use crate::concurrency::runtime::Runtime;
 use crate::network_protocol;
-use crate::network_protocol::{AdvertisedRoute, Edge, EdgeState};
+use crate::network_protocol::{AdvertisedPeerDistance, Edge, EdgeState};
 use crate::routing::edge_cache::EdgeCache;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
@@ -33,7 +33,7 @@ pub struct GraphConfigV2 {
 pub enum NetworkTopologyChange {
     PeerConnected(PeerId, Edge),
     PeerDisconnected(PeerId),
-    PeerAdvertisedRoutes(network_protocol::DistanceVector),
+    PeerAdvertisedDistances(network_protocol::DistanceVector),
 }
 
 /// Locally stored properties of a received network_protocol::DistanceVector message
@@ -386,9 +386,9 @@ impl Inner {
                 root: peer_id.clone(),
                 routes: vec![
                     // The peer has a route of length 0 to itself
-                    AdvertisedRoute { destination: peer_id, length: 0 },
+                    AdvertisedPeerDistance { destination: peer_id, length: 0 },
                     // And a route of length 1 to this node
-                    AdvertisedRoute { destination: self.config.node_id.clone(), length: 1 },
+                    AdvertisedPeerDistance { destination: self.config.node_id.clone(), length: 1 },
                 ],
                 edges: vec![edge],
             });
@@ -410,7 +410,7 @@ impl Inner {
                 self.remove_direct_peer(peer_id);
                 true
             }
-            NetworkTopologyChange::PeerAdvertisedRoutes(routes) => {
+            NetworkTopologyChange::PeerAdvertisedDistances(routes) => {
                 self.handle_distance_vector(routes)
             }
         }
@@ -523,7 +523,7 @@ impl Inner {
             routes: self
                 .my_distances
                 .iter()
-                .map(|(destination, length)| AdvertisedRoute {
+                .map(|(destination, length)| AdvertisedPeerDistance {
                     destination: destination.clone(),
                     length: *length,
                 })
@@ -583,7 +583,7 @@ impl GraphV2 {
 
         let my_distance_vector = network_protocol::DistanceVector {
             root: local_node.clone(),
-            routes: vec![AdvertisedRoute { destination: local_node.clone(), length: 0 }],
+            routes: vec![AdvertisedPeerDistance { destination: local_node.clone(), length: 0 }],
             edges: vec![],
         };
 

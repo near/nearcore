@@ -1,5 +1,5 @@
 use crate::network_protocol;
-use crate::network_protocol::AdvertisedRoute;
+use crate::network_protocol::AdvertisedPeerDistance;
 use crate::routing::{GraphConfigV2, GraphV2, NetworkTopologyChange};
 use crate::test_utils::expected_routing_tables;
 use crate::test_utils::random_peer_id;
@@ -126,8 +126,8 @@ fn compute_next_hops() {
     assert!(graph.update_distance_vector(
         node1.clone(),
         vec![
-            AdvertisedRoute { destination: node1.clone(), length: 0 },
-            AdvertisedRoute { destination: node0.clone(), length: 1 }
+            AdvertisedPeerDistance { destination: node1.clone(), length: 0 },
+            AdvertisedPeerDistance { destination: node0.clone(), length: 1 }
         ],
         vec![edge01.clone()]
     ));
@@ -144,9 +144,9 @@ fn compute_next_hops() {
     assert!(graph.update_distance_vector(
         node2.clone(),
         vec![
-            AdvertisedRoute { destination: node2.clone(), length: 0 },
-            AdvertisedRoute { destination: node0.clone(), length: 1 },
-            AdvertisedRoute { destination: node3.clone(), length: 1 },
+            AdvertisedPeerDistance { destination: node2.clone(), length: 0 },
+            AdvertisedPeerDistance { destination: node0.clone(), length: 1 },
+            AdvertisedPeerDistance { destination: node3.clone(), length: 1 },
         ],
         vec![edge02.clone(), edge23]
     ));
@@ -175,9 +175,9 @@ fn compute_next_hops() {
     assert!(graph.update_distance_vector(
         node1.clone(),
         vec![
-            AdvertisedRoute { destination: node1.clone(), length: 0 },
-            AdvertisedRoute { destination: node0.clone(), length: 1 },
-            AdvertisedRoute { destination: node3.clone(), length: 1 },
+            AdvertisedPeerDistance { destination: node1.clone(), length: 0 },
+            AdvertisedPeerDistance { destination: node0.clone(), length: 1 },
+            AdvertisedPeerDistance { destination: node3.clone(), length: 1 },
         ],
         vec![edge01, edge13]
     ));
@@ -205,8 +205,8 @@ fn compute_next_hops() {
     assert!(graph.update_distance_vector(
         node2.clone(),
         vec![
-            AdvertisedRoute { destination: node2.clone(), length: 0 },
-            AdvertisedRoute { destination: node0.clone(), length: 1 },
+            AdvertisedPeerDistance { destination: node2.clone(), length: 0 },
+            AdvertisedPeerDistance { destination: node0.clone(), length: 1 },
         ],
         vec![edge02]
     ));
@@ -236,9 +236,9 @@ fn compute_next_hops_discard_loop() {
     assert!(graph.update_distance_vector(
         node1.clone(),
         vec![
-            AdvertisedRoute { destination: node1.clone(), length: 0 },
-            AdvertisedRoute { destination: node0.clone(), length: 1 },
-            AdvertisedRoute { destination: node2, length: 2 },
+            AdvertisedPeerDistance { destination: node1.clone(), length: 0 },
+            AdvertisedPeerDistance { destination: node0.clone(), length: 1 },
+            AdvertisedPeerDistance { destination: node2, length: 2 },
         ],
         vec![edge01, edge02]
     ));
@@ -273,13 +273,13 @@ async fn test_process_network_event() {
 
     // Receive a DistanceVector from node1 with node2 behind it; 0--1--2
     let distance_vector_update = graph
-        .process_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+        .process_network_event(NetworkTopologyChange::PeerAdvertisedDistances(
             network_protocol::DistanceVector {
                 root: node1.clone(),
                 routes: vec![
-                    AdvertisedRoute { destination: node1.clone(), length: 0 },
-                    AdvertisedRoute { destination: node0.clone(), length: 1 },
-                    AdvertisedRoute { destination: node2.clone(), length: 1 },
+                    AdvertisedPeerDistance { destination: node1.clone(), length: 0 },
+                    AdvertisedPeerDistance { destination: node0.clone(), length: 1 },
+                    AdvertisedPeerDistance { destination: node2.clone(), length: 1 },
                 ],
                 edges: vec![edge0.clone(), edge1.clone()],
             },
@@ -368,13 +368,13 @@ async fn test_receive_distance_vector_before_processing_local_connection() {
     // The local node has not processed a NetworkTopologyChange::PeerConnected event
     // for node1, but it should handle this DistanceVector correctly anyway.
     let distance_vector_update = graph
-        .process_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+        .process_network_event(NetworkTopologyChange::PeerAdvertisedDistances(
             network_protocol::DistanceVector {
                 root: node1.clone(),
                 routes: vec![
-                    AdvertisedRoute { destination: node1.clone(), length: 0 },
-                    AdvertisedRoute { destination: node0.clone(), length: 1 },
-                    AdvertisedRoute { destination: node2.clone(), length: 1 },
+                    AdvertisedPeerDistance { destination: node1.clone(), length: 0 },
+                    AdvertisedPeerDistance { destination: node0.clone(), length: 1 },
+                    AdvertisedPeerDistance { destination: node2.clone(), length: 1 },
                 ],
                 edges: vec![edge0.clone(), edge1.clone()],
             },
@@ -400,13 +400,13 @@ async fn test_receive_invalid_distance_vector() {
     let edge1 = Edge::make_fake_edge(node1.clone(), node2.clone(), 456);
 
     graph
-        .process_invalid_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+        .process_invalid_network_event(NetworkTopologyChange::PeerAdvertisedDistances(
             network_protocol::DistanceVector {
                 root: node1.clone(),
                 routes: vec![
-                    AdvertisedRoute { destination: node1.clone(), length: 0 },
-                    AdvertisedRoute { destination: node0.clone(), length: 1 },
-                    AdvertisedRoute { destination: node2.clone(), length: 1 },
+                    AdvertisedPeerDistance { destination: node1.clone(), length: 0 },
+                    AdvertisedPeerDistance { destination: node0.clone(), length: 1 },
+                    AdvertisedPeerDistance { destination: node2.clone(), length: 1 },
                 ],
                 // Missing edge
                 edges: vec![edge1.clone()],
@@ -415,13 +415,13 @@ async fn test_receive_invalid_distance_vector() {
         .await;
 
     graph
-        .process_invalid_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+        .process_invalid_network_event(NetworkTopologyChange::PeerAdvertisedDistances(
             network_protocol::DistanceVector {
                 root: node1.clone(),
                 // Missing route shown by edges
                 routes: vec![
-                    AdvertisedRoute { destination: node1.clone(), length: 0 },
-                    AdvertisedRoute { destination: node0.clone(), length: 1 },
+                    AdvertisedPeerDistance { destination: node1.clone(), length: 0 },
+                    AdvertisedPeerDistance { destination: node0.clone(), length: 1 },
                 ],
                 edges: vec![edge0.clone(), edge1.clone()],
             },
@@ -429,14 +429,14 @@ async fn test_receive_invalid_distance_vector() {
         .await;
 
     graph
-        .process_invalid_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+        .process_invalid_network_event(NetworkTopologyChange::PeerAdvertisedDistances(
             network_protocol::DistanceVector {
                 root: node1.clone(),
                 routes: vec![
-                    AdvertisedRoute { destination: node1.clone(), length: 0 },
-                    AdvertisedRoute { destination: node0.clone(), length: 1 },
+                    AdvertisedPeerDistance { destination: node1.clone(), length: 0 },
+                    AdvertisedPeerDistance { destination: node0.clone(), length: 1 },
                     // Route length is shorter than shown by edges
-                    AdvertisedRoute { destination: node2.clone(), length: 0 },
+                    AdvertisedPeerDistance { destination: node2.clone(), length: 0 },
                 ],
                 edges: vec![edge0.clone(), edge1.clone()],
             },
@@ -459,13 +459,13 @@ async fn receive_distance_vector_without_route_to_local_node() {
     // Broadcasting a distance vector which doesn't have a route to the receiving node
     // is valid behavior, but it doesn't provide the receiving node any routes.
     let distance_vector_update = graph
-        .process_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+        .process_network_event(NetworkTopologyChange::PeerAdvertisedDistances(
             network_protocol::DistanceVector {
                 root: node1.clone(),
                 routes: vec![
                     // No route to the receiving node node0
-                    AdvertisedRoute { destination: node1.clone(), length: 0 },
-                    AdvertisedRoute { destination: node2.clone(), length: 1 },
+                    AdvertisedPeerDistance { destination: node1.clone(), length: 0 },
+                    AdvertisedPeerDistance { destination: node2.clone(), length: 1 },
                 ],
                 edges: vec![edge1.clone()],
             },
@@ -486,13 +486,13 @@ async fn receive_distance_vector_without_route_to_local_node() {
     // Now the same advertised routes from the tree tree 1--2 can be handled by node0,
     // which will combine it with the direct edge 0--1 to produce 0--1--2.
     let distance_vector_update = graph
-        .process_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+        .process_network_event(NetworkTopologyChange::PeerAdvertisedDistances(
             network_protocol::DistanceVector {
                 root: node1.clone(),
                 routes: vec![
                     // No route to the receiving node node0
-                    AdvertisedRoute { destination: node1.clone(), length: 0 },
-                    AdvertisedRoute { destination: node2.clone(), length: 1 },
+                    AdvertisedPeerDistance { destination: node1.clone(), length: 0 },
+                    AdvertisedPeerDistance { destination: node2.clone(), length: 1 },
                 ],
                 edges: vec![edge1.clone()],
             },
@@ -506,10 +506,10 @@ async fn receive_distance_vector_without_route_to_local_node() {
 
     // node0 should also be able to handle node1's default DistanceVector with no edges
     let distance_vector_update = graph
-        .process_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+        .process_network_event(NetworkTopologyChange::PeerAdvertisedDistances(
             network_protocol::DistanceVector {
                 root: node1.clone(),
-                routes: vec![AdvertisedRoute { destination: node1.clone(), length: 0 }],
+                routes: vec![AdvertisedPeerDistance { destination: node1.clone(), length: 0 }],
                 edges: vec![],
             },
         ))
@@ -543,15 +543,15 @@ async fn inconsistent_peers() {
     //          \
     //           2 -- 4
     graph
-        .process_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+        .process_network_event(NetworkTopologyChange::PeerAdvertisedDistances(
             network_protocol::DistanceVector {
                 root: node1.clone(),
                 routes: vec![
-                    AdvertisedRoute { destination: node1.clone(), length: 0 },
-                    AdvertisedRoute { destination: node0.clone(), length: 1 },
-                    AdvertisedRoute { destination: node2.clone(), length: 1 },
-                    AdvertisedRoute { destination: node3.clone(), length: 1 },
-                    AdvertisedRoute { destination: node4.clone(), length: 2 },
+                    AdvertisedPeerDistance { destination: node1.clone(), length: 0 },
+                    AdvertisedPeerDistance { destination: node0.clone(), length: 1 },
+                    AdvertisedPeerDistance { destination: node2.clone(), length: 1 },
+                    AdvertisedPeerDistance { destination: node3.clone(), length: 1 },
+                    AdvertisedPeerDistance { destination: node4.clone(), length: 2 },
                 ],
                 edges: vec![edge01.clone(), edge12.clone(), edge13.clone(), edge24.clone()],
             },
@@ -565,14 +565,14 @@ async fn inconsistent_peers() {
     //
     // Notably, node2 does not advertise a route to node 4
     let distance_vector_update = graph
-        .process_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+        .process_network_event(NetworkTopologyChange::PeerAdvertisedDistances(
             network_protocol::DistanceVector {
                 root: node2.clone(),
                 routes: vec![
-                    AdvertisedRoute { destination: node2.clone(), length: 0 },
-                    AdvertisedRoute { destination: node0.clone(), length: 1 },
-                    AdvertisedRoute { destination: node1.clone(), length: 1 },
-                    AdvertisedRoute { destination: node3.clone(), length: 2 },
+                    AdvertisedPeerDistance { destination: node2.clone(), length: 0 },
+                    AdvertisedPeerDistance { destination: node0.clone(), length: 1 },
+                    AdvertisedPeerDistance { destination: node1.clone(), length: 1 },
+                    AdvertisedPeerDistance { destination: node3.clone(), length: 2 },
                 ],
                 edges: vec![edge02.clone(), edge12.clone(), edge13.clone()],
             },

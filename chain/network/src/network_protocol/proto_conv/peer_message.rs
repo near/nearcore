@@ -4,7 +4,7 @@ use super::*;
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::{
-    AdvertisedRoute, Disconnect, DistanceVector, PeerMessage, PeersRequest, PeersResponse,
+    AdvertisedPeerDistance, Disconnect, DistanceVector, PeerMessage, PeersRequest, PeersResponse,
     RoutingTableUpdate, SyncAccountsData,
 };
 use crate::network_protocol::{RoutedMessage, RoutedMessageV2};
@@ -47,13 +47,13 @@ impl TryFrom<&proto::RoutingTableUpdate> for RoutingTableUpdate {
 //////////////////////////////////////////
 
 #[derive(thiserror::Error, Debug)]
-pub enum ParseAdvertisedRouteError {
+pub enum ParseAdvertisedPeerDistanceError {
     #[error("destination {0}")]
     Destination(ParseRequiredError<ParsePublicKeyError>),
 }
 
-impl From<&AdvertisedRoute> for proto::AdvertisedRoute {
-    fn from(x: &AdvertisedRoute) -> Self {
+impl From<&AdvertisedPeerDistance> for proto::AdvertisedPeerDistance {
+    fn from(x: &AdvertisedPeerDistance) -> Self {
         Self {
             destination: MF::some((&x.destination).into()),
             length: x.length,
@@ -62,9 +62,9 @@ impl From<&AdvertisedRoute> for proto::AdvertisedRoute {
     }
 }
 
-impl TryFrom<&proto::AdvertisedRoute> for AdvertisedRoute {
-    type Error = ParseAdvertisedRouteError;
-    fn try_from(x: &proto::AdvertisedRoute) -> Result<Self, Self::Error> {
+impl TryFrom<&proto::AdvertisedPeerDistance> for AdvertisedPeerDistance {
+    type Error = ParseAdvertisedPeerDistanceError;
+    fn try_from(x: &proto::AdvertisedPeerDistance) -> Result<Self, Self::Error> {
         Ok(Self {
             destination: try_from_required(&x.destination).map_err(Self::Error::Destination)?,
             length: x.length,
@@ -81,7 +81,7 @@ pub enum ParseDistanceVectorError {
     #[error("root {0}")]
     Root(ParseRequiredError<ParsePublicKeyError>),
     #[error("routes {0}")]
-    Routes(ParseVecError<ParseAdvertisedRouteError>),
+    Routes(ParseVecError<ParseAdvertisedPeerDistanceError>),
     #[error("edges {0}")]
     Edges(ParseVecError<ParseEdgeError>),
 }

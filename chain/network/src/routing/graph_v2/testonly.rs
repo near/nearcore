@@ -1,5 +1,5 @@
 use crate::network_protocol;
-use crate::routing::graph_v2::AdvertisedRoute;
+use crate::routing::graph_v2::AdvertisedPeerDistance;
 use crate::routing::graph_v2::Inner;
 use crate::routing::{GraphV2, NetworkTopologyChange, NextHopTable};
 use crate::types::Edge;
@@ -26,7 +26,7 @@ impl GraphV2 {
     pub(crate) fn update_distance_vector(
         &self,
         root: PeerId,
-        routes: Vec<AdvertisedRoute>,
+        routes: Vec<AdvertisedPeerDistance>,
         edges: Vec<Edge>,
     ) -> bool {
         self.inner.lock().handle_distance_vector(&network_protocol::DistanceVector {
