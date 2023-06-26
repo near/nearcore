@@ -19,7 +19,7 @@ class Crate:
     def load_toml(self):
         self.toml = toml.load(self.dir + "/Cargo.toml")
         self.name = self.toml["package"]["name"]
-        self.features = self.toml.get("features")
+        self.features = self.toml.get("features", {})
 
         self.has_nightly_feature = "nightly" in self.features
         self.has_nightly_protocol_feature = "nightly_protocol" in self.features
@@ -93,7 +93,7 @@ class Crate:
 
         def ensure_features():
             nonlocal new_toml_text
-            if "[features]" not in existing_toml_text:
+            if "[features]" not in new_toml_text:
                 new_toml_text += "\n[features]\nnightly = []\nnightly_protocol = []\n"
             if "nightly =" not in new_toml_text:
                 new_toml_text = re.sub(r"\[features\]",
