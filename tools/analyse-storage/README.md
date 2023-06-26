@@ -7,11 +7,11 @@ of keys and values within RocksDB.
 
 To run the script, use the following example:
 ```bash
-cargo run --bin analyse-storage <db_path> --column col5 --limit 50
+cargo run --bin neard analyse-storage --home <db_path> --column col5 --limit 50
 ```
 The arguments are as follows:
 
- - `<db_path>`: The path to the RocksDB directory.
+ - `--home`: The path to the RocksDB directory.
  - `--column`: The specific column to inspect.
  - `--limit`: The maximum number of counts to display.
 
