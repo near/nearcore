@@ -3,7 +3,7 @@
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_errors::FunctionCallError;
+use near_vm_logic::errors::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMOutcome};
 use near_vm_runner::internal::VMKind;

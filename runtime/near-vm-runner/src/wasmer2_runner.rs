@@ -8,13 +8,15 @@ use memoffset::offset_of;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_stable_hasher::StableHasher;
-use near_vm_errors::{
-    CacheError, CompilationError, CompiledContract, CompiledContractCache, FunctionCallError,
-    MethodResolveError, VMRunnerError, WasmTrap,
+use near_vm_logic::errors::{
+    CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
 use near_vm_logic::gas_counter::FastGasCounter;
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
-use near_vm_logic::{External, MemSlice, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
+use near_vm_logic::{
+    CompiledContract, CompiledContractCache, External, MemSlice, MemoryLike, VMConfig, VMContext,
+    VMLogic, VMOutcome,
+};
 use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;
@@ -151,7 +153,7 @@ fn translate_runtime_error(
 ) -> Result<FunctionCallError, VMRunnerError> {
     // Errors produced by host function calls also become `RuntimeError`s that wrap a dynamic
     // instance of `VMLogicError` internally. See the implementation of `Wasmer2Imports`.
-    let error = match error.downcast::<near_vm_errors::VMLogicError>() {
+    let error = match error.downcast::<near_vm_logic::VMLogicError>() {
         Ok(vm_logic) => {
             return vm_logic.try_into();
         }
@@ -649,8 +651,10 @@ impl crate::runner::VM for Wasmer2VM {
         &self,
         code: &ContractCode,
         cache: &dyn CompiledContractCache,
-    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, near_vm_errors::CacheError>
-    {
+    ) -> Result<
+        Result<ContractPrecompilatonResult, CompilationError>,
+        near_vm_logic::errors::CacheError,
+    > {
         Ok(self
             .compile_and_cache(code, Some(cache))?
             .map(|_| ContractPrecompilatonResult::ContractCompiled))

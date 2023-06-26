@@ -7,7 +7,7 @@ use core::fmt;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::version::PROTOCOL_VERSION;
-use near_vm_errors::FunctionCallError;
+use near_vm_logic::errors::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext};
 

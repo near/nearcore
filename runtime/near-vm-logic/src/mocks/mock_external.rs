@@ -1,7 +1,7 @@
+use crate::TrieNodesCount;
 use crate::{External, StorageGetMode, ValuePtr};
 use near_primitives_core::hash::{hash, CryptoHash};
 use near_primitives_core::types::{AccountId, Balance};
-use near_vm_errors::TrieNodesCount;
 use std::collections::HashMap;
 
 #[derive(Default, Clone)]

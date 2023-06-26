@@ -8,7 +8,7 @@ use near_primitives::errors::{ActionErrorKind, TxExecutionError};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
-use near_vm_errors::{CompilationError, FunctionCallErrorSer, PrepareError};
+use near_vm_logic::errors::{CompilationError, FunctionCallErrorSer, PrepareError};
 use nearcore::config::GenesisExt;
 
 fn verify_contract_limits_upgrade(
