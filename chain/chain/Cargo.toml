@@ -52,11 +52,23 @@ protocol_feature_reject_blocks_with_outdated_protocol_version = ["near-primitive
 
 nightly = [
   "nightly_protocol",
+  "protocol_feature_reject_blocks_with_outdated_protocol_version",
+  "near-chain-configs/nightly",
+  "near-client-primitives/nightly",
+  "near-epoch-manager/nightly",
+  "near-o11y/nightly",
+  "near-pool/nightly",
+  "near-primitives/nightly",
+  "near-store/nightly",
 ]
 nightly_protocol = [
-  "near-store/nightly_protocol",
+  "near-chain-configs/nightly_protocol",
+  "near-client-primitives/nightly_protocol",
+  "near-epoch-manager/nightly_protocol",
+  "near-o11y/nightly_protocol",
+  "near-pool/nightly_protocol",
   "near-primitives/nightly_protocol",
-  "protocol_feature_reject_blocks_with_outdated_protocol_version",
+  "near-store/nightly_protocol",
 ]
 mock_node = []
 sandbox = ["near-primitives/sandbox"]

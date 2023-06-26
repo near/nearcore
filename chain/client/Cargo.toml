@@ -70,10 +70,36 @@ delay_detector = [
   "near-network/delay_detector",
   "delay-detector/delay_detector",
 ]
-nightly_protocol = []
+nightly_protocol = [
+  "near-async/nightly_protocol",
+  "near-chain-configs/nightly_protocol",
+  "near-chain/nightly_protocol",
+  "near-chunks/nightly_protocol",
+  "near-client-primitives/nightly_protocol",
+  "near-dyn-configs/nightly_protocol",
+  "near-epoch-manager/nightly_protocol",
+  "near-network/nightly_protocol",
+  "near-o11y/nightly_protocol",
+  "near-pool/nightly_protocol",
+  "near-primitives/nightly_protocol",
+  "near-store/nightly_protocol",
+  "near-telemetry/nightly_protocol",
+]
 nightly = [
   "nightly_protocol",
+  "near-async/nightly",
+  "near-chain-configs/nightly",
   "near-chain/nightly",
+  "near-chunks/nightly",
+  "near-client-primitives/nightly",
+  "near-dyn-configs/nightly",
+  "near-epoch-manager/nightly",
+  "near-network/nightly",
+  "near-o11y/nightly",
+  "near-pool/nightly",
+  "near-primitives/nightly",
+  "near-store/nightly",
+  "near-telemetry/nightly",
 ]
 sandbox = [
   "near-client-primitives/sandbox",

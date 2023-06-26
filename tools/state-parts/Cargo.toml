@@ -22,3 +22,22 @@ near-network.workspace = true
 near-o11y.workspace = true
 near-ping.workspace = true
 near-primitives.workspace = true
+
+[features]
+nightly = [
+  "nightly_protocol",
+  "near-async/nightly",
+  "near-jsonrpc/nightly",
+  "near-network/nightly",
+  "near-o11y/nightly",
+  "near-ping/nightly",
+  "near-primitives/nightly",
+]
+nightly_protocol = [
+  "near-async/nightly_protocol",
+  "near-jsonrpc/nightly_protocol",
+  "near-network/nightly_protocol",
+  "near-o11y/nightly_protocol",
+  "near-ping/nightly_protocol",
+  "near-primitives/nightly_protocol",
+]

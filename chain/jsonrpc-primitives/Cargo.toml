@@ -22,6 +22,17 @@ near-rpc-error-macro.workspace = true
 near-client-primitives = { workspace = true, optional = true }
 
 [features]
+nightly_protocol = [
+  "near-chain-configs/nightly_protocol",
+  "near-client-primitives/nightly_protocol",
+  "near-primitives/nightly_protocol",
+]
+nightly = [
+  "nightly_protocol",
+  "near-chain-configs/nightly",
+  "near-client-primitives/nightly",
+  "near-primitives/nightly",
+]
 full = ["debug_types"]
 debug_types = ["near-client-primitives"]
 test_features = []

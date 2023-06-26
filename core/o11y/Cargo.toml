@@ -36,6 +36,13 @@ itoa.workspace = true
 smartstring.workspace = true
 
 [features]
+nightly_protocol = [
+  "near-primitives-core/nightly_protocol",
+]
+nightly = [
+  "nightly_protocol",
+  "near-primitives-core/nightly",
+]
 io_trace = []
 
 [[bench]]
