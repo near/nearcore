@@ -14,7 +14,7 @@ use strum::IntoEnumIterator;
 static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(get_default_home);
 
 #[derive(Parser)]
-struct AnalyseStorageCommand {
+pub struct AnalyseStorageCommand {
     #[clap(long, value_parser, default_value_os = DEFAULT_HOME.as_os_str())]
     home: PathBuf,
 
