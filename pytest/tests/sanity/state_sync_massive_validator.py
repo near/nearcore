@@ -62,30 +62,30 @@ EPOCH_LENGTH = 300
 
 config = load_config()
 near_root, node_dirs = init_cluster(
-    3, 1, 1,
-    config, [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
-             ["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 0],
-             ["chunk_producer_kickout_threshold", 0]], {
-                 0: {
-                     "state_sync_enabled": True,
-                     "store.state_snapshot_enabled": True,
-                 },
-                 1: {
-                     "tracked_shards": [0],
-                     "state_sync_enabled": True,
-                     "store.state_snapshot_enabled": True,
-                 },
-                 2: {
-                     "tracked_shards": [0],
-                     "state_sync_enabled": True,
-                     "store.state_snapshot_enabled": True,
-                 },
-                 3: {
-                     "tracked_shards": [0],
-                     "state_sync_enabled": True,
-                     "store.state_snapshot_enabled": True,
-                 },
-             })
+    3, 1, 1, config,
+    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
+     ["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 0],
+     ["chunk_producer_kickout_threshold", 0]], {
+         0: {
+             "state_sync_enabled": True,
+             "store.state_snapshot_enabled": True,
+         },
+         1: {
+             "tracked_shards": [0],
+             "state_sync_enabled": True,
+             "store.state_snapshot_enabled": True,
+         },
+         2: {
+             "tracked_shards": [0],
+             "state_sync_enabled": True,
+             "store.state_snapshot_enabled": True,
+         },
+         3: {
+             "tracked_shards": [0],
+             "state_sync_enabled": True,
+             "store.state_snapshot_enabled": True,
+         },
+     })
 
 logging.info("Populating genesis")
 
@@ -132,7 +132,8 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
 
         # Check current height
         try:
-            new_height = rpc_node.get_latest_block(check_storage=False, timeout=10).height
+            new_height = rpc_node.get_latest_block(check_storage=False,
+                                                   timeout=10).height
             logging.info(f"Height: {latest_height} => {new_height}")
             latest_height = new_height
         except requests.ReadTimeout:
