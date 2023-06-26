@@ -1,9 +1,11 @@
 use crate::context::VMContext;
 use crate::dependencies::{External, MemSlice, MemoryLike};
+use crate::errors::{FunctionCallError, InconsistentStateError};
 use crate::gas_counter::{FastGasCounter, GasCounter};
 use crate::receipt_manager::ReceiptManager;
 use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
+use crate::{HostError, VMLogicError};
 use crate::{ReceiptMetadata, StorageGetMode, ValuePtr};
 use near_crypto::Secp256K1Signature;
 use near_primitives_core::checked_feature;
@@ -17,8 +19,6 @@ use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasDistribution, GasWeight, ProtocolVersion,
     StorageUsage,
 };
-use near_vm_errors::{FunctionCallError, InconsistentStateError};
-use near_vm_errors::{HostError, VMLogicError};
 use std::mem::size_of;
 
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
@@ -2873,10 +2873,10 @@ impl<'a> VMLogic<'a> {
         method_name: &str,
         current_protocol_version: u32,
         wasm_code_bytes: usize,
-    ) -> std::result::Result<(), near_vm_errors::FunctionCallError> {
+    ) -> std::result::Result<(), crate::errors::FunctionCallError> {
         if method_name.is_empty() {
-            let error = near_vm_errors::FunctionCallError::MethodResolveError(
-                near_vm_errors::MethodResolveError::MethodEmptyName,
+            let error = crate::errors::FunctionCallError::MethodResolveError(
+                crate::errors::MethodResolveError::MethodEmptyName,
             );
             return Err(error);
         }
@@ -2886,9 +2886,8 @@ impl<'a> VMLogic<'a> {
             current_protocol_version
         ) {
             if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
-                let error = near_vm_errors::FunctionCallError::HostError(
-                    near_vm_errors::HostError::GasExceeded,
-                );
+                let error =
+                    crate::errors::FunctionCallError::HostError(crate::HostError::GasExceeded);
                 return Err(error);
             }
         }
@@ -2900,15 +2899,15 @@ impl<'a> VMLogic<'a> {
         &mut self,
         current_protocol_version: u32,
         wasm_code_bytes: usize,
-    ) -> std::result::Result<(), near_vm_errors::FunctionCallError> {
+    ) -> std::result::Result<(), crate::errors::FunctionCallError> {
         if !checked_feature!(
             "protocol_feature_fix_contract_loading_cost",
             FixContractLoadingCost,
             current_protocol_version
         ) {
             if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
-                return Err(near_vm_errors::FunctionCallError::HostError(
-                    near_vm_errors::HostError::GasExceeded,
+                return Err(crate::errors::FunctionCallError::HostError(
+                    crate::HostError::GasExceeded,
                 ));
             }
         }

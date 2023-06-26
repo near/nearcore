@@ -1,6 +1,6 @@
 use crate::internal::VMKind;
 use finite_wasm::wasmparser as wp;
-use near_vm_errors::PrepareError;
+use near_vm_logic::errors::PrepareError;
 use near_vm_logic::VMConfig;
 use wasm_encoder::{Encode, Section, SectionId};
 

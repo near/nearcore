@@ -2782,7 +2782,7 @@ dependencies = [
  "near-telemetry",
  "near-test-contracts",
  "near-undo-block",
- "near-vm-errors",
+ "near-vm-logic",
  "near-vm-runner",
  "nearcore",
  "node-runtime",
@@ -4029,7 +4029,7 @@ dependencies = [
  "near-primitives-core",
  "near-rpc-error-macro",
  "near-stdx",
- "near-vm-errors",
+ "near-vm-logic",
  "num-rational",
  "once_cell",
  "primitive-types",
@@ -4173,7 +4173,7 @@ dependencies = [
  "near-o11y",
  "near-primitives",
  "near-stdx",
- "near-vm-errors",
+ "near-vm-logic",
  "num_cpus",
  "once_cell",
  "rand 0.8.5",
@@ -4308,23 +4308,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-vm-errors"
-version = "0.0.0"
-dependencies = [
- "borsh 0.10.2",
- "hex",
- "near-account-id",
- "near-crypto",
- "near-fmt",
- "near-primitives-core",
- "near-rpc-error-macro",
- "serde",
- "serde_with",
- "strum",
- "thiserror",
-]
-
-[[package]]
 name = "near-vm-logic"
 version = "0.0.0"
 dependencies = [
@@ -4337,13 +4320,16 @@ dependencies = [
  "near-fmt",
  "near-o11y",
  "near-primitives-core",
+ "near-rpc-error-macro",
  "near-stdx",
- "near-vm-errors",
  "ripemd",
  "serde",
  "serde_json",
+ "serde_with",
  "sha2 0.10.6",
  "sha3",
+ "strum",
+ "thiserror",
  "tracing",
  "zeropool-bn",
 ]
@@ -4371,7 +4357,6 @@ dependencies = [
  "near-vm-compiler",
  "near-vm-compiler-singlepass",
  "near-vm-engine",
- "near-vm-errors",
  "near-vm-logic",
  "near-vm-types",
  "near-vm-vm",
@@ -4407,7 +4392,6 @@ dependencies = [
  "libfuzzer-sys",
  "near-primitives",
  "near-test-contracts",
- "near-vm-errors",
  "near-vm-logic",
  "near-vm-runner",
  "wasm-smith",
@@ -4535,7 +4519,7 @@ dependencies = [
  "near-rosetta-rpc",
  "near-store",
  "near-telemetry",
- "near-vm-errors",
+ "near-vm-logic",
  "near-vm-runner",
  "node-runtime",
  "num-rational",
@@ -4643,7 +4627,6 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-test-contracts",
- "near-vm-errors",
  "near-vm-logic",
  "near-vm-runner",
  "num-bigint",
@@ -5780,7 +5763,6 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-test-contracts",
- "near-vm-errors",
  "near-vm-logic",
  "near-vm-runner",
  "nearcore",

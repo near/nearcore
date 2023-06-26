@@ -1,5 +1,5 @@
+use crate::{HostError, VMLogicError};
 use bn::Group;
-use near_vm_errors::{HostError, VMLogicError};
 
 const BOOL_SIZE: usize = 1;
 const SCALAR_SIZE: usize = 256 / 8;

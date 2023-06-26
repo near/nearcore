@@ -1,7 +1,7 @@
 use crate::tests::TestVMLogic;
 
+use crate::errors::VMLogicError;
 use near_primitives_core::{config::ExtCosts, types::Gas};
-use near_vm_errors::VMLogicError;
 use std::collections::HashMap;
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;

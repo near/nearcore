@@ -1,4 +1,5 @@
-use crate::{HostError, VMLogicError};
+use crate::errors::{HostError, VMLogicError};
+use crate::TrieNodesCount;
 use near_primitives_core::config::ExtCosts::read_cached_trie_node;
 use near_primitives_core::config::ExtCosts::touching_trie_node;
 use near_primitives_core::{
@@ -6,7 +7,6 @@ use near_primitives_core::{
     profile::ProfileDataV3,
     types::Gas,
 };
-use near_vm_errors::TrieNodesCount;
 use std::collections::HashMap;
 
 #[inline]

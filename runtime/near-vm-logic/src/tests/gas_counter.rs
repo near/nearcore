@@ -1,14 +1,14 @@
+use crate::action::{Action, FunctionCallAction};
 use crate::receipt_manager::ReceiptMetadata;
 use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
 use crate::types::Gas;
+use crate::{HostError, VMLogicError};
 use crate::{MemSlice, VMConfig};
 use borsh::BorshSerialize;
 use expect_test::expect;
 use near_primitives_core::config::{ActionCosts, ExtCosts};
 use near_primitives_core::runtime::fees::Fee;
-use near_vm_errors::action::{Action, FunctionCallAction};
-use near_vm_errors::{HostError, VMLogicError};
 
 #[test]
 fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
@@ -270,7 +270,7 @@ fn test_overflowing_burn_gas_with_promises_gas() {
     );
     assert!(matches!(
         result,
-        Err(near_vm_errors::VMLogicError::HostError(near_vm_errors::HostError::GasLimitExceeded))
+        Err(crate::VMLogicError::HostError(crate::HostError::GasLimitExceeded))
     ));
     assert_eq!(logic.gas_counter().used_gas(), gas_limit);
 }
@@ -309,10 +309,7 @@ fn test_overflowing_burn_gas_with_promises_gas_2() {
         10u128.to_le_bytes().as_ptr() as _,
         10000,
     );
-    assert!(matches!(
-        result,
-        Err(near_vm_errors::VMLogicError::HostError(near_vm_errors::HostError::GasExceeded))
-    ));
+    assert!(matches!(result, Err(crate::VMLogicError::HostError(crate::HostError::GasExceeded))));
     assert_eq!(logic.gas_counter().used_gas(), minimum_prepay);
 }
 
