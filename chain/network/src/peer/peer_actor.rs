@@ -1193,7 +1193,6 @@ impl PeerActor {
                                 && cur_edge.nonce() >= edge_info.nonce =>
                         {
                             // Found a newer local edge, so just send it to the peer.
-                            // TODO: need to implement some equivalent behavior for V2 routing
                             conn.send_message(Arc::new(PeerMessage::SyncRoutingTable(
                                 RoutingTableUpdate::from_edges(vec![cur_edge.clone()]),
                             )));

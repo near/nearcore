@@ -14,6 +14,7 @@ use crate::types::ReasonForBan;
 use near_async::time;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 impl NetworkState {
@@ -217,5 +218,11 @@ impl NetworkState {
             })
             .await
             .unwrap_or(Ok(()))
+    }
+
+    /// Update the routing protocols with a set of peers to avoid routing through.
+    pub fn set_unreliable_peers(&self, unreliable_peers: HashSet<PeerId>) {
+        self.graph.set_unreliable_peers(unreliable_peers.clone());
+        self.graph_v2.set_unreliable_peers(unreliable_peers);
     }
 }
