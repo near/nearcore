@@ -14,7 +14,7 @@ use strum::IntoEnumIterator;
 static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(get_default_home);
 
 #[derive(Parser)]
-struct Cli {
+struct AnalyseStorageCommand {
     #[clap(long, value_parser, default_value_os = DEFAULT_HOME.as_os_str())]
     home: PathBuf,
 
@@ -26,66 +26,12 @@ struct Cli {
 }
 
 pub fn get_db_col(col: &str) -> Option<DBCol> {
-    match col {
-        "col0" => Some(DBCol::DbVersion),
-        "col1" => Some(DBCol::BlockMisc),
-        "col2" => Some(DBCol::Block),
-        "col3" => Some(DBCol::BlockHeader),
-        "col4" => Some(DBCol::BlockHeight),
-        "col5" => Some(DBCol::State),
-        "col6" => Some(DBCol::ChunkExtra),
-        "col7" => Some(DBCol::_TransactionResult),
-        "col8" => Some(DBCol::OutgoingReceipts),
-        "col9" => Some(DBCol::IncomingReceipts),
-        "col10" => Some(DBCol::_Peers),
-        "col11" => Some(DBCol::EpochInfo),
-        "col12" => Some(DBCol::BlockInfo),
-        "col13" => Some(DBCol::Chunks),
-        "col14" => Some(DBCol::PartialChunks),
-        "col15" => Some(DBCol::BlocksToCatchup),
-        "col16" => Some(DBCol::StateDlInfos),
-        "col17" => Some(DBCol::ChallengedBlocks),
-        "col18" => Some(DBCol::StateHeaders),
-        "col19" => Some(DBCol::InvalidChunks),
-        "col20" => Some(DBCol::BlockExtra),
-        "col21" => Some(DBCol::BlockPerHeight),
-        "col22" => Some(DBCol::StateParts),
-        "col23" => Some(DBCol::EpochStart),
-        "col24" => Some(DBCol::AccountAnnouncements),
-        "col25" => Some(DBCol::NextBlockHashes),
-        "col26" => Some(DBCol::EpochLightClientBlocks),
-        "col27" => Some(DBCol::ReceiptIdToShardId),
-        "col28" => Some(DBCol::_NextBlockWithNewChunk),
-        "col29" => Some(DBCol::_LastBlockWithNewChunk),
-        "col30" => Some(DBCol::PeerComponent),
-        "col31" => Some(DBCol::ComponentEdges),
-        "col32" => Some(DBCol::LastComponentNonce),
-        "col33" => Some(DBCol::Transactions),
-        "col34" => Some(DBCol::_ChunkPerHeightShard),
-        "col35" => Some(DBCol::StateChanges),
-        "col36" => Some(DBCol::BlockRefCount),
-        "col37" => Some(DBCol::TrieChanges),
-        "col38" => Some(DBCol::BlockMerkleTree),
-        "col39" => Some(DBCol::ChunkHashesByHeight),
-        "col40" => Some(DBCol::BlockOrdinal),
-        "col41" => Some(DBCol::_GCCount),
-        "col42" => Some(DBCol::OutcomeIds),
-        "col43" => Some(DBCol::_TransactionRefCount),
-        "col44" => Some(DBCol::ProcessedBlockHeights),
-        "col45" => Some(DBCol::Receipts),
-        "col46" => Some(DBCol::CachedContractCode),
-        "col47" => Some(DBCol::EpochValidatorInfo),
-        "col48" => Some(DBCol::HeaderHashesByHeight),
-        "col49" => Some(DBCol::StateChangesForSplitStates),
-        _ => {
-            for db_col in DBCol::iter() {
-                if col_name(db_col) == col {
-                    return Some(db_col);
-                }
-            }
-            return None;
+    for db_col in DBCol::iter() {
+        if col_name(db_col) == col {
+            return Some(db_col);
         }
     }
+    return None;
 }
 
 fn get_all_col_family_names() -> Vec<DBCol> {
@@ -212,7 +158,7 @@ fn read_all_pairs(
 }
 
 fn get_column_family_options(
-    input_col: Option<String>,
+    input_col: &Option<String>,
 ) -> (Vec<String>, Vec<ColumnFamilyDescriptor>) {
     match input_col {
         Some(col_name) => {
@@ -251,32 +197,32 @@ fn get_column_family_options(
     }
 }
 
-fn main() {
-    let args = Cli::parse();
+impl AnalyseStorageCommand {
+    pub fn run(&self) -> anyhow::Result<()> {
+        // Set db options for maximum read performance
+        let mut opts = Options::default();
+        opts.set_max_open_files(20_000);
+        opts.increase_parallelism(std::cmp::max(1, num_cpus::get() as i32 / 2));
 
-    // Set db options
-    let mut opts = Options::default();
-    opts.set_max_open_files(20_000);
-    opts.increase_parallelism(std::cmp::max(1, num_cpus::get() as i32 / 2));
+        // Define column families
+        let (col_families, col_families_cf) = get_column_family_options(&self.column);
 
-    // Define column families
-    let (col_families, col_families_cf) = get_column_family_options(args.column);
+        let db = DB::open_cf_descriptors_read_only(
+            &opts,
+            self.home.to_str().unwrap(),
+            col_families_cf,
+            false,
+        )
+        .unwrap();
+        let (key_sizes_sorted, value_sizes_sorted) = read_all_pairs(&db, &col_families);
+        let total_num_of_pairs = key_sizes_sorted.iter().map(|(_, count)| count).sum::<usize>();
 
-    // Open db
-    let db = DB::open_cf_descriptors_read_only(
-        &opts,
-        args.home.to_str().unwrap(),
-        col_families_cf,
-        false,
-    )
-    .unwrap();
-    let (key_sizes_sorted, value_sizes_sorted) = read_all_pairs(&db, &col_families);
-    let total_num_of_pairs = key_sizes_sorted.iter().map(|(_, count)| count).sum::<usize>();
-
-    let limit = match args.limit {
-        Some(limit) => limit,
-        None => 100,
-    };
-    print_results(&key_sizes_sorted, "Key", limit, total_num_of_pairs);
-    print_results(&value_sizes_sorted, "Value", limit, total_num_of_pairs);
+        let limit = match self.limit {
+            Some(limit) => limit,
+            None => 100,
+        };
+        print_results(&key_sizes_sorted, "Key", limit, total_num_of_pairs);
+        print_results(&value_sizes_sorted, "Value", limit, total_num_of_pairs);
+        Ok(())
+    }
 }

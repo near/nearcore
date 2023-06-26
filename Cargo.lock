@@ -316,20 +316,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "analyse-storage"
-version = "0.0.0"
-dependencies = [
- "clap 4.2.4",
- "near-store",
- "nearcore",
- "num_cpus",
- "once_cell",
- "rayon",
- "rocksdb",
- "strum",
-]
-
-[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3389,6 +3375,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-analyse-storage"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap 4.2.4",
+ "near-store",
+ "nearcore",
+ "num_cpus",
+ "once_cell",
+ "rayon",
+ "rocksdb",
+ "strum",
+]
+
+[[package]]
 name = "near-async"
 version = "0.0.0"
 dependencies = [
@@ -4600,6 +4601,7 @@ dependencies = [
  "cold-store-tool",
  "futures",
  "near-amend-genesis",
+ "near-analyse-storage",
  "near-chain-configs",
  "near-client",
  "near-config-utils",

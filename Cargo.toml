@@ -66,7 +66,6 @@ members = [
     "test-utils/runtime-tester/fuzz",
     "test-utils/store-validator",
     "test-utils/testlib",
-    "tools/analyse-storage",
     "tools/chainsync-loadtest",
     "tools/delay-detector",
     "tools/indexer/example",
@@ -173,6 +172,7 @@ more-asserts = "0.2"
 near-account-id = { path = "core/account-id", features = ["internal_unstable"] }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
+near-analyse-storage = { path = "tools/analyse-storage" }
 near-async = { path = "core/async" }
 near-cache = { path = "utils/near-cache" }
 near-chain = { path = "chain/chain" }
