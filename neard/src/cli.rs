@@ -251,7 +251,7 @@ pub(super) enum NeardSubCommand {
     /// reset the head of the chain locally to the prev block of current head
     UndoBlock(UndoBlockCommand),
 
-    /// Flat storage related tooling.
+    /// Analyse data size distribution in storage
     AnalyseStorage(AnalyseStorageCommand),
 }
 
