@@ -219,7 +219,6 @@ pub enum DBCol {
     #[strum(serialize = "GCCount")]
     _GCCount,
     /// All Outcome ids by block hash and shard id. For each shard it is ordered by execution order.
-    /// TODO: seems that it has only 'transaction ids' there (not sure if intentional)
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
     /// - *Column type*: Vec <OutcomeId (CryptoHash)>
     OutcomeIds,

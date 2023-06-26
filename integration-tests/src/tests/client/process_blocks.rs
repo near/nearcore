@@ -2744,6 +2744,7 @@ fn test_block_execution_outcomes() {
     assert_eq!(chunk.transactions().len(), 3);
     let execution_outcomes_from_block = env.clients[0]
         .chain
+        .store()
         .get_block_execution_outcomes(block.hash())
         .unwrap()
         .remove(&0)
@@ -2764,6 +2765,7 @@ fn test_block_execution_outcomes() {
     assert!(next_chunk.receipts().is_empty());
     let execution_outcomes_from_block = env.clients[0]
         .chain
+        .store()
         .get_block_execution_outcomes(next_block.hash())
         .unwrap()
         .remove(&0)
@@ -2875,6 +2877,7 @@ fn test_refund_receipts_processing() {
         let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
         let execution_outcomes_from_block = env.clients[0]
             .chain
+            .store()
             .get_block_execution_outcomes(block.hash())
             .unwrap()
             .remove(&0)
