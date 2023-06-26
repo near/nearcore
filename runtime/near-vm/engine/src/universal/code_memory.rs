@@ -28,11 +28,43 @@ pub struct CodeMemoryWriter<'a> {
 }
 
 impl<'a> CodeMemoryWriter<'a> {
-    /// Write the contents from the provided buffer into the location of `memory` aligned to
+    /// Write the contents from the provided buffer into the location of `self.memory` aligned to
     /// provided `alignment`.
     ///
+    /// The `alignment` actually used may be greater than the spepcified value. This is relevant,
+    /// for example, when calling this function after a sequence of [`Self::write_executable`]
+    /// calls.
+    ///
     /// Returns the position within the mapping at which the buffer was written.
-    pub fn write_aligned(&mut self, alignment: u16, input: &[u8]) -> Result<usize, CompileError> {
+    pub fn write_data(&mut self, mut alignment: u16, input: &[u8]) -> Result<usize, CompileError> {
+        if self.offset == self.memory.executable_end {
+            alignment = u16::try_from(rustix::param::page_size()).expect("page size > u16::MAX");
+        }
+        self.write_inner(alignment, input)
+    }
+
+    /// Write the executable code from the provided buffer into the executable portion of
+    /// `self.memory`.
+    ///
+    /// All executable parts must be written out before `self.write_data` is called for the first
+    /// time.
+    ///
+    /// Returns the position within the mapping at which the buffer was written.
+    pub fn write_executable(
+        &mut self,
+        alignment: u16,
+        input: &[u8],
+    ) -> Result<usize, CompileError> {
+        assert_eq!(
+            self.memory.executable_end, self.offset,
+            "may not interleave executable and data in the same map"
+        );
+        let result = self.write_inner(alignment, input);
+        self.memory.executable_end = self.offset;
+        result
+    }
+
+    fn write_inner(&mut self, alignment: u16, input: &[u8]) -> Result<usize, CompileError> {
         let entry_offset = self.offset;
         let aligned_offset = round_up(entry_offset, usize::from(alignment));
         let final_offset = aligned_offset + input.len();
@@ -42,22 +74,12 @@ impl<'a> CodeMemoryWriter<'a> {
             .get_mut(entry_offset..aligned_offset)
             .ok_or_else(|| CompileError::Resource("out of code memory space".into()))?
             .fill(0);
-        let out_buffer = out_buffer
+        out_buffer
             .get_mut(aligned_offset..final_offset)
-            .ok_or_else(|| CompileError::Resource("out of code memory space".into()))?;
-        out_buffer.copy_from_slice(input);
+            .ok_or_else(|| CompileError::Resource("out of code memory space".into()))?
+            .copy_from_slice(input);
         self.offset = final_offset;
         Ok(aligned_offset)
-    }
-
-    pub fn write_executable(
-        &mut self,
-        alignment: u16,
-        input: &[u8],
-    ) -> Result<usize, CompileError> {
-        let result = self.write_aligned(alignment, input);
-        self.memory.executable_size = self.offset;
-        result
     }
 
     /// The current position of the writer.
@@ -77,8 +99,10 @@ pub struct CodeMemory {
     /// Mapping size
     size: usize,
 
-    /// Size of the executable portion that comes first.
-    executable_size: usize,
+    /// Addresses `0..executable_end` contain executable memory.
+    ///
+    /// This is always be page-aligned.
+    executable_end: usize,
 }
 
 impl CodeMemory {
@@ -94,7 +118,7 @@ impl CodeMemory {
                 MapFlags::SHARED,
             )?
         };
-        Ok(Self { source_pool: None, map: map.cast(), executable_size: 0, size })
+        Ok(Self { source_pool: None, map: map.cast(), executable_end: 0, size })
     }
 
     fn as_slice_mut(&mut self) -> &mut [u8] {
@@ -134,7 +158,7 @@ impl CodeMemory {
     /// references to this `CodeMemory`, for the original code memory that those references point
     /// to are invalidated as soon as this method is invoked.
     pub unsafe fn writer(&mut self) -> CodeMemoryWriter<'_> {
-        self.executable_size = 0;
+        self.executable_end = 0;
         CodeMemoryWriter { memory: self, offset: 0 }
     }
 
@@ -146,7 +170,7 @@ impl CodeMemory {
     pub unsafe fn publish(&mut self) -> Result<(), CompileError> {
         mm::mprotect(
             self.map.cast(),
-            self.executable_size,
+            self.executable_end,
             MprotectFlags::EXEC | MprotectFlags::READ,
         )
         .map_err(|e| {
@@ -155,19 +179,21 @@ impl CodeMemory {
     }
 
     /// Remap the offset into an absolute address within a read-execute mapping.
-    pub fn executable_address(&self, offset: usize) -> *const u8 {
-        unsafe {
-            // TODO: encapsulate offsets so that this `offset` is guaranteed to be sound.
-            self.map.offset(offset as isize)
-        }
+    ///
+    /// Offset must not exceed `isize::MAX`.
+    pub unsafe fn executable_address(&self, offset: usize) -> *const u8 {
+        // TODO: encapsulate offsets so that this `offset` is guaranteed to be sound.
+        debug_assert!(offset <= isize::MAX as usize);
+        self.map.offset(offset as isize)
     }
 
     /// Remap the offset into an absolute address within a read-write mapping.
-    pub fn writable_address(&self, offset: usize) -> *mut u8 {
-        unsafe {
-            // TODO: encapsulate offsets so that this `offset` is guaranteed to be sound.
-            self.map.offset(offset as isize)
-        }
+    ///
+    /// Offset must not exceed `isize::MAX`.
+    pub unsafe fn writable_address(&self, offset: usize) -> *mut u8 {
+        // TODO: encapsulate offsets so that this `offset` is guaranteed to be sound.
+        debug_assert!(offset <= isize::MAX as usize);
+        self.map.offset(offset as isize)
     }
 }
 
@@ -191,7 +217,7 @@ impl Drop for CodeMemory {
                 source_pool: None,
                 map: self.map,
                 size: self.size,
-                executable_size: 0,
+                executable_end: 0,
             }));
         } else {
             unsafe {
@@ -213,7 +239,7 @@ unsafe impl Send for CodeMemory {}
 /// This pool cannot grow and will only allow up to a number of code mappings that were specified
 /// at construction time.
 ///
-/// However it is possible for the mappings inside to grow to accomodate larger code (TBD)
+/// However it is possible for the mappings inside to grow to accomodate larger code.
 #[derive(Clone)]
 pub struct LimitedMemoryPool {
     pool: Arc<crossbeam_queue::ArrayQueue<CodeMemory>>,
@@ -225,18 +251,17 @@ impl LimitedMemoryPool {
         let pool = Arc::new(crossbeam_queue::ArrayQueue::new(count));
         let this = Self { pool };
         for _ in 0..count {
-            drop(this.pool.push(CodeMemory::create(default_memory_size)?));
+            this.pool
+                .push(CodeMemory::create(default_memory_size)?)
+                .unwrap_or_else(|_| panic!("ArrayQueue could not accomodate {count} memories!"));
         }
         Ok(this)
     }
 
     /// Get a memory mapping, at least `size` bytes large.
     pub fn get(&self, size: usize) -> rustix::io::Result<CodeMemory> {
-        let mut memory = self.pool.pop();
-        if let Some(memory) = memory.as_mut() {
-            memory.source_pool = Some(Arc::clone(&self.pool));
-        }
-        let memory = memory.ok_or(rustix::io::Errno::NOMEM)?;
+        let mut memory = self.pool.pop().ok_or(rustix::io::Errno::NOMEM)?;
+        memory.source_pool = Some(Arc::clone(&self.pool));
         if memory.size < size {
             Ok(memory.resize(size)?)
         } else {

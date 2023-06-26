@@ -598,14 +598,10 @@ impl UniversalEngineInner {
             allocated_executable_sections.push(offset);
         }
         if !data_sections.is_empty() {
-            // Data sections have different page permissions from the executable
-            // code that came before it, so they need to be on different pages.
-            let mut alignment = page_size as u16;
             for section in data_sections {
                 let offset = code_writer
-                    .write_aligned(alignment, section.bytes)
+                    .write_data(DATA_SECTION_ALIGNMENT, section.bytes)
                     .expect("incorrectly computed code memory size");
-                alignment = DATA_SECTION_ALIGNMENT;
                 allocated_data_sections.push(offset);
             }
         }
@@ -628,7 +624,9 @@ impl UniversalEngineInner {
                 let index = LocalFunctionIndex::new(index);
                 let (sig_idx, sig) = function_signature(index);
                 Ok(VMLocalFunction {
-                    body: FunctionBodyPtr(code_memory.executable_address(offset).cast()),
+                    body: FunctionBodyPtr(unsafe {
+                        code_memory.executable_address(offset).cast()
+                    }),
                     length: u32::try_from(length).map_err(|_| {
                         CompileError::Codegen("function body length exceeds 4GiB".into())
                     })?,
@@ -640,7 +638,9 @@ impl UniversalEngineInner {
 
         let allocated_dynamic_function_trampolines = allocated_functions
             .drain(..)
-            .map(|(offset, _)| FunctionBodyPtr(code_memory.executable_address(offset).cast()))
+            .map(|(offset, _)| FunctionBodyPtr(unsafe {
+                code_memory.executable_address(offset).cast()
+            }))
             .collect::<PrimaryMap<FunctionIndex, _>>();
 
         let mut exec_iter = allocated_executable_sections.iter();
@@ -649,9 +649,13 @@ impl UniversalEngineInner {
             .into_iter()
             .map(|protection| {
                 SectionBodyPtr(if protection == CustomSectionProtection::ReadExecute {
-                    code_memory.executable_address(*exec_iter.next().unwrap()).cast()
+                    unsafe {
+                        code_memory.executable_address(*exec_iter.next().unwrap()).cast()
+                    }
                 } else {
-                    code_memory.writable_address(*data_iter.next().unwrap()).cast()
+                    unsafe {
+                        code_memory.writable_address(*data_iter.next().unwrap()).cast()
+                    }
                 })
             })
             .collect::<PrimaryMap<SectionIndex, _>>();

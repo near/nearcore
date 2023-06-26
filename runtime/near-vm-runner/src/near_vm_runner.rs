@@ -245,12 +245,22 @@ impl NearVM {
         // We only support universal engine at the moment.
         assert_eq!(VM_CONFIG.engine, NearVmEngine::Universal);
 
-        // FIXME: should have as many code memories as there are possible parallel invocations of
-        // the runtime… How do we determine that?
         static CODE_MEMORY_POOL_CELL: OnceLock<LimitedMemoryPool> = OnceLock::new();
         let code_memory_pool = CODE_MEMORY_POOL_CELL
             .get_or_init(|| {
-                LimitedMemoryPool::new(128, 256 * 1024).unwrap_or_else(|e| {
+                // FIXME: should have as many code memories as there are possible parallel
+                // invocations of the runtime… How do we determine that? Should we make it
+                // configurable for the node operators, perhaps, so that they can make an informed
+                // choice based on the amount of memory they have and shards they track?
+                //
+                // NB: 16MiB is a best guess as to what the maximum size a loaded artifact can
+                // plausibly be. This is not necessarily true – there may be WebAssembly
+                // instructions that expand by more than 4 times in terms of instruction size after
+                // a conversion to x86_64, In that case a re-allocation will occur and executing
+                // that particular function call will be slower. Not to mention there isn't a
+                // strong guarantee on the upper bound of the memory that the contract runtime may
+                // require.
+                LimitedMemoryPool::new(32, 16 * 1024 * 1024).unwrap_or_else(|e| {
                     panic!("could not pre-allocate resources for the runtime: {e}");
                 })
             })

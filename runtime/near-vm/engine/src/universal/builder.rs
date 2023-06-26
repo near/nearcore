@@ -50,9 +50,8 @@ impl Universal {
     /// Build the `UniversalEngine` for this configuration
     pub fn engine(self) -> UniversalEngine {
         let target = self.target.unwrap_or_default();
-        let pool = self.pool.unwrap_or_else(|| {
-            super::LimitedMemoryPool::new(1, 10 * rustix::param::page_size()).unwrap()
-        });
+        let pool =
+            self.pool.unwrap_or_else(|| panic!("Universal::code_memory_pool was not set up!"));
         if let Some(compiler_config) = self.compiler_config {
             let features = self
                 .features
