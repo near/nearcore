@@ -10,7 +10,6 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
 import transaction
 
 from account import TGAS, NEAR_BASE
-import cluster
 import key
 from common.base import Account, CreateSubAccount, Deploy, NearNodeProxy, Transaction
 from locust import events, runners
@@ -284,12 +283,6 @@ def on_locust_init(environment, **kwargs):
 
     # Create SocialDB account, unless we are a worker, in which case the master already did it
     if not isinstance(environment.runner, runners.WorkerRunner):
-        if environment.parsed_options.social_db_wasm is None:
-            raise SystemExit(
-                f"Running SocialDB workload requires `--social_db_wasm $SOCIAL_CONTRACT`. "
-                "Provide the WASM (can be downloaded from https://github.com/NearSocial/social-db/tree/aa7fafaac92a7dd267993d6c210246420a561370/res)."
-            )
-
         social_contract_code = environment.parsed_options.social_db_wasm
         contract_key = key.Key.from_seed_testonly(environment.social_account_id)
         social_account = Account(contract_key)
