@@ -30,7 +30,7 @@ impl NetworkState {
         }
     }
 
-    // TODO(gprusak): eventually, this should be blocking, as it should be up to the caller
+    // TODO(saketh-are): eventually, this should be blocking, as it should be up to the caller
     // whether to wait for the broadcast to finish, or run it in parallel with sth else.
     fn broadcast_distance_vector(&self, distance_vector: DistanceVector) {
         let msg = Arc::new(PeerMessage::DistanceVector(distance_vector));
@@ -163,6 +163,9 @@ impl NetworkState {
         }
     }
 
+    /// Accepts a routed message. If we expect a response for the message, writes an entry in
+    /// the appropriate RouteBackCache recording the peer node from which the message came.
+    /// The cache entry will later be used to route back the response to the message.
     pub(crate) fn add_route_back(
         &self,
         clock: &time::Clock,

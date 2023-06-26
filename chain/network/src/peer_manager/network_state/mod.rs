@@ -145,9 +145,9 @@ pub(crate) struct NetworkState {
 
     /// Mutex which prevents overlapping calls to tier1_advertise_proxies.
     tier1_advertise_proxies_mutex: tokio::sync::Mutex<()>,
-    /// Demultiplexer aggregating calls to add_edges().
+    /// Demultiplexer aggregating calls to add_edges(), for V1 routing protocol
     add_edges_demux: demux::Demux<Vec<Edge>, Result<(), ReasonForBan>>,
-    /// Demultiplexer aggregating calls to update_routes()
+    /// Demultiplexer aggregating calls to update_routes(), for V2 routing protocol
     update_routes_demux:
         demux::Demux<crate::routing::NetworkTopologyChange, Result<(), ReasonForBan>>,
 
