@@ -117,7 +117,7 @@ fn test_state_dump() {
                         num_parts,
                     ));
                     if std::fs::read(&path).is_err() {
-                        println!("Missing {:?}", path);
+                        tracing::info!("Missing {:?}", path);
                         all_parts_present = false;
                     }
                 }
@@ -134,15 +134,24 @@ fn test_state_dump() {
     });
 }
 
+/// This function tests that after a node does state sync, it has the data that ccoresponds to the state of the epoch previous to the dumping node's final block.
+/// The way the test works:
+/// set up 2 nodes: env.client[0] dumps state parts, env.client[1] state syncs with the dumped state parts.
+/// A new account will be created in the epoch at account_creation_at_epoch_height, specifically at 2nd block of the epoch.
+/// if is_final_block_in_new_epoch = true, dumping node's final block and head will both be in the next epoch after account creation;
+/// otherwise, dumping node's head will be in the next epoch while its final block would still be in the epoch of account creation.
+/// The test verifies that if dumping node's final block is in the next epoch after account creation, then the syncing node will have the account information after state sync;
+/// otherwise, e.g. the dumping node's final block is in the same epoch as account creation, the syncing node should not have the account info after state sync.
 fn run_state_sync_with_dumped_parts(
     is_final_block_in_new_epoch: bool,
     account_creation_at_epoch_height: u64,
     epoch_length: u64,
 ) {
+    init_test_logger();
     if is_final_block_in_new_epoch {
-        println!("Testing for case when both head and final block of the dumping node are in new epoch...");
+        tracing::info!("Testing for case when both head and final block of the dumping node are in new epoch...");
     } else {
-        println!("Testing for case when head is in new epoch, but final block isn't for the dumping node...");
+        tracing::info!("Testing for case when head is in new epoch, but final block isn't for the dumping node...");
     }
     near_actix_test_utils::run_actix(async {
         let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
@@ -249,7 +258,7 @@ fn run_state_sync_with_dumped_parts(
         let final_block_hash = header.last_final_block();
         let final_block_header = env.clients[0].chain.get_block_header(final_block_hash).unwrap();
 
-        println!(
+        tracing::info!(
             "dumping node: dump_node_head_height is {}, final_block_height is {}",
             dump_node_head_height,
             final_block_header.height()
@@ -268,7 +277,7 @@ fn run_state_sync_with_dumped_parts(
 
         let sync_block_height = (epoch_length * epoch_height + 1) as usize;
         let sync_hash = *blocks[sync_block_height - 1].hash();
-        
+
         // the block at sync_block_height should be the start of an epoch
         assert_ne!(
             blocks[sync_block_height - 1].header().epoch_id(),
@@ -299,10 +308,10 @@ fn run_state_sync_with_dumped_parts(
                         num_parts,
                     ));
                     if std::fs::read(&path).is_err() {
-                        println!("dumping node: Missing {:?}", path);
+                        tracing::info!("dumping node: Missing {:?}", path);
                         all_parts_present = false;
                     } else {
-                        println!("dumping node: Populated {:?}", path);
+                        tracing::info!("dumping node: Populated {:?}", path);
                     }
                 }
             }
@@ -316,7 +325,7 @@ fn run_state_sync_with_dumped_parts(
         .unwrap();
 
         // Simulate state sync
-        println!("syncing node: simulating state sync..");
+        tracing::info!("syncing node: simulating state sync..");
         env.clients[1].chain.set_state_header(0, sync_hash, state_sync_header).unwrap();
         let runtime_client_1 = Arc::clone(&env.clients[1].runtime_adapter);
         let runtime_client_0 = Arc::clone(&env.clients[0].runtime_adapter);
@@ -331,7 +340,7 @@ fn run_state_sync_with_dumped_parts(
                 .unwrap();
         }
         env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
-        println!("syncing node: state sync finished.");
+        tracing::info!("syncing node: state sync finished.");
 
         let synced_block = env.clients[1].chain.get_block(&sync_hash).unwrap();
         let synced_block_header = env.clients[1].chain.get_block_header(&sync_hash).unwrap();
@@ -366,14 +375,16 @@ fn run_state_sync_with_dumped_parts(
 }
 
 #[test]
-/// test state sync with state parts that were dumped when the dumping node's head is in new epoch but final block is not
+/// This test verifies that after state sync, the syncing node has the data that ccoresponds to the state of the epoch previous to the dumping node's final block.
+/// Specifically, it tests that the above holds true in both conditions:
+/// - the dumping node's head is in new epoch but final block is not;
+/// - the dumping node's head and final block are in same epoch
 fn test_state_sync_w_dumped_parts() {
     let epoch_length = 5;
     // excluding account_creation_at_epoch_height=1 because first epoch's epoch_id not being block hash of its first block cause issues
     for account_creation_at_epoch_height in 2..=4 as u64 {
-        println!("account_creation_at_epoch_height = {}", account_creation_at_epoch_height);
+        tracing::info!("account_creation_at_epoch_height = {}", account_creation_at_epoch_height);
         run_state_sync_with_dumped_parts(false, account_creation_at_epoch_height, epoch_length);
         run_state_sync_with_dumped_parts(true, account_creation_at_epoch_height, epoch_length);
     }
-    
 }
