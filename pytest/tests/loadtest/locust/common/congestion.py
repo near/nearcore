@@ -7,7 +7,6 @@ from locust import events, runners
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / "lib"))
 
 import account
-import cluster
 import common.base as base
 import key
 import transaction
