@@ -217,7 +217,7 @@ impl Inner {
         // Verify that the advertised routes are corroborated by the spanning tree distances
         let mut advertised_distances: Vec<i32> = vec![-1; self.edge_cache.max_id()];
         for route in &distance_vector.routes {
-            let destination_id = self.edge_cache.get_id(&route.destination) as usize;
+            let destination_id = self.edge_cache.get_or_create_id(&route.destination) as usize;
             advertised_distances[destination_id] = route.length as i32;
         }
         let mut consistent = true;
@@ -293,7 +293,7 @@ impl Inner {
         // If the spanning tree doesn't already include the direct edge, add it
         let mut spanning_tree = distance_vector.edges.clone();
         if tree_edge.is_none() {
-            assert!(advertised_distances[local_node_id] == -1);
+            debug_assert!(advertised_distances[local_node_id] == -1);
             spanning_tree.push(local_edge.clone());
             advertised_distances[local_node_id] = 1;
         }
@@ -320,7 +320,9 @@ impl Inner {
         distance_vector: &network_protocol::DistanceVector,
     ) -> bool {
         // Basic sanity check; `distance_vector` should come from some other peer
-        assert!(self.config.node_id != distance_vector.root);
+        if self.config.node_id == distance_vector.root {
+            return false;
+        }
 
         // Validate the advertised distances against the accompanying spanning tree
         let validated_distances = self.validate_routing_distances(distance_vector);

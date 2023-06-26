@@ -120,7 +120,7 @@ impl EdgeCache {
     }
 
     /// Returns the u32 id associated with the given PeerId, assigning one if necessary.
-    fn get_or_create_id(&mut self, peer: &PeerId) -> u32 {
+    pub(crate) fn get_or_create_id(&mut self, peer: &PeerId) -> u32 {
         match self.p2id.entry(peer.clone()) {
             Entry::Occupied(occupied) => *occupied.get(),
             Entry::Vacant(vacant) => {
