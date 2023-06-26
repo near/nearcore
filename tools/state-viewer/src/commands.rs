@@ -724,27 +724,28 @@ fn print_receipt_costs_for_chunk(
             };
             let account_id = outcome.executor_id.clone();
 
-            match status {
-                ExecutionStatus::Unknown | ExecutionStatus::Failure(_) => {
-                    println!("FOUND FAILURE {} gas burnt = {}", receipt_or_tx_id, burnt_gas);
+            let execution_result = match status {
+                ExecutionStatus::Unknown => {
+                    continue;
                 }
-                _ => {
-                    if profile.host_gas() > 0 {
-                        let mut total_profile = total_profiles
-                            .entry(account_id)
-                            .or_insert_with(|| ReceiptData::default());
-                        total_profile.profile.merge(&profile);
-                        total_profile.burnt_gas += burnt_gas;
-                        total_profile.outcomes += 1;
-                    } else {
-                        println!("FOUND EMPTY {} gas burnt = {}", receipt_or_tx_id, burnt_gas);
-                    }
-                }
+                ExecutionStatus::Failure(_) => false,
+                _ => true,
+            };
+
+            if profile.host_gas() > 0 {
+                let mut total_profile = total_profiles
+                    .entry((account_id, execution_result))
+                    .or_insert_with(|| ReceiptData::default());
+                total_profile.profile.merge(&profile);
+                total_profile.burnt_gas += burnt_gas;
+                total_profile.outcomes += 1;
+            } else {
+                println!("FOUND EMPTY {} gas burnt = {}", receipt_or_tx_id, burnt_gas);
             }
         }
     }
 
-    for (account_id, receipt_data) in total_profiles.drain().into_iter() {
+    for ((account_id, execution_result), receipt_data) in total_profiles.drain().into_iter() {
         let total_profile = receipt_data.profile;
         let total_old_burnt_gas = receipt_data.burnt_gas;
         let total_outcomes = receipt_data.outcomes;
@@ -761,9 +762,12 @@ fn print_receipt_costs_for_chunk(
 
         // let write_num = total_profile.get_ext_cost(ExtCosts::storage_write_base)
         //     / ext_costs.gas_cost(ExtCosts::storage_write_base);
-        let write_nibbles = total_profile.get_ext_cost(ExtCosts::storage_write_key_byte)
-            / ext_costs.gas_cost(ExtCosts::storage_write_key_byte)
-            * 2;
+        let write_key_bytes = total_profile.get_ext_cost(ExtCosts::storage_write_key_byte)
+            / ext_costs.gas_cost(ExtCosts::storage_write_key_byte);
+        let remove_key_bytes = total_profile.get_ext_cost(ExtCosts::storage_remove_key_byte)
+            / ext_costs.gas_cost(ExtCosts::storage_remove_key_byte);
+        let modified_nibbles = (write_key_bytes + remove_key_bytes) * 2;
+
         let nibble_gas_cost = 12_500_000_000;
         // let nibble_compute_cost = 37_500_000_000;
         // REPLACE TTN WITH PESSIMISTIC BYTE_COST
@@ -798,9 +802,10 @@ fn print_receipt_costs_for_chunk(
         maybe_add_to_csv(
             csv_file_mutex,
             &format!(
-                "{},{},{},{},{},{},{},{},{},{},{},{}",
+                "{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 height,
                 account_id,
+                execution_result as i32,
                 total_old_burnt_gas,
                 new_burnt_gas_base,
                 new_burnt_gas_1,
@@ -809,7 +814,7 @@ fn print_receipt_costs_for_chunk(
                 // new_burnt_gas_4,
                 old_compute_usage,
                 new_compute_usage_base,
-                write_nibbles,
+                modified_nibbles,
                 // total_key_len,
                 total_trie_len,
                 total_trie_len_2,
