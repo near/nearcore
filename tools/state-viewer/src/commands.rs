@@ -771,7 +771,7 @@ fn print_receipt_costs_for_chunk(
         let nibble_gas_cost = 12_500_000_000;
         // let nibble_compute_cost = 37_500_000_000;
         // REPLACE TTN WITH PESSIMISTIC BYTE_COST
-        let new_burnt_gas_1 = new_burnt_gas_base + write_nibbles * nibble_gas_cost;
+        let new_burnt_gas_1 = new_burnt_gas_base + modified_nibbles * nibble_gas_cost;
 
         // GET TRIE VALUES
         let data_key = trie_key_parsers::get_raw_prefix_for_contract_data(&account_id, &[]);
