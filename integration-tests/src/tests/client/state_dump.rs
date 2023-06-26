@@ -2,7 +2,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, Genesis};
-use near_client::sync::state::external_storage_location;
+use near_client::sync::external::external_storage_location;
 use near_client::test_utils::TestEnv;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_network::test_utils::wait_or_timeout;
@@ -73,6 +73,7 @@ fn test_state_dump() {
             shard_tracker.clone(),
             runtimes[0].clone(),
             Some("test0".parse().unwrap()),
+            None,
         )
         .unwrap();
 

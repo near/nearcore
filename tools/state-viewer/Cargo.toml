@@ -9,6 +9,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+actix.workspace = true
 ansi_term.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
