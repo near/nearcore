@@ -4,9 +4,9 @@ use near_primitives_core::config::VMConfig;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::types::ProtocolVersion;
-use near_vm_errors::{CacheError, CompilationError, CompiledContractCache, VMRunnerError};
+use near_vm_logic::errors::{CacheError, CompilationError, VMRunnerError};
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, VMContext, VMOutcome};
+use near_vm_logic::{CompiledContractCache, External, VMContext, VMOutcome};
 
 /// Returned by VM::run method.
 ///

@@ -28,7 +28,6 @@ wasmtime = { workspace = true, optional = true }
 
 near-cache.workspace = true
 near-vm-logic.workspace = true
-near-vm-errors.workspace = true
 near-primitives-core.workspace = true
 near-stable-hasher.workspace = true
 

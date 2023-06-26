@@ -1,9 +1,9 @@
 //! External dependencies of the near-vm-logic.
 
+use crate::TrieNodesCount;
+use crate::VMLogicError;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance};
-use near_vm_errors::TrieNodesCount;
-use near_vm_errors::VMLogicError;
 
 use std::borrow::Cow;
 
@@ -143,7 +143,7 @@ pub trait External {
     /// * `mode`- whether the lookup will be performed through flat storage or trie
     /// # Errors
     ///
-    /// This function could return [`near_vm_errors::VMRunnerError::ExternalError`].
+    /// This function could return [`near_vm_logic::VMRunnerError::ExternalError`].
     ///
     /// # Example
     /// ```
@@ -195,7 +195,7 @@ pub trait External {
     ///
     /// # Errors
     ///
-    /// This function could return [`near_vm_errors::VMError`].
+    /// This function could return [`near_vm_logic::VMError`].
     ///
     /// # Example
     /// ```
@@ -222,7 +222,7 @@ pub trait External {
     ///
     /// # Errors
     ///
-    /// This function could return [`near_vm_errors::VMError`].
+    /// This function could return [`near_vm_logic::VMError`].
     ///
     /// # Example
     /// ```

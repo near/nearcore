@@ -2,7 +2,7 @@
 //! wasm module before execution.
 
 use crate::internal::VMKind;
-use near_vm_errors::PrepareError;
+use near_vm_logic::errors::PrepareError;
 use near_vm_logic::VMConfig;
 
 mod prepare_v0;

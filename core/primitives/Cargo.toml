@@ -39,7 +39,7 @@ near-crypto.workspace = true
 near-fmt.workspace = true
 near-primitives-core.workspace = true
 near-rpc-error-macro.workspace = true
-near-vm-errors.workspace = true
+near-vm-logic.workspace = true
 
 [features]
 sandbox = []

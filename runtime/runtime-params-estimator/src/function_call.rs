@@ -5,8 +5,8 @@ use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::types::ProtocolVersion;
 use near_store::StoreCompiledContractCache;
-use near_vm_errors::CompiledContractCache;
 use near_vm_logic::mocks::mock_external::MockedExternal;
+use near_vm_logic::CompiledContractCache;
 use near_vm_runner::internal::VMKind;
 use std::fmt::Write;
 
