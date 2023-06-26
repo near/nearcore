@@ -4,11 +4,12 @@ pub mod state_dump;
 
 use crate::state_dump::StateDump;
 use indicatif::{ProgressBar, ProgressStyle};
-use near_chain::types::{BlockHeaderInfo, RuntimeAdapter};
+use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
-use near_epoch_manager::{EpochManager, EpochManagerHandle};
+use near_epoch_manager::types::BlockHeaderInfo;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::contract::ContractCode;
@@ -226,7 +227,7 @@ impl GenesisBuilder {
         let mut store_update = store.store_update();
 
         store_update.merge(
-            self.runtime
+            self.epoch_manager
                 .add_validator_proposals(BlockHeaderInfo::new(genesis.header(), 0))
                 .unwrap(),
         );

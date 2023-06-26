@@ -14,7 +14,7 @@ rust-version.workspace = true
 
 [dependencies]
 finite-wasm.workspace = true
-near-vm-compiler = { workspace = true, features = ["translator"] }
+near-vm-compiler.workspace = true
 near-vm-vm.workspace = true
 near-vm-types.workspace = true
 dynasm.workspace = true

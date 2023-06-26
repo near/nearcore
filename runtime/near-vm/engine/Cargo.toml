@@ -13,18 +13,22 @@ publish = true
 rust-version.workspace = true
 
 [dependencies]
-finite-wasm.workspace = true
-near-vm-types.workspace = true
-near-vm-compiler.workspace = true
-near-vm-vm.workspace = true
-target-lexicon.workspace = true
 backtrace.workspace = true
-rustc-demangle.workspace = true
+enumset.workspace = true
+finite-wasm.workspace = true
+lazy_static.workspace = true
 memmap2.workspace = true
 more-asserts.workspace = true
+near-vm-compiler.workspace = true
+near-vm-types.workspace = true
+near-vm-vm.workspace = true
+rkyv.workspace = true
+rustc-demangle.workspace = true
+region.workspace = true
+target-lexicon.workspace = true
 thiserror.workspace = true
-lazy_static.workspace = true
-enumset.workspace = true
+cfg-if.workspace = true
+tracing.workspace = true
 
 [badges]
 maintenance = { status = "actively-developed" }

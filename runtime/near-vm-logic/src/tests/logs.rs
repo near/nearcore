@@ -1,7 +1,7 @@
 use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
+use crate::HostError;
 use crate::{map, ExtCosts, MemSlice, VMLogic, VMLogicError};
-use near_vm_errors::HostError;
 
 #[test]
 fn test_valid_utf8() {

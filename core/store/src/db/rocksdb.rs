@@ -387,6 +387,8 @@ impl Database for RocksDB {
     }
 
     fn create_checkpoint(&self, path: &std::path::Path) -> anyhow::Result<()> {
+        let _span =
+            tracing::info_span!(target: "state_snapshot", "create_checkpoint", ?path).entered();
         let cp = ::rocksdb::checkpoint::Checkpoint::new(&self.db)?;
         cp.create_checkpoint(path)?;
         Ok(())

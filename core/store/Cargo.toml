@@ -42,7 +42,7 @@ near-crypto.workspace = true
 near-fmt.workspace = true
 near-o11y.workspace = true
 near-primitives.workspace = true
-near-vm-errors.workspace = true
+near-vm-logic.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true

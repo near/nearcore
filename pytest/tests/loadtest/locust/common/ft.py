@@ -6,12 +6,11 @@ from locust import events
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
-import cluster
 import key
 import transaction
 
 from account import TGAS
-from common.base import Account, CreateSubAccount, Deploy, NearUser, send_transaction, Transaction
+from common.base import Account, CreateSubAccount, Deploy, NearNodeProxy, NearUser, Transaction
 
 
 class FTContract:
@@ -24,14 +23,14 @@ class FTContract:
         self.registered_users = []
         self.code = code
 
-    def install(self, node):
+    def install(self, node: NearNodeProxy):
         """
         Deploy and initialize the contract on chain.
         The account should already exist at this point.
         """
-        self.account.refresh_nonce(node)
-        send_transaction(node, Deploy(self.account, self.code, "FT"))
-        send_transaction(node, InitFT(self.account))
+        self.account.refresh_nonce(node.node)
+        node.send_tx_retry(Deploy(self.account, self.code, "FT"), "deploy ft")
+        node.send_tx_retry(InitFT(self.account), "init ft")
 
     def register_user(self, user: NearUser):
         user.send_tx(InitFTAccount(self.account, user.account),
@@ -84,8 +83,8 @@ class TransferFT(Transaction):
             sender.use_nonce(),
             block_hash)
 
-    def sender_id(self) -> str:
-        return self.sender.key.account_id
+    def sender_account(self) -> Account:
+        return self.sender
 
 
 class InitFT(Transaction):
@@ -108,8 +107,8 @@ class InitFT(Transaction):
                                                  contract.use_nonce(),
                                                  block_hash)
 
-    def sender_id(self) -> str:
-        return self.contract.key.account_id
+    def sender_account(self) -> Account:
+        return self.contract
 
 
 class InitFTAccount(Transaction):
@@ -130,47 +129,35 @@ class InitFTAccount(Transaction):
                                                  account.use_nonce(),
                                                  block_hash)
 
-    def sender_id(self) -> str:
-        return self.account.key.account_id
+    def sender_account(self) -> Account:
+        return self.account
 
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
-    if environment.parsed_options.fungible_token_wasm is None:
-        raise SystemExit(
-            f"Running FT workload requires `--fungible_token_wasm $FT_CONTRACT`. "
-            "Provide the WASM (e.g. nearcore/runtime/near-test-contracts/res/fungible_token.wasm)."
-        )
-
-    # Note: These setup requests are not tracked by locust because we use our own http session
-    host, port = environment.host.split(":")
-    node = cluster.RpcNode(host, port)
-
+    node = NearNodeProxy(environment)
     ft_contract_code = environment.parsed_options.fungible_token_wasm
     num_ft_contracts = environment.parsed_options.num_ft_contracts
     funding_account = NearUser.funding_account
     parent_id = funding_account.key.account_id
-    worker_id = getattr(environment.runner, "worker_id", "local_id")
 
-    funding_account.refresh_nonce(node)
+    funding_account.refresh_nonce(node.node)
 
     environment.ft_contracts = []
     # TODO: Create accounts in parallel
     for i in range(num_ft_contracts):
-        # Prefix that makes accounts unique across workers
-        # Shuffling with a hash avoids locality in the state trie.
-        # TODO: Also make sure these are spread evenly across shards
-        prefix = str(hash(str(worker_id) + str(i)))[-6:]
-        contract_key = key.Key.from_random(f"{prefix}_ft.{parent_id}")
+        account_id = environment.account_generator.random_account_id(
+            parent_id, '_ft')
+        contract_key = key.Key.from_random(account_id)
         ft_account = Account(contract_key)
-        send_transaction(
-            node,
-            CreateSubAccount(funding_account,
-                             ft_account.key,
-                             balance=FTContract.INIT_BALANCE))
-
-        ft_contract = FTContract(ft_account, ft_contract_code)
-        ft_contract.install(node)
+        if not node.account_exists(ft_account.key.account_id):
+            node.send_tx_retry(
+                CreateSubAccount(funding_account,
+                                 ft_account.key,
+                                 balance=FTContract.INIT_BALANCE),
+                "create ft funding account")
+            ft_contract = FTContract(ft_account, ft_contract_code)
+            ft_contract.install(node)
         environment.ft_contracts.append(ft_contract)
 
 

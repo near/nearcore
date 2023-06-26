@@ -240,7 +240,8 @@ fn sync_state_stake_change() {
         init_integration_logger();
 
         let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
-        genesis.config.epoch_length = 5;
+        let epoch_length = 20;
+        genesis.config.epoch_length = epoch_length;
         genesis.config.block_producer_kickout_threshold = 80;
 
         let (port1, port2) =
@@ -257,11 +258,9 @@ fn sync_state_stake_change() {
         near2.client_config.skip_sync_wait = false;
         near2.client_config.epoch_sync_enabled = false;
 
-        run_actix(async move {
-            let dir1 =
-                tempfile::Builder::new().prefix("sync_state_stake_change_1").tempdir().unwrap();
-            let dir2 =
-                tempfile::Builder::new().prefix("sync_state_stake_change_2").tempdir().unwrap();
+        let dir1 = tempfile::Builder::new().prefix("sync_state_stake_change_1").tempdir().unwrap();
+        let dir2 = tempfile::Builder::new().prefix("sync_state_stake_change_2").tempdir().unwrap();
+        run_actix(async {
             let nearcore::NearNode { client: client1, view_client: view_client1, .. } =
                 start_with_config(dir1.path(), near1.clone()).expect("start_with_config");
 
@@ -306,7 +305,8 @@ fn sync_state_stake_change() {
                     let actor = actor.then(move |res| {
                         let latest_height =
                             if let Ok(Ok(block)) = res { block.header.height } else { 0 };
-                        if !started_copy.load(Ordering::SeqCst) && latest_height > 10 {
+                        if !started_copy.load(Ordering::SeqCst) && latest_height > 2 * epoch_length
+                        {
                             started_copy.store(true, Ordering::SeqCst);
                             let nearcore::NearNode { view_client: view_client2, arbiters, .. } =
                                 start_with_config(&dir2_path_copy, near2_copy)

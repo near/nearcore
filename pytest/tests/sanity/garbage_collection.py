@@ -12,7 +12,8 @@ from cluster import start_cluster
 from configured_logger import logger
 import utils
 
-TARGET_HEIGHT = 60
+EPOCH_LENGTH = 20
+TARGET_HEIGHT = EPOCH_LENGTH * 6
 
 consensus_config = {
     "consensus": {
@@ -33,7 +34,7 @@ consensus_config = {
 
 nodes = start_cluster(
     2, 0, 1, None,
-    [["epoch_length", 10], ["num_block_producer_seats", 5],
+    [["epoch_length", EPOCH_LENGTH], ["num_block_producer_seats", 5],
      ["num_block_producer_seats_per_shard", [5]],
      ["chunk_producer_kickout_threshold", 80],
      ["shard_layout", {

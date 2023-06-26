@@ -17,7 +17,7 @@ use near_primitives::views::{
     AccessKeyView, AccountView, ExecutionMetadataView, FinalExecutionOutcomeView,
     FinalExecutionStatus,
 };
-use near_vm_errors::{FunctionCallErrorSer, MethodResolveError};
+use near_vm_logic::errors::{FunctionCallErrorSer, MethodResolveError};
 use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
 use crate::node::Node;

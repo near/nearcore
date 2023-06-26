@@ -1,8 +1,8 @@
 use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
+use crate::HostError;
+use crate::VMLogicError;
 use crate::{map, ExtCosts};
-use near_vm_errors::HostError;
-use near_vm_errors::VMLogicError;
 use std::collections::HashMap;
 
 const SIGNATURE: [u8; 64] = [
