@@ -66,18 +66,22 @@ near_root, node_dirs = init_cluster(
              ["chunk_producer_kickout_threshold", 0]], {
                  0: {
                      "state_sync_enabled": True,
+                     "store.state_snapshot_enabled": True,
                  },
                  1: {
                      "tracked_shards": [0],
                      "state_sync_enabled": True,
+                     "store.state_snapshot_enabled": True,
                  },
                  2: {
                      "tracked_shards": [0],
                      "state_sync_enabled": True,
+                     "store.state_snapshot_enabled": True,
                  },
                  3: {
                      "tracked_shards": [0],
                      "state_sync_enabled": True,
+                     "store.state_snapshot_enabled": True,
                  },
              })
 
