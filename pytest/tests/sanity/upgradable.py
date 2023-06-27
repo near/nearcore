@@ -109,11 +109,13 @@ def test_upgrade() -> None:
     ]
     for i in range(1, 3):
         nodes.append(
-            cluster.spin_up_node(config,
-                                 executables.stable.root,
-                                 node_dirs[i],
-                                 i,
-                                 boot_node=nodes[0]))
+            cluster.spin_up_node(
+                config,
+                executables.stable.root,
+                node_dirs[i],
+                i,
+                boot_node=nodes[0],
+            ))
     config = executables.current.node_config()
     nodes.append(
         cluster.spin_up_node(config,

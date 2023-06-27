@@ -156,6 +156,23 @@ impl ShardLayout {
         )
     }
 
+    /// Returns the simple nightshade layout, version 2, that will be used in production.
+    /// This is work in progress and the exact way of splitting is yet to be determined.
+    pub fn get_simple_nightshade_layout_v2() -> ShardLayout {
+        ShardLayout::v1(
+            vec![],
+            // TODO(resharding) - find the right boundary to split shards in
+            // place of just "sweat". Likely somewhere in between near.social
+            // and sweatcoin.
+            vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near", "sweat"]
+                .into_iter()
+                .map(|s| s.parse().unwrap())
+                .collect(),
+            Some(vec![vec![0, 1, 2, 3]]),
+            1,
+        )
+    }
+
     /// Given a parent shard id, return the shard uids for the shards in the current shard layout that
     /// are split from this parent shard. If this shard layout has no parent shard layout, return None
     pub fn get_split_shard_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
