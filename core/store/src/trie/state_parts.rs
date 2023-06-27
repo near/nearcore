@@ -972,6 +972,78 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_combine_state_parts_self_defined_trie() {
+        let mut rng = rand::thread_rng();
+        let trie_changes = vec![
+            (b"aa".to_vec(), Some(vec![0])),
+            (b"abb".to_vec(), Some(vec![1])),
+            (b"abc".to_vec(), Some(vec![1])),
+            (b"b".to_vec(), Some(vec![2])),
+            (b"baab".to_vec(), Some(vec![3])),
+            (b"baac".to_vec(), Some(vec![4])),
+            (b"bbb".to_vec(), Some(vec![5])),
+        ];
+        let tries = create_tries();
+        let state_root =
+            test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), trie_changes);
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
+        let root_memory_usage = trie.retrieve_root_node().unwrap().memory_usage;
+        {
+            // Test that combining all parts gets all nodes
+            let num_parts = rng.gen_range(2..10);
+            let parts = (0..num_parts)
+                .map(|part_id| {
+                    trie.get_trie_nodes_for_part_without_flat_storage(PartId::new(
+                        part_id, num_parts,
+                    ))
+                    .unwrap()
+                })
+                .collect::<Vec<_>>();
+
+            let trie_changes = check_combine_state_parts(trie.get_root(), num_parts, &parts);
+
+            let mut nodes = <HashMap<CryptoHash, Arc<[u8]>>>::new();
+            let sizes_vec = parts
+                .iter()
+                .map(|PartialState::TrieValues(nodes)| {
+                    nodes.iter().map(|node| node.len()).sum::<usize>()
+                })
+                .collect::<Vec<_>>();
+
+            for part in parts {
+                let PartialState::TrieValues(part_nodes) = part;
+                for node in part_nodes {
+                    nodes.insert(hash(&node), node);
+                }
+            }
+            let all_nodes = nodes.into_iter().map(|(_hash, node)| node).collect::<Vec<_>>();
+            assert_eq!(all_nodes.len(), trie_changes.insertions.len());
+            let size_of_all = all_nodes.iter().map(|node| node.len()).sum::<usize>();
+            let num_nodes = all_nodes.len();
+            assert_eq!(
+                Trie::validate_state_part(
+                    trie.get_root(),
+                    PartId::new(0, 1),
+                    PartialState::TrieValues(all_nodes),
+                ),
+                Ok(())
+            );
+
+            let sum_of_sizes = sizes_vec.iter().sum::<usize>();
+            // Manually check that sizes are reasonable
+            println!("------------------------------");
+            println!("Number of nodes: {:?}", num_nodes);
+            println!("Sizes of parts: {:?}", sizes_vec);
+            println!(
+                "All nodes size: {:?}, sum_of_sizes: {:?}, memory_usage: {:?}",
+                size_of_all, sum_of_sizes, root_memory_usage
+            );
+            // borsh serialize should be about this size
+            assert!(size_of_all + 8 * num_nodes <= root_memory_usage as usize);
+        }
+    }
+
     fn format_simple_trie_refcount_diff(
         left: &[TrieRefcountChange],
         right: &[TrieRefcountChange],

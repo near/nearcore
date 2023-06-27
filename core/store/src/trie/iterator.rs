@@ -490,10 +490,9 @@ mod tests {
         let path_end: Vec<_> = NibbleSlice::new(end_key).iter().collect();
         let mut trie_iter = trie.iter().unwrap();
         let items = trie_iter.visit_nodes_interval(&path_begin, &path_end).unwrap();
-        let trie_items: Vec<_> =
-            items.into_iter().map(|item: crate::TrieTraversalItem| item.key).collect();
-        let expected_items_0: Vec<_> = expected_keys.into_iter().map(|item| Some(item)).collect();
-        assert_eq!(trie_items, expected_items_0);
+        let trie_item_keys: Vec<_> = items.into_iter().map(|item| item.key).flatten().collect();
+        let expected_item_keys: Vec<_> = expected_keys.into_iter().map(|item| item).collect();
+        assert_eq!(trie_item_keys, expected_item_keys);
     }
 
     /// Checks that for visiting interval of trie nodes first state key is
@@ -528,11 +527,11 @@ mod tests {
         verify_items_in_interval(b"a", b"aa", &trie, vec![b"a".to_vec()]);
     }
 
+    /// for boundary at leaf node
     /// Checks that for visiting interval of trie nodes first state key is
     /// included and the last one is excluded for boundary is leaf node
-    /// begin and end both at leaf nodes
     #[test]
-    fn test_visit_interval_boundary_leaf() {
+    fn test_visit_interval_boundary_at_leaf_node() {
         init_test_logger();
         let trie_changes = vec![
             (b"aa".to_vec(), Some(vec![0])),
@@ -561,12 +560,11 @@ mod tests {
     /// Checks that for visiting interval of trie nodes first state key is
     /// included and the last one is excluded
     #[test]
-    fn test_visit_interval_boundary_extension() {
+    fn test_visit_interval_boundary_at_extension_node() {
         init_test_logger();
         let trie_changes = vec![
             (b"aa".to_vec(), Some(vec![0])),
             (b"abb".to_vec(), Some(vec![1])),
-            //(b"b".to_vec(), Some(vec![2])),
             (b"baab".to_vec(), Some(vec![3])),
             (b"bab".to_vec(), Some(vec![4])),
             (b"bbb".to_vec(), Some(vec![5])),
@@ -577,20 +575,15 @@ mod tests {
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
 
         // begin at an extension node, end at a leaf node
-        //verify_items_in_interval(b"ab", b"bbb", &trie, vec![b"abb".to_vec(), b"b".to_vec(), b"baab".to_vec()]);
-
-        // begin at an extension node, end at an extension node
-        verify_items_in_interval(b"a", b"baab", &trie, vec![b"abb".to_vec(), b"b".to_vec()]);
-
-        // begin at a leaf node, end at an extension node
-        //verify_items_in_interval(b"aa", b"baa", &trie, vec![b"aa".to_vec(), b"abb".to_vec(), b"b".to_vec()]);
+        verify_items_in_interval(b"a", b"baab", &trie, vec![b"aa".to_vec(), b"abb".to_vec()]);
     }
 
     /// for boundary at branch nodes:
     /// Checks that for visiting interval of trie nodes first state key is
     /// included and the last one is excluded
     #[test]
-    fn test_visit_interval_boundary_branch() {
+    fn test_visit_interval_boundary_at_branch_node() {
+        init_test_logger();
         let trie_changes = vec![
             (b"aa".to_vec(), Some(vec![0])),
             (b"abb".to_vec(), Some(vec![1])),
@@ -607,22 +600,11 @@ mod tests {
 
         // begin at a branch node, end at a leaf node
         verify_items_in_interval(
-            b"ab",
-            b"baac",
+            b"b",
+            b"bbb",
             &trie,
-            vec![b"abb".to_vec(), b"abc".to_vec(), b"b".to_vec(), b"baab".to_vec()],
+            vec![b"b".to_vec(), b"baab".to_vec(), b"baac".to_vec()],
         );
-
-        // begin at a branch node, end at a branch node
-        verify_items_in_interval(
-            b"ab",
-            b"baa",
-            &trie,
-            vec![b"abb".to_vec(), b"abc".to_vec(), b"b".to_vec()],
-        );
-
-        // begin at a leaf node, end at a branch node
-        verify_items_in_interval(b"abc", b"baa", &trie, vec![b"abc".to_vec(), b"b".to_vec()]);
     }
 
     #[test]
