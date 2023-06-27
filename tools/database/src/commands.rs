@@ -1,6 +1,6 @@
+use crate::analyse::AnalyseDatabaseCommand;
 use clap::Parser;
 use std::path::PathBuf;
-use crate::analyse::AnalyseDatabaseCommand;
 
 #[derive(Parser)]
 pub struct DatabaseCommand {

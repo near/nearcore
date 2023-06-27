@@ -1,3 +1,2 @@
-pub mod commands;
 mod analyse;
-
+pub mod commands;
