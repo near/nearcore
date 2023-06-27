@@ -1,10 +1,10 @@
 use crate::errors::ContractPrecompilatonResult;
+use crate::logic::errors::{CacheError, CompilationError};
+use crate::logic::{CompiledContract, CompiledContractCache, ProtocolVersion, VMConfig};
 use crate::vm_kind::VMKind;
 use borsh::BorshSerialize;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::hash::CryptoHash;
-use near_vm_errors::{CacheError, CompilationError, CompiledContract, CompiledContractCache};
-use near_vm_logic::{ProtocolVersion, VMConfig};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};

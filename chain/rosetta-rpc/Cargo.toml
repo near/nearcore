@@ -40,4 +40,22 @@ insta.workspace = true
 near-actix-test-utils.workspace = true
 
 [features]
-nightly = []
+nightly_protocol = [
+  "near-chain-configs/nightly_protocol",
+  "near-client-primitives/nightly_protocol",
+  "near-client/nightly_protocol",
+  "near-network/nightly_protocol",
+  "near-o11y/nightly_protocol",
+  "near-primitives/nightly_protocol",
+  "node-runtime/nightly_protocol",
+]
+nightly = [
+  "nightly_protocol",
+  "near-chain-configs/nightly",
+  "near-client-primitives/nightly",
+  "near-client/nightly",
+  "near-network/nightly",
+  "near-o11y/nightly",
+  "near-primitives/nightly",
+  "node-runtime/nightly",
+]
