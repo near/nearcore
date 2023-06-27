@@ -317,7 +317,7 @@ mod tests {
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_o11y::testonly::init_test_logger;
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::shard_layout::{ShardLayout, ShardUId};
     use near_primitives::state::FlatStateValue;
     use std::sync::atomic::AtomicBool;
     use std::time::Duration;
@@ -328,18 +328,8 @@ mod tests {
         let shard_uid = ShardLayout::v0_single_shard().get_shard_uids()[0];
         let values =
             [vec![0], vec![1], vec![2; INLINE_DISK_VALUE_THRESHOLD + 1], vec![3], vec![4], vec![5]];
-        {
-            let mut store_update = store.store_update();
-            for (i, value) in values.iter().enumerate() {
-                let trie_key =
-                    TrieCachingStorage::get_key_from_shard_uid_and_hash(shard_uid, &hash(&value));
-                store_update.increment_refcount(DBCol::State, &trie_key, &value);
-                let fs_key = encode_flat_state_db_key(shard_uid, &[i as u8]);
-                let fs_value = FlatStateValue::value_ref(&value).try_to_vec().unwrap();
-                store_update.set(DBCol::FlatState, &fs_key, &fs_value);
-            }
-            store_update.commit().unwrap();
-        }
+        populate_flat_store(&store, shard_uid, &values);
+
         let flat_storage_manager =
             FlatStorageManager::test(store.clone(), &vec![shard_uid], CryptoHash::default());
         inline_flat_state_values(
@@ -375,18 +365,7 @@ mod tests {
         let shard_uid = ShardLayout::v0_single_shard().get_shard_uids()[0];
         let values =
             [vec![0], vec![1], vec![2; INLINE_DISK_VALUE_THRESHOLD + 1], vec![3], vec![4], vec![5]];
-        {
-            let mut store_update = store.store_update();
-            for (i, value) in values.iter().enumerate() {
-                let trie_key =
-                    TrieCachingStorage::get_key_from_shard_uid_and_hash(shard_uid, &hash(&value));
-                store_update.increment_refcount(DBCol::State, &trie_key, &value);
-                let fs_key = encode_flat_state_db_key(shard_uid, &[i as u8]);
-                let fs_value = FlatStateValue::value_ref(&value).try_to_vec().unwrap();
-                store_update.set(DBCol::FlatState, &fs_key, &fs_value);
-            }
-            store_update.commit().unwrap();
-        }
+        populate_flat_store(&store, shard_uid, &values);
 
         let flat_storage_manager =
             FlatStorageManager::test(store.clone(), &vec![shard_uid], CryptoHash::default());
@@ -421,18 +400,7 @@ mod tests {
         let shard_uid = ShardLayout::v0_single_shard().get_shard_uids()[0];
         let values =
             [vec![0], vec![1], vec![2; INLINE_DISK_VALUE_THRESHOLD + 1], vec![3], vec![4], vec![5]];
-        {
-            let mut store_update = store.store_update();
-            for (i, value) in values.iter().enumerate() {
-                let trie_key =
-                    TrieCachingStorage::get_key_from_shard_uid_and_hash(shard_uid, &hash(&value));
-                store_update.increment_refcount(DBCol::State, &trie_key, &value);
-                let fs_key = encode_flat_state_db_key(shard_uid, &[i as u8]);
-                let fs_value = FlatStateValue::value_ref(&value).try_to_vec().unwrap();
-                store_update.set(DBCol::FlatState, &fs_key, &fs_value);
-            }
-            store_update.commit().unwrap();
-        }
+        populate_flat_store(&store, shard_uid, &values);
 
         let flat_storage_manager =
             FlatStorageManager::test(store.clone(), &vec![shard_uid], CryptoHash::default());
@@ -454,6 +422,19 @@ mod tests {
         assert!(handle.handle.join().is_ok());
         // Check that no migration took place.
         assert_eq!(count_inlined_values(&store), 0);
+    }
+
+    fn populate_flat_store(store: &Store, shard_uid: ShardUId, values: &[Vec<u8>]) {
+        let mut store_update = store.store_update();
+        for (i, value) in values.iter().enumerate() {
+            let trie_key =
+                TrieCachingStorage::get_key_from_shard_uid_and_hash(shard_uid, &hash(&value));
+            store_update.increment_refcount(DBCol::State, &trie_key, &value);
+            let fs_key = encode_flat_state_db_key(shard_uid, &[i as u8]);
+            let fs_value = FlatStateValue::value_ref(&value).try_to_vec().unwrap();
+            store_update.set(DBCol::FlatState, &fs_key, &fs_value);
+        }
+        store_update.commit().unwrap();
     }
 
     fn count_inlined_values(store: &Store) -> u64 {
