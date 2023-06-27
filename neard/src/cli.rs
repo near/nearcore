@@ -1,7 +1,7 @@
 #[cfg(unix)]
 use anyhow::Context;
 use near_amend_genesis::AmendGenesisCommand;
-use near_analyse_storage::commands::AnalyseStorageCommand;
+use near_analyse_storage::commands::DatabaseCommand;
 use near_chain_configs::GenesisValidationMode;
 use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
@@ -128,8 +128,8 @@ impl NeardCmd {
             NeardSubCommand::UndoBlock(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
             }
-            NeardSubCommand::AnalyseStorage(cmd) => {
-                cmd.run()?;
+            NeardSubCommand::Database(cmd) => {
+                cmd.run(&home_dir)?;
             }
         };
         Ok(())
@@ -251,8 +251,8 @@ pub(super) enum NeardSubCommand {
     /// reset the head of the chain locally to the prev block of current head
     UndoBlock(UndoBlockCommand),
 
-    /// Analyse data size distribution in storage
-    AnalyseStorage(AnalyseStorageCommand),
+    /// Set of commands to run on database
+    Database(DatabaseCommand),
 }
 
 #[derive(clap::Parser)]

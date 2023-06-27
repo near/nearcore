@@ -1,8 +1,6 @@
 use clap::Parser;
 use near_store::db::RocksDB;
 use near_store::{col_name, DBCol};
-use nearcore::get_default_home;
-use once_cell::sync::Lazy;
 use rayon::prelude::*;
 use rocksdb::{ColumnFamilyDescriptor, Options, DB};
 use std::collections::HashMap;
@@ -11,18 +9,26 @@ use std::sync::{Arc, Mutex};
 use std::{panic, println};
 use strum::IntoEnumIterator;
 
-static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(get_default_home);
+#[derive(Parser)]
+pub struct DatabaseCommand {
+    #[clap(subcommand)]
+    subcmd: SubCommand
+}
 
 #[derive(Parser)]
-pub struct AnalyseStorageCommand {
-    #[clap(long, value_parser, default_value_os = DEFAULT_HOME.as_os_str())]
-    home: PathBuf,
+#[clap(subcommand_required = true, arg_required_else_help = true)]
+enum SubCommand {
+    /// Analyse data size distribution in RocksDB
+    Analyse(AnalyseDatabaseCommand),
+}
 
+#[derive(Parser)]
+struct AnalyseDatabaseCommand {
     #[arg(short, long)]
     column: Option<String>,
 
-    #[arg(short, long)]
-    limit: Option<usize>,
+    #[arg(short, long, default_value_t = 100)]
+    limit: usize,
 }
 
 pub fn get_db_col(col: &str) -> Option<DBCol> {
@@ -197,8 +203,8 @@ fn get_column_family_options(
     }
 }
 
-impl AnalyseStorageCommand {
-    pub fn run(&self) -> anyhow::Result<()> {
+impl AnalyseDatabaseCommand {
+    pub fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
         // Set db options for maximum read performance
         let mut opts = Options::default();
         opts.set_max_open_files(20_000);
@@ -209,7 +215,7 @@ impl AnalyseStorageCommand {
 
         let db = DB::open_cf_descriptors_read_only(
             &opts,
-            self.home.to_str().unwrap(),
+            home.to_str().unwrap(),
             col_families_cf,
             false,
         )
@@ -217,12 +223,16 @@ impl AnalyseStorageCommand {
         let (key_sizes_sorted, value_sizes_sorted) = read_all_pairs(&db, &col_families);
         let total_num_of_pairs = key_sizes_sorted.iter().map(|(_, count)| count).sum::<usize>();
 
-        let limit = match self.limit {
-            Some(limit) => limit,
-            None => 100,
-        };
-        print_results(&key_sizes_sorted, "Key", limit, total_num_of_pairs);
-        print_results(&value_sizes_sorted, "Value", limit, total_num_of_pairs);
+        print_results(&key_sizes_sorted, "Key", self.limit, total_num_of_pairs);
+        print_results(&value_sizes_sorted, "Value", self.limit, total_num_of_pairs);
         Ok(())
+    }
+}
+
+impl DatabaseCommand {
+    pub fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
+        match &self.subcmd {
+            SubCommand::Analyse(cmd) => cmd.run(home),
+        }
     }
 }
