@@ -500,17 +500,6 @@ impl GenesisConfigSnapshot {
         }
     }
 
-    /// Parses GenesisConfigSnapshot from a JSON string.
-    /// The string can be a JSON with comments.
-    /// It panics if the contents cannot be parsed from JSON to the GenesisConfigSnapshot structure.
-    pub fn from_json(value: &str) -> Self {
-        let json_str_without_comments: String =
-            near_config_utils::strip_comments_from_json_str(&value.to_string())
-                .expect("Failed to strip comments from genesis config.");
-        serde_json::from_str(&json_str_without_comments)
-            .expect("Failed to deserialize the genesis config.")
-    }
-
     /// Reads GenesisConfigSnapshot from a JSON file.
     /// The file can be a JSON with comments.
     /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
@@ -524,15 +513,6 @@ impl GenesisConfigSnapshot {
         let genesis_config: GenesisConfigSnapshot = serde_json::from_str(&json_str_without_comments)
             .with_context(|| "Failed to deserialize the genesis config.")?;
         Ok(genesis_config)
-    }
-
-    /// Writes GenesisConfigSnapshot to the file.
-    pub fn to_file<P: AsRef<Path>>(&self, path: P) {
-        std::fs::write(
-            path,
-            serde_json::to_vec_pretty(self).expect("Error serializing the genesis config."),
-        )
-        .expect("Failed to create / write a genesis config file.");
     }
 }
 
