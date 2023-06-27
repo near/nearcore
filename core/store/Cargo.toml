@@ -42,7 +42,7 @@ near-crypto.workspace = true
 near-fmt.workspace = true
 near-o11y.workspace = true
 near-primitives.workspace = true
-near-vm-logic.workspace = true
+near-vm-runner.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
@@ -72,7 +72,7 @@ nightly_protocol = [
   "near-fmt/nightly_protocol",
   "near-o11y/nightly_protocol",
   "near-primitives/nightly_protocol",
-  "near-vm-logic/nightly_protocol",
+  "near-vm-runner/nightly_protocol",
 ]
 nightly = [
   "nightly_protocol",
@@ -80,5 +80,5 @@ nightly = [
   "near-fmt/nightly",
   "near-o11y/nightly",
   "near-primitives/nightly",
-  "near-vm-logic/nightly",
+  "near-vm-runner/nightly",
 ]

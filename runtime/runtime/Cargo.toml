@@ -28,7 +28,6 @@ near-crypto.workspace = true
 near-o11y.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
-near-vm-logic.workspace = true
 near-vm-runner.workspace = true
 
 [features]
@@ -38,17 +37,15 @@ nightly = [
   "near-o11y/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
-  "near-vm-logic/nightly",
   "near-vm-runner/nightly",
 ]
 default = []
-dump_errors_schema = ["near-vm-logic/dump_errors_schema"]
+dump_errors_schema = ["near-vm-runner/dump_errors_schema"]
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
   "near-o11y/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
-  "near-vm-logic/nightly_protocol",
   "near-vm-runner/nightly_protocol",
 ]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
@@ -58,7 +55,7 @@ no_cache = [
   "near-store/no_cache",
 ]
 
-sandbox = ["near-vm-logic/sandbox", "near-vm-runner/sandbox"]
+sandbox = ["near-vm-runner/sandbox"]
 
 [dev-dependencies]
 assert_matches.workspace = true

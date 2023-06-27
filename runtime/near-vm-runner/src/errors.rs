@@ -1,4 +1,4 @@
-use near_vm_logic::errors::{FunctionCallError, VMRunnerError};
+use crate::logic::errors::{FunctionCallError, VMRunnerError};
 
 pub trait IntoVMError {
     fn into_vm_error(self) -> Result<FunctionCallError, VMRunnerError>;

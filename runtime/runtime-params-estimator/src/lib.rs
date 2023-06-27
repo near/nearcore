@@ -100,8 +100,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::{ExtCosts, VMConfig};
+use near_vm_runner::logic::mocks::mock_external::MockedExternal;
+use near_vm_runner::logic::{ExtCosts, VMConfig};
 use near_vm_runner::MockCompiledContractCache;
 use serde_json::json;
 use utils::{

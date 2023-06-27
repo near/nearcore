@@ -263,7 +263,7 @@ imports! {
 #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
 pub(crate) mod wasmer {
     use super::str_eq;
-    use near_vm_logic::{ProtocolVersion, VMLogic, VMLogicError};
+    use crate::logic::{ProtocolVersion, VMLogic, VMLogicError};
     use std::ffi::c_void;
 
     #[derive(Clone, Copy)]
@@ -324,7 +324,7 @@ pub(crate) mod wasmer2 {
     use std::sync::Arc;
 
     use super::str_eq;
-    use near_vm_logic::{ProtocolVersion, VMLogic};
+    use crate::logic::{ProtocolVersion, VMLogic};
     use wasmer_engine::Engine;
     use wasmer_engine_universal::UniversalEngine;
     use wasmer_vm::{
@@ -412,7 +412,7 @@ pub(crate) mod wasmer2 {
                         // We want to ensure that the only kind of error that host function calls
                         // return are VMLogicError. This is important because we later attempt to
                         // downcast the `RuntimeError`s into `VMLogicError`.
-                        let result: Result<Result<_, near_vm_logic::VMLogicError>, _>  = result;
+                        let result: Result<Result<_, crate::logic::VMLogicError>, _>  = result;
                         #[allow(unused_parens)]
                         match result {
                             Ok(Ok(($($returns),*))) => make_ret($($returns),*),
@@ -486,8 +486,8 @@ pub(crate) mod near_vm {
     use std::sync::Arc;
 
     use super::str_eq;
+    use crate::logic::{ProtocolVersion, VMLogic};
     use near_vm_engine::universal::UniversalEngine;
-    use near_vm_logic::{ProtocolVersion, VMLogic};
     use near_vm_vm::{
         ExportFunction, ExportFunctionMetadata, Resolver, VMFunction, VMFunctionKind, VMMemory,
     };
@@ -573,7 +573,7 @@ pub(crate) mod near_vm {
                         // We want to ensure that the only kind of error that host function calls
                         // return are VMLogicError. This is important because we later attempt to
                         // downcast the `RuntimeError`s into `VMLogicError`.
-                        let result: Result<Result<_, near_vm_logic::VMLogicError>, _>  = result;
+                        let result: Result<Result<_, crate::logic::VMLogicError>, _>  = result;
                         #[allow(unused_parens)]
                         match result {
                             Ok(Ok(($($returns),*))) => make_ret($($returns),*),
@@ -645,7 +645,7 @@ pub(crate) mod near_vm {
 #[cfg(feature = "wasmtime_vm")]
 pub(crate) mod wasmtime {
     use super::str_eq;
-    use near_vm_logic::{ProtocolVersion, VMLogic, VMLogicError};
+    use crate::logic::{ProtocolVersion, VMLogic, VMLogicError};
     use std::cell::UnsafeCell;
     use std::ffi::c_void;
 

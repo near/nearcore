@@ -53,7 +53,6 @@ near-telemetry.workspace = true
 near-test-contracts.workspace = true
 near-performance-metrics.workspace = true
 near-undo-block.workspace = true
-near-vm-logic.workspace = true
 near-vm-runner.workspace = true
 nearcore.workspace = true
 node-runtime.workspace = true
@@ -104,7 +103,6 @@ nightly = [
   "near-store/nightly",
   "near-telemetry/nightly",
   "near-undo-block/nightly",
-  "near-vm-logic/nightly",
   "near-vm-runner/nightly",
   "nearcore/nightly",
   "node-runtime/nightly",
@@ -130,7 +128,6 @@ nightly_protocol = [
   "near-store/nightly_protocol",
   "near-telemetry/nightly_protocol",
   "near-undo-block/nightly_protocol",
-  "near-vm-logic/nightly_protocol",
   "near-vm-runner/nightly_protocol",
   "nearcore/nightly_protocol",
   "node-runtime/nightly_protocol",
