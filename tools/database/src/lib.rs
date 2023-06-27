@@ -1,2 +1,3 @@
-pub mod analyse;
 pub mod commands;
+mod analyse;
+

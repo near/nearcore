@@ -12,6 +12,7 @@ use strum::IntoEnumIterator;
 #[derive(Parser)]
 pub struct AnalyseDatabaseCommand {
     #[arg(short, long)]
+    /// If specified only yhis column will be analysed
     column: Option<String>,
 
     #[arg(short, long, default_value_t = 100)]
@@ -21,7 +22,7 @@ pub struct AnalyseDatabaseCommand {
 
 fn get_db_col(col: &str) -> Option<DBCol> {
     for db_col in DBCol::iter() {
-        if col_name(db_col) == col {
+        if <&str>::from(db_col) == col {
             return Some(db_col);
         }
     }
@@ -49,7 +50,7 @@ impl DataSizeDistributionResults {
     fn new(
         mut key_sizes: Vec<(usize, usize)>,
         mut value_sizes: Vec<(usize, usize)>,
-        col_families: Vec<(String, ColumnFamilyCountAndSize)>,
+        col_families_data: Vec<(String, ColumnFamilyCountAndSize)>,
     ) -> Self {
         // The reason we sort here is because we want to display sorted
         // output that shows the most occurring sizes (the ones with the
@@ -62,7 +63,7 @@ impl DataSizeDistributionResults {
             key_sizes: key_sizes,
             value_sizes: value_sizes,
             total_num_of_pairs: total_num_of_pairs,
-            column_families_data: col_families,
+            column_families_data: col_families_data,
         }
     }
 
