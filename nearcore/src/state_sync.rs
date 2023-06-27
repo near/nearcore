@@ -45,7 +45,8 @@ pub fn spawn_state_sync_dump(
 
     let external = match dump_config.location {
         ExternalStorageLocation::S3 { bucket, region } => ExternalConnection::S3{
-            bucket: Arc::new(create_bucket_readwrite(&bucket,&region,Duration::from_secs(30),credentials_file).expect("Failed to authenticate connection to S3. Did you forget to provide AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment."))
+            bucket: Arc::new(create_bucket_readwrite(&bucket, &region, Duration::from_secs(30), credentials_file).expect(
+                "Failed to authenticate connection to S3. Please either provide AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or create a credentials file and link it in config.json as 's3_credentials_file'."))
         },
         ExternalStorageLocation::Filesystem { root_dir } => ExternalConnection::Filesystem { root_dir },
     };
