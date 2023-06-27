@@ -14,3 +14,14 @@ serde_json.workspace = true
 near-account-id.workspace = true
 near-chain-configs.workspace = true
 near-primitives.workspace = true
+
+[features]
+nightly = [
+  "nightly_protocol",
+  "near-chain-configs/nightly",
+  "near-primitives/nightly",
+]
+nightly_protocol = [
+  "near-chain-configs/nightly_protocol",
+  "near-primitives/nightly_protocol",
+]

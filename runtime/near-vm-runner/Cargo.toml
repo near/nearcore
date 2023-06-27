@@ -65,6 +65,10 @@ wasmprinter.workspace = true
 wat.workspace = true
 
 [features]
+nightly_protocol = [
+  "near-primitives-core/nightly_protocol",
+  "near-vm-logic/nightly_protocol",
+]
 # all vms enabled for now
 default = [
   "wasmer0_vm",
@@ -106,8 +110,10 @@ protocol_feature_fix_contract_loading_cost = [
 ]
 
 nightly = [
-    "near-primitives-core/nightly",
-    "protocol_feature_fix_contract_loading_cost",
+  "nightly_protocol",
+  "protocol_feature_fix_contract_loading_cost",
+  "near-primitives-core/nightly",
+  "near-vm-logic/nightly",
 ]
 sandbox = ["near-vm-logic/sandbox"]
 io_trace = ["near-vm-logic/io_trace"]

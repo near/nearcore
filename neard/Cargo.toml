@@ -72,10 +72,37 @@ serialize_all_state_changes = ["nearcore/serialize_all_state_changes"]
 
 nightly = [
   "nightly_protocol",
+  "protocol_feature_fix_staking_threshold",
+  "serialize_all_state_changes",
+  "near-chain-configs/nightly",
+  "near-client/nightly",
+  "near-dyn-configs/nightly",
+  "near-jsonrpc-primitives/nightly",
+  "near-mirror/nightly",
+  "near-network/nightly",
+  "near-o11y/nightly",
+  "near-ping/nightly",
+  "near-primitives/nightly",
+  "near-state-parts/nightly",
+  "near-store/nightly",
+  "near-undo-block/nightly",
   "nearcore/nightly",
-  "near-state-viewer/nightly",
 ]
-nightly_protocol = ["nearcore/nightly_protocol"]
+nightly_protocol = [
+  "near-chain-configs/nightly_protocol",
+  "near-client/nightly_protocol",
+  "near-dyn-configs/nightly_protocol",
+  "near-jsonrpc-primitives/nightly_protocol",
+  "near-mirror/nightly_protocol",
+  "near-network/nightly_protocol",
+  "near-o11y/nightly_protocol",
+  "near-ping/nightly_protocol",
+  "near-primitives/nightly_protocol",
+  "near-state-parts/nightly_protocol",
+  "near-store/nightly_protocol",
+  "near-undo-block/nightly_protocol",
+  "nearcore/nightly_protocol",
+]
 
 calimero_zero_storage = [
   "near-primitives/calimero_zero_storage",

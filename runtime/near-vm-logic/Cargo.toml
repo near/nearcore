@@ -37,6 +37,18 @@ serde_json = { workspace = true, features = ["preserve_order"] }
 expect-test.workspace = true
 
 [features]
+nightly_protocol = [
+  "near-fmt/nightly_protocol",
+  "near-o11y/nightly_protocol",
+  "near-primitives-core/nightly_protocol",
+]
+nightly = [
+  "nightly_protocol",
+  "protocol_feature_fix_contract_loading_cost",
+  "near-fmt/nightly",
+  "near-o11y/nightly",
+  "near-primitives-core/nightly",
+]
 default = []
 protocol_feature_fix_contract_loading_cost = [
     "near-primitives-core/protocol_feature_fix_contract_loading_cost",
