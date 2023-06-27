@@ -5,6 +5,7 @@ mod errors;
 mod features;
 mod imports;
 mod instrument;
+pub mod logic;
 #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
 mod memory;
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
@@ -21,7 +22,7 @@ mod wasmer_runner;
 #[cfg(feature = "wasmtime_vm")]
 mod wasmtime_runner;
 
-pub use near_vm_logic::with_ext_cost_counter;
+pub use crate::logic::with_ext_cost_counter;
 
 pub use cache::{get_contract_cache_key, precompile_contract, MockCompiledContractCache};
 pub use runner::{run, VM};

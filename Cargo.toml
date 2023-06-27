@@ -54,7 +54,6 @@ members = [
     "runtime/near-vm/types",
     "runtime/near-vm/wast",
     "runtime/near-vm/compiler-test-derive",
-    "runtime/near-vm-logic",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner/fuzz",
     "runtime/runtime",
@@ -221,7 +220,6 @@ near-vm-compiler-singlepass = { path = "runtime/near-vm/compiler-singlepass" }
 near-vm-compiler-test-derive = { path = "runtime/near-vm/compiler-test-derive" }
 near-vm-engine = { path = "runtime/near-vm/engine" }
 near-vm-engine-universal = { path = "runtime/near-vm/engine-universal" }
-near-vm-logic = { path = "runtime/near-vm-logic" }
 near-vm-runner = { path = "runtime/near-vm-runner" }
 near-vm-test-generator = { path = "runtime/near-vm/test-generator" }
 near-vm-types = { path = "runtime/near-vm/types" }

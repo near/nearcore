@@ -44,7 +44,6 @@ near-o11y.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
 near-test-contracts.workspace = true
-near-vm-logic.workspace = true
 near-vm-runner = { workspace = true, features = ["clap"] }
 nearcore.workspace = true
 node-runtime.workspace = true
@@ -54,7 +53,7 @@ insta.workspace = true
 
 [features]
 default = ["costs_counting"]
-costs_counting = ["near-vm-logic/costs_counting"]
+costs_counting = ["near-vm-runner/costs_counting"]
 # Required feature for proper config, but can't be enabled by default because it is leaked to other release crates.
 required = [
   "costs_counting",
@@ -92,4 +91,4 @@ nightly_protocol = [
   "node-runtime/nightly_protocol",
 ]
 sandbox = ["node-runtime/sandbox"]
-io_trace = ["near-store/io_trace", "near-o11y/io_trace", "near-vm-logic/io_trace"]
+io_trace = ["near-store/io_trace", "near-o11y/io_trace", "near-vm-runner/io_trace"]

@@ -18,7 +18,7 @@ use near_store::flat::{
 };
 use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
-use near_vm_logic::{ExtCosts, VMLimitConfig};
+use near_vm_runner::logic::{ExtCosts, VMLimitConfig};
 use node_runtime::{ApplyState, Runtime};
 use std::collections::HashMap;
 use std::iter;

@@ -7,9 +7,9 @@ use core::fmt;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::version::PROTOCOL_VERSION;
-use near_vm_logic::errors::FunctionCallError;
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::{VMConfig, VMContext};
+use crate::logic::errors::FunctionCallError;
+use crate::logic::mocks::mock_external::MockedExternal;
+use crate::logic::{VMConfig, VMContext};
 
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
 pub fn find_entry_point(contract: &ContractCode) -> Option<String> {

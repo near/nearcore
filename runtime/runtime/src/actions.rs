@@ -30,12 +30,12 @@ use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
     StorageError, TrieUpdate,
 };
-use near_vm_logic::errors::{
+use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, FunctionCallErrorSer, InconsistentStateError,
     VMRunnerError,
 };
-use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{ActionCosts, VMContext, VMOutcome};
+use near_vm_runner::logic::types::PromiseResult;
+use near_vm_runner::logic::{ActionCosts, VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
 
 /// Runs given function call with given context / apply state.

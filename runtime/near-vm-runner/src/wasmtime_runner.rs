@@ -5,12 +5,12 @@ use near_primitives_core::config::VMConfig;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::types::ProtocolVersion;
-use near_vm_logic::errors::{
+use crate::logic::errors::{
     CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMLogicError,
     VMRunnerError, WasmTrap,
 };
-use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{
+use crate::logic::types::PromiseResult;
+use crate::logic::{
     CompiledContractCache, External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome,
 };
 use std::borrow::Cow;
@@ -277,7 +277,7 @@ impl crate::runner::VM for WasmtimeVM {
         _cache: &dyn CompiledContractCache,
     ) -> Result<
         Result<ContractPrecompilatonResult, CompilationError>,
-        near_vm_logic::errors::CacheError,
+        crate::logic::errors::CacheError,
     > {
         Ok(Ok(ContractPrecompilatonResult::CacheNotAvailable))
     }
