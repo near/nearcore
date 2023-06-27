@@ -1,9 +1,9 @@
-use crate::sys::exports::Exportable;
-use crate::sys::store::{Store, StoreObject};
-use crate::sys::types::Val;
-use crate::sys::GlobalType;
-use crate::sys::Mutability;
-use crate::sys::RuntimeError;
+use super::super::exports::Exportable;
+use super::super::store::{Store, StoreObject};
+use super::super::types::GlobalType;
+use super::super::types::Mutability;
+use super::super::types::Val;
+use near_vm_engine::RuntimeError;
 use near_vm_vm::{Export, Global as RuntimeGlobal, VMGlobal};
 use std::fmt;
 use std::sync::Arc;

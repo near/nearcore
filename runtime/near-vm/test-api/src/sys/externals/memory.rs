@@ -1,7 +1,7 @@
-use crate::sys::exports::Exportable;
-use crate::sys::store::Store;
-use crate::sys::{MemoryType, MemoryView};
-use near_vm_types::{Pages, ValueType};
+use super::super::exports::Exportable;
+use super::super::store::Store;
+use super::super::types::MemoryType;
+use near_vm_types::{MemoryView, Pages, ValueType};
 use near_vm_vm::{Export, MemoryError, VMMemory};
 use std::convert::TryInto;
 use std::slice;

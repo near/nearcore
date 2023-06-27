@@ -1,4 +1,5 @@
-use crate::sys::{ExportError, Instance};
+use super::exports::ExportError;
+use super::instance::Instance;
 use thiserror::Error;
 
 /// An error while initializing the user supplied host env with the `WasmerEnv` trait.

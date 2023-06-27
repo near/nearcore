@@ -1,11 +1,11 @@
 // This is test code...
 #![allow(clippy::vtable_address_comparisons)]
 
-use crate::sys::exports::Exportable;
-use crate::sys::store::Store;
-use crate::sys::types::{Val, ValFuncRef};
-use crate::sys::RuntimeError;
-use crate::sys::TableType;
+use super::super::exports::Exportable;
+use super::super::store::Store;
+use super::super::types::TableType;
+use super::super::types::{Val, ValFuncRef};
+use near_vm_engine::RuntimeError;
 use near_vm_vm::{Export, Table as RuntimeTable, TableElement, VMTable};
 use std::sync::Arc;
 
