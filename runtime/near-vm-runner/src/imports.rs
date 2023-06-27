@@ -486,8 +486,8 @@ pub(crate) mod near_vm {
     use std::sync::Arc;
 
     use super::str_eq;
-    use near_vm_engine::universal::UniversalEngine;
     use crate::logic::{ProtocolVersion, VMLogic};
+    use near_vm_engine::universal::UniversalEngine;
     use near_vm_vm::{
         ExportFunction, ExportFunctionMetadata, Resolver, VMFunction, VMFunctionKind, VMMemory,
     };

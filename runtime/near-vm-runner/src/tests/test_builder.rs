@@ -1,11 +1,11 @@
 use crate::internal::VMKind;
+use crate::logic::{mocks::mock_external::MockedExternal, ProtocolVersion, VMContext, VMOutcome};
 use near_primitives::runtime::{config_store::RuntimeConfigStore, fees::RuntimeFeesConfig};
 use near_primitives_core::{
     contract::ContractCode,
     types::Gas,
     version::{ProtocolFeature, PROTOCOL_VERSION},
 };
-use crate::logic::{mocks::mock_external::MockedExternal, ProtocolVersion, VMContext, VMOutcome};
 use std::{collections::HashSet, fmt::Write};
 
 pub(crate) fn test_builder() -> TestBuilder {

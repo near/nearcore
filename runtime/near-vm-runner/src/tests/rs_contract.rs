@@ -1,12 +1,12 @@
-use near_primitives::test_utils::encode;
 use crate::logic::action::{Action, FunctionCallAction};
-use near_primitives_core::contract::ContractCode;
-use near_primitives_core::runtime::fees::RuntimeFeesConfig;
-use near_primitives_core::types::Balance;
 use crate::logic::errors::{FunctionCallError, HostError, WasmTrap};
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::types::ReturnData;
 use crate::logic::{ReceiptMetadata, VMConfig};
+use near_primitives::test_utils::encode;
+use near_primitives_core::contract::ContractCode;
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
+use near_primitives_core::types::Balance;
 use std::mem::size_of;
 
 use crate::runner::VMResult;

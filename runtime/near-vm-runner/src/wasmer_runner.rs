@@ -1,5 +1,12 @@
 use crate::errors::{ContractPrecompilatonResult, IntoVMError};
 use crate::internal::VMKind;
+use crate::logic::errors::{
+    CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
+};
+use crate::logic::types::PromiseResult;
+use crate::logic::{
+    CompiledContract, CompiledContractCache, External, VMContext, VMLogic, VMLogicError, VMOutcome,
+};
 use crate::memory::WasmerMemory;
 use crate::prepare;
 use crate::runner::VMResult;
@@ -8,13 +15,6 @@ use near_primitives_core::config::VMConfig;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::types::ProtocolVersion;
-use crate::logic::errors::{
-    CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
-};
-use crate::logic::types::PromiseResult;
-use crate::logic::{
-    CompiledContract, CompiledContractCache, External, VMContext, VMLogic, VMLogicError, VMOutcome,
-};
 use wasmer_runtime::{ImportObject, Module};
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), FunctionCallError> {

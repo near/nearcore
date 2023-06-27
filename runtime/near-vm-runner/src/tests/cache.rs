@@ -3,6 +3,10 @@
 
 use super::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
 use crate::internal::VMKind;
+use crate::logic::errors::VMRunnerError;
+use crate::logic::mocks::mock_external::MockedExternal;
+use crate::logic::VMConfig;
+use crate::logic::{CompiledContract, CompiledContractCache};
 use crate::runner::VMResult;
 use crate::wasmer2_runner::Wasmer2VM;
 use crate::{prepare, MockCompiledContractCache};
@@ -11,10 +15,6 @@ use near_primitives_core::contract::ContractCode;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_stable_hasher::StableHasher;
-use crate::logic::errors::VMRunnerError;
-use crate::logic::mocks::mock_external::MockedExternal;
-use crate::logic::VMConfig;
-use crate::logic::{CompiledContract, CompiledContractCache};
 use std::hash::{Hash, Hasher};
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};

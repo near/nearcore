@@ -1,10 +1,5 @@
 use crate::errors::{ContractPrecompilatonResult, IntoVMError};
 use crate::internal::VMKind;
-use crate::{imports, prepare};
-use near_primitives_core::config::VMConfig;
-use near_primitives_core::contract::ContractCode;
-use near_primitives_core::runtime::fees::RuntimeFeesConfig;
-use near_primitives_core::types::ProtocolVersion;
 use crate::logic::errors::{
     CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMLogicError,
     VMRunnerError, WasmTrap,
@@ -13,6 +8,11 @@ use crate::logic::types::PromiseResult;
 use crate::logic::{
     CompiledContractCache, External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome,
 };
+use crate::{imports, prepare};
+use near_primitives_core::config::VMConfig;
+use near_primitives_core::contract::ContractCode;
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
+use near_primitives_core::types::ProtocolVersion;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ffi::c_void;

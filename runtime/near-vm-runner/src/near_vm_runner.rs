@@ -1,6 +1,15 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::imports::near_vm::NearVmImports;
 use crate::internal::VMKind;
+use crate::logic::errors::{
+    CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
+};
+use crate::logic::gas_counter::FastGasCounter;
+use crate::logic::types::{PromiseResult, ProtocolVersion};
+use crate::logic::{
+    CompiledContract, CompiledContractCache, External, MemSlice, MemoryLike, VMConfig, VMContext,
+    VMLogic, VMOutcome,
+};
 use crate::prepare;
 use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports};
@@ -11,15 +20,6 @@ use near_stable_hasher::StableHasher;
 use near_vm_compiler_singlepass::Singlepass;
 use near_vm_engine::universal::{
     Universal, UniversalEngine, UniversalExecutable, UniversalExecutableRef,
-};
-use crate::logic::errors::{
-    CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
-};
-use crate::logic::gas_counter::FastGasCounter;
-use crate::logic::types::{PromiseResult, ProtocolVersion};
-use crate::logic::{
-    CompiledContract, CompiledContractCache, External, MemSlice, MemoryLike, VMConfig, VMContext,
-    VMLogic, VMOutcome,
 };
 use near_vm_types::{FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
 use near_vm_vm::{

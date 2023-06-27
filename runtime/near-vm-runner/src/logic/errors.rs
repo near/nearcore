@@ -572,7 +572,9 @@ impl<T: Any + Eq + Sized + Send + Sync> AnyEq for T {
 
 #[cfg(test)]
 mod tests {
-    use crate::logic::errors::{CompilationError, FunctionCallError, MethodResolveError, PrepareError};
+    use crate::logic::errors::{
+        CompilationError, FunctionCallError, MethodResolveError, PrepareError,
+    };
 
     #[test]
     fn test_display() {

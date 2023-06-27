@@ -1,13 +1,6 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::imports::wasmer2::Wasmer2Imports;
 use crate::internal::VMKind;
-use crate::prepare;
-use crate::runner::VMResult;
-use crate::{get_contract_cache_key, imports};
-use memoffset::offset_of;
-use near_primitives_core::contract::ContractCode;
-use near_primitives_core::runtime::fees::RuntimeFeesConfig;
-use near_stable_hasher::StableHasher;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
@@ -17,6 +10,13 @@ use crate::logic::{
     CompiledContract, CompiledContractCache, External, MemSlice, MemoryLike, VMConfig, VMContext,
     VMLogic, VMOutcome,
 };
+use crate::prepare;
+use crate::runner::VMResult;
+use crate::{get_contract_cache_key, imports};
+use memoffset::offset_of;
+use near_primitives_core::contract::ContractCode;
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
+use near_stable_hasher::StableHasher;
 use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;

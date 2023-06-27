@@ -1,7 +1,7 @@
 use crate::internal::VMKind;
-use finite_wasm::wasmparser as wp;
 use crate::logic::errors::PrepareError;
 use crate::logic::VMConfig;
+use finite_wasm::wasmparser as wp;
 use wasm_encoder::{Encode, Section, SectionId};
 
 struct PrepareContext<'a> {

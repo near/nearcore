@@ -309,7 +309,10 @@ fn test_overflowing_burn_gas_with_promises_gas_2() {
         10u128.to_le_bytes().as_ptr() as _,
         10000,
     );
-    assert!(matches!(result, Err(crate::logic::VMLogicError::HostError(crate::logic::HostError::GasExceeded))));
+    assert!(matches!(
+        result,
+        Err(crate::logic::VMLogicError::HostError(crate::logic::HostError::GasExceeded))
+    ));
     assert_eq!(logic.gas_counter().used_gas(), minimum_prepay);
 }
 

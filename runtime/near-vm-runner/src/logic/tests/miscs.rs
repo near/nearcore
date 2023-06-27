@@ -1,7 +1,7 @@
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
-use crate::logic::HostError;
 use crate::logic::ExtCosts;
+use crate::logic::HostError;
 use crate::map;
 use hex::FromHex;
 use serde::de::Error;
@@ -148,9 +148,10 @@ where
 
 #[test]
 fn test_ecrecover() {
-    for EcrecoverTest { m, v, sig, mc, res } in
-        from_slice::<'_, Vec<_>>(fs::read("src/logic/tests/ecrecover-tests.json").unwrap().as_slice())
-            .unwrap()
+    for EcrecoverTest { m, v, sig, mc, res } in from_slice::<'_, Vec<_>>(
+        fs::read("src/logic/tests/ecrecover-tests.json").unwrap().as_slice(),
+    )
+    .unwrap()
     {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
