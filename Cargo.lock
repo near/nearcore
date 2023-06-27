@@ -3375,21 +3375,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-analyse-storage"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "clap 4.2.4",
- "near-store",
- "nearcore",
- "num_cpus",
- "once_cell",
- "rayon",
- "rocksdb",
- "strum",
-]
-
-[[package]]
 name = "near-async"
 version = "0.0.0"
 dependencies = [
@@ -3625,6 +3610,21 @@ dependencies = [
  "subtle",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "near-database"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap 4.2.4",
+ "near-store",
+ "nearcore",
+ "num_cpus",
+ "once_cell",
+ "rayon",
+ "rocksdb",
+ "strum",
 ]
 
 [[package]]
@@ -4569,11 +4569,11 @@ dependencies = [
  "cold-store-tool",
  "futures",
  "near-amend-genesis",
- "near-analyse-storage",
  "near-chain-configs",
  "near-client",
  "near-config-utils",
  "near-crypto",
+ "near-database",
  "near-dyn-configs",
  "near-flat-storage",
  "near-jsonrpc-primitives",

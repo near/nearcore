@@ -33,12 +33,12 @@ tracing.workspace = true
 
 nearcore.workspace = true
 near-amend-genesis.workspace = true
-near-analyse-storage.workspace = true
 near-chain-configs.workspace = true
 near-client.workspace = true
 near-cold-store-tool.workspace = true
 near-config-utils.workspace = true
 near-crypto.workspace = true
+near-database.workspace = true
 near-dyn-configs.workspace = true
 near-flat-storage.workspace = true
 near-jsonrpc-primitives.workspace = true

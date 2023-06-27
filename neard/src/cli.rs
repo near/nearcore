@@ -1,7 +1,7 @@
 #[cfg(unix)]
 use anyhow::Context;
 use near_amend_genesis::AmendGenesisCommand;
-use near_analyse_storage::commands::DatabaseCommand;
+use near_database::commands::DatabaseCommand;
 use near_chain_configs::GenesisValidationMode;
 use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;

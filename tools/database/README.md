@@ -1,13 +1,17 @@
-# Analyse storage
+# Database
 
-The analyse-storage script provides an efficient way to assess the size distribution
+A set of tool useful when working with the underlying database.
+
+## Analyse Database
+
+The analyse database script provides an efficient way to assess the size distribution
 of keys and values within RocksDB.
 
-## Usage
+### Usage
 
 To run the script, use the following example:
 ```bash
-cargo run --bin neard analyse-storage --home <db_path> --column col5 --limit 50
+cargo run --bin neard database analyse <db_path> --column col5 --limit 50
 ```
 The arguments are as follows:
 
@@ -22,7 +26,7 @@ The resulting output will show the following:
  - Key and value size distribution
 
 
-## Tips for Handling Large Column Families
+### Tips for Handling Large Column Families
 As this script is designed to read as many column families as possible at the start,
 you may need to adjust the max_open_files limit on your operating system.
 
