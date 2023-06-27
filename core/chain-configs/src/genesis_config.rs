@@ -500,9 +500,9 @@ impl GenesisConfigSnapshot {
         }
     }
 
-    /// Parses GenesisConfig from a JSON string.
+    /// Parses GenesisConfigSnapshot from a JSON string.
     /// The string can be a JSON with comments.
-    /// It panics if the contents cannot be parsed from JSON to the GenesisConfig structure.
+    /// It panics if the contents cannot be parsed from JSON to the GenesisConfigSnapshot structure.
     pub fn from_json(value: &str) -> Self {
         let json_str_without_comments: String =
             near_config_utils::strip_comments_from_json_str(&value.to_string())
@@ -511,10 +511,10 @@ impl GenesisConfigSnapshot {
             .expect("Failed to deserialize the genesis config.")
     }
 
-    /// Reads GenesisConfig from a JSON file.
+    /// Reads GenesisConfigSnapshot from a JSON file.
     /// The file can be a JSON with comments.
     /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
-    /// GenesisConfig structure.
+    /// GenesisConfigSnapshot structure.
     pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let mut file = File::open(path).with_context(|| "Could not open genesis config file.")?;
         let mut json_str = String::new();
@@ -526,7 +526,7 @@ impl GenesisConfigSnapshot {
         Ok(genesis_config)
     }
 
-    /// Writes GenesisConfig to the file.
+    /// Writes GenesisConfigSnapshot to the file.
     pub fn to_file<P: AsRef<Path>>(&self, path: P) {
         std::fs::write(
             path,
@@ -712,7 +712,7 @@ impl GenesisSnapshot {
         Self::new_with_path_validated(config_snapshot, records_file, GenesisValidationMode::Full)
     }
 
-    /// Reads Genesis from a single JSON file, the file can be JSON with comments
+    /// Reads GenesisSnapshot from a single JSON file, the file can be JSON with comments
     /// This function will collect all errors regarding genesis.json and push them to validation_errors
     pub fn from_file<P: AsRef<Path>>(
         path: P,
@@ -802,7 +802,7 @@ impl GenesisSnapshot {
         }
     }
 
-    /// Writes Genesis to the file.
+    /// Writes GenesisSnapshot to the file.
     pub fn to_file<P: AsRef<Path>>(&self, path: P) {
         std::fs::write(
             path,
@@ -928,7 +928,7 @@ impl Genesis {
         GenesisSnapshot::from_genesis_for_initial_config(self)
     }
 
-    /// Writes GenesisConfig to the file.
+    /// Writes Genesis to the file.
     pub fn to_file<P: AsRef<Path>>(&self, path: P, epoch_height: EpochHeight) {
         let genesis_snapshot = GenesisSnapshot::from_genesis(self.clone(), epoch_height);
         genesis_snapshot.to_file(path);
