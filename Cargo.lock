@@ -3559,6 +3559,7 @@ dependencies = [
  "reed-solomon-erasure",
  "regex",
  "rust-s3",
+ "serde",
  "serde_json",
  "strum",
  "sysinfo",
@@ -6448,6 +6449,7 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 name = "state-viewer"
 version = "0.0.0"
 dependencies = [
+ "actix",
  "ansi_term",
  "anyhow",
  "borsh 0.10.2",
