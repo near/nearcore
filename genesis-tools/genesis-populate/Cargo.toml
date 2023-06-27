@@ -24,6 +24,20 @@ near-chain.workspace = true
 near-test-contracts.workspace = true
 
 [features]
+nightly_protocol = [
+  "near-chain-configs/nightly_protocol",
+  "near-chain/nightly_protocol",
+  "near-epoch-manager/nightly_protocol",
+  "near-primitives/nightly_protocol",
+  "near-store/nightly_protocol",
+  "nearcore/nightly_protocol",
+]
 nightly = [
+  "nightly_protocol",
+  "near-chain-configs/nightly",
+  "near-chain/nightly",
+  "near-epoch-manager/nightly",
+  "near-primitives/nightly",
+  "near-store/nightly",
   "nearcore/nightly",
 ]

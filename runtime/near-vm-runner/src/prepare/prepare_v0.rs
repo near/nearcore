@@ -1,6 +1,6 @@
 //! Legacy validation for very old protocol versions.
 
-use near_vm_errors::PrepareError;
+use near_vm_logic::errors::PrepareError;
 use near_vm_logic::VMConfig;
 use parity_wasm_41::builder;
 use parity_wasm_41::elements::{self, External, MemorySection, Type};

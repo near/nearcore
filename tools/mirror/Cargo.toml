@@ -46,3 +46,36 @@ near-primitives-core.workspace = true
 near-o11y.workspace = true
 near-store.workspace = true
 near-crypto.workspace = true
+
+[features]
+nightly = [
+  "nightly_protocol",
+  "near-chain-configs/nightly",
+  "near-chain/nightly",
+  "near-client-primitives/nightly",
+  "near-client/nightly",
+  "near-epoch-manager/nightly",
+  "near-indexer-primitives/nightly",
+  "near-indexer/nightly",
+  "near-network/nightly",
+  "near-o11y/nightly",
+  "near-primitives-core/nightly",
+  "near-primitives/nightly",
+  "near-store/nightly",
+  "nearcore/nightly",
+]
+nightly_protocol = [
+  "near-chain-configs/nightly_protocol",
+  "near-chain/nightly_protocol",
+  "near-client-primitives/nightly_protocol",
+  "near-client/nightly_protocol",
+  "near-epoch-manager/nightly_protocol",
+  "near-indexer-primitives/nightly_protocol",
+  "near-indexer/nightly_protocol",
+  "near-network/nightly_protocol",
+  "near-o11y/nightly_protocol",
+  "near-primitives-core/nightly_protocol",
+  "near-primitives/nightly_protocol",
+  "near-store/nightly_protocol",
+  "nearcore/nightly_protocol",
+]

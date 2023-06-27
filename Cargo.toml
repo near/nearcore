@@ -2,7 +2,7 @@
 version = "0.0.0" # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
-rust-version = "1.69.0"
+rust-version = "1.70.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -46,11 +46,10 @@ members = [
     "integration-tests",
     "nearcore",
     "neard",
-    "runtime/near-vm/api",
+    "runtime/near-vm/test-api",
     "runtime/near-vm/compiler",
     "runtime/near-vm/compiler-singlepass",
     "runtime/near-vm/engine",
-    "runtime/near-vm/engine-universal",
     "runtime/near-vm/vm",
     "runtime/near-vm/types",
     "runtime/near-vm/wast",
@@ -132,8 +131,8 @@ delay-detector = { path = "tools/delay-detector" }
 derive-enum-from-into = "0.1.1"
 derive_more = "0.99.9"
 dirs = "4"
-dynasm = "1.0"
-dynasmrt = "1.0"
+dynasm = "2.0"
+dynasmrt = "2.0"
 easy-ext = "0.2"
 ed25519-dalek = "1"
 elastic-array = "0.11"
@@ -168,7 +167,7 @@ log = "0.4"
 loupe = "0.1"
 lru = "0.7.2"
 memmap2 = "0.5"
-memoffset = "0.6"
+memoffset = "0.8"
 more-asserts = "0.2"
 near-adjust-db-tool = { path = "tools/adjust-db", package = "adjust-db-tool"  }
 near-account-id = { path = "core/account-id", features = ["internal_unstable"] }
@@ -218,13 +217,12 @@ near-store = { path = "core/store" }
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
 near-undo-block = { path = "tools/undo-block" }
-near-vm = { path = "runtime/near-vm/api" }
+near-vm-test-api = { path = "runtime/near-vm/test-api" }
 near-vm-compiler = { path = "runtime/near-vm/compiler" }
 near-vm-compiler-singlepass = { path = "runtime/near-vm/compiler-singlepass" }
 near-vm-compiler-test-derive = { path = "runtime/near-vm/compiler-test-derive" }
 near-vm-engine = { path = "runtime/near-vm/engine" }
 near-vm-engine-universal = { path = "runtime/near-vm/engine-universal" }
-near-vm-errors = { path = "runtime/near-vm-errors" }
 near-vm-logic = { path = "runtime/near-vm-logic" }
 near-vm-runner = { path = "runtime/near-vm-runner" }
 near-vm-test-generator = { path = "runtime/near-vm/test-generator" }
@@ -318,18 +316,18 @@ trybuild = "1.0.11"
 turn = "0.6"
 validator = "0.12"
 wasm-encoder = "0.27.0"
-wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.0" }
-wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.0" }
-wasmer-engine = { package = "wasmer-engine-near", version = "=2.4.0" }
-wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.4.0", features = ["compiler"] }
+wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.1" }
+wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.1" }
+wasmer-engine = { package = "wasmer-engine-near", version = "=2.4.1" }
+wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.4.1", features = ["compiler"] }
 wasmer-runtime = { version = "0.18.0", package = "wasmer-runtime-near", features = ["default-backend-singlepass"], default-features = false }
 wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near" }
-wasmer-types = { package = "wasmer-types-near", version = "=2.4.0" }
-wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.0" }
+wasmer-types = { package = "wasmer-types-near", version = "=2.4.1" }
+wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.1" }
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmprinter = "0.2"
 wasm-smith = "0.10"
-wasmtime = { version = "4.0.0", default-features = false, features = ["cranelift"] }
+wasmtime = { version = "9.0.3", default-features = false, features = ["cranelift"] }
 wast = "40.0"
 wat = "1.0.40"
 webrtc-util = "0.7"

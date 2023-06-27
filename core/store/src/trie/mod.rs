@@ -7,7 +7,9 @@ use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
-pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
+pub use crate::trie::shard_tries::{
+    KeyForStateChanges, ShardTries, StateSnapshot, StateSnapshotConfig, WrappedTrieChanges,
+};
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
 use crate::StorageError;
@@ -30,6 +32,7 @@ use std::rc::Rc;
 use std::str;
 
 mod config;
+mod from_flat;
 mod insert_delete;
 pub mod iterator;
 mod nibble_slice;
@@ -42,6 +45,8 @@ mod trie_storage;
 #[cfg(test)]
 mod trie_tests;
 pub mod update;
+
+pub use from_flat::construct_trie_from_flat;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 

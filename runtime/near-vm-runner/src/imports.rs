@@ -72,8 +72,8 @@ macro_rules! imports {
                 $(#[cfg(feature = $feature_name2)])?
                 $(#[cfg(feature = $feature_name)])*
                 if true
-                    $(&& near_primitives::checked_feature!($feature_name, $feature, $protocol_version))*
-                    $(&& near_primitives::checked_feature!("stable", $stable_feature, $protocol_version))?
+                    $(&& near_primitives_core::checked_feature!($feature_name, $feature, $protocol_version))*
+                    $(&& near_primitives_core::checked_feature!("stable", $stable_feature, $protocol_version))?
                 {
                     call_with_name!($M => $( @in $mod : )? $( @as $name : )? $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
                 }
@@ -412,7 +412,7 @@ pub(crate) mod wasmer2 {
                         // We want to ensure that the only kind of error that host function calls
                         // return are VMLogicError. This is important because we later attempt to
                         // downcast the `RuntimeError`s into `VMLogicError`.
-                        let result: Result<Result<_, near_vm_errors::VMLogicError>, _>  = result;
+                        let result: Result<Result<_, near_vm_logic::VMLogicError>, _>  = result;
                         #[allow(unused_parens)]
                         match result {
                             Ok(Ok(($($returns),*))) => make_ret($($returns),*),
@@ -486,8 +486,7 @@ pub(crate) mod near_vm {
     use std::sync::Arc;
 
     use super::str_eq;
-    use near_vm_engine::Engine;
-    use near_vm_engine_universal::UniversalEngine;
+    use near_vm_engine::universal::UniversalEngine;
     use near_vm_logic::{ProtocolVersion, VMLogic};
     use near_vm_vm::{
         ExportFunction, ExportFunctionMetadata, Resolver, VMFunction, VMFunctionKind, VMMemory,
@@ -574,7 +573,7 @@ pub(crate) mod near_vm {
                         // We want to ensure that the only kind of error that host function calls
                         // return are VMLogicError. This is important because we later attempt to
                         // downcast the `RuntimeError`s into `VMLogicError`.
-                        let result: Result<Result<_, near_vm_errors::VMLogicError>, _>  = result;
+                        let result: Result<Result<_, near_vm_logic::VMLogicError>, _>  = result;
                         #[allow(unused_parens)]
                         match result {
                             Ok(Ok(($($returns),*))) => make_ret($($returns),*),
@@ -675,11 +674,12 @@ pub(crate) mod wasmtime {
     pub(crate) fn link(
         linker: &mut wasmtime::Linker<()>,
         memory: wasmtime::Memory,
+        store: &wasmtime::Store<()>,
         raw_logic: *mut c_void,
         protocol_version: ProtocolVersion,
     ) {
         CALLER_CONTEXT.with(|caller_context| unsafe { *caller_context.get() = raw_logic });
-        linker.define("env", "memory", memory).expect("cannot define memory");
+        linker.define(store, "env", "memory", memory).expect("cannot define memory");
 
         macro_rules! add_import {
             (

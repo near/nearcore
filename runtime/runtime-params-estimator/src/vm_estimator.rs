@@ -6,8 +6,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::StoreCompiledContractCache;
-use near_vm_errors::{CompiledContract, CompiledContractCache};
 use near_vm_logic::VMContext;
+use near_vm_logic::{CompiledContract, CompiledContractCache};
 use near_vm_runner::internal::VMKind;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";

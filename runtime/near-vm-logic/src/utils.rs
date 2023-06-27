@@ -1,4 +1,4 @@
-use near_vm_errors::HostError;
+use crate::HostError;
 
 /// Uses `,` separator to split `method_names` into a vector of method names.
 /// Returns an empty vec if the empty slice is given.

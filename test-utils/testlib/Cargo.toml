@@ -19,4 +19,17 @@ near-test-contracts.workspace = true
 node-runtime.workspace = true
 
 [features]
+nightly_protocol = [
+  "near-chain-configs/nightly_protocol",
+  "near-chain/nightly_protocol",
+  "near-primitives/nightly_protocol",
+  "node-runtime/nightly_protocol",
+]
+nightly = [
+  "nightly_protocol",
+  "near-chain-configs/nightly",
+  "near-chain/nightly",
+  "near-primitives/nightly",
+  "node-runtime/nightly",
+]
 default = []

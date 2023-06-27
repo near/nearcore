@@ -8,7 +8,7 @@ use near_primitives::types::{
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
 use near_store::{get_code, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
-use near_vm_errors::{AnyError, VMLogicError};
+use near_vm_logic::errors::{AnyError, VMLogicError};
 use near_vm_logic::{External, StorageGetMode, ValuePtr};
 
 pub struct RuntimeExt<'a> {

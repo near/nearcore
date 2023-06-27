@@ -6,8 +6,8 @@ use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::StoreCompiledContractCache;
-use near_vm_errors::CompiledContractCache;
 use near_vm_logic::mocks::mock_external::MockedExternal;
+use near_vm_logic::CompiledContractCache;
 use std::fmt::Write;
 
 pub(crate) fn gas_metering_cost(config: &Config) -> (GasCost, GasCost) {

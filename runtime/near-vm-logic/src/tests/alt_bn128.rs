@@ -1,5 +1,5 @@
 use super::vm_logic_builder::VMLogicBuilder;
-use near_vm_errors::{HostError, VMLogicError};
+use crate::{HostError, VMLogicError};
 use std::fmt::Write;
 
 /// Converts a sequence of integers to a single little-endian encoded byte
