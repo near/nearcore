@@ -37,7 +37,6 @@ nightly = [
   "near-o11y/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
-  "near-vm-logic/nightly",
   "near-vm-runner/nightly",
 ]
 default = []

@@ -135,7 +135,6 @@ nightly = [
   "near-rosetta-rpc/nightly",
   "near-store/nightly",
   "near-telemetry/nightly",
-  "near-vm-logic/nightly",
   "near-vm-runner/nightly",
   "node-runtime/nightly",
 ]
@@ -157,7 +156,6 @@ nightly_protocol = [
   "near-rosetta-rpc/nightly_protocol",
   "near-store/nightly_protocol",
   "near-telemetry/nightly_protocol",
-  "near-vm-logic/nightly_protocol",
   "near-vm-runner/nightly_protocol",
   "node-runtime/nightly_protocol",
 ]

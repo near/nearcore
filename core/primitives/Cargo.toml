@@ -54,13 +54,13 @@ nightly = [
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
   "near-fmt/nightly",
   "near-primitives-core/nightly",
-  "near-vm-logic/nightly",
+  "near-vm-runner/nightly",
 ]
 
 nightly_protocol = [
   "near-fmt/nightly_protocol",
   "near-primitives-core/nightly_protocol",
-  "near-vm-logic/nightly_protocol",
+  "near-vm-runner/nightly_protocol",
 ]
 
 
