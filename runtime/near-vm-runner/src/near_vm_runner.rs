@@ -251,16 +251,17 @@ impl NearVM {
                 // FIXME: should have as many code memories as there are possible parallel
                 // invocations of the runtime… How do we determine that? Should we make it
                 // configurable for the node operators, perhaps, so that they can make an informed
-                // choice based on the amount of memory they have and shards they track?
+                // choice based on the amount of memory they have and shards they track? Should we
+                // actually use some sort of semaphore to enforce a parallelism limit?
                 //
-                // NB: 16MiB is a best guess as to what the maximum size a loaded artifact can
+                // NB: 64MiB is a best guess as to what the maximum size a loaded artifact can
                 // plausibly be. This is not necessarily true – there may be WebAssembly
                 // instructions that expand by more than 4 times in terms of instruction size after
                 // a conversion to x86_64, In that case a re-allocation will occur and executing
                 // that particular function call will be slower. Not to mention there isn't a
                 // strong guarantee on the upper bound of the memory that the contract runtime may
                 // require.
-                LimitedMemoryPool::new(32, 16 * 1024 * 1024).unwrap_or_else(|e| {
+                LimitedMemoryPool::new(8, 64 * 1024 * 1024).unwrap_or_else(|e| {
                     panic!("could not pre-allocate resources for the runtime: {e}");
                 })
             })
