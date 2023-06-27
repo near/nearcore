@@ -26,12 +26,12 @@ impl GraphV2 {
     pub(crate) fn update_distance_vector(
         &self,
         root: PeerId,
-        routes: Vec<AdvertisedPeerDistance>,
+        distances: Vec<AdvertisedPeerDistance>,
         edges: Vec<Edge>,
     ) -> bool {
         self.inner.lock().handle_distance_vector(&network_protocol::DistanceVector {
             root,
-            routes,
+            distances,
             edges,
         })
     }

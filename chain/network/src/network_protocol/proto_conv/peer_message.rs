@@ -56,7 +56,7 @@ impl From<&AdvertisedPeerDistance> for proto::AdvertisedPeerDistance {
     fn from(x: &AdvertisedPeerDistance) -> Self {
         Self {
             destination: MF::some((&x.destination).into()),
-            length: x.length,
+            distance: x.distance,
             ..Default::default()
         }
     }
@@ -67,7 +67,7 @@ impl TryFrom<&proto::AdvertisedPeerDistance> for AdvertisedPeerDistance {
     fn try_from(x: &proto::AdvertisedPeerDistance) -> Result<Self, Self::Error> {
         Ok(Self {
             destination: try_from_required(&x.destination).map_err(Self::Error::Destination)?,
-            length: x.length,
+            distance: x.distance,
         })
     }
 }
@@ -80,8 +80,8 @@ impl TryFrom<&proto::AdvertisedPeerDistance> for AdvertisedPeerDistance {
 pub enum ParseDistanceVectorError {
     #[error("root {0}")]
     Root(ParseRequiredError<ParsePublicKeyError>),
-    #[error("routes {0}")]
-    Routes(ParseVecError<ParseAdvertisedPeerDistanceError>),
+    #[error("distances {0}")]
+    Distances(ParseVecError<ParseAdvertisedPeerDistanceError>),
     #[error("edges {0}")]
     Edges(ParseVecError<ParseEdgeError>),
 }
@@ -90,7 +90,7 @@ impl From<&DistanceVector> for proto::DistanceVector {
     fn from(x: &DistanceVector) -> Self {
         Self {
             root: MF::some((&x.root).into()),
-            routes: x.routes.iter().map(Into::into).collect(),
+            distances: x.distances.iter().map(Into::into).collect(),
             edges: x.edges.iter().map(Into::into).collect(),
             ..Default::default()
         }
@@ -102,7 +102,7 @@ impl TryFrom<&proto::DistanceVector> for DistanceVector {
     fn try_from(x: &proto::DistanceVector) -> Result<Self, Self::Error> {
         Ok(Self {
             root: try_from_required(&x.root).map_err(Self::Error::Root)?,
-            routes: try_from_slice(&x.routes).map_err(Self::Error::Routes)?,
+            distances: try_from_slice(&x.distances).map_err(Self::Error::Distances)?,
             edges: try_from_slice(&x.edges).map_err(Self::Error::Edges)?,
         })
     }

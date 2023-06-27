@@ -271,13 +271,13 @@ message RoutingTableUpdate {
   repeated AnnounceAccount accounts = 2;
 }
 
-// Denotes a route to `destination` of length `length`
+// Denotes an available route to `destination` of length `length`
 message AdvertisedPeerDistance {
   PublicKey destination = 1;
-  uint32 length = 2;
+  uint32 distance = 2;
 }
 
-// Message sent by a peer advertising the routes it has to nodes
+// Message sent by a peer advertising the distances it has to nodes
 // in the NEAR network.
 //
 // It includes a collection of signed edges forming a spanning tree
@@ -285,8 +285,8 @@ message AdvertisedPeerDistance {
 message DistanceVector {
   // PeerId of the node sending the message
   PublicKey root = 1;
-  // List of routes the root node has available
-  repeated AdvertisedPeerDistance routes = 2;
+  // List of distances the node has available
+  repeated AdvertisedPeerDistance distances = 2;
   // List of edges which together form a tree
   // achieving the advertised routing distances
   repeated Edge edges = 3;

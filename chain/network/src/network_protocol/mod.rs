@@ -323,7 +323,7 @@ impl RoutingTableUpdate {
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct AdvertisedPeerDistance {
     pub destination: PeerId,
-    pub length: u32,
+    pub distance: u32,
 }
 
 /// Struct shared by a peer listing the distances it has
@@ -333,7 +333,7 @@ pub struct DistanceVector {
     /// PeerId of the node sending the message.
     pub root: PeerId,
     /// List of distances the peer has to other peers in the network.
-    pub routes: Vec<AdvertisedPeerDistance>,
+    pub distances: Vec<AdvertisedPeerDistance>,
     /// List of edges which together form a spanning tree
     /// achieving the advertised routing distances.
     pub edges: Vec<Edge>,
