@@ -1,11 +1,11 @@
-use std::path::PathBuf;
-use clap::Parser;
 use crate::analyse::AnalyseDatabaseCommand;
+use clap::Parser;
+use std::path::PathBuf;
 
 #[derive(Parser)]
 pub struct DatabaseCommand {
     #[clap(subcommand)]
-    subcmd: SubCommand
+    subcmd: SubCommand,
 }
 
 #[derive(Parser)]
@@ -22,4 +22,3 @@ impl DatabaseCommand {
         }
     }
 }
-

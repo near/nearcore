@@ -15,10 +15,11 @@ pub struct AnalyseDatabaseCommand {
     column: Option<String>,
 
     #[arg(short, long, default_value_t = 100)]
-    limit: usize,
+    /// Number of count sizes to ourput
+    top_k: usize,
 }
 
-pub fn get_db_col(col: &str) -> Option<DBCol> {
+fn get_db_col(col: &str) -> Option<DBCol> {
     for db_col in DBCol::iter() {
         if col_name(db_col) == col {
             return Some(db_col);
@@ -31,53 +32,103 @@ fn get_all_col_family_names() -> Vec<DBCol> {
     DBCol::iter().collect()
 }
 
-fn print_results(
-    sizes_count: &Vec<(usize, usize)>,
-    size_count_type: &str,
-    limit: usize,
+#[derive(Clone)]
+struct ColumnFamilyCountAndSize {
+    number_of_pairs: usize,
+    size: usize,
+}
+
+struct DataSizeDistributionResults {
+    key_sizes: Vec<(usize, usize)>,
+    value_sizes: Vec<(usize, usize)>,
     total_num_of_pairs: usize,
-) {
-    println!(
-        "Total number of pairs read {}\n",
-        sizes_count.into_iter().map(|(_, count)| count).sum::<usize>()
-    );
+    column_families_data: Vec<(String, ColumnFamilyCountAndSize)>,
+}
 
-    // Print out distributions
-    println!("{} Size Distribution:", size_count_type);
-    println!(
-        "Minimum size {}: {:?}",
-        size_count_type,
-        sizes_count.iter().map(|(size, _)| size).min().unwrap()
-    );
-    println!(
-        "Maximum size {}: {:?}",
-        size_count_type,
-        sizes_count.iter().map(|(size, _)| size).max().unwrap()
-    );
-    println!("Most occurring size {}: {:?}", size_count_type, sizes_count.first().unwrap());
-    println!("Least occurring size {}: {:?}", size_count_type, sizes_count.last().unwrap());
+impl DataSizeDistributionResults {
+    fn new(
+        mut key_sizes: Vec<(usize, usize)>,
+        mut value_sizes: Vec<(usize, usize)>,
+        col_families: Vec<(String, ColumnFamilyCountAndSize)>,
+    ) -> Self {
+        // The reason we sort here is because we want to display sorted
+        // output that shows the most occurring sizes (the ones with the
+        // biggest count) in descending order, to have histogram like order
+        key_sizes.sort_by(|a, b| b.1.cmp(&a.1));
+        value_sizes.sort_by(|a, b| b.1.cmp(&a.1));
+        let total_num_of_pairs = key_sizes.iter().map(|(_, count)| count).sum::<usize>();
 
-    let total_sizes_bytes_sum = sizes_count.iter().map(|a| a.0 * a.1).sum::<usize>();
-    println!(
-        "Average size {}: {:?}",
-        size_count_type,
-        total_sizes_bytes_sum as f64 / total_num_of_pairs as f64
-    );
-    let mut size_bytes_median = 0;
-    let mut median_index = total_num_of_pairs / 2;
-    for (size, count) in sizes_count.iter().take(limit) {
-        if median_index < *count {
-            size_bytes_median = *size;
-            break;
-        } else {
-            median_index -= count;
+        Self {
+            key_sizes: key_sizes,
+            value_sizes: value_sizes,
+            total_num_of_pairs: total_num_of_pairs,
+            column_families_data: col_families,
         }
     }
-    println!("Median size {} {}", size_count_type, size_bytes_median);
-    for (size, count) in sizes_count.iter().take(limit) {
-        println!("Size: {}, Count: {}", size, count);
+
+    fn print_results(&self, limit: usize) {
+        self.print_column_family_data();
+        self.print_sizes_count(&self.key_sizes, "Key", limit);
+        self.print_sizes_count(&self.value_sizes, "Value", limit);
     }
-    println!("");
+
+    fn print_column_family_data(&self) {
+        for (column_family_name, column_family_data) in self.column_families_data.iter() {
+            println!(
+                "Column family {} has {} number of pairs and {} bytes size",
+                column_family_name, column_family_data.number_of_pairs, column_family_data.size
+            );
+        }
+    }
+
+    fn print_sizes_count(
+        &self,
+        sizes_count: &Vec<(usize, usize)>,
+        size_count_type: &str,
+        limit: usize,
+    ) {
+        println!(
+            "Total number of pairs read {}\n",
+            sizes_count.into_iter().map(|(_, count)| count).sum::<usize>()
+        );
+
+        // Print out distributions
+        println!("{} Size Distribution:", size_count_type);
+        println!(
+            "Minimum size {}: {:?}",
+            size_count_type,
+            sizes_count.iter().map(|(size, _)| size).min().unwrap()
+        );
+        println!(
+            "Maximum size {}: {:?}",
+            size_count_type,
+            sizes_count.iter().map(|(size, _)| size).max().unwrap()
+        );
+        println!("Most occurring size {}: {:?}", size_count_type, sizes_count.first().unwrap());
+        println!("Least occurring size {}: {:?}", size_count_type, sizes_count.last().unwrap());
+
+        let total_sizes_bytes_sum = sizes_count.iter().map(|a| a.0 * a.1).sum::<usize>();
+        println!(
+            "Average size {}: {:?}",
+            size_count_type,
+            total_sizes_bytes_sum as f64 / self.total_num_of_pairs as f64
+        );
+        let mut size_bytes_median = 0;
+        let mut median_index = self.total_num_of_pairs / 2;
+        for (size, count) in sizes_count.iter().take(limit) {
+            if median_index < *count {
+                size_bytes_median = *size;
+                break;
+            } else {
+                median_index -= count;
+            }
+        }
+        println!("Median size {} {}", size_count_type, size_bytes_median);
+        for (size, count) in sizes_count.iter().take(limit) {
+            println!("Size: {}, Count: {}", size, count);
+        }
+        println!("");
+    }
 }
 
 fn rocksdb_column_options(col: DBCol) -> Options {
@@ -91,13 +142,12 @@ fn rocksdb_column_options(col: DBCol) -> Options {
     opts
 }
 
-fn read_all_pairs(
-    db: &DB,
-    col_families: &Vec<String>,
-) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
+fn read_all_pairs(db: &DB, col_families: &Vec<String>) -> DataSizeDistributionResults {
     // Initialize counters
     let key_sizes: Arc<Mutex<HashMap<usize, usize>>> = Arc::new(Mutex::new(HashMap::new()));
     let value_sizes: Arc<Mutex<HashMap<usize, usize>>> = Arc::new(Mutex::new(HashMap::new()));
+    let column_families_data: Arc<Mutex<HashMap<String, ColumnFamilyCountAndSize>>> =
+        Arc::new(Mutex::new(HashMap::new()));
 
     // Iterate over key-value pairs
     let update_map = |global_map: &Arc<Mutex<HashMap<usize, usize>>>,
@@ -128,26 +178,30 @@ fn read_all_pairs(
                 }
             }
         }
-        println!(
-            "In column family {} there are {} pairs, and col size is {}",
-            col_family,
-            local_key_sizes.values().sum::<usize>(),
-            local_key_sizes.iter().map(|(&size, &count)| size * count).sum::<usize>()
-        );
+
+        {
+            let mut guard = column_families_data.lock().unwrap();
+            let column_number_of_pairs = local_key_sizes.values().sum::<usize>();
+            let column_size =
+                local_key_sizes.iter().map(|(&size, &count)| size * count).sum::<usize>();
+            let column_family = ColumnFamilyCountAndSize {
+                number_of_pairs: column_number_of_pairs,
+                size: column_size,
+            };
+            guard.insert(col_family.to_string(), column_family);
+        }
+
         update_map(&key_sizes, &local_key_sizes);
         update_map(&value_sizes, &local_value_sizes);
     });
 
-    // The reason we sort here is because we want to display sorted
-    // output that shows the most occurring sizes (the ones with the
-    // biggest count) in descending order, to have histogram like order
-    let mut key_sizes_sorted: Vec<(usize, usize)> =
-        key_sizes.lock().unwrap().clone().into_iter().collect();
-    key_sizes_sorted.sort_by(|a, b| b.1.cmp(&a.1));
-    let mut value_sizes_sorted: Vec<(usize, usize)> =
+    let key_sizes: Vec<(usize, usize)> = key_sizes.lock().unwrap().clone().into_iter().collect();
+    let value_sizes: Vec<(usize, usize)> =
         value_sizes.lock().unwrap().clone().into_iter().collect();
-    value_sizes_sorted.sort_by(|a, b| b.1.cmp(&a.1));
-    (key_sizes_sorted, value_sizes_sorted)
+    let column_families: Vec<(String, ColumnFamilyCountAndSize)> =
+        column_families_data.lock().unwrap().clone().into_iter().collect();
+
+    DataSizeDistributionResults::new(key_sizes, value_sizes, column_families)
 }
 
 fn get_column_family_options(
@@ -207,13 +261,10 @@ impl AnalyseDatabaseCommand {
             false,
         )
         .unwrap();
-        let (key_sizes_sorted, value_sizes_sorted) = read_all_pairs(&db, &col_families);
-        let total_num_of_pairs = key_sizes_sorted.iter().map(|(_, count)| count).sum::<usize>();
 
-        print_results(&key_sizes_sorted, "Key", self.limit, total_num_of_pairs);
-        print_results(&value_sizes_sorted, "Value", self.limit, total_num_of_pairs);
+        let results = read_all_pairs(&db, &col_families);
+        results.print_results(self.top_k);
+
         Ok(())
     }
 }
-
-

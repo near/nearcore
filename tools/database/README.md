@@ -17,7 +17,7 @@ The arguments are as follows:
 
  - `--home`: The path to the RocksDB directory.
  - `--column`: The specific column to inspect.
- - `--limit`: The maximum number of counts to display.
+ - `--limit`: The maximum number of counts to display (default is 100).
 
 The resulting output will show the following:
 
