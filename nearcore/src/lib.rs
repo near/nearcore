@@ -304,7 +304,11 @@ pub fn start_with_config_and_synchronization(
         if let (Some(flat_storage_manager), Some(state_snapshot_actor)) =
             (runtime.get_flat_storage_manager(), state_snapshot_actor)
         {
-            Some(get_make_snapshot_callback(state_snapshot_actor, flat_storage_manager))
+            Some(get_make_snapshot_callback(
+                state_snapshot_actor,
+                flat_storage_manager,
+                config.config.store.state_snapshot_compaction_enabled,
+            ))
         } else {
             None
         };

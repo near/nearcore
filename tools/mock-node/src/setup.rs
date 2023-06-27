@@ -314,6 +314,8 @@ mod tests {
         let mut near_config =
             load_test_config("test0", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
         near_config.client_config.min_num_peers = 0;
+        near_config.config.state_sync_enabled = Some(true);
+        near_config.config.store.state_snapshot_enabled = true;
 
         let dir = tempfile::Builder::new().prefix("test0").tempdir().unwrap();
         let path1 = dir.path();
@@ -392,6 +394,9 @@ mod tests {
         let mut near_config1 = load_test_config("", tcp::ListenerAddr::reserve_for_test(), genesis);
         near_config1.client_config.min_num_peers = 1;
         near_config1.client_config.tracked_shards = vec![0]; // Track all shards.
+        near_config1.config.state_sync_enabled = Some(true);
+        near_config1.config.store.state_snapshot_enabled = true;
+        near_config1.config.store.state_snapshot_compaction_enabled = false;
         let network_config = MockNetworkConfig::with_delay(Duration::from_millis(10));
 
         let client_start_height = {

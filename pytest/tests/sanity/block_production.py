@@ -19,12 +19,23 @@ from cluster import start_cluster
 from configured_logger import logger
 
 TIMEOUT = 150
-BLOCKS = 50
+EPOCH_LENGTH = 20
+BLOCKS = EPOCH_LENGTH * 5
+
+node_config = {
+    "store.state_snapshot_enabled": True,
+    "state_sync_enabled": True,
+}
 
 nodes = start_cluster(
     4, 0, 4, None,
-    [["epoch_length", 10], ["block_producer_kickout_threshold", 60],
-     ["chunk_producer_kickout_threshold", 60]], {})
+    [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 60],
+     ["chunk_producer_kickout_threshold", 60]], {
+         0: node_config,
+         1: node_config,
+         2: node_config,
+         3: node_config,
+     })
 
 started = time.time()
 
