@@ -22,7 +22,7 @@ pub struct ConfigChangeList {
 /// Stores chain config for each epoch where it was updated.
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ChainConfigStore {
-    /// Mirko: dodaj tu komentar
+    /// Initial chain config when bootstrapping network at epoch 0.
     pub initial_chain_config: Arc<ChainConfig>,
     /// Maps epoch to the config.
     store: BTreeMap<EpochHeight, Arc<ChainConfigPatch>>,

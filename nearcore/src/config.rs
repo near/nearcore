@@ -736,7 +736,6 @@ impl NearConfig {
             .write_to_file(&dir.join(&self.config.node_key_file))
             .expect("Error writing key file");
 
-        // Mirko: vidi treba li tu zakucat inicijalni config ili ovaj promijenjen nakon epoha, vjv promijenjen
         self.genesis.to_file(dir.join(&self.config.genesis_file), epoch_height);
     }
 }

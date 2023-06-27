@@ -139,7 +139,6 @@ impl NightshadeRuntime {
             genesis_config.shard_layout.num_shards(),
             genesis_config.num_block_producer_seats_per_shard.len() as NumShards,
         );
-        // Mirko: tu trebam proslijedit genesis_loader-a
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
