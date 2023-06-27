@@ -64,6 +64,7 @@ members = [
     "test-utils/runtime-tester/fuzz",
     "test-utils/store-validator",
     "test-utils/testlib",
+    "tools/adjust-db",
     "tools/chainsync-loadtest",
     "tools/delay-detector",
     "tools/indexer/example",
@@ -167,6 +168,7 @@ lru = "0.7.2"
 memmap2 = "0.5"
 memoffset = "0.8"
 more-asserts = "0.2"
+near-adjust-db-tool = { path = "tools/adjust-db", package = "adjust-db-tool"  }
 near-account-id = { path = "core/account-id", features = ["internal_unstable"] }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
