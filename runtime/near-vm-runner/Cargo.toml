@@ -80,6 +80,8 @@ wat.workspace = true
 
 [features]
 nightly_protocol = [
+  "near-fmt/nightly_protocol",
+  "near-o11y/nightly_protocol",
   "near-primitives-core/nightly_protocol",
 ]
 # all vms enabled for now
@@ -124,6 +126,8 @@ protocol_feature_fix_contract_loading_cost = [
 nightly = [
   "nightly_protocol",
   "protocol_feature_fix_contract_loading_cost",
+  "near-fmt/nightly",
+  "near-o11y/nightly",
   "near-primitives-core/nightly",
 ]
 sandbox = []
