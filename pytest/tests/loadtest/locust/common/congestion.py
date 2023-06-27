@@ -12,7 +12,7 @@ import key
 import transaction
 
 
-class ComputeSha256(base.Transaction):
+class ComputeSha256(base.FunctionCall):
     """Transaction with a large input size."""
 
     def __init__(
@@ -21,22 +21,13 @@ class ComputeSha256(base.Transaction):
         sender: base.Account,
         size_bytes: int,
     ):
-        super().__init__()
+        super().__init__(sender, contract_account_id, "ext_sha256")
         self.contract_account_id = contract_account_id
         self.sender = sender
         self.size_bytes = size_bytes
 
-    def sign_and_serialize(self, block_hash) -> bytes:
-        return transaction.sign_function_call_tx(
-            self.sender.key,
-            self.contract_account_id,
-            "ext_sha256",
-            json.dumps(["a" * self.size_bytes]).encode("utf-8"),
-            300 * account.TGAS,
-            0,
-            self.sender.use_nonce(),
-            block_hash,
-        )
+    def args(self) -> dict:
+        return ["a" * self.size_bytes]
 
     def sender_account(self) -> base.Account:
         return self.sender
