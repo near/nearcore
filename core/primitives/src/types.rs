@@ -9,7 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
-pub use near_vm_logic::TrieNodesCount;
+pub use near_vm_runner::logic::TrieNodesCount;
 use once_cell::sync::Lazy;
 use serde_with::base64::Base64;
 use serde_with::serde_as;

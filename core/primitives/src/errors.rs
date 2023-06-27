@@ -5,7 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::types::ProtocolVersion;
 use near_rpc_error_macro::RpcError;
-use near_vm_logic::errors::FunctionCallErrorSer;
+use near_vm_runner::logic::errors::FunctionCallErrorSer;
 use std::fmt::{Debug, Display};
 
 /// Error returned in the ExecutionOutcome in case of failure
