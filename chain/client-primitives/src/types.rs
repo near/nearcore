@@ -300,6 +300,17 @@ impl From<SyncStatus> for SyncStatusView {
     }
 }
 
+/// Implement Display through Debug for all variants but StateSync.
+/// For StateSync write only hash.
+impl std::fmt::Display for SyncStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            SyncStatus::StateSync(hash, _) => write!(f, "StateSync {{ hash: {:?} }}", hash),
+            _ => write!(f, "{:?}", self),
+        }
+    }
+}
+
 /// Actor message requesting block by id, hash or sync state.
 pub struct GetBlock(pub BlockReference);
 
