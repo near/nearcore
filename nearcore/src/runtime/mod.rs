@@ -1407,10 +1407,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         let epoch_manager = self.epoch_manager.read();
         match epoch_manager.get_epoch_info(epoch_id) {
             Ok(epoch_info) => {
-                let e = epoch_info.as_ref();
-                let visina = e.epoch_height();
-                let chain_config_pom = genesis_config.chain_config_store.get_config(visina);
-                let chain_config = chain_config_pom.as_ref().clone();
+                let epoch_height = epoch_info.as_ref().epoch_height();
+                let chain_config =
+                    genesis_config.chain_config_store.get_config(epoch_height).as_ref().clone();
                 Ok(ProtocolConfig { genesis_config, chain_config, runtime_config })
             }
             Err(error) => {
