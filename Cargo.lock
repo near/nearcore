@@ -263,6 +263,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "adjust-db-tool"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap 4.2.4",
+ "near-chain-configs",
+ "near-store",
+ "nearcore",
+ "tracing",
+]
+
+[[package]]
 name = "adler"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2782,7 +2794,6 @@ dependencies = [
  "near-telemetry",
  "near-test-contracts",
  "near-undo-block",
- "near-vm-errors",
  "near-vm-runner",
  "nearcore",
  "node-runtime",
@@ -4029,7 +4040,7 @@ dependencies = [
  "near-primitives-core",
  "near-rpc-error-macro",
  "near-stdx",
- "near-vm-errors",
+ "near-vm-runner",
  "num-rational",
  "once_cell",
  "primitive-types",
@@ -4173,7 +4184,7 @@ dependencies = [
  "near-o11y",
  "near-primitives",
  "near-stdx",
- "near-vm-errors",
+ "near-vm-runner",
  "num_cpus",
  "once_cell",
  "rand 0.8.5",
@@ -4308,47 +4319,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-vm-errors"
-version = "0.0.0"
-dependencies = [
- "borsh 0.10.2",
- "hex",
- "near-account-id",
- "near-crypto",
- "near-fmt",
- "near-primitives-core",
- "near-rpc-error-macro",
- "serde",
- "serde_with",
- "strum",
- "thiserror",
-]
-
-[[package]]
-name = "near-vm-logic"
-version = "0.0.0"
-dependencies = [
- "borsh 0.10.2",
- "ed25519-dalek",
- "expect-test",
- "hex",
- "near-account-id",
- "near-crypto",
- "near-fmt",
- "near-o11y",
- "near-primitives-core",
- "near-stdx",
- "near-vm-errors",
- "ripemd",
- "serde",
- "serde_json",
- "sha2 0.10.6",
- "sha3",
- "tracing",
- "zeropool-bn",
-]
-
-[[package]]
 name = "near-vm-runner"
 version = "0.0.0"
 dependencies = [
@@ -4358,21 +4328,26 @@ dependencies = [
  "bolero",
  "borsh 0.10.2",
  "clap 4.2.4",
+ "ed25519-dalek",
  "expect-test",
  "finite-wasm",
  "hex",
  "loupe",
  "memoffset 0.8.0",
+ "near-account-id",
  "near-cache",
+ "near-crypto",
+ "near-fmt",
+ "near-o11y",
  "near-primitives",
  "near-primitives-core",
+ "near-rpc-error-macro",
  "near-stable-hasher",
+ "near-stdx",
  "near-test-contracts",
  "near-vm-compiler",
  "near-vm-compiler-singlepass",
  "near-vm-engine",
- "near-vm-errors",
- "near-vm-logic",
  "near-vm-types",
  "near-vm-vm",
  "once_cell",
@@ -4381,7 +4356,14 @@ dependencies = [
  "prefix-sum-vec",
  "pwasm-utils",
  "rand 0.8.5",
+ "ripemd",
  "serde",
+ "serde_json",
+ "serde_with",
+ "sha2 0.10.6",
+ "sha3",
+ "strum",
+ "thiserror",
  "tracing",
  "wasm-encoder 0.27.0",
  "wasm-smith",
@@ -4397,6 +4379,7 @@ dependencies = [
  "wasmprinter",
  "wasmtime",
  "wat",
+ "zeropool-bn",
 ]
 
 [[package]]
@@ -4407,8 +4390,6 @@ dependencies = [
  "libfuzzer-sys",
  "near-primitives",
  "near-test-contracts",
- "near-vm-errors",
- "near-vm-logic",
  "near-vm-runner",
  "wasm-smith",
  "wasmprinter",
@@ -4535,7 +4516,6 @@ dependencies = [
  "near-rosetta-rpc",
  "near-store",
  "near-telemetry",
- "near-vm-errors",
  "near-vm-runner",
  "node-runtime",
  "num-rational",
@@ -4564,6 +4544,7 @@ name = "neard"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "adjust-db-tool",
  "ansi_term",
  "anyhow",
  "clap 4.2.4",
@@ -4643,8 +4624,6 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-test-contracts",
- "near-vm-errors",
- "near-vm-logic",
  "near-vm-runner",
  "num-bigint",
  "num-rational",
@@ -5780,8 +5759,6 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-test-contracts",
- "near-vm-errors",
- "near-vm-logic",
  "near-vm-runner",
  "nearcore",
  "node-runtime",

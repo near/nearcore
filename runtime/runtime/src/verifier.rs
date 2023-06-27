@@ -483,8 +483,8 @@ fn validate_add_key_action(
         // Check whether `receiver_id` is a valid account_id. Historically, we
         // allowed arbitrary strings there!
         match limit_config.account_id_validity_rules_version {
-            near_vm_logic::AccountIdValidityRulesVersion::V0 => (),
-            near_vm_logic::AccountIdValidityRulesVersion::V1 => {
+            near_vm_runner::logic::AccountIdValidityRulesVersion::V0 => (),
+            near_vm_runner::logic::AccountIdValidityRulesVersion::V1 => {
                 if let Err(_) = fc.receiver_id.parse::<AccountId>() {
                     return Err(ActionsValidationError::InvalidAccountId {
                         account_id: truncate_string(&fc.receiver_id, AccountId::MAX_LEN * 2),

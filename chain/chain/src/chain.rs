@@ -57,9 +57,7 @@ use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
     ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
 };
-use near_primitives::transaction::{
-    ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
-};
+use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
@@ -3670,39 +3668,6 @@ impl Chain {
             }
         }
         Ok(())
-    }
-
-    /// Get all execution outcomes generated when the chunk are applied
-    pub fn get_block_execution_outcomes(
-        &self,
-        block_hash: &CryptoHash,
-    ) -> Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdAndProof>>, Error> {
-        let block = self.get_block(block_hash)?;
-        let chunk_headers = block.chunks().iter().cloned().collect::<Vec<_>>();
-
-        let mut res = HashMap::new();
-        for chunk_header in chunk_headers {
-            let shard_id = chunk_header.shard_id();
-            let outcomes = self
-                .store()
-                .get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?
-                .into_iter()
-                .filter_map(|id| {
-                    let outcome_with_proof =
-                        self.store.get_outcome_by_id_and_block_hash(&id, block_hash).ok()??;
-                    Some(ExecutionOutcomeWithIdAndProof {
-                        proof: outcome_with_proof.proof,
-                        block_hash: *block_hash,
-                        outcome_with_id: ExecutionOutcomeWithId {
-                            id,
-                            outcome: outcome_with_proof.outcome,
-                        },
-                    })
-                })
-                .collect::<Vec<_>>();
-            res.insert(shard_id, outcomes);
-        }
-        Ok(res)
     }
 
     pub fn create_chunk_state_challenge(
