@@ -840,6 +840,22 @@ impl GenesisSnapshot {
 }
 
 impl Genesis {
+    pub fn new(config: GenesisConfig, records: GenesisRecords, epoch_height: EpochHeight) -> Result<Self, ValidationError> {
+        Self::new_validated(config, records, GenesisValidationMode::Full, epoch_height)
+    }
+
+    fn new_validated(
+        config: GenesisConfig,
+        records: GenesisRecords,
+        genesis_validation: GenesisValidationMode,
+        epoch_height: EpochHeight,
+    ) -> Result<Self, ValidationError> {
+        let genesis = Self { config: config, contents: GenesisContents::Records { records } };
+        let genesis_snapshot = GenesisSnapshot::from_genesis(genesis.clone(), epoch_height);
+        genesis_snapshot.validate(genesis_validation)?;
+        Ok(genesis)
+    }
+
     pub fn new_with_path<P: AsRef<Path>>(
         genesis_config: GenesisConfig,
         records_file: P,
