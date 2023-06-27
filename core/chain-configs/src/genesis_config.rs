@@ -685,13 +685,6 @@ impl GenesisSnapshot {
         }
     }
 
-    pub fn new_with_path<P: AsRef<Path>>(
-        config_snapshot: GenesisConfigSnapshot,
-        records_file: P,
-    ) -> Result<Self, ValidationError> {
-        Self::new_with_path_validated(config_snapshot, records_file, GenesisValidationMode::Full)
-    }
-
     /// Reads GenesisSnapshot from a single JSON file, the file can be JSON with comments
     /// This function will collect all errors regarding genesis.json and push them to validation_errors
     pub fn from_file<P: AsRef<Path>>(
@@ -799,14 +792,6 @@ impl GenesisSnapshot {
         hasher.finalize()
     }
 
-    /// Returns number of records in the genesis or path to records file.
-    pub fn records_len(&self) -> Result<usize, &Path> {
-        match &self.contents {
-            GenesisContents::Records { records } => Ok(records.0.len()),
-            GenesisContents::RecordsFile { records_file } => Err(&records_file),
-        }
-    }
-
     /// If records vector is empty processes records stream from records_file.
     /// May panic if records_file is removed or is in wrong format.
     pub fn for_each_record(&self, mut callback: impl FnMut(&StateRecord)) {
@@ -855,22 +840,6 @@ impl GenesisSnapshot {
 }
 
 impl Genesis {
-    pub fn new(config: GenesisConfig, records: GenesisRecords, epoch_height: EpochHeight) -> Result<Self, ValidationError> {
-        Self::new_validated(config, records, GenesisValidationMode::Full, epoch_height)
-    }
-
-    fn new_validated(
-        config: GenesisConfig,
-        records: GenesisRecords,
-        genesis_validation: GenesisValidationMode,
-        epoch_height: EpochHeight,
-    ) -> Result<Self, ValidationError> {
-        let genesis = Self { config: config, contents: GenesisContents::Records { records } };
-        let genesis_snapshot = GenesisSnapshot::from_genesis(genesis.clone(), epoch_height);
-        genesis_snapshot.validate(genesis_validation)?;
-        Ok(genesis)
-    }
-
     pub fn new_with_path<P: AsRef<Path>>(
         genesis_config: GenesisConfig,
         records_file: P,
