@@ -94,6 +94,9 @@ pub struct StoreConfig {
     /// frequently we check creation status and execute work related to it in
     /// main thread (scheduling and collecting state parts, catching up blocks, etc.).
     pub flat_storage_creation_period: Duration,
+
+    /// Enables state snapshot at the beginning of epochs.
+    pub state_snapshot_enabled: bool,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -232,6 +235,8 @@ impl Default for StoreConfig {
             // One second should be enough to save deltas on start and catch up
             // flat storage head quickly. State read work is much more expensive.
             flat_storage_creation_period: Duration::from_secs(1),
+
+            state_snapshot_enabled: true,
         }
     }
 }

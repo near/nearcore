@@ -1,9 +1,9 @@
 use crate::dependencies::{MemSlice, MemoryLike};
 use crate::gas_counter::GasCounter;
 
+use crate::errors::{HostError, VMLogicError};
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::VMLimitConfig;
-use near_vm_errors::{HostError, VMLogicError};
 
 use core::mem::size_of;
 use std::borrow::Cow;
@@ -259,8 +259,8 @@ mod tests {
 
     use crate::gas_counter::GasCounter;
 
+    use crate::HostError;
     use near_primitives_core::config::{ExtCostsConfig, VMLimitConfig};
-    use near_vm_errors::HostError;
 
     struct RegistersTestContext {
         gas: GasCounter,

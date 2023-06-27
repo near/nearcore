@@ -5,10 +5,6 @@ use near_vm_types::{
 };
 use std::{any::Any, collections::BTreeMap, sync::Arc};
 
-mod private {
-    pub struct Internal(pub(super) ());
-}
-
 /// [`Artifact`]s that can be instantiated.
 pub trait Instantiatable: Artifact {
     /// The errors that can occur when instantiating.
@@ -36,15 +32,6 @@ pub trait Instantiatable: Artifact {
 /// Some other operations such as linking, relocating and similar may also be performed during
 /// constructon of the Artifact, making this type particularly well suited for caching in-memory.
 pub trait Artifact: Send + Sync {
-    /// Internal: support for downcasting `Executable`s.
-    #[doc(hidden)]
-    fn type_id(&self, _: private::Internal) -> std::any::TypeId
-    where
-        Self: 'static,
-    {
-        std::any::TypeId::of::<Self>()
-    }
-
     /// The information about offsets into the VM context table.
     fn offsets(&self) -> &crate::VMOffsets;
 
@@ -80,19 +67,4 @@ pub trait Artifact: Send + Sync {
 
     /// Obtain the function signature for either the import or local definition.
     fn function_signature(&self, index: FunctionIndex) -> Option<VMSharedSignatureIndex>;
-}
-
-impl dyn Artifact {
-    /// Downcast a dynamic Executable object to a concrete implementation of the trait.
-    pub fn downcast_arc<T: Artifact + 'static>(self: Arc<Self>) -> Result<Arc<T>, Arc<Self>> {
-        if std::any::TypeId::of::<T>() == Artifact::type_id(&*self, private::Internal(())) {
-            // SAFETY: err, its probably sound, we effectively construct a transmute here.
-            unsafe {
-                let ptr = Arc::into_raw(self).cast::<T>();
-                Ok(Arc::from_raw(ptr))
-            }
-        } else {
-            Err(self)
-        }
-    }
 }

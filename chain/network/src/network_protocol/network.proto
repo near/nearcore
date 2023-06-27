@@ -168,8 +168,7 @@ message Handshake {
   PartialEdgeInfo partial_edge_info = 7;
   // See description of OwnedAccount.
   AccountKeySignedPayload owned_account = 8; // optional
-  // Sender's signature to verify ip address of the sender
-  SignedIpAddr signed_ip_addr = 9; // required, but marked as optional for protocol buffer backward compatibility
+  reserved 9; // https://github.com/near/nearcore/pull/9191
 }
 
 // Response to Handshake, in case the Handshake was rejected.
@@ -199,16 +198,6 @@ message HandshakeFailure {
 // TODO: document it.
 message LastEdge {
   Edge edge = 1;
-}
-
-message IpAddr {
-  // IPv4 (4 bytes) or IPv6 (16 bytes) in network byte order.
-  bytes ip = 1;
-}
-
-message SignedIpAddr {
-  IpAddr ip_addr = 1;
-  Signature signature = 2;
 }
 
 message SocketAddr {

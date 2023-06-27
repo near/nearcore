@@ -496,7 +496,8 @@ fn get_latest_epoch(
     let header = chain.get_block_header(&hash)?;
     let final_hash = header.last_final_block();
     let sync_hash = StateSync::get_epoch_start_sync_hash(chain, final_hash)?;
-    let epoch_id = head.epoch_id;
+    let final_block_header = chain.get_block_header(&final_hash)?;
+    let epoch_id = final_block_header.epoch_id().clone();
     let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
     let epoch_height = epoch_info.epoch_height();
     tracing::debug!(target: "state_sync_dump", ?final_hash, ?sync_hash, ?epoch_id, epoch_height, "get_latest_epoch");

@@ -141,7 +141,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
-            StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::Replay(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(store_opener.path()),
             StateViewerSubCommand::ScanDbColumn(cmd) => cmd.run(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
@@ -476,8 +476,8 @@ pub struct ReplayCmd {
 }
 
 impl ReplayCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        replay_chain(self.start_index, self.end_index, home_dir, near_config, store);
+    pub fn run(self, near_config: NearConfig, store: Store) {
+        replay_chain(self.start_index, self.end_index, near_config, store);
     }
 }
 

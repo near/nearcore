@@ -28,13 +28,12 @@ near-crypto.workspace = true
 near-o11y.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
-near-vm-errors.workspace = true
 near-vm-logic.workspace = true
 near-vm-runner.workspace = true
 
 [features]
 default = []
-dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
+dump_errors_schema = ["near-vm-logic/dump_errors_schema"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 

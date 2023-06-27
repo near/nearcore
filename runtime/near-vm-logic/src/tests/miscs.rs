@@ -1,8 +1,8 @@
 use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
+use crate::HostError;
 use crate::{map, ExtCosts};
 use hex::FromHex;
-use near_vm_errors::HostError;
 use serde::de::Error;
 use serde_json::from_slice;
 use std::{fmt::Display, fs};

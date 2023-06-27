@@ -8,6 +8,7 @@
 * Dump state by multiple nodes, each node will refer to s3 for which parts need to be dumped. [#9049](https://github.com/near/nearcore/pull/9049)
 * New option `transaction_pool_size_limit` in `config.json` allows to limit the size of the node's transaction pool.
   By default the limit is set to 100 MB. [#3284](https://github.com/near/nearcore/issues/3284)
+* Database snapshots at the end of an epoch. This lets a node obtain state parts using flat storage. [#9090](https://github.com/near/nearcore/pull/9090)
 
 ## 1.34.0
 

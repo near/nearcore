@@ -65,7 +65,7 @@ pub(crate) struct StateRequestHeader {
 }
 
 /// State request part.
-#[derive(actix::Message)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "Option<StateResponse>")]
 pub(crate) struct StateRequestPart {
     pub shard_id: ShardId,
