@@ -242,7 +242,10 @@ class NearNodeProxy:
             tx.transaction_id = submit_response["result"]
             try:
                 # using retrying lib here to poll until a response is ready
-                self.poll_tx_result(meta, tx)
+                self.poll_tx_result(
+                    meta,
+                    [tx.transaction_id,
+                     tx.sender_account().key.account_id])
             except NearError as err:
                 logging.warn(f"marking an error {err.message}, {err.details}")
                 meta["exception"] = err
@@ -267,8 +270,7 @@ class NearNodeProxy:
     @retry(wait_fixed=500,
            stop_max_delay=DEFAULT_TRANSACTION_TTL / timedelta(milliseconds=1),
            retry_on_exception=is_tx_unknown_error)
-    def poll_tx_result(self, meta, tx: Transaction):
-        params = [tx.transaction_id, tx.sender_account().key.account_id]
+    def poll_tx_result(self, meta, params):
         # poll for tx result, using "EXPERIMENTAL_tx_status" which waits for
         # all receipts to finish rather than just the first one, as "tx" would do
         result_response = self.post_json("EXPERIMENTAL_tx_status", params)

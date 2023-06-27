@@ -7,9 +7,6 @@ from locust import events
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
 import key
-import transaction
-
-from account import TGAS
 from common.base import Account, Deploy, NearNodeProxy, NearUser, FunctionCall
 
 
