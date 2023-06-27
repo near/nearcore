@@ -92,14 +92,14 @@ class InitSocialDbAccount(FunctionCall):
     """
 
     def __init__(self, contract_id: str, account: Account):
-        super().__init__(account.key,
+        super().__init__(account,
                          contract_id,
                          "storage_deposit",
                          balance=1 * NEAR_BASE)
         self.contract_id = contract_id
         self.account = account
 
-    def sign_and_serialize(self, block_hash) -> bytes:
+    def args(self) -> dict:
         return {"account_id": self.account.key.account_id}
 
     def sender_account(self) -> Account:
