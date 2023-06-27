@@ -7,7 +7,6 @@ from locust import events
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
 import key
-
 from common.base import Account, Deploy, NearNodeProxy, NearUser, FunctionCall
 
 
