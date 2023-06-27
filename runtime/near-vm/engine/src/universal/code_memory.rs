@@ -135,19 +135,20 @@ impl CodeMemory {
     /// be resized.
     pub fn resize(mut self, size: usize) -> rustix::io::Result<Self> {
         if self.size < size {
-            self.executable_end = 0;
-            let source_pool = self.source_pool.take();
             // Ideally we would use mremap, but see
             // https://bugzilla.kernel.org/show_bug.cgi?id=8691
-            unsafe {
+            let source_pool = unsafe {
                 mm::munmap(self.map.cast(), self.size)?;
+                let source_pool = self.source_pool.take();
                 std::mem::forget(self);
-            }
+                source_pool
+            };
             Self::create(size).map(|mut m| {
                 m.source_pool = source_pool;
                 m
             })
         } else {
+            self.executable_end = 0;
             Ok(self)
         }
     }
