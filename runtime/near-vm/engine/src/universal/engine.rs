@@ -565,16 +565,17 @@ impl UniversalEngineInner {
         // - data section body size
         // -- padding between data sections
         let page_size = rustix::param::page_size();
-        let total_len = round_up(
-            function_bodies.iter().fold(0, |acc, func| {
-                round_up(acc + function_allocation_size(*func), ARCH_FUNCTION_ALIGNMENT.into())
-            }) + executable_sections.iter().fold(0, |acc, exec| {
-                round_up(acc + exec.bytes.len(), ARCH_FUNCTION_ALIGNMENT.into())
-            }),
-            page_size,
-        ) + data_sections
-            .iter()
-            .fold(0, |acc, data| round_up(acc + data.bytes.len(), DATA_SECTION_ALIGNMENT.into()));
+        let total_len = 0;
+        let total_len = function_bodies.iter().fold(total_len, |acc, func| {
+            round_up(acc + function_allocation_size(*func), ARCH_FUNCTION_ALIGNMENT.into())
+        });
+        let total_len = executable_sections.iter().fold(total_len, |acc, exec| {
+            round_up(acc + exec.bytes.len(), ARCH_FUNCTION_ALIGNMENT.into())
+        });
+        let total_len = round_up(total_len, page_size);
+        let total_len = data_sections.iter().fold(total_len, |acc, data| {
+            round_up(acc + data.bytes.len(), DATA_SECTION_ALIGNMENT.into())
+        });
 
         let mut code_memory = code_memory_pool.get(total_len).map_err(|e| {
             CompileError::Resource(format!("could not allocate code memory: {}", e))
@@ -624,9 +625,7 @@ impl UniversalEngineInner {
                 let index = LocalFunctionIndex::new(index);
                 let (sig_idx, sig) = function_signature(index);
                 Ok(VMLocalFunction {
-                    body: FunctionBodyPtr(unsafe {
-                        code_memory.executable_address(offset).cast()
-                    }),
+                    body: FunctionBodyPtr(unsafe { code_memory.executable_address(offset).cast() }),
                     length: u32::try_from(length).map_err(|_| {
                         CompileError::Codegen("function body length exceeds 4GiB".into())
                     })?,
@@ -638,9 +637,9 @@ impl UniversalEngineInner {
 
         let allocated_dynamic_function_trampolines = allocated_functions
             .drain(..)
-            .map(|(offset, _)| FunctionBodyPtr(unsafe {
-                code_memory.executable_address(offset).cast()
-            }))
+            .map(|(offset, _)| {
+                FunctionBodyPtr(unsafe { code_memory.executable_address(offset).cast() })
+            })
             .collect::<PrimaryMap<FunctionIndex, _>>();
 
         let mut exec_iter = allocated_executable_sections.iter();
@@ -649,13 +648,9 @@ impl UniversalEngineInner {
             .into_iter()
             .map(|protection| {
                 SectionBodyPtr(if protection == CustomSectionProtection::ReadExecute {
-                    unsafe {
-                        code_memory.executable_address(*exec_iter.next().unwrap()).cast()
-                    }
+                    unsafe { code_memory.executable_address(*exec_iter.next().unwrap()).cast() }
                 } else {
-                    unsafe {
-                        code_memory.writable_address(*data_iter.next().unwrap()).cast()
-                    }
+                    unsafe { code_memory.writable_address(*data_iter.next().unwrap()).cast() }
                 })
             })
             .collect::<PrimaryMap<SectionIndex, _>>();

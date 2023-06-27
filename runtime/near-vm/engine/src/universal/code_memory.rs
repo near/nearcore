@@ -131,9 +131,11 @@ impl CodeMemory {
 
     /// Ensure this CodeMemory is at least of the requested size.
     ///
-    /// This may invalidate any data previously written into the mapping.
+    /// This will invalidate any data previously written into the mapping if the mapping needs to
+    /// be resized.
     pub fn resize(mut self, size: usize) -> rustix::io::Result<Self> {
         if self.size < size {
+            self.executable_end = 0;
             let source_pool = self.source_pool.take();
             // Ideally we would use mremap, but see
             // https://bugzilla.kernel.org/show_bug.cgi?id=8691
@@ -207,9 +209,10 @@ impl Drop for CodeMemory {
                     MprotectFlags::WRITE | MprotectFlags::READ,
                 );
                 if let Err(e) = result {
-                    tracing::error!(
-                        message="could not mprotect mapping before returning it to the memory pool",
-                        map=?self.map, size=self.size, error=%e
+                    panic!(
+                        "could not mprotect mapping before returning it to the memory pool: \
+                         map={:?}, size={:?}, error={}",
+                        self.map, self.size, e
                     );
                 }
             }
