@@ -12,7 +12,7 @@ mod types;
 
 pub use crate::sys::env::{LazyInit, WasmerEnv};
 pub use crate::sys::exports::Exports;
-pub use crate::sys::externals::{Function, Table, Memory, Global};
+pub use crate::sys::externals::{Function, Global, Memory, Table};
 pub use crate::sys::import_object::{ImportObject, LikeNamespace};
 pub use crate::sys::instance::{Instance, InstanceConfig, InstantiationError};
 pub use crate::sys::module::Module;

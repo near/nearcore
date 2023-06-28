@@ -1,8 +1,8 @@
-use super::exports::ExportError;
-use super::module::Module;
 use super::env::HostEnvInitError;
-use super::native::NativeFunc;
+use super::exports::ExportError;
 use super::externals::WasmTypeList;
+use super::module::Module;
+use super::native::NativeFunc;
 use near_vm_engine::{LinkError, RuntimeError};
 use near_vm_vm::{Export, InstanceHandle, Resolver};
 use std::sync::{Arc, Mutex};
@@ -168,9 +168,11 @@ impl Instance {
         Rets: WasmTypeList,
     {
         match self.lookup(name) {
-            Some(Export::Function(f)) => super::externals::Function::from_vm_export(self.module.store(), f)
-                .native()
-                .map_err(|_| ExportError::IncompatibleType),
+            Some(Export::Function(f)) => {
+                super::externals::Function::from_vm_export(self.module.store(), f)
+                    .native()
+                    .map_err(|_| ExportError::IncompatibleType)
+            }
             Some(_) => Err(ExportError::IncompatibleType),
             None => Err(ExportError::Missing("not found".into())),
         }
