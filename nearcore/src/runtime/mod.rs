@@ -318,7 +318,6 @@ impl NightshadeRuntime {
         is_first_block_with_chunk_of_version: bool,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyTransactionResult, Error> {
-        return Err(Error::StorageError(near_primitives::errors::StorageError::MissingTrieValue));
         let _span = tracing::debug_span!(target: "runtime", "process_state_update").entered();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
