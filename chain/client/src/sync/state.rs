@@ -24,8 +24,6 @@ use crate::metrics;
 use crate::sync::external::{
     create_bucket_readonly, external_storage_location, ExternalConnection,
 };
-use ansi_term::Color::{Purple, Yellow};
-use ansi_term::Style;
 use chrono::{DateTime, Duration, Utc};
 use futures::{future, FutureExt};
 use near_async::messaging::CanSendAsync;
