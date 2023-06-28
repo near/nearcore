@@ -11,13 +11,13 @@ of keys and values within RocksDB.
 
 To run the script, use the following example:
 ```bash
-cargo run --bin neard -- --home /home/ubuntu/.nerd database analyse --column col5 --limit 50
+cargo run --bin neard -- --home /home/ubuntu/.nerd database analyse-data-size-distribution --column col5 --top_k 50
 ```
 The arguments are as follows:
 
  - `--home`: The path to the RocksDB directory.
  - `--column`: The specific column to inspect.
- - `--limit`: The maximum number of counts to display (default is 100).
+ - `--top_k`: The maximum number of counts to display (default is 100).
 
 The resulting output will show the following:
 
