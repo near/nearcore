@@ -1,0 +1,18 @@
+[package]
+name = "adjust-db-tool"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+tracing.workspace = true
+
+nearcore.workspace = true
+near-store.workspace = true
+near-chain-configs.workspace = true

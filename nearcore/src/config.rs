@@ -346,6 +346,8 @@ pub struct Config {
     /// chunks and underutilizing the capacity of the network.
     #[serde(default = "default_transaction_pool_size_limit")]
     pub transaction_pool_size_limit: Option<u64>,
+    /// If a node needs to upload state parts to S3
+    pub s3_credentials_file: Option<String>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -384,6 +386,7 @@ impl Default for Config {
             state_sync: None,
             state_sync_enabled: None,
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
+            s3_credentials_file: None,
         }
     }
 }

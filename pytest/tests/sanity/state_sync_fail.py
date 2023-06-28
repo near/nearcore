@@ -27,10 +27,12 @@ near_root, node_dirs = init_cluster(
         0: {
             "tracked_shards": [0],
             "state_sync_enabled": True,
+            "store.state_snapshot_enabled": True,
         },
         1: {
             "tracked_shards": [0],
             "state_sync_enabled": True,
+            "store.state_snapshot_enabled": True,
         },
         2: {
             "tracked_shards": [0],
@@ -38,6 +40,7 @@ near_root, node_dirs = init_cluster(
                 "block_fetch_horizon": EPOCH_LENGTH * 2,
             },
             "state_sync_enabled": True,
+            "store.state_snapshot_enabled": True,
         }
     })
 

@@ -96,6 +96,7 @@ impl NightshadeRuntime {
                 home_dir: home_dir.to_path_buf(),
                 hot_store_path: config.config.store.path.clone().unwrap_or(PathBuf::from("data")),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
+                compaction_enabled: config.config.store.state_snapshot_compaction_enabled,
             }
         } else {
             StateSnapshotConfig::Disabled
@@ -196,6 +197,7 @@ impl NightshadeRuntime {
                 home_dir: home_dir.to_path_buf(),
                 hot_store_path: PathBuf::from("data"),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
+                compaction_enabled: false,
             },
         )
     }
@@ -1589,6 +1591,7 @@ mod test {
                     home_dir: PathBuf::from(dir.path()),
                     hot_store_path: PathBuf::from("data"),
                     state_snapshot_subdir: PathBuf::from("state_snapshot"),
+                    compaction_enabled: false,
                 },
             );
             let (store, state_roots) = runtime.genesis_state();

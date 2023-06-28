@@ -304,7 +304,11 @@ pub fn start_with_config_and_synchronization(
         if let (Some(flat_storage_manager), Some(state_snapshot_actor)) =
             (runtime.get_flat_storage_manager(), state_snapshot_actor)
         {
-            Some(get_make_snapshot_callback(state_snapshot_actor, flat_storage_manager))
+            Some(get_make_snapshot_callback(
+                state_snapshot_actor,
+                flat_storage_manager,
+                config.config.store.state_snapshot_compaction_enabled,
+            ))
         } else {
             None
         };
@@ -348,6 +352,7 @@ pub fn start_with_config_and_synchronization(
             None
         };
 
+    let credentials_file = config.config.s3_credentials_file;
     let state_sync_dump_handle = spawn_state_sync_dump(
         &config.client_config,
         chain_genesis,
@@ -355,6 +360,7 @@ pub fn start_with_config_and_synchronization(
         shard_tracker,
         runtime,
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
+        credentials_file.map(|filename| home_dir.join(filename)),
     )?;
 
     #[allow(unused_mut)]

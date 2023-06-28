@@ -22,6 +22,7 @@ consensus_config0 = {
         }
     },
     "state_sync_enabled": True,
+    "store.state_snapshot_enabled": True,
 }
 consensus_config1 = {
     "consensus": {
@@ -32,6 +33,7 @@ consensus_config1 = {
     },
     "tracked_shards": [0],
     "state_sync_enabled": True,
+    "store.state_snapshot_enabled": True,
 }
 nodes = start_cluster(
     1, 1, 1, None,
