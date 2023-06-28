@@ -3626,6 +3626,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-database-tool"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap 4.2.4",
+ "near-store",
+ "nearcore",
+ "rayon",
+ "strum",
+]
+
+[[package]]
 name = "near-dyn-configs"
 version = "0.0.0"
 dependencies = [
@@ -4556,6 +4568,7 @@ dependencies = [
  "near-client",
  "near-config-utils",
  "near-crypto",
+ "near-database-tool",
  "near-dyn-configs",
  "near-flat-storage",
  "near-jsonrpc-primitives",

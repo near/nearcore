@@ -39,6 +39,7 @@ near-client.workspace = true
 near-cold-store-tool.workspace = true
 near-config-utils.workspace = true
 near-crypto.workspace = true
+near-database-tool.workspace = true
 near-dyn-configs.workspace = true
 near-flat-storage.workspace = true
 near-jsonrpc-primitives.workspace = true

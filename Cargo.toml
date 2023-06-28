@@ -172,6 +172,7 @@ near-adjust-db-tool = { path = "tools/adjust-db", package = "adjust-db-tool"  }
 near-account-id = { path = "core/account-id", features = ["internal_unstable"] }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
+near-database-tool= { path = "tools/database" }
 near-async = { path = "core/async" }
 near-cache = { path = "utils/near-cache" }
 near-chain = { path = "chain/chain" }
