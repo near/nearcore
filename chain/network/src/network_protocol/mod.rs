@@ -296,16 +296,21 @@ pub struct AdvertisedPeerDistance {
     pub distance: u32,
 }
 
-/// Struct shared by a peer listing the distances it has
-/// to other peers in the NEAR network.
+/// Struct shared by a peer listing the distances it has to other peers
+/// in the NEAR network.
+///
+/// It includes a collection of signed edges forming a spanning tree
+/// which verifiably achieves the advertised routing distances.
+///
+/// The distances in the tree may be the same or better than the advertised
+/// distances; see routing::graph_v2::tests::inconsistent_peers.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct DistanceVector {
     /// PeerId of the node sending the message.
     pub root: PeerId,
-    /// List of distances the peer has to other peers in the network.
+    /// List of distances the root has to other peers in the network.
     pub distances: Vec<AdvertisedPeerDistance>,
-    /// List of edges which together form a spanning tree
-    /// achieving the advertised routing distances.
+    /// Spanning tree of signed edges achieving the claimed distances (or better).
     pub edges: Vec<Edge>,
 }
 

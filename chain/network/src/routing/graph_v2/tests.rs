@@ -521,6 +521,28 @@ async fn receive_distance_vector_without_route_to_local_node() {
     );
 }
 
+/// This test produces a situation in which it is not possible for node0 to construct a spanning
+/// tree which is exactly consistent with its distance vector.
+///
+/// node0 ends up with a distance of 3 to node4 and a distance of 1 to node2.
+/// For either destination, node0 knows a chain of signed edges producing the claimed distance:
+///     0--1--2--4
+///     0--2
+/// However, it is not possible to construct a tree containing both of these chains.
+///
+/// We handle this by allowing the node to construct a spanning tree which achieves all of its
+/// claimed distances _or better_. In this case, 0--2--4 is valid.
+///
+/// The situation arises as a result of inconsistent states of node1 and node2:
+///     - node1 is telling us that node2 has a connection to node4
+///     - node2 is telling us that it has no connection to node4
+///
+/// It is not the responsibility of node0 to decide who is right; perhaps the connection was lost
+/// and node1 hasn't realized it yet, or perhaps the connection is newly formed and we haven't received
+/// an update from node2 yet (note that direct latency for 0--2 may be worse than the latency 0--1--2).
+///
+/// Instead, node0 trusts its peers to have the exact distances which they claim, and does not try to
+/// deduce anything from the spanning trees they provide other than verifying the claimed distances.
 #[tokio::test]
 async fn inconsistent_peers() {
     let node0 = random_peer_id();
