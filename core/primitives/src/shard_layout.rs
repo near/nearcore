@@ -435,11 +435,33 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
 
 #[cfg(test)]
 mod tests {
-    use crate::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
+    use crate::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutV1, ShardUId};
+    use near_primitives_core::types::{AccountId, ShardId};
     use rand::distributions::Alphanumeric;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
     use std::collections::HashMap;
+
+    use super::{ShardSplitMap, ShardVersion};
+
+    // The old ShardLayoutV1, before fixed shards were removed. tests only
+    #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+    pub struct OldShardLayoutV1 {
+        /// num_shards = fixed_shards.len() + boundary_accounts.len() + 1
+        /// Each account and all sub-accounts map to the shard of position in this array.
+        fixed_shards: Vec<AccountId>,
+        /// The rest are divided by boundary_accounts to ranges, each range is mapped to a shard
+        boundary_accounts: Vec<AccountId>,
+        /// Maps shards from the last shard layout to shards that it splits to in this shard layout,
+        /// Useful for constructing states for the shards.
+        /// None for the genesis shard layout
+        shards_split_map: Option<ShardSplitMap>,
+        /// Maps shard in this shard layout to their parent shard
+        /// Since shard_ids always range from 0 to num_shards - 1, we use vec instead of a hashmap
+        to_parent_shard_map: Option<Vec<ShardId>>,
+        /// Version of the shard layout, this is useful for uniquely identify the shard layout
+        version: ShardVersion,
+    }
 
     #[test]
     fn test_shard_layout_v0() {
@@ -464,10 +486,7 @@ mod tests {
     #[test]
     fn test_shard_layout_v1() {
         let shard_layout = ShardLayout::v1(
-            vec!["aurora", "bar", "foo", "foo.baz", "paz"]
-                .into_iter()
-                .map(|s| s.parse().unwrap())
-                .collect(),
+            parse_account_ids(&["aurora", "bar", "foo", "foo.baz", "paz"]),
             Some(vec![vec![0, 1, 2], vec![3, 4, 5]]),
             1,
         );
@@ -500,5 +519,32 @@ mod tests {
         assert_eq!(account_id_to_shard_id(&"foo.goo".parse().unwrap(), &shard_layout), 4);
         assert_eq!(account_id_to_shard_id(&"goo".parse().unwrap(), &shard_layout), 4);
         assert_eq!(account_id_to_shard_id(&"zoo".parse().unwrap(), &shard_layout), 5);
+    }
+
+    // check that after removing the fixed shards from the shard layout v1
+    // the fixed shards are skipped in deserialization
+    // this should be the default as long as serde(deny_unknown_fields) is not set
+    #[test]
+    fn test_remove_fixed_shards() {
+        let old = OldShardLayoutV1 {
+            fixed_shards: vec![],
+            boundary_accounts: parse_account_ids(&["aaa", "bbb"]),
+            shards_split_map: Some(vec![vec![0, 1, 2]]),
+            to_parent_shard_map: Some(vec![0, 0, 0]),
+            version: 1,
+        };
+        let json = serde_json::to_string_pretty(&old).unwrap();
+        println!("json");
+        println!("{json:#?}");
+
+        let new = serde_json::from_str::<ShardLayoutV1>(json.as_str()).unwrap();
+        assert_eq!(old.boundary_accounts, new.boundary_accounts);
+        assert_eq!(old.shards_split_map, new.shards_split_map);
+        assert_eq!(old.to_parent_shard_map, new.to_parent_shard_map);
+        assert_eq!(old.version, new.version);
+    }
+
+    fn parse_account_ids(ids: &[&str]) -> Vec<AccountId> {
+        ids.into_iter().map(|a| a.parse().unwrap()).collect()
     }
 }
