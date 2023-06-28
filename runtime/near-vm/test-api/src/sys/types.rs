@@ -1,6 +1,6 @@
-use crate::sys::externals::Function;
-use crate::sys::store::{Store, StoreObject};
-use crate::sys::RuntimeError;
+use super::externals::Function;
+use super::store::{Store, StoreObject};
+use near_vm_engine::RuntimeError;
 use near_vm_types::Value;
 pub use near_vm_types::{
     ExportType, ExternType, FunctionType, GlobalType, MemoryType, Mutability, TableType,
