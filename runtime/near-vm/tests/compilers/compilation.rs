@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use near_vm_compiler::CompileError;
 use near_vm_engine::universal::Universal;
 use near_vm_test_api::*;
 use near_vm_vm::Artifact;
