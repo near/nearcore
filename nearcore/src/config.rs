@@ -306,7 +306,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_trie_changes: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
-    /// Makes logging of BlocksInfo span 1 line instead of being unlimited.
+    // Allows more detailed logging, for example a list of orphaned blocks.
     pub enable_multiline_logging: Option<bool>,
     /// Garbage collection configuration.
     #[serde(default, flatten)]
@@ -701,7 +701,7 @@ impl NearConfig {
                 state_sync: config.state_sync.unwrap_or_default(),
                 state_snapshot_every_n_blocks: None,
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
-                enable_multiline_logging: config.enable_multiline_logging.unwrap_or(false),
+                enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),
             },
             network_config: NetworkConfig::new(
                 config.network,

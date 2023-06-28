@@ -256,7 +256,7 @@ pub struct ClientConfig {
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
     pub transaction_pool_size_limit: Option<u64>,
-    /// Makes logging a bit more compact.
+    // Allows more detailed logging, for example a list of orphaned blocks.
     pub enable_multiline_logging: bool,
 }
 
