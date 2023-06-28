@@ -1524,6 +1524,7 @@ impl ClientActor {
             &self.block_catch_up_scheduler,
             &self.state_split_scheduler,
             self.get_apply_chunks_done_callback(),
+            &self.state_parts_client_arbiter.handle(),
         ) {
             error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err);
         }
@@ -1691,6 +1692,7 @@ impl ClientActor {
                         shards_to_sync,
                         &self.state_parts_task_scheduler,
                         &self.state_split_scheduler,
+                        &self.state_parts_client_arbiter.handle(),
                         use_colour,
                     )) {
                         StateSyncResult::Unchanged => (),
@@ -1991,6 +1993,7 @@ pub fn start_client(
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
+
     wait_until_genesis(&chain_genesis.time);
     let client = Client::new(
         client_config.clone(),
