@@ -101,7 +101,8 @@ pub struct CodeMemory {
 
     /// Addresses `0..executable_end` contain executable memory.
     ///
-    /// This is always be page-aligned.
+    /// In a populated buffer rounding this up to the next page will give the address of the
+    /// read-write data portion of this memory.
     executable_end: usize,
 }
 

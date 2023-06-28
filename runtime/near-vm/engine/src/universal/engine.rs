@@ -567,14 +567,14 @@ impl UniversalEngineInner {
         let page_size = rustix::param::page_size();
         let total_len = 0;
         let total_len = function_bodies.iter().fold(total_len, |acc, func| {
-            round_up(acc + function_allocation_size(*func), ARCH_FUNCTION_ALIGNMENT.into())
+            round_up(acc, ARCH_FUNCTION_ALIGNMENT.into()) + function_allocation_size(*func)
         });
         let total_len = executable_sections.iter().fold(total_len, |acc, exec| {
-            round_up(acc + exec.bytes.len(), ARCH_FUNCTION_ALIGNMENT.into())
+            round_up(acc, ARCH_FUNCTION_ALIGNMENT.into()) + exec.bytes.len()
         });
         let total_len = round_up(total_len, page_size);
         let total_len = data_sections.iter().fold(total_len, |acc, data| {
-            round_up(acc + data.bytes.len(), DATA_SECTION_ALIGNMENT.into())
+            round_up(acc, DATA_SECTION_ALIGNMENT.into()) + data.bytes.len()
         });
 
         let mut code_memory = code_memory_pool.get(total_len).map_err(|e| {
