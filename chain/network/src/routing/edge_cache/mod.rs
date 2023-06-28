@@ -27,6 +27,11 @@ impl From<&(PeerId, PeerId)> for EdgeKey {
     }
 }
 
+/// The EdgeCache stores the latest spanning tree shared by each direct peer of the local node.
+/// The trees are stored in `active_trees` as lists of EdgeKeys.
+/// A separate map `active_edges` is kept mapping EdgeKeys to complete signed Edge objects.
+/// This struct is used to store a signed Edge object along with a `refcount`; the number of
+/// spanning trees which contain the edge.
 #[derive(Clone)]
 struct ActiveEdge {
     edge: Edge,
