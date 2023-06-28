@@ -1,5 +1,5 @@
 [package]
-name = "near-database"
+name = "near-database-tool"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

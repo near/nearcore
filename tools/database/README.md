@@ -1,6 +1,6 @@
 # Database
 
-A set of tool useful when working with the underlying database.
+A set of tools useful when working with the underlying database.
 
 ## Analyse Database
 
@@ -11,7 +11,7 @@ of keys and values within RocksDB.
 
 To run the script, use the following example:
 ```bash
-cargo run --bin neard -- --home /home/ubuntu/.nerd database analyse-data-size-distribution --column col5 --top_k 50
+cargo run --bin neard -- --home /home/ubuntu/.nerd database analyse-data-size-distribution --column State --top_k 50
 ```
 The arguments are as follows:
 

@@ -3625,7 +3625,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-database"
+name = "near-database-tool"
 version = "0.0.0"
 dependencies = [
  "anyhow",
@@ -4570,7 +4570,7 @@ dependencies = [
  "near-client",
  "near-config-utils",
  "near-crypto",
- "near-database",
+ "near-database-tool",
  "near-dyn-configs",
  "near-flat-storage",
  "near-jsonrpc-primitives",
