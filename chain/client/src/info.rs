@@ -64,6 +64,8 @@ pub struct InfoHelper {
     epoch_id: Option<EpochId>,
     /// Timestamp of starting the client.
     pub boot_time_seconds: i64,
+    // Allows more detailed logging, for example a list of orphaned blocks.
+    enable_multiline_logging: bool,
 }
 
 impl InfoHelper {
@@ -87,6 +89,7 @@ impl InfoHelper {
             log_summary_style: client_config.log_summary_style,
             boot_time_seconds: StaticClock::utc().timestamp(),
             epoch_id: None,
+            enable_multiline_logging: client_config.enable_multiline_logging,
         }
     }
 
@@ -544,7 +547,7 @@ impl InfoHelper {
             info.num_orphans,
             info.num_blocks_missing_chunks,
             info.num_blocks_in_processing,
-            blocks_info,
+            if self.enable_multiline_logging { blocks_info.to_string() } else { "".to_owned() },
         );
     }
 }
