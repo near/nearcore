@@ -25,7 +25,6 @@ The resulting output will show the following:
  - Sizes of each column family
  - Key and value size distribution
 
-
 ### Tips for Handling Large Column Families
 As this script is designed to read as many column families as possible at the start,
 you may need to adjust the max_open_files limit on your operating system.
