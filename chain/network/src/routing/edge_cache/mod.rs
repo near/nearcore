@@ -319,6 +319,14 @@ impl EdgeCache {
         let mut edges = Vec::<Edge>::new();
         let mut has_edge = HashSet::<PeerId>::new();
 
+        // Make sure some node has distance 0
+        let mut has_root = false;
+        for (_, val) in distance {
+            if *val == 0 {
+                has_root = true;
+            }
+        }
+
         // Iterate through the known useful edges.
         // We want to find for each node in the tree some edge
         // which connects it to another node with smaller distance.
@@ -338,7 +346,7 @@ impl EdgeCache {
             }
         }
 
-        if has_edge.len() + 1 == distance.len() {
+        if has_root && has_edge.len() + 1 == distance.len() {
             Some(edges)
         } else {
             None

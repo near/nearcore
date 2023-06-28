@@ -260,7 +260,7 @@ message RoutingTableUpdate {
   repeated AnnounceAccount accounts = 2;
 }
 
-// Denotes an available route to `destination` of length `length`
+// Denotes an available route to `destination` of length `distance`
 message AdvertisedPeerDistance {
   PublicKey destination = 1;
   uint32 distance = 2;

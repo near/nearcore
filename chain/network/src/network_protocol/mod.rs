@@ -289,7 +289,7 @@ impl RoutingTableUpdate {
     }
 }
 
-/// Denotes a network path to `destination` of length `length`.
+/// Denotes a network path to `destination` of length `distance`.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct AdvertisedPeerDistance {
     pub destination: PeerId,

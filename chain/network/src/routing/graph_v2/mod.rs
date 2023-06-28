@@ -41,7 +41,7 @@ struct PeerDistances {
     /// Advertised distances indexed by the local EdgeCache's peer to id mapping.
     pub distance: Vec<i32>,
     /// The lowest nonce among all edges used to validate the distances.
-    /// For simplicity, used to expire the entire dstance vector at once.
+    /// For simplicity, used to expire the entire distance vector at once.
     pub min_nonce: u64,
 }
 
