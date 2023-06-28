@@ -1,12 +1,12 @@
+use crate::logic::action::{Action, FunctionCallAction};
+use crate::logic::errors::{FunctionCallError, HostError, WasmTrap};
+use crate::logic::mocks::mock_external::MockedExternal;
+use crate::logic::types::ReturnData;
+use crate::logic::{ReceiptMetadata, VMConfig};
 use near_primitives::test_utils::encode;
-use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::types::Balance;
-use near_vm_logic::errors::{FunctionCallError, HostError, WasmTrap};
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::types::ReturnData;
-use near_vm_logic::{ReceiptMetadata, VMConfig};
 use std::mem::size_of;
 
 use crate::runner::VMResult;
@@ -164,9 +164,9 @@ pub fn ext_used_gas() {
         // Note, the used_gas is not a global used_gas at the beginning of method, but instead a
         // diff in used_gas for computing fib(30) in a loop
         let expected = match config.limit_config.contract_prepare_version {
-            near_vm_logic::ContractPrepareVersion::V0 => [111, 10, 200, 15, 0, 0, 0, 0],
-            near_vm_logic::ContractPrepareVersion::V1 => [111, 10, 200, 15, 0, 0, 0, 0],
-            near_vm_logic::ContractPrepareVersion::V2 => [72, 146, 120, 16, 0, 0, 0, 0],
+            crate::logic::ContractPrepareVersion::V0 => [111, 10, 200, 15, 0, 0, 0, 0],
+            crate::logic::ContractPrepareVersion::V1 => [111, 10, 200, 15, 0, 0, 0, 0],
+            crate::logic::ContractPrepareVersion::V2 => [72, 146, 120, 16, 0, 0, 0, 0],
         };
         run_test_ext(&config, "ext_used_gas", &expected, &[], vec![], vm_kind)
     })

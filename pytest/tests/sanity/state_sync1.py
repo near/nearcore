@@ -21,9 +21,11 @@ consensus_config = {
         "block_header_fetch_horizon": 10
     },
     "state_sync_enabled": True,
+    "store.state_snapshot_enabled": True,
 }
 node_config = {
     "state_sync_enabled": True,
+    "store.state_snapshot_enabled": True,
 }
 
 nodes = start_cluster(

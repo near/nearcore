@@ -129,7 +129,8 @@ def doit(seq=[]):
                                           "secs": 2,
                                           "nanos": 0
                                       }
-                                  }
+                                  },
+                                  "store.state_snapshot_enabled": True,
                               }
                           })
 

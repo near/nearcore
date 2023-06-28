@@ -54,7 +54,6 @@ members = [
     "runtime/near-vm/types",
     "runtime/near-vm/wast",
     "runtime/near-vm/compiler-test-derive",
-    "runtime/near-vm-logic",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner/fuzz",
     "runtime/runtime",
@@ -65,6 +64,7 @@ members = [
     "test-utils/runtime-tester/fuzz",
     "test-utils/store-validator",
     "test-utils/testlib",
+    "tools/adjust-db",
     "tools/chainsync-loadtest",
     "tools/delay-detector",
     "tools/indexer/example",
@@ -168,6 +168,7 @@ lru = "0.7.2"
 memmap2 = "0.5"
 memoffset = "0.8"
 more-asserts = "0.2"
+near-adjust-db-tool = { path = "tools/adjust-db", package = "adjust-db-tool"  }
 near-account-id = { path = "core/account-id", features = ["internal_unstable"] }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
@@ -221,7 +222,6 @@ near-vm-compiler-singlepass = { path = "runtime/near-vm/compiler-singlepass" }
 near-vm-compiler-test-derive = { path = "runtime/near-vm/compiler-test-derive" }
 near-vm-engine = { path = "runtime/near-vm/engine" }
 near-vm-engine-universal = { path = "runtime/near-vm/engine-universal" }
-near-vm-logic = { path = "runtime/near-vm-logic" }
 near-vm-runner = { path = "runtime/near-vm-runner" }
 near-vm-test-generator = { path = "runtime/near-vm/test-generator" }
 near-vm-types = { path = "runtime/near-vm/types" }

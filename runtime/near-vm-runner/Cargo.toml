@@ -12,8 +12,10 @@ publish = true
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
+bn.workspace = true
 borsh.workspace = true
 clap = { workspace = true, optional = true }
+ed25519-dalek.workspace = true
 finite-wasm = { workspace = true, features = ["instrument"] }
 wasm-encoder.workspace = true
 loupe.workspace = true
@@ -21,14 +23,25 @@ memoffset.workspace = true
 once_cell.workspace = true
 parity-wasm.workspace = true
 prefix-sum-vec.workspace = true
+ripemd.workspace = true
 serde.workspace = true
+serde_with.workspace = true
+sha2.workspace = true
+sha3.workspace = true
+stdx.workspace = true
+strum.workspace = true
+thiserror.workspace = true
 tracing.workspace = true
 wasmparser.workspace = true
 wasmtime = { workspace = true, optional = true }
 
+near-account-id.workspace = true
 near-cache.workspace = true
-near-vm-logic.workspace = true
+near-crypto.workspace = true
+near-fmt.workspace = true
+near-o11y.workspace = true
 near-primitives-core.workspace = true
+near-rpc-error-macro.workspace = true
 near-stable-hasher.workspace = true
 
 # Old versions of pwasm-utils we need to preserve backwards compatibility under
@@ -60,14 +73,16 @@ hex.workspace = true
 near-primitives.workspace = true
 near-test-contracts.workspace = true
 rand.workspace = true
+serde_json = { workspace = true, features = ["preserve_order"] }
 wasm-smith.workspace = true
 wasmprinter.workspace = true
 wat.workspace = true
 
 [features]
 nightly_protocol = [
+  "near-fmt/nightly_protocol",
+  "near-o11y/nightly_protocol",
   "near-primitives-core/nightly_protocol",
-  "near-vm-logic/nightly_protocol",
 ]
 # all vms enabled for now
 default = [
@@ -106,18 +121,22 @@ no_cache = []
 
 protocol_feature_fix_contract_loading_cost = [
     "near-primitives-core/protocol_feature_fix_contract_loading_cost",
-    "near-vm-logic/protocol_feature_fix_contract_loading_cost",
 ]
 
 nightly = [
   "nightly_protocol",
   "protocol_feature_fix_contract_loading_cost",
+  "near-fmt/nightly",
+  "near-o11y/nightly",
   "near-primitives-core/nightly",
-  "near-vm-logic/nightly",
 ]
-sandbox = ["near-vm-logic/sandbox"]
-io_trace = ["near-vm-logic/io_trace"]
+sandbox = []
+io_trace = []
 
+dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
+
+# Use this feature to enable counting of fees and costs applied.
+costs_counting = []
 
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate

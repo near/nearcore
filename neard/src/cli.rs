@@ -1,5 +1,6 @@
 #[cfg(unix)]
 use anyhow::Context;
+use near_adjust_db_tool::AdjustDbCommand;
 use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
 use near_client::ConfigUpdater;
@@ -127,6 +128,9 @@ impl NeardCmd {
             NeardSubCommand::UndoBlock(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
             }
+            NeardSubCommand::AdjustDb(cmd) => {
+                cmd.run(&home_dir)?;
+            }
         };
         Ok(())
     }
@@ -246,6 +250,9 @@ pub(super) enum NeardSubCommand {
 
     /// reset the head of the chain locally to the prev block of current head
     UndoBlock(UndoBlockCommand),
+
+    /// Adjust DB for testing purposes.
+    AdjustDb(AdjustDbCommand),
 }
 
 #[derive(clap::Parser)]

@@ -32,6 +32,7 @@ tokio.workspace = true
 tracing.workspace = true
 
 nearcore.workspace = true
+near-adjust-db-tool.workspace = true
 near-amend-genesis.workspace = true
 near-chain-configs.workspace = true
 near-client.workspace = true

@@ -20,6 +20,7 @@ EPOCH_LENGTH = 10
 
 node0_config = {
     "state_sync_enabled": True,
+    "store.state_snapshot_enabled": True,
 }
 node1_config = {
     "consensus": {
@@ -30,6 +31,7 @@ node1_config = {
     },
     "tracked_shards": [0],
     "state_sync_enabled": True,
+    "store.state_snapshot_enabled": True,
 }
 nodes = start_cluster(
     1, 1, 1, None,

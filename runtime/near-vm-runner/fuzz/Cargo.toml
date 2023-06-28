@@ -19,7 +19,6 @@ wasmprinter.workspace = true
 
 near-primitives.workspace = true
 near-test-contracts.workspace = true
-near-vm-logic.workspace = true
 near-vm-runner.workspace = true
 
 [[bin]]

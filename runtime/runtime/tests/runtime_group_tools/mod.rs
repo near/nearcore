@@ -12,7 +12,7 @@ use near_primitives::types::{AccountId, AccountInfo, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_tries;
 use near_store::{GenesisStateApplier, ShardTries};
-use near_vm_logic::ActionCosts;
+use near_vm_runner::logic::ActionCosts;
 use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
 use std::collections::{HashMap, HashSet};

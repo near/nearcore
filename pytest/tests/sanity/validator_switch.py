@@ -15,7 +15,11 @@ from transaction import sign_staking_tx
 import utils
 
 EPOCH_LENGTH = 20
-tracked_shards = {"tracked_shards": [0, 1, 2, 3]}
+tracked_shards = {
+    "tracked_shards": [0],  # Track all shards
+    "state_sync_enabled": True,
+    "store.state_snapshot_enabled": True
+}
 
 nodes = start_cluster(
     3, 1, 4, None,
