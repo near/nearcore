@@ -616,7 +616,7 @@ fn into_other(error: rocksdb::Error) -> io::Error {
 /// Historically we used `col##` names (with `##` being index of the column).
 /// We have since deprecated this convention.  All future column families are
 /// named the same as the variant of the [`DBCol`] enum.
-pub fn col_name(col: DBCol) -> &'static str {
+fn col_name(col: DBCol) -> &'static str {
     match col {
         DBCol::DbVersion => "col0",
         DBCol::BlockMisc => "col1",

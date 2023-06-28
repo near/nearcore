@@ -150,7 +150,7 @@ pub(crate) fn iter_with_rc_logic<'a>(
 impl RocksDB {
     /// Merge adds refcounts, zero refcount becomes empty value.
     /// Empty values get filtered by get methods, and removed by compaction.
-    pub fn refcount_merge(
+    pub(crate) fn refcount_merge(
         _new_key: &[u8],
         existing: Option<&[u8]>,
         operands: &rocksdb::MergeOperands,
@@ -159,7 +159,11 @@ impl RocksDB {
     }
 
     /// Compaction filter for DBCol::State
-    pub fn empty_value_compaction_filter(_level: u32, _key: &[u8], value: &[u8]) -> Decision {
+    pub(crate) fn empty_value_compaction_filter(
+        _level: u32,
+        _key: &[u8],
+        value: &[u8],
+    ) -> Decision {
         if value.is_empty() {
             Decision::Remove
         } else {
