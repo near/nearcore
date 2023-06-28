@@ -20,17 +20,8 @@ pub struct AnalyseDatabaseCommand {
     top_k: usize,
 }
 
-fn get_db_col(col: &str) -> Option<DBCol> {
-    for db_col in DBCol::iter() {
-        if <&str>::from(db_col) == col {
-            return Some(db_col);
-        }
-    }
-    return None;
-}
-
-fn get_all_col_family_names() -> Vec<DBCol> {
-    DBCol::iter().collect()
+fn resolve_db_col(col: &str) -> Option<DBCol> {
+    DBCol::iter().filter(|db_col| <&str>::from(db_col)  == col).next()
 }
 
 #[derive(Clone)]
@@ -211,7 +202,7 @@ fn get_column_family_options(
     match input_col {
         Some(column_name) => {
             let mut opts = Options::default();
-            let db_col = get_db_col(&column_name).unwrap();
+            let db_col = resolve_db_col(&column_name).unwrap();
             if db_col.is_rc() {
                 opts.set_merge_operator(
                     "refcount merge",
@@ -227,7 +218,7 @@ fn get_column_family_options(
             (vec![rocksdb_column_name.clone()], vec![ColumnFamilyDescriptor::new(rocksdb_column_name, opts)])
         }
         None => {
-            let col_families = get_all_col_family_names();
+            let col_families: Vec<_> = DBCol::iter().collect();
             (
                 col_families.iter().map(|db_col| col_name(*db_col).to_string()).collect(),
                 col_families
