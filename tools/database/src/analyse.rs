@@ -1,8 +1,7 @@
 use clap::Parser;
-use near_store::db::RocksDB;
-use near_store::{col_name, DBCol};
+use near_store::db::{Database, RocksDB};
+use near_store::{DBCol, StoreConfig};
 use rayon::prelude::*;
-use rocksdb::{ColumnFamilyDescriptor, Options, DB};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -21,7 +20,7 @@ pub struct AnalyseDatabaseCommand {
 }
 
 fn resolve_db_col(col: &str) -> Option<DBCol> {
-    DBCol::iter().filter(|db_col| <&str>::from(db_col)  == col).next()
+    DBCol::iter().filter(|db_col| <&str>::from(db_col) == col).next()
 }
 
 #[derive(Clone)]
@@ -30,14 +29,14 @@ struct ColumnFamilyCountAndSize {
     size: usize,
 }
 
-struct DataSizeDistributionResults {
+struct DataSizeDistribution {
     key_sizes: Vec<(usize, usize)>,
     value_sizes: Vec<(usize, usize)>,
     total_num_of_pairs: usize,
     column_families_data: Vec<(String, ColumnFamilyCountAndSize)>,
 }
 
-impl DataSizeDistributionResults {
+impl DataSizeDistribution {
     fn new(
         mut key_sizes: Vec<(usize, usize)>,
         mut value_sizes: Vec<(usize, usize)>,
@@ -123,18 +122,7 @@ impl DataSizeDistributionResults {
     }
 }
 
-fn rocksdb_column_options(col: DBCol) -> Options {
-    let mut opts = Options::default();
-    opts.set_level_compaction_dynamic_level_bytes(true);
-
-    if col.is_rc() {
-        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
-        opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
-    }
-    opts
-}
-
-fn read_all_pairs(db: &DB, col_families: &Vec<String>) -> DataSizeDistributionResults {
+fn read_all_pairs(db: &RocksDB, col_families: &Vec<DBCol>) -> DataSizeDistribution {
     // Initialize counters
     let key_sizes: Arc<Mutex<HashMap<usize, usize>>> = Arc::new(Mutex::new(HashMap::new()));
     let value_sizes: Arc<Mutex<HashMap<usize, usize>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -153,8 +141,8 @@ fn read_all_pairs(db: &DB, col_families: &Vec<String>) -> DataSizeDistributionRe
         let mut local_key_sizes: HashMap<usize, usize> = HashMap::new();
         let mut local_value_sizes: HashMap<usize, usize> = HashMap::new();
 
-        let cf_handle = db.cf_handle(col_family).unwrap();
-        for res in db.iterator_cf(&cf_handle, rocksdb::IteratorMode::Start) {
+        //let cf_handle = db.cf_handle(col_family).unwrap();
+        for res in db.iter_raw_bytes(*col_family) {
             match res {
                 Ok(tuple) => {
                     // Count key sizes
@@ -193,67 +181,32 @@ fn read_all_pairs(db: &DB, col_families: &Vec<String>) -> DataSizeDistributionRe
     let column_families: Vec<(String, ColumnFamilyCountAndSize)> =
         column_families_data.lock().unwrap().clone().into_iter().collect();
 
-    DataSizeDistributionResults::new(key_sizes, value_sizes, column_families)
+    DataSizeDistribution::new(key_sizes, value_sizes, column_families)
 }
 
-fn get_column_family_options(
-    input_col: &Option<String>,
-) -> (Vec<String>, Vec<ColumnFamilyDescriptor>) {
+fn get_column_families(input_col: &Option<String>) -> Vec<DBCol> {
     match input_col {
         Some(column_name) => {
-            let mut opts = Options::default();
-            let db_col = resolve_db_col(&column_name).unwrap();
-            if db_col.is_rc() {
-                opts.set_merge_operator(
-                    "refcount merge",
-                    RocksDB::refcount_merge,
-                    RocksDB::refcount_merge,
-                );
-                opts.set_compaction_filter(
-                    "empty value filter",
-                    RocksDB::empty_value_compaction_filter,
-                );
-            }
-            let rocksdb_column_name = col_name(db_col).to_string();
-            (vec![rocksdb_column_name.clone()], vec![ColumnFamilyDescriptor::new(rocksdb_column_name, opts)])
+            vec![resolve_db_col(&column_name).unwrap()]
         }
-        None => {
-            let col_families: Vec<_> = DBCol::iter().collect();
-            (
-                col_families.iter().map(|db_col| col_name(*db_col).to_string()).collect(),
-                col_families
-                    .iter()
-                    .map(|db_col| {
-                        ColumnFamilyDescriptor::new(
-                            col_name(*db_col),
-                            rocksdb_column_options(*db_col),
-                        )
-                    })
-                    .collect(),
-            )
-        }
+        None => DBCol::iter().collect(),
     }
 }
 
 impl AnalyseDatabaseCommand {
     pub fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
         // Set db options for maximum read performance
-        let mut opts = Options::default();
-        opts.set_max_open_files(20_000);
-        opts.increase_parallelism(std::cmp::max(1, num_cpus::get() as i32 / 2));
-
-        // Define column families
-        let (col_families, col_families_cf) = get_column_family_options(&self.column);
-
-        let db = DB::open_cf_descriptors_read_only(
-            &opts,
-            home.to_str().unwrap(),
-            col_families_cf,
-            false,
+        let store_config = StoreConfig::default();
+        let db = RocksDB::open(
+            home,
+            &store_config,
+            near_store::Mode::ReadOnly,
+            near_store::Temperature::Hot,
         )
         .unwrap();
 
-        let results = read_all_pairs(&db, &col_families);
+        let column_families = get_column_families(&self.column);
+        let results = read_all_pairs(&db, &column_families);
         results.print_results(self.top_k);
 
         Ok(())
