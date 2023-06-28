@@ -22,7 +22,6 @@ pub struct AnalyseDatabaseCommand {
 
 fn get_db_col(col: &str) -> Option<DBCol> {
     for db_col in DBCol::iter() {
-        println!("Is {} == {}", <&str>::from(db_col), col);
         if <&str>::from(db_col) == col {
             return Some(db_col);
         }
@@ -68,10 +67,10 @@ impl DataSizeDistributionResults {
         }
     }
 
-    fn print_results(&self, limit: usize) {
+    fn print_results(&self, top_k: usize) {
         self.print_column_family_data();
-        self.print_sizes_count(&self.key_sizes, "Key", limit);
-        self.print_sizes_count(&self.value_sizes, "Value", limit);
+        self.print_sizes_count(&self.key_sizes, "Key", top_k);
+        self.print_sizes_count(&self.value_sizes, "Value", top_k);
     }
 
     fn print_column_family_data(&self) {
@@ -87,7 +86,7 @@ impl DataSizeDistributionResults {
         &self,
         sizes_count: &Vec<(usize, usize)>,
         size_count_type: &str,
-        limit: usize,
+        top_k: usize,
     ) {
         println!(
             "Total number of pairs read {}\n",
@@ -117,7 +116,7 @@ impl DataSizeDistributionResults {
         );
         let mut size_bytes_median = 0;
         let mut median_index = self.total_num_of_pairs / 2;
-        for (size, count) in sizes_count.iter().take(limit) {
+        for (size, count) in sizes_count.iter().take(top_k) {
             if median_index < *count {
                 size_bytes_median = *size;
                 break;
@@ -126,7 +125,7 @@ impl DataSizeDistributionResults {
             }
         }
         println!("Median size {} {}", size_count_type, size_bytes_median);
-        for (size, count) in sizes_count.iter().take(limit) {
+        for (size, count) in sizes_count.iter().take(top_k) {
             println!("Size: {}, Count: {}", size, count);
         }
         println!("");

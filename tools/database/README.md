@@ -11,7 +11,7 @@ of keys and values within RocksDB.
 
 To run the script, use the following example:
 ```bash
-cargo run --bin neard database analyse <db_path> --column col5 --limit 50
+cargo run --bin neard -- --home /home/ubuntu/.nerd database analyse --column col5 --limit 50
 ```
 The arguments are as follows:
 
