@@ -19,7 +19,7 @@ use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_stable_hasher::StableHasher;
 use near_vm_compiler_singlepass::Singlepass;
 use near_vm_engine::universal::{
-    Universal, UniversalEngine, UniversalExecutable, UniversalExecutableRef,
+    LimitedMemoryPool, Universal, UniversalEngine, UniversalExecutable, UniversalExecutableRef,
 };
 use near_vm_types::{FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
 use near_vm_vm::{
@@ -28,7 +28,7 @@ use near_vm_vm::{
 use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 #[derive(Clone)]
 pub struct NearVmMemory(Arc<LinearMemory>);
@@ -244,11 +244,38 @@ impl NearVM {
         let compiler = Singlepass::new();
         // We only support universal engine at the moment.
         assert_eq!(VM_CONFIG.engine, NearVmEngine::Universal);
+
+        static CODE_MEMORY_POOL_CELL: OnceLock<LimitedMemoryPool> = OnceLock::new();
+        let code_memory_pool = CODE_MEMORY_POOL_CELL
+            .get_or_init(|| {
+                // FIXME: should have as many code memories as there are possible parallel
+                // invocations of the runtime… How do we determine that? Should we make it
+                // configurable for the node operators, perhaps, so that they can make an informed
+                // choice based on the amount of memory they have and shards they track? Should we
+                // actually use some sort of semaphore to enforce a parallelism limit?
+                //
+                // NB: 64MiB is a best guess as to what the maximum size a loaded artifact can
+                // plausibly be. This is not necessarily true – there may be WebAssembly
+                // instructions that expand by more than 4 times in terms of instruction size after
+                // a conversion to x86_64, In that case a re-allocation will occur and executing
+                // that particular function call will be slower. Not to mention there isn't a
+                // strong guarantee on the upper bound of the memory that the contract runtime may
+                // require.
+                LimitedMemoryPool::new(8, 64 * 1024 * 1024).unwrap_or_else(|e| {
+                    panic!("could not pre-allocate resources for the runtime: {e}");
+                })
+            })
+            .clone();
+
         let features =
             crate::features::WasmFeatures::from(config.limit_config.contract_prepare_version);
         Self {
             config,
-            engine: Universal::new(compiler).target(target).features(features.into()).engine(),
+            engine: Universal::new(compiler)
+                .target(target)
+                .features(features.into())
+                .code_memory_pool(code_memory_pool)
+                .engine(),
         }
     }
 
@@ -322,84 +349,58 @@ impl NearVM {
         code: &ContractCode,
         cache: Option<&dyn CompiledContractCache>,
     ) -> VMResult<Result<VMArtifact, CompilationError>> {
-        // A bit of a tricky logic ahead! We need to deal with two levels of
-        // caching:
-        //   * `cache` stores compiled machine code in the database
-        //   * `MEM_CACHE` below holds in-memory cache of loaded contracts
+        // `cache` stores compiled machine code in the database
         //
         // Caches also cache _compilation_ errors, so that we don't have to
         // re-parse invalid code (invalid code, in a sense, is a normal
         // outcome). And `cache`, being a database, can fail with an `io::Error`.
         let _span = tracing::debug_span!(target: "vm", "NearVM::compile_and_load").entered();
-
         let key = get_contract_cache_key(code, VMKind::NearVm, &self.config);
+        let cache_record = cache
+            .map(|cache| cache.get(&key))
+            .transpose()
+            .map_err(CacheError::ReadError)?
+            .flatten();
 
-        let compile_or_read_from_cache = || -> VMResult<Result<VMArtifact, CompilationError>> {
-            let _span =
-                tracing::debug_span!(target: "vm", "NearVM::compile_or_read_from_cache").entered();
-            let cache_record = cache
-                .map(|cache| cache.get(&key))
-                .transpose()
-                .map_err(CacheError::ReadError)?
-                .flatten();
-
-            let stored_artifact: Option<VMArtifact> = match cache_record {
-                None => None,
-                Some(CompiledContract::CompileModuleError(err)) => return Ok(Err(err)),
-                Some(CompiledContract::Code(serialized_module)) => {
-                    let _span =
-                        tracing::debug_span!(target: "vm", "NearVM::read_from_cache").entered();
-                    unsafe {
-                        // (UN-)SAFETY: the `serialized_module` must have been produced by a prior call to
-                        // `serialize`.
-                        //
-                        // In practice this is not necessarily true. One could have forgotten to change the
-                        // cache key when upgrading the version of the near_vm library or the database could
-                        // have had its data corrupted while at rest.
-                        //
-                        // There should definitely be some validation in near_vm to ensure we load what we think
-                        // we load.
-                        let executable = UniversalExecutableRef::deserialize(&serialized_module)
-                            .map_err(|_| CacheError::DeserializationError)?;
-                        let artifact = self
-                            .engine
-                            .load_universal_executable_ref(&executable)
-                            .map(Arc::new)
-                            .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
-                        Some(artifact)
-                    }
-                }
-            };
-
-            Ok(if let Some(it) = stored_artifact {
-                Ok(it)
-            } else {
-                match self.compile_and_cache(code, cache)? {
-                    Ok(executable) => Ok(self
+        let stored_artifact: Option<VMArtifact> = match cache_record {
+            None => None,
+            Some(CompiledContract::CompileModuleError(err)) => return Ok(Err(err)),
+            Some(CompiledContract::Code(serialized_module)) => {
+                let _span = tracing::debug_span!(target: "vm", "NearVM::read_from_cache").entered();
+                unsafe {
+                    // (UN-)SAFETY: the `serialized_module` must have been produced by a prior call to
+                    // `serialize`.
+                    //
+                    // In practice this is not necessarily true. One could have forgotten to change the
+                    // cache key when upgrading the version of the near_vm library or the database could
+                    // have had its data corrupted while at rest.
+                    //
+                    // There should definitely be some validation in near_vm to ensure we load what we think
+                    // we load.
+                    let executable = UniversalExecutableRef::deserialize(&serialized_module)
+                        .map_err(|_| CacheError::DeserializationError)?;
+                    let artifact = self
                         .engine
-                        .load_universal_executable(&executable)
+                        .load_universal_executable_ref(&executable)
                         .map(Arc::new)
-                        .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?),
-                    Err(err) => Err(err),
+                        .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
+                    Some(artifact)
                 }
-            })
+            }
         };
 
-        #[cfg(feature = "no_cache")]
-        return compile_or_read_from_cache();
-
-        #[cfg(not(feature = "no_cache"))]
-        return {
-            static MEM_CACHE: once_cell::sync::Lazy<
-                near_cache::SyncLruCache<
-                    near_primitives_core::hash::CryptoHash,
-                    Result<VMArtifact, CompilationError>,
-                >,
-            > = once_cell::sync::Lazy::new(|| {
-                near_cache::SyncLruCache::new(crate::cache::CACHE_SIZE)
-            });
-            MEM_CACHE.get_or_try_put(key, |_key| compile_or_read_from_cache())
-        };
+        Ok(if let Some(it) = stored_artifact {
+            Ok(it)
+        } else {
+            match self.compile_and_cache(code, cache)? {
+                Ok(executable) => Ok(self
+                    .engine
+                    .load_universal_executable(&executable)
+                    .map(Arc::new)
+                    .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?),
+                Err(err) => Err(err),
+            }
+        })
     }
 
     fn run_method(
