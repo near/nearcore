@@ -4340,7 +4340,6 @@ dependencies = [
  "near-cache",
  "near-crypto",
  "near-fmt",
- "near-o11y",
  "near-primitives",
  "near-primitives-core",
  "near-rpc-error-macro",
