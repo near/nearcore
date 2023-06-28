@@ -3,6 +3,7 @@ use crate::{metrics, SyncStatus};
 use actix::Addr;
 use itertools::Itertools;
 use near_chain_configs::{ClientConfig, LogSummaryStyle, SyncConfig};
+use near_client_primitives::types::StateSyncStatus;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
@@ -633,7 +634,7 @@ pub fn display_sync_status(
                 current_height
             )
         }
-        SyncStatus::StateSync(sync_hash, shard_statuses) => {
+        SyncStatus::StateSync(StateSyncStatus { sync_hash, sync_status: shard_statuses }) => {
             let mut res = format!("State {:?}", sync_hash);
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
