@@ -3573,6 +3573,7 @@ name = "near-client-primitives"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "ansi_term",
  "chrono",
  "near-chain-configs",
  "near-chain-primitives",
@@ -3622,6 +3623,18 @@ dependencies = [
  "subtle",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "near-database-tool"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap 4.2.4",
+ "near-store",
+ "nearcore",
+ "rayon",
+ "strum",
 ]
 
 [[package]]
@@ -4341,7 +4354,6 @@ dependencies = [
  "near-cache",
  "near-crypto",
  "near-fmt",
- "near-o11y",
  "near-primitives",
  "near-primitives-core",
  "near-rpc-error-macro",
@@ -4558,6 +4570,7 @@ dependencies = [
  "near-client",
  "near-config-utils",
  "near-crypto",
+ "near-database-tool",
  "near-dyn-configs",
  "near-flat-storage",
  "near-jsonrpc-primitives",

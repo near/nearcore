@@ -5,6 +5,7 @@ use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
 use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
+use near_database_tool::commands::DatabaseCommand;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
 use near_flat_storage::commands::FlatStorageCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
@@ -131,6 +132,9 @@ impl NeardCmd {
             NeardSubCommand::AdjustDb(cmd) => {
                 cmd.run(&home_dir)?;
             }
+            NeardSubCommand::Database(cmd) => {
+                cmd.run(&home_dir)?;
+            }
         };
         Ok(())
     }
@@ -253,6 +257,9 @@ pub(super) enum NeardSubCommand {
 
     /// Adjust DB for testing purposes.
     AdjustDb(AdjustDbCommand),
+
+    /// Set of commands to run on database
+    Database(DatabaseCommand),
 }
 
 #[derive(clap::Parser)]
