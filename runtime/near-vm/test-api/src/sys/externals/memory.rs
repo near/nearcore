@@ -1,7 +1,7 @@
-use crate::sys::exports::Exportable;
-use crate::sys::store::Store;
-use crate::sys::{MemoryType, MemoryView};
-use near_vm_types::{Pages, ValueType};
+use super::super::exports::Exportable;
+use super::super::store::Store;
+use super::super::types::MemoryType;
+use near_vm_types::{MemoryView, Pages, ValueType};
 use near_vm_vm::{Export, MemoryError, VMMemory};
 use std::convert::TryInto;
 use std::slice;
@@ -31,15 +31,6 @@ impl Memory {
     ///
     /// This function will construct the `Memory` using the store
     /// [`BaseTunables`][crate::sys::BaseTunables].
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use near_vm_test_api::{Memory, MemoryType, Pages, Store, Type, Value};
-    /// # let store = Store::default();
-    /// #
-    /// let m = Memory::new(&store, MemoryType::new(1, None, false)).unwrap();
-    /// ```
     pub fn new(store: &Store, ty: MemoryType) -> Result<Self, MemoryError> {
         let tunables = store.tunables();
         let style = tunables.memory_style(&ty);
@@ -62,34 +53,11 @@ impl Memory {
     }
 
     /// Returns the [`MemoryType`] of the `Memory`.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use near_vm_test_api::{Memory, MemoryType, Pages, Store, Type, Value};
-    /// # let store = Store::default();
-    /// #
-    /// let mt = MemoryType::new(1, None, false);
-    /// let m = Memory::new(&store, mt).unwrap();
-    ///
-    /// assert_eq!(m.ty(), mt);
-    /// ```
     pub fn ty(&self) -> MemoryType {
         self.vm_memory.from.ty()
     }
 
     /// Returns the [`Store`] where the `Memory` belongs.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use near_vm_test_api::{Memory, MemoryType, Pages, Store, Type, Value};
-    /// # let store = Store::default();
-    /// #
-    /// let m = Memory::new(&store, MemoryType::new(1, None, false)).unwrap();
-    ///
-    /// assert_eq!(m.store(), &store);
-    /// ```
     pub fn store(&self) -> &Store {
         &self.store
     }
@@ -136,17 +104,6 @@ impl Memory {
     }
 
     /// Returns the size (in [`Pages`]) of the `Memory`.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use near_vm_test_api::{Memory, MemoryType, Pages, Store, Type, Value};
-    /// # let store = Store::default();
-    /// #
-    /// let m = Memory::new(&store, MemoryType::new(1, None, false)).unwrap();
-    ///
-    /// assert_eq!(m.size(), Pages(1));
-    /// ```
     pub fn size(&self) -> Pages {
         self.vm_memory.from.size()
     }
@@ -162,26 +119,6 @@ impl Memory {
     /// but it doesn't obey rust's rules involving data races, especially concurrent ones.
     /// Therefore, if this memory is shared between multiple threads, a single memory
     /// location can be mutated concurrently without synchronization.
-    ///
-    /// # Usage:
-    ///
-    /// ```
-    /// # use near_vm_test_api::{Memory, MemoryView};
-    /// # use std::{cell::Cell, sync::atomic::Ordering};
-    /// # fn view_memory(memory: Memory) {
-    /// // Without synchronization.
-    /// let view: MemoryView<u8> = memory.view();
-    /// for byte in view[0x1000 .. 0x1010].iter().map(Cell::get) {
-    ///     println!("byte: {}", byte);
-    /// }
-    ///
-    /// // With synchronization.
-    /// let atomic_view = view.atomically();
-    /// for byte in atomic_view[0x1000 .. 0x1010].iter().map(|atom| atom.load(Ordering::SeqCst)) {
-    ///     println!("byte: {}", byte);
-    /// }
-    /// # }
-    /// ```
     pub fn view<T: ValueType>(&self) -> MemoryView<T> {
         let base = self.data_ptr();
 

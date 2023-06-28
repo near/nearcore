@@ -1,7 +1,10 @@
-use crate::sys::module::Module;
-use crate::sys::{HostEnvInitError, LinkError, RuntimeError};
-use crate::{ExportError, NativeFunc, WasmTypeList};
-use near_vm_vm::{InstanceHandle, Resolver};
+use super::env::HostEnvInitError;
+use super::exports::ExportError;
+use super::externals::WasmTypeList;
+use super::module::Module;
+use super::native::NativeFunc;
+use near_vm_engine::{LinkError, RuntimeError};
+use near_vm_vm::{Export, InstanceHandle, Resolver};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
@@ -141,15 +144,15 @@ impl Instance {
     }
 
     /// Lookup an exported entity by its name.
-    pub fn lookup(&self, field: &str) -> Option<crate::Export> {
+    pub fn lookup(&self, field: &str) -> Option<Export> {
         let vmextern = self.handle.lock().unwrap().lookup(field)?;
         Some(vmextern.into())
     }
 
     /// Lookup an exported function by its name.
-    pub fn lookup_function(&self, field: &str) -> Option<crate::Function> {
-        if let crate::Export::Function(f) = self.lookup(field)? {
-            Some(crate::Function::from_vm_export(self.module.store(), f))
+    pub fn lookup_function(&self, field: &str) -> Option<super::externals::Function> {
+        if let Export::Function(f) = self.lookup(field)? {
+            Some(super::externals::Function::from_vm_export(self.module.store(), f))
         } else {
             None
         }
@@ -165,8 +168,8 @@ impl Instance {
         Rets: WasmTypeList,
     {
         match self.lookup(name) {
-            Some(crate::Export::Function(f)) => {
-                crate::Function::from_vm_export(self.module.store(), f)
+            Some(Export::Function(f)) => {
+                super::externals::Function::from_vm_export(self.module.store(), f)
                     .native()
                     .map_err(|_| ExportError::IncompatibleType)
             }
