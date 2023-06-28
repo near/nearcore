@@ -3561,6 +3561,7 @@ name = "near-client-primitives"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "ansi_term",
  "chrono",
  "near-chain-configs",
  "near-chain-primitives",

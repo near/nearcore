@@ -11,6 +11,7 @@ publish = true
 
 [dependencies]
 actix.workspace = true
+ansi_term.workspace = true
 chrono.workspace = true
 once_cell.workspace = true
 serde.workspace = true
