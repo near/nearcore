@@ -11,11 +11,8 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
-rocksdb.workspace = true
 rayon.workspace = true
-num_cpus.workspace = true
 strum.workspace = true
-once_cell.workspace = true
 
 near-store.workspace = true
 nearcore.workspace = true

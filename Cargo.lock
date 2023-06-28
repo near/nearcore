@@ -3632,10 +3632,7 @@ dependencies = [
  "clap 4.2.4",
  "near-store",
  "nearcore",
- "num_cpus",
- "once_cell",
  "rayon",
- "rocksdb",
  "strum",
 ]
 

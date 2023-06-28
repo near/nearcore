@@ -1,4 +1,4 @@
-use crate::analyse_data_size_distribution::AnalyseDatabaseCommand;
+use crate::analyse_data_size_distribution::AnalyseDataSizeDistributionCommand;
 use clap::Parser;
 use std::path::PathBuf;
 
@@ -12,13 +12,13 @@ pub struct DatabaseCommand {
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 enum SubCommand {
     /// Analyse data size distribution in RocksDB
-    AnalyseDataSizeDistributionCommand(AnalyseDatabaseCommand),
+    AnalyseDataSizeDistribution(AnalyseDataSizeDistributionCommand),
 }
 
 impl DatabaseCommand {
     pub fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
         match &self.subcmd {
-            SubCommand::AnalyseDataSizeDistributionCommand(cmd) => cmd.run(home),
+            SubCommand::AnalyseDataSizeDistribution(cmd) => cmd.run(home),
         }
     }
 }
