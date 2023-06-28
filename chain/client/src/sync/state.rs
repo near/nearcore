@@ -25,8 +25,6 @@ use crate::sync::external::{
     create_bucket_readonly, external_storage_location, ExternalConnection,
 };
 use actix_rt::ArbiterHandle;
-use ansi_term::Color::{Purple, Yellow};
-use ansi_term::Style;
 use chrono::{DateTime, Duration, Utc};
 use futures::{future, FutureExt};
 use near_async::messaging::CanSendAsync;
@@ -35,7 +33,8 @@ use near_chain::near_chain_primitives;
 use near_chain::Chain;
 use near_chain_configs::{ExternalStorageConfig, ExternalStorageLocation, SyncConfig};
 use near_client_primitives::types::{
-    DownloadStatus, ShardSyncDownload, ShardSyncStatus, StateSplitApplyingStatus,
+    format_shard_sync_phase, DownloadStatus, ShardSyncDownload, ShardSyncStatus,
+    StateSplitApplyingStatus,
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::AccountOrPeerIdOrHash;
@@ -1326,58 +1325,6 @@ fn process_part_response(
         part_download.error = true;
     }
     true
-}
-
-/// Applies style if `use_colour` is enabled.
-fn paint(s: &str, style: Style, use_style: bool) -> String {
-    if use_style {
-        style.paint(s).to_string()
-    } else {
-        s.to_string()
-    }
-}
-
-/// Formats the given ShardSyncDownload for logging.
-pub(crate) fn format_shard_sync_phase(
-    shard_sync_download: &ShardSyncDownload,
-    use_colour: bool,
-) -> String {
-    match &shard_sync_download.status {
-        ShardSyncStatus::StateDownloadHeader => format!(
-            "{} requests sent {}, last target {:?}",
-            paint("HEADER", Purple.bold(), use_colour),
-            shard_sync_download.downloads[0].state_requests_count,
-            shard_sync_download.downloads[0].last_target
-        ),
-        ShardSyncStatus::StateDownloadParts => {
-            let mut num_parts_done = 0;
-            let mut num_parts_not_done = 0;
-            let mut text = "".to_string();
-            for (i, download) in shard_sync_download.downloads.iter().enumerate() {
-                if download.done {
-                    num_parts_done += 1;
-                    continue;
-                }
-                num_parts_not_done += 1;
-                text.push_str(&format!(
-                    "[{}: {}, {}, {:?}] ",
-                    paint(&i.to_string(), Yellow.bold(), use_colour),
-                    download.done,
-                    download.state_requests_count,
-                    download.last_target
-                ));
-            }
-            format!(
-                "{} [{}: is_done, requests sent, last target] {} num_parts_done={} num_parts_not_done={}",
-                paint("PARTS", Purple.bold(), use_colour),
-                paint("part_id", Yellow.bold(), use_colour),
-                text,
-                num_parts_done,
-                num_parts_not_done
-            )
-        }
-        status => format!("{:?}", status),
-    }
 }
 
 /// Create an abstract collection of elements to be shuffled.

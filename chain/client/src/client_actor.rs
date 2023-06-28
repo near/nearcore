@@ -40,8 +40,8 @@ use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
-    Error, GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse, Status,
-    StatusError, StatusSyncInfo, SyncStatus,
+    Error, GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse,
+    StateSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
@@ -441,7 +441,7 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
                 .store()
                 .get_all_block_hashes_by_height(block.header().height());
             if was_requested || blocks_at_height.is_err() || blocks_at_height.as_ref().unwrap().is_empty() {
-                if let SyncStatus::StateSync(sync_hash, _) = &mut this.client.sync_status {
+                if let SyncStatus::StateSync(StateSyncStatus{ sync_hash, .. }) = &mut this.client.sync_status {
                     if let Ok(header) = this.client.chain.get_block_header(sync_hash) {
                         if block.hash() == header.prev_hash() {
                             if let Err(e) = this.client.chain.save_block(block.into()) {
@@ -535,7 +535,7 @@ impl Handler<WithSpanContext<StateResponse>> for ClientActor {
             // Get the download that matches the shard_id and hash
 
             // ... It could be that the state was requested by the state sync
-            if let SyncStatus::StateSync(sync_hash, shards_to_download) =
+            if let SyncStatus::StateSync(StateSyncStatus{ sync_hash, sync_status: shards_to_download }) =
                 &mut this.client.sync_status
             {
                 if hash == *sync_hash {
@@ -1006,7 +1006,7 @@ impl ClientActor {
         let _span = tracing::debug_span!(target: "client", "handle_block_production").entered();
         // If syncing, don't try to produce blocks.
         if self.client.sync_status.is_syncing() {
-            debug!(target:"client", sync_status=?self.client.sync_status, "Syncing - block production disabled");
+            debug!(target:"client", sync_status=format!("{:#?}", self.client.sync_status), "Syncing - block production disabled");
             return Ok(());
         }
 
@@ -1630,7 +1630,7 @@ impl ClientActor {
 
                 // Sync state if already running sync state or if block sync is too far.
                 let sync_state = match self.client.sync_status {
-                    SyncStatus::StateSync(_, _) => true,
+                    SyncStatus::StateSync(_) => true,
                     _ if header_head.height
                         >= highest_height
                             .saturating_sub(self.client.config.block_header_fetch_horizon) =>
@@ -1647,9 +1647,10 @@ impl ClientActor {
                 if sync_state {
                     let (sync_hash, mut new_shard_sync, just_enter_state_sync) =
                         match &self.client.sync_status {
-                            SyncStatus::StateSync(sync_hash, shard_sync) => {
-                                (*sync_hash, shard_sync.clone(), false)
-                            }
+                            SyncStatus::StateSync(StateSyncStatus {
+                                sync_hash,
+                                sync_status: shard_sync,
+                            }) => (*sync_hash, shard_sync.clone(), false),
                             _ => {
                                 let sync_hash = unwrap_and_report!(self.find_sync_hash());
                                 (sync_hash, HashMap::default(), true)
@@ -1697,8 +1698,10 @@ impl ClientActor {
                     )) {
                         StateSyncResult::Unchanged => (),
                         StateSyncResult::Changed(fetch_block) => {
-                            self.client.sync_status =
-                                SyncStatus::StateSync(sync_hash, new_shard_sync);
+                            self.client.sync_status = SyncStatus::StateSync(StateSyncStatus {
+                                sync_hash,
+                                sync_status: new_shard_sync,
+                            });
                             if fetch_block {
                                 if let Some(peer_info) =
                                     self.network_info.highest_height_peers.choose(&mut thread_rng())
