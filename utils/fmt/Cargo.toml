@@ -11,3 +11,12 @@ publish = true
 
 [dependencies]
 near-primitives-core.workspace = true
+
+[features]
+nightly = [
+  "nightly_protocol",
+  "near-primitives-core/nightly",
+]
+nightly_protocol = [
+  "near-primitives-core/nightly_protocol",
+]

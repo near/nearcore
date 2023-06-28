@@ -1,4 +1,4 @@
-use near_vm_logic::{MemSlice, MemoryLike};
+use crate::logic::{MemSlice, MemoryLike};
 
 use std::borrow::Cow;
 
@@ -65,5 +65,5 @@ impl MemoryLike for WasmerMemory {
 
 #[test]
 fn test_memory_like() {
-    near_vm_logic::test_utils::test_memory_like(|| Box::new(WasmerMemory::new(1, 1)));
+    crate::logic::test_utils::test_memory_like(|| Box::new(WasmerMemory::new(1, 1)));
 }

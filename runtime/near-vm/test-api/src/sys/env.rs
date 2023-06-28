@@ -1,4 +1,5 @@
-use crate::sys::{ExportError, Instance};
+use super::exports::ExportError;
+use super::instance::Instance;
 use thiserror::Error;
 
 /// An error while initializing the user supplied host env with the `WasmerEnv` trait.
@@ -24,23 +25,6 @@ impl From<ExportError> for HostEnvInitError {
 /// after instantiation. For example, exported items such as memories and
 /// functions which don't exist prior to instantiation can be accessed here so
 /// that host functions can use them.
-///
-/// # Examples
-///
-/// This trait may also be implemented manually:
-/// ```
-/// # use near_vm_test_api::{WasmerEnv, LazyInit, Memory, Instance, HostEnvInitError};
-/// #[derive(Clone)]
-/// pub struct MyEnv {
-///    memory: LazyInit<Memory>,
-/// }
-///
-/// impl WasmerEnv for MyEnv {
-///     fn init_with_instance(&mut self, instance: &Instance) -> Result<(), HostEnvInitError> {
-///         todo!()
-///     }
-/// }
-/// ```
 ///
 /// When implementing the trait manually, it's important to get a "weak" export to
 /// prevent a cyclic reference leaking memory. You can access a "weak" export with

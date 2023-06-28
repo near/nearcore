@@ -1,9 +1,9 @@
-use crate::sys::exports::Exportable;
-use crate::sys::store::{Store, StoreObject};
-use crate::sys::types::Val;
-use crate::sys::GlobalType;
-use crate::sys::Mutability;
-use crate::sys::RuntimeError;
+use super::super::exports::Exportable;
+use super::super::store::{Store, StoreObject};
+use super::super::types::GlobalType;
+use super::super::types::Mutability;
+use super::super::types::Val;
+use near_vm_engine::RuntimeError;
 use near_vm_vm::{Export, Global as RuntimeGlobal, VMGlobal};
 use std::fmt;
 use std::sync::Arc;
@@ -21,35 +21,11 @@ pub struct Global {
 
 impl Global {
     /// Create a new `Global` with the initial value [`Val`].
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use near_vm_test_api::{Global, Mutability, Store, Value};
-    /// # let store = Store::default();
-    /// #
-    /// let g = Global::new(&store, Value::I32(1));
-    ///
-    /// assert_eq!(g.get(), Value::I32(1));
-    /// assert_eq!(g.ty().mutability, Mutability::Const);
-    /// ```
     pub fn new(store: &Store, val: Val) -> Self {
         Self::from_value(store, val, Mutability::Const).unwrap()
     }
 
     /// Create a mutable `Global` with the initial value [`Val`].
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use near_vm_test_api::{Global, Mutability, Store, Value};
-    /// # let store = Store::default();
-    /// #
-    /// let g = Global::new_mut(&store, Value::I32(1));
-    ///
-    /// assert_eq!(g.get(), Value::I32(1));
-    /// assert_eq!(g.ty().mutability, Mutability::Var);
-    /// ```
     pub fn new_mut(store: &Store, val: Val) -> Self {
         Self::from_value(store, val, Mutability::Var).unwrap()
     }
@@ -73,19 +49,6 @@ impl Global {
     }
 
     /// Returns the [`GlobalType`] of the `Global`.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use near_vm_test_api::{Global, Mutability, Store, Type, Value, GlobalType};
-    /// # let store = Store::default();
-    /// #
-    /// let c = Global::new(&store, Value::I32(1));
-    /// let v = Global::new_mut(&store, Value::I64(1));
-    ///
-    /// assert_eq!(c.ty(), &GlobalType::new(Type::I32, Mutability::Const));
-    /// assert_eq!(v.ty(), &GlobalType::new(Type::I64, Mutability::Var));
-    /// ```
     pub fn ty(&self) -> &GlobalType {
         self.vm_global.from.ty()
     }

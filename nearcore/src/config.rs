@@ -306,6 +306,8 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_trie_changes: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
+    // Allows more detailed logging, for example a list of orphaned blocks.
+    pub enable_multiline_logging: Option<bool>,
     /// Garbage collection configuration.
     #[serde(default, flatten)]
     pub gc: GCConfig,
@@ -346,6 +348,8 @@ pub struct Config {
     /// chunks and underutilizing the capacity of the network.
     #[serde(default = "default_transaction_pool_size_limit")]
     pub transaction_pool_size_limit: Option<u64>,
+    /// If a node needs to upload state parts to S3
+    pub s3_credentials_file: Option<String>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -384,6 +388,8 @@ impl Default for Config {
             state_sync: None,
             state_sync_enabled: None,
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
+            s3_credentials_file: None,
+            enable_multiline_logging: None,
         }
     }
 }
@@ -695,6 +701,7 @@ impl NearConfig {
                 state_sync: config.state_sync.unwrap_or_default(),
                 state_snapshot_every_n_blocks: None,
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
+                enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),
             },
             network_config: NetworkConfig::new(
                 config.network,

@@ -29,6 +29,8 @@ struct MakeSnapshotRequest {
     prev_block_hash: CryptoHash,
     /// Shards that need to be present in the snapshot.
     shard_uids: Vec<ShardUId>,
+    /// Whether to perform compaction.
+    compaction_enabled: bool,
 }
 
 #[derive(actix::Message, Debug)]
@@ -45,7 +47,7 @@ impl actix::Handler<WithSpanContext<MakeSnapshotRequest>> for StateSnapshotActor
         _ctx: &mut actix::Context<Self>,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
-        let MakeSnapshotRequest { prev_block_hash, shard_uids } = msg;
+        let MakeSnapshotRequest { prev_block_hash, shard_uids, compaction_enabled } = msg;
 
         let res = self.tries.make_state_snapshot(&prev_block_hash, &shard_uids);
         if !self.flat_storage_manager.set_flat_state_updates_mode(true) {
@@ -53,7 +55,11 @@ impl actix::Handler<WithSpanContext<MakeSnapshotRequest>> for StateSnapshotActor
         }
         match res {
             Ok(_) => {
-                _ctx.address().do_send(CompactSnapshotRequest {}.with_span_context());
+                if compaction_enabled {
+                    _ctx.address().do_send(CompactSnapshotRequest {}.with_span_context());
+                } else {
+                    tracing::info!(target: "state_snapshot", "State snapshot ready, not running compaction.");
+                }
             }
             Err(err) => {
                 tracing::error!(target: "state_snapshot", ?err, "State snapshot creation failed")
@@ -88,12 +94,15 @@ pub type MakeSnapshotCallback =
 pub fn get_make_snapshot_callback(
     state_snapshot_addr: Arc<actix::Addr<StateSnapshotActor>>,
     flat_storage_manager: FlatStorageManager,
+    compaction_enabled: bool,
 ) -> MakeSnapshotCallback {
     Arc::new(move |prev_block_hash, shard_uids| {
         tracing::info!(target: "state_snapshot", ?prev_block_hash, ?shard_uids, "start_snapshot_callback sends `MakeSnapshotCallback` to state_snapshot_addr");
         if flat_storage_manager.set_flat_state_updates_mode(false) {
-            state_snapshot_addr
-                .do_send(MakeSnapshotRequest { prev_block_hash, shard_uids }.with_span_context());
+            state_snapshot_addr.do_send(
+                MakeSnapshotRequest { prev_block_hash, shard_uids, compaction_enabled }
+                    .with_span_context(),
+            );
         }
     })
 }

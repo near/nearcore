@@ -84,6 +84,8 @@ steps:
       python3 scripts/check_pytests.py
       python3 scripts/check_fuzzing.py
 
+      python3 scripts/fix_nightly_feature_flags.py
+
       ./scripts/formatting --check
 
       ./scripts/run_clippy.sh

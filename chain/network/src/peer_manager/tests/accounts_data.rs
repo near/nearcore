@@ -80,7 +80,7 @@ async fn broadcast() {
     let mut peer2 =
         pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
     let got2 = peer2.events.recv_until(take_full_sync).await;
-    assert_eq!(got2.accounts_data.as_set(), want.iter().collect());
+    assert_eq!(got2.accounts_data.as_set(), want.iter().collect::<HashSet<_>>());
 
     tracing::info!(target:"test", "Send a mix of new and old data. Only new data should be broadcasted.");
     let msg = SyncAccountsData {

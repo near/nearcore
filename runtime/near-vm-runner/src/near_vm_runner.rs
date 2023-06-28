@@ -1,6 +1,15 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::imports::near_vm::NearVmImports;
 use crate::internal::VMKind;
+use crate::logic::errors::{
+    CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
+};
+use crate::logic::gas_counter::FastGasCounter;
+use crate::logic::types::{PromiseResult, ProtocolVersion};
+use crate::logic::{
+    CompiledContract, CompiledContractCache, External, MemSlice, MemoryLike, VMConfig, VMContext,
+    VMLogic, VMOutcome,
+};
 use crate::prepare;
 use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports};
@@ -11,15 +20,6 @@ use near_stable_hasher::StableHasher;
 use near_vm_compiler_singlepass::Singlepass;
 use near_vm_engine::universal::{
     Universal, UniversalEngine, UniversalExecutable, UniversalExecutableRef,
-};
-use near_vm_logic::errors::{
-    CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
-};
-use near_vm_logic::gas_counter::FastGasCounter;
-use near_vm_logic::types::{PromiseResult, ProtocolVersion};
-use near_vm_logic::{
-    CompiledContract, CompiledContractCache, External, MemSlice, MemoryLike, VMConfig, VMContext,
-    VMLogic, VMOutcome,
 };
 use near_vm_types::{FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
 use near_vm_vm::{
@@ -152,7 +152,7 @@ fn translate_runtime_error(
 ) -> Result<FunctionCallError, VMRunnerError> {
     // Errors produced by host function calls also become `RuntimeError`s that wrap a dynamic
     // instance of `VMLogicError` internally. See the implementation of `NearVmImports`.
-    let error = match error.downcast::<near_vm_logic::VMLogicError>() {
+    let error = match error.downcast::<crate::logic::VMLogicError>() {
         Ok(vm_logic) => {
             return vm_logic.try_into();
         }
@@ -734,7 +734,7 @@ impl crate::runner::VM for NearVM {
         cache: &dyn CompiledContractCache,
     ) -> Result<
         Result<ContractPrecompilatonResult, CompilationError>,
-        near_vm_logic::errors::CacheError,
+        crate::logic::errors::CacheError,
     > {
         Ok(self
             .compile_and_cache(code, Some(cache))?
@@ -744,5 +744,5 @@ impl crate::runner::VM for NearVM {
 
 #[test]
 fn test_memory_like() {
-    near_vm_logic::test_utils::test_memory_like(|| Box::new(NearVmMemory::new(1, 1).unwrap()));
+    crate::logic::test_utils::test_memory_like(|| Box::new(NearVmMemory::new(1, 1).unwrap()));
 }
