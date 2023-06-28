@@ -12,16 +12,17 @@ use strum::IntoEnumIterator;
 #[derive(Parser)]
 pub struct AnalyseDatabaseCommand {
     #[arg(short, long)]
-    /// If specified only yhis column will be analysed
+    /// If specified only this column will be analysed
     column: Option<String>,
 
     #[arg(short, long, default_value_t = 100)]
-    /// Number of count sizes to ourput
+    /// Number of count sizes to output
     top_k: usize,
 }
 
 fn get_db_col(col: &str) -> Option<DBCol> {
     for db_col in DBCol::iter() {
+        println!("Is {} == {}", <&str>::from(db_col), col);
         if <&str>::from(db_col) == col {
             return Some(db_col);
         }
@@ -209,23 +210,22 @@ fn get_column_family_options(
     input_col: &Option<String>,
 ) -> (Vec<String>, Vec<ColumnFamilyDescriptor>) {
     match input_col {
-        Some(col_name) => {
+        Some(column_name) => {
             let mut opts = Options::default();
-            let maybe_db_col = get_db_col(&col_name);
-            if let Some(db_col) = maybe_db_col {
-                if db_col.is_rc() {
-                    opts.set_merge_operator(
-                        "refcount merge",
-                        RocksDB::refcount_merge,
-                        RocksDB::refcount_merge,
-                    );
-                    opts.set_compaction_filter(
-                        "empty value filter",
-                        RocksDB::empty_value_compaction_filter,
-                    );
-                }
+            let db_col = get_db_col(&column_name).unwrap();
+            if db_col.is_rc() {
+                opts.set_merge_operator(
+                    "refcount merge",
+                    RocksDB::refcount_merge,
+                    RocksDB::refcount_merge,
+                );
+                opts.set_compaction_filter(
+                    "empty value filter",
+                    RocksDB::empty_value_compaction_filter,
+                );
             }
-            (vec![col_name.clone()], vec![ColumnFamilyDescriptor::new(col_name, opts)])
+            let rocksdb_column_name = col_name(db_col).to_string();
+            (vec![rocksdb_column_name.clone()], vec![ColumnFamilyDescriptor::new(rocksdb_column_name, opts)])
         }
         None => {
             let col_families = get_all_col_family_names();
