@@ -318,6 +318,7 @@ impl NightshadeRuntime {
         is_first_block_with_chunk_of_version: bool,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyTransactionResult, Error> {
+        return Err(Error::StorageError(near_primitives::errors::StorageError::MissingTrieValue));
         let _span = tracing::debug_span!(target: "runtime", "process_state_update").entered();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
@@ -900,13 +901,34 @@ impl RuntimeAdapter for NightshadeRuntime {
             random_seed,
             is_new_chunk,
             is_first_block_with_chunk_of_version,
-            states_to_patch,
+            states_to_patch.clone(),
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e {
                 Error::StorageError(err) => match &err {
                     StorageError::FlatStorageBlockNotSupported(_) => Err(err.into()),
-                    _ => panic!("{err}"),
+                    _ => panic!(
+                        // Doesn't print `latest_protocol_version` because that iterator is already moved away.
+                        "Error: {err}.\n\
+                         Arguments:\n\
+                         shard_id: {shard_id:?}\n\
+                         state_root: {state_root:?}\n\
+                         height: {height}\n\
+                         block_timestamp: {block_timestamp:?}\n\
+                         prev_block_hash: {prev_block_hash:?}\n\
+                         block_hash: {block_hash:?}\n\
+                         receipts: {receipts:?}\n\
+                         transactions: {transactions:?}\n\
+                         latest_protocol_version: <skipped>\n\
+                         gas_price: {gas_price:?}\n\
+                         gas_limit: {gas_limit:?}\n\
+                         challenges: {challenges:?}\n\
+                         random_seed: {random_seed:?}\n\
+                         generate_storage_proof: {generate_storage_proof}\n\
+                         is_new_chunk: {is_new_chunk}\n\
+                         is_first_block_with_chunk_of_version: {is_first_block_with_chunk_of_version}\n\
+                         states_to_patch: {states_to_patch:?}\n\
+                         use_flat_storage: {use_flat_storage}"),
                 },
                 _ => Err(e),
             },
