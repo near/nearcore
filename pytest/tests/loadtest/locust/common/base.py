@@ -448,7 +448,6 @@ def as_function_call_error(failure: dict) -> typing.Optional[dict]:
 
 def as_execution_error(failure: dict) -> typing.Optional[dict]:
     function_call_error = as_function_call_error(failure)
-    print("function_call_error", function_call_error)
     if function_call_error and "ExecutionError" in function_call_error:
         return function_call_error["ExecutionError"]
     return None
