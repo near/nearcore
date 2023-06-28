@@ -24,7 +24,7 @@ pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -63,9 +63,6 @@ pub struct DownloadStatus {
     pub done: bool,
     pub state_requests_count: u64,
     pub last_target: Option<AccountOrPeerIdOrHash>,
-    #[serde(skip_serializing, skip_deserializing)]
-    // Use type `String` as an error to avoid a dependency on the `rust-s3` or `anyhow` crates.
-    pub response: Arc<Mutex<Option<Result<Vec<u8>, String>>>>,
 }
 
 impl DownloadStatus {
@@ -78,7 +75,6 @@ impl DownloadStatus {
             done: false,
             state_requests_count: 0,
             last_target: None,
-            response: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -96,7 +92,6 @@ impl Clone for DownloadStatus {
             done: self.done,
             state_requests_count: self.state_requests_count,
             last_target: self.last_target.clone(),
-            response: self.response.clone(),
         }
     }
 }
