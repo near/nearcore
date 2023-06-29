@@ -3631,6 +3631,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap 4.2.4",
+ "near-chain-configs",
  "near-store",
  "nearcore",
  "rayon",
