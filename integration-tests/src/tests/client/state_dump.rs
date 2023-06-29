@@ -148,7 +148,6 @@ fn run_state_sync_with_dumped_parts(
     account_creation_at_epoch_height: u64,
     epoch_length: u64,
 ) {
-    init_test_logger();
     if is_final_block_in_new_epoch {
         tracing::info!("Testing for case when both head and final block of the dumping node are in new epoch...");
     } else {
@@ -382,6 +381,7 @@ fn run_state_sync_with_dumped_parts(
 /// - the dumping node's head is in new epoch but final block is not;
 /// - the dumping node's head and final block are in same epoch
 fn test_state_sync_w_dumped_parts() {
+    init_test_logger();
     let epoch_length = 5;
     // excluding account_creation_at_epoch_height=1 because first epoch's epoch_id not being block hash of its first block cause issues
     for account_creation_at_epoch_height in 2..=4 as u64 {
