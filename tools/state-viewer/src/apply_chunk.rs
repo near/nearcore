@@ -566,6 +566,7 @@ mod test {
                         chunk_hash.clone(),
                         None,
                         Some(rng),
+                        false,
                     )
                     .unwrap();
                     assert_eq!(apply_result.new_root, new_root);
@@ -644,6 +645,7 @@ mod test {
                             runtime.as_ref(),
                             store.clone(),
                             tx.get_hash(),
+                            false,
                         )
                         .unwrap();
                         assert_eq!(results.len(), 1);
@@ -662,6 +664,7 @@ mod test {
                             runtime.as_ref(),
                             store.clone(),
                             receipt.get_hash(),
+                            false,
                         )
                         .unwrap();
                         assert_eq!(results.len(), 1);
@@ -691,6 +694,7 @@ mod test {
                     runtime.as_ref(),
                     store.clone(),
                     tx.get_hash(),
+                    false,
                 )
                 .unwrap();
                 for result in results {
@@ -711,6 +715,7 @@ mod test {
                     runtime.as_ref(),
                     store.clone(),
                     receipt.get_hash(),
+                    false,
                 )
                 .unwrap();
                 for result in results {

@@ -349,7 +349,8 @@ pub fn apply_chain_range(
         ?end_height,
         %shard_id,
         only_contracts,
-        sequential)
+        sequential,
+        use_flat_storage)
     .entered();
     let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
     let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
@@ -558,6 +559,7 @@ mod test {
             None,
             false,
             false,
+            false,
         );
     }
 
@@ -593,6 +595,7 @@ mod test {
             runtime,
             true,
             Some(file.as_file_mut()),
+            false,
             false,
             false,
         );
