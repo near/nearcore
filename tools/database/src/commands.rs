@@ -1,5 +1,5 @@
-use crate::analyse_data_size_distribution::AnalyseDataSizeDistributionCommand;
 use crate::adjust_database::ChangeDbKindCommand;
+use crate::analyse_data_size_distribution::AnalyseDataSizeDistributionCommand;
 use clap::Parser;
 use std::path::PathBuf;
 
