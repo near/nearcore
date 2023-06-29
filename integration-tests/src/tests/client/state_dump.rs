@@ -387,8 +387,8 @@ fn run_state_sync_with_dumped_parts(
 
             // Check that inlined flat state values remain inlined.
             {
-                let (num_inlined_before, num_ref_before) = count_flat_state_value_kinds(&stores[0]);
-                let (num_inlined_after, num_ref_after) = count_flat_state_value_kinds(&stores[1]);
+                let (num_inlined_before, _num_ref_before) = count_flat_state_value_kinds(&stores[0]);
+                let (num_inlined_after, _num_ref_after) = count_flat_state_value_kinds(&stores[1]);
                 // Created a new entry, but inlined values should stay inlinedNothing new created, number of flat state values should be identical.
                 assert!(num_inlined_before >= num_inlined_after);
                 assert!(num_inlined_after > 0);
