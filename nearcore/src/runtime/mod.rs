@@ -686,7 +686,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         use_flat_storage: bool,
     ) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
-        tracing::debug!(target: "runtime", ?shard_uid, ?prev_hash, ?state_root, use_flat_storage, "get_trie_for_shard");
         if use_flat_storage {
             Ok(self
                 .tries
