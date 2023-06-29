@@ -2181,6 +2181,7 @@ impl Client {
             // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
             debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&new_shard_sync, false), "Catchup");
 
+            let use_colour = matches!(self.config.log_summary_style, LogSummaryStyle::Colored);
             match state_sync.run(
                 me,
                 sync_hash,
