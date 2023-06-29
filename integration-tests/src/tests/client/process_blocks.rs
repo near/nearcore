@@ -75,6 +75,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
+use near_primitives_core::types::ShardId;
 use near_store::cold_storage::{update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
@@ -2666,12 +2667,13 @@ fn test_catchup_gas_price_change() {
         use borsh::BorshSerialize;
         let store = rt.store();
 
+        let shard_id = msg.shard_uid.shard_id as ShardId;
         for part_id in 0..msg.num_parts {
-            let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec().unwrap();
+            let key = StatePartKey(msg.sync_hash, shard_id, part_id).try_to_vec().unwrap();
             let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
 
             rt.apply_state_part(
-                msg.shard_id,
+                shard_id,
                 &msg.state_root,
                 PartId::new(part_id, msg.num_parts),
                 &part,
