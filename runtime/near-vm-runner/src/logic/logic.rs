@@ -2416,7 +2416,7 @@ impl<'a> VMLogic<'a> {
         tracing::trace!(
             target = "io_tracer",
             storage_op = "write",
-            key = base64(key),
+            key = base64(&key),
             size = value_len,
             evicted_len = evicted.as_ref().map(Vec::len),
             tn_mem_reads = nodes_delta.mem_reads,
@@ -2524,7 +2524,7 @@ impl<'a> VMLogic<'a> {
         tracing::trace!(
             target = "io_tracer",
             storage_op = "read",
-            key = base64(key),
+            key = base64(&key),
             size = read.as_ref().map(Vec::len),
             tn_db_reads = nodes_delta.db_reads,
             tn_mem_reads = nodes_delta.mem_reads,
@@ -2598,7 +2598,7 @@ impl<'a> VMLogic<'a> {
         tracing::trace!(
             target = "io_tracer",
             storage_op = "remove",
-            key = base64(key),
+            key = base64(&key),
             evicted_len = removed.as_ref().map(Vec::len),
             tn_mem_reads = nodes_delta.mem_reads,
             tn_db_reads = nodes_delta.db_reads,
@@ -2671,7 +2671,7 @@ impl<'a> VMLogic<'a> {
         tracing::trace!(
             target = "io_tracer",
             storage_op = "exists",
-            key = base64(key),
+            key = base64(&key),
             tn_mem_reads = nodes_delta.mem_reads,
             tn_db_reads = nodes_delta.db_reads,
         );
