@@ -14,12 +14,14 @@ use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::syncing::StatePartKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
+use near_store::flat::store_helper;
 use near_store::DBCol;
 use near_store::{NodeStorage, Store};
 use nearcore::config::GenesisExt;
@@ -135,7 +137,7 @@ fn test_state_dump() {
     });
 }
 
-/// This function tests that after a node does state sync, it has the data that ccoresponds to the state of the epoch previous to the dumping node's final block.
+/// This function tests that after a node does state sync, it has the data that corresponds to the state of the epoch previous to the dumping node's final block.
 /// The way the test works:
 /// set up 2 nodes: env.client[0] dumps state parts, env.client[1] state syncs with the dumped state parts.
 /// A new account will be created in the epoch at account_creation_at_epoch_height, specifically at 2nd block of the epoch.
@@ -359,18 +361,39 @@ fn run_state_sync_with_dumped_parts(
         );
 
         if is_final_block_in_new_epoch {
+            tracing::info!(?response, "New Account should exist");
             assert_matches!(
                 response.unwrap().kind,
                 QueryResponseKind::ViewAccount(_),
                 "the synced node should have information about the created account"
             );
+
+            // Check that inlined flat state values remain inlined.
+            {
+                let (num_inlined_before, num_ref_before) = count_flat_state_value_kinds(&stores[0]);
+                let (num_inlined_after, num_ref_after) = count_flat_state_value_kinds(&stores[1]);
+                // Nothing new created, number of flat state values should be identical.
+                assert_eq!(num_inlined_before, num_inlined_after);
+                assert_eq!(num_ref_before, num_ref_after);
+            }
         } else {
+            tracing::info!(?response, "New Account shouldn't exist");
             assert!(response.is_err());
             assert_matches!(
                 response.unwrap_err(),
                 QueryError::UnknownAccount { .. },
                 "the synced node should not have information about the created account"
             );
+
+            // Check that inlined flat state values remain inlined.
+            {
+                let (num_inlined_before, _num_ref_before) =
+                    count_flat_state_value_kinds(&stores[0]);
+                let (num_inlined_after, _num_ref_after) = count_flat_state_value_kinds(&stores[1]);
+                // Created a new entry, but inlined values should stay inlinedNothing new created, number of flat state values should be identical.
+                assert!(num_inlined_before >= num_inlined_after);
+                assert!(num_inlined_after > 0);
+            }
         }
         actix_rt::System::current().stop();
     });
@@ -382,6 +405,7 @@ fn run_state_sync_with_dumped_parts(
 /// - the dumping node's head is in new epoch but final block is not;
 /// - the dumping node's head and final block are in same epoch
 fn test_state_sync_w_dumped_parts() {
+    init_test_logger();
     let epoch_length = 5;
     // excluding account_creation_at_epoch_height=1 because first epoch's epoch_id not being block hash of its first block cause issues
     for account_creation_at_epoch_height in 2..=4 as u64 {
@@ -389,4 +413,21 @@ fn test_state_sync_w_dumped_parts() {
         run_state_sync_with_dumped_parts(false, account_creation_at_epoch_height, epoch_length);
         run_state_sync_with_dumped_parts(true, account_creation_at_epoch_height, epoch_length);
     }
+}
+
+fn count_flat_state_value_kinds(store: &Store) -> (u64, u64) {
+    let mut num_inlined_values = 0;
+    let mut num_ref_values = 0;
+    for item in store_helper::iter_flat_state_entries(ShardUId::single_shard(), store, None, None) {
+        match item {
+            Ok((_, FlatStateValue::Ref(_))) => {
+                num_ref_values += 1;
+            }
+            Ok((_, FlatStateValue::Inlined(_))) => {
+                num_inlined_values += 1;
+            }
+            _ => {}
+        }
+    }
+    (num_inlined_values, num_ref_values)
 }
