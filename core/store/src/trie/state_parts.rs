@@ -463,6 +463,8 @@ impl Trie {
             let value = trie.storage.retrieve_raw_bytes(&hash)?;
             map.entry(hash).or_insert_with(|| (value.to_vec(), 0)).1 += 1;
             if let Some(trie_key) = key {
+                // TODO: Refactor to hide this condition in an abstraction.
+                //       For example, it could be `FlatStateValue::new(&value)`.
                 let flat_state_value = if value.len() <= INLINE_DISK_VALUE_THRESHOLD {
                     FlatStateValue::inlined(&value)
                 } else {
