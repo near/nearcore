@@ -586,7 +586,7 @@ pub(crate) fn print_chain(
                     let block_producer = epoch_manager
                         .get_block_producer(&epoch_id, header.height())
                         .map(|account_id| account_id.to_string())
-                        .unwrap_or("error".to_owned());
+                        .ok().unwrap_or("error".to_owned());
                     account_id_to_blocks
                         .entry(block_producer.clone())
                         .and_modify(|e| *e += 1)
