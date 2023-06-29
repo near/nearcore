@@ -7,6 +7,7 @@ use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
 use crate::{apply_chunk, epoch_info};
 use ansi_term::Color::Red;
+use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::RuntimeAdapter;
@@ -18,11 +19,12 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ReceiptEnum;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::{ExecutionMetadata, ExecutionStatus};
+use near_primitives::transaction::{Action, ExecutionMetadata, ExecutionStatus};
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::config::{ExtCosts, ExtCostsConfig};
@@ -37,7 +39,7 @@ use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde_json::json;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -695,12 +697,26 @@ fn print_receipt_costs_for_chunk(
     // let mut total_write_bytes = 0;
     // let mut total_write_num = 0;
     #[derive(Default)]
+    struct ActionData {
+        method_names: BTreeSet<String>,
+        args_len: u64,
+        gas: u64,
+    }
+    impl ActionData {
+        fn merge(&mut self, other: Self) {
+            self.method_names.extend(other.method_names.iter());
+            self.args_len += other.args_len;
+            self.gas += other.gas;
+        }
+    }
+    #[derive(Default)]
     struct ReceiptData {
         profile: ProfileDataV3,
         burnt_gas: Gas,
         outcomes: usize,
+        action_data: ActionData,
     }
-    let mut total_profiles = HashMap::new();
+    let mut all_receipt_data = HashMap::new();
 
     for (outcomes_shard_id, shard_outcomes) in outcomes.drain().into_iter() {
         if let Some(shard_id) = maybe_shard_id {
@@ -732,23 +748,55 @@ fn print_receipt_costs_for_chunk(
                 _ => true,
             };
 
+            let action_data = if let Ok(Some(receipt)) = chain_store.get_receipt(&receipt_or_tx_id)
+            {
+                if let ReceiptEnum::Action(receipt) = receipt {
+                    receipt
+                        .actions
+                        .iter()
+                        .filter_map(|action| {
+                            if let Action::FunctionCall(action) = action {
+                                Some(ActionData {
+                                    method_names: BTreeSet::from([action.method_name.clone()]),
+                                    args_len: action.args.len() as u64,
+                                    gas: action.gas,
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                        .fold(ActionData::default(), |mut x, y| {
+                            x.merge(y);
+                            x
+                        })
+                } else {
+                    Default::default()
+                }
+            } else {
+                println!("RECEIPT NOT FOUND {}", receipt_or_tx_id);
+                continue;
+            };
+
             if profile.host_gas() > 0 {
-                let mut total_profile = total_profiles
+                let mut receipt_data = all_receipt_data
                     .entry((account_id, execution_result))
                     .or_insert_with(|| ReceiptData::default());
-                total_profile.profile.merge(&profile);
-                total_profile.burnt_gas += burnt_gas;
-                total_profile.outcomes += 1;
+                receipt_data.profile.merge(&profile);
+                receipt_data.burnt_gas += burnt_gas;
+                receipt_data.outcomes += 1;
+                receipt_data.action_data.merge(action_data);
             } else {
                 println!("FOUND EMPTY {} gas burnt = {}", receipt_or_tx_id, burnt_gas);
             }
         }
     }
 
-    for ((account_id, execution_result), receipt_data) in total_profiles.drain().into_iter() {
+    for ((account_id, execution_result), receipt_data) in all_receipt_data.drain().into_iter() {
         let total_profile = receipt_data.profile;
         let total_old_burnt_gas = receipt_data.burnt_gas;
         let total_outcomes = receipt_data.outcomes;
+        let action_data = receipt_data.action_data;
+        let all_method_names = action_data.method_names.iter().join(",");
 
         // GET OLD AND NEW COSTS
         let mut diff_profile = ProfileDataV3::new();
@@ -774,19 +822,23 @@ fn print_receipt_costs_for_chunk(
         let new_burnt_gas_1 = new_burnt_gas_base + modified_nibbles * nibble_gas_cost;
 
         // GET TRIE VALUES
-        let data_key = trie_key_parsers::get_raw_prefix_for_contract_data(&account_id, &[]);
-        let storage_key = KeyForStateChanges::from_raw_key(&block_hash, &data_key);
-        let changes_per_key_prefix = storage_key.find_iter(chain_store.store());
-        let state_changes_keys: Vec<_> =
-            changes_per_key_prefix.map(|it| it.unwrap().trie_key.to_vec()).collect();
-        let state_changes_for_trie: Vec<_> =
-            state_changes_keys.iter().map(|key| (key.clone(), Some(vec![0]))).collect();
-        let state_changes_trie =
-            Trie::new(Rc::new(TrieMemoryPartialStorage::default()), StateRoot::new(), None);
-        let state_changes_results =
-            state_changes_trie.update_with_len(state_changes_for_trie.into_iter()).unwrap();
+        let state_changes_results = if execution_result {
+            let data_key = trie_key_parsers::get_raw_prefix_for_contract_data(&account_id, &[]);
+            let storage_key = KeyForStateChanges::from_raw_key(&block_hash, &data_key);
+            let changes_per_key_prefix = storage_key.find_iter(chain_store.store());
+            let state_changes_keys: Vec<_> =
+                changes_per_key_prefix.map(|it| it.unwrap().trie_key.to_vec()).collect();
+            let state_changes_for_trie: Vec<_> =
+                state_changes_keys.iter().map(|key| (key.clone(), Some(vec![0]))).collect();
+            let state_changes_trie =
+                Trie::new(Rc::new(TrieMemoryPartialStorage::default()), StateRoot::new(), None);
+            state_changes_trie.update_with_len(state_changes_for_trie.into_iter()).unwrap()
+        } else {
+            Default::default()
+        };
+
         let total_trie_len = state_changes_results.1 as u64;
-        let total_trie_len_2 = state_changes_results.2 as u64;
+        // let total_trie_len_2 = state_changes_results.2 as u64;
 
         // let total_len = state_changes_keys.len();
         // let total_key_len = state_changes_keys.iter().map(|key| key.len() as u64).sum::<u64>();
@@ -802,10 +854,13 @@ fn print_receipt_costs_for_chunk(
         maybe_add_to_csv(
             csv_file_mutex,
             &format!(
-                "{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 height,
                 account_id,
                 execution_result as i32,
+                all_method_names,
+                action_data.args_len,
+                action_data.gas,
                 total_old_burnt_gas,
                 new_burnt_gas_base,
                 new_burnt_gas_1,
@@ -817,7 +872,6 @@ fn print_receipt_costs_for_chunk(
                 modified_nibbles,
                 // total_key_len,
                 total_trie_len,
-                total_trie_len_2,
                 total_outcomes,
             ),
         );
