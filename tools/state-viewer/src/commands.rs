@@ -704,7 +704,7 @@ fn print_receipt_costs_for_chunk(
     }
     impl ActionData {
         fn merge(&mut self, other: Self) {
-            self.method_names.extend(other.method_names.iter());
+            self.method_names.extend(other.method_names.iter().cloned());
             self.args_len += other.args_len;
             self.gas += other.gas;
         }
@@ -750,7 +750,7 @@ fn print_receipt_costs_for_chunk(
 
             let action_data = if let Ok(Some(receipt)) = chain_store.get_receipt(&receipt_or_tx_id)
             {
-                if let ReceiptEnum::Action(receipt) = receipt {
+                if let ReceiptEnum::Action(receipt) = receipt.as_ref() {
                     receipt
                         .actions
                         .iter()
@@ -832,12 +832,13 @@ fn print_receipt_costs_for_chunk(
                 state_changes_keys.iter().map(|key| (key.clone(), Some(vec![0]))).collect();
             let state_changes_trie =
                 Trie::new(Rc::new(TrieMemoryPartialStorage::default()), StateRoot::new(), None);
-            state_changes_trie.update_with_len(state_changes_for_trie.into_iter()).unwrap()
+            state_changes_trie.update_with_len(state_changes_for_trie.into_iter()).unwrap().1
         } else {
             Default::default()
         };
 
-        let total_trie_len = state_changes_results.1 as u64;
+        let total_trie_len = state_changes_results as u64;
+        // let total_trie_len = state_changes_results.1 as u64;
         // let total_trie_len_2 = state_changes_results.2 as u64;
 
         // let total_len = state_changes_keys.len();
