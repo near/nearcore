@@ -750,7 +750,7 @@ fn print_receipt_costs_for_chunk(
 
             let action_data = if let Ok(Some(receipt)) = chain_store.get_receipt(&receipt_or_tx_id)
             {
-                if let ReceiptEnum::Action(receipt) = receipt.receipt.as_ref() {
+                if let ReceiptEnum::Action(receipt) = &receipt.receipt {
                     receipt
                         .actions
                         .iter()
