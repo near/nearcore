@@ -796,7 +796,7 @@ fn print_receipt_costs_for_chunk(
         let total_old_burnt_gas = receipt_data.burnt_gas;
         let total_outcomes = receipt_data.outcomes;
         let action_data = receipt_data.action_data;
-        let all_method_names = action_data.method_names.iter().join(",");
+        let all_method_names = action_data.method_names.iter().join("|");
 
         // GET OLD AND NEW COSTS
         let mut diff_profile = ProfileDataV3::new();
