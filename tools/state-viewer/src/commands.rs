@@ -19,7 +19,7 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum};
+use near_primitives::receipt::ReceiptEnum;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
