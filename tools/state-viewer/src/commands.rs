@@ -567,32 +567,44 @@ pub(crate) fn print_chain(
                 if let Ok(epoch_id) = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())
                 {
                     cur_epoch_id = Some(epoch_id.clone());
-                    if epoch_manager.is_next_block_epoch_start(header.prev_hash()).unwrap() {
-                        println!("{:?}", account_id_to_blocks);
-                        account_id_to_blocks = HashMap::new();
-                        println!(
-                            "Epoch {} Validators {:?}",
-                            format_hash(epoch_id.0, show_full_hashes),
-                            epoch_manager
-                                .get_epoch_block_producers_ordered(&epoch_id, header.hash())
-                                .unwrap()
-                        );
-                    }
-                    let block_producer =
-                        epoch_manager.get_block_producer(&epoch_id, header.height()).unwrap();
+                    match epoch_manager.is_next_block_epoch_start(header.prev_hash()) {
+                        Ok(true) => {
+                            println!("{:?}", account_id_to_blocks);
+                            account_id_to_blocks = HashMap::new();
+                            println!(
+                                "Epoch {} Validators {:?}",
+                                format_hash(epoch_id.0, show_full_hashes),
+                                epoch_manager
+                                    .get_epoch_block_producers_ordered(&epoch_id, header.hash())
+                            );
+                        }
+                        Err(err) => {
+                            println!("Don't know if next block is epoch start: {err:?}");
+                        }
+                        _ => {}
+                    };
+                    let block_producer = epoch_manager
+                        .get_block_producer(&epoch_id, header.height())
+                        .map(|account_id| account_id.to_string())
+                        .unwrap_or("error".to_owned());
                     account_id_to_blocks
                         .entry(block_producer.clone())
                         .and_modify(|e| *e += 1)
                         .or_insert(1);
 
-                    let block = chain_store.get_block(&block_hash).unwrap().clone();
+                    let block = if let Ok(block) = chain_store.get_block(&block_hash) {
+                        block.clone()
+                    } else {
+                        continue;
+                    };
 
                     let mut chunk_debug_str: Vec<String> = Vec::new();
 
                     for shard_id in 0..header.chunk_mask().len() {
                         let chunk_producer = epoch_manager
                             .get_chunk_producer(&epoch_id, header.height(), shard_id as u64)
-                            .unwrap();
+                            .map(|account_id| account_id.to_string())
+                            .unwrap_or("error".to_owned());
                         if header.chunk_mask()[shard_id] {
                             let chunk_hash = &block.chunks()[shard_id].chunk_hash();
                             if let Ok(chunk) = chain_store.get_chunk(chunk_hash) {
@@ -632,7 +644,10 @@ pub(crate) fn print_chain(
                 }
             }
         } else if let Some(epoch_id) = &cur_epoch_id {
-            let block_producer = epoch_manager.get_block_producer(epoch_id, height).unwrap();
+            let block_producer = epoch_manager
+                .get_block_producer(epoch_id, height)
+                .map(|account_id| account_id.to_string())
+                .unwrap_or("error".to_owned());
             println!("{: >3} {} | {: >10}", height, Red.bold().paint("MISSING"), block_producer);
         } else {
             println!("{: >3} {}", height, Red.bold().paint("MISSING"));
@@ -732,8 +747,8 @@ pub(crate) fn view_chain(
         if chunk_header.height_included() == block.header().height() {
             let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, &shard_layout);
             chunk_extras
-                .push((i, chain_store.get_chunk_extra(block.hash(), &shard_uid).unwrap().clone()));
-            chunks.push((i, chain_store.get_chunk(&chunk_header.chunk_hash()).unwrap().clone()));
+                .push((i, chain_store.get_chunk_extra(block.hash(), &shard_uid).ok().clone()));
+            chunks.push((i, chain_store.get_chunk(&chunk_header.chunk_hash()).ok().clone()));
         }
     }
     let chunk_extras = block
@@ -743,7 +758,7 @@ pub(crate) fn view_chain(
         .filter_map(|(i, chunk_header)| {
             if chunk_header.height_included() == block.header().height() {
                 let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, &shard_layout);
-                Some((i, chain_store.get_chunk_extra(block.hash(), &shard_uid).unwrap()))
+                Some((i, chain_store.get_chunk_extra(block.hash(), &shard_uid).ok()))
             } else {
                 None
             }
