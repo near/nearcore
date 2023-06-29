@@ -25,7 +25,7 @@ pub(crate) struct ChangeDbKindCommand {
 }
 
 impl ChangeDbKindCommand {
-    pub fn run(&self, home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<()> {
+    pub(crate) fn run(&self, home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<()> {
         let opener = NodeStorage::opener(
             home_dir,
             near_config.config.archive,
