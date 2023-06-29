@@ -28,7 +28,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, ExecutionMetadata, ExecutionStatus};
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
-use near_primitives_core::config::{ActionCosts, ExtCosts, ExtCostsConfig};
+use near_primitives_core::config::{ActionCosts, ExtCosts};
 use near_primitives_core::profile::ProfileDataV3;
 use near_primitives_core::types::{Gas, ProtocolVersion};
 use near_store::test_utils::create_test_store;
@@ -39,7 +39,7 @@ use near_store::{
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::balance_checker::receipt_gas_cost;
-use node_runtime::config::{total_prepaid_exec_fees, total_send_fees};
+use node_runtime::config::total_prepaid_exec_fees;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde_json::json;
 use std::collections::{BTreeSet, HashMap};
@@ -786,7 +786,7 @@ fn print_receipt_costs_for_chunk(
             // I thought we already pay for it inside VMLogic.
             // But no, we need to account for used gas separately.
             let outgoing_send_gas: Gas =
-                outcome.receipt_ids.iter().try_fold(0, |acc, outgoing_receipt_id| {
+                outcome.receipt_ids.iter().fold(0, |acc, outgoing_receipt_id| {
                     let maybe_outgoing_receipt =
                         chain_store.get_receipt(outgoing_receipt_id).unwrap();
                     let outgoing_receipt = match maybe_outgoing_receipt {
