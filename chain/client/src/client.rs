@@ -2155,8 +2155,7 @@ impl Client {
                         })
                         .collect();
                     // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
-                    let use_colour = false;
-                    debug!(target: "catchup", progress_per_shard = ?format_shard_sync_phase_per_shard(&new_shard_sync, use_colour), "Need to split states for shards");
+                    debug!(target: "catchup", progress_per_shard = ?format_shard_sync_phase_per_shard(&new_shard_sync, false), "Need to split states for shards");
                     new_shard_sync
                 } else {
                     debug!(target: "catchup", "do not need to split states for shards");
@@ -2180,8 +2179,7 @@ impl Client {
                 });
 
             // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
-            let use_colour = false;
-            debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&new_shard_sync, use_colour), "Catchup");
+            debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&new_shard_sync, false), "Catchup");
 
             match state_sync.run(
                 me,
