@@ -419,12 +419,10 @@ fn count_flat_state_value_kinds(store: &Store) -> (u64, u64) {
     let mut num_ref_values = 0;
     for item in store_helper::iter_flat_state_entries(ShardUId::single_shard(), store, None, None) {
         match item {
-            Ok((key, FlatStateValue::Ref(_))) => {
-                tracing::debug!(?key, "Ref");
+            Ok((_, FlatStateValue::Ref(_))) => {
                 num_ref_values += 1;
             }
-            Ok((key, FlatStateValue::Inlined(value))) => {
-                tracing::debug!(?key, ?value, "Inlined");
+            Ok((_, FlatStateValue::Inlined(_))) => {
                 num_inlined_values += 1;
             }
             _ => {}
