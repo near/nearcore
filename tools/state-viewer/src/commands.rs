@@ -44,6 +44,7 @@ pub(crate) fn apply_block(
     epoch_manager: &dyn EpochManagerAdapter,
     runtime: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
+    use_flat_storage: bool,
 ) -> (Block, ApplyTransactionResult) {
     let block = chain_store.get_block(&block_hash).unwrap();
     let height = block.header().height();
@@ -88,7 +89,7 @@ pub(crate) fn apply_block(
                 true,
                 is_first_block_with_chunk_of_version,
                 Default::default(),
-                false,
+                use_flat_storage,
             )
             .unwrap()
     } else {
@@ -113,7 +114,7 @@ pub(crate) fn apply_block(
                 false,
                 false,
                 Default::default(),
-                false,
+                use_flat_storage,
             )
             .unwrap()
     };
@@ -123,6 +124,7 @@ pub(crate) fn apply_block(
 pub(crate) fn apply_block_at_height(
     height: BlockHeight,
     shard_id: ShardId,
+    use_flat_storage: bool,
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
@@ -142,6 +144,7 @@ pub(crate) fn apply_block_at_height(
         epoch_manager.as_ref(),
         runtime.as_ref(),
         &mut chain_store,
+        use_flat_storage,
     );
     check_apply_block_result(
         &block,
@@ -158,6 +161,7 @@ pub(crate) fn apply_chunk(
     store: Store,
     chunk_hash: ChunkHash,
     target_height: Option<u64>,
+    use_flat_storage: bool,
 ) -> anyhow::Result<()> {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime = NightshadeRuntime::from_config(
@@ -178,6 +182,7 @@ pub(crate) fn apply_chunk(
         chunk_hash,
         target_height,
         None,
+        use_flat_storage,
     )?;
     println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(&apply_result, gas_limit));
     Ok(())
@@ -194,6 +199,7 @@ pub(crate) fn apply_range(
     store: Store,
     only_contracts: bool,
     sequential: bool,
+    use_flat_storage: bool,
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
@@ -216,6 +222,7 @@ pub(crate) fn apply_range(
         csv_file.as_mut(),
         only_contracts,
         sequential,
+        use_flat_storage,
     );
 }
 
@@ -224,6 +231,7 @@ pub(crate) fn apply_receipt(
     near_config: NearConfig,
     store: Store,
     hash: CryptoHash,
+    use_flat_storage: bool,
 ) -> anyhow::Result<()> {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime = NightshadeRuntime::from_config(
@@ -238,6 +246,7 @@ pub(crate) fn apply_receipt(
         runtime.as_ref(),
         store,
         hash,
+        use_flat_storage,
     )
     .map(|_| ())
 }
@@ -247,6 +256,7 @@ pub(crate) fn apply_tx(
     near_config: NearConfig,
     store: Store,
     hash: CryptoHash,
+    use_flat_storage: bool,
 ) -> anyhow::Result<()> {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime = NightshadeRuntime::from_config(
@@ -261,6 +271,7 @@ pub(crate) fn apply_tx(
         runtime.as_ref(),
         store,
         hash,
+        use_flat_storage,
     )
     .map(|_| ())
 }
@@ -586,7 +597,8 @@ pub(crate) fn print_chain(
                     let block_producer = epoch_manager
                         .get_block_producer(&epoch_id, header.height())
                         .map(|account_id| account_id.to_string())
-                        .ok().unwrap_or("error".to_owned());
+                        .ok()
+                        .unwrap_or("error".to_owned());
                     account_id_to_blocks
                         .entry(block_producer.clone())
                         .and_modify(|e| *e += 1)

@@ -25,7 +25,7 @@ use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess,
     DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance,
 };
-use near_chain_configs::{ClientConfig, LogSummaryStyle, UpdateableClientConfig};
+use near_chain_configs::{ClientConfig, UpdateableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardedTransactionPool;
 use near_chunks::logic::{
@@ -2125,7 +2125,6 @@ impl Client {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
             let network_adapter1 = self.network_adapter.clone();
 
-            let use_colour = matches!(self.config.log_summary_style, LogSummaryStyle::Colored);
             let new_shard_sync = {
                 let prev_hash = *self.chain.get_block(&sync_hash)?.header().prev_hash();
                 let need_to_split_states =
@@ -2155,6 +2154,8 @@ impl Client {
                             }
                         })
                         .collect();
+                    // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
+                    let use_colour = false;
                     debug!(target: "catchup", progress_per_shard = ?format_shard_sync_phase_per_shard(&new_shard_sync, use_colour), "Need to split states for shards");
                     new_shard_sync
                 } else {
@@ -2178,6 +2179,8 @@ impl Client {
                     )
                 });
 
+            // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
+            let use_colour = false;
             debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&new_shard_sync, use_colour), "Catchup");
 
             match state_sync.run(
