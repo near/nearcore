@@ -16,7 +16,7 @@
 //! Moreover, we include all left siblings for each path, because they are
 //! necessary to prove its position in the list of prefix sums.
 
-use crate::flat::{FlatStateChanges, FlatStateIterator};
+use crate::flat::{FlatStateChanges, FlatStateIterator, INLINE_DISK_VALUE_THRESHOLD};
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::trie_storage::TrieMemoryPartialStorage;
@@ -28,7 +28,7 @@ use borsh::BorshDeserialize;
 use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::state::{FlatStateValue, ValueRef};
+use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::is_contract_code_key;
 use near_primitives::types::{ShardId, StateRoot};
@@ -463,8 +463,14 @@ impl Trie {
             let value = trie.storage.retrieve_raw_bytes(&hash)?;
             map.entry(hash).or_insert_with(|| (value.to_vec(), 0)).1 += 1;
             if let Some(trie_key) = key {
-                let value_ref = ValueRef::new(&value);
-                flat_state_delta.insert(trie_key.clone(), Some(FlatStateValue::Ref(value_ref)));
+                // TODO: Refactor to hide this condition in an abstraction.
+                //       For example, it could be `FlatStateValue::new(&value)`.
+                let flat_state_value = if value.len() <= INLINE_DISK_VALUE_THRESHOLD {
+                    FlatStateValue::inlined(&value)
+                } else {
+                    FlatStateValue::value_ref(&value)
+                };
+                flat_state_delta.insert(trie_key.clone(), Some(flat_state_value));
                 if is_contract_code_key(&trie_key) {
                     contract_codes.push(ContractCode::new(value.to_vec(), None));
                 }
