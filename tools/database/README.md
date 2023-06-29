@@ -45,7 +45,7 @@ It is intended as a collection of commands that perform small db modifications.
 ### change-db-kind
 Changes DbKind of a DB described in config (cold or hot).  
 Example usage:
-`neard adjust-db change-db-kind --new-kind RPC change-cold`  
+`neard database change-db-kind --new-kind RPC change-cold`  
 In this example we change DbKind of the cold db to RPC (for some reason).  
 Notice, that you cannot perform this exact command twice in a row,
 because you will not be able to open cold db in the first place.  
