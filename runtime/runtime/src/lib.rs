@@ -55,7 +55,7 @@ use tracing::debug;
 
 mod actions;
 pub mod adapter;
-mod balance_checker;
+pub mod balance_checker;
 pub mod config;
 pub mod ext;
 mod metrics;

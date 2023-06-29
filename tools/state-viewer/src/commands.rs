@@ -19,7 +19,8 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::ReceiptEnum;
+use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum};
+use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
@@ -27,9 +28,9 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, ExecutionMetadata, ExecutionStatus};
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
-use near_primitives_core::config::{ExtCosts, ExtCostsConfig};
+use near_primitives_core::config::{ActionCosts, ExtCosts, ExtCostsConfig};
 use near_primitives_core::profile::ProfileDataV3;
-use near_primitives_core::types::Gas;
+use near_primitives_core::types::{Gas, ProtocolVersion};
 use near_store::test_utils::create_test_store;
 use near_store::{
     DBCol, KeyForStateChanges, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig,
@@ -37,6 +38,8 @@ use near_store::{
 };
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
+use node_runtime::balance_checker::receipt_gas_cost;
+use node_runtime::config::{total_prepaid_exec_fees, total_send_fees};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde_json::json;
 use std::collections::{BTreeSet, HashMap};
@@ -680,14 +683,42 @@ pub(crate) fn replay_chain(
     }
 }
 
+// looks like it is not needed and paid during execution.
+// fn action_receipt_data_cost(
+//     runtime_config: &RuntimeConfig,
+//     action_receipt: &ActionReceipt,
+//     trie: &Trie,
+//     receipt: &Receipt,
+// ) -> Gas {
+//     action_receipt.output_data_receivers.iter().try_fold(
+//         0,
+//         |acc, DataReceiver { data_id, receiver_id }| {
+//             let data = near_store::get_received_data(trie, receiver_id, *data_id).unwrap();
+//             let sender_is_receiver = receipt.receiver_id == *receiver_id;
+//             let base_fees = runtime_config.fees.fee(ActionCosts::new_data_receipt_base);
+//             let byte_fees = runtime_config.fees.fee(ActionCosts::new_data_receipt_byte);
+//             let cost = base_fees.exec_fee()
+//                 + base_fees.send_fee(sender_is_receiver)
+//                 + data
+//                     .as_ref()
+//                     .and_then(|data| data.data.as_ref().map(|d| d.len() as u64))
+//                     .unwrap_or(acc)
+//                     * (byte_fees.exec_fee() + byte_fees.send_fee(sender_is_receiver));
+//             acc + cost
+//         },
+//     )
+// }
+
 fn print_receipt_costs_for_chunk(
     height: BlockHeight,
     block_hash: &CryptoHash,
     maybe_shard_id: Option<ShardId>,
     chain_store: &ChainStore,
-    ext_costs: &ExtCostsConfig,
+    runtime_config: &RuntimeConfig,
+    protocol_version: ProtocolVersion,
     csv_file_mutex: &Mutex<Option<&mut File>>,
 ) {
+    let ext_costs = &runtime_config.wasm_config.ext_costs;
     // let receipt_proofs = chain_store.get_incoming_receipts(block_hash, shard_id).unwrap();
     let mut outcomes = chain_store.get_block_execution_outcomes(block_hash).unwrap();
     // let executed_receipt_ids: Vec<_> =
@@ -700,13 +731,17 @@ fn print_receipt_costs_for_chunk(
     struct ActionData {
         method_names: BTreeSet<String>,
         args_len: u64,
-        gas: u64,
+        gas_attached: u64,
+        gas_pre_burned: u64,
+        outgoing_send_gas: u64,
     }
     impl ActionData {
         fn merge(&mut self, other: Self) {
             self.method_names.extend(other.method_names.iter().cloned());
             self.args_len += other.args_len;
-            self.gas += other.gas;
+            self.gas_attached += other.gas_attached;
+            self.gas_pre_burned += other.gas_pre_burned;
+            self.outgoing_send_gas += other.outgoing_send_gas;
         }
     }
     #[derive(Default)]
@@ -748,34 +783,67 @@ fn print_receipt_costs_for_chunk(
                 _ => true,
             };
 
-            let action_data = if let Ok(Some(receipt)) = chain_store.get_receipt(&receipt_or_tx_id)
-            {
-                if let ReceiptEnum::Action(receipt) = &receipt.receipt {
-                    receipt
-                        .actions
-                        .iter()
-                        .filter_map(|action| {
-                            if let Action::FunctionCall(action) = action {
-                                Some(ActionData {
-                                    method_names: BTreeSet::from([action.method_name.clone()]),
-                                    args_len: action.args.len() as u64,
-                                    gas: action.gas,
-                                })
-                            } else {
-                                None
-                            }
-                        })
-                        .fold(ActionData::default(), |mut x, y| {
-                            x.merge(y);
-                            x
-                        })
+            // I thought we already pay for it inside VMLogic.
+            // But no, we need to account for used gas separately.
+            let outgoing_send_gas: Gas =
+                outcome.receipt_ids.iter().try_fold(0, |acc, outgoing_receipt_id| {
+                    let maybe_outgoing_receipt =
+                        chain_store.get_receipt(outgoing_receipt_id).unwrap();
+                    let outgoing_receipt = match maybe_outgoing_receipt {
+                        Some(receipt) if receipt.predecessor_id.is_system() => return acc,
+                        None => return acc,
+                        Some(receipt) => receipt,
+                    };
+                    acc + receipt_gas_cost(
+                        &runtime_config.fees,
+                        protocol_version,
+                        outgoing_receipt.as_ref(),
+                    )
+                    .unwrap()
+                });
+
+            let mut action_data =
+                if let Ok(Some(receipt)) = chain_store.get_receipt(&receipt_or_tx_id) {
+                    if let ReceiptEnum::Action(receipt) = &receipt.receipt {
+                        let gas_pre_burned =
+                            runtime_config.fees.fee(ActionCosts::new_action_receipt).exec_fee()
+                                + total_prepaid_exec_fees(
+                                    &runtime_config.fees,
+                                    &receipt.actions,
+                                    &account_id,
+                                    protocol_version,
+                                )
+                                .unwrap();
+                        let mut action_data = receipt
+                            .actions
+                            .iter()
+                            .filter_map(|action| {
+                                if let Action::FunctionCall(action) = action {
+                                    Some(ActionData {
+                                        method_names: BTreeSet::from([action.method_name.clone()]),
+                                        args_len: action.args.len() as u64,
+                                        gas_attached: action.gas, // gas_available
+                                        gas_pre_burned: 0,
+                                        outgoing_send_gas: 0,
+                                    })
+                                } else {
+                                    None
+                                }
+                            })
+                            .fold(ActionData::default(), |mut x, y| {
+                                x.merge(y);
+                                x
+                            });
+                        action_data.gas_pre_burned = gas_pre_burned;
+                        action_data
+                    } else {
+                        Default::default()
+                    }
                 } else {
-                    Default::default()
-                }
-            } else {
-                println!("RECEIPT NOT FOUND {}", receipt_or_tx_id);
-                continue;
-            };
+                    println!("RECEIPT NOT FOUND {}", receipt_or_tx_id);
+                    continue;
+                };
+            action_data.outgoing_send_gas = outgoing_send_gas;
 
             if profile.host_gas() > 0 {
                 let mut receipt_data = all_receipt_data
@@ -855,13 +923,15 @@ fn print_receipt_costs_for_chunk(
         maybe_add_to_csv(
             csv_file_mutex,
             &format!(
-                "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 height,
                 account_id,
                 execution_result as i32,
                 all_method_names,
                 action_data.args_len,
-                action_data.gas,
+                action_data.gas_attached,
+                action_data.gas_pre_burned,
+                action_data.outgoing_send_gas,
                 total_old_burnt_gas,
                 new_burnt_gas_base,
                 new_burnt_gas_1,
@@ -955,15 +1025,16 @@ pub(crate) fn print_receipt_costs(
         match chain_store.get_block_hash_by_height(height) {
             Ok(block_hash) => {
                 let epoch_id = epoch_manager.get_epoch_id(&block_hash).unwrap();
+                let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
                 let protocol_config = runtime.get_protocol_config(&epoch_id).unwrap();
                 let runtime_config = protocol_config.runtime_config;
-                let ext_costs = runtime_config.wasm_config.ext_costs;
                 print_receipt_costs_for_chunk(
                     height,
                     &block_hash,
                     shard_id,
                     &chain_store,
-                    &ext_costs,
+                    &runtime_config,
+                    protocol_version,
                     &csv_file_mutex,
                 );
             }

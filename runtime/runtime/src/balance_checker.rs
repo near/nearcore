@@ -12,7 +12,7 @@ use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::version::ProtocolVersion;
 use near_store::{get, get_account, get_postponed_receipt, TrieAccess, TrieUpdate};
 use near_vm_logic::ActionCosts;
@@ -33,6 +33,41 @@ fn get_delayed_receipts(
             })
         })
         .collect()
+}
+
+pub fn receipt_gas_cost(
+    transaction_costs: &RuntimeFeesConfig,
+    current_protocol_version: ProtocolVersion,
+    receipt: &Receipt,
+) -> Result<Gas, IntegerOverflowError> {
+    Ok(match &receipt.receipt {
+        ReceiptEnum::Action(action_receipt) => {
+            let mut total_cost = 0;
+            if !AccountId::is_system(&receipt.predecessor_id) {
+                let mut total_gas = safe_add_gas(
+                    transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee(),
+                    total_prepaid_exec_fees(
+                        transaction_costs,
+                        &action_receipt.actions,
+                        &receipt.receiver_id,
+                        current_protocol_version,
+                    )?,
+                )?;
+                total_gas = safe_add_gas(total_gas, total_prepaid_gas(&action_receipt.actions)?)?;
+                total_gas = safe_add_gas(
+                    total_gas,
+                    total_prepaid_send_fees(
+                        transaction_costs,
+                        &action_receipt.actions,
+                        current_protocol_version,
+                    )?,
+                )?;
+                total_cost = safe_add_gas(total_cost, total_gas)?;
+            }
+            total_cost
+        }
+        ReceiptEnum::Data(_) => 0,
+    })
 }
 
 /// Calculates and returns cost of a receipt.
