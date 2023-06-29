@@ -1,0 +1,19 @@
+[package]
+name = "near-database-tool"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+rayon.workspace = true
+strum.workspace = true
+
+near-store.workspace = true
+nearcore.workspace = true
+

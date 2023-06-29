@@ -1,4 +1,6 @@
 use actix::Message;
+use ansi_term::Color::{Purple, Yellow};
+use ansi_term::Style;
 use chrono::DateTime;
 use chrono::Utc;
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
@@ -210,6 +212,96 @@ impl ShardSyncDownload {
     }
 }
 
+pub fn format_shard_sync_phase_per_shard(
+    new_shard_sync: &HashMap<ShardId, ShardSyncDownload>,
+    use_colour: bool,
+) -> Vec<(ShardId, String)> {
+    new_shard_sync
+        .iter()
+        .map(|(&shard_id, shard_progress)| {
+            (shard_id, format_shard_sync_phase(shard_progress, use_colour))
+        })
+        .collect::<Vec<(_, _)>>()
+}
+
+/// Applies style if `use_colour` is enabled.
+fn paint(s: &str, style: Style, use_style: bool) -> String {
+    if use_style {
+        style.paint(s).to_string()
+    } else {
+        s.to_string()
+    }
+}
+
+/// Formats the given ShardSyncDownload for logging.
+pub fn format_shard_sync_phase(
+    shard_sync_download: &ShardSyncDownload,
+    use_colour: bool,
+) -> String {
+    match &shard_sync_download.status {
+        ShardSyncStatus::StateDownloadHeader => format!(
+            "{} requests sent {}, last target {:?}",
+            paint("HEADER", Purple.bold(), use_colour),
+            shard_sync_download.downloads.get(0).map_or(0, |x| x.state_requests_count),
+            shard_sync_download.downloads.get(0).map_or(None, |x| x.last_target.as_ref()),
+        ),
+        ShardSyncStatus::StateDownloadParts => {
+            let mut num_parts_done = 0;
+            let mut num_parts_not_done = 0;
+            let mut text = "".to_string();
+            for (i, download) in shard_sync_download.downloads.iter().enumerate() {
+                if download.done {
+                    num_parts_done += 1;
+                    continue;
+                }
+                num_parts_not_done += 1;
+                text.push_str(&format!(
+                    "[{}: {}, {}, {:?}] ",
+                    paint(&i.to_string(), Yellow.bold(), use_colour),
+                    download.done,
+                    download.state_requests_count,
+                    download.last_target
+                ));
+            }
+            format!(
+                "{} [{}: is_done, requests sent, last target] {} num_parts_done={} num_parts_not_done={}",
+                paint("PARTS", Purple.bold(), use_colour),
+                paint("part_id", Yellow.bold(), use_colour),
+                text,
+                num_parts_done,
+                num_parts_not_done
+            )
+        }
+        status => format!("{:?}", status),
+    }
+}
+
+#[derive(Clone)]
+pub struct StateSyncStatus {
+    pub sync_hash: CryptoHash,
+    pub sync_status: HashMap<ShardId, ShardSyncDownload>,
+}
+
+/// If alternate flag was specified, write formatted sync_status per shard.
+impl std::fmt::Debug for StateSyncStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if f.alternate() {
+            write!(
+                f,
+                "StateSyncStatus {{ sync_hash: {:?}, shard_sync: {:?} }}",
+                self.sync_hash,
+                format_shard_sync_phase_per_shard(&self.sync_status, false)
+            )
+        } else {
+            write!(
+                f,
+                "StateSyncStatus {{ sync_hash: {:?}, sync_status: {:?} }}",
+                self.sync_hash, self.sync_status
+            )
+        }
+    }
+}
+
 /// Various status sync can be in, whether it's fast sync or archival.
 #[derive(Clone, Debug, strum::AsRefStr)]
 pub enum SyncStatus {
@@ -228,7 +320,7 @@ pub enum SyncStatus {
         highest_height: BlockHeight,
     },
     /// State sync, with different states of state sync for different shards.
-    StateSync(CryptoHash, HashMap<ShardId, ShardSyncDownload>),
+    StateSync(StateSyncStatus),
     /// Sync state across all shards is done.
     StateSyncDone,
     /// Catch up on blocks.
@@ -256,7 +348,7 @@ impl SyncStatus {
             SyncStatus::AwaitingPeers => 1,
             SyncStatus::EpochSync { epoch_ord: _ } => 2,
             SyncStatus::HeaderSync { start_height: _, current_height: _, highest_height: _ } => 3,
-            SyncStatus::StateSync(_, _) => 4,
+            SyncStatus::StateSync(_) => 4,
             SyncStatus::StateSyncDone => 5,
             SyncStatus::BodySync { start_height: _, current_height: _, highest_height: _ } => 6,
         }
@@ -280,9 +372,10 @@ impl From<SyncStatus> for SyncStatusView {
             SyncStatus::HeaderSync { start_height, current_height, highest_height } => {
                 SyncStatusView::HeaderSync { start_height, current_height, highest_height }
             }
-            SyncStatus::StateSync(hash, sync_status) => SyncStatusView::StateSync(
-                hash,
-                sync_status
+            SyncStatus::StateSync(state_sync_status) => SyncStatusView::StateSync(
+                state_sync_status.sync_hash,
+                state_sync_status
+                    .sync_status
                     .into_iter()
                     .map(|(shard_id, shard_sync)| (shard_id, shard_sync.into()))
                     .collect(),
