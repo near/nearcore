@@ -14,16 +14,15 @@ use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
 use crate::sync::state::{StateSync, StateSyncResult};
+use crate::sync_jobs_actor::{create_sync_job_scheduler, SyncJobsActor};
 use crate::{metrics, StatusResponse};
-use actix::dev::SendError;
-use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
+use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
 use actix_rt::ArbiterHandle;
-use borsh::BorshSerialize;
 use chrono::{DateTime, Utc};
 use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
-    do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
+    ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest, BlockCatchUpResponse,
+    StateSplitRequest, StateSplitResponse,
 };
 use near_chain::state_snapshot_actor::MakeSnapshotCallback;
 use near_chain::test_utils::format_hash;
@@ -57,9 +56,7 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::state_part::PartId;
 use near_primitives::static_clock::StaticClock;
-use near_primitives::syncing::StatePartKey;
 use near_primitives::types::BlockHeight;
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
@@ -220,26 +217,6 @@ impl ClientActor {
             config_updater,
         })
     }
-}
-
-fn create_sync_job_scheduler<M>(address: Addr<SyncJobsActor>) -> Box<dyn Fn(M)>
-where
-    M: Message + Send + 'static,
-    M::Result: Send,
-    SyncJobsActor: Handler<WithSpanContext<M>>,
-{
-    Box::new(move |msg: M| {
-        if let Err(err) = address.try_send(msg.with_span_context()) {
-            match err {
-                SendError::Full(request) => {
-                    address.do_send(request);
-                }
-                SendError::Closed(_) => {
-                    error!("Can't send message to SyncJobsActor, mailbox is closed");
-                }
-            }
-        }
-    })
 }
 
 impl Actor for ClientActor {
@@ -1767,63 +1744,6 @@ impl Drop for ClientActor {
     }
 }
 
-struct SyncJobsActor {
-    client_addr: Addr<ClientActor>,
-}
-
-impl SyncJobsActor {
-    const MAILBOX_CAPACITY: usize = 100;
-
-    fn apply_parts(
-        &mut self,
-        msg: &ApplyStatePartsRequest,
-    ) -> Result<(), near_chain_primitives::error::Error> {
-        let _span = tracing::debug_span!(target: "client", "apply_parts").entered();
-        let store = msg.runtime_adapter.store();
-
-        for part_id in 0..msg.num_parts {
-            let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
-            let part = store.get(DBCol::StateParts, &key)?.unwrap();
-
-            msg.runtime_adapter.apply_state_part(
-                msg.shard_id,
-                &msg.state_root,
-                PartId::new(part_id, msg.num_parts),
-                &part,
-                &msg.epoch_id,
-            )?;
-        }
-
-        Ok(())
-    }
-}
-
-impl Actor for SyncJobsActor {
-    type Context = Context<Self>;
-}
-
-impl Handler<WithSpanContext<ApplyStatePartsRequest>> for SyncJobsActor {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<ApplyStatePartsRequest>,
-        _: &mut Self::Context,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "client", msg);
-        let result = self.apply_parts(&msg);
-
-        self.client_addr.do_send(
-            ApplyStatePartsResponse {
-                apply_result: result,
-                shard_id: msg.shard_id,
-                sync_hash: msg.sync_hash,
-            }
-            .with_span_context(),
-        );
-    }
-}
-
 impl Handler<WithSpanContext<ApplyStatePartsResponse>> for ClientActor {
     type Result = ();
 
@@ -1839,24 +1759,6 @@ impl Handler<WithSpanContext<ApplyStatePartsResponse>> for ClientActor {
         } else {
             self.client.state_sync.set_apply_result(msg.shard_id, msg.apply_result);
         }
-    }
-}
-
-impl Handler<WithSpanContext<BlockCatchUpRequest>> for SyncJobsActor {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<BlockCatchUpRequest>,
-        _: &mut Self::Context,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "client", msg);
-        let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work);
-
-        self.client_addr.do_send(
-            BlockCatchUpResponse { sync_hash: msg.sync_hash, block_hash: msg.block_hash, results }
-                .with_span_context(),
-        );
     }
 }
 
@@ -1877,33 +1779,6 @@ impl Handler<WithSpanContext<BlockCatchUpResponse>> for ClientActor {
         } else {
             panic!("block catch up processing result from unknown sync hash");
         }
-    }
-}
-
-impl Handler<WithSpanContext<StateSplitRequest>> for SyncJobsActor {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<StateSplitRequest>,
-        _: &mut Self::Context,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "client", msg);
-        let results = msg.runtime_adapter.build_state_for_split_shards(
-            msg.shard_uid,
-            &msg.state_root,
-            &msg.next_epoch_shard_layout,
-            msg.state_split_status,
-        );
-
-        self.client_addr.do_send(
-            StateSplitResponse {
-                sync_hash: msg.sync_hash,
-                shard_id: msg.shard_id,
-                new_state_roots: results,
-            }
-            .with_span_context(),
-        );
     }
 }
 
