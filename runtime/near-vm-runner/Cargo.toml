@@ -36,7 +36,6 @@ wasmparser.workspace = true
 wasmtime = { workspace = true, optional = true }
 
 near-account-id.workspace = true
-near-cache.workspace = true
 near-crypto.workspace = true
 near-fmt.workspace = true
 near-primitives-core.workspace = true
