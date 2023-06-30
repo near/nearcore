@@ -16,7 +16,7 @@
 //! Moreover, we include all left siblings for each path, because they are
 //! necessary to prove its position in the list of prefix sums.
 
-use crate::flat::{FlatStateChanges, FlatStateIterator, INLINE_DISK_VALUE_THRESHOLD};
+use crate::flat::{FlatStateChanges, FlatStateIterator};
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::trie_storage::TrieMemoryPartialStorage;
@@ -463,13 +463,7 @@ impl Trie {
             let value = trie.storage.retrieve_raw_bytes(&hash)?;
             map.entry(hash).or_insert_with(|| (value.to_vec(), 0)).1 += 1;
             if let Some(trie_key) = key {
-                // TODO: Refactor to hide this condition in an abstraction.
-                //       For example, it could be `FlatStateValue::new(&value)`.
-                let flat_state_value = if value.len() <= INLINE_DISK_VALUE_THRESHOLD {
-                    FlatStateValue::inlined(&value)
-                } else {
-                    FlatStateValue::value_ref(&value)
-                };
+                let flat_state_value = FlatStateValue::on_disk(&value);
                 flat_state_delta.insert(trie_key.clone(), Some(flat_state_value));
                 if is_contract_code_key(&trie_key) {
                     contract_codes.push(ContractCode::new(value.to_vec(), None));
