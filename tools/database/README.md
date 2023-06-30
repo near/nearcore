@@ -56,6 +56,6 @@ If you want to change DbKind of the cold db back, you would have to adjust your 
 
 This way neard would try to open db at cold path as RPC db.  
 Then you can call
-`neard adjust-db change-db-kind --new-kind Cold change-hot`.
+`neard database change-db-kind --new-kind Cold change-hot`.
 Notice that even though in your mind this db is cold, in your config this db hot, so you have to pass `change-hot`.
 
