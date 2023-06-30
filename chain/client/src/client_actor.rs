@@ -60,7 +60,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_part::PartId;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::syncing::StatePartKey;
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -1781,12 +1781,13 @@ impl SyncJobsActor {
         let _span = tracing::debug_span!(target: "client", "apply_parts").entered();
         let store = msg.runtime_adapter.store();
 
+        let shard_id = msg.shard_uid.shard_id as ShardId;
         for part_id in 0..msg.num_parts {
-            let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
+            let key = StatePartKey(msg.sync_hash, shard_id, part_id).try_to_vec()?;
             let part = store.get(DBCol::StateParts, &key)?.unwrap();
 
             msg.runtime_adapter.apply_state_part(
-                msg.shard_id,
+                shard_id,
                 &msg.state_root,
                 PartId::new(part_id, msg.num_parts),
                 &part,
@@ -1794,6 +1795,18 @@ impl SyncJobsActor {
             )?;
         }
 
+        Ok(())
+    }
+
+    /// Clears flat storage before applying state parts.
+    fn clear_flat_state(
+        &mut self,
+        msg: &ApplyStatePartsRequest,
+    ) -> Result<(), near_chain_primitives::error::Error> {
+        let _span = tracing::debug_span!(target: "client", "clear_flat_state").entered();
+        if let Some(flat_storage_manager) = msg.runtime_adapter.get_flat_storage_manager() {
+            flat_storage_manager.remove_flat_storage_for_shard(msg.shard_uid)?
+        }
         Ok(())
     }
 }
@@ -1811,15 +1824,23 @@ impl Handler<WithSpanContext<ApplyStatePartsRequest>> for SyncJobsActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
-        let result = self.apply_parts(&msg);
+        let shard_id = msg.shard_uid.shard_id as ShardId;
+        if let Err(err) = self.clear_flat_state(&msg) {
+            self.client_addr.do_send(
+                ApplyStatePartsResponse {
+                    apply_result: Err(err),
+                    shard_id,
+                    sync_hash: msg.sync_hash,
+                }
+                .with_span_context(),
+            );
+            return;
+        }
 
+        let result = self.apply_parts(&msg);
         self.client_addr.do_send(
-            ApplyStatePartsResponse {
-                apply_result: result,
-                shard_id: msg.shard_id,
-                sync_hash: msg.sync_hash,
-            }
-            .with_span_context(),
+            ApplyStatePartsResponse { apply_result: result, shard_id, sync_hash: msg.sync_hash }
+                .with_span_context(),
         );
     }
 }
