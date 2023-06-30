@@ -7,7 +7,6 @@ use near_primitives::types::RawStateChangesWithTrieKey;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::types::INLINE_DISK_VALUE_THRESHOLD;
 use super::{store_helper, BlockInfo};
 use crate::{CryptoHash, StoreUpdate};
 
@@ -94,13 +93,7 @@ impl FlatStateChanges {
                 .last()
                 .expect("Committed entry should have at least one change")
                 .data;
-            let flat_state_value = last_change.as_ref().map(|value| {
-                if value.len() <= INLINE_DISK_VALUE_THRESHOLD {
-                    FlatStateValue::inlined(value)
-                } else {
-                    FlatStateValue::value_ref(value)
-                }
-            });
+            let flat_state_value = last_change.as_ref().map(|value| FlatStateValue::on_disk(value));
             delta.insert(key, flat_state_value);
         }
         Self(delta)
