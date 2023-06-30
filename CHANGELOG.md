@@ -3,6 +3,8 @@
 ## [unreleased]
 
 ### Protocol Changes
+* The support for fixed shards in shard layout was removed. [#9219](https://github.com/near/nearcore/pull/9219)
+
 
 ### Non-protocol Changes
 * Dump state by multiple nodes, each node will refer to s3 for which parts need to be dumped. [#9049](https://github.com/near/nearcore/pull/9049)

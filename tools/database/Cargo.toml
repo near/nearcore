@@ -14,6 +14,20 @@ clap.workspace = true
 rayon.workspace = true
 strum.workspace = true
 
-near-store.workspace = true
 nearcore.workspace = true
+near-store.workspace = true
+near-chain-configs.workspace = true
 
+
+[features]
+nightly = [
+  "nightly_protocol",
+  "near-chain-configs/nightly",
+  "near-store/nightly",
+  "nearcore/nightly",
+]
+nightly_protocol = [
+  "near-chain-configs/nightly_protocol",
+  "near-store/nightly_protocol",
+  "nearcore/nightly_protocol",
+]

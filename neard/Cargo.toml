@@ -32,7 +32,6 @@ tokio.workspace = true
 tracing.workspace = true
 
 nearcore.workspace = true
-near-adjust-db-tool.workspace = true
 near-amend-genesis.workspace = true
 near-chain-configs.workspace = true
 near-client.workspace = true
@@ -78,6 +77,7 @@ nightly = [
   "serialize_all_state_changes",
   "near-chain-configs/nightly",
   "near-client/nightly",
+  "near-database-tool/nightly",
   "near-dyn-configs/nightly",
   "near-jsonrpc-primitives/nightly",
   "near-mirror/nightly",
@@ -93,6 +93,7 @@ nightly = [
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
   "near-client/nightly_protocol",
+  "near-database-tool/nightly_protocol",
   "near-dyn-configs/nightly_protocol",
   "near-jsonrpc-primitives/nightly_protocol",
   "near-mirror/nightly_protocol",

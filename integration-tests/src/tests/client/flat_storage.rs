@@ -6,6 +6,7 @@ use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::errors::StorageError;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
 use near_primitives_core::types::BlockHeight;
 use near_store::flat::{
@@ -409,7 +410,7 @@ fn test_flat_storage_iter() {
     init_test_logger();
     let num_shards = 3;
     let shard_layout =
-        ShardLayout::v1(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], vec![], None, 0);
+        ShardLayout::v1(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], None, 0);
 
     let genesis = Genesis::test_with_seeds(
         vec!["test0".parse().unwrap()],
@@ -432,30 +433,24 @@ fn test_flat_storage_iter() {
 
         match shard_id {
             0 => {
-                // Two entries - one for account, the other for contract.
                 assert_eq!(2, items.len());
+                // Two entries - one for 'near' system account, the other for the contract.
                 assert_eq!(
-                    near_primitives::trie_key::TrieKey::Account {
-                        account_id: "test0".parse().unwrap()
-                    }
-                    .to_vec(),
+                    TrieKey::Account { account_id: "near".parse().unwrap() }.to_vec(),
                     items[0].as_ref().unwrap().0.to_vec()
                 );
             }
             1 => {
-                // Test1 account was not created yet - so no entries.
-                assert_eq!(0, items.len());
-            }
-            2 => {
+                // Two entries - one for account, the other for contract.
                 assert_eq!(2, items.len());
-                // Two entries - one for 'near' system account, the other for the contract.
                 assert_eq!(
-                    near_primitives::trie_key::TrieKey::Account {
-                        account_id: "near".parse().unwrap()
-                    }
-                    .to_vec(),
+                    TrieKey::Account { account_id: "test0".parse().unwrap() }.to_vec(),
                     items[0].as_ref().unwrap().0.to_vec()
                 );
+            }
+            2 => {
+                // Test1 account was not created yet - so no entries.
+                assert_eq!(0, items.len());
             }
             _ => {
                 panic!("Unexpected shard_id");

@@ -9,7 +9,7 @@ use std::{panic, println};
 use strum::IntoEnumIterator;
 
 #[derive(Parser)]
-pub struct AnalyseDataSizeDistributionCommand {
+pub(crate) struct AnalyseDataSizeDistributionCommand {
     #[arg(short, long)]
     /// If specified only this column will be analysed
     column: Option<String>,
@@ -194,7 +194,7 @@ fn get_column_families(input_col: &Option<String>) -> Vec<DBCol> {
 }
 
 impl AnalyseDataSizeDistributionCommand {
-    pub fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
+    pub(crate) fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
         // Set db options for maximum read performance
         let store_config = StoreConfig::default();
         let db = RocksDB::open(
