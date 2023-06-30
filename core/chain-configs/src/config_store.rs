@@ -30,7 +30,7 @@ pub struct ChainConfigStore {
 
 impl ChainConfigStore {
     /// Constructs a new store. Initial chain config is read from provided genesis_config_snapshot.
-    /// Store values are read from config path list file and specific patches are read from the
+    /// Stored values are read from config path list file and specific patches are read from the
     /// files that are names after the epoch when they should be applied.
     pub fn new(genesis_config_snapshot: GenesisConfigSnapshot) -> Self {
         let initial_chain_config = Arc::new(ChainConfig::new(genesis_config_snapshot));
