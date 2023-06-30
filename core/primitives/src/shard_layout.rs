@@ -232,7 +232,7 @@ pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout
             // Note: As we scale up the number of shards we can consider
             // changing this method to do a binary search rather than linear
             // scan. For the time being, with only 4 shards, this is perfectly fine.
-            let mut shard_id = 0 as ShardId;
+            let mut shard_id: ShardId = 0;
             for boundary_account in boundary_accounts {
                 if boundary_account.cmp(account_id) == Greater {
                     break;
