@@ -263,18 +263,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "adjust-db-tool"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "clap 4.2.4",
- "near-chain-configs",
- "near-store",
- "nearcore",
- "tracing",
-]
-
-[[package]]
 name = "adler"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3631,6 +3619,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap 4.2.4",
+ "near-chain-configs",
  "near-store",
  "nearcore",
  "rayon",
@@ -4559,7 +4548,6 @@ name = "neard"
 version = "0.0.0"
 dependencies = [
  "actix",
- "adjust-db-tool",
  "ansi_term",
  "anyhow",
  "clap 4.2.4",
