@@ -75,10 +75,10 @@ type ShardSplitMap = Vec<Vec<ShardId>>;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardLayoutV1 {
-    /// num_shards = fixed_shards.len() + boundary_accounts.len() + 1
-    /// Each account and all sub-accounts map to the shard of position in this array.
-    fixed_shards: Vec<AccountId>,
-    /// The rest are divided by boundary_accounts to ranges, each range is mapped to a shard
+    /// The boundary accounts are the accounts on boundaries between shards.
+    /// Each shard contains a range of accounts from one boundary account to
+    /// another - or the the smallest or largest account possible. The total
+    /// number of shards is equal to the number of boundary accounts plus 1.
     boundary_accounts: Vec<AccountId>,
     /// Maps shards from the last shard layout to shards that it splits to in this shard layout,
     /// Useful for constructing states for the shards.
@@ -109,14 +109,13 @@ impl ShardLayout {
 
     /// Return a V1 Shardlayout
     pub fn v1(
-        fixed_shards: Vec<AccountId>,
         boundary_accounts: Vec<AccountId>,
         shards_split_map: Option<ShardSplitMap>,
         version: ShardVersion,
     ) -> Self {
         let to_parent_shard_map = if let Some(shards_split_map) = &shards_split_map {
             let mut to_parent_shard_map = HashMap::new();
-            let num_shards = (fixed_shards.len() + boundary_accounts.len() + 1) as NumShards;
+            let num_shards = (boundary_accounts.len() + 1) as NumShards;
             for (parent_shard_id, shard_ids) in shards_split_map.iter().enumerate() {
                 for &shard_id in shard_ids {
                     let prev = to_parent_shard_map.insert(shard_id, parent_shard_id as ShardId);
@@ -129,7 +128,6 @@ impl ShardLayout {
             None
         };
         Self::V1(ShardLayoutV1 {
-            fixed_shards,
             boundary_accounts,
             shards_split_map,
             to_parent_shard_map,
@@ -140,8 +138,7 @@ impl ShardLayout {
     /// Returns a V1 ShardLayout. It is only used in tests
     pub fn v1_test() -> Self {
         ShardLayout::v1(
-            vec!["test0"].into_iter().map(|s| s.parse().unwrap()).collect(),
-            vec!["abc", "foo"].into_iter().map(|s| s.parse().unwrap()).collect(),
+            vec!["abc", "foo", "test0"].into_iter().map(|s| s.parse().unwrap()).collect(),
             Some(vec![vec![0, 1, 2, 3]]),
             1,
         )
@@ -150,7 +147,6 @@ impl ShardLayout {
     /// Returns the simple nightshade layout that we use in production
     pub fn get_simple_nightshade_layout() -> ShardLayout {
         ShardLayout::v1(
-            vec![],
             vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
                 .into_iter()
                 .map(|s| s.parse().unwrap())
@@ -212,7 +208,7 @@ impl ShardLayout {
     pub fn num_shards(&self) -> NumShards {
         match self {
             Self::V0(v0) => v0.num_shards,
-            Self::V1(v1) => (v1.fixed_shards.len() + v1.boundary_accounts.len() + 1) as NumShards,
+            Self::V1(v1) => (v1.boundary_accounts.len() + 1) as NumShards,
         }
     }
 
@@ -225,11 +221,6 @@ impl ShardLayout {
 /// Maps an account to the shard that it belongs to given a shard_layout
 /// For V0, maps according to hash of account id
 /// For V1, accounts are divided to ranges, each range of account is mapped to a shard.
-/// There are also some fixed shards, each of which is mapped to an account and all sub-accounts.
-///     For example, for ShardLayoutV1{ fixed_shards: ["aurora"], boundary_accounts: ["near"]}
-///     Account "aurora" and all its sub-accounts will be mapped to shard_id 0.
-///     For the rest of accounts, accounts <= "near" will be mapped to shard_id 1 and
-///     accounts > "near" will be mapped shard_id 2.
 pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardId {
     match shard_layout {
         ShardLayout::V0(ShardLayoutV0 { num_shards, .. }) => {
@@ -237,13 +228,11 @@ pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout
             let (bytes, _) = stdx::split_array::<32, 8, 24>(hash.as_bytes());
             u64::from_le_bytes(*bytes) % num_shards
         }
-        ShardLayout::V1(ShardLayoutV1 { fixed_shards, boundary_accounts, .. }) => {
-            for (shard_id, fixed_account) in fixed_shards.iter().enumerate() {
-                if is_top_level_account(fixed_account, account_id) {
-                    return shard_id as ShardId;
-                }
-            }
-            let mut shard_id = fixed_shards.len() as ShardId;
+        ShardLayout::V1(ShardLayoutV1 { boundary_accounts, .. }) => {
+            // Note: As we scale up the number of shards we can consider
+            // changing this method to do a binary search rather than linear
+            // scan. For the time being, with only 4 shards, this is perfectly fine.
+            let mut shard_id: ShardId = 0;
             for boundary_account in boundary_accounts {
                 if boundary_account.cmp(account_id) == Greater {
                     break;
@@ -261,13 +250,6 @@ pub fn account_id_to_shard_uid(account_id: &AccountId, shard_layout: &ShardLayou
         account_id_to_shard_id(account_id, shard_layout),
         shard_layout,
     )
-}
-
-fn is_top_level_account(top_account: &AccountId, account: &AccountId) -> bool {
-    match account.as_ref().strip_suffix(top_account.as_ref()) {
-        None => false,
-        Some(rest) => rest.is_empty() || rest.ends_with('.'),
-    }
 }
 
 /// ShardUId is an unique representation for shards from different shard layout
@@ -453,11 +435,33 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
 
 #[cfg(test)]
 mod tests {
-    use crate::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
+    use crate::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutV1, ShardUId};
+    use near_primitives_core::types::{AccountId, ShardId};
     use rand::distributions::Alphanumeric;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
     use std::collections::HashMap;
+
+    use super::{ShardSplitMap, ShardVersion};
+
+    // The old ShardLayoutV1, before fixed shards were removed. tests only
+    #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+    pub struct OldShardLayoutV1 {
+        /// num_shards = fixed_shards.len() + boundary_accounts.len() + 1
+        /// Each account and all sub-accounts map to the shard of position in this array.
+        fixed_shards: Vec<AccountId>,
+        /// The rest are divided by boundary_accounts to ranges, each range is mapped to a shard
+        boundary_accounts: Vec<AccountId>,
+        /// Maps shards from the last shard layout to shards that it splits to in this shard layout,
+        /// Useful for constructing states for the shards.
+        /// None for the genesis shard layout
+        shards_split_map: Option<ShardSplitMap>,
+        /// Maps shard in this shard layout to their parent shard
+        /// Since shard_ids always range from 0 to num_shards - 1, we use vec instead of a hashmap
+        to_parent_shard_map: Option<Vec<ShardId>>,
+        /// Version of the shard layout, this is useful for uniquely identify the shard layout
+        version: ShardVersion,
+    }
 
     #[test]
     fn test_shard_layout_v0() {
@@ -482,42 +486,65 @@ mod tests {
     #[test]
     fn test_shard_layout_v1() {
         let shard_layout = ShardLayout::v1(
-            vec!["aurora", "bar", "foo", "foo.baz"]
-                .into_iter()
-                .map(|s| s.parse().unwrap())
-                .collect(),
-            vec!["abc", "foo", "paz"].into_iter().map(|s| s.parse().unwrap()).collect(),
-            Some(vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7]]),
+            parse_account_ids(&["aurora", "bar", "foo", "foo.baz", "paz"]),
+            Some(vec![vec![0, 1, 2], vec![3, 4, 5]]),
             1,
         );
         assert_eq!(
             shard_layout.get_split_shard_uids(0).unwrap(),
-            (0..4).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
+            (0..3).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
         );
         assert_eq!(
             shard_layout.get_split_shard_uids(1).unwrap(),
-            (4..8).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
+            (3..6).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
         );
-        for x in 0..4 {
+        for x in 0..3 {
             assert_eq!(shard_layout.get_parent_shard_id(x).unwrap(), 0);
-            assert_eq!(shard_layout.get_parent_shard_id(x + 4).unwrap(), 1);
+            assert_eq!(shard_layout.get_parent_shard_id(x + 3).unwrap(), 1);
         }
 
-        assert_eq!(account_id_to_shard_id(&"aurora".parse().unwrap(), &shard_layout), 0);
-        assert_eq!(account_id_to_shard_id(&"foo.aurora".parse().unwrap(), &shard_layout), 0);
-        assert_eq!(account_id_to_shard_id(&"bar.foo.aurora".parse().unwrap(), &shard_layout), 0);
-        assert_eq!(account_id_to_shard_id(&"bar".parse().unwrap(), &shard_layout), 1);
-        assert_eq!(account_id_to_shard_id(&"bar.bar".parse().unwrap(), &shard_layout), 1);
-        assert_eq!(account_id_to_shard_id(&"foo".parse().unwrap(), &shard_layout), 2);
+        assert_eq!(account_id_to_shard_id(&"aurora".parse().unwrap(), &shard_layout), 1);
+        assert_eq!(account_id_to_shard_id(&"foo.aurora".parse().unwrap(), &shard_layout), 3);
+        assert_eq!(account_id_to_shard_id(&"bar.foo.aurora".parse().unwrap(), &shard_layout), 2);
+        assert_eq!(account_id_to_shard_id(&"bar".parse().unwrap(), &shard_layout), 2);
+        assert_eq!(account_id_to_shard_id(&"bar.bar".parse().unwrap(), &shard_layout), 2);
+        assert_eq!(account_id_to_shard_id(&"foo".parse().unwrap(), &shard_layout), 3);
         assert_eq!(account_id_to_shard_id(&"baz.foo".parse().unwrap(), &shard_layout), 2);
-        assert_eq!(account_id_to_shard_id(&"foo.baz".parse().unwrap(), &shard_layout), 3);
-        assert_eq!(account_id_to_shard_id(&"a.foo.baz".parse().unwrap(), &shard_layout), 3);
+        assert_eq!(account_id_to_shard_id(&"foo.baz".parse().unwrap(), &shard_layout), 4);
+        assert_eq!(account_id_to_shard_id(&"a.foo.baz".parse().unwrap(), &shard_layout), 0);
 
-        assert_eq!(account_id_to_shard_id(&"aaa".parse().unwrap(), &shard_layout), 4);
-        assert_eq!(account_id_to_shard_id(&"abc".parse().unwrap(), &shard_layout), 5);
-        assert_eq!(account_id_to_shard_id(&"bbb".parse().unwrap(), &shard_layout), 5);
-        assert_eq!(account_id_to_shard_id(&"foo.goo".parse().unwrap(), &shard_layout), 6);
-        assert_eq!(account_id_to_shard_id(&"goo".parse().unwrap(), &shard_layout), 6);
-        assert_eq!(account_id_to_shard_id(&"zoo".parse().unwrap(), &shard_layout), 7);
+        assert_eq!(account_id_to_shard_id(&"aaa".parse().unwrap(), &shard_layout), 0);
+        assert_eq!(account_id_to_shard_id(&"abc".parse().unwrap(), &shard_layout), 0);
+        assert_eq!(account_id_to_shard_id(&"bbb".parse().unwrap(), &shard_layout), 2);
+        assert_eq!(account_id_to_shard_id(&"foo.goo".parse().unwrap(), &shard_layout), 4);
+        assert_eq!(account_id_to_shard_id(&"goo".parse().unwrap(), &shard_layout), 4);
+        assert_eq!(account_id_to_shard_id(&"zoo".parse().unwrap(), &shard_layout), 5);
+    }
+
+    // check that after removing the fixed shards from the shard layout v1
+    // the fixed shards are skipped in deserialization
+    // this should be the default as long as serde(deny_unknown_fields) is not set
+    #[test]
+    fn test_remove_fixed_shards() {
+        let old = OldShardLayoutV1 {
+            fixed_shards: vec![],
+            boundary_accounts: parse_account_ids(&["aaa", "bbb"]),
+            shards_split_map: Some(vec![vec![0, 1, 2]]),
+            to_parent_shard_map: Some(vec![0, 0, 0]),
+            version: 1,
+        };
+        let json = serde_json::to_string_pretty(&old).unwrap();
+        println!("json");
+        println!("{json:#?}");
+
+        let new = serde_json::from_str::<ShardLayoutV1>(json.as_str()).unwrap();
+        assert_eq!(old.boundary_accounts, new.boundary_accounts);
+        assert_eq!(old.shards_split_map, new.shards_split_map);
+        assert_eq!(old.to_parent_shard_map, new.to_parent_shard_map);
+        assert_eq!(old.version, new.version);
+    }
+
+    fn parse_account_ids(ids: &[&str]) -> Vec<AccountId> {
+        ids.into_iter().map(|a| a.parse().unwrap()).collect()
     }
 }
