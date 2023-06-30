@@ -88,10 +88,6 @@ impl fmt::Debug for MockCompiledContractCache {
     }
 }
 
-/// Size of in-memory cache for compiled and loaded contracts.
-#[cfg(all(not(feature = "no_cache"), target_arch = "x86_64"))]
-pub(crate) const CACHE_SIZE: usize = 128;
-
 /// Precompiles contract for the current default VM, and stores result to the cache.
 /// Returns `Ok(true)` if compiled code was added to the cache, and `Ok(false)` if element
 /// is already in the cache, or if cache is `None`.
