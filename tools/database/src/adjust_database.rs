@@ -3,33 +3,6 @@ use near_store::NodeStorage;
 use nearcore::NearConfig;
 use std::path::Path;
 
-#[derive(clap::Parser)]
-pub struct AdjustDbCommand {
-    #[clap(subcommand)]
-    subcmd: SubCommand,
-}
-
-#[derive(clap::Parser)]
-#[clap(subcommand_required = true, arg_required_else_help = true)]
-enum SubCommand {
-    /// Change DbKind of hot or cold db.
-    ChangeDbKind(ChangeDbKindCmd),
-}
-
-impl AdjustDbCommand {
-    pub fn run(self, home_dir: &Path) -> anyhow::Result<()> {
-        let near_config = nearcore::config::load_config(
-            &home_dir,
-            near_chain_configs::GenesisValidationMode::UnsafeFast,
-        )
-        .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-
-        match self.subcmd {
-            SubCommand::ChangeDbKind(cmd) => cmd.run(&home_dir, &near_config),
-        }
-    }
-}
-
 /// This can potentially support db specified not in config, but in command line.
 /// `ChangeRelative { path: Path, archive: bool }`
 /// But it is a pain to implement, because of all the current storage possibilities.
@@ -42,7 +15,7 @@ enum DbSelector {
 }
 
 #[derive(clap::Args)]
-struct ChangeDbKindCmd {
+pub(crate) struct ChangeDbKindCommand {
     /// Desired DbKind.
     #[clap(long)]
     new_kind: DbKind,
@@ -51,8 +24,8 @@ struct ChangeDbKindCmd {
     db_selector: DbSelector,
 }
 
-impl ChangeDbKindCmd {
-    fn run(&self, home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<()> {
+impl ChangeDbKindCommand {
+    pub(crate) fn run(&self, home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<()> {
         let opener = NodeStorage::opener(
             home_dir,
             near_config.config.archive,
