@@ -16,9 +16,8 @@ use crate::{get_contract_cache_key, imports};
 use memoffset::offset_of;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
-use near_stable_hasher::StableHasher;
 use std::borrow::Cow;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::mem::size_of;
 use std::sync::Arc;
 use wasmer_compiler_singlepass::Singlepass;
@@ -211,9 +210,7 @@ struct Wasmer2Config {
 
 impl Wasmer2Config {
     fn config_hash(self: Self) -> u64 {
-        let mut s = StableHasher::new();
-        self.hash(&mut s);
-        s.finish()
+        crate::utils::stable_hash(&self)
     }
 }
 
