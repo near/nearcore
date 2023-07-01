@@ -1,7 +1,9 @@
 use std::hash::{Hash, Hasher};
 
 pub(crate) fn stable_hash<T: Hash>(value: T) -> u64 {
-    // Need some kind of stable hash algorithm, previously was using SipHasher via near-stable-hasher
+    // This is ported over from the previous uses, that relied on near-stable-hasher.
+    // The need for stability here can certainly be discussed, and it could probably be replaced with DefaultHasher.
+    // Not doing it in this refactor as it’s not the core of the issue and using SipHasher is an easy alternative.
     #[allow(deprecated)]
     let mut hasher = std::hash::SipHasher::new();
     value.hash(&mut hasher);
