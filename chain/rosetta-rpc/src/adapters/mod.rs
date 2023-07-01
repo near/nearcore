@@ -2,6 +2,7 @@ use actix::Addr;
 use near_chain_configs::Genesis;
 use near_client::ViewClientActor;
 use near_o11y::WithSpanContextExt;
+use tokio::try_join;
 use validated_operations::ValidatedOperation;
 
 mod transactions;
@@ -123,10 +124,6 @@ pub(crate) async fn convert_block_to_transactions(
         .await?
         .unwrap();
 
-    // TODO(mina86): Do we actually need ‘seen’?  I’m kinda confused at this
-    // point how changes are stored in the database and whether view_client can
-    // return duplicate AccountTouched entries.
-    let mut seen = std::collections::HashSet::new();
     let touched_account_ids = state_changes
         .into_iter()
         .filter_map(|x| {
@@ -136,38 +133,41 @@ pub(crate) async fn convert_block_to_transactions(
                 None
             }
         })
-        .filter(move |account_id| {
-            // TODO(mina86): Convert this to seen.get_or_insert_with(account_id,
-            // Clone::clone) once hash_set_entry stabilises.
-            seen.insert(account_id.clone())
-        })
-        .collect::<Vec<_>>();
+        .collect::<std::collections::HashSet<_>>();
 
     let prev_block_id = near_primitives::types::BlockReference::from(
         near_primitives::types::BlockId::Hash(block.header.prev_hash),
     );
     let accounts_previous_state =
-        crate::utils::query_accounts(&prev_block_id, touched_account_ids.iter(), view_client_addr)
-            .await?;
+        crate::utils::query_accounts(&prev_block_id, &touched_account_ids, view_client_addr);
 
-    let accounts_changes = view_client_addr
-        .send(
-            near_client::GetStateChanges {
-                block_hash: block.header.hash,
-                state_changes_request:
-                    near_primitives::views::StateChangesRequestView::AccountChanges {
-                        account_ids: touched_account_ids,
-                    },
-            }
-            .with_span_context(),
-        )
-        .await??;
+    let accounts_changes = async {
+        Ok(view_client_addr
+            .send(
+                near_client::GetStateChanges {
+                    block_hash: block.header.hash,
+                    state_changes_request:
+                        near_primitives::views::StateChangesRequestView::AccountChanges {
+                            account_ids: touched_account_ids.clone().into_iter().collect(),
+                        },
+                }
+                .with_span_context(),
+            )
+            .await??)
+    };
 
-    let runtime_config = crate::utils::query_protocol_config(block.header.hash, view_client_addr)
-        .await?
-        .runtime_config;
+    let runtime_config = async {
+        Ok(crate::utils::query_protocol_config(block.header.hash, view_client_addr)
+            .await?
+            .runtime_config)
+    };
+
     let exec_to_rx =
-        transactions::ExecutionToReceipts::for_block(view_client_addr, block.header.hash).await?;
+        transactions::ExecutionToReceipts::for_block(view_client_addr, block.header.hash);
+
+    let (accounts_previous_state, accounts_changes, runtime_config, exec_to_rx) =
+        try_join!(accounts_previous_state, accounts_changes, runtime_config, exec_to_rx)?;
+
     transactions::convert_block_changes_to_transactions(
         view_client_addr,
         &runtime_config,
