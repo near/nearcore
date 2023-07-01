@@ -4345,7 +4345,6 @@ dependencies = [
  "near-primitives",
  "near-primitives-core",
  "near-rpc-error-macro",
- "near-stable-hasher",
  "near-stdx",
  "near-test-contracts",
  "near-vm-compiler",
