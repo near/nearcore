@@ -1778,14 +1778,7 @@ impl SyncJobsActor {
         &mut self,
         msg: &ApplyStatePartsRequest,
     ) -> Result<(), near_chain_primitives::error::Error> {
-        let _span = tracing::debug_span!(
-            target: "client",
-            "apply_parts",
-            shard_id = ?msg.shard_id,
-            state_root = ?msg.state_root,
-            num_parts = msg.num_parts,
-            epoch_id = ?msg.epoch_id)
-        .entered();
+        let _span = tracing::debug_span!(target: "client", "apply_parts").entered();
         let store = msg.runtime_adapter.store();
 
         let shard_id = msg.shard_uid.shard_id as ShardId;
@@ -1800,7 +1793,7 @@ impl SyncJobsActor {
                 &part,
                 &msg.epoch_id,
             )?;
-            tracing::debug!(target: "client", part_id, "applied state part");
+            tracing::debug!(target: "client", ?shard_id, part_id, "applied state part");
         }
 
         Ok(())

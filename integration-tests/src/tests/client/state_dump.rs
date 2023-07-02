@@ -150,6 +150,7 @@ fn run_state_sync_with_dumped_parts(
     account_creation_at_epoch_height: u64,
     epoch_length: u64,
 ) {
+    init_test_logger();
     if is_final_block_in_new_epoch {
         tracing::info!("Testing for case when both head and final block of the dumping node are in new epoch...");
     } else {
