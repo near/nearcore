@@ -1793,7 +1793,6 @@ impl SyncJobsActor {
                 &part,
                 &msg.epoch_id,
             )?;
-            tracing::debug!(target: "client", ?shard_id, part_id, "applied state part");
         }
 
         Ok(())

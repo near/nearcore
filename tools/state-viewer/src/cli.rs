@@ -505,16 +505,12 @@ pub struct ScanDbColumnCmd {
     #[clap(long)]
     from_bytes: Option<String>,
     #[clap(long)]
-    from_hash: Option<CryptoHash>,
-    #[clap(long)]
     to: Option<String>,
     // List of comma-separated u8-values.
     // For example, if a column key starts wth ShardUId and you want to scan starting from s2.v1 use `--from-bytes 1,0,0,0,2,0,0,0`.
     // Note that the numbers are generally saved as low-endian.
     #[clap(long)]
     to_bytes: Option<String>,
-    #[clap(long)]
-    to_hash: Option<CryptoHash>,
     #[clap(long)]
     max_keys: Option<usize>,
     #[clap(long, default_value = "false")]
@@ -523,8 +519,8 @@ pub struct ScanDbColumnCmd {
 
 impl ScanDbColumnCmd {
     pub fn run(self, store: Store) {
-        let lower_bound = Self::prefix(self.from, self.from_bytes, self.from_hash);
-        let upper_bound = Self::prefix(self.to, self.to_bytes, self.to_hash);
+        let lower_bound = Self::prefix(self.from, self.from_bytes);
+        let upper_bound = Self::prefix(self.to, self.to_bytes);
         crate::scan_db::scan_db_column(
             &self.column,
             lower_bound.as_deref().map(|v| v.as_ref()),
@@ -535,19 +531,16 @@ impl ScanDbColumnCmd {
         )
     }
 
-    fn prefix(
-        s: Option<String>,
-        bytes: Option<String>,
-        hash: Option<CryptoHash>,
-    ) -> Option<Vec<u8>> {
-        match (s, bytes, hash) {
-            (None, None, None) => None,
-            (Some(s), None, None) => Some(s.into_bytes()),
-            (None, Some(bytes), None) => {
+    fn prefix(s: Option<String>, bytes: Option<String>) -> Option<Vec<u8>> {
+        match (s, bytes) {
+            (None, None) => None,
+            (Some(s), None) => Some(s.into_bytes()),
+            (None, Some(bytes)) => {
                 Some(bytes.split(",").map(|s| s.parse::<u8>().unwrap()).collect::<Vec<u8>>())
             }
-            (None, None, Some(hash)) => Some(hash.0.to_vec()),
-            _ => panic!("Need to provide exactly one of Vec or String or CryptoHash as a prefix"),
+            (Some(_), Some(_)) => {
+                panic!("Provided both a Vec and a String as a prefix")
+            }
         }
     }
 }
