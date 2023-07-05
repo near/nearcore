@@ -3948,6 +3948,7 @@ dependencies = [
  "bencher",
  "clap 4.2.4",
  "itoa",
+ "log",
  "near-crypto",
  "near-primitives-core",
  "once_cell",

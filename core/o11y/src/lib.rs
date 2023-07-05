@@ -2,6 +2,7 @@
 #![deny(clippy::integer_arithmetic)]
 
 pub use context::*;
+use log::{error, info};
 use near_crypto::PublicKey;
 use near_primitives_core::types::AccountId;
 use once_cell::sync::OnceCell;
@@ -459,10 +460,13 @@ pub fn reload_log_config(config: Option<&log_config::LogConfig>) {
     };
     match result {
         Ok(_) => {
-            println!("Updated the logging layer according to `log_config.json`");
+            info!("Updated the logging layer according to `log_config.json`");
         }
         Err(err) => {
-            println!("Failed to update the logging layer according to the changed `log_config.json`. Errors: {:?}", err);
+            error!(
+                "Failed to update the logging layer according to the changed `log_config.json`. Errors: {:?}",
+                err
+            );
         }
     }
 }
