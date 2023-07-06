@@ -2,7 +2,6 @@
 #![deny(clippy::integer_arithmetic)]
 
 pub use context::*;
-use log::{error, info};
 use near_crypto::PublicKey;
 use near_primitives_core::types::AccountId;
 use once_cell::sync::OnceCell;
@@ -13,6 +12,7 @@ use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use std::borrow::Cow;
 use std::path::PathBuf;
 use tracing::level_filters::LevelFilter;
+use tracing::log::{info, warn};
 use tracing::subscriber::DefaultGuard;
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_opentelemetry::OpenTelemetryLayer;
@@ -463,7 +463,7 @@ pub fn reload_log_config(config: Option<&log_config::LogConfig>) {
             info!("Updated the logging layer according to `log_config.json`");
         }
         Err(err) => {
-            error!(
+            warn!(
                 "Failed to update the logging layer according to the changed `log_config.json`. Errors: {:?}",
                 err
             );
