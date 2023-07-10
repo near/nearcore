@@ -36,12 +36,10 @@ wasmparser.workspace = true
 wasmtime = { workspace = true, optional = true }
 
 near-account-id.workspace = true
-near-cache.workspace = true
 near-crypto.workspace = true
 near-fmt.workspace = true
 near-primitives-core.workspace = true
 near-rpc-error-macro.workspace = true
-near-stable-hasher.workspace = true
 
 # Old versions of pwasm-utils we need to preserve backwards compatibility under
 # old protocol versions.

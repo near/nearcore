@@ -16,9 +16,8 @@ use crate::{get_contract_cache_key, imports};
 use memoffset::offset_of;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
-use near_stable_hasher::StableHasher;
 use std::borrow::Cow;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::mem::size_of;
 use std::sync::Arc;
 use wasmer_compiler_singlepass::Singlepass;
@@ -211,9 +210,7 @@ struct Wasmer2Config {
 
 impl Wasmer2Config {
     fn config_hash(self: Self) -> u64 {
-        let mut s = StableHasher::new();
-        self.hash(&mut s);
-        s.finish()
+        crate::utils::stable_hash(&self)
     }
 }
 
@@ -386,21 +383,7 @@ impl Wasmer2VM {
             })
         };
 
-        #[cfg(feature = "no_cache")]
         return compile_or_read_from_cache();
-
-        #[cfg(not(feature = "no_cache"))]
-        return {
-            static MEM_CACHE: once_cell::sync::Lazy<
-                near_cache::SyncLruCache<
-                    near_primitives_core::hash::CryptoHash,
-                    Result<VMArtifact, CompilationError>,
-                >,
-            > = once_cell::sync::Lazy::new(|| {
-                near_cache::SyncLruCache::new(crate::cache::CACHE_SIZE)
-            });
-            MEM_CACHE.get_or_try_put(key, |_key| compile_or_read_from_cache())
-        };
     }
 
     fn run_method(

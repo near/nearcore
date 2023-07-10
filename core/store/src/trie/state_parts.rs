@@ -28,7 +28,7 @@ use borsh::BorshDeserialize;
 use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::state::{FlatStateValue, ValueRef};
+use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::is_contract_code_key;
 use near_primitives::types::{ShardId, StateRoot};
@@ -463,8 +463,8 @@ impl Trie {
             let value = trie.storage.retrieve_raw_bytes(&hash)?;
             map.entry(hash).or_insert_with(|| (value.to_vec(), 0)).1 += 1;
             if let Some(trie_key) = key {
-                let value_ref = ValueRef::new(&value);
-                flat_state_delta.insert(trie_key.clone(), Some(FlatStateValue::Ref(value_ref)));
+                let flat_state_value = FlatStateValue::on_disk(&value);
+                flat_state_delta.insert(trie_key.clone(), Some(flat_state_value));
                 if is_contract_code_key(&trie_key) {
                     contract_codes.push(ContractCode::new(value.to_vec(), None));
                 }

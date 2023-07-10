@@ -1,5 +1,5 @@
 [package]
-name = "adjust-db-tool"
+name = "near-database-tool"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -11,8 +11,23 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
-tracing.workspace = true
+rayon.workspace = true
+strum.workspace = true
 
 nearcore.workspace = true
 near-store.workspace = true
 near-chain-configs.workspace = true
+
+
+[features]
+nightly = [
+  "nightly_protocol",
+  "near-chain-configs/nightly",
+  "near-store/nightly",
+  "nearcore/nightly",
+]
+nightly_protocol = [
+  "near-chain-configs/nightly_protocol",
+  "near-store/nightly_protocol",
+  "nearcore/nightly_protocol",
+]

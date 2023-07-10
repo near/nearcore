@@ -1,7 +1,8 @@
 //! Universal compilation.
 
-use crate::universal::executable::{unrkyv, UniversalExecutableRef};
-use crate::universal::{CodeMemory, UniversalArtifact, UniversalExecutable};
+use super::code_memory::{ARCH_FUNCTION_ALIGNMENT, DATA_SECTION_ALIGNMENT};
+use super::executable::{unrkyv, UniversalExecutableRef};
+use super::{CodeMemory, UniversalArtifact, UniversalExecutable};
 use crate::EngineId;
 use near_vm_compiler::Compiler;
 use near_vm_compiler::{
@@ -16,7 +17,7 @@ use near_vm_types::{
 };
 use near_vm_vm::{
     FuncDataRegistry, FunctionBodyPtr, SectionBodyPtr, SignatureRegistry, Tunables,
-    VMCallerCheckedAnyfunc, VMFuncRef, VMFunctionBody, VMImportType, VMLocalFunction, VMOffsets,
+    VMCallerCheckedAnyfunc, VMFuncRef, VMImportType, VMLocalFunction, VMOffsets,
     VMSharedSignatureIndex, VMTrampoline,
 };
 use rkyv::de::deserializers::SharedDeserializeMap;
@@ -35,11 +36,16 @@ pub struct UniversalEngine {
 
 impl UniversalEngine {
     /// Create a new `UniversalEngine` with the given config
-    pub fn new(compiler: Box<dyn Compiler>, target: Target, features: Features) -> Self {
+    pub fn new(
+        compiler: Box<dyn Compiler>,
+        target: Target,
+        features: Features,
+        memory_allocator: super::LimitedMemoryPool,
+    ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(UniversalEngineInner {
                 compiler: Some(compiler),
-                code_memory: vec![],
+                code_memory_pool: memory_allocator,
                 signatures: SignatureRegistry::new(),
                 func_data: Arc::new(FuncDataRegistry::new()),
                 features,
@@ -62,11 +68,11 @@ impl UniversalEngine {
     ///
     /// Headless engines can't compile or validate any modules,
     /// they just take already processed Modules (via `Module::serialize`).
-    pub fn headless() -> Self {
+    pub fn headless(memory_allocator: super::LimitedMemoryPool) -> Self {
         Self {
             inner: Arc::new(Mutex::new(UniversalEngineInner {
                 compiler: None,
-                code_memory: vec![],
+                code_memory_pool: memory_allocator,
                 signatures: SignatureRegistry::new(),
                 func_data: Arc::new(FuncDataRegistry::new()),
                 features: Features::default(),
@@ -215,8 +221,8 @@ impl UniversalEngine {
             .map(|(_, sig)| inner_engine.signatures.register(sig.clone()))
             .collect::<PrimaryMap<SignatureIndex, _>>()
             .into_boxed_slice();
-        let (functions, trampolines, dynamic_trampolines, custom_sections) = inner_engine
-            .allocate(
+        let (functions, trampolines, dynamic_trampolines, custom_sections, mut code_memory) =
+            inner_engine.allocate(
                 local_functions,
                 function_call_trampolines.iter().map(|(_, b)| b.into()),
                 dynamic_function_trampolines.iter().map(|(_, b)| b.into()),
@@ -264,7 +270,12 @@ impl UniversalEngine {
         );
 
         // Make all code loaded executable.
-        inner_engine.publish_compiled_code();
+        unsafe {
+            // SAFETY: We finished relocation and linking just above. There should be no write
+            // access past this point, though I don’t think we have a good mechanism to ensure this
+            // statically at this point..
+            code_memory.publish()?;
+        }
         let exports = module
             .exports
             .iter()
@@ -273,6 +284,7 @@ impl UniversalEngine {
 
         Ok(UniversalArtifact {
             engine: self.clone(),
+            _code_memory: code_memory,
             import_counts: module.import_counts,
             start_function: module.start_function,
             vmoffsets: VMOffsets::for_host().with_module_info(&*module),
@@ -350,8 +362,8 @@ impl UniversalEngine {
             })
             .collect::<PrimaryMap<SignatureIndex, _>>()
             .into_boxed_slice();
-        let (functions, trampolines, dynamic_trampolines, custom_sections) = inner_engine
-            .allocate(
+        let (functions, trampolines, dynamic_trampolines, custom_sections, mut code_memory) =
+            inner_engine.allocate(
                 local_functions,
                 call_trampolines.map(|(_, b)| b.into()),
                 dynamic_trampolines.map(|(_, b)| b.into()),
@@ -405,7 +417,12 @@ impl UniversalEngine {
         );
 
         // Make all code compiled thus far executable.
-        inner_engine.publish_compiled_code();
+        unsafe {
+            // SAFETY: We finished relocation and linking just above. There should be no write
+            // access past this point, though I don’t think we have a good mechanism to ensure this
+            // statically at this point..
+            code_memory.publish()?;
+        }
         let exports = module
             .exports
             .iter()
@@ -413,6 +430,7 @@ impl UniversalEngine {
             .collect::<BTreeMap<String, ExportIndex>>();
         Ok(UniversalArtifact {
             engine: self.clone(),
+            _code_memory: code_memory,
             import_counts,
             start_function: unrkyv(&module.start_function),
             vmoffsets: VMOffsets::for_host().with_archived_module_info(&*module),
@@ -467,11 +485,10 @@ impl UniversalEngine {
 pub struct UniversalEngineInner {
     /// The compiler
     compiler: Option<Box<dyn Compiler>>,
+    /// Pool from which code memory can be allocated.
+    code_memory_pool: super::LimitedMemoryPool,
     /// The features to compile the Wasm module with
     features: Features,
-    /// The code memory is responsible of publishing the compiled
-    /// functions to memory.
-    code_memory: Vec<CodeMemory>,
     /// The signature registry is used mainly to operate with trampolines
     /// performantly.
     pub(crate) signatures: SignatureRegistry,
@@ -515,10 +532,11 @@ impl UniversalEngineInner {
             PrimaryMap<SignatureIndex, VMTrampoline>,
             PrimaryMap<FunctionIndex, FunctionBodyPtr>,
             PrimaryMap<SectionIndex, SectionBodyPtr>,
+            CodeMemory,
         ),
         CompileError,
     > {
-        let code_memory = &mut self.code_memory;
+        let code_memory_pool = &mut self.code_memory_pool;
         let function_count = local_functions.len();
         let call_trampoline_count = call_trampolines.len();
         let function_bodies =
@@ -536,41 +554,79 @@ impl UniversalEngineInner {
             }
             section_types.push(section.protection);
         }
-        code_memory.push(CodeMemory::new());
-        let code_memory = self.code_memory.last_mut().expect("infallible");
 
-        let (mut allocated_functions, allocated_executable_sections, allocated_data_sections) =
-            code_memory
-                .allocate(
-                    function_bodies.as_slice(),
-                    executable_sections.as_slice(),
-                    data_sections.as_slice(),
-                )
-                .map_err(|message| {
-                    CompileError::Resource(format!(
-                        "failed to allocate memory for functions: {}",
-                        message
-                    ))
-                })?;
+        // 1. Calculate the total size, that is:
+        // - function body size, including all trampolines
+        // -- windows unwind info
+        // -- padding between functions
+        // - executable section body
+        // -- padding between executable sections
+        // - padding until a new page to change page permissions
+        // - data section body size
+        // -- padding between data sections
+        let page_size = rustix::param::page_size();
+        let total_len = 0;
+        let total_len = function_bodies.iter().fold(total_len, |acc, func| {
+            round_up(acc, ARCH_FUNCTION_ALIGNMENT.into()) + function_allocation_size(*func)
+        });
+        let total_len = executable_sections.iter().fold(total_len, |acc, exec| {
+            round_up(acc, ARCH_FUNCTION_ALIGNMENT.into()) + exec.bytes.len()
+        });
+        let total_len = round_up(total_len, page_size);
+        let total_len = data_sections.iter().fold(total_len, |acc, data| {
+            round_up(acc, DATA_SECTION_ALIGNMENT.into()) + data.bytes.len()
+        });
+
+        let mut code_memory = code_memory_pool.get(total_len).map_err(|e| {
+            CompileError::Resource(format!("could not allocate code memory: {}", e))
+        })?;
+        let mut code_writer = unsafe {
+            // SAFETY: We just popped out an unused code memory from an allocator pool.
+            code_memory.writer()
+        };
+
+        let mut allocated_functions = vec![];
+        let mut allocated_data_sections = vec![];
+        let mut allocated_executable_sections = vec![];
+        for func in function_bodies {
+            let offset = code_writer
+                .write_executable(ARCH_FUNCTION_ALIGNMENT, func.body)
+                .expect("incorrectly computed code memory size");
+            allocated_functions.push((offset, func.body.len()));
+        }
+        for section in executable_sections {
+            let offset = code_writer.write_executable(ARCH_FUNCTION_ALIGNMENT, section.bytes)?;
+            allocated_executable_sections.push(offset);
+        }
+        if !data_sections.is_empty() {
+            for section in data_sections {
+                let offset = code_writer
+                    .write_data(DATA_SECTION_ALIGNMENT, section.bytes)
+                    .expect("incorrectly computed code memory size");
+                allocated_data_sections.push(offset);
+            }
+        }
 
         let mut allocated_function_call_trampolines: PrimaryMap<SignatureIndex, VMTrampoline> =
             PrimaryMap::new();
-        for ptr in allocated_functions.drain(0..call_trampoline_count).map(|slice| slice.as_ptr()) {
+
+        for (offset, _) in allocated_functions.drain(0..call_trampoline_count) {
             // TODO: What in damnation have you done?! – Bannon
-            let trampoline =
-                unsafe { std::mem::transmute::<*const VMFunctionBody, VMTrampoline>(ptr) };
+            let trampoline = unsafe {
+                std::mem::transmute::<_, VMTrampoline>(code_memory.executable_address(offset))
+            };
             allocated_function_call_trampolines.push(trampoline);
         }
 
         let allocated_functions_result = allocated_functions
             .drain(0..function_count)
             .enumerate()
-            .map(|(index, slice)| -> Result<_, CompileError> {
+            .map(|(index, (offset, length))| -> Result<_, CompileError> {
                 let index = LocalFunctionIndex::new(index);
                 let (sig_idx, sig) = function_signature(index);
                 Ok(VMLocalFunction {
-                    body: FunctionBodyPtr(slice.as_ptr()),
-                    length: u32::try_from(slice.len()).map_err(|_| {
+                    body: FunctionBodyPtr(unsafe { code_memory.executable_address(offset).cast() }),
+                    length: u32::try_from(length).map_err(|_| {
                         CompileError::Codegen("function body length exceeds 4GiB".into())
                     })?,
                     signature: sig,
@@ -581,7 +637,9 @@ impl UniversalEngineInner {
 
         let allocated_dynamic_function_trampolines = allocated_functions
             .drain(..)
-            .map(|slice| FunctionBodyPtr(slice.as_ptr()))
+            .map(|(offset, _)| {
+                FunctionBodyPtr(unsafe { code_memory.executable_address(offset).cast() })
+            })
             .collect::<PrimaryMap<FunctionIndex, _>>();
 
         let mut exec_iter = allocated_executable_sections.iter();
@@ -589,15 +647,11 @@ impl UniversalEngineInner {
         let allocated_custom_sections = section_types
             .into_iter()
             .map(|protection| {
-                SectionBodyPtr(
-                    if protection == CustomSectionProtection::ReadExecute {
-                        exec_iter.next()
-                    } else {
-                        data_iter.next()
-                    }
-                    .unwrap()
-                    .as_ptr(),
-                )
+                SectionBodyPtr(if protection == CustomSectionProtection::ReadExecute {
+                    unsafe { code_memory.executable_address(*exec_iter.next().unwrap()).cast() }
+                } else {
+                    unsafe { code_memory.writable_address(*data_iter.next().unwrap()).cast() }
+                })
             })
             .collect::<PrimaryMap<SectionIndex, _>>();
 
@@ -606,16 +660,21 @@ impl UniversalEngineInner {
             allocated_function_call_trampolines,
             allocated_dynamic_function_trampolines,
             allocated_custom_sections,
+            code_memory,
         ))
-    }
-
-    /// Make memory containing compiled code executable.
-    pub(crate) fn publish_compiled_code(&mut self) {
-        self.code_memory.last_mut().unwrap().publish();
     }
 
     /// Shared func metadata registry.
     pub(crate) fn func_data(&self) -> &Arc<FuncDataRegistry> {
         &self.func_data
     }
+}
+
+fn round_up(size: usize, multiple: usize) -> usize {
+    debug_assert!(multiple.is_power_of_two());
+    (size + (multiple - 1)) & !(multiple - 1)
+}
+
+fn function_allocation_size(func: FunctionBodyRef<'_>) -> usize {
+    func.body.len()
 }
