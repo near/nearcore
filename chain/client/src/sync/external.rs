@@ -12,7 +12,7 @@ use std::time::Instant;
 pub enum ExternalConnection {
     S3 { bucket: Arc<s3::Bucket> },
     Filesystem { root_dir: PathBuf },
-    GCS { bucket: String },
+    GCS { client: Arc<cloud_storage::Client>, bucket: String },
 }
 
 impl ExternalConnection {
@@ -40,8 +40,8 @@ impl ExternalConnection {
                 let data = std::fs::read(&path)?;
                 Ok(data)
             }
-            ExternalConnection::GCS { bucket } => {
-                Ok(cloud_storage::Object::download(bucket, location).await?)
+            ExternalConnection::GCS { client, bucket } => {
+                Ok(client.object().download(bucket, location).await?)
             }
         }
     }
@@ -87,14 +87,8 @@ impl ExternalConnection {
                 tracing::debug!(target: "state_sync_dump", shard_id, part_length = state_part.len(), ?location, "Wrote a state part to a file");
                 Ok(())
             }
-            ExternalConnection::GCS { bucket } => {
-                cloud_storage::object::Object::create(
-                    bucket,
-                    state_part.to_vec(),
-                    location,
-                    "text/plain",
-                )
-                .await?;
+            ExternalConnection::GCS { client, bucket } => {
+                client.object().create(bucket, state_part.to_vec(), location, "text/plain").await?;
                 tracing::debug!(target: "state_sync_dump", shard_id, part_length = state_part.len(), ?location, "Wrote a state part to GCS");
                 Ok(())
             }
@@ -142,28 +136,31 @@ impl ExternalConnection {
                 }
                 Ok(file_names)
             }
-            ExternalConnection::GCS { bucket } => {
+            ExternalConnection::GCS { client, bucket } => {
                 let prefix = format!("{}/", directory_path);
                 tracing::debug!(target: "state_sync_dump", shard_id, ?directory_path, "List state parts in GCS");
-                Ok(cloud_storage::Object::list(
-                    bucket,
-                    cloud_storage::ListRequest {
-                        prefix: Some(prefix.to_string()),
-                        ..Default::default()
-                    },
-                )
-                .await?
-                .try_collect::<Vec<cloud_storage::object::ObjectList>>()
-                .await?
-                .into_iter()
-                .map(|ol| {
-                    ol.items
-                        .into_iter()
-                        .map(|obj| Self::extract_file_name_from_full_path(obj.name))
-                        .collect::<Vec<String>>()
-                })
-                .flatten()
-                .collect())
+                Ok(client
+                    .object()
+                    .list(
+                        bucket,
+                        cloud_storage::ListRequest {
+                            prefix: Some(prefix.to_string()),
+                            ..Default::default()
+                        },
+                    )
+                    .await?
+                    .try_collect::<Vec<cloud_storage::object::ObjectList>>()
+                    .await?
+                    .into_iter()
+                    .map(|object_list| {
+                        object_list
+                            .items
+                            .into_iter()
+                            .map(|obj| Self::extract_file_name_from_full_path(obj.name))
+                            .collect::<Vec<String>>()
+                    })
+                    .flatten()
+                    .collect())
             }
         }
     }
@@ -332,7 +329,10 @@ mod test {
         tracing::debug!("Filename: {:?}", filename);
 
         // Define bucket.
-        let connection = ExternalConnection::GCS { bucket: "state-parts".to_string() };
+        let connection = ExternalConnection::GCS {
+            client: std::sync::Arc::new(cloud_storage::Client::default()),
+            bucket: "state-parts".to_string(),
+        };
 
         // Generate random data.
         let data = random_string(1000);

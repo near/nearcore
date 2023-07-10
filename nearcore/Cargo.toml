@@ -16,6 +16,7 @@ anyhow.workspace = true
 awc.workspace = true
 borsh.workspace = true
 chrono.workspace = true
+cloud-storage.workspace = true
 dirs.workspace = true
 easy-ext.workspace = true
 futures.workspace = true

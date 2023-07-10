@@ -4538,6 +4538,7 @@ dependencies = [
  "bencher",
  "borsh 0.10.2",
  "chrono",
+ "cloud-storage",
  "delay-detector",
  "dirs",
  "easy-ext",
