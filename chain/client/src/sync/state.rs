@@ -187,6 +187,9 @@ impl StateSync {
                     ExternalStorageLocation::Filesystem { root_dir } => {
                         ExternalConnection::Filesystem { root_dir: root_dir.clone() }
                     }
+                    ExternalStorageLocation::GCS { bucket } => {
+                        ExternalConnection::GCS { bucket: bucket.clone() }
+                    }
                 };
                 StateSyncInner::PartsFromExternal {
                     chain_id: chain_id.to_string(),

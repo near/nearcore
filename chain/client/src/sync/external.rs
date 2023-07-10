@@ -1,4 +1,5 @@
 use crate::metrics;
+use futures::TryStreamExt;
 use near_primitives::types::{EpochId, ShardId};
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -11,6 +12,7 @@ use std::time::Instant;
 pub enum ExternalConnection {
     S3 { bucket: Arc<s3::Bucket> },
     Filesystem { root_dir: PathBuf },
+    GCS { bucket: String },
 }
 
 impl ExternalConnection {
@@ -37,6 +39,9 @@ impl ExternalConnection {
                 tracing::debug!(target: "sync", %shard_id, ?path, "Reading a file");
                 let data = std::fs::read(&path)?;
                 Ok(data)
+            }
+            ExternalConnection::GCS { bucket } => {
+                Ok(cloud_storage::Object::download(bucket, location).await?)
             }
         }
     }
@@ -82,6 +87,17 @@ impl ExternalConnection {
                 tracing::debug!(target: "state_sync_dump", shard_id, part_length = state_part.len(), ?location, "Wrote a state part to a file");
                 Ok(())
             }
+            ExternalConnection::GCS { bucket } => {
+                cloud_storage::object::Object::create(
+                    bucket,
+                    state_part.to_vec(),
+                    location,
+                    "text/plain",
+                )
+                .await?;
+                tracing::debug!(target: "state_sync_dump", shard_id, part_length = state_part.len(), ?location, "Wrote a state part to GCS");
+                Ok(())
+            }
         }
     }
 
@@ -125,6 +141,29 @@ impl ExternalConnection {
                     file_names.push(file_name);
                 }
                 Ok(file_names)
+            }
+            ExternalConnection::GCS { bucket } => {
+                let prefix = format!("{}/", directory_path);
+                tracing::debug!(target: "state_sync_dump", shard_id, ?directory_path, "List state parts in GCS");
+                Ok(cloud_storage::Object::list(
+                    bucket,
+                    cloud_storage::ListRequest {
+                        prefix: Some(prefix.to_string()),
+                        ..Default::default()
+                    },
+                )
+                .await?
+                .try_collect::<Vec<cloud_storage::object::ObjectList>>()
+                .await?
+                .into_iter()
+                .map(|ol| {
+                    ol.items
+                        .into_iter()
+                        .map(|obj| Self::extract_file_name_from_full_path(obj.name))
+                        .collect::<Vec<String>>()
+                })
+                .flatten()
+                .collect())
             }
         }
     }
@@ -258,7 +297,14 @@ fn create_bucket(
 mod test {
     use crate::sync::external::{
         get_num_parts_from_filename, get_part_id_from_filename, is_part_filename, part_filename,
+        ExternalConnection,
     };
+    use near_o11y::testonly::init_test_logger;
+    use rand::distributions::{Alphanumeric, DistString};
+
+    fn random_string(rand_len: usize) -> String {
+        Alphanumeric.sample_string(&mut rand::thread_rng(), rand_len)
+    }
 
     #[test]
     fn test_match_filename() {
@@ -271,5 +317,49 @@ mod test {
 
         assert_eq!(get_part_id_from_filename(&filename), Some(5));
         assert_eq!(get_part_id_from_filename("123123"), None);
+    }
+
+    /// This test should be ignored by default, as it requires gcloud credentials to run.
+    /// Specify the path to service account json  in `SERVICE_ACCOUNT` variable to run the test.
+    #[test]
+    #[ignore]
+    fn test_gcs_upload_list_download() {
+        init_test_logger();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        // Generate random filename.
+        let filename = random_string(8);
+        tracing::debug!("Filename: {:?}", filename);
+
+        // Define bucket.
+        let connection = ExternalConnection::GCS { bucket: "state-parts".to_string() };
+
+        // Generate random data.
+        let data = random_string(1000);
+        tracing::debug!("Data as string: {:?}", data);
+        let data: Vec<u8> = data.into();
+        tracing::debug!("Data: {:?}", data);
+
+        // Directory resembles real usecase.
+        let dir = "test_folder/chain_id=test/epoch_height=1/epoch_id=test/shard_id=0".to_string();
+        let full_filename = format!("{}/{}", dir, filename);
+
+        // Before uploading we shouldn't see filename in the list of files.
+        let files = rt.block_on(async { connection.list_state_parts(0, &dir).await.unwrap() });
+        tracing::debug!("Files before upload: {:?}", files);
+        assert_eq!(files.into_iter().filter(|x| *x == filename).collect::<Vec<String>>().len(), 0);
+
+        // Uploading the file.
+        rt.block_on(async { connection.put_state_part(&data, 0, &full_filename).await.unwrap() });
+
+        // After uploading we should see filename in the list of files.
+        let files = rt.block_on(async { connection.list_state_parts(0, &dir).await.unwrap() });
+        tracing::debug!("Files after upload: {:?}", files);
+        assert_eq!(files.into_iter().filter(|x| *x == filename).collect::<Vec<String>>().len(), 1);
+
+        // And the data should match generates data.
+        let download_data =
+            rt.block_on(async { connection.get_part(0, &full_filename).await.unwrap() });
+        assert_eq!(download_data, data)
     }
 }
