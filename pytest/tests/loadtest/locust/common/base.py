@@ -129,8 +129,8 @@ class FunctionCall(Transaction):
     def sign_and_serialize(self, block_hash) -> bytes:
         return transaction.sign_function_call_tx(
             self.sender.key, self.receiver_id, self.method,
-            json.dumps(self.args()).encode('utf-8'), 300 * TGAS,
-            int(self.balance), self.sender.use_nonce(), block_hash)
+            json.dumps(self.args()).encode('utf-8'), 300 * TGAS, self.balance,
+            self.sender.use_nonce(), block_hash)
 
     def sender_account(self) -> Account:
         return self.sender
