@@ -1,4 +1,3 @@
-import unittest
 from datetime import timedelta
 from locust import User, events, runners
 from retrying import retry
@@ -14,9 +13,11 @@ import requests
 import sys
 import time
 import typing
+import unittest
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
+from account import TGAS
 from common.sharding import AccountGenerator
 from configured_logger import new_logger
 import cluster
@@ -104,6 +105,37 @@ class Transaction:
         """
 
 
+class FunctionCall(Transaction):
+
+    def __init__(self,
+                 sender: Account,
+                 receiver_id: str,
+                 method: str,
+                 balance: int = 0):
+        super().__init__()
+        self.sender = sender
+        self.receiver_id = receiver_id
+        self.method = method
+        # defensive cast to avoid serialization bugs when float balance is
+        # provided despite type hint
+        self.balance = int(balance)
+
+    @abc.abstractmethod
+    def args(self) -> dict:
+        """
+        Function call arguments to be serialized and sent with the call.
+        """
+
+    def sign_and_serialize(self, block_hash) -> bytes:
+        return transaction.sign_function_call_tx(
+            self.sender.key, self.receiver_id, self.method,
+            json.dumps(self.args()).encode('utf-8'), 300 * TGAS, self.balance,
+            self.sender.use_nonce(), block_hash)
+
+    def sender_account(self) -> Account:
+        return self.sender
+
+
 class Deploy(Transaction):
 
     def __init__(self, account, contract, name):
@@ -126,7 +158,7 @@ class Deploy(Transaction):
 
 class CreateSubAccount(Transaction):
 
-    def __init__(self, sender, sub_key, balance=50.0):
+    def __init__(self, sender, sub_key, balance: int = 50):
         super().__init__()
         self.sender = sender
         self.sub_key = sub_key
@@ -269,6 +301,14 @@ class NearNodeProxy:
 
     def account_exists(self, account_id: str) -> bool:
         return "error" not in self.node.get_account(account_id, do_assert=False)
+
+    def create_contract_account(self,
+                                funding_account: Account,
+                                key: key.Key,
+                                balance: int = 50000):
+        self.send_tx_retry(
+            CreateSubAccount(funding_account, key, balance=balance),
+            "create contract account")
 
 
 class NearUser(User):
