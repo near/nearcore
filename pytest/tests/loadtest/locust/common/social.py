@@ -23,13 +23,6 @@ class SocialDbSet(FunctionCall):
         self.contract_id = contract_id
         self.sender = sender
 
-    @abstractmethod
-    def build_args(self) -> dict:
-        """Returns arguments for the transaction function call."""
-
-    def args(self) -> dict:
-        return self.build_args()
-
     def sender_account(self) -> Account:
         return self.sender
 
@@ -40,7 +33,7 @@ class SubmitPost(SocialDbSet):
         super().__init__(contract_id, sender)
         self.content = content
 
-    def build_args(self) -> dict:
+    def args(self) -> dict:
         return social_post_args(self.sender.key.account_id, self.content)
 
 
@@ -51,7 +44,7 @@ class Follow(SocialDbSet):
         super().__init__(contract_id, sender)
         self.follow_list = follow_list
 
-    def build_args(self) -> dict:
+    def args(self) -> dict:
         follow_list = self.follow_list
         sender = self.sender.key.account_id
         return social_follow_args(sender, follow_list)
