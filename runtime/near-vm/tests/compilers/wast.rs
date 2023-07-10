@@ -1,4 +1,4 @@
-use ::near_vm_test_api::Features;
+use near_vm_compiler::Features;
 use near_vm_wast::Wast;
 use std::path::Path;
 

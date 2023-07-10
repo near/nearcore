@@ -7,8 +7,9 @@ use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
 use crate::sync::header::HeaderSync;
-use crate::sync::state::{format_shard_sync_phase, StateSync, StateSyncResult};
+use crate::sync::state::{StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
+use actix_rt::ArbiterHandle;
 use lru::LruCache;
 use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
@@ -32,7 +33,9 @@ use near_chunks::logic::{
 };
 use near_chunks::ShardsManager;
 use near_client_primitives::debug::ChunkProduction;
-use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
+use near_client_primitives::types::{
+    format_shard_sync_phase_per_shard, Error, ShardSyncDownload, ShardSyncStatus,
+};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
@@ -2115,6 +2118,7 @@ impl Client {
         block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
         apply_chunks_done_callback: DoneApplyChunkCallback,
+        state_parts_arbiter_handle: &ArbiterHandle,
     ) -> Result<(), Error> {
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos()? {
@@ -2186,6 +2190,7 @@ impl Client {
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
                 state_parts_task_scheduler,
                 state_split_scheduler,
+                state_parts_arbiter_handle,
                 use_colour,
             )? {
                 StateSyncResult::Unchanged => {}
@@ -2282,18 +2287,6 @@ impl Client {
         // storage should do the legacy clear_archive_data.
         self.chain.clear_archive_data(self.config.gc.gc_blocks_limit)
     }
-}
-
-fn format_shard_sync_phase_per_shard(
-    new_shard_sync: &HashMap<ShardId, ShardSyncDownload>,
-    use_colour: bool,
-) -> Vec<(ShardId, String)> {
-    new_shard_sync
-        .iter()
-        .map(|(&shard_id, shard_progress)| {
-            (shard_id, format_shard_sync_phase(shard_progress, use_colour))
-        })
-        .collect::<Vec<(_, _)>>()
 }
 
 /* implements functions used to communicate with network */

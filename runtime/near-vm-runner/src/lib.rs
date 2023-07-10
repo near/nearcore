@@ -14,6 +14,7 @@ pub mod prepare;
 mod runner;
 #[cfg(test)]
 mod tests;
+mod utils;
 mod vm_kind;
 #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
 mod wasmer2_runner;

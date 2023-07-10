@@ -241,8 +241,8 @@ macro_rules! import_namespace {
 
 #[cfg(test)]
 mod test {
+    use super::super::{Global, Store, Val};
     use super::*;
-    use crate::sys::{Global, Store, Val};
     use near_vm_types::Type;
     use near_vm_vm::ChainableNamedResolver;
 
@@ -353,7 +353,7 @@ mod test {
 
     #[test]
     fn imports_macro_allows_trailing_comma_and_none() {
-        use crate::sys::Function;
+        use super::super::externals::Function;
 
         let store = Default::default();
 

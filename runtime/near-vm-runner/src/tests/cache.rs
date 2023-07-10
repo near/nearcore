@@ -14,8 +14,6 @@ use assert_matches::assert_matches;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
-use near_stable_hasher::StableHasher;
-use std::hash::{Hash, Hasher};
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use wasmer_compiler::{CpuFeature, Target};
@@ -137,9 +135,7 @@ fn test_wasmer2_artifact_output_stability() {
         let config = VMConfig::test();
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::Wasmer2).unwrap();
-        let mut hasher = StableHasher::new();
-        (&contract.code(), &prepared_code).hash(&mut hasher);
-        got_prepared_hashes.push(hasher.finish());
+        got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));
 
         let mut features = CpuFeature::set();
         features.insert(CpuFeature::AVX);
@@ -148,9 +144,7 @@ fn test_wasmer2_artifact_output_stability() {
         let vm = Wasmer2VM::new_for_target(config, target);
         let artifact = vm.compile_uncached(&contract).unwrap();
         let serialized = artifact.serialize().unwrap();
-        let mut hasher = StableHasher::new();
-        serialized.hash(&mut hasher);
-        let this_hash = hasher.finish();
+        let this_hash = crate::utils::stable_hash(&serialized);
         got_compiled_hashes.push(this_hash);
 
         std::fs::write(format!("/tmp/artifact{}", this_hash), serialized).unwrap();
@@ -212,9 +206,7 @@ fn test_near_vm_artifact_output_stability() {
         let config = VMConfig::test();
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::NearVm).unwrap();
-        let mut hasher = StableHasher::new();
-        (&contract.code(), &prepared_code).hash(&mut hasher);
-        got_prepared_hashes.push(hasher.finish());
+        got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));
 
         let mut features = CpuFeature::set();
         features.insert(CpuFeature::AVX);
@@ -223,9 +215,7 @@ fn test_near_vm_artifact_output_stability() {
         let vm = NearVM::new_for_target(config, target);
         let artifact = vm.compile_uncached(&contract).unwrap();
         let serialized = artifact.serialize().unwrap();
-        let mut hasher = StableHasher::new();
-        serialized.hash(&mut hasher);
-        let this_hash = hasher.finish();
+        let this_hash = crate::utils::stable_hash(&serialized);
         got_compiled_hashes.push(this_hash);
 
         std::fs::write(format!("/tmp/artifact{}", this_hash), serialized).unwrap();

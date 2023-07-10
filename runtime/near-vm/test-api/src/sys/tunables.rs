@@ -1,5 +1,6 @@
-use crate::sys::{MemoryType, Pages, TableType};
+use super::types::{MemoryType, TableType};
 use near_vm_compiler::Target;
+use near_vm_types::Pages;
 use near_vm_vm::MemoryError;
 use near_vm_vm::{
     LinearMemory, LinearTable, Memory, MemoryStyle, Table, TableStyle, Tunables,

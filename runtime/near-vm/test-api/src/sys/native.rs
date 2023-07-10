@@ -9,8 +9,10 @@
 //! ```
 use std::marker::PhantomData;
 
-use crate::sys::externals::function::{DynamicFunction, VMDynamicFunction};
-use crate::sys::{FromToNativeWasmType, Function, RuntimeError, Store, WasmTypeList};
+use super::externals::function::{DynamicFunction, VMDynamicFunction};
+use super::externals::{FromToNativeWasmType, Function, WasmTypeList};
+use super::store::Store;
+use near_vm_engine::RuntimeError;
 use near_vm_types::NativeWasmType;
 use near_vm_vm::{
     ExportFunction, VMDynamicFunctionContext, VMFunctionBody, VMFunctionEnvironment, VMFunctionKind,
