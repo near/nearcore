@@ -47,8 +47,8 @@ class Key:
         if seed is None:
             seed = account_id
         # use the repeated seed string as secret key by injecting fake entropy
-        fake_entropy = lambda length: (seed *
-                                       (1 + int(length / 32))).encode()[:length]
+        fake_entropy = lambda length: (seed * (1 + int(length / len(seed)))
+                                      ).encode()[:length]
         keys = ed25519.create_keypair(entropy=fake_entropy)
         return cls.from_keypair(account_id, keys)
 
