@@ -433,10 +433,8 @@ def evaluate_rpc_result(rpc_result):
     return result
 
 
-def as_action_error(failure: dict) -> typing.Optional[dict]:
-    if "ActionError" in failure:
-        return failure["ActionError"]
-    return None
+def as_action_error(failure: dict) -> typing.Optional[dict]:    
+    return failure.get("ActionError", None)
 
 
 def as_function_call_error(failure: dict) -> typing.Optional[dict]:
