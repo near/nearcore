@@ -98,22 +98,10 @@ impl AllEpochConfig {
 
         Self::config_nightshade(&mut config, protocol_version);
 
-        if checked_feature!("stable", ChunkOnlyProducers, protocol_version) {
-            // On testnet, genesis config set num_block_producer_seats to 200
-            // This is to bring it back to 100 to be the same as on mainnet
-            config.num_block_producer_seats = 100;
-            // Technically, after ChunkOnlyProducers is enabled, this field is no longer used
-            // We still set it here just in case
-            config.num_block_producer_seats_per_shard =
-                vec![100; config.shard_layout.num_shards() as usize];
-            config.block_producer_kickout_threshold = 80;
-            config.chunk_producer_kickout_threshold = 80;
-            config.validator_selection_config.num_chunk_only_producer_seats = 200;
-        }
+        Self::config_chunk_only_producers(&mut config, protocol_version);
 
-        if checked_feature!("stable", MaxKickoutStake, protocol_version) {
-            config.validator_max_kickout_stake_perc = 30;
-        }
+        Self::config_max_kickout_stake(&mut config, protocol_version);
+
         config
     }
 
@@ -136,6 +124,27 @@ impl AllEpochConfig {
         config.num_block_producer_seats_per_shard =
             vec![config.num_block_producer_seats; num_shards];
         config.avg_hidden_validator_seats_per_shard = vec![0; num_shards];
+    }
+
+    fn config_chunk_only_producers(config: &mut EpochConfig, protocol_version: u32) {
+        if checked_feature!("stable", ChunkOnlyProducers, protocol_version) {
+            // On testnet, genesis config set num_block_producer_seats to 200
+            // This is to bring it back to 100 to be the same as on mainnet
+            config.num_block_producer_seats = 100;
+            // Technically, after ChunkOnlyProducers is enabled, this field is no longer used
+            // We still set it here just in case
+            config.num_block_producer_seats_per_shard =
+                vec![100; config.shard_layout.num_shards() as usize];
+            config.block_producer_kickout_threshold = 80;
+            config.chunk_producer_kickout_threshold = 80;
+            config.validator_selection_config.num_chunk_only_producer_seats = 200;
+        }
+    }
+
+    fn config_max_kickout_stake(config: &mut EpochConfig, protocol_version: u32) {
+        if checked_feature!("stable", MaxKickoutStake, protocol_version) {
+            config.validator_max_kickout_stake_perc = 30;
+        }
     }
 }
 
