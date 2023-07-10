@@ -107,7 +107,7 @@ class InitFTAccount(FunctionCall):
         super().__init__(account,
                          contract.key.account_id,
                          "storage_deposit",
-                         balance=1E23)
+                         balance=int(1E23))
         self.contract = contract
         self.account = account
 

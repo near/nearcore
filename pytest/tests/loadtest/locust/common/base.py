@@ -116,7 +116,9 @@ class FunctionCall(Transaction):
         self.sender = sender
         self.receiver_id = receiver_id
         self.method = method
-        self.balance = balance
+        # defensive cast to avoid serialization bugs when float balance is
+        # provided despite type hint
+        self.balance = int(balance)
 
     @abc.abstractmethod
     def args(self) -> dict:
@@ -127,8 +129,8 @@ class FunctionCall(Transaction):
     def sign_and_serialize(self, block_hash) -> bytes:
         return transaction.sign_function_call_tx(
             self.sender.key, self.receiver_id, self.method,
-            json.dumps(self.args()).encode('utf-8'), 300 * TGAS,
-            int(self.balance), self.sender.use_nonce(), block_hash)
+            json.dumps(self.args()).encode('utf-8'), 300 * TGAS, self.balance,
+            self.sender.use_nonce(), block_hash)
 
     def sender_account(self) -> Account:
         return self.sender
@@ -156,7 +158,7 @@ class Deploy(Transaction):
 
 class CreateSubAccount(Transaction):
 
-    def __init__(self, sender, sub_key, balance=50.0):
+    def __init__(self, sender, sub_key, balance: int = 50):
         super().__init__()
         self.sender = sender
         self.sub_key = sub_key
@@ -303,7 +305,7 @@ class NearNodeProxy:
     def create_contract_account(self,
                                 funding_account: Account,
                                 key: key.Key,
-                                balance: float = 50000.0):
+                                balance: int = 50000):
         self.send_tx_retry(
             CreateSubAccount(funding_account, key, balance=balance),
             "create contract account")
