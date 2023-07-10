@@ -12,6 +12,8 @@ publish = true
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
+blst_eip2537.workspace = true
+blst.workspace = true
 bn.workspace = true
 borsh.workspace = true
 clap = { workspace = true, optional = true }

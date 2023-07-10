@@ -255,6 +255,11 @@ imports! {
     #[AltBn128] alt_bn128_g1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     #[AltBn128] alt_bn128_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
     // #############
+    // # BLS12-381 #
+    // #############
+    bls12381_decompress_g1<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+
+    // #############
     // #  Sandbox  #
     // #############
     ##["sandbox"] sandbox_debug_log<[len: u64, ptr: u64] -> []>,

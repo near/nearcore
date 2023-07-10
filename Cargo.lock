@@ -716,6 +716,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "blst"
+version = "0.3.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a30d0edd9dd1c60ddb42b80341c7852f6f985279a5c1a83659dcb65899dec99"
+dependencies = [
+ "cc",
+ "glob",
+ "threadpool",
+ "which",
+ "zeroize",
+]
+
+[[package]]
+name = "blst_eip2537"
+version = "0.1.0"
+source = "git+https://github.com/sean-sn/blst_eip2537.git#bd46a10e26c17e8c12855d2bbf8486461f826d85"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "bolero"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4330,6 +4351,8 @@ dependencies = [
  "anyhow",
  "arbitrary",
  "assert_matches",
+ "blst",
+ "blst_eip2537",
  "bolero",
  "borsh 0.10.2",
  "clap 4.2.4",
@@ -6739,6 +6762,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5516c27b78311c50bf42c071425c560ac799b11c30b31f87e3081965fe5e0180"
 dependencies = [
  "once_cell",
+]
+
+[[package]]
+name = "threadpool"
+version = "1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d050e60b33d41c19108b32cea32164033a9013fe3b46cbd4457559bfbf77afaa"
+dependencies = [
+ "num_cpus",
 ]
 
 [[package]]

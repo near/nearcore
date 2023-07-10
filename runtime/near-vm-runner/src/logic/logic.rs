@@ -7,6 +7,7 @@ use super::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use super::utils::split_method_names;
 use super::{HostError, VMLogicError};
 use super::{ReceiptMetadata, StorageGetMode, ValuePtr};
+use blst::min_pk::PublicKey;
 use near_crypto::Secp256K1Signature;
 use near_primitives_core::checked_feature;
 use near_primitives_core::config::ExtCosts::*;
@@ -896,6 +897,27 @@ impl<'a> VMLogic<'a> {
         let res = super::alt_bn128::pairing_check(elements)?;
 
         Ok(res as u64)
+    }
+
+    pub fn bls12381_decompress_g1(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<()> {
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
+
+        let mut res = Vec::<u8>::new();
+
+        let elements_count = data.len()/48;
+        for i in 0..elements_count {
+            let pk = PublicKey::uncompress(&data[i*48..(i + 1)*48]).unwrap();
+            let pk_ser = pk.serialize();
+
+            res.extend_from_slice(pk_ser.as_slice());
+        }
+
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res)
     }
 
     /// Writes random seed into the register.
