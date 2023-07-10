@@ -339,21 +339,7 @@ impl Wasmer0VM {
                 })
             };
 
-        #[cfg(feature = "no_cache")]
         return compile_or_read_from_cache();
-
-        #[cfg(not(feature = "no_cache"))]
-        return {
-            static MEM_CACHE: once_cell::sync::Lazy<
-                near_cache::SyncLruCache<
-                    near_primitives_core::hash::CryptoHash,
-                    Result<wasmer_runtime::Module, CompilationError>,
-                >,
-            > = once_cell::sync::Lazy::new(|| {
-                near_cache::SyncLruCache::new(crate::cache::CACHE_SIZE)
-            });
-            MEM_CACHE.get_or_try_put(key, |_key| compile_or_read_from_cache())
-        };
     }
 }
 

@@ -1,11 +1,12 @@
-use crate::sys::exports::Exportable;
-use crate::sys::store::Store;
-use crate::sys::types::{Val, ValFuncRef};
-use crate::sys::FunctionType;
-use crate::sys::NativeFunc;
-use crate::sys::RuntimeError;
-use crate::sys::WasmerEnv;
+use super::super::env::HostEnvInitError;
+use super::super::env::WasmerEnv;
+use super::super::exports::Exportable;
+use super::super::native::NativeFunc;
+use super::super::store::Store;
+use super::super::types::FunctionType;
+use super::super::types::{Val, ValFuncRef};
 pub use inner::{FromToNativeWasmType, HostFunction, WasmTypeList, WithEnv, WithoutEnv};
+use near_vm_engine::RuntimeError;
 
 use near_vm_vm::{
     near_vm_call_trampoline, raise_user_trap, resume_panic, Export, ExportFunction,
@@ -109,8 +110,8 @@ fn build_export_function_metadata<Env>(
     env: Env,
     import_init_function_ptr: for<'a> fn(
         &'a mut Env,
-        &'a crate::Instance,
-    ) -> Result<(), crate::HostEnvInitError>,
+        &'a super::super::instance::Instance,
+    ) -> Result<(), HostEnvInitError>,
 ) -> (*mut c_void, ExportFunctionMetadata)
 where
     Env: Clone + Sized + 'static + Send + Sync,
@@ -254,7 +255,7 @@ impl Function {
 
         let import_init_function_ptr: for<'a> fn(&'a mut _, &'a _) -> Result<(), _> =
             |env: &mut VMDynamicFunctionContext<DynamicFunction<Env>>,
-             instance: &crate::Instance| {
+             instance: &super::super::instance::Instance| {
                 Env::init_with_instance(&mut *env.ctx.env, instance)
             };
 

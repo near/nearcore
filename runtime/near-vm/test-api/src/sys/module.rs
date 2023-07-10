@@ -1,5 +1,5 @@
-use crate::sys::store::Store;
-use crate::sys::InstantiationError;
+use super::instance::InstantiationError;
+use super::store::Store;
 use near_vm_compiler::CompileError;
 #[cfg(feature = "wat")]
 use near_vm_compiler::WasmError;

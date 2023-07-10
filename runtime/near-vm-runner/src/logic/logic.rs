@@ -2406,7 +2406,9 @@ impl<'a> VMLogic<'a> {
             .checked_sub(&nodes_before)
             .ok_or(InconsistentStateError::IntegerOverflow)?;
 
-        near_o11y::io_trace!(
+        #[cfg(feature = "io_trace")]
+        tracing::trace!(
+            target = "io_tracer",
             storage_op = "write",
             key = %near_fmt::Bytes(&key),
             size = value_len,
@@ -2512,7 +2514,9 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.add_trie_fees(&nodes_delta)?;
         let read = Self::deref_value(&mut self.gas_counter, storage_read_value_byte, read?)?;
 
-        near_o11y::io_trace!(
+        #[cfg(feature = "io_trace")]
+        tracing::trace!(
+            target = "io_tracer",
             storage_op = "read",
             key = %near_fmt::Bytes(&key),
             size = read.as_ref().map(Vec::len),
@@ -2584,7 +2588,9 @@ impl<'a> VMLogic<'a> {
             .checked_sub(&nodes_before)
             .ok_or(InconsistentStateError::IntegerOverflow)?;
 
-        near_o11y::io_trace!(
+        #[cfg(feature = "io_trace")]
+        tracing::trace!(
+            target = "io_tracer",
             storage_op = "remove",
             key = %near_fmt::Bytes(&key),
             evicted_len = removed.as_ref().map(Vec::len),
@@ -2655,7 +2661,9 @@ impl<'a> VMLogic<'a> {
             .checked_sub(&nodes_before)
             .ok_or(InconsistentStateError::IntegerOverflow)?;
 
-        near_o11y::io_trace!(
+        #[cfg(feature = "io_trace")]
+        tracing::trace!(
+            target = "io_tracer",
             storage_op = "exists",
             key = %near_fmt::Bytes(&key),
             tn_mem_reads = nodes_delta.mem_reads,

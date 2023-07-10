@@ -29,6 +29,8 @@ target-lexicon.workspace = true
 thiserror.workspace = true
 cfg-if.workspace = true
 tracing.workspace = true
+crossbeam-queue.workspace = true
+rustix = { workspace = true, features = ["param", "mm"] }
 
 [badges]
 maintenance = { status = "actively-developed" }

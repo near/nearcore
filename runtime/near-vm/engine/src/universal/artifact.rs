@@ -20,7 +20,8 @@ use std::sync::Arc;
 /// A compiled wasm module, containing everything necessary for instantiation.
 pub struct UniversalArtifact {
     // TODO: figure out how to allocate fewer distinct structures onto heap. Maybe have an arena…?
-    pub(crate) engine: crate::universal::UniversalEngine,
+    pub(crate) engine: super::UniversalEngine,
+    pub(crate) _code_memory: super::CodeMemory,
     pub(crate) import_counts: ImportCounts,
     pub(crate) start_function: Option<FunctionIndex>,
     pub(crate) vmoffsets: VMOffsets,
@@ -47,7 +48,7 @@ impl UniversalArtifact {
     }
 
     /// Return the engine instance this artifact is loaded into.
-    pub fn engine(&self) -> &crate::universal::UniversalEngine {
+    pub fn engine(&self) -> &super::UniversalEngine {
         &self.engine
     }
 }

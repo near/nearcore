@@ -36,13 +36,10 @@ wasmparser.workspace = true
 wasmtime = { workspace = true, optional = true }
 
 near-account-id.workspace = true
-near-cache.workspace = true
 near-crypto.workspace = true
 near-fmt.workspace = true
-near-o11y.workspace = true
 near-primitives-core.workspace = true
 near-rpc-error-macro.workspace = true
-near-stable-hasher.workspace = true
 
 # Old versions of pwasm-utils we need to preserve backwards compatibility under
 # old protocol versions.
@@ -81,7 +78,6 @@ wat.workspace = true
 [features]
 nightly_protocol = [
   "near-fmt/nightly_protocol",
-  "near-o11y/nightly_protocol",
   "near-primitives-core/nightly_protocol",
 ]
 # all vms enabled for now
@@ -127,7 +123,6 @@ nightly = [
   "nightly_protocol",
   "protocol_feature_fix_contract_loading_cost",
   "near-fmt/nightly",
-  "near-o11y/nightly",
   "near-primitives-core/nightly",
 ]
 sandbox = []
