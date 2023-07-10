@@ -143,10 +143,7 @@ impl ExternalConnection {
                     .object()
                     .list(
                         bucket,
-                        cloud_storage::ListRequest {
-                            prefix: Some(prefix.to_string()),
-                            ..Default::default()
-                        },
+                        cloud_storage::ListRequest { prefix: Some(prefix), ..Default::default() },
                     )
                     .await?
                     .try_collect::<Vec<cloud_storage::object::ObjectList>>()
