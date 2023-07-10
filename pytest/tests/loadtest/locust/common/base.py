@@ -1,13 +1,8 @@
-from configured_logger import new_logger
+import unittest
 from datetime import timedelta
 from locust import User, events, runners
 from retrying import retry
 import abc
-import utils
-import mocknet_helpers
-import key
-import transaction
-import cluster
 import base64
 import json
 import base58
@@ -18,10 +13,17 @@ import pathlib
 import requests
 import sys
 import time
-
-from common.sharding import AccountGenerator
+import typing
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
+
+from common.sharding import AccountGenerator
+from configured_logger import new_logger
+import cluster
+import key
+import mocknet_helpers
+import transaction
+import utils
 
 DEFAULT_TRANSACTION_TTL = timedelta(minutes=30)
 logger = new_logger(level=logging.WARN)
@@ -153,7 +155,7 @@ class NearNodeProxy:
         self.node = cluster.RpcNode(url, port)
         self.session = requests.Session()
 
-    def send_tx_retry(self, tx: Transaction, locust_name):
+    def send_tx_retry(self, tx: Transaction, locust_name) -> dict:
         """
         Send a transaction and retry until it succeeds
         
@@ -165,20 +167,22 @@ class NearNodeProxy:
         Other errors: Probably bugs in the test setup (e.g. invalid signer).
         """
         while True:
-            try:
-                return self.send_tx(tx, locust_name)
-            except InvalidNonceError as error:
+            meta = self.send_tx(tx, locust_name)
+            error = meta["exception"]
+            if error is None:
+                return meta
+            elif isinstance(error, InvalidNonceError):
                 logger.debug(
                     f"{error} for {tx.sender_account().key.account_id}, updating nonce and retrying"
                 )
                 tx.sender_account().fast_forward_nonce(error.ak_nonce)
-            except NearError as error:
+            else:
                 logger.warn(
                     f"transaction {tx.transaction_id} failed: {error}, retrying in 0.25s"
                 )
                 time.sleep(0.25)
 
-    def send_tx(self, tx: Transaction, locust_name):
+    def send_tx(self, tx: Transaction, locust_name) -> dict:
         """
         Send a transaction and return the result, no retry attempted.
         """
@@ -197,35 +201,41 @@ class NearNodeProxy:
         }
         start_perf_counter = time.perf_counter()
 
-        # async submit
-        submit_raw_response = self.post_json(
-            "broadcast_tx_async", [base64.b64encode(signed_tx).decode('utf8')])
-        meta["response_length"] = len(submit_raw_response.text)
-
-        # extract transaction ID from response, it should be "{ "result": "id...." }"
-        submit_response = submit_raw_response.json()
-        if not "result" in submit_response:
-            meta["exception"] = RpcError(submit_response,
-                                         message="Didn't get a TX ID")
-            meta["response"] = submit_response.content
-        else:
-            tx.transaction_id = submit_response["result"]
+        try:
             try:
-                # using retrying lib here to poll until a response is ready
-                self.poll_tx_result(
-                    meta,
-                    [tx.transaction_id,
-                     tx.sender_account().key.account_id])
-            except NearError as err:
-                logging.warn(f"marking an error {err.message}, {err.details}")
-                meta["exception"] = err
+                # To get proper errors on invalid transaction, we need to use sync api first
+                result = self.post_json(
+                    "broadcast_tx_commit",
+                    [base64.b64encode(signed_tx).decode('utf8')])
+                evaluate_rpc_result(result.json())
+            except TxUnknownError as err:
+                # This means we time out in one way or another.
+                # In that case, the stateless transaction validation was
+                # successful, we can now use async API without missing errors.
+                submit_raw_response = self.post_json(
+                    "broadcast_tx_async",
+                    [base64.b64encode(signed_tx).decode('utf8')])
+                meta["response_length"] = len(submit_raw_response.text)
+                submit_response = submit_raw_response.json()
+                # extract transaction ID from response, it should be "{ "result": "id...." }"
+                if not "result" in submit_response:
+                    meta["exception"] = RpcError(submit_response,
+                                                 message="Didn't get a TX ID")
+                    meta["response"] = submit_response.content
+                else:
+                    tx.transaction_id = submit_response["result"]
+                    # using retrying lib here to poll until a response is ready
+                    self.poll_tx_result(meta, tx)
+        except NearError as err:
+            logging.warn(f"marking an error {err.message}, {err.details}")
+            meta["exception"] = err
 
         meta["response_time"] = (time.perf_counter() -
                                  start_perf_counter) * 1000
 
         # Track request + response in Locust
         self.request_event.fire(**meta)
-        return meta["response"]
+        return meta
 
     def post_json(self, method: str, params: list[str]):
         j = {
@@ -240,7 +250,8 @@ class NearNodeProxy:
     @retry(wait_fixed=500,
            stop_max_delay=DEFAULT_TRANSACTION_TTL / timedelta(milliseconds=1),
            retry_on_exception=is_tx_unknown_error)
-    def poll_tx_result(self, meta, params):
+    def poll_tx_result(self, meta: dict, tx: Transaction):
+        params = [tx.transaction_id, tx.sender_account().key.account_id]
         # poll for tx result, using "EXPERIMENTAL_tx_status" which waits for
         # all receipts to finish rather than just the first one, as "tx" would do
         result_response = self.post_json("EXPERIMENTAL_tx_status", params)
@@ -281,8 +292,9 @@ class NearUser(User):
         assert self.host is not None, "Near user requires the RPC node address"
         self.node = NearNodeProxy(environment)
         self.id = NearUser.get_next_id()
+        user_suffix = f"{self.id}_run{environment.parsed_options.run_id}"
         self.account_id = NearUser.generate_account_id(
-            environment.account_generator, self.id)
+            environment.account_generator, user_suffix)
 
     def on_start(self):
         """
@@ -294,14 +306,13 @@ class NearUser(User):
                 CreateSubAccount(NearUser.funding_account,
                                  self.account.key,
                                  balance=NearUser.INIT_BALANCE))
-
         self.account.refresh_nonce(self.node.node)
 
     def send_tx(self, tx: Transaction, locust_name="generic send_tx"):
         """
         Send a transaction and return the result, no retry attempted.
         """
-        return self.node.send_tx(tx, locust_name)
+        return self.node.send_tx(tx, locust_name)["response"]
 
     def send_tx_retry(self,
                       tx: Transaction,
@@ -309,7 +320,7 @@ class NearUser(User):
         """
         Send a transaction and retry until it succeeds
         """
-        return self.node.send_tx_retry(tx, locust_name=locust_name)
+        return self.node.send_tx_retry(tx, locust_name=locust_name)["response"]
 
 
 class NearError(Exception):
@@ -362,6 +373,12 @@ class ReceiptError(NearError):
         super().__init__(message, f"id={receipt_id} {status}")
 
 
+class SmartContractPanic(ReceiptError):
+
+    def __init__(self, status, receipt_id, message="Smart contract panicked"):
+        super().__init__(status, receipt_id, message)
+
+
 def evaluate_rpc_result(rpc_result):
     """
     Take the json RPC response and translate it into success
@@ -401,6 +418,12 @@ def evaluate_rpc_result(rpc_result):
                                receipt["id"],
                                message="Unknown receipt result")
         if status == "Failure":
+            failure = receipt["outcome"]["status"]["Failure"]
+            panic_msg = as_smart_contract_panic_message(failure)
+            if panic_msg:
+                raise SmartContractPanic(receipt["outcome"],
+                                         receipt["id"],
+                                         message=panic_msg)
             raise ReceiptError(receipt["outcome"], receipt["id"])
         if not status in ["SuccessReceiptId", "SuccessValue"]:
             raise ReceiptError(receipt["outcome"],
@@ -408,6 +431,32 @@ def evaluate_rpc_result(rpc_result):
                                message="Unexpected status")
 
     return result
+
+
+def as_action_error(failure: dict) -> typing.Optional[dict]:
+    return failure.get("ActionError", None)
+
+
+def as_function_call_error(failure: dict) -> typing.Optional[dict]:
+    action_error = as_action_error(failure)
+    if action_error and "FunctionCallError" in action_error["kind"]:
+        return action_error["kind"]["FunctionCallError"]
+    return None
+
+
+def as_execution_error(failure: dict) -> typing.Optional[dict]:
+    function_call_error = as_function_call_error(failure)
+    if function_call_error and "ExecutionError" in function_call_error:
+        return function_call_error["ExecutionError"]
+    return None
+
+
+def as_smart_contract_panic_message(failure: dict) -> typing.Optional[str]:
+    execution_error = as_execution_error(failure)
+    known_prefix = "Smart contract panicked: "
+    if execution_error and execution_error.startswith(known_prefix):
+        return execution_error[len(known_prefix):]
+    return None
 
 
 def init_account_generator(parsed_options):
@@ -451,6 +500,12 @@ def on_locust_init(environment, **kwargs):
         environment.parsed_options.funding_key)
     master_funding_account = Account(master_funding_key)
 
+    if not node.account_exists(master_funding_account.key.account_id):
+        raise SystemExit(
+            f"account {master_funding_account.key.account_id} of the provided master funding key does not exist"
+        )
+    master_funding_account.refresh_nonce(node.node)
+
     environment.account_generator = init_account_generator(
         environment.parsed_options)
     funding_account = None
@@ -474,6 +529,7 @@ def on_locust_init(environment, **kwargs):
         worker_account_id = f"funds_worker_{worker_id}.{master_funding_account.key.account_id}"
         worker_key = key.Key.from_seed_testonly(worker_account_id)
         funding_account = Account(worker_key)
+        funding_account.refresh_nonce(node.node)
     elif isinstance(environment.runner, runners.LocalRunner):
         funding_account = master_funding_account
     else:
@@ -513,3 +569,44 @@ def _(parser):
         help="Unique index to append to static account ids. "
         "Change between runs if you need a new state. Keep at default if you want to reuse the old state"
     )
+
+
+class TestEvaluateRpcResult(unittest.TestCase):
+
+    def test_smart_contract_panic(self):
+        input = """{
+          "result": {
+            "transaction_outcome": { "outcome": {"status": { "SuccessReceiptId": "" } } },
+            "receipts_outcome": [ {
+              "id": "J3EVpgJXgLQ5f33ammArtewYBAg3KmDgVf47HtapBtua",
+              "outcome": {
+                "logs": [],
+                "receipt_ids": [
+                  "HxL55zV91tEgpPKg8QPkoWo53Ue1x9yhfRQTgdfQ11mc",
+                  "467VVuaNz9igj74Zs9wFpeYmtfpRorbZugJKDHymCN1Q"
+                ],
+                "gas_burnt": 2658479078129,
+                "tokens_burnt": "265847907812900000000",
+                "executor_id": "vy0zxd_ft.funds_worker_3.node0",
+                "status": {
+                  "Failure": {
+                    "ActionError": {
+                      "index": 0,
+                      "kind": {
+                        "FunctionCallError": {
+                          "ExecutionError": "Smart contract panicked: The account doesnt have enough balance"
+                        }
+                      }
+                    }
+                  }
+                },
+                "metadata": {
+                  "version": 3,
+                  "gas_profile": []
+                }
+              }
+            } ]
+          }
+        }"""
+        self.assertRaises(SmartContractPanic, evaluate_rpc_result,
+                          json.loads(input))
