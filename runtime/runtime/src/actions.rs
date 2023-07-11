@@ -24,19 +24,18 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
-    is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
-    DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
+    ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
     StorageError, TrieUpdate,
 };
-use near_vm_errors::{
+use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, FunctionCallErrorSer, InconsistentStateError,
     VMRunnerError,
 };
-use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{ActionCosts, VMContext, VMOutcome};
+use near_vm_runner::logic::types::PromiseResult;
+use near_vm_runner::logic::{ActionCosts, VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
 
 /// Runs given function call with given context / apply state.
@@ -888,7 +887,7 @@ pub(crate) fn check_account_existence(
                 }
                 .into());
             } else {
-                if is_implicit_account_creation_enabled(current_protocol_version)
+                if checked_feature!("stable", ImplicitAccountCreation, current_protocol_version)
                     && account_id.is_implicit()
                 {
                     // If the account doesn't exist and it's 64-length hex account ID, then you
@@ -909,8 +908,11 @@ pub(crate) fn check_account_existence(
         }
         Action::Transfer(_) => {
             if account.is_none() {
-                return if is_implicit_account_creation_enabled(current_protocol_version)
-                    && is_the_only_action
+                return if checked_feature!(
+                    "stable",
+                    ImplicitAccountCreation,
+                    current_protocol_version
+                ) && is_the_only_action
                     && account_id.is_implicit()
                     && !is_refund
                 {
@@ -1374,13 +1376,13 @@ mod tests {
     #[test]
     fn test_validate_delegate_action_key_update_nonce() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
-        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
-        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let sender_id = &signed_delegate_action.delegate_action.sender_id;
+        let sender_pub_key = &signed_delegate_action.delegate_action.public_key;
         let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
 
         let apply_state =
             create_apply_state(signed_delegate_action.delegate_action.max_block_height);
-        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let mut state_update = setup_account(sender_id, sender_pub_key, &access_key);
 
         // Everything is ok
         let mut result = ActionResult::default();

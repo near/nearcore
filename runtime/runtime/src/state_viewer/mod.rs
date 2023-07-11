@@ -18,7 +18,7 @@ use near_primitives::{
     views::{StateItem, ViewApplyState, ViewStateResult},
 };
 use near_store::{get_access_key, get_account, get_code, TrieUpdate};
-use near_vm_logic::{ReturnData, ViewConfig};
+use near_vm_runner::logic::{ReturnData, ViewConfig};
 use std::{str, sync::Arc, time::Instant};
 use tracing::debug;
 

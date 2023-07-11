@@ -306,6 +306,8 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_trie_changes: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
+    // Allows more detailed logging, for example a list of orphaned blocks.
+    pub enable_multiline_logging: Option<bool>,
     /// Garbage collection configuration.
     #[serde(default, flatten)]
     pub gc: GCConfig,
@@ -341,11 +343,13 @@ pub struct Config {
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
     /// New transactions that bring the size of the pool over this limit will be rejected. This
-    /// guarantees that the node will use bounded resources to store incoming transactinos.
+    /// guarantees that the node will use bounded resources to store incoming transactions.
     /// Setting this value too low (<1MB) on the validator might lead to production of smaller
     /// chunks and underutilizing the capacity of the network.
     #[serde(default = "default_transaction_pool_size_limit")]
     pub transaction_pool_size_limit: Option<u64>,
+    /// If a node needs to upload state parts to S3
+    pub s3_credentials_file: Option<String>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -384,6 +388,8 @@ impl Default for Config {
             state_sync: None,
             state_sync_enabled: None,
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
+            s3_credentials_file: None,
+            enable_multiline_logging: None,
         }
     }
 }
@@ -693,7 +699,9 @@ impl NearConfig {
                 flat_storage_creation_period: config.store.flat_storage_creation_period,
                 state_sync_enabled: config.state_sync_enabled.unwrap_or(false),
                 state_sync: config.state_sync.unwrap_or_default(),
+                state_snapshot_every_n_blocks: None,
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
+                enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -1106,12 +1114,11 @@ pub fn init_configs(
             add_protocol_account(&mut records);
             let shards = if num_shards > 1 {
                 ShardLayout::v1(
-                    (0..num_shards - 1)
+                    (1..num_shards)
                         .map(|f| {
                             AccountId::from_str(format!("shard{}.test.near", f).as_str()).unwrap()
                         })
                         .collect(),
-                    vec![],
                     None,
                     1,
                 )
@@ -1169,7 +1176,6 @@ pub fn create_testnet_configs_from_seeds(
     num_non_validator_seats: NumSeats,
     local_ports: bool,
     archive: bool,
-    fixed_shards: Option<Vec<String>>,
     tracked_shards: Vec<u64>,
 ) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis) {
     let num_validator_seats = (seeds.len() - num_non_validator_seats as usize) as NumSeats;
@@ -1180,27 +1186,10 @@ pub fn create_testnet_configs_from_seeds(
         .map(|seed| InMemorySigner::from_seed("node".parse().unwrap(), KeyType::ED25519, seed))
         .collect::<Vec<_>>();
 
-    let shard_layout = if let Some(ref fixed_shards) = fixed_shards {
-        // If fixed shards are set, we expect that they take over all the shards (except for one that would host all the other accounts).
-        assert!(fixed_shards.len() == num_shards as usize - 1);
-        ShardLayout::v1(
-            fixed_shards.iter().map(|it| it.parse().unwrap()).collect(),
-            vec![],
-            None,
-            0,
-        )
-    } else {
-        ShardLayout::v0(num_shards, 0)
-    };
-    let mut accounts_to_add_to_genesis: Vec<AccountId> =
+    let shard_layout = ShardLayout::v0(num_shards, 0);
+    let accounts_to_add_to_genesis: Vec<AccountId> =
         seeds.iter().map(|s| s.parse().unwrap()).collect();
 
-    // If we have fixed shards - let's also add those accounts to genesis.
-    if let Some(ref fixed_shards_accounts) = fixed_shards {
-        accounts_to_add_to_genesis.extend(
-            fixed_shards_accounts.iter().map(|s| s.parse().unwrap()).collect::<Vec<AccountId>>(),
-        );
-    };
     let genesis = Genesis::test_with_seeds(
         accounts_to_add_to_genesis,
         num_validator_seats,
@@ -1246,24 +1235,10 @@ pub fn create_testnet_configs(
     prefix: &str,
     local_ports: bool,
     archive: bool,
-    fixed_shards: bool,
     tracked_shards: Vec<u64>,
 ) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis, Vec<InMemorySigner>)
 {
-    let fixed_shards = if fixed_shards {
-        Some((0..(num_shards - 1)).map(|i| format!("shard{}", i)).collect::<Vec<_>>())
-    } else {
-        None
-    };
-    let shard_keys = if let Some(ref fixed_shards) = fixed_shards {
-        fixed_shards
-            .iter()
-            .map(|seed| InMemorySigner::from_seed(seed.parse().unwrap(), KeyType::ED25519, seed))
-            .collect::<Vec<_>>()
-    } else {
-        vec![]
-    };
-
+    let shard_keys = vec![];
     let (configs, validator_signers, network_signers, genesis) = create_testnet_configs_from_seeds(
         (0..(num_validator_seats + num_non_validator_seats))
             .map(|i| format!("{}{}", prefix, i))
@@ -1272,7 +1247,6 @@ pub fn create_testnet_configs(
         num_non_validator_seats,
         local_ports,
         archive,
-        fixed_shards,
         tracked_shards,
     );
 
@@ -1287,7 +1261,6 @@ pub fn init_testnet_configs(
     prefix: &str,
     local_ports: bool,
     archive: bool,
-    fixed_shards: bool,
     tracked_shards: Vec<u64>,
 ) {
     let (configs, validator_signers, network_signers, genesis, shard_keys) = create_testnet_configs(
@@ -1297,7 +1270,6 @@ pub fn init_testnet_configs(
         prefix,
         local_ports,
         archive,
-        fixed_shards,
         tracked_shards,
     );
     for i in 0..(num_validator_seats + num_non_validator_seats) as usize {
@@ -1544,7 +1516,7 @@ fn test_init_config_localnet() {
     assert_eq!(genesis.config.shard_layout.num_shards(), 3);
     assert_eq!(
         account_id_to_shard_id(
-            &AccountId::from_str("shard0.test.near").unwrap(),
+            &AccountId::from_str("foobar.near").unwrap(),
             &genesis.config.shard_layout
         ),
         0
@@ -1558,7 +1530,7 @@ fn test_init_config_localnet() {
     );
     assert_eq!(
         account_id_to_shard_id(
-            &AccountId::from_str("foobar.near").unwrap(),
+            &AccountId::from_str("shard2.test.near").unwrap(),
             &genesis.config.shard_layout
         ),
         2
@@ -1677,7 +1649,6 @@ fn test_create_testnet_configs() {
     // Set all supported options to true and verify config and genesis.
 
     let archive = true;
-    let fixed_shards = true;
     let tracked_shards: Vec<u64> = vec![0, 1, 3];
 
     let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
@@ -1688,7 +1659,6 @@ fn test_create_testnet_configs() {
             prefix,
             local_ports,
             archive,
-            fixed_shards,
             tracked_shards.clone(),
         );
 
@@ -1705,7 +1675,6 @@ fn test_create_testnet_configs() {
     // Set all supported options to false and verify config and genesis.
 
     let archive = false;
-    let fixed_shards = false;
     let tracked_shards: Vec<u64> = vec![];
 
     let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
@@ -1716,7 +1685,6 @@ fn test_create_testnet_configs() {
             prefix,
             local_ports,
             archive,
-            fixed_shards,
             tracked_shards.clone(),
         );
     assert_eq!(configs.len() as u64, num_validator_seats + num_non_validator_seats);

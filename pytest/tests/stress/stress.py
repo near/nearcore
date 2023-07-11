@@ -53,10 +53,10 @@ SEND_TX_ATTEMPTS = 10
 # try to state sync at the beginning of the epoch *two* epochs ago. No node will respond to such state requests.
 BLOCK_HEADER_FETCH_HORIZON = 15
 
-epoch_length = 25
-block_timeout = 20  # if two blocks are not produced within that many seconds, the test will fail. The timeout is increased if nodes are restarted or network is being messed up with
-balances_timeout = 15  # how long to tolerate for balances to update after txs are sent
-restart_sync_timeout = 30  # for how long to wait for nodes to sync in `node_restart`
+epoch_length = 50
+block_timeout = 25  # if two blocks are not produced within that many seconds, the test will fail. The timeout is increased if nodes are restarted or network is being messed up with
+balances_timeout = 20  # how long to tolerate for balances to update after txs are sent
+restart_sync_timeout = 45  # for how long to wait for nodes to sync in `node_restart`
 tx_tolerance = 0.1
 wait_if_restart = False  # whether to wait between `kill` and `start`, is needed when nodes are proxied
 wipe_data = False
@@ -238,7 +238,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
 
     def get_balances():
         acts = [
-            nodes[-1].get_account("test%s" % i)['result']
+            nodes[-1].get_account("test%s" % i, timeout=10)['result']
             for i in range(len(nodes))
         ]
         return [int(x['amount']) + int(x['locked']) for x in acts]
@@ -276,7 +276,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
                         tx_happened = True
 
                         response = nodes[-1].json_rpc(
-                            'tx', [tx[3], "test%s" % tx[1]], timeout=5)
+                            'tx', [tx[3], "test%s" % tx[1]], timeout=10)
 
                         if 'error' in response and 'data' in response[
                                 'error'] and "doesn't exist" in response[
@@ -485,7 +485,8 @@ def blocks_tracker(stopped, error, nodes, nonces):
                     assert False, "Block production took more than %s seconds" % block_timeout
 
                 if hash_ not in mapping:
-                    block_info = nodes[val_id].json_rpc('block', [hash_])
+                    block_info = nodes[val_id].json_rpc('block', [hash_],
+                                                        timeout=10)
                     confirm_height = block_info['result']['header']['height']
                     assert height == confirm_height
                     prev_hash = block_info['result']['header']['prev_hash']
@@ -556,14 +557,16 @@ def doit(s, n, N, k, monkeys, timeout):
             "consensus": {
                 "block_header_fetch_horizon": BLOCK_HEADER_FETCH_HORIZON,
                 "state_sync_timeout": {
-                    "secs": 5,
-                    "nanos": 0
+                    "secs": 0,
+                    "nanos": 500000000
                 }
             },
+            "state_sync_enabled": True,
             "view_client_throttle_period": {
                 "secs": 0,
                 "nanos": 0
-            }
+            },
+            "store.state_snapshot_enabled": True,
         }
     for i in range(N, N + k + 1):
         # make all the observers track all the shards
@@ -620,6 +623,10 @@ def doit(s, n, N, k, monkeys, timeout):
     # The GC keeps five epochs of blocks.
     min_epoch_length = (int((balances_timeout * 2) * 1.7) + 4) // 5
     epoch_length = max(epoch_length, min_epoch_length)
+
+    logger.info(
+        f"block_timeout: {block_timeout}, balances_timeout: {balances_timeout}, tx_tolerance: {tx_tolerance}, epoch_length: {epoch_length}, wait_if_restart: {wait_if_restart}, wipe_data: {wipe_data}, restart_sync_timeout: {restart_sync_timeout}"
+    )
 
     near_root, node_dirs = init_cluster(
         N, k + 1, s, config,

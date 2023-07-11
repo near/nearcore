@@ -38,13 +38,17 @@ class Key:
             return cls.from_json(json.load(rd))
 
     @classmethod
-    def from_seed_testonly(cls, account_id: str, seed: str) -> 'Key':
+    def from_seed_testonly(cls, account_id: str, seed: str = None) -> 'Key':
         """
         Deterministically produce an **insecure** signer pair from a seed.
+        
+        If no seed is provided, the account id is used as seed.
         """
+        if seed is None:
+            seed = account_id
         # use the repeated seed string as secret key by injecting fake entropy
-        fake_entropy = lambda length: (seed *
-                                       (1 + int(length / 32))).encode()[:length]
+        fake_entropy = lambda length: (seed * (1 + int(length / len(seed)))
+                                      ).encode()[:length]
         keys = ed25519.create_keypair(entropy=fake_entropy)
         return cls.from_keypair(account_id, keys)
 

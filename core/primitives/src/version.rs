@@ -29,9 +29,6 @@ pub const MIN_PROTOCOL_VERSION_NEP_92_FIX: ProtocolVersion = 32;
 
 pub const CORRECT_RANDOM_VALUE_PROTOCOL_VERSION: ProtocolVersion = 33;
 
-/// See [NEP 71](https://github.com/nearprotocol/NEPs/pull/71)
-pub const IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION: ProtocolVersion = 35;
-
 /// The protocol version that enables reward on mainnet.
 pub const ENABLE_INFLATION_PROTOCOL_VERSION: ProtocolVersion = 36;
 
@@ -49,10 +46,6 @@ pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
 
 /// Updates the way receipt ID is constructed to use current block hash instead of last block hash
 pub const CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION: ProtocolVersion = 42;
-
-pub fn is_implicit_account_creation_enabled(protocol_version: ProtocolVersion) -> bool {
-    protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
-}
 
 /// The points in time after which the voting for the latest protocol version
 /// should start.

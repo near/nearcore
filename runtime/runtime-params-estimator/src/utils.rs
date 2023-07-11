@@ -5,8 +5,8 @@ use crate::transaction_builder::TransactionBuilder;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-use near_vm_logic::{ExtCosts, VMConfig};
 use near_vm_runner::internal::VMKind;
+use near_vm_runner::logic::{ExtCosts, VMConfig};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use rand_xorshift::XorShiftRng;

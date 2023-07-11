@@ -4,7 +4,7 @@ use crate::utils::{aggregate_per_block_measurements, overhead_per_measured_block
 use near_primitives::hash::hash;
 use near_primitives::types::TrieCacheMode;
 use near_store::{TrieCachingStorage, TrieStorage};
-use near_vm_logic::ExtCosts;
+use near_vm_runner::logic::ExtCosts;
 use std::iter;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

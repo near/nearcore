@@ -1,16 +1,18 @@
 use crate::errors::{ContractPrecompilatonResult, IntoVMError};
 use crate::internal::VMKind;
+use crate::logic::errors::{
+    CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMLogicError,
+    VMRunnerError, WasmTrap,
+};
+use crate::logic::types::PromiseResult;
+use crate::logic::{
+    CompiledContractCache, External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome,
+};
 use crate::{imports, prepare};
 use near_primitives_core::config::VMConfig;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::types::ProtocolVersion;
-use near_vm_errors::{
-    CompilationError, CompiledContractCache, FunctionCallError, MethodResolveError, PrepareError,
-    VMLogicError, VMRunnerError, WasmTrap,
-};
-use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ffi::c_void;
@@ -273,8 +275,10 @@ impl crate::runner::VM for WasmtimeVM {
         &self,
         _code: &ContractCode,
         _cache: &dyn CompiledContractCache,
-    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, near_vm_errors::CacheError>
-    {
+    ) -> Result<
+        Result<ContractPrecompilatonResult, CompilationError>,
+        crate::logic::errors::CacheError,
+    > {
         Ok(Ok(ContractPrecompilatonResult::CacheNotAvailable))
     }
 }

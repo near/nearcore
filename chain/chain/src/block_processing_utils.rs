@@ -29,6 +29,8 @@ pub(crate) struct BlockPreprocessInfo {
     pub(crate) apply_chunks_done: Arc<OnceCell<()>>,
     /// This is used to calculate block processing time metric
     pub(crate) block_start_processing_time: Instant,
+    /// Whether needs to create a state snapshot after processing this block.
+    pub(crate) need_state_snapshot: bool,
 }
 
 /// Blocks which finished pre-processing and are now being applied asynchronously

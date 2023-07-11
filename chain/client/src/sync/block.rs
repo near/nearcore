@@ -265,7 +265,7 @@ mod test {
         expected_hashes: Vec<CryptoHash>,
     ) {
         let collected_hashes = collect_hashes_from_network_adapter(network_adapter);
-        assert_eq!(collected_hashes, expected_hashes.into_iter().collect());
+        assert_eq!(collected_hashes, expected_hashes.into_iter().collect::<HashSet<_>>());
     }
 
     fn create_highest_height_peer_infos(num_peers: usize) -> Vec<HighestHeightPeerInfo> {

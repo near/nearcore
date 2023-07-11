@@ -403,7 +403,7 @@ impl FlatStorageShardCreator {
                         store_update.commit()?;
                         info!(target: "chain", %shard_id, %flat_head, %height, "Garbage collected {gc_count} deltas");
                         if let Some(manager) = self.runtime.get_flat_storage_manager() {
-                            manager.create_flat_storage_for_shard(shard_uid);
+                            manager.create_flat_storage_for_shard(shard_uid).unwrap();
                         }
                         info!(target: "chain", %shard_id, %flat_head, %height, "Flat storage creation done");
                     }
@@ -452,7 +452,7 @@ impl FlatStorageCreator {
 
                 match status {
                     FlatStorageStatus::Ready(_) => {
-                        flat_storage_manager.create_flat_storage_for_shard(shard_uid);
+                        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
                     }
                     FlatStorageStatus::Empty | FlatStorageStatus::Creation(_) => {
                         creation_needed = true;

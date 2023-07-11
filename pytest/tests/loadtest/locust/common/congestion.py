@@ -7,13 +7,12 @@ from locust import events, runners
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / "lib"))
 
 import account
-import cluster
 import common.base as base
 import key
 import transaction
 
 
-class ComputeSha256(base.Transaction):
+class ComputeSha256(base.FunctionCall):
     """Transaction with a large input size."""
 
     def __init__(
@@ -22,22 +21,16 @@ class ComputeSha256(base.Transaction):
         sender: base.Account,
         size_bytes: int,
     ):
-        super().__init__()
+        super().__init__(sender, contract_account_id, "ext_sha256")
         self.contract_account_id = contract_account_id
         self.sender = sender
         self.size_bytes = size_bytes
 
-    def sign_and_serialize(self, block_hash) -> bytes:
-        return transaction.sign_function_call_tx(
-            self.sender.key,
-            self.contract_account_id,
-            "ext_sha256",
-            json.dumps(["a" * self.size_bytes]).encode("utf-8"),
-            300 * account.TGAS,
-            0,
-            self.sender.use_nonce(),
-            block_hash,
-        )
+    def args(self) -> dict:
+        return ["a" * self.size_bytes]
+
+    def sender_account(self) -> base.Account:
+        return self.sender
 
 
 class ComputeSum(base.Transaction):
@@ -67,12 +60,12 @@ class ComputeSum(base.Transaction):
             block_hash,
         )
 
+    def sender_account(self) -> base.Account:
+        return self.sender
+
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
-    if not base.is_tag_active(environment, "congestion"):
-        return
-
     # `master_funding_account` is the same on all runners, allowing to share a
     # single instance of congestion contract.
     funding_account = environment.master_funding_account
@@ -82,29 +75,21 @@ def on_locust_init(environment, **kwargs):
     if isinstance(environment.runner, runners.WorkerRunner):
         return
 
-    # Note: These setup requests are not tracked by locust because we use our own http session.
-    host, port = environment.host.split(":")
-    node = cluster.RpcNode(host, port)
-
+    node = base.NearNodeProxy(environment)
     funding_account = base.NearUser.funding_account
-    funding_account.refresh_nonce(node)
+    funding_account.refresh_nonce(node.node)
 
     account = base.Account(
-        key.Key.from_seed_testonly(environment.congestion_account_id,
-                                   environment.congestion_account_id))
-    base.send_transaction(
-        node,
-        base.CreateSubAccount(funding_account, account.key, balance=50000.0),
-    )
-    account.refresh_nonce(node)
-    base.send_transaction(
-        node,
+        key.Key.from_seed_testonly(environment.congestion_account_id))
+    if not node.account_exists(account.key.account_id):
+        node.create_contract_account(funding_account, account.key)
+    account.refresh_nonce(node.node)
+    node.send_tx_retry(
         base.Deploy(
             account,
             environment.parsed_options.congestion_wasm,
             "Congestion",
-        ),
-    )
+        ), "deploy congestion contract")
 
 
 # Congestion specific CLI args
@@ -112,7 +97,6 @@ def on_locust_init(environment, **kwargs):
 def _(parser):
     parser.add_argument(
         "--congestion-wasm",
-        type=str,
-        required=False,
+        default="res/congestion.wasm",
         help="Path to the compiled congestion contract",
     )

@@ -6,12 +6,8 @@ from locust import events
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
-import cluster
 import key
-import transaction
-
-from account import TGAS
-from common.base import Account, CreateSubAccount, Deploy, NearUser, is_tag_active, send_transaction, Transaction
+from common.base import Account, Deploy, NearNodeProxy, NearUser, FunctionCall
 
 
 class FTContract:
@@ -19,19 +15,27 @@ class FTContract:
     # going to pay for storage
     INIT_BALANCE = NearUser.INIT_BALANCE
 
-    def __init__(self, account: Account, code):
+    def __init__(self, account: Account, code: str):
         self.account = account
         self.registered_users = []
         self.code = code
 
-    def install(self, node):
+    def install(self, node: NearNodeProxy, parent: Account):
         """
         Deploy and initialize the contract on chain.
-        The account should already exist at this point.
+        The account is created if it doesn't exist yet.
         """
-        self.account.refresh_nonce(node)
-        send_transaction(node, Deploy(self.account, self.code, "FT"))
-        send_transaction(node, InitFT(self.account))
+        if not node.account_exists(self.account.key.account_id):
+            node.create_contract_account(parent,
+                                         self.account.key,
+                                         balance=FTContract.INIT_BALANCE)
+
+        self.account.refresh_nonce(node.node)
+        node.send_tx_retry(Deploy(self.account, self.code, "FT"), "deploy ft")
+        self.init_contract(node)
+
+    def init_contract(self, node: NearNodeProxy):
+        node.send_tx_retry(InitFT(self.account), "init ft")
 
     def register_user(self, user: NearUser):
         user.send_tx(InitFTAccount(self.account, user.account),
@@ -44,127 +48,95 @@ class FTContract:
         self.registered_users.append(user.account_id)
 
     def random_receiver(self, sender: str) -> str:
+        return self.random_receivers(sender, 1)[0]
+
+    def random_receivers(self, sender: str, num) -> list[str]:
         rng = random.Random()
-        receiver = rng.choice(self.registered_users)
+        receivers = rng.sample(self.registered_users, num)
         # Sender must be != receiver but maybe there is no other registered user
         # yet, so we just send to the contract account which is registered
         # implicitly from the start
-        if receiver == sender:
-            receiver = self.account.key.account_id
-        return receiver
+        return list(
+            map(lambda a: a.replace(sender, self.account.key.account_id),
+                receivers))
 
 
-class TransferFT(Transaction):
+class TransferFT(FunctionCall):
 
     def __init__(self,
                  ft: Account,
                  sender: Account,
                  recipient_id: str,
                  how_much=1):
-        super().__init__()
+        # Attach exactly 1 yoctoNEAR according to NEP-141 to avoid calls from restricted access keys
+        super().__init__(sender, ft.key.account_id, "ft_transfer", balance=1)
         self.ft = ft
         self.sender = sender
         self.recipient_id = recipient_id
         self.how_much = how_much
 
-    def sign_and_serialize(self, block_hash) -> bytes:
-        (ft, sender, recipient_id) = self.ft, self.sender, self.recipient_id
-        args = {
-            "receiver_id": recipient_id,
+    def args(self) -> dict:
+        return {
+            "receiver_id": self.recipient_id,
             "amount": str(int(self.how_much)),
         }
-        return transaction.sign_function_call_tx(
-            sender.key,
-            ft.key.account_id,
-            "ft_transfer",
-            json.dumps(args).encode('utf-8'),
-            300 * TGAS,
-            # Attach exactly 1 yoctoNEAR according to NEP-141 to avoid calls from restricted access keys
-            1,
-            sender.use_nonce(),
-            block_hash)
+
+    def sender_account(self) -> Account:
+        return self.sender
 
 
-class InitFT(Transaction):
+class InitFT(FunctionCall):
 
     def __init__(self, contract: Account):
-        super().__init__()
+        super().__init__(contract, contract.key.account_id, "new_default_meta")
         self.contract = contract
 
-    def sign_and_serialize(self, block_hash) -> bytes:
-        contract = self.contract
-        args = json.dumps({
-            "owner_id": contract.key.account_id,
+    def args(self) -> dict:
+        return {
+            "owner_id": self.contract.key.account_id,
             "total_supply": str(10**33)
-        })
-        return transaction.sign_function_call_tx(contract.key,
-                                                 contract.key.account_id,
-                                                 "new_default_meta",
-                                                 args.encode('utf-8'),
-                                                 int(3E14), 0,
-                                                 contract.use_nonce(),
-                                                 block_hash)
+        }
+
+    def sender_account(self) -> Account:
+        return self.contract
 
 
-class InitFTAccount(Transaction):
+class InitFTAccount(FunctionCall):
 
     def __init__(self, contract: Account, account: Account):
-        super().__init__()
+        super().__init__(account,
+                         contract.key.account_id,
+                         "storage_deposit",
+                         balance=int(1E23))
         self.contract = contract
         self.account = account
 
-    def sign_and_serialize(self, block_hash) -> bytes:
-        contract, account = self.contract, self.account
-        args = json.dumps({"account_id": account.key.account_id})
-        return transaction.sign_function_call_tx(account.key,
-                                                 contract.key.account_id,
-                                                 "storage_deposit",
-                                                 args.encode('utf-8'),
-                                                 int(3E14), int(1E23),
-                                                 account.use_nonce(),
-                                                 block_hash)
+    def args(self) -> dict:
+        return {"account_id": self.account.key.account_id}
+
+    def sender_account(self) -> Account:
+        return self.account
 
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
-    if not is_tag_active(environment, "ft"):
-        return
-
-    if environment.parsed_options.fungible_token_wasm is None:
-        raise SystemExit(
-            f"Running FT workload requires `--fungible_token_wasm $FT_CONTRACT`. "
-            "Either provide the WASM (e.g. nearcore/runtime/near-test-contracts/res/fungible_token.wasm) "
-            "or run with `--exclude-tag ft`")
-
-    # Note: These setup requests are not tracked by locust because we use our own http session
-    host, port = environment.host.split(":")
-    node = cluster.RpcNode(host, port)
-
+    node = NearNodeProxy(environment)
     ft_contract_code = environment.parsed_options.fungible_token_wasm
     num_ft_contracts = environment.parsed_options.num_ft_contracts
     funding_account = NearUser.funding_account
     parent_id = funding_account.key.account_id
-    worker_id = getattr(environment.runner, "worker_id", "local_id")
 
-    funding_account.refresh_nonce(node)
+    funding_account.refresh_nonce(node.node)
 
     environment.ft_contracts = []
     # TODO: Create accounts in parallel
     for i in range(num_ft_contracts):
-        # Prefix that makes accounts unique across workers
-        # Shuffling with a hash avoids locality in the state trie.
-        # TODO: Also make sure these are spread evenly across shards
-        prefix = str(hash(str(worker_id) + str(i)))[-6:]
-        contract_key = key.Key.from_random(f"{prefix}_ft.{parent_id}")
+        account_id = environment.account_generator.random_account_id(
+            parent_id, '_ft')
+        contract_key = key.Key.from_random(account_id)
         ft_account = Account(contract_key)
-        send_transaction(
-            node,
-            CreateSubAccount(funding_account,
-                             ft_account.key,
-                             balance=FTContract.INIT_BALANCE))
-
         ft_contract = FTContract(ft_account, ft_contract_code)
-        ft_contract.install(node)
+        ft_contract.install(node, funding_account)
         environment.ft_contracts.append(ft_contract)
 
 
@@ -172,8 +144,7 @@ def on_locust_init(environment, **kwargs):
 @events.init_command_line_parser.add_listener
 def _(parser):
     parser.add_argument("--fungible-token-wasm",
-                        type=str,
-                        required=False,
+                        default="res/fungible_token.wasm",
                         help="Path to the compiled Fungible Token contract")
     parser.add_argument(
         "--num-ft-contracts",

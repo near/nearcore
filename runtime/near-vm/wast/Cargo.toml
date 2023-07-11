@@ -13,14 +13,14 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
-near-vm.workspace = true
+near-vm-test-api.workspace = true
 wast.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 
 [features]
 default = ["wat"]
-wat = ["near-vm/wat"]
+wat = ["near-vm-test-api/wat"]
 
 [badges]
 maintenance = { status = "actively-developed" }
