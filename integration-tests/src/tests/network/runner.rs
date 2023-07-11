@@ -58,7 +58,6 @@ fn setup_network_node(
     let signer = Arc::new(create_test_signer(account_id.as_str()));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
 
-    let db = store.into_inner(near_store::Temperature::Hot);
     let mut client_config =
         ClientConfig::test(false, 100, 200, num_validators, false, true, true, true);
     client_config.archive = config.archive;
@@ -110,6 +109,7 @@ fn setup_network_node(
         client_config.chunk_request_retry_period,
     );
     shards_manager_adapter.bind(shards_manager_actor);
+    let db = store.into_inner(near_store::Temperature::Hot);
     let peer_manager = PeerManagerActor::spawn(
         time::Clock::real(),
         db.clone(),
