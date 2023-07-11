@@ -269,8 +269,11 @@ pub fn start_with_config_and_synchronization(
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);
-    let genesis_block =
-        Chain::make_genesis_block(epoch_manager.as_ref(), runtime.as_ref(), &chain_genesis)?;
+    let genesis_block = Chain::make_genesis_block(
+        &storage.get_hot_store(),
+        epoch_manager.as_ref(),
+        &chain_genesis,
+    )?;
     let genesis_id = GenesisId {
         chain_id: config.client_config.chain_id.clone(),
         hash: *genesis_block.header().hash(),

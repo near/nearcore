@@ -16,14 +16,42 @@ use near_primitives::{
 use tracing::{error, info, warn};
 
 use crate::{
-    flat::FlatStorageManager, genesis_state_applier::GenesisStateApplier, ShardTries, Store,
+    flat::FlatStorageManager, genesis_state_applier::GenesisStateApplier, get_genesis_hash,
+    get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots, ShardTries, Store,
     TrieConfig,
 };
 
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 
-pub fn initialize_genesis_state(
+/// On first start: compute state roots, load genesis state into storage.
+/// After that: return genesis state roots. The state is not guaranteed to be in storage, as
+/// GC and state sync are allowed to delete it.
+pub fn initialize_genesis_state_if_needed(
+    store: Store,
+    home_dir: &Path,
+    config: &StorageUsageConfig,
+    genesis: &Genesis,
+) -> Vec<StateRoot> {
+    let stored_hash = get_genesis_hash(&store).expect("Store failed on genesis intialization");
+    if let Some(_hash) = stored_hash {
+        // TODO: re-enable this check (#4447)
+        //assert_eq!(hash, genesis_hash, "Storage already exists, but has a different genesis");
+        get_genesis_state_roots(&store)
+            .expect("Store failed on genesis intialization")
+            .expect("Genesis state roots not found in storage")
+    } else {
+        let genesis_hash = genesis.json_hash();
+        let state_roots = initialize_genesis_state(store.clone(), home_dir, config, genesis);
+        let mut store_update = store.store_update();
+        set_genesis_hash(&mut store_update, &genesis_hash);
+        set_genesis_state_roots(&mut store_update, &state_roots);
+        store_update.commit().expect("Store failed on genesis intialization");
+        state_roots
+    }
+}
+
+fn initialize_genesis_state(
     store: Store,
     home_dir: &Path,
     config: &StorageUsageConfig,

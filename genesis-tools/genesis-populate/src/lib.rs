@@ -19,7 +19,9 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
 use near_store::genesis_state_applier::compute_storage_usage;
-use near_store::{get_account, set_access_key, set_account, set_code, Store, TrieUpdate};
+use near_store::{
+    get_account, get_genesis_state_roots, set_access_key, set_account, set_code, Store, TrieUpdate,
+};
 use nearcore::{NearConfig, NightshadeRuntime};
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
@@ -119,9 +121,10 @@ impl GenesisBuilder {
 
     pub fn build(mut self) -> Result<Self> {
         // First, apply whatever is defined by the genesis config.
-        let (_store, roots) = self.runtime.genesis_state();
+        let state_roots = get_genesis_state_roots(self.runtime.store())?
+            .expect("state_root missing, consider initialization");
         let genesis_shard_version = self.genesis.config.shard_layout.version();
-        self.roots = roots.into_iter().enumerate().map(|(k, v)| (k as u64, v)).collect();
+        self.roots = state_roots.into_iter().enumerate().map(|(k, v)| (k as u64, v)).collect();
         self.state_updates = self
             .roots
             .iter()

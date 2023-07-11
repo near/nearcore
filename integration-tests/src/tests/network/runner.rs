@@ -64,7 +64,7 @@ fn setup_network_node(
     client_config.archive = config.archive;
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
     let genesis_block =
-        Chain::make_genesis_block(epoch_manager.as_ref(), runtime.as_ref(), &chain_genesis)
+        Chain::make_genesis_block(&store.get_hot_store(), epoch_manager.as_ref(), &chain_genesis)
             .unwrap();
     let genesis_id = GenesisId {
         chain_id: client_config.chain_id.clone(),

@@ -75,7 +75,7 @@ use near_store::flat::{
     store_helper, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageError,
     FlatStorageReadyStatus, FlatStorageStatus,
 };
-use near_store::StorageError;
+use near_store::{get_genesis_state_roots, StorageError, Store};
 use near_store::{DBCol, ShardTries, WrappedTrieChanges};
 use once_cell::sync::OnceCell;
 use rand::seq::SliceRandom;
@@ -491,11 +491,11 @@ impl Drop for Chain {
 }
 impl Chain {
     pub fn make_genesis_block(
+        store: &Store,
         epoch_manager: &dyn EpochManagerAdapter,
-        runtime_adapter: &dyn RuntimeAdapter,
         chain_genesis: &ChainGenesis,
     ) -> Result<Block, Error> {
-        let (_, state_roots) = runtime_adapter.genesis_state();
+        let state_roots = get_genesis_state_roots(store)?.expect("state_root missing");
         let genesis_chunks = genesis_chunks(
             state_roots,
             epoch_manager.num_shards(&EpochId::default())?,
@@ -528,15 +528,11 @@ impl Chain {
         save_trie_changes: bool,
     ) -> Result<Chain, Error> {
         let store = runtime_adapter.store();
-        let store = ChainStore::new(store.clone(), chain_genesis.height, save_trie_changes);
-        let genesis = Self::make_genesis_block(
-            epoch_manager.as_ref(),
-            runtime_adapter.as_ref(),
-            chain_genesis,
-        )?;
+        let chain_store = ChainStore::new(store.clone(), chain_genesis.height, save_trie_changes);
+        let genesis = Self::make_genesis_block(store, epoch_manager.as_ref(), chain_genesis)?;
         let (sc, rc) = unbounded();
         Ok(Chain {
-            store,
+            store: chain_store,
             epoch_manager,
             shard_tracker,
             runtime_adapter,
@@ -568,10 +564,13 @@ impl Chain {
         chain_config: ChainConfig,
         make_snapshot_callback: Option<MakeSnapshotCallback>,
     ) -> Result<Chain, Error> {
-        // Get runtime initial state and create genesis block out of it.
-        let (store, state_roots) = runtime_adapter.genesis_state();
-        let mut store =
-            ChainStore::new(store, chain_genesis.height, chain_config.save_trie_changes);
+        let mut chain_store = ChainStore::new(
+            runtime_adapter.store().clone(),
+            chain_genesis.height,
+            chain_config.save_trie_changes,
+        );
+        let state_roots = get_genesis_state_roots(runtime_adapter.store())?
+            .expect("state_root missing, consider initialization");
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
             epoch_manager.num_shards(&EpochId::default())?,
@@ -579,7 +578,7 @@ impl Chain {
             chain_genesis.height,
             chain_genesis.protocol_version,
         );
-        let genesis = Block::genesis(
+        let genesis_block = Block::genesis(
             chain_genesis.protocol_version,
             genesis_chunks.iter().map(|chunk| chunk.cloned_header()).collect(),
             chain_genesis.time,
@@ -595,16 +594,16 @@ impl Chain {
         );
 
         // Check if we have a head in the store, otherwise pick genesis block.
-        let mut store_update = store.store_update();
+        let mut store_update = chain_store.store_update();
         let (block_head, header_head) = match store_update.head() {
             Ok(block_head) => {
                 // Check that genesis in the store is the same as genesis given in the config.
                 let genesis_hash = store_update.get_block_hash_by_height(chain_genesis.height)?;
-                if &genesis_hash != genesis.hash() {
+                if &genesis_hash != genesis_block.hash() {
                     return Err(Error::Other(format!(
                         "Genesis mismatch between storage and config: {:?} vs {:?}",
                         genesis_hash,
-                        genesis.hash()
+                        genesis_block.hash()
                     )));
                 }
 
@@ -625,18 +624,22 @@ impl Chain {
                     store_update.save_chunk(chunk.clone());
                 }
                 store_update.merge(epoch_manager.add_validator_proposals(BlockHeaderInfo::new(
-                    genesis.header(),
+                    genesis_block.header(),
                     // genesis height is considered final
                     chain_genesis.height,
                 ))?);
-                store_update.save_block_header(genesis.header().clone())?;
-                store_update.save_block(genesis.clone());
-                store_update
-                    .save_block_extra(genesis.hash(), BlockExtra { challenges_result: vec![] });
+                store_update.save_block_header(genesis_block.header().clone())?;
+                store_update.save_block(genesis_block.clone());
+                store_update.save_block_extra(
+                    genesis_block.hash(),
+                    BlockExtra { challenges_result: vec![] },
+                );
 
-                for (chunk_header, state_root) in genesis.chunks().iter().zip(state_roots.iter()) {
+                for (chunk_header, state_root) in
+                    genesis_block.chunks().iter().zip(state_roots.iter())
+                {
                     store_update.save_chunk_extra(
-                        genesis.hash(),
+                        genesis_block.hash(),
                         &epoch_manager
                             .shard_id_to_uid(chunk_header.shard_id(), &EpochId::default())?,
                         ChunkExtra::new(
@@ -650,7 +653,7 @@ impl Chain {
                     );
                 }
 
-                let block_head = Tip::from_header(genesis.header());
+                let block_head = Tip::from_header(genesis_block.header());
                 let header_head = block_head.clone();
                 store_update.save_head(&block_head)?;
                 store_update.save_final_head(&header_head)?;
@@ -659,7 +662,7 @@ impl Chain {
                 // init FlatStorages, we will read the from this column in storage, so it
                 // must be set here.
                 if let Some(flat_storage_manager) = runtime_adapter.get_flat_storage_manager() {
-                    let genesis_epoch_id = genesis.header().epoch_id();
+                    let genesis_epoch_id = genesis_block.header().epoch_id();
                     let mut tmp_store_update = store_update.store().store_update();
                     for shard_uid in
                         epoch_manager.get_shard_layout(genesis_epoch_id)?.get_shard_uids()
@@ -667,8 +670,8 @@ impl Chain {
                         flat_storage_manager.set_flat_storage_for_genesis(
                             &mut tmp_store_update,
                             shard_uid,
-                            genesis.hash(),
-                            genesis.header().height(),
+                            genesis_block.hash(),
+                            genesis_block.header().height(),
                         )
                     }
                     store_update.merge(tmp_store_update);
@@ -686,20 +689,20 @@ impl Chain {
               header_head.height, header_head.last_block_hash,
               block_head.height, block_head.last_block_hash);
         metrics::BLOCK_HEIGHT_HEAD.set(block_head.height as i64);
-        let block_header = store.get_block_header(&block_head.last_block_hash)?;
+        let block_header = chain_store.get_block_header(&block_head.last_block_hash)?;
         metrics::BLOCK_ORDINAL_HEAD.set(block_header.block_ordinal() as i64);
         metrics::HEADER_HEAD_HEIGHT.set(header_head.height as i64);
         metrics::BOOT_TIME_SECONDS.set(StaticClock::utc().timestamp());
 
-        metrics::TAIL_HEIGHT.set(store.tail()? as i64);
-        metrics::CHUNK_TAIL_HEIGHT.set(store.chunk_tail()? as i64);
-        metrics::FORK_TAIL_HEIGHT.set(store.fork_tail()? as i64);
+        metrics::TAIL_HEIGHT.set(chain_store.tail()? as i64);
+        metrics::CHUNK_TAIL_HEIGHT.set(chain_store.chunk_tail()? as i64);
+        metrics::FORK_TAIL_HEIGHT.set(chain_store.fork_tail()? as i64);
 
         // Even though the channel is unbounded, the channel size is practically bounded by the size
         // of blocks_in_processing, which is set to 5 now.
         let (sc, rc) = unbounded();
         Ok(Chain {
-            store,
+            store: chain_store,
             epoch_manager,
             shard_tracker,
             runtime_adapter,
@@ -707,7 +710,7 @@ impl Chain {
             blocks_with_missing_chunks: MissingChunksPool::new(),
             blocks_in_processing: BlocksInProcessing::new(),
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
-            genesis: genesis.clone(),
+            genesis: genesis_block.clone(),
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
