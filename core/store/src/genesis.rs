@@ -5,7 +5,7 @@ use rayon::prelude::*;
 use std::{collections::HashSet, fs, path::Path};
 
 use borsh::BorshDeserialize;
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, GenesisContents};
 use near_primitives::{
     epoch_manager::EpochConfig,
     runtime::fees::StorageUsageConfig,
@@ -53,7 +53,11 @@ fn genesis_state_from_dump(store: Store, home_dir: &Path) -> Vec<StateRoot> {
     state_roots
 }
 
-fn genesis_state_from_genesis(store: Store, genesis: &Genesis) -> Vec<StateRoot> {
+fn genesis_state_from_genesis(
+    store: Store,
+    config: &StorageUsageConfig,
+    genesis: &Genesis,
+) -> Vec<StateRoot> {
     match &genesis.contents {
         GenesisContents::Records { records } => {
             info!(

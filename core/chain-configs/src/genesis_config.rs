@@ -264,6 +264,10 @@ pub enum GenesisContents {
     RecordsFile { records_file: PathBuf },
     /// Use records already in storage, represented by these state roots.
     /// Used only for mock network forking for testing purposes.
+    /// WARNING: THIS IS USED FOR TESTING ONLY. IT IS **NOT CORRECT**, because
+    /// it is impossible to compute the corresponding genesis hash in this form,
+    /// such that the genesis hash is consistent with that of an equivalent
+    /// genesis that spells out the records.
     StateRoots { state_roots: Vec<StateRoot> },
 }
 
@@ -476,6 +480,11 @@ impl GenesisJsonHasher {
     }
 
     pub fn process_state_roots(&mut self, state_roots: &[StateRoot]) {
+        // WARNING: THIS IS INCORRECT, because it is impossible to compute the
+        // genesis hash from the state root in a way that is consistent to that
+        // of a genesis that spells out all the records.
+        // THEREFORE, THIS IS ONLY USED FOR TESTING, and this logic is only
+        // present at all because a genesis hash always has to at least exist.
         let mut ser = Serializer::pretty(&mut self.digest);
         state_roots.serialize(&mut ser).expect("Error serializing the state roots.");
     }

@@ -61,9 +61,7 @@ impl ForkNetworkCommand {
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         if !near_config.config.store.flat_storage_creation_enabled {
-            println!(
-                "Flat storage is disabled, so the forked network will also not have flat storage"
-            );
+            panic!("Flat storage must be enabled");
         }
 
         if near_config.validator_signer.is_none() {
@@ -79,18 +77,15 @@ impl ForkNetworkCommand {
 
         let store_path =
             home_dir.join(near_config.config.store.path.clone().unwrap_or(PathBuf::from("data")));
-        let migration_snapshot_path = store_path.join(
-            near_config
-                .config
-                .store
-                .migration_snapshot
-                .get_path(&store_path)
-                .expect("Migration snapshot must be enabled"),
-        );
         let fork_snapshot_path = store_path.join("fork-snapshot");
 
         println!("Creating snapshot of original db into {}", fork_snapshot_path.display());
-        store_opener.create_snapshots(Mode::ReadWrite)?;
+        let migration_snapshot_path = store_opener
+            .create_snapshots(Mode::ReadWrite)?
+            .0
+             .0
+            .clone()
+            .expect("Migration snapshot must be enabled");
         std::fs::rename(&migration_snapshot_path, &fork_snapshot_path)?;
 
         let storage = store_opener.open_in_mode(Mode::ReadWrite).unwrap();
@@ -108,7 +103,7 @@ impl ForkNetworkCommand {
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
         let all_shard_uids = shard_layout.get_shard_uids();
 
-        let fork_head = if near_config.config.store.flat_storage_creation_enabled {
+        let fork_head = {
             let mut flat_head: Option<CryptoHash> = None;
             for shard_uid in all_shard_uids {
                 let flat_storage_status = store
@@ -131,9 +126,6 @@ impl ForkNetworkCommand {
             }
             println!("Forking from the flat storage final head: {}", flat_head.unwrap());
             flat_head.unwrap()
-        } else {
-            println!("Forking from blockchain head: {}", head.last_block_hash);
-            head.last_block_hash
         };
 
         let fork_head_block = store

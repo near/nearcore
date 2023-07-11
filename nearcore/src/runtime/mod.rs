@@ -7,7 +7,7 @@ use errors::FromStateViewerErrors;
 use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter, Tip};
 use near_chain::Error;
 use near_chain_configs::{
-    Genesis, GenesisConfig, GenesisContents, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+    Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
     MIN_GC_NUM_EPOCHS_TO_KEEP,
 };
 use near_client_primitives::types::StateSplitApplyingStatus;
