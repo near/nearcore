@@ -1,7 +1,8 @@
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnvBuilder;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_primitives::{runtime::config_store::RuntimeConfigStore, types::EpochId};
+use near_store::genesis::initialize_genesis_state_if_needed;
 use nearcore::NightshadeRuntime;
 use std::{path::Path, sync::Arc};
 
@@ -22,8 +23,13 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
             .into_iter()
             .zip(epoch_managers)
             .map(|(store, epoch_manager)| {
-                NightshadeRuntime::test(Path::new("../../../.."), store, genesis, epoch_manager)
-                    as Arc<dyn RuntimeAdapter>
+                let home_dir = Path::new("../../../..");
+                let runtime =
+                    NightshadeRuntime::test(home_dir, store.clone(), genesis, epoch_manager);
+                let protocol_config = runtime.get_protocol_config(&EpochId::default()).unwrap();
+                let storage_usage_config = protocol_config.runtime_config.fees.storage_usage_config;
+                initialize_genesis_state_if_needed(store, home_dir, &storage_usage_config, genesis);
+                runtime as Arc<dyn RuntimeAdapter>
             })
             .collect();
         builder.runtimes(runtimes)
@@ -42,13 +48,18 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
             .zip(epoch_managers)
             .zip(runtime_configs)
             .map(|((store, epoch_manager), runtime_config)| {
-                NightshadeRuntime::test_with_runtime_config_store(
-                    Path::new("../../../.."),
-                    store,
+                let home_dir = Path::new("../../../..");
+                let runtime = NightshadeRuntime::test_with_runtime_config_store(
+                    home_dir,
+                    store.clone(),
                     genesis,
                     epoch_manager,
                     runtime_config,
-                ) as Arc<dyn RuntimeAdapter>
+                );
+                let protocol_config = runtime.get_protocol_config(&EpochId::default()).unwrap();
+                let storage_usage_config = protocol_config.runtime_config.fees.storage_usage_config;
+                initialize_genesis_state_if_needed(store, home_dir, &storage_usage_config, genesis);
+                runtime as Arc<dyn RuntimeAdapter>
             })
             .collect();
         builder.runtimes(runtimes)
