@@ -1048,7 +1048,7 @@ pub(crate) fn print_receipt_costs(
     );
     let csv_file_mutex = Mutex::new(csv_file);
 
-    let mut count_bytes = 0;
+    let mut count_bytes = Mutex::new(0);
     let batch_size = 1000;
     let mut current_height = start_height;
     while current_height <= end_height {
@@ -1100,7 +1100,8 @@ pub(crate) fn print_receipt_costs(
                                     println!("LOCAL RECEIPT FOUND {}", receipt_id);
                                 } else {
                                     let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
-                                    count_bytes += bytes.len();
+                                    let mut count_bytes_inner = count_bytes.lock();
+                                    count_bytes_inner += bytes.len();
                                     store_update.increment_refcount(
                                         DBCol::Receipts,
                                         receipt_id.as_ref(),
