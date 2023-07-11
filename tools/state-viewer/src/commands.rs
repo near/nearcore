@@ -1061,7 +1061,7 @@ pub(crate) fn print_receipt_costs(
                 let mut count = 0;
                 for (chunk_shard_id, chunk_header) in block.chunks().iter().enumerate() {
                     if let Some(shard_id) = maybe_shard_id {
-                        if chunk_shard_id != shard_id {
+                        if chunk_shard_id as ShardId != shard_id {
                             continue;
                         }
                     }
