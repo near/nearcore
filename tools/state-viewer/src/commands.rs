@@ -1016,6 +1016,11 @@ pub(crate) fn print_receipt_costs(
     );
     let csv_file_mutex = Mutex::new(csv_file);
 
+    for height in start_height..=end_height {
+        let block = chain_store.get_block(&block_hash).unwrap();
+        let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
+    }
+
     (start_height..=end_height).into_par_iter().for_each(|height| {
         let chain_store = ChainStore::new(
             store.clone(),
