@@ -22,7 +22,7 @@ use crate::{DBCol, Store, TrieDBStorage, TrieStorage};
 use super::store_helper::{
     decode_flat_state_db_key, get_flat_state_values_inlining_migration_status,
 };
-use super::types::{FlatStateValuesInliningMigrationStatus, INLINE_DISK_VALUE_THRESHOLD};
+use super::types::FlatStateValuesInliningMigrationStatus;
 use super::FlatStorageManager;
 
 pub struct FlatStateValuesInliningMigrationHandle {
@@ -159,7 +159,7 @@ impl StateValueReader {
     }
 }
 
-/// Inlines all FlatState values having length below `INLINE_DISK_VALUE_THRESHOLD`.
+/// Inlines all FlatState values having length below `FlatStateValue::INLINE_DISK_VALUE_THRESHOLD`.
 /// Migration is safe to be executed in parallel with block processing, which
 /// is achieved by temporary preventing FlatState updates with
 /// `FlatStorageManager::set_flat_state_updates_mode`.
@@ -216,7 +216,7 @@ pub fn inline_flat_state_values(
             };
             PROCESSED_TOTAL_VALUES_SIZE.inc_by(value_size);
             if let FlatStateValue::Ref(value_ref) = fs_value {
-                if value_ref.length as usize <= INLINE_DISK_VALUE_THRESHOLD {
+                if value_ref.length as usize <= FlatStateValue::INLINE_DISK_VALUE_THRESHOLD {
                     if min_key.is_none() {
                         min_key = Some(key.to_vec());
                     }
@@ -311,7 +311,6 @@ fn log_skipped(reason: &str, err: impl std::error::Error) {
 mod tests {
     use super::inline_flat_state_values;
     use crate::flat::store_helper::encode_flat_state_db_key;
-    use crate::flat::types::INLINE_DISK_VALUE_THRESHOLD;
     use crate::flat::{FlatStateValuesInliningMigrationHandle, FlatStorageManager};
     use crate::{DBCol, NodeStorage, Store, TrieCachingStorage};
     use borsh::{BorshDeserialize, BorshSerialize};
@@ -326,8 +325,14 @@ mod tests {
     fn full_migration() {
         let store = NodeStorage::test_opener().1.open().unwrap().get_hot_store();
         let shard_uid = ShardLayout::v0_single_shard().get_shard_uids()[0];
-        let values =
-            [vec![0], vec![1], vec![2; INLINE_DISK_VALUE_THRESHOLD + 1], vec![3], vec![4], vec![5]];
+        let values = [
+            vec![0],
+            vec![1],
+            vec![2; FlatStateValue::INLINE_DISK_VALUE_THRESHOLD + 1],
+            vec![3],
+            vec![4],
+            vec![5],
+        ];
         populate_flat_store(&store, shard_uid, &values);
 
         let flat_storage_manager =
@@ -363,8 +368,14 @@ mod tests {
         init_test_logger();
         let store = NodeStorage::test_opener().1.open().unwrap().get_hot_store();
         let shard_uid = ShardLayout::v0_single_shard().get_shard_uids()[0];
-        let values =
-            [vec![0], vec![1], vec![2; INLINE_DISK_VALUE_THRESHOLD + 1], vec![3], vec![4], vec![5]];
+        let values = [
+            vec![0],
+            vec![1],
+            vec![2; FlatStateValue::INLINE_DISK_VALUE_THRESHOLD + 1],
+            vec![3],
+            vec![4],
+            vec![5],
+        ];
         populate_flat_store(&store, shard_uid, &values);
 
         let flat_storage_manager =
@@ -398,8 +409,14 @@ mod tests {
         init_test_logger();
         let store = NodeStorage::test_opener().1.open().unwrap().get_hot_store();
         let shard_uid = ShardLayout::v0_single_shard().get_shard_uids()[0];
-        let values =
-            [vec![0], vec![1], vec![2; INLINE_DISK_VALUE_THRESHOLD + 1], vec![3], vec![4], vec![5]];
+        let values = [
+            vec![0],
+            vec![1],
+            vec![2; FlatStateValue::INLINE_DISK_VALUE_THRESHOLD + 1],
+            vec![3],
+            vec![4],
+            vec![5],
+        ];
         populate_flat_store(&store, shard_uid, &values);
 
         let flat_storage_manager =

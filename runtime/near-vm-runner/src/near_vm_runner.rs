@@ -16,7 +16,6 @@ use crate::{get_contract_cache_key, imports};
 use memoffset::offset_of;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
-use near_stable_hasher::StableHasher;
 use near_vm_compiler_singlepass::Singlepass;
 use near_vm_engine::universal::{
     LimitedMemoryPool, Universal, UniversalEngine, UniversalExecutable, UniversalExecutableRef,
@@ -26,7 +25,7 @@ use near_vm_vm::{
     Artifact, Instantiatable, LinearMemory, LinearTable, Memory, MemoryStyle, TrapCode, VMMemory,
 };
 use std::borrow::Cow;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::mem::size_of;
 use std::sync::{Arc, OnceLock};
 
@@ -210,9 +209,7 @@ struct NearVmConfig {
 
 impl NearVmConfig {
     fn config_hash(self: Self) -> u64 {
-        let mut s = StableHasher::new();
-        self.hash(&mut s);
-        s.finish()
+        crate::utils::stable_hash(&self)
     }
 }
 

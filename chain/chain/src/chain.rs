@@ -3243,19 +3243,14 @@ impl Chain {
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
     ) -> Result<(), Error> {
         let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
-
-        // Before working with state parts, remove existing flat storage data.
-        if let Some(flat_storage_manager) = self.runtime_adapter.get_flat_storage_manager() {
-            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
-            flat_storage_manager.remove_flat_storage_for_shard(shard_uid)?;
-        }
+        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
 
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let state_root = shard_state_header.chunk_prev_state_root();
 
         state_parts_task_scheduler(ApplyStatePartsRequest {
             runtime_adapter: self.runtime_adapter.clone(),
-            shard_id,
+            shard_uid,
             state_root,
             num_parts,
             epoch_id,
@@ -5634,7 +5629,7 @@ pub fn collect_receipts_from_response(
 #[rtype(result = "()")]
 pub struct ApplyStatePartsRequest {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
-    pub shard_id: ShardId,
+    pub shard_uid: ShardUId,
     pub state_root: StateRoot,
     pub num_parts: u64,
     pub epoch_id: EpochId,

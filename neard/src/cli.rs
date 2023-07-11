@@ -1,6 +1,5 @@
 #[cfg(unix)]
 use anyhow::Context;
-use near_adjust_db_tool::AdjustDbCommand;
 use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
 use near_client::ConfigUpdater;
@@ -129,9 +128,6 @@ impl NeardCmd {
             NeardSubCommand::UndoBlock(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
             }
-            NeardSubCommand::AdjustDb(cmd) => {
-                cmd.run(&home_dir)?;
-            }
             NeardSubCommand::Database(cmd) => {
                 cmd.run(&home_dir)?;
             }
@@ -254,9 +250,6 @@ pub(super) enum NeardSubCommand {
 
     /// reset the head of the chain locally to the prev block of current head
     UndoBlock(UndoBlockCommand),
-
-    /// Adjust DB for testing purposes.
-    AdjustDb(AdjustDbCommand),
 
     /// Set of commands to run on database
     Database(DatabaseCommand),
@@ -615,10 +608,6 @@ pub(super) struct LocalnetCmd {
     /// Number of validators to initialize the localnet with.
     #[clap(short = 'v', long, alias = "v", default_value = "4")]
     validators: NumSeats,
-    /// Whether to create fixed shards accounts (that are tied to a given
-    /// shard).
-    #[clap(long)]
-    fixed_shards: bool,
     /// Whether to configure nodes as archival.
     #[clap(long)]
     archival_nodes: bool,
@@ -652,7 +641,6 @@ impl LocalnetCmd {
             &self.prefix,
             true,
             self.archival_nodes,
-            self.fixed_shards,
             tracked_shards,
         );
     }
