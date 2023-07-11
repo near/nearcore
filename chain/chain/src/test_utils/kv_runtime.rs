@@ -358,9 +358,10 @@ impl KeyValueRuntime {
         let state = HashMap::from([(Trie::EMPTY_ROOT, kv_state)]);
         let state_size = HashMap::from([(Trie::EMPTY_ROOT, data_len)]);
 
+        let mut store_update = store.store_update();
         let genesis_roots: Vec<CryptoHash> = (0..num_shards).map(|_| Trie::EMPTY_ROOT).collect();
-        set_genesis_state_roots(&mut store.store_update(), &genesis_roots);
-        store.store_update().commit().expect("Store failed on genesis intialization");
+        set_genesis_state_roots(&mut store_update, &genesis_roots);
+        store_update.commit().expect("Store failed on genesis intialization");
 
         Arc::new(KeyValueRuntime {
             store,

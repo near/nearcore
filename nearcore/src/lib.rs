@@ -20,7 +20,9 @@ use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
+use near_primitives::types::EpochId;
 use near_store::flat::FlatStateValuesInliningMigrationHandle;
+use near_store::genesis::initialize_genesis_state_if_needed;
 use near_store::metadata::DbKind;
 use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
@@ -241,6 +243,14 @@ pub fn start_with_config_and_synchronization(
         storage.get_hot_store(),
         &config,
         epoch_manager.clone(),
+    );
+    let protocol_config = runtime.get_protocol_config(&EpochId::default())?;
+    let storage_usage_config = protocol_config.runtime_config.fees.storage_usage_config;
+    initialize_genesis_state_if_needed(
+        storage.get_hot_store(),
+        home_dir,
+        &storage_usage_config,
+        &config.genesis,
     );
 
     // Get the split store. If split store is some then create a new set of structures for
