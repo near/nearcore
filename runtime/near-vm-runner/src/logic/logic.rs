@@ -23,6 +23,12 @@ use std::mem::size_of;
 
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
 
+#[cfg(feature = "io_trace")]
+fn base64(s: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(s)
+}
+
 pub struct VMLogic<'a> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
     /// receipts creation.
@@ -2410,7 +2416,7 @@ impl<'a> VMLogic<'a> {
         tracing::trace!(
             target = "io_tracer",
             storage_op = "write",
-            key = %near_fmt::Bytes(&key),
+            key = base64(&key),
             size = value_len,
             evicted_len = evicted.as_ref().map(Vec::len),
             tn_mem_reads = nodes_delta.mem_reads,
@@ -2518,7 +2524,7 @@ impl<'a> VMLogic<'a> {
         tracing::trace!(
             target = "io_tracer",
             storage_op = "read",
-            key = %near_fmt::Bytes(&key),
+            key = base64(&key),
             size = read.as_ref().map(Vec::len),
             tn_db_reads = nodes_delta.db_reads,
             tn_mem_reads = nodes_delta.mem_reads,
@@ -2592,7 +2598,7 @@ impl<'a> VMLogic<'a> {
         tracing::trace!(
             target = "io_tracer",
             storage_op = "remove",
-            key = %near_fmt::Bytes(&key),
+            key = base64(&key),
             evicted_len = removed.as_ref().map(Vec::len),
             tn_mem_reads = nodes_delta.mem_reads,
             tn_db_reads = nodes_delta.db_reads,
@@ -2665,7 +2671,7 @@ impl<'a> VMLogic<'a> {
         tracing::trace!(
             target = "io_tracer",
             storage_op = "exists",
-            key = %near_fmt::Bytes(&key),
+            key = base64(&key),
             tn_mem_reads = nodes_delta.mem_reads,
             tn_db_reads = nodes_delta.db_reads,
         );
