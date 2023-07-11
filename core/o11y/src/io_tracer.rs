@@ -17,6 +17,7 @@
 //! analysis. The estimator has a replay command that understands the output
 //! produced by the IO trace.
 
+use base64::Engine;
 use std::collections::HashMap;
 use std::io::Write;
 use tracing::{span, Subscriber};
@@ -223,7 +224,10 @@ impl IoTraceLayer {
                         .decode(key)
                         .expect("key was not properly base64-encoded")
                 });
-                let key = key_bytes.as_ref().map(near_fmt::Bytes).as_deref().unwrap_or("?");
+                let key = key_bytes
+                    .as_ref()
+                    .map(|k| format!("{}", near_fmt::Bytes(&*k)))
+                    .unwrap_or_else(|| String::from("?"));
                 let size = FormattedSize(visitor.size);
                 let tn_db_reads = visitor.tn_db_reads.unwrap();
                 let tn_mem_reads = visitor.tn_mem_reads.unwrap();

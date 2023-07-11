@@ -3945,10 +3945,12 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "atty",
+ "base64 0.21.0",
  "bencher",
  "clap 4.2.4",
  "itoa",
  "near-crypto",
+ "near-fmt",
  "near-primitives-core",
  "once_cell",
  "opentelemetry",
