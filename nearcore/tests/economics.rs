@@ -5,13 +5,13 @@ use near_client::ProcessTxResponse;
 use near_epoch_manager::EpochManager;
 use num_rational::Ratio;
 
-use near_chain::ChainGenesis;
+use near_chain::{types::RuntimeAdapter, ChainGenesis};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
-use near_store::test_utils::create_test_store;
+use near_store::{genesis::initialize_genesis_state_if_needed, test_utils::create_test_store};
 use nearcore::{config::GenesisExt, NightshadeRuntime};
 use testlib::fees_utils::FeeHelper;
 
@@ -34,8 +34,11 @@ fn setup_env(genesis: &Genesis) -> TestEnv {
     init_integration_logger();
     let store = create_test_store();
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-    let runtime =
-        NightshadeRuntime::test(Path::new("."), store.clone(), genesis, epoch_manager.clone());
+    let home_dir = Path::new(".");
+    let runtime = NightshadeRuntime::test(home_dir, store.clone(), genesis, epoch_manager.clone());
+    let protocol_config = runtime.get_protocol_config(&EpochId::default()).unwrap();
+    let storage_usage_config = protocol_config.runtime_config.fees.storage_usage_config;
+    initialize_genesis_state_if_needed(store.clone(), home_dir, &storage_usage_config, &genesis);
     TestEnv::builder(ChainGenesis::new(&genesis))
         .stores(vec![store])
         .epoch_managers(vec![epoch_manager])

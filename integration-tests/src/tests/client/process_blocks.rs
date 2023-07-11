@@ -77,6 +77,7 @@ use near_primitives::views::{
 };
 use near_primitives_core::types::ShardId;
 use near_store::cold_storage::{update_cold_db, update_cold_head};
+use near_store::genesis::initialize_genesis_state_if_needed;
 use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
@@ -2195,12 +2196,12 @@ fn test_incorrect_validator_key_produce_block() {
     let store = create_test_store();
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
     let shard_tracker = ShardTracker::new(TrackedConfig::new_empty(), epoch_manager.clone());
-    let runtime = nearcore::NightshadeRuntime::test(
-        Path::new("../../../.."),
-        store,
-        &genesis,
-        epoch_manager.clone(),
-    );
+    let home_dir = Path::new("../../../..");
+    let runtime =
+        nearcore::NightshadeRuntime::test(home_dir, store.clone(), &genesis, epoch_manager.clone());
+    let protocol_config = runtime.get_protocol_config(&EpochId::default()).unwrap();
+    let storage_usage_config = protocol_config.runtime_config.fees.storage_usage_config;
+    initialize_genesis_state_if_needed(store, home_dir, &storage_usage_config, &genesis);
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         "test0".parse().unwrap(),
         KeyType::ED25519,
@@ -2591,6 +2592,9 @@ fn test_catchup_gas_price_change() {
         let runtime =
             NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
                 as Arc<dyn RuntimeAdapter>;
+        let protocol_config = runtime.get_protocol_config(&EpochId::default()).unwrap();
+        let storage_usage_config = protocol_config.runtime_config.fees.storage_usage_config;
+        initialize_genesis_state_if_needed(store.clone(), tmp_dir.path(), &storage_usage_config, &genesis);
         (tmp_dir, store, epoch_manager, runtime)
     }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
 
@@ -3598,6 +3602,7 @@ mod contract_precompilation_tests {
     use near_primitives::contract::ContractCode;
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_primitives::views::ViewApplyState;
+    use near_store::genesis::initialize_genesis_state_if_needed;
     use near_store::{Store, StoreCompiledContractCache, TrieUpdate};
     use near_vm_runner::get_contract_cache_key;
     use near_vm_runner::internal::VMKind;
@@ -3648,6 +3653,9 @@ mod contract_precompilation_tests {
             let runtime =
                 NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
                     as Arc<dyn RuntimeAdapter>;
+            let protocol_config = runtime.get_protocol_config(&EpochId::default()).unwrap();
+            let storage_usage_config = protocol_config.runtime_config.fees.storage_usage_config;
+            initialize_genesis_state_if_needed(store.clone(), tmp_dir.path(), &storage_usage_config, &genesis);
             (tmp_dir, store, epoch_manager, runtime)
         }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
 
@@ -3761,6 +3769,9 @@ mod contract_precompilation_tests {
             let runtime =
                 NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
                     as Arc<dyn RuntimeAdapter>;
+            let protocol_config = runtime.get_protocol_config(&EpochId::default()).unwrap();
+            let storage_usage_config = protocol_config.runtime_config.fees.storage_usage_config;
+            initialize_genesis_state_if_needed(store.clone(), tmp_dir.path(), &storage_usage_config, &genesis);
             (tmp_dir, store, epoch_manager, runtime)
         }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
 
@@ -3858,6 +3869,9 @@ mod contract_precompilation_tests {
             let runtime =
                 NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
                     as Arc<dyn RuntimeAdapter>;
+            let protocol_config = runtime.get_protocol_config(&EpochId::default()).unwrap();
+            let storage_usage_config = protocol_config.runtime_config.fees.storage_usage_config;
+            initialize_genesis_state_if_needed(store.clone(), tmp_dir.path(), &storage_usage_config, &genesis);
             (tmp_dir, store, epoch_manager, runtime)
         }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
 
