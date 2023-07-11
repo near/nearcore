@@ -14,7 +14,7 @@ This workload is similar to the FT workload with 2 major differences:
 from common.sweat import RecipientSteps, SweatMintBatch
 from common.ft import TransferFT
 from common.base import NearUser
-from locust import between, task
+from locust import between, tag, task
 import logging
 import pathlib
 import random
@@ -36,13 +36,13 @@ class SweatUser(NearUser):
     """
     wait_time = between(1, 3)  # random pause between transactions
 
-    @task
+    @task(3)
     def ft_transfer(self):
         receiver = self.sweat.random_receiver(self.account_id)
         tx = TransferFT(self.sweat.account, self.account, receiver)
         self.send_tx(tx, locust_name="Sweat transfer")
 
-    @task
+    @task(1)
     def record_single_batch(self):
         rng = random.Random()
         batch_size = min(rng.randint(100, 150),
@@ -55,6 +55,7 @@ class SweatUser(NearUser):
             ])
         self.send_tx(tx, locust_name="Sweat record batch")
 
+    @tag("storage-stress-test")
     @task
     def record_batch_of_large_batches(self):
         # ensure large enough state by creating more sweat users
