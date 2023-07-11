@@ -1011,7 +1011,7 @@ fn tx_to_receipt(
     }
 }
 
-pub(crate) fn save_local_receipts(height: BlockHeight, shard_id: Option<ShardId>) {}
+// pub(crate) fn save_local_receipts(height: BlockHeight, shard_id: Option<ShardId>) {}
 
 pub(crate) fn print_receipt_costs(
     start_height: Option<BlockHeight>,
