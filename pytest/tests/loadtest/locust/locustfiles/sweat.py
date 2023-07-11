@@ -15,13 +15,14 @@ from common.sweat import RecipientSteps, SweatMintBatch
 from common.ft import TransferFT
 from common.base import NearUser
 from locust import between, task
-from configured_logger import new_logger
 import logging
 import pathlib
 import random
 import sys
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
+
+from configured_logger import new_logger
 
 logger = new_logger(level=logging.WARN)
 
@@ -42,7 +43,7 @@ class SweatUser(NearUser):
         self.send_tx(tx, locust_name="Sweat transfer")
 
     @task
-    def record_batch(self):
+    def record_single_batch(self):
         rng = random.Random()
         batch_size = min(rng.randint(100, 150),
                          len(self.sweat.registered_users))
@@ -53,6 +54,23 @@ class SweatUser(NearUser):
                 for account_id in receivers
             ])
         self.send_tx(tx, locust_name="Sweat record batch")
+
+    @task
+    def record_batch_of_large_batches(self):
+        # ensure large enough state by creating more sweat users
+        while len(self.sweat.registered_users) < 1000:
+            SweatUser(self.environment).on_start()
+
+        rng = random.Random()
+        # just around 300Tgas
+        batch_size = rng.randint(700, 750)
+        # just around the log limit
+        # batch_size = rng.randint(150, 180)
+        receivers = self.sweat.random_receivers(self.account_id, batch_size)
+        tx = SweatMintBatch(
+            self.sweat.account.key.account_id, self.sweat.oracle,
+            [[account_id, rng.randint(1000, 3000)] for account_id in receivers])
+        self.send_tx(tx, locust_name="Sweat record batch (stress test)")
 
     def on_start(self):
         super().on_start()

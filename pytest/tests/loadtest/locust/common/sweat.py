@@ -113,10 +113,11 @@ class SweatMint(FunctionCall):
         }
 
 
-class SweatMintBatch(FunctionCall):
+class SweatMintBatch(MultiFunctionCall):
     """
     A call to `record_batch`.
     Mints new tokens for walked steps for a batch of users.
+    Might get split into multiple function calls to avoid log output limits.
     """
 
     def __init__(self, sweat_id: str, oracle: Account,
@@ -124,8 +125,18 @@ class SweatMintBatch(FunctionCall):
         super().__init__(oracle, sweat_id, "record_batch")
         self.recipient_step_pairs = recipient_step_pairs
 
-    def args(self) -> dict:
-        return {"steps_batch": self.recipient_step_pairs}
+    def args(self) -> typing.List[dict]:
+        # above a threshold, we hit the log output limit of 16kB
+        max_chunk_len = 180
+        remaining = len(self.recipient_step_paris)
+        chunks = []
+        while remaining > max_chunk_len:
+            chunks.append(self.recipient_step_paris[remaining -
+                                                    max_chunk_len:remaining])
+            remaining -= max_chunk_len
+        if remaining > 0:
+            chunks.append(self.recipient_step_paris[0:remaining])
+        return [{"steps_batch": chunk} for chunk in chunks]
 
 
 @events.init.add_listener

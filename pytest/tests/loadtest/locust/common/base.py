@@ -122,9 +122,10 @@ class FunctionCall(Transaction):
         self.balance = int(balance)
 
     @abc.abstractmethod
-    def args(self) -> dict:
+    def args(self) -> typing.Union[dict, typing.List[dict]]:
         """
         Function call arguments to be serialized and sent with the call.
+        Return a single dict for `FunctionCall` but a list of dict for `MultiFunctionCall`.
         """
 
     def sign_and_serialize(self, block_hash) -> bytes:
@@ -135,6 +136,33 @@ class FunctionCall(Transaction):
 
     def sender_account(self) -> Account:
         return self.sender
+
+
+class MultiFunctionCall(FunctionCall):
+    """
+    Batches multiple function calls into a single transaction.
+    """
+
+    def __init__(self,
+                 sender: Account,
+                 receiver_id: str,
+                 method: str,
+                 balance: int = 0):
+        super().__init__(sender, receiver_id, method, balance=balance)
+
+    def sign_and_serialize(self, block_hash) -> bytes:
+        actions = []
+        all_args = self.args()
+        gas = 300 * TGAS // len(all_args)
+        for arg in all_args:
+            action = transaction.create_function_call_action(
+                self.method,
+                json.dumps(arg).encode('utf-8'), gas, int(self.balance))
+            actions.append(action)
+        return transaction.sign_and_serialize_transaction(
+            self.receiver_id, self.sender.use_nonce(), actions, block_hash,
+            self.sender.key.account_id, self.sender.key.decoded_pk(),
+            self.sender.key.decoded_sk())
 
 
 class Deploy(Transaction):
