@@ -1049,87 +1049,107 @@ pub(crate) fn print_receipt_costs(
     let csv_file_mutex = Mutex::new(csv_file);
 
     let mut count_bytes = 0;
-    for height in start_height..=end_height {
-        match chain_store.get_block_hash_by_height(height) {
-            Ok(block_hash) => {
-                let block = chain_store.get_block(&block_hash).unwrap();
-                let epoch_id = epoch_manager.get_epoch_id(&block_hash).unwrap();
-                let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
-                let prev_hash = block.header().prev_hash().clone();
+    let batch_size = 1000;
+    let mut current_height = start_height;
+    while current_height <= end_height {
+        let next_height = (end_height + 1).min(current_height + batch_size);
 
-                // chain_store.get_ch
-                let mut store_update = store.store_update();
-                let mut count = 0;
-                for (chunk_shard_id, chunk_header) in block.chunks().iter().enumerate() {
-                    if let Some(shard_id) = maybe_shard_id {
-                        if chunk_shard_id as ShardId != shard_id {
-                            continue;
-                        }
-                    }
+        println!("BATCH {}", current_height);
 
-                    if chunk_header.height_included() == height {
-                        let chunk_hash = chunk_header.chunk_hash();
-                        let chunk = chain_store.get_chunk(&chunk_hash).unwrap_or_else(|error| {
-                            panic!(
-                                "Can't get chunk on height: {} chunk_hash: {:?} error: {}",
-                                height, chunk_hash, error
-                            );
-                        });
-                        for tx in chunk.transactions() {
-                            if tx.transaction.signer_id != tx.transaction.receiver_id {
-                                continue; // non local
-                            }
-                            let receipt =
-                                tx_to_receipt(tx, protocol_version, &prev_hash, &block_hash);
-                            let receipt_id = receipt.get_hash();
-                            if chain_store.get_receipt(&receipt_id).unwrap().is_some() {
-                                println!("LOCAL RECEIPT FOUND {}", receipt_id);
-                            } else {
-                                let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
-                                count_bytes += bytes.len();
-                                store_update.increment_refcount(
-                                    DBCol::Receipts,
-                                    receipt_id.as_ref(),
-                                    &bytes,
-                                );
-                                count += 1;
+        // iterate over txns
+        (current_height..next_height).into_par_iter().for_each(|height| {
+            let chain_store = ChainStore::new(
+                store.clone(),
+                near_config.genesis.config.genesis_height,
+                near_config.client_config.save_trie_changes,
+            );
+            match chain_store.get_block_hash_by_height(height) {
+                Ok(block_hash) => {
+                    let block = chain_store.get_block(&block_hash).unwrap();
+                    let epoch_id = epoch_manager.get_epoch_id(&block_hash).unwrap();
+                    let protocol_version =
+                        epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+                    let prev_hash = block.header().prev_hash().clone();
+
+                    let mut store_update = store.store_update();
+                    let mut count = 0;
+                    for (chunk_shard_id, chunk_header) in block.chunks().iter().enumerate() {
+                        if let Some(shard_id) = maybe_shard_id {
+                            if chunk_shard_id as ShardId != shard_id {
+                                continue;
                             }
                         }
+
+                        if chunk_header.height_included() == height {
+                            let chunk_hash = chunk_header.chunk_hash();
+                            let chunk =
+                                chain_store.get_chunk(&chunk_hash).unwrap_or_else(|error| {
+                                    panic!(
+                                        "Can't get chunk on height: {} chunk_hash: {:?} error: {}",
+                                        height, chunk_hash, error
+                                    );
+                                });
+                            for tx in chunk.transactions() {
+                                if tx.transaction.signer_id != tx.transaction.receiver_id {
+                                    continue; // non local
+                                }
+                                let receipt =
+                                    tx_to_receipt(tx, protocol_version, &prev_hash, &block_hash);
+                                let receipt_id = receipt.get_hash();
+                                if chain_store.get_receipt(&receipt_id).unwrap().is_some() {
+                                    println!("LOCAL RECEIPT FOUND {}", receipt_id);
+                                } else {
+                                    let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
+                                    count_bytes += bytes.len();
+                                    store_update.increment_refcount(
+                                        DBCol::Receipts,
+                                        receipt_id.as_ref(),
+                                        &bytes,
+                                    );
+                                    count += 1;
+                                }
+                            }
+                        }
                     }
+                    println!("SAVED {} {}", height, count);
+                    store_update.commit().unwrap();
                 }
-                println!("SAVED {} {}", height, count);
-                store_update.commit().unwrap();
+                Err(_) => {}
             }
-            Err(_) => {}
-        }
-    }
-    println!("COUNT BYTES {}", count_bytes);
+        });
 
-    (start_height..=end_height).into_par_iter().for_each(|height| {
-        let chain_store = ChainStore::new(
-            store.clone(),
-            near_config.genesis.config.genesis_height,
-            near_config.client_config.save_trie_changes,
-        );
-        match chain_store.get_block_hash_by_height(height) {
-            Ok(block_hash) => {
-                let epoch_id = epoch_manager.get_epoch_id(&block_hash).unwrap();
-                let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
-                let protocol_config = runtime.get_protocol_config(&epoch_id).unwrap();
-                let runtime_config = protocol_config.runtime_config;
-                print_receipt_costs_for_chunk(
-                    height,
-                    &block_hash,
-                    maybe_shard_id,
-                    &chain_store,
-                    &runtime_config,
-                    protocol_version,
-                    &csv_file_mutex,
-                );
-            }
-            Err(_) => {}
-        };
-    });
+        // iterate over receipts
+        (current_height..next_height).into_par_iter().for_each(|height| {
+            let chain_store = ChainStore::new(
+                store.clone(),
+                near_config.genesis.config.genesis_height,
+                near_config.client_config.save_trie_changes,
+            );
+            match chain_store.get_block_hash_by_height(height) {
+                Ok(block_hash) => {
+                    let epoch_id = epoch_manager.get_epoch_id(&block_hash).unwrap();
+                    let protocol_version =
+                        epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+                    let protocol_config = runtime.get_protocol_config(&epoch_id).unwrap();
+                    let runtime_config = protocol_config.runtime_config;
+                    print_receipt_costs_for_chunk(
+                        height,
+                        &block_hash,
+                        maybe_shard_id,
+                        &chain_store,
+                        &runtime_config,
+                        protocol_version,
+                        &csv_file_mutex,
+                    );
+                }
+                Err(_) => {}
+            };
+        });
+
+        current_height = next_height;
+    }
+
+    println!("COUNT BYTES {}", count_bytes);
 }
 
 pub(crate) fn resulting_chunk_extra(result: &ApplyTransactionResult, gas_limit: Gas) -> ChunkExtra {
