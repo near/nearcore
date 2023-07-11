@@ -11,10 +11,12 @@ publish = true
 
 [dependencies]
 near-crypto.workspace = true
+near-fmt.workspace = true
 near-primitives-core.workspace = true
 
 actix.workspace = true
 atty.workspace = true
+base64.workspace = true
 clap.workspace = true
 once_cell.workspace = true
 opentelemetry.workspace = true
@@ -37,10 +39,12 @@ smartstring.workspace = true
 
 [features]
 nightly_protocol = [
+  "near-fmt/nightly_protocol",
   "near-primitives-core/nightly_protocol",
 ]
 nightly = [
   "nightly_protocol",
+  "near-fmt/nightly",
   "near-primitives-core/nightly",
 ]
 io_trace = []
