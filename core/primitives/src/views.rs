@@ -2607,6 +2607,8 @@ pub struct ExtCostsConfigView {
     pub alt_bn128_pairing_check_base: Gas,
     /// Per element cost for pairing check
     pub alt_bn128_pairing_check_element: Gas,
+    pub bls12381_g1_decompress_base: Gas,
+    pub bls12381_g1_decompress_element: Gas
 }
 
 impl From<near_primitives_core::config::ExtCostsConfig> for ExtCostsConfigView {
@@ -2677,6 +2679,8 @@ impl From<near_primitives_core::config::ExtCostsConfig> for ExtCostsConfigView {
             alt_bn128_pairing_check_base: config.gas_cost(ExtCosts::alt_bn128_pairing_check_base),
             alt_bn128_pairing_check_element: config
                 .gas_cost(ExtCosts::alt_bn128_pairing_check_element),
+            bls12381_g1_decompress_base: config.gas_cost(ExtCosts::bls12381_g1_decompress_base),
+            bls12381_g1_decompress_element: config.gas_cost(ExtCosts::bls12381_g1_decompress_element),
             // removed parameters
             contract_compile_base: 0,
             contract_compile_bytes: 0,
@@ -2748,6 +2752,8 @@ impl From<ExtCostsConfigView> for near_primitives_core::config::ExtCostsConfig {
                 ExtCosts::alt_bn128_g1_sum_element => view.alt_bn128_g1_sum_element,
                 ExtCosts::alt_bn128_pairing_check_base => view.alt_bn128_pairing_check_base,
                 ExtCosts::alt_bn128_pairing_check_element => view.alt_bn128_pairing_check_element,
+                ExtCosts::bls12381_g1_decompress_base => view.bls12381_g1_decompress_base,
+                ExtCosts::bls12381_g1_decompress_element => view.bls12381_g1_decompress_element,
         }
         .map(|_, value| ParameterCost { gas: value, compute: value });
         Self { costs }

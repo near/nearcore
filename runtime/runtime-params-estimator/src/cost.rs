@@ -616,6 +616,8 @@ pub enum Cost {
     AltBn128PairingCheckElement,
     AltBn128G1SumBase,
     AltBn128G1SumElement,
+    Bls12381G1DecompressBase,
+    Bls12381G1DecompressElement,
 
     // Costs used only in estimator
     //

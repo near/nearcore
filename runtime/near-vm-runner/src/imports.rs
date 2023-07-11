@@ -257,7 +257,7 @@ imports! {
     // #############
     // # BLS12-381 #
     // #############
-    bls12381_decompress_g1<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    bls12381_g1_decompress<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
 
     // #############
     // #  Sandbox  #

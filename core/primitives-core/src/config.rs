@@ -354,6 +354,8 @@ impl ExtCostsConfig {
             ExtCosts::alt_bn128_pairing_check_element => 5_102_000_000_000,
             ExtCosts::alt_bn128_g1_sum_base => 3_000_000_000,
             ExtCosts::alt_bn128_g1_sum_element => 5_000_000_000,
+            ExtCosts::bls12381_g1_decompress_base => 0,
+            ExtCosts::bls12381_g1_decompress_element => 0,
         }
         .map(|_, value| ParameterCost { gas: value, compute: value * factor });
         ExtCostsConfig { costs }
@@ -453,6 +455,8 @@ pub enum ExtCosts {
     alt_bn128_g1_sum_element = 58,
     ed25519_verify_base = 59,
     ed25519_verify_byte = 60,
+    bls12381_g1_decompress_base = 61,
+    bls12381_g1_decompress_element = 62,
 }
 
 // Type of an action, used in fees logic.
@@ -561,6 +565,8 @@ impl ExtCosts {
             ExtCosts::alt_bn128_pairing_check_element => Parameter::WasmAltBn128PairingCheckElement,
             ExtCosts::alt_bn128_g1_sum_base => Parameter::WasmAltBn128G1SumBase,
             ExtCosts::alt_bn128_g1_sum_element => Parameter::WasmAltBn128G1SumElement,
+            ExtCosts::bls12381_g1_decompress_base => Parameter::WasmBls12381G1DecompressBase,
+            ExtCosts::bls12381_g1_decompress_element => Parameter::WasmBls12381G1DecompressElement,
         }
     }
 }

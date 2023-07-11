@@ -899,17 +899,20 @@ impl<'a> VMLogic<'a> {
         Ok(res as u64)
     }
 
-    pub fn bls12381_decompress_g1(
+    pub fn bls12381_g1_decompress(
         &mut self,
         value_len: u64,
         value_ptr: u64,
         register_id: u64,
     ) -> Result<()> {
+        self.gas_counter.pay_base(bls12381_g1_decompress_base)?;
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
         let mut res = Vec::<u8>::new();
 
         let elements_count = data.len()/48;
+        self.gas_counter.pay_per(bls12381_g1_decompress_element, elements_count as u64)?;
+
         for i in 0..elements_count {
             let pk = PublicKey::uncompress(&data[i*48..(i + 1)*48]).unwrap();
             let pk_ser = pk.serialize();

@@ -40,6 +40,8 @@ extern "C" {
     fn alt_bn128_g1_multiexp(value_len: u64, value_ptr: u64, register_id: u64);
     fn alt_bn128_g1_sum(value_len: u64, value_ptr: u64, register_id: u64);
     fn alt_bn128_pairing_check(value_len: u64, value_ptr: u64) -> u64;
+    fn bls12381_g1_decompress(value_len: u64, value_ptr: u64, register_id: u64);
+
     fn random_seed(register_id: u64);
     fn sha256(value_len: u64, value_ptr: u64, register_id: u64);
     fn keccak256(value_len: u64, value_ptr: u64, register_id: u64);
@@ -715,6 +717,32 @@ pub unsafe fn alt_bn128_pairing_check_10_10() {
         alt_bn128_pairing_check(
             core::mem::size_of_val(&buffer) as u64,
             buffer.as_ptr() as *const u64 as u64,
+        );
+    }
+}
+
+#[no_mangle]
+pub unsafe fn bls12381_g1_decompress_500_100() {
+    let buffer: [[u8; 48]; 500] = [[185, 110, 35, 139, 110, 142, 126, 177, 120, 97, 234, 41, 91, 204, 20, 203, 207, 103, 224, 112, 176, 18, 102, 59, 68, 107, 137, 231, 10, 71, 183, 63, 198, 228, 242, 206, 195, 124, 70, 91, 53, 182, 222, 158, 19, 104, 106, 15]; 500];
+
+    for _ in 0..100 {
+        bls12381_g1_decompress(
+            core::mem::size_of_val(&buffer) as u64,
+            buffer.as_ptr() as *const u64 as u64,
+            0,
+        );
+    }
+}
+
+#[no_mangle]
+pub unsafe fn bls12381_g1_decompress_1_100() {
+    let buffer: [u8; 48] = [185, 110, 35, 139, 110, 142, 126, 177, 120, 97, 234, 41, 91, 204, 20, 203, 207, 103, 224, 112, 176, 18, 102, 59, 68, 107, 137, 231, 10, 71, 183, 63, 198, 228, 242, 206, 195, 124, 70, 91, 53, 182, 222, 158, 19, 104, 106, 15];
+
+    for _ in 0..100 {
+        bls12381_g1_decompress(
+            core::mem::size_of_val(&buffer) as u64,
+            buffer.as_ptr() as *const u64 as u64,
+            0,
         );
     }
 }

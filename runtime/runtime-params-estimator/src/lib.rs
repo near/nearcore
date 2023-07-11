@@ -126,6 +126,8 @@ pub use crate::qemu::QemuCommandBuilder;
 pub use crate::rocksdb::RocksDBTestConfig;
 
 static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
+    (Cost::Bls12381G1DecompressBase, bls12381_g1_decompress_base),
+    (Cost::Bls12381G1DecompressElement, bls12381_g1_decompress_element),
     (Cost::ActionReceiptCreation, action_receipt_creation),
     (Cost::ActionSirReceiptCreation, action_sir_receipt_creation),
     (Cost::ActionReceiptCreationSendSir, action_costs::new_action_receipt_send_sir),
@@ -1054,6 +1056,14 @@ fn alt_bn128_pairing_check_element(ctx: &mut EstimatorContext) -> GasCost {
         ExtCosts::alt_bn128_pairing_check_element,
         10 * 10,
     )
+}
+
+fn bls12381_g1_decompress_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_g1_decompress_1_100", ExtCosts::bls12381_g1_decompress_base, 100)
+}
+
+fn bls12381_g1_decompress_element(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_g1_decompress_500_100", ExtCosts::bls12381_g1_decompress_element, 50000)
 }
 
 fn storage_has_key_base(ctx: &mut EstimatorContext) -> GasCost {

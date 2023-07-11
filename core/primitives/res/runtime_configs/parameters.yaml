@@ -170,6 +170,8 @@ wasm_alt_bn128_pairing_check_base: 9_686_000_000_000
 wasm_alt_bn128_pairing_check_element: 5_102_000_000_000
 wasm_alt_bn128_g1_sum_base: 3_000_000_000
 wasm_alt_bn128_g1_sum_element: 5_000_000_000
+wasm_bls12381_g1_decompress_base: 0
+wasm_bls12381_g1_decompress_element: 0
 
 # Smart contract limits
 max_gas_burnt: 200_000_000_000_000
