@@ -309,8 +309,8 @@ class NearNodeProxy:
         """
         exists = self.account_exists(account.key.account_id)
         if not exists:
-            self.send_tx_retry(CreateSubAccount(parent, account.key, balance=balance),
-                               msg)
+            self.send_tx_retry(
+                CreateSubAccount(parent, account.key, balance=balance), msg)
         account.refresh_nonce(self.node)
         return exists
 
