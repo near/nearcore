@@ -1101,7 +1101,7 @@ pub(crate) fn print_receipt_costs(
                                 } else {
                                     let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
                                     let mut count_bytes_inner = count_bytes.lock().unwrap();
-                                    count_bytes_inner += bytes.len();
+                                    *count_bytes_inner += bytes.len();
                                     store_update.increment_refcount(
                                         DBCol::Receipts,
                                         receipt_id.as_ref(),
