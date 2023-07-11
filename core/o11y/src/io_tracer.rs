@@ -223,7 +223,7 @@ impl IoTraceLayer {
                         .decode(key)
                         .expect("key was not properly base64-encoded")
                 });
-                let key = near_fmt::Bytes(key_bytes.as_ref().unwrap_or(b"?"));
+                let key = key_bytes.as_ref().map(near_fmt::Bytes).as_deref().unwrap_or("?");
                 let size = FormattedSize(visitor.size);
                 let tn_db_reads = visitor.tn_db_reads.unwrap();
                 let tn_mem_reads = visitor.tn_mem_reads.unwrap();
