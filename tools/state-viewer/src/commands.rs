@@ -1048,7 +1048,7 @@ pub(crate) fn print_receipt_costs(
     );
     let csv_file_mutex = Mutex::new(csv_file);
 
-    let mut count_bytes = Mutex::new(0);
+    let count_bytes = Mutex::new(0);
     let batch_size = 1000;
     let mut current_height = start_height;
     while current_height <= end_height {
