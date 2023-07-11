@@ -128,7 +128,7 @@ class SweatMintBatch(FunctionCall):
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
     node = NearNodeProxy(environment)
-    worker_id = getattr(environment.runner, "worker_id", "_master")
+    worker_id = getattr(environment.runner, "worker_index", "_master")
     run_id = environment.parsed_options.run_id
 
     funding_account = NearUser.funding_account
