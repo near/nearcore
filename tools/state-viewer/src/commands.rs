@@ -1081,7 +1081,7 @@ pub(crate) fn print_receipt_costs(
                             let receipt =
                                 tx_to_receipt(tx, protocol_version, &prev_hash, &block_hash);
                             let receipt_id = receipt.get_hash();
-                            if chain_store.get_receipt(&receipt_id).is_ok() {
+                            if chain_store.get_receipt(&receipt_id).unwrap().is_some() {
                                 println!("LOCAL RECEIPT FOUND {}", receipt_id);
                             } else {
                                 let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
