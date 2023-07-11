@@ -1048,6 +1048,7 @@ pub(crate) fn print_receipt_costs(
     );
     let csv_file_mutex = Mutex::new(csv_file);
 
+    let mut count_bytes = 0;
     for height in start_height..=end_height {
         match chain_store.get_block_hash_by_height(height) {
             Ok(block_hash) => {
@@ -1085,6 +1086,7 @@ pub(crate) fn print_receipt_costs(
                                 println!("LOCAL RECEIPT FOUND {}", receipt_id);
                             } else {
                                 let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
+                                count_bytes += bytes.len();
                                 store_update.increment_refcount(
                                     DBCol::Receipts,
                                     receipt_id.as_ref(),
@@ -1101,6 +1103,7 @@ pub(crate) fn print_receipt_costs(
             Err(_) => {}
         }
     }
+    println!("COUNT BYTES {}", count_bytes);
 
     (start_height..=end_height).into_par_iter().for_each(|height| {
         let chain_store = ChainStore::new(
