@@ -1,6 +1,6 @@
+import typing
 from common.ft import FTContract, InitFTAccount
-from common.base import Account, NearNodeProxy, NearUser, FunctionCall
-import key
+from common.base import Account, NearNodeProxy, NearUser, FunctionCall, MultiFunctionCall
 import locust
 import sys
 import pathlib
@@ -8,35 +8,42 @@ from locust import events
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
+import key
+
 
 class SweatContract(FTContract):
 
     def __init__(self, main_account: Account, oracle_account: Account,
                  code: str):
-        super().__init__(main_account, code)
+        super().__init__(main_account, oracle_account, code)
         self.oracle = oracle_account
-
-    def install(self, node: NearNodeProxy, parent: Account):
-        if not node.account_exists(self.oracle.key.account_id):
-            node.create_contract_account(parent,
-                                         self.oracle.key,
-                                         balance=FTContract.INIT_BALANCE)
-        self.oracle.refresh_nonce(node.node)
-        super().install(node, parent)
 
     def init_contract(self, node: NearNodeProxy):
         node.send_tx_retry(InitSweat(self.account), "init sweat")
-        self.register_oracle(node, self.oracle.key.account_id)
-        # unlike FT initialization that starts with a total supply and assigns
-        # it to the user, the sweat main account doesn't start with tokens, we
-        # need to register the account and then mint the tokens
-        node.send_tx_retry(InitFTAccount(self.account, self.account),
+        # Unlike FT initialization that starts with a total supply and assigns
+        # it to the user, the sweat main account doesn't start with tokens. We
+        # need to register an account and then mint the tokens, so that it can
+        # distribute them later.
+        node.send_tx_retry(InitFTAccount(self.account, self.ft_distributor),
                            locust_name="Init Sweat Account")
+        self.register_oracle(node, self.oracle.key.account_id)
+        self.top_up(node, self.ft_distributor.key.account_id)
+
+    def top_up(self, node: NearNodeProxy, receiver_id: str):
+        """
+        Adds a large amount of tokens to an account.
+        Note: This should only be called on the master runner, as it requires
+        the private key of the sweat contract account. (Multiple runners using
+        this leads to frequent nonce invalidations.)
+        """
         node.send_tx_retry(
-            SweatMint(self.account, self.account.key.account_id,
-                      1_000_000_000_000), "sweat initial funds")
+            SweatMint(self.account, receiver_id, 1_000_000_000_000),
+            "top up sweat")
 
     def register_oracle(self, node: NearNodeProxy, oracle_id: str):
+        """
+        Register an account as oracle to give it the power to mint tokens for steps.
+        """
         node.send_tx_retry(SweatAddOracle(self.account, oracle_id),
                            "add sweat oracle")
 
@@ -121,35 +128,39 @@ class SweatMintBatch(FunctionCall):
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
     node = NearNodeProxy(environment)
-    worker_id = getattr(environment.runner, "worker_id", "local")
+    worker_id = getattr(environment.runner, "worker_id", "_master")
     run_id = environment.parsed_options.run_id
 
     funding_account = NearUser.funding_account
+    funding_account.refresh_nonce(node.node)
     sweat_contract_code = environment.parsed_options.sweat_wasm
-    sweat_account_id = f"sweat{run_id}.{funding_account.key.account_id}"
-    oracle_account_id = worker_oracle_id(worker_id, run_id, funding_account)
+    sweat_account_id = f"sweat{run_id}.{environment.master_funding_account.key.account_id}"
+    oracle_account_id = worker_oracle_id(worker_id, run_id,
+                                         environment.master_funding_account)
 
     sweat_account = Account(key.Key.from_seed_testonly(sweat_account_id))
     oracle_account = Account(key.Key.from_seed_testonly(oracle_account_id))
 
     environment.sweat = SweatContract(sweat_account, oracle_account,
                                       sweat_contract_code)
+
     # Create Sweat contract, unless we are a worker, in which case the master already did it
     if not isinstance(environment.runner, locust.runners.WorkerRunner):
-        environment.sweat.install(node, funding_account)
+        node.prepare_account(oracle_account, environment.master_funding_account,
+                             FTContract.INIT_BALANCE, "create contract account")
+        environment.sweat.install(node, environment.master_funding_account)
 
     # on master, register oracles for workers
     if isinstance(environment.runner, locust.runners.MasterRunner):
-        num_oracles = environment.parsed_options.max_workers
+        num_oracles = int(environment.parsed_options.max_workers)
         # TODO: Add oracles in parallel
         for worker_id in range(num_oracles):
             id = worker_oracle_id(worker_id, run_id, funding_account)
             worker_oracle = Account(key.Key.from_seed_testonly(id))
-            if not node.account_exists(id):
-                node.create_contract_account(funding_account,
-                                             worker_oracle.key,
-                                             balance=FTContract.INIT_BALANCE)
-            environment.sweat.register_oracle(node, worker_oracle)
+            node.prepare_account(worker_oracle, funding_account, 100000,
+                                 "create contract account")
+            environment.sweat.register_oracle(node, id)
+            environment.sweat.top_up(node, id)
 
 
 def worker_oracle_id(worker_id, run_id, funding_account):
