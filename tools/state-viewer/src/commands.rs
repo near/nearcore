@@ -7,6 +7,7 @@ use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
 use crate::{apply_chunk, epoch_info};
 use ansi_term::Color::Red;
+use borsh::BorshSerialize;
 use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
@@ -19,15 +20,16 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::ReceiptEnum;
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::{Action, ExecutionMetadata, ExecutionStatus};
+use near_primitives::transaction::{Action, ExecutionMetadata, ExecutionStatus, SignedTransaction};
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
+use near_primitives::utils::create_receipt_id_from_transaction;
 use near_primitives_core::config::{ActionCosts, ExtCosts};
 use near_primitives_core::profile::ProfileDataV3;
 use near_primitives_core::types::{Gas, ProtocolVersion};
@@ -981,10 +983,40 @@ fn print_receipt_costs_for_chunk(
     // assert_eq!(incoming_missing, 0);
 }
 
+fn tx_to_receipt(
+    signed_transaction: &SignedTransaction,
+    protocol_version: ProtocolVersion,
+    prev_block_hash: &CryptoHash,
+    block_hash: &CryptoHash,
+) -> Receipt {
+    let receipt_id = create_receipt_id_from_transaction(
+        protocol_version,
+        signed_transaction,
+        prev_block_hash,
+        block_hash,
+    );
+    let transaction = &signed_transaction.transaction;
+    Receipt {
+        predecessor_id: transaction.signer_id.clone(),
+        receiver_id: transaction.receiver_id.clone(),
+        receipt_id,
+        receipt: ReceiptEnum::Action(ActionReceipt {
+            signer_id: transaction.signer_id.clone(),
+            signer_public_key: transaction.public_key.clone(),
+            gas_price: 0, // for profiles, I don't care
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: transaction.actions.clone(),
+        }),
+    }
+}
+
+pub(crate) fn save_local_receipts(height: BlockHeight, shard_id: Option<ShardId>) {}
+
 pub(crate) fn print_receipt_costs(
     start_height: Option<BlockHeight>,
     end_height: Option<BlockHeight>,
-    shard_id: Option<ShardId>,
+    maybe_shard_id: Option<ShardId>,
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
@@ -1017,8 +1049,57 @@ pub(crate) fn print_receipt_costs(
     let csv_file_mutex = Mutex::new(csv_file);
 
     for height in start_height..=end_height {
-        let block = chain_store.get_block(&block_hash).unwrap();
-        let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
+        match chain_store.get_block_hash_by_height(height) {
+            Ok(block_hash) => {
+                let block = chain_store.get_block(&block_hash).unwrap();
+                let epoch_id = epoch_manager.get_epoch_id(&block_hash).unwrap();
+                let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+                let prev_hash = block.header().prev_hash().clone();
+
+                // chain_store.get_ch
+                let mut store_update = store.store_update();
+                let mut count = 0;
+                for (chunk_shard_id, chunk_header) in block.chunks().iter().enumerate() {
+                    if let Some(shard_id) = maybe_shard_id {
+                        if chunk_shard_id != shard_id {
+                            continue;
+                        }
+                    }
+
+                    if chunk_header.height_included() == height {
+                        let chunk_hash = chunk_header.chunk_hash();
+                        let chunk = chain_store.get_chunk(&chunk_hash).unwrap_or_else(|error| {
+                            panic!(
+                                "Can't get chunk on height: {} chunk_hash: {:?} error: {}",
+                                height, chunk_hash, error
+                            );
+                        });
+                        for tx in chunk.transactions() {
+                            if tx.transaction.signer_id != tx.transaction.receiver_id {
+                                continue; // non local
+                            }
+                            let receipt =
+                                tx_to_receipt(tx, protocol_version, &prev_hash, &block_hash);
+                            let receipt_id = receipt.get_hash();
+                            if chain_store.get_receipt(&receipt_id).is_ok() {
+                                println!("LOCAL RECEIPT FOUND {}", receipt_id);
+                            } else {
+                                let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
+                                store_update.increment_refcount(
+                                    DBCol::Receipts,
+                                    receipt_id.as_ref(),
+                                    &bytes,
+                                );
+                                count += 1;
+                            }
+                        }
+                    }
+                }
+                println!("SAVED {} {}", height, count);
+                store_update.commit().unwrap();
+            }
+            Err(_) => {}
+        }
     }
 
     (start_height..=end_height).into_par_iter().for_each(|height| {
@@ -1036,7 +1117,7 @@ pub(crate) fn print_receipt_costs(
                 print_receipt_costs_for_chunk(
                     height,
                     &block_hash,
-                    shard_id,
+                    maybe_shard_id,
                     &chain_store,
                     &runtime_config,
                     protocol_version,
