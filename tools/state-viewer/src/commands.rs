@@ -1100,7 +1100,7 @@ pub(crate) fn print_receipt_costs(
                                     println!("LOCAL RECEIPT FOUND {}", receipt_id);
                                 } else {
                                     let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
-                                    let mut count_bytes_inner = count_bytes.lock();
+                                    let mut count_bytes_inner = count_bytes.lock().unwrap();
                                     count_bytes_inner += bytes.len();
                                     store_update.increment_refcount(
                                         DBCol::Receipts,
@@ -1150,7 +1150,7 @@ pub(crate) fn print_receipt_costs(
         current_height = next_height;
     }
 
-    println!("COUNT BYTES {}", count_bytes);
+    println!("COUNT BYTES {}", count_bytes.lock().unwrap());
 }
 
 pub(crate) fn resulting_chunk_extra(result: &ApplyTransactionResult, gas_limit: Gas) -> ChunkExtra {
