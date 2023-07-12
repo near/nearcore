@@ -2436,6 +2436,7 @@ impl Chain {
 
         let (is_caught_up, state_dl_info, need_state_snapshot) =
             if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
+                debug!(target: "chain", "block {} is the first block of an epoch", block.hash());
                 if !self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
                     // The previous block is not caught up for the next epoch relative to the previous
                     // block, which is the current epoch for this block, so this block cannot be applied
@@ -2668,9 +2669,12 @@ impl Chain {
         // if shard layout will change the next epoch, we should catch up the shard regardless
         // whether we already have the shard's state this epoch, because we need to generate
         // new states for shards split from the current shard for the next epoch
-        shard_tracker.will_care_about_shard(me.as_ref(), parent_hash, shard_id, true)
-            && (will_shard_layout_change
-                || !shard_tracker.care_about_shard(me.as_ref(), parent_hash, shard_id, true))
+        let will_care_about_shard =
+            shard_tracker.will_care_about_shard(me.as_ref(), parent_hash, shard_id, true);
+        let does_care_about_shard =
+            shard_tracker.care_about_shard(me.as_ref(), parent_hash, shard_id, true);
+
+        will_care_about_shard && (will_shard_layout_change || !does_care_about_shard)
     }
 
     /// Check if any block with missing chunk is ready to be processed and start processing these blocks

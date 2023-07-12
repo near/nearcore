@@ -167,8 +167,8 @@ impl ShardLayout {
                 .into_iter()
                 .map(|s| s.parse().unwrap())
                 .collect(),
-            Some(vec![vec![0, 1, 2, 3]]),
-            1,
+            Some(vec![vec![0], vec![1], vec![2], vec![3, 4]]),
+            2,
         )
     }
 
@@ -562,5 +562,21 @@ mod tests {
 
     fn parse_account_ids(ids: &[&str]) -> Vec<AccountId> {
         ids.into_iter().map(|a| a.parse().unwrap()).collect()
+    }
+
+    fn print_shard_layout(name: &str, shard_layout: &ShardLayout) {
+        println!("{name}");
+        println!("{}", serde_json::to_string(shard_layout).unwrap());
+    }
+
+    #[test]
+    fn print_shard_layout_all() {
+        let v0 = ShardLayout::v0(1, 0);
+        let v1 = ShardLayout::get_simple_nightshade_layout();
+        let v2 = ShardLayout::get_simple_nightshade_layout_v2();
+
+        print_shard_layout("v0", &v0);
+        print_shard_layout("v1", &v1);
+        print_shard_layout("v2", &v2);
     }
 }
