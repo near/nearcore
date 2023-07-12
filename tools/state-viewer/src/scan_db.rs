@@ -230,8 +230,8 @@ fn format_block_misc_value<'a>(key: &'a [u8], value: &'a [u8]) -> Box<dyn Debug 
         Box::new(CryptoHash::try_from(value).unwrap())
     } else if key == near_store::GENESIS_STATE_ROOTS_KEY {
         Box::new(Vec::<StateRoot>::try_from_slice(value).unwrap())
-    } else if &key[0..near_store::STATE_SYNC_DUMP_KEY.len()] == near_store::STATE_SYNC_DUMP_KEY {
-        Box::new(StateSyncDumpProgress::try_from_slice(value).unwrap())
+    } else if key.starts_with(near_store::STATE_SYNC_DUMP_KEY) {
+        Box::new(Option::<StateSyncDumpProgress>::try_from_slice(value).unwrap())
     } else {
         Box::new(value)
     }
