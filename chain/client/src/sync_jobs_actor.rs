@@ -95,7 +95,7 @@ impl actix::Handler<WithSpanContext<ApplyStatePartsRequest>> for SyncJobsActor {
                     shard_id,
                     sync_hash: msg.sync_hash,
                 }
-                    .with_span_context(),
+                .with_span_context(),
             );
             return;
         }
