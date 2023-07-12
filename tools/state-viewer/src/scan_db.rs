@@ -9,7 +9,9 @@ use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{get_block_shard_uid_rev, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::state::FlatStateValue;
-use near_primitives::syncing::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
+use near_primitives::syncing::{
+    ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, StateSyncDumpProgress,
+};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{EpochId, StateRoot};
@@ -213,6 +215,7 @@ fn format_block_misc_value<'a>(key: &'a [u8], value: &'a [u8]) -> Box<dyn Debug 
         || key == near_store::HEADER_HEAD_KEY
         || key == near_store::FINAL_HEAD_KEY
         || key == near_store::COLD_HEAD_KEY
+        || key == b"SYNC_HEAD"
     {
         Box::new(Tip::try_from_slice(value).unwrap())
     } else if key == near_store::TAIL_KEY
@@ -227,6 +230,8 @@ fn format_block_misc_value<'a>(key: &'a [u8], value: &'a [u8]) -> Box<dyn Debug 
         Box::new(CryptoHash::try_from(value).unwrap())
     } else if key == near_store::GENESIS_STATE_ROOTS_KEY {
         Box::new(Vec::<StateRoot>::try_from_slice(value).unwrap())
+    } else if &key[0..near_store::STATE_SYNC_DUMP_KEY.len()] == near_store::STATE_SYNC_DUMP_KEY {
+        Box::new(StateSyncDumpProgress::try_from_slice(value).unwrap())
     } else {
         Box::new(value)
     }

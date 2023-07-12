@@ -15,7 +15,7 @@ pub use columns::DBCol;
 pub use db::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
     GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
-    LATEST_KNOWN_KEY, TAIL_KEY,
+    LATEST_KNOWN_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
 };
 pub use genesis_state_applier::GenesisStateApplier;
 use near_crypto::PublicKey;
