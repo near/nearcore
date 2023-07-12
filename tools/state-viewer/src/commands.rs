@@ -616,7 +616,7 @@ pub(crate) fn print_chain(
                         let chunk_producer = epoch_manager
                             .get_chunk_producer(&epoch_id, header.height(), shard_id as u64)
                             .map(|account_id| account_id.to_string())
-                            .unwrap_or("error".to_owned());
+                            .unwrap_or("CP Unknown".to_owned());
                         if header.chunk_mask()[shard_id] {
                             let chunk_hash = &block.chunks()[shard_id].chunk_hash();
                             if let Ok(chunk) = chain_store.get_chunk(chunk_hash) {
