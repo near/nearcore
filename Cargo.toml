@@ -250,7 +250,7 @@ pin-project = "1.0"
 prefix-sum-vec = "0.1.2"
 pretty_assertions = "1.2"
 primitive-types = { version = "0.10", default-features = false }
-proc-macro2 = "1"
+proc-macro2 = "1.0.64"
 prometheus = "0.13.1"
 protobuf = "3.0.1"
 protobuf-codegen = "3.0.1"
