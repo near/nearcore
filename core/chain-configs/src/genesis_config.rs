@@ -10,6 +10,7 @@ use near_config_utils::ValidationError;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::StateRoot;
 use near_primitives::views::RuntimeConfigView;
 use near_primitives::{
     hash::CryptoHash,
@@ -261,12 +262,19 @@ pub enum GenesisContents {
     /// The idea is that all records consume too much memory,
     /// so they should be processed in streaming fashion with for_each_record.
     RecordsFile { records_file: PathBuf },
+    /// Use records already in storage, represented by these state roots.
+    /// Used only for mock network forking for testing purposes.
+    /// WARNING: THIS IS USED FOR TESTING ONLY. IT IS **NOT CORRECT**, because
+    /// it is impossible to compute the corresponding genesis hash in this form,
+    /// such that the genesis hash is consistent with that of an equivalent
+    /// genesis that spells out the records.
+    StateRoots { state_roots: Vec<StateRoot> },
 }
 
-fn contents_are_not_records(contents: &GenesisContents) -> bool {
+fn contents_are_from_record_file(contents: &GenesisContents) -> bool {
     match contents {
-        GenesisContents::Records { .. } => false,
-        _ => true,
+        GenesisContents::RecordsFile { .. } => true,
+        _ => false,
     }
 }
 
@@ -284,7 +292,7 @@ pub struct Genesis {
     #[serde(
         flatten,
         deserialize_with = "no_value_and_null_as_default",
-        skip_serializing_if = "contents_are_not_records"
+        skip_serializing_if = "contents_are_from_record_file"
     )]
     pub contents: GenesisContents,
 }
@@ -471,11 +479,28 @@ impl GenesisJsonHasher {
         record.serialize(&mut ser).expect("Error serializing the genesis record.");
     }
 
+    pub fn process_state_roots(&mut self, state_roots: &[StateRoot]) {
+        // WARNING: THIS IS INCORRECT, because it is impossible to compute the
+        // genesis hash from the state root in a way that is consistent to that
+        // of a genesis that spells out all the records.
+        // THEREFORE, THIS IS ONLY USED FOR TESTING, and this logic is only
+        // present at all because a genesis hash always has to at least exist.
+        let mut ser = Serializer::pretty(&mut self.digest);
+        state_roots.serialize(&mut ser).expect("Error serializing the state roots.");
+    }
+
     pub fn process_genesis(&mut self, genesis: &Genesis) {
         self.process_config(&genesis.config);
-        genesis.for_each_record(|record: &StateRecord| {
-            self.process_record(record);
-        });
+        match &genesis.contents {
+            GenesisContents::StateRoots { state_roots } => {
+                self.process_state_roots(state_roots);
+            }
+            _ => {
+                genesis.for_each_record(|record: &StateRecord| {
+                    self.process_record(record);
+                });
+            }
+        }
     }
 
     pub fn finalize(self) -> CryptoHash {
@@ -551,6 +576,10 @@ impl Genesis {
         Self::new_with_path_validated(genesis_config, records_path, genesis_validation)
     }
 
+    pub fn new_from_state_roots(config: GenesisConfig, state_roots: Vec<StateRoot>) -> Self {
+        Self { config, contents: GenesisContents::StateRoots { state_roots } }
+    }
+
     fn new_validated(
         config: GenesisConfig,
         records: GenesisRecords,
@@ -606,14 +635,6 @@ impl Genesis {
         hasher.finalize()
     }
 
-    /// Returns number of records in the genesis or path to records file.
-    pub fn records_len(&self) -> Result<usize, &Path> {
-        match &self.contents {
-            GenesisContents::Records { records } => Ok(records.0.len()),
-            GenesisContents::RecordsFile { records_file } => Err(&records_file),
-        }
-    }
-
     /// If records vector is empty processes records stream from records_file.
     /// May panic if records_file is removed or is in wrong format.
     pub fn for_each_record(&self, mut callback: impl FnMut(&StateRecord)) {
@@ -633,6 +654,9 @@ impl Genesis {
                 stream_records_from_file(reader, callback_move)
                     .expect("error while streaming records");
             }
+            GenesisContents::StateRoots { .. } => {
+                unreachable!("Cannot iterate through records when genesis uses state roots");
+            }
         }
     }
 
@@ -651,6 +675,9 @@ impl Genesis {
                     GenesisContents::Records { records: GenesisRecords::from_file(records_file) };
             }
             GenesisContents::Records { .. } => {}
+            GenesisContents::StateRoots { .. } => {
+                unreachable!("Cannot iterate through records when genesis uses state roots");
+            }
         }
         match &mut self.contents {
             GenesisContents::Records { records } => records,
