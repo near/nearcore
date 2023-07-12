@@ -174,7 +174,7 @@ fn get_current_state(
     epoch_manager: Arc<dyn EpochManagerAdapter>,
 ) -> Result<Option<(EpochId, EpochHeight, CryptoHash)>, Error> {
     let was_last_epoch_dumped = match chain.store().get_state_sync_dump_progress(*shard_id) {
-        Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, .. })) => Some(epoch_id),
+        Ok(StateSyncDumpProgress::AllDumped { epoch_id, .. }) => Some(epoch_id),
         _ => None,
     };
 
