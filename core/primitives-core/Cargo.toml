@@ -45,4 +45,5 @@ nightly = [
   "protocol_feature_simple_nightshade_v2",
 ]
 
-nightly_protocol = []
+nightly_protocol = [
+]
