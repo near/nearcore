@@ -126,8 +126,24 @@ pub use crate::qemu::QemuCommandBuilder;
 pub use crate::rocksdb::RocksDBTestConfig;
 
 static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
+    (Cost::Bls12381G1SumBase, bls12381_g1_sum_base),
+    (Cost::Bls12381G1SumElement, bls12381_g1_sum_element),
+    (Cost::Bls12381G2SumBase, bls12381_g2_sum_base),
+    (Cost::Bls12381G2SumElement, bls12381_g2_sum_element),
+    (Cost::Bls12381G1MultiexpBase, bls12381_g1_multiexp_base),
+    (Cost::Bls12381G1MultiexpElement, bls12381_g1_multiexp_element),
+    (Cost::Bls12381G1MultiexpElementDivLog, bls12381_g1_multiexp_element_div_log),
+    (Cost::Bls12381G2MultiexpBase, bls12381_g2_multiexp_base),
+    (Cost::Bls12381G2MultiexpElement, bls12381_g2_multiexp_element),
+    (Cost::Bls12381G2MultiexpElementDivLog, bls12381_g2_multiexp_element_div_log),
+    (Cost::Bls12381MapFpToG1Base, bls12381_map_fp_to_g1_base),
+    (Cost::Bls12381MapFp2ToG2Base, bls12381_map_fp2_to_g2_base),
+    (Cost::Bls12381PairingBase, bls12381_pairing_base),
+    (Cost::Bls12381PairingElement, bls12381_pairing_element),
     (Cost::Bls12381G1DecompressBase, bls12381_g1_decompress_base),
     (Cost::Bls12381G1DecompressElement, bls12381_g1_decompress_element),
+    (Cost::Bls12381G2DecompressBase, bls12381_g2_decompress_base),
+    (Cost::Bls12381G2DecompressElement, bls12381_g2_decompress_element),
     (Cost::ActionReceiptCreation, action_receipt_creation),
     (Cost::ActionSirReceiptCreation, action_sir_receipt_creation),
     (Cost::ActionReceiptCreationSendSir, action_costs::new_action_receipt_send_sir),
@@ -1058,6 +1074,62 @@ fn alt_bn128_pairing_check_element(ctx: &mut EstimatorContext) -> GasCost {
     )
 }
 
+fn bls12381_g1_sum_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_g1_sum_1_100", ExtCosts::bls12381_g1_sum_base, 100)
+}
+
+fn bls12381_g1_sum_element(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_g1_sum_1_100", ExtCosts::bls12381_g1_sum_element, 100)
+}
+
+fn bls12381_g2_sum_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_g2_sum_1_100", ExtCosts::bls12381_g2_sum_base, 100)
+}
+
+fn bls12381_g2_sum_element(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_g2_sum_1_100", ExtCosts::bls12381_g2_sum_element, 100)
+}
+
+fn bls12381_g1_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_g1_multiexp_1_100", ExtCosts::bls12381_g1_multiexp_base, 100)
+}
+
+fn bls12381_g1_multiexp_element(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_g1_multiexp_1_100", ExtCosts::bls12381_g1_multiexp_element, 100)
+}
+
+fn bls12381_g1_multiexp_element_div_log(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_g1_multiexp_1_100", ExtCosts::bls12381_g1_multiexp_element_div_log, 100)
+}
+
+fn bls12381_g2_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_g2_multiexp_1_100", ExtCosts::bls12381_g2_multiexp_base, 100)
+}
+
+fn bls12381_g2_multiexp_element(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_g2_multiexp_1_100", ExtCosts::bls12381_g2_multiexp_element, 100)
+}
+
+fn bls12381_g2_multiexp_element_div_log(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_g2_multiexp_1_100", ExtCosts::bls12381_g2_multiexp_element_div_log, 100)
+}
+
+fn bls12381_map_fp_to_g1_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_map_fp_to_g1_1_100", ExtCosts::bls12381_map_fp_to_g1_base, 100)
+}
+
+fn bls12381_map_fp2_to_g2_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_map_fp2_to_g2_1_100", ExtCosts::bls12381_map_fp2_to_g2_base, 100)
+}
+
+fn bls12381_pairing_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_pairing_1_100", ExtCosts::bls12381_pairing_base, 100)
+}
+
+fn bls12381_pairing_element(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_pairing_1_100", ExtCosts::bls12381_pairing_element, 100)
+}
+
 fn bls12381_g1_decompress_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_g1_decompress_1_100", ExtCosts::bls12381_g1_decompress_base, 100)
 }
@@ -1065,6 +1137,15 @@ fn bls12381_g1_decompress_base(ctx: &mut EstimatorContext) -> GasCost {
 fn bls12381_g1_decompress_element(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_g1_decompress_500_100", ExtCosts::bls12381_g1_decompress_element, 50000)
 }
+
+fn bls12381_g2_decompress_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_g2_decompress_1_100", ExtCosts::bls12381_g2_decompress_base, 100)
+}
+
+fn bls12381_g2_decompress_element(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "bls12381_g2_decompress_1_100", ExtCosts::bls12381_g2_decompress_element, 100)
+}
+
 
 fn storage_has_key_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(

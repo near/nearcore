@@ -899,6 +899,91 @@ impl<'a> VMLogic<'a> {
         Ok(res as u64)
     }
 
+    pub fn bls12381_g1_sum(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<()> {
+        self.gas_counter.pay_base(bls12381_g1_sum_base)?;
+        self.gas_counter.pay_base(bls12381_g1_sum_element)?;
+
+        //TODO
+        return Ok(());
+    }
+
+    pub fn bls12381_g2_sum(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<()> {
+        self.gas_counter.pay_base(bls12381_g2_sum_base)?;
+        self.gas_counter.pay_base(bls12381_g2_sum_element)?;
+
+        //TODO
+        return Ok(());
+    }
+
+    pub fn bls12381_g1_multiexp(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<()> {
+        self.gas_counter.pay_base(bls12381_g1_multiexp_base)?;
+        self.gas_counter.pay_base(bls12381_g1_multiexp_element)?;
+        self.gas_counter.pay_base(bls12381_g1_multiexp_element_div_log)?;
+
+        //TODO
+        return Ok(());
+    }
+
+    pub fn bls12381_g2_multiexp(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<()> {
+        self.gas_counter.pay_base(bls12381_g2_multiexp_base)?;
+        self.gas_counter.pay_base(bls12381_g2_multiexp_element)?;
+        self.gas_counter.pay_base(bls12381_g2_multiexp_element_div_log)?;
+
+        //TODO
+        return Ok(());
+    }
+
+    pub fn bls12381_map_fp_to_g1(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<()> {
+        self.gas_counter.pay_base(bls12381_map_fp_to_g1_base)?;
+        //TODO
+        return Ok(());
+    }
+
+    pub fn bls12381_map_fp2_to_g2(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<()> {
+        self.gas_counter.pay_base(bls12381_map_fp2_to_g2_base)?;
+        //TODO
+        return Ok(());
+    }
+
+    pub fn bls12381_pairing_check(&mut self,
+                                  value_len: u64,
+                                  value_ptr: u64) -> Result<u64> {
+        self.gas_counter.pay_base(bls12381_pairing_base)?;
+        self.gas_counter.pay_base(bls12381_pairing_element)?;
+        //TODO
+        return Ok(0);
+    }
+
     pub fn bls12381_g1_decompress(
         &mut self,
         value_len: u64,
@@ -921,6 +1006,18 @@ impl<'a> VMLogic<'a> {
         }
 
         self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res)
+    }
+
+    pub fn bls12381_g2_decompress(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<()> {
+        self.gas_counter.pay_base(bls12381_g2_decompress_base)?;
+        self.gas_counter.pay_base(bls12381_g2_decompress_element)?;
+        //TODO
+        return Ok(());
     }
 
     /// Writes random seed into the register.
