@@ -1,4 +1,4 @@
-use std::collections::btree_map::Entry;
+use std::collections::btree_map::{Entry, Keys};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use crate::types::{PoolIterator, PoolKey, TransactionGroup};
@@ -8,7 +8,7 @@ use near_o11y::metrics::prometheus::core::{AtomicI64, GenericGauge};
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, Nonce};
 use std::ops::Bound;
 
 mod metrics;
@@ -29,7 +29,7 @@ pub struct TransactionPool {
     /// Transactions are grouped by a pair of (account ID, signer public key).
     /// NOTE: It's more efficient on average to keep transactions unsorted and with potentially
     /// conflicting nonce than to create a BTreeMap for every transaction.
-    transactions: BTreeMap<PoolKey, Vec<SignedTransaction>>,
+    transactions: BTreeMap<PoolKey, BTreeMap<Nonce, SignedTransaction>>,
     /// Set of all hashes to quickly check if the given transaction is in the pool.
     unique_transactions: HashSet<CryptoHash>,
     /// A uniquely generated key seed to randomize PoolKey order.
@@ -105,10 +105,11 @@ impl TransactionPool {
         self.total_transaction_size = new_total_transaction_size;
         let signer_id = &signed_transaction.transaction.signer_id;
         let signer_public_key = &signed_transaction.transaction.public_key;
+        // TODO(akashin): Check that there was no new value inserted.
         self.transactions
             .entry(self.key(signer_id, signer_public_key))
-            .or_insert_with(Vec::new)
-            .push(signed_transaction);
+            .or_insert_with(BTreeMap::new)
+            .insert(signed_transaction.transaction.nonce, signed_transaction);
 
         self.transaction_pool_count_metric.inc();
         self.transaction_pool_size_metric.set(self.total_transaction_size as i64);
@@ -127,39 +128,18 @@ impl TransactionPool {
     /// In practice, used to evict transactions that have already been included into the block or
     /// became invalid.
     pub fn remove_transactions(&mut self, transactions: &[SignedTransaction]) {
-        let mut grouped_transactions = HashMap::new();
         for tx in transactions {
             // If transaction is not present in the pool, skip it.
+            // TODO(akashin): We don't really need this.
             if !self.unique_transactions.remove(&tx.get_hash()) {
                 continue;
             }
+            self.total_transaction_size -= tx.get_size();
 
-            let signer_id = &tx.transaction.signer_id;
-            let signer_public_key = &tx.transaction.public_key;
-            grouped_transactions
-                .entry(self.key(signer_id, signer_public_key))
-                .or_insert_with(HashSet::new)
-                .insert(tx.get_hash());
+            let key = self.key(&tx.transaction.signer_id, &tx.transaction.public_key);
+            self.transactions.get_mut(&key).expect("transaction group not found").remove(&tx.transaction.nonce).expect("transaction not found");
         }
-        for (key, hashes) in grouped_transactions {
-            if let Entry::Occupied(mut entry) = self.transactions.entry(key) {
-                entry.get_mut().retain(|tx| {
-                    if !hashes.contains(&tx.get_hash()) {
-                        return true;
-                    }
-                    // See the comment above where we increase the size for reasoning why panicing
-                    // here catches a logic error.
-                    self.total_transaction_size = self
-                        .total_transaction_size
-                        .checked_sub(tx.get_size())
-                        .expect("Total transaction size dropped below zero");
-                    false
-                });
-                if entry.get().is_empty() {
-                    entry.remove_entry();
-                }
-            }
-        }
+        self.transactions.retain(|_key, group| !group.is_empty());
 
         // We can update metrics only once for the whole batch of transactions.
         self.transaction_pool_count_metric.set(self.unique_transactions.len() as i64);
@@ -191,6 +171,40 @@ pub struct PoolIteratorWrapper<'a> {
 impl<'a> PoolIteratorWrapper<'a> {
     pub fn new(pool: &'a mut TransactionPool) -> Self {
         Self { pool, sorted_groups: Default::default() }
+    }
+}
+
+pub struct NewPoolIterator<'a> {
+    pool: &'a TransactionPool,
+    key_iter: Keys<'a, PoolKey, BTreeMap<Nonce, SignedTransaction>>,
+    key_progress: BTreeMap<PoolKey, Keys<'a, Nonce, SignedTransaction>>
+}
+
+impl<'a> NewPoolIterator<'a> {
+    pub fn new(pool: &'a TransactionPool) -> Self { Self { 
+        pool,
+        key_iter: pool.transactions.keys(),
+        key_progress: pool.transactions.iter().map(|(key, value)| (*key, value.keys())).collect(),
+    } }
+}
+
+impl<'a> Iterator for NewPoolIterator<'a> {
+    type Item = &'a SignedTransaction;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(key) = self.key_iter.next() {
+            if let Some(nonce) = self.key_progress
+                .get_mut(key).expect("key must exist")
+                .next() {
+                return Some(self.pool.transactions.get(key).expect("").get(nonce).expect(""));
+            } else {
+                // TODO: Remove key.
+            }
+            return None;
+        } else {
+            // TODO: Refresh key iter.
+            None
+        }
     }
 }
 
@@ -228,12 +242,11 @@ impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
                         .expect("we've just checked that the map is not empty")
                 });
             self.pool.last_used_key = key;
-            let mut transactions =
+            let transactions =
                 self.pool.transactions.remove(&key).expect("just checked existence");
-            transactions.sort_by_key(|st| std::cmp::Reverse(st.transaction.nonce));
             self.sorted_groups.push_back(TransactionGroup {
                 key,
-                transactions,
+                transactions: transactions.values().rev().cloned().collect(),
                 removed_transaction_hashes: vec![],
                 removed_transaction_size: 0,
             });
@@ -284,7 +297,7 @@ impl<'a> Drop for PoolIteratorWrapper<'a> {
                 .expect("Total transaction size dropped below zero");
 
             if !group.transactions.is_empty() {
-                self.pool.transactions.insert(group.key, group.transactions);
+                self.pool.transactions.insert(group.key, group.transactions.iter().map(|tx| (tx.transaction.nonce, tx.clone())).collect());
             }
         }
         // We can update metrics only once for the whole batch of transactions.
