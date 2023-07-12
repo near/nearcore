@@ -18,7 +18,7 @@ steps:
   - label: "cargo test integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      cargo install cargo-nextest
+      cargo install cargo-nextest cargo-deny
       cargo nextest run --locked -p 'integration-tests'
 
     agents:
@@ -29,7 +29,7 @@ steps:
   - label: "cargo test not integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      cargo install cargo-nextest
+      cargo install cargo-nextest cargo-deny
       cargo nextest run --locked --workspace -p '*' --exclude 'integration-tests*'
 
     agents:
@@ -40,7 +40,7 @@ steps:
   - label: "cargo test nightly integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      cargo install cargo-nextest
+      cargo install cargo-nextest cargo-deny
       cargo nextest run --features nightly,test_features -p 'integration-tests'
 
     agents:
@@ -51,7 +51,7 @@ steps:
   - label: "cargo test nightly not integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      cargo install cargo-nextest
+      cargo install cargo-nextest cargo-deny
       cargo nextest run --workspace --features nightly,test_features,mock_node -p '*' --exclude 'integration-tests*'
       cargo test --doc
 
@@ -64,12 +64,8 @@ steps:
     command: |
       source ~/.cargo/env && set -eux
       rustc --version && cargo --version
-      cargo install cargo-deny
       cargo run -p themis --release
-      if [ -e deny.toml ]; then
-        cargo-deny --all-features check bans
-      fi
-      cargo check --workspace --all-targets --all-features
+
       cargo check -p neard --features test_features
       cargo check -p neard --features sandbox
 
@@ -92,8 +88,6 @@ steps:
       python3 scripts/fix_nightly_feature_flags.py
 
       ./scripts/formatting --check
-
-      ./scripts/run_clippy.sh
 
       rm target/rpc_errors_schema.json
       cargo check -p near-jsonrpc --features dump_errors_schema
