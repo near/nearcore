@@ -15,7 +15,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::ProtocolVersion;
 use near_store::{get, get_account, get_postponed_receipt, TrieAccess, TrieUpdate};
-use near_vm_logic::ActionCosts;
+use near_vm_runner::logic::ActionCosts;
 use std::collections::HashSet;
 
 /// Returns delayed receipts with given range of indices.

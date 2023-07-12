@@ -11,7 +11,7 @@ use serde_with::serde_as;
 use std::borrow::Borrow;
 use std::fmt;
 
-pub use near_vm_logic::DataReceiver;
+pub use near_vm_runner::logic::DataReceiver;
 
 /// Receipts are used for a cross-shard communication.
 /// Receipts could be 2 types (determined by a `ReceiptEnum`): `ReceiptEnum::Action` of `ReceiptEnum::Data`.

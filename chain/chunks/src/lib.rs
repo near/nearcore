@@ -2137,7 +2137,10 @@ mod test {
             parts
         };
         let requested_parts = collect_request_parts(&mut fixture);
-        assert_eq!(requested_parts, (1..fixture.mock_chunk_parts.len() as u64).collect());
+        assert_eq!(
+            requested_parts,
+            (1..fixture.mock_chunk_parts.len() as u64).collect::<HashSet<_>>()
+        );
 
         // process chunk part 1
         let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&[1]);
@@ -2151,7 +2154,10 @@ mod test {
         shards_manager.resend_chunk_requests();
 
         let requested_parts = collect_request_parts(&mut fixture);
-        assert_eq!(requested_parts, (2..fixture.mock_chunk_parts.len() as u64).collect());
+        assert_eq!(
+            requested_parts,
+            (2..fixture.mock_chunk_parts.len() as u64).collect::<HashSet<_>>()
+        );
 
         // immediately resend chunk requests
         // this should not send any new requests because it doesn't pass the time check

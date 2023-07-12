@@ -1,7 +1,7 @@
 use crate::node::{Node, RuntimeNode};
 use near_primitives::errors::{ActionError, ActionErrorKind};
 use near_primitives::views::FinalExecutionStatus;
-use near_vm_logic::errors::FunctionCallErrorSer;
+use near_vm_runner::logic::errors::FunctionCallErrorSer;
 use std::mem::size_of;
 
 use assert_matches::assert_matches;

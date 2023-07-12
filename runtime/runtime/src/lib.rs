@@ -45,8 +45,8 @@ use near_store::{
     StorageError, Trie, TrieChanges, TrieUpdate,
 };
 use near_store::{set_access_key, set_code};
-use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{ActionCosts, ReturnData};
+use near_vm_runner::logic::types::PromiseResult;
+use near_vm_runner::logic::{ActionCosts, ReturnData};
 pub use near_vm_runner::with_ext_cost_counter;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
@@ -1548,7 +1548,7 @@ mod tests {
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_tries;
     use near_store::{set_access_key, ShardTries, StoreCompiledContractCache};
-    use near_vm_logic::{ExtCosts, ParameterCost};
+    use near_vm_runner::logic::{ExtCosts, ParameterCost};
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use super::*;

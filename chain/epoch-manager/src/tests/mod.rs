@@ -1084,11 +1084,11 @@ fn test_expected_chunks() {
     assert_eq!(
         epoch_info.validator_kickout(),
         &[(
-            "test1".parse().unwrap(),
+            "test1".parse::<AccountId>().unwrap(),
             ValidatorKickoutReason::NotEnoughBlocks { produced: 0, expected }
         )]
         .into_iter()
-        .collect()
+        .collect::<HashMap<_, _>>()
     );
 }
 
@@ -1169,7 +1169,7 @@ fn test_expected_chunks_prev_block_not_produced() {
             ValidatorKickoutReason::NotEnoughBlocks { produced: 0, expected }
         )]
         .into_iter()
-        .collect()
+        .collect::<HashMap<_, _>>()
     );
 }
 
@@ -1274,7 +1274,7 @@ fn test_epoch_info_aggregator_data_loss() {
         ]
         .into_iter()
         .map(|p| (p.account_id().clone(), p))
-        .collect()
+        .collect::<BTreeMap<_, _>>()
     );
 }
 
@@ -2043,7 +2043,7 @@ fn check_kickout(epoch_info: &EpochInfo, reasons: &[(&str, ValidatorKickoutReaso
     let kickout = reasons
         .into_iter()
         .map(|(account, reason)| (account.parse().unwrap(), reason.clone()))
-        .collect();
+        .collect::<HashMap<_, _>>();
     assert_eq!(epoch_info.validator_kickout(), &kickout);
 }
 

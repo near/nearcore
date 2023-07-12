@@ -11,8 +11,8 @@ pub use self::global::Global;
 pub use self::memory::Memory;
 pub use self::table::Table;
 
-use crate::sys::exports::Exportable;
-use crate::sys::store::{Store, StoreObject};
+use super::exports::Exportable;
+use super::store::{Store, StoreObject};
 use near_vm_vm::Export;
 use std::fmt;
 

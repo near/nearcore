@@ -1,8 +1,8 @@
 use super::test_builder::test_builder;
+use crate::logic::VMConfig;
 use crate::prepare::prepare_contract;
 use crate::tests::with_vm_variants;
 use expect_test::expect;
-use near_vm_logic::VMConfig;
 
 static SIMD: &str = r#"
 (module

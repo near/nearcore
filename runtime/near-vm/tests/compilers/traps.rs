@@ -1,4 +1,5 @@
 use anyhow::Result;
+use near_vm_engine::RuntimeError;
 use near_vm_test_api::*;
 use std::panic::{self, AssertUnwindSafe};
 
