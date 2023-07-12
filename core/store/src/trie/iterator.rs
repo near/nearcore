@@ -343,7 +343,6 @@ impl<'a> TrieIterator<'a> {
 
         // Actually (self.key_nibbles[..] == path_begin) always because path_begin always ends in a node
         if &self.key_nibbles[..] >= path_begin {
-            let (_, node) = self.trie.retrieve_node(&last_hash)?;
             nodes_list.push(TrieTraversalItem {
                 hash: last_hash,
                 key: self.has_value().then(|| self.key()),
@@ -366,7 +365,6 @@ impl<'a> TrieIterator<'a> {
                         break;
                     }
                     self.descend_into_node(&hash)?;
-                    let (_, node) = self.trie.retrieve_node(&hash)?;
                     nodes_list.push(TrieTraversalItem { hash, key: None });
                 }
                 IterStep::Continue => {}
