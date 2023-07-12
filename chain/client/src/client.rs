@@ -2125,7 +2125,6 @@ impl Client {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
             let network_adapter1 = self.network_adapter.clone();
 
-            let use_colour = matches!(self.config.log_summary_style, LogSummaryStyle::Colored);
             let new_shard_sync = {
                 let prev_hash = *self.chain.get_block(&sync_hash)?.header().prev_hash();
                 let need_to_split_states =
@@ -2155,7 +2154,8 @@ impl Client {
                             }
                         })
                         .collect();
-                    debug!(target: "catchup", progress_per_shard = ?format_shard_sync_phase_per_shard(&new_shard_sync, use_colour), "Need to split states for shards");
+                    // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
+                    debug!(target: "catchup", progress_per_shard = ?format_shard_sync_phase_per_shard(&new_shard_sync, false), "Need to split states for shards");
                     new_shard_sync
                 } else {
                     debug!(target: "catchup", "do not need to split states for shards");
@@ -2178,8 +2178,10 @@ impl Client {
                     )
                 });
 
-            debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&new_shard_sync, use_colour), "Catchup");
+            // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
+            debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&new_shard_sync, false), "Catchup");
 
+            let use_colour = matches!(self.config.log_summary_style, LogSummaryStyle::Colored);
             match state_sync.run(
                 me,
                 sync_hash,
