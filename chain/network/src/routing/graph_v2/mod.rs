@@ -39,7 +39,7 @@ pub enum NetworkTopologyChange {
 /// Locally stored properties of a received network_protocol::DistanceVector message
 struct PeerDistances {
     /// Advertised distances indexed by the local EdgeCache's peer to id mapping.
-    pub distance: Vec<i32>,
+    pub distance: Vec<Option<u32>>,
     /// The lowest nonce among all edges used to validate the distances.
     /// For simplicity, used to expire the entire distance vector at once.
     pub min_nonce: u64,
@@ -124,16 +124,16 @@ impl Inner {
     /// If `tree_edges` contain some previously unseen peers, new ids are allocated for them.
     ///
     /// For each node in the tree, `distance` indicates the length of the path
-    /// from the root to the node. Nodes outside the tree have distance -1.
+    /// from the root to the node. Nodes outside the tree have distance None.
     ///
     /// For each node in the tree, `first_step` indicates the root's neighbor on the path
     /// from the root to the node. The root of the tree, as well as any nodes outside
-    /// the tree, have a first_step of -1.
+    /// the tree, have a first_step of None.
     pub(crate) fn calculate_tree_distances(
         &mut self,
         root: &PeerId,
         tree_edges: &Vec<Edge>,
-    ) -> Option<(Vec<i32>, Vec<i32>)> {
+    ) -> Option<(Vec<Option<u32>>, Vec<Option<u32>>)> {
         // Prepare for graph traversal by ensuring all PeerIds in the tree have a u32 label
         self.edge_cache.create_ids_for_tree(root, tree_edges);
 
@@ -148,27 +148,24 @@ impl Inner {
         }
 
         // Compute distances from the root by breadth-first search
-        let mut distance: Vec<i32> = vec![-1; self.edge_cache.max_id()];
-        let mut first_step: Vec<i32> = vec![-1; self.edge_cache.max_id()];
+        let mut distance: Vec<Option<u32>> = vec![None; self.edge_cache.max_id()];
+        let mut first_step: Vec<Option<u32>> = vec![None; self.edge_cache.max_id()];
         {
             let root_id = self.edge_cache.get_id(root);
             let mut queue = VecDeque::new();
             queue.push_back(root_id);
-            distance[root_id as usize] = 0;
+            distance[root_id as usize] = Some(0);
 
             while let Some(cur_peer) = queue.pop_front() {
                 let cur_peer = cur_peer as usize;
-                let cur_distance = distance[cur_peer];
+                // The unwrap here is safe because anything pushed to the queue has a distance
+                let cur_distance = distance[cur_peer].unwrap();
 
                 for &neighbor in &adjacency[cur_peer] {
                     let neighbor = neighbor as usize;
-                    if distance[neighbor] == -1 {
-                        distance[neighbor] = cur_distance + 1;
-                        first_step[neighbor] = if (cur_peer as u32) == root_id {
-                            neighbor as i32
-                        } else {
-                            first_step[cur_peer]
-                        };
+                    if distance[neighbor].is_none() {
+                        distance[neighbor] = Some(cur_distance + 1);
+                        first_step[neighbor] = first_step[cur_peer].or(Some(neighbor as u32));
                         queue.push_back(neighbor as u32);
                     }
                 }
@@ -178,7 +175,7 @@ impl Inner {
         // Check that the edges in `tree_edges` actually form a tree containing `root`
         let mut num_reachable_nodes = 0;
         for &dist in &distance {
-            if dist != -1 {
+            if dist.is_some() {
                 num_reachable_nodes += 1;
             }
         }
@@ -199,7 +196,7 @@ impl Inner {
     pub(crate) fn validate_routing_distances(
         &mut self,
         distance_vector: &network_protocol::DistanceVector,
-    ) -> Option<Vec<i32>> {
+    ) -> Option<Vec<Option<u32>>> {
         // A valid DistanceVector must contain distinct, correctly signed edges
         let original_len = distance_vector.edges.len();
         let edges = Edge::deduplicate(distance_vector.edges.clone());
@@ -212,19 +209,19 @@ impl Inner {
         let (tree_distance, first_step) = tree_traversal?;
 
         // Verify that the advertised distances are corroborated by the spanning tree distances
-        let mut advertised_distances: Vec<i32> = vec![-1; self.edge_cache.max_id()];
+        let mut advertised_distances: Vec<Option<u32>> = vec![None; self.edge_cache.max_id()];
         for entry in &distance_vector.distances {
             let destination_id = self.edge_cache.get_or_create_id(&entry.destination) as usize;
-            advertised_distances[destination_id] = entry.distance as i32;
+            advertised_distances[destination_id] = Some(entry.distance);
         }
         let mut consistent = true;
         for id in 0..self.edge_cache.max_id() {
-            if advertised_distances[id] == -1 {
-                consistent &= tree_distance[id] == -1;
-            } else {
+            if let Some(advertised_distance) = advertised_distances[id] {
                 // The tree must have a route, but it can be shorter than the advertised distance
-                consistent &= tree_distance[id] != -1;
-                consistent &= tree_distance[id] <= advertised_distances[id];
+                consistent &= tree_distance[id]
+                    .is_some_and(|tree_distance| tree_distance <= advertised_distance);
+            } else {
+                consistent &= tree_distance[id].is_none();
             }
         }
         // After this point, we know that the DistanceVector message is valid
@@ -236,8 +233,10 @@ impl Inner {
         // sense to forward a message to a neighbor who will send it back to us
         let local_node_id = self.edge_cache.get_local_node_id() as usize;
         for id in 0..self.edge_cache.max_id() {
-            if first_step[id] == local_node_id as i32 && id != local_node_id {
-                advertised_distances[id] = -1;
+            if id != local_node_id
+                && first_step[id].is_some_and(|first_step| first_step == local_node_id as u32)
+            {
+                advertised_distances[id] = None;
             }
         }
 
@@ -251,13 +250,13 @@ impl Inner {
     fn store_validated_peer_distances(
         &mut self,
         distance_vector: &network_protocol::DistanceVector,
-        mut advertised_distances: Vec<i32>,
+        mut advertised_distances: Vec<Option<u32>>,
     ) -> bool {
         let local_node_id = self.edge_cache.get_local_node_id() as usize;
 
         // A direct peer's distance vector which advertises an indirect path to the local node
         // is outdated and can be ignored.
-        if advertised_distances[local_node_id] > 1 {
+        if advertised_distances[local_node_id].is_some_and(|distance| distance > 1) {
             // TODO(saketh): We could try to be more clever here and do some surgery on the tree
             // to replace the indirect path and speed up convergence of the routing protocol.
             return false;
@@ -291,9 +290,13 @@ impl Inner {
         // If the spanning tree doesn't already include the direct edge, add it
         let mut spanning_tree = distance_vector.edges.clone();
         if tree_edge.is_none() {
-            debug_assert!(advertised_distances[local_node_id] == -1);
+            if !advertised_distances[local_node_id].is_none() {
+                debug_assert!(false);
+                return false;
+            }
+
             spanning_tree.push(local_edge.clone());
-            advertised_distances[local_node_id] = 1;
+            advertised_distances[local_node_id] = Some(1);
         }
 
         // .min().unwrap() is safe here because the tree is now guaranteed to at least
@@ -435,19 +438,20 @@ impl Inner {
         let local_node_id = self.edge_cache.get_local_node_id() as usize;
 
         // Calculate the min distance to each routable node
-        let mut min_distance: Vec<i32> = vec![-1; max_id];
-        min_distance[local_node_id] = 0;
+        let mut min_distance: Vec<Option<u32>> = vec![None; max_id];
+        min_distance[local_node_id] = Some(0);
         for (_, entry) in &mut self.peer_distances {
             // The peer to id mapping in the edge_cache is dynamic. We can still use previous distance
             // calculations because a node incident to an active edge won't be relabelled. However,
             // we may need to resize the distance vector.
-            entry.distance.resize(max_id, -1);
+            entry.distance.resize(max_id, None);
 
             for id in 0..max_id {
-                if entry.distance[id] != -1 {
-                    let available_distance = entry.distance[id] + 1;
-                    if min_distance[id] == -1 || available_distance < min_distance[id] {
-                        min_distance[id] = available_distance;
+                if let Some(peer_distance) = entry.distance[id] {
+                    if !min_distance[id]
+                        .is_some_and(|min_distance| min_distance <= peer_distance + 1)
+                    {
+                        min_distance[id] = Some(peer_distance + 1);
                     }
                 }
             }
@@ -456,9 +460,11 @@ impl Inner {
         // Compute the next hop table
         let mut next_hops_by_id: Vec<Vec<PeerId>> = vec![vec![]; self.edge_cache.max_id()];
         for id in 0..max_id {
-            if min_distance[id] != -1 {
+            if let Some(id_distance) = min_distance[id] {
                 for (peer_id, entry) in &self.peer_distances {
-                    if entry.distance[id] != -1 && entry.distance[id] + 1 == min_distance[id] {
+                    if entry.distance[id]
+                        .is_some_and(|peer_distance| peer_distance + 1 == id_distance)
+                    {
                         next_hops_by_id[id].push(peer_id.clone());
                     }
                 }
@@ -474,8 +480,8 @@ impl Inner {
         // Build a PeerId-keyed map of distances
         let mut distance: HashMap<PeerId, u32> = HashMap::new();
         for (peer_id, id) in self.edge_cache.iter_peers() {
-            if min_distance[*id as usize] != -1 {
-                distance.insert(peer_id.clone(), min_distance[*id as usize] as u32);
+            if let Some(peer_distance) = min_distance[*id as usize] {
+                distance.insert(peer_id.clone(), peer_distance);
             }
         }
 

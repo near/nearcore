@@ -67,10 +67,10 @@ impl GraphV2 {
 
         assert_eq!(expected_distances, inner.my_distances);
 
-        let mut expected_distances_by_id: Vec<i32> = vec![-1; inner.edge_cache.max_id()];
+        let mut expected_distances_by_id: Vec<Option<u32>> = vec![None; inner.edge_cache.max_id()];
         for (peer_id, distance) in expected_distances.iter() {
             let id = inner.edge_cache.get_id(peer_id) as usize;
-            expected_distances_by_id[id] = *distance as i32;
+            expected_distances_by_id[id] = Some(*distance);
         }
 
         assert_eq!(

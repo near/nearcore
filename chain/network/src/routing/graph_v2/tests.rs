@@ -11,7 +11,7 @@ use std::sync::Arc;
 // Calls `calculate_tree_distances` on the given `root` and `edges`.
 // Verifies that the calculated distances and first steps match those in `expected`.
 fn verify_calculate_tree_distances(
-    expected: Option<HashMap<PeerId, (i32, Option<PeerId>)>>,
+    expected: Option<HashMap<PeerId, (u32, Option<PeerId>)>>,
     root: PeerId,
     edges: Vec<Edge>,
 ) {
@@ -27,26 +27,21 @@ fn verify_calculate_tree_distances(
             for (node, (expected_distance, expected_first_step)) in expected {
                 let id = inner.edge_cache.get_id(node) as usize;
 
+                // Map the expected first step to its internal label
+                let expected_first_step =
+                    expected_first_step.as_ref().map(|peer_id| inner.edge_cache.get_id(&peer_id));
+
                 // Expected distance should match the calculated one
-                assert_eq!(*expected_distance, distance[id]);
+                assert_eq!(*expected_distance, distance[id].unwrap());
 
                 // Expected first step should match the calculated one
-                match expected_first_step {
-                    Some(expected_first_step) => {
-                        assert!(
-                            first_step[id] == inner.edge_cache.get_id(&expected_first_step) as i32
-                        );
-                    }
-                    None => {
-                        assert!(first_step[id] == -1);
-                    }
-                }
+                assert_eq!(expected_first_step, first_step[id]);
             }
 
             // Make sure there are no unexpected entries
             let mut calculated_reachable_nodes = 0;
             for id in 0..inner.edge_cache.max_id() {
-                if distance[id] != -1 || first_step[id] != -1 {
+                if distance[id].is_some() || first_step[id].is_some() {
                     calculated_reachable_nodes += 1;
                 }
             }
@@ -98,6 +93,7 @@ fn calculate_tree_distances() {
         node0.clone(),
         vec![edge0.clone(), edge1.clone()],
     );
+    // Test again from root 1 in 0--1--2
     verify_calculate_tree_distances(
         Some(HashMap::from([
             (node0.clone(), (1, Some(node0.clone()))),
