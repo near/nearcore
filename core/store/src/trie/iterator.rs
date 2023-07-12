@@ -150,7 +150,6 @@ impl<'a> TrieIterator<'a> {
         loop {
             *prev_prefix_boundary = is_prefix_seek;
             self.descend_into_node(&hash)?;
-            tracing::debug!("in seek_nibble_slice");
             let Crumb { status, node, prefix_boundary } = self.trail.last_mut().unwrap();
             prev_prefix_boundary = prefix_boundary;
             match &node.node {
@@ -345,19 +344,6 @@ impl<'a> TrieIterator<'a> {
         // Actually (self.key_nibbles[..] == path_begin) always because path_begin always ends in a node
         if &self.key_nibbles[..] >= path_begin {
             let (_, node) = self.trie.retrieve_node(&last_hash)?;
-            let node_type = match node.node {
-                TrieNode::Empty => "Empty",
-                TrieNode::Branch(_, _) => "Branch",
-                TrieNode::Leaf(key, _) => {
-                    tracing::debug!("the leaf node key is {:?}", key);
-                    "leaf"
-                }
-                TrieNode::Extension(key, _) => {
-                    tracing::debug!("the Extension node key is {:?}", key);
-                    "Extension"
-                }
-            };
-            tracing::debug!("The first node being pushed is {}", node_type);
             nodes_list.push(TrieTraversalItem {
                 hash: last_hash,
                 key: self.has_value().then(|| self.key()),
@@ -381,19 +367,6 @@ impl<'a> TrieIterator<'a> {
                     }
                     self.descend_into_node(&hash)?;
                     let (_, node) = self.trie.retrieve_node(&hash)?;
-                    let node_type = match node.node {
-                        TrieNode::Empty => "Empty",
-                        TrieNode::Branch(_, _) => "Branch",
-                        TrieNode::Leaf(key, _) => {
-                            tracing::debug!("the leaf node key is {:?}", key);
-                            "leaf"
-                        }
-                        TrieNode::Extension(key, _) => {
-                            tracing::debug!("the Extension node key is {:?}", key);
-                            "Extension"
-                        }
-                    };
-                    tracing::debug!("The node being pushed is {}", node_type);
                     nodes_list.push(TrieTraversalItem { hash, key: None });
                 }
                 IterStep::Continue => {}
@@ -402,8 +375,6 @@ impl<'a> TrieIterator<'a> {
                         break;
                     }
                     self.trie.storage.retrieve_raw_bytes(&hash)?;
-                    let key = self.has_value().then(|| self.key());
-                    tracing::debug!("the pushed stuff has key {:?}", key);
                     nodes_list.push(TrieTraversalItem {
                         hash,
                         key: self.has_value().then(|| self.key()),
