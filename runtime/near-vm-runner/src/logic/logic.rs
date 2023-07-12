@@ -905,10 +905,20 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(bls12381_g1_sum_base)?;
-        self.gas_counter.pay_base(bls12381_g1_sum_element)?;
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
-        //TODO
-        return Ok(());
+        let mut res_pk = blst::min_pk::AggregatePublicKey::from_public_key(&blst::min_pk::PublicKey::default());
+
+        let elements_count = data.len()/96;
+        self.gas_counter.pay_per(bls12381_g1_sum_element, elements_count as u64)?;
+
+        for i in 0..elements_count {
+            let pk = blst::min_pk::PublicKey::from_bytes(&data[i*96..(i + 1)*96]).unwrap();
+            res_pk.add_public_key(&pk, false);
+        }
+
+        let res_ser = res_pk.to_public_key().serialize();
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res_ser.as_slice())
     }
 
     pub fn bls12381_g2_sum(
@@ -918,10 +928,20 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(bls12381_g2_sum_base)?;
-        self.gas_counter.pay_base(bls12381_g2_sum_element)?;
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
-        //TODO
-        return Ok(());
+        let mut res_pk = blst::min_sig::AggregatePublicKey::from_public_key(&blst::min_sig::PublicKey::default());
+
+        let elements_count = data.len()/192;
+        self.gas_counter.pay_per(bls12381_g2_sum_element, elements_count as u64)?;
+
+        for i in 0..elements_count {
+            let pk = blst::min_sig::PublicKey::from_bytes(&data[i*192..(i + 1)*192]).unwrap();
+            res_pk.add_public_key(&pk, false);
+        }
+
+        let res_ser = res_pk.to_public_key().serialize();
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res_ser.as_slice())
     }
 
     pub fn bls12381_g1_multiexp(

@@ -1075,19 +1075,19 @@ fn alt_bn128_pairing_check_element(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn bls12381_g1_sum_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_g1_sum_1_100", ExtCosts::bls12381_g1_sum_base, 100)
+    fn_cost(ctx, "bls12381_g1_sum_2_100", ExtCosts::bls12381_g1_sum_base, 100)
 }
 
 fn bls12381_g1_sum_element(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_g1_sum_1_100", ExtCosts::bls12381_g1_sum_element, 100)
+    fn_cost(ctx, "bls12381_g1_sum_500_100", ExtCosts::bls12381_g1_sum_element, 50000)
 }
 
 fn bls12381_g2_sum_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_g2_sum_1_100", ExtCosts::bls12381_g2_sum_base, 100)
+    fn_cost(ctx, "bls12381_g2_sum_2_100", ExtCosts::bls12381_g2_sum_base, 100)
 }
 
 fn bls12381_g2_sum_element(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_g2_sum_1_100", ExtCosts::bls12381_g2_sum_element, 100)
+    fn_cost(ctx, "bls12381_g2_sum_500_100", ExtCosts::bls12381_g2_sum_element, 50000)
 }
 
 fn bls12381_g1_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {
