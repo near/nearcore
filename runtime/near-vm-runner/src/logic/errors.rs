@@ -1,5 +1,4 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_account_id::AccountId;
 use near_rpc_error_macro::RpcError;
 use std::any::Any;
 use std::fmt::{self, Error, Formatter};
@@ -169,7 +168,7 @@ pub enum MethodResolveError {
 )]
 pub enum CompilationError {
     CodeDoesNotExist {
-        account_id: AccountId,
+        account_id: Box<str>,
     },
     PrepareError(PrepareError),
     /// This is for defense in depth.

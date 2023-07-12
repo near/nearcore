@@ -58,7 +58,7 @@ pub(crate) fn execute_function_call(
         Ok(Some(code)) => code,
         Ok(None) => {
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
-                account_id: account_id.clone(),
+                account_id: account_id.as_str().into(),
             });
             return Ok(VMOutcome::nop_outcome(error));
         }
