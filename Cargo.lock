@@ -3689,6 +3689,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-fork-network"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap 4.2.4",
+ "near-chain",
+ "near-chain-configs",
+ "near-crypto",
+ "near-epoch-manager",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+ "strum",
+ "tracing",
+]
+
+[[package]]
 name = "near-indexer"
 version = "0.0.0"
 dependencies = [
@@ -3945,10 +3963,12 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "atty",
+ "base64 0.21.0",
  "bencher",
  "clap 4.2.4",
  "itoa",
  "near-crypto",
+ "near-fmt",
  "near-primitives-core",
  "once_cell",
  "opentelemetry",
@@ -4330,6 +4350,7 @@ dependencies = [
  "anyhow",
  "arbitrary",
  "assert_matches",
+ "base64 0.21.0",
  "bolero",
  "borsh 0.10.2",
  "clap 4.2.4",
@@ -4341,7 +4362,6 @@ dependencies = [
  "memoffset 0.8.0",
  "near-account-id",
  "near-crypto",
- "near-fmt",
  "near-primitives",
  "near-primitives-core",
  "near-rpc-error-macro",
@@ -4559,6 +4579,7 @@ dependencies = [
  "near-database-tool",
  "near-dyn-configs",
  "near-flat-storage",
+ "near-fork-network",
  "near-jsonrpc-primitives",
  "near-mirror",
  "near-network",

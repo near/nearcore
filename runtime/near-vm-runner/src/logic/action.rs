@@ -1,6 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use near_fmt::AbbrBytes;
 use near_primitives_core::{
     account::AccessKey,
     serialize::dec_format,
@@ -9,6 +8,11 @@ use near_primitives_core::{
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::fmt;
+
+fn base64(s: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(s)
+}
 
 #[derive(
     BorshSerialize,
@@ -83,7 +87,7 @@ pub struct DeployContractAction {
 impl fmt::Debug for DeployContractAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DeployContractAction")
-            .field("code", &format_args!("{}", AbbrBytes(&self.code)))
+            .field("code", &format_args!("{}", base64(&self.code)))
             .finish()
     }
 }
@@ -105,7 +109,7 @@ impl fmt::Debug for FunctionCallAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FunctionCallAction")
             .field("method_name", &format_args!("{}", &self.method_name))
-            .field("args", &format_args!("{}", AbbrBytes(&self.args)))
+            .field("args", &format_args!("{}", base64(&self.args)))
             .field("gas", &format_args!("{}", &self.gas))
             .field("deposit", &format_args!("{}", &self.deposit))
             .finish()
