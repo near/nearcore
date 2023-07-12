@@ -71,6 +71,7 @@ delay_detector = [
   "near-network/delay_detector",
   "delay-detector/delay_detector",
 ]
+protocol_feature_block_header_v4 = ["near-primitives/protocol_feature_block_header_v4"]
 nightly_protocol = [
   "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
@@ -88,6 +89,7 @@ nightly_protocol = [
 ]
 nightly = [
   "nightly_protocol",
+  "protocol_feature_block_header_v4",
   "near-async/nightly",
   "near-chain-configs/nightly",
   "near-chain/nightly",
