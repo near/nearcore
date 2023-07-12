@@ -302,13 +302,17 @@ class NearNodeProxy:
     def account_exists(self, account_id: str) -> bool:
         return "error" not in self.node.get_account(account_id, do_assert=False)
 
-    def create_contract_account(self,
-                                funding_account: Account,
-                                key: key.Key,
-                                balance: int = 50000):
-        self.send_tx_retry(
-            CreateSubAccount(funding_account, key, balance=balance),
-            "create contract account")
+    def prepare_account(self, account: Account, parent: Account, balance: int,
+                        msg: str) -> bool:
+        """
+        Creates the account if it doesn't exist and refreshes the nonce.
+        """
+        exists = self.account_exists(account.key.account_id)
+        if not exists:
+            self.send_tx_retry(
+                CreateSubAccount(parent, account.key, balance=balance), msg)
+        account.refresh_nonce(self.node)
+        return exists
 
 
 class NearUser(User):
@@ -419,6 +423,15 @@ class SmartContractPanic(ReceiptError):
         super().__init__(status, receipt_id, message)
 
 
+class FunctionExecutionError(ReceiptError):
+
+    def __init__(self,
+                 status,
+                 receipt_id,
+                 message="Smart contract function execution failed"):
+        super().__init__(status, receipt_id, message)
+
+
 def evaluate_rpc_result(rpc_result):
     """
     Take the json RPC response and translate it into success
@@ -464,6 +477,11 @@ def evaluate_rpc_result(rpc_result):
                 raise SmartContractPanic(receipt["outcome"],
                                          receipt["id"],
                                          message=panic_msg)
+            exec_failed = as_execution_error(failure)
+            if exec_failed:
+                raise FunctionExecutionError(receipt["outcome"],
+                                             receipt["id"],
+                                             message=exec_failed)
             raise ReceiptError(receipt["outcome"], receipt["id"])
         if not status in ["SuccessReceiptId", "SuccessValue"]:
             raise ReceiptError(receipt["outcome"],
@@ -557,12 +575,8 @@ def on_locust_init(environment, **kwargs):
         for id in range(num_funding_accounts):
             account_id = f"funds_worker_{id}.{master_funding_account.key.account_id}"
             worker_key = key.Key.from_seed_testonly(account_id)
-            if not node.account_exists(account_id):
-                node.send_tx_retry(
-                    CreateSubAccount(master_funding_account,
-                                     worker_key,
-                                     balance=funding_balance),
-                    "create funding account")
+            node.prepare_account(Account(worker_key), master_funding_account,
+                                 funding_balance, "create funding account")
         funding_account = master_funding_account
     elif isinstance(environment.runner, runners.WorkerRunner):
         worker_id = environment.runner.worker_index
