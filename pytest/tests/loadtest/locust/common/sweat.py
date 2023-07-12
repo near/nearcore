@@ -5,10 +5,13 @@ import locust
 import sys
 import pathlib
 from locust import events
+from collections import namedtuple
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
 import key
+
+RecipientSteps = namedtuple('RecipientSteps', ['account', 'steps'])
 
 
 class SweatContract(FTContract):
@@ -117,12 +120,12 @@ class SweatMintBatch(FunctionCall):
     """
 
     def __init__(self, sweat_id: str, oracle: Account,
-                 recipient_step_paris: list[list[str, int]]):
+                 recipient_step_pairs: list[RecipientSteps]):
         super().__init__(oracle, sweat_id, "record_batch")
-        self.recipient_step_paris = recipient_step_paris
+        self.recipient_step_pairs = recipient_step_pairs
 
     def args(self) -> dict:
-        return {"steps_batch": self.recipient_step_paris}
+        return {"steps_batch": self.recipient_step_pairs}
 
 
 @events.init.add_listener

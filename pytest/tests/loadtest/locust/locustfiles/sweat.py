@@ -11,7 +11,7 @@ This workload is similar to the FT workload with 2 major differences:
   - Periodic batches that adds steps (mints new tokens)
 """
 
-from common.sweat import SweatMintBatch
+from common.sweat import RecipientSteps, SweatMintBatch
 from common.ft import TransferFT
 from common.base import NearUser
 from locust import between, task
@@ -48,8 +48,10 @@ class SweatUser(NearUser):
                          len(self.sweat.registered_users))
         receivers = self.sweat.random_receivers(self.account_id, batch_size)
         tx = SweatMintBatch(
-            self.sweat.account.key.account_id, self.sweat.oracle,
-            [[account_id, rng.randint(1000, 3000)] for account_id in receivers])
+            self.sweat.account.key.account_id, self.sweat.oracle, [
+                RecipientSteps(account_id, steps=rng.randint(1000, 3000))
+                for account_id in receivers
+            ])
         self.send_tx(tx, locust_name="Sweat record batch")
 
     def on_start(self):

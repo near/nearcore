@@ -305,7 +305,7 @@ class NearNodeProxy:
     def prepare_account(self, account: Account, parent: Account, balance: int,
                         msg: str) -> bool:
         """
-        Create the account if it doesn't exist and refreshes the nonce.
+        Creates the account if it doesn't exist and refreshes the nonce.
         """
         exists = self.account_exists(account.key.account_id)
         if not exists:
