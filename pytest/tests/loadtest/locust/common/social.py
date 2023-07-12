@@ -268,10 +268,9 @@ def on_locust_init(environment, **kwargs):
         social_account = Account(contract_key)
 
         node = NearNodeProxy(environment)
-        if not node.account_exists(social_account.key.account_id):
-            node.create_contract_account(funding_account, social_account.key,
-                                         50000.0)
-            social_account.refresh_nonce(node.node)
+        existed = node.prepare_account(social_account, funding_account, 50000,
+                                       "create contract account")
+        if not existed:
             node.send_tx_retry(
                 Deploy(social_account, social_contract_code, "Social DB"),
                 "deploy socialDB contract")
