@@ -109,6 +109,16 @@ pub(crate) fn apply_chunk(
     )
     .context("Failed collecting incoming receipts")?;
 
+    if use_flat_storage {
+        let shard_uid =
+            epoch_manager.shard_id_to_uid(shard_id as u64, prev_block.header().epoch_id()).unwrap();
+        runtime
+            .get_flat_storage_manager()
+            .unwrap()
+            .create_flat_storage_for_shard(shard_uid)
+            .unwrap();
+    }
+
     let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
         chain_store,
         epoch_manager,

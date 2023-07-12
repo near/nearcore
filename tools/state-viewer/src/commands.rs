@@ -49,6 +49,13 @@ pub(crate) fn apply_block(
     let block = chain_store.get_block(&block_hash).unwrap();
     let height = block.header().height();
     let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
+    if use_flat_storage {
+        runtime
+            .get_flat_storage_manager()
+            .unwrap()
+            .create_flat_storage_for_shard(shard_uid)
+            .unwrap();
+    }
     let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
         let chunk = chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap();
         let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap();
