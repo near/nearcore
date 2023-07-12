@@ -1143,7 +1143,7 @@ fn bls12381_g2_decompress_base(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn bls12381_g2_decompress_element(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_g2_decompress_1_100", ExtCosts::bls12381_g2_decompress_element, 100)
+    fn_cost(ctx, "bls12381_g2_decompress_500_100", ExtCosts::bls12381_g2_decompress_element, 50000)
 }
 
 

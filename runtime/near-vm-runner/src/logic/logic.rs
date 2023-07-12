@@ -1022,7 +1022,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(bls12381_g2_decompress_element, elements_count as u64)?;
 
         for i in 0..elements_count {
-            let sig = blst::min_sig::Signature::uncompress(&data[i*96..(i + 1)*96]).unwrap();
+            let sig = blst::min_pk::Signature::uncompress(&data[i*96..(i + 1)*96]).unwrap();
             let sig_ser = sig.serialize();
 
             res.extend_from_slice(sig_ser.as_slice());
