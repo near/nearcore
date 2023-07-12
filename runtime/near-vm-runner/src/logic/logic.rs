@@ -7,7 +7,6 @@ use super::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use super::utils::split_method_names;
 use super::{HostError, VMLogicError};
 use super::{ReceiptMetadata, StorageGetMode, ValuePtr};
-use blst::min_pk::PublicKey;
 use near_crypto::Secp256K1Signature;
 use near_primitives_core::checked_feature;
 use near_primitives_core::config::ExtCosts::*;
@@ -999,7 +998,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(bls12381_g1_decompress_element, elements_count as u64)?;
 
         for i in 0..elements_count {
-            let pk = PublicKey::uncompress(&data[i*48..(i + 1)*48]).unwrap();
+            let pk = blst::min_pk::PublicKey::uncompress(&data[i*48..(i + 1)*48]).unwrap();
             let pk_ser = pk.serialize();
 
             res.extend_from_slice(pk_ser.as_slice());
@@ -1015,9 +1014,21 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(bls12381_g2_decompress_base)?;
-        self.gas_counter.pay_base(bls12381_g2_decompress_element)?;
-        //TODO
-        return Ok(());
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
+
+        let mut res = Vec::<u8>::new();
+
+        let elements_count = data.len()/96;
+        self.gas_counter.pay_per(bls12381_g2_decompress_element, elements_count as u64)?;
+
+        for i in 0..elements_count {
+            let sig = blst::min_sig::Signature::uncompress(&data[i*96..(i + 1)*96]).unwrap();
+            let sig_ser = sig.serialize();
+
+            res.extend_from_slice(sig_ser.as_slice());
+        }
+
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res)
     }
 
     /// Writes random seed into the register.
