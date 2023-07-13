@@ -2330,6 +2330,9 @@ impl Chain {
         timer.observe_duration();
         let _timer = CryptoHashTimer::new_with_start(*block.hash(), block_start_processing_time);
 
+
+        tracing::error!(?new_head, ?prev_head);
+        panic!("Block processed");
         self.check_orphans(
             me,
             *block.hash(),
