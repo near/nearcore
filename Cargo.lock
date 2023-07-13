@@ -4363,7 +4363,6 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "near-primitives-core",
- "near-rpc-error-macro",
  "near-stdx",
  "near-test-contracts",
  "near-vm-compiler",

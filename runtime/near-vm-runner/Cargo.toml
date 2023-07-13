@@ -39,9 +39,6 @@ wasmtime = { workspace = true, optional = true }
 near-crypto.workspace = true
 near-primitives-core.workspace = true
 
-# Does not affect protocol stability (is only used to generate information about code structure.)
-near-rpc-error-macro.workspace = true
-
 # Old versions of pwasm-utils we need to preserve backwards compatibility under
 # old protocol versions.
 pwasm-utils_12.workspace = true
@@ -126,8 +123,6 @@ nightly = [
 ]
 sandbox = []
 io_trace = []
-
-dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []
