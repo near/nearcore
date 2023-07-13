@@ -564,19 +564,14 @@ mod tests {
         ids.into_iter().map(|a| a.parse().unwrap()).collect()
     }
 
-    fn print_shard_layout(name: &str, shard_layout: &ShardLayout) {
-        println!("{name}");
-        println!("{}", serde_json::to_string(shard_layout).unwrap());
-    }
-
     #[test]
-    fn print_shard_layout_all() {
+    fn test_shard_layout_all() {
         let v0 = ShardLayout::v0(1, 0);
         let v1 = ShardLayout::get_simple_nightshade_layout();
         let v2 = ShardLayout::get_simple_nightshade_layout_v2();
 
-        print_shard_layout("v0", &v0);
-        print_shard_layout("v1", &v1);
-        print_shard_layout("v2", &v2);
+        insta::assert_snapshot!(serde_json::to_string(&v0).unwrap(), @r###"{"V0":{"num_shards":1,"version":0}}"###);
+        insta::assert_snapshot!(serde_json::to_string(&v1).unwrap(), @r###"{"V1":{"boundary_accounts":["aurora","aurora-0","kkuuue2akv_1630967379.near"],"shards_split_map":[[0,1,2,3]],"to_parent_shard_map":[0,0,0,0],"version":1}}"###);
+        insta::assert_snapshot!(serde_json::to_string(&v2).unwrap(), @r###"{"V1":{"boundary_accounts":["aurora","aurora-0","kkuuue2akv_1630967379.near","sweat"],"shards_split_map":[[0],[1],[2],[3,4]],"to_parent_shard_map":[0,1,2,3,3],"version":2}}"###);
     }
 }
