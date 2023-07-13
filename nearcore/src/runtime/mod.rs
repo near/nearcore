@@ -1349,6 +1349,7 @@ mod test {
     use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
+    use near_store::genesis::initialize_genesis_state;
     use num_rational::Ratio;
 
     use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -1511,6 +1512,8 @@ mod test {
             }
             let genesis_total_supply = genesis.config.total_supply;
             let genesis_protocol_version = genesis.config.protocol_version;
+
+            initialize_genesis_state(store.clone(), &genesis, Some(dir.path()));
             let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
             let runtime = NightshadeRuntime::new(
                 store.clone(),
@@ -2816,6 +2819,7 @@ mod test {
         let store = near_store::test_utils::create_test_store();
 
         let tempdir = tempfile::tempdir().unwrap();
+        initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime = NightshadeRuntime::test_with_runtime_config_store(
             tempdir.path(),
