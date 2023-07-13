@@ -6561,6 +6561,7 @@ dependencies = [
  "borsh 0.10.2",
  "chrono",
  "clap 4.2.4",
+ "cloud-storage",
  "insta",
  "itertools",
  "near-chain",

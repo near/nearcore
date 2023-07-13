@@ -78,6 +78,7 @@ impl StatePartsSubCommand {
         root_dir: Option<PathBuf>,
         s3_bucket: Option<String>,
         s3_region: Option<String>,
+        gcs_bucket: Option<String>,
         home_dir: &Path,
         near_config: NearConfig,
         store: Store,
@@ -115,6 +116,7 @@ impl StatePartsSubCommand {
                         root_dir,
                         s3_bucket,
                         s3_region,
+                        gcs_bucket,
                         None,
                         Mode::Readonly,
                     );
@@ -136,6 +138,7 @@ impl StatePartsSubCommand {
                         root_dir,
                         s3_bucket,
                         s3_region,
+                        gcs_bucket,
                         credentials_file,
                         Mode::Readwrite,
                     );
@@ -169,6 +172,7 @@ fn create_external_connection(
     root_dir: Option<PathBuf>,
     bucket: Option<String>,
     region: Option<String>,
+    gcs_bucket: Option<String>,
     credentials_file: Option<PathBuf>,
     mode: Mode,
 ) -> ExternalConnection {
@@ -183,8 +187,12 @@ fn create_external_connection(
         }
         .expect("Failed to create an S3 bucket");
         ExternalConnection::S3 { bucket: Arc::new(bucket) }
+    } else if let Some(bucket) = gcs_bucket {
+        ExternalConnection::GCS { client: Arc::new(cloud_storage::Client::default()), bucket }
     } else {
-        panic!("Please provide --root-dir or both of --s3-bucket and --s3-region");
+        panic!(
+            "Please provide --root-dir, or both of --s3-bucket and --s3-region, or --gcs-bucket"
+        );
     }
 }
 
