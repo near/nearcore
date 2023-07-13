@@ -41,7 +41,9 @@ impl ExternalConnection {
                 Ok(data)
             }
             ExternalConnection::GCS { client, bucket } => {
-                Ok(client.object().download(bucket, location).await?)
+                let result = client.object().download(bucket, location).await;
+                tracing::debug!(target: "sync", %shard_id, location, error = ?result.as_ref().err(), num_bytes = result.as_ref().map_or(0, |x| x.len()), "GCS request finished");
+                Ok(result?)
             }
         }
     }
@@ -88,7 +90,10 @@ impl ExternalConnection {
                 Ok(())
             }
             ExternalConnection::GCS { client, bucket } => {
-                client.object().create(bucket, state_part.to_vec(), location, "text/plain").await?;
+                client
+                    .object()
+                    .create(bucket, state_part.to_vec(), location, "application/octet-stream")
+                    .await?;
                 tracing::debug!(target: "state_sync_dump", shard_id, part_length = state_part.len(), ?location, "Wrote a state part to GCS");
                 Ok(())
             }
@@ -357,6 +362,13 @@ mod test {
         // And the data should match generates data.
         let download_data =
             rt.block_on(async { connection.get_part(0, &full_filename).await.unwrap() });
-        assert_eq!(download_data, data)
+        assert_eq!(download_data, data);
+
+        // Also try to download some data at nonexistent location and expect to fail.
+        let filename = random_string(8);
+        let full_filename = format!("{}/{}", dir, filename);
+
+        let download_data = rt.block_on(async { connection.get_part(0, &full_filename).await });
+        assert!(download_data.is_err(), "{:?}", download_data);
     }
 }
