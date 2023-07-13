@@ -770,7 +770,7 @@ fn try_cover_gas(
     gas_to_cover: Gas,
     runtime_config: &RuntimeConfig,
     protocol_version: ProtocolVersion,
-) -> (i32, BTreeSet<AccountId>) {
+) -> (i32, Gas, BTreeSet<AccountId>) {
     if gas_to_cover == 0 {
         return Default::default();
     }
@@ -830,11 +830,11 @@ fn try_cover_gas(
     }
 
     if gas_to_cover <= gas_possible {
-        (1, impacted_senders)
+        (1, gas_possible - gas_to_cover, impacted_senders)
     } else if parent_receipt_ids.is_empty() {
-        (-1, Default::default())
+        (-1, 0, Default::default())
     } else {
-        let (hops, parent_impacted_senders) = try_cover_gas(
+        let (hops, gas_needed, parent_impacted_senders) = try_cover_gas(
             chain_store,
             &parent_receipt_ids,
             block_hash,
@@ -843,10 +843,10 @@ fn try_cover_gas(
             protocol_version,
         );
         if hops == -1 {
-            (-1, Default::default())
+            (-1, gas_needed, Default::default())
         } else {
             impacted_senders.extend(parent_impacted_senders.iter().cloned());
-            (hops + 1, impacted_senders)
+            (hops + 1, gas_needed, impacted_senders)
         }
     }
 }
@@ -1065,9 +1065,10 @@ fn print_receipt_costs_for_chunk(
         // let new_burnt_gas_2 = new_burnt_gas_base + total_key_len * 2 * nibble_cost;
         // REPLACE TTN WITH MINI-TRIE COST V1
         let new_burnt_gas_3 = new_burnt_gas_base + total_trie_len * nibble_gas_cost;
-        let total_new_burnt_gas_adj =
-            new_burnt_gas_3 + action_data.outgoing_send_gas - action_data.gas_pre_burned;
-        let (hops, impacted_accounts) = try_cover_gas(
+        let total_new_burnt_gas_adj = new_burnt_gas_3 + action_data.outgoing_send_gas
+            - action_data.gas_pre_burned
+            + modified_nibbles * 2_280_000_000;
+        let (hops, gas_needed, impacted_accounts) = try_cover_gas(
             chain_store,
             &receipt_data.receipt_ids,
             block_hash,
@@ -1085,7 +1086,7 @@ fn print_receipt_costs_for_chunk(
         maybe_add_to_csv(
             csv_file_mutex,
             &format!(
-                "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 height,
                 account_id,
                 execution_result as i32,
@@ -1109,6 +1110,7 @@ fn print_receipt_costs_for_chunk(
                 child_burnt_gas,
                 receipt_data.nep171,
                 hops,
+                gas_needed,
                 impacted_accounts_str,
             ),
         );
