@@ -8,7 +8,7 @@ use crate::tx_dump::dump_tx_from_block;
 use crate::{apply_chunk, epoch_info};
 use ansi_term::Color::Red;
 use borsh::BorshSerialize;
-use itertools::{chain, Itertools};
+use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::RuntimeAdapter;
@@ -778,7 +778,7 @@ fn try_cover_gas(
     // get parents
     let mut parent_receipt_ids = vec![];
     let mut gas_possible = 0;
-    let mut impacted_senders = Default::default();
+    let mut impacted_senders: BTreeSet<AccountId> = Default::default();
     for receipt_id in receipt_ids {
         // receipt_id.attached_gas was not enough.
         // check gas attached to its parent
