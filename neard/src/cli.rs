@@ -7,6 +7,7 @@ use near_cold_store_tool::ColdStoreCommand;
 use near_database_tool::commands::DatabaseCommand;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
 use near_flat_storage::commands::FlatStorageCommand;
+use near_fork_network::cli::ForkNetworkCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
 use near_network::tcp;
@@ -131,6 +132,9 @@ impl NeardCmd {
             NeardSubCommand::Database(cmd) => {
                 cmd.run(&home_dir)?;
             }
+            NeardSubCommand::ForkNetwork(cmd) => {
+                cmd.run(&home_dir, genesis_validation)?;
+            }
         };
         Ok(())
     }
@@ -253,6 +257,9 @@ pub(super) enum NeardSubCommand {
 
     /// Set of commands to run on database
     Database(DatabaseCommand),
+
+    /// Resets the network into a forked network at the given block height and state.
+    ForkNetwork(ForkNetworkCommand),
 }
 
 #[derive(clap::Parser)]

@@ -3689,6 +3689,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-fork-network"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap 4.2.4",
+ "near-chain",
+ "near-chain-configs",
+ "near-crypto",
+ "near-epoch-manager",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+ "strum",
+ "tracing",
+]
+
+[[package]]
 name = "near-indexer"
 version = "0.0.0"
 dependencies = [
@@ -4561,6 +4579,7 @@ dependencies = [
  "near-database-tool",
  "near-dyn-configs",
  "near-flat-storage",
+ "near-fork-network",
  "near-jsonrpc-primitives",
  "near-mirror",
  "near-network",
@@ -5191,9 +5210,9 @@ checksum = "dbf0c48bc1d91375ae5c3cd81e3722dff1abcf81a30960240640d223f59fe0e5"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.56"
+version = "1.0.64"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b63bdb0cd06f1f4dedf69b254734f9b45af66e4a031e42a7480257d9898b435"
+checksum = "78803b62cbf1f46fde80d7c0e803111524b9877184cfe7c3033659490ac7a7da"
 dependencies = [
  "unicode-ident",
 ]
