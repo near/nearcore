@@ -1,7 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::{fs::File, io::Write};
-
-use serde::{Deserialize, Serialize};
 
 /// Configures logging.
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
