@@ -738,7 +738,7 @@ fn find_parent(
 ) -> Option<CryptoHash> {
     let mut block_hash = latest_block_hash.clone();
     for _ in 0..100 {
-        let block = chain_store.get_block_header(latest_block_hash).unwrap();
+        let block = chain_store.get_block_header(&block_hash).unwrap();
         let height = block.height();
 
         let all_outcomes = chain_store.get_block_execution_outcomes(&block_hash).unwrap();
