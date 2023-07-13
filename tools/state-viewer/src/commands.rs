@@ -845,7 +845,7 @@ fn try_cover_gas(
         if hops == -1 {
             (-1, Default::default())
         } else {
-            impacted_senders.extend(parent_impacted_senders.iter());
+            impacted_senders.extend(parent_impacted_senders.iter().cloned());
             (hops + 1, impacted_senders)
         }
     }
