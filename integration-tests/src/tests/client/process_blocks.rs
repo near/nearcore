@@ -77,6 +77,7 @@ use near_primitives::views::{
 };
 use near_primitives_core::types::ShardId;
 use near_store::cold_storage::{update_cold_db, update_cold_head};
+use near_store::genesis::initialize_genesis_state;
 use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
@@ -1831,9 +1832,10 @@ fn test_process_block_after_state_sync() {
             .open()
             .unwrap()
             .get_hot_store();
+        initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
-            NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+            NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
                 as Arc<dyn RuntimeAdapter>;
         (tmp_dir, store, epoch_manager, runtime)
     }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
@@ -2193,14 +2195,12 @@ fn test_incorrect_validator_key_produce_block() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     let chain_genesis = ChainGenesis::new(&genesis);
     let store = create_test_store();
+    let home_dir = Path::new("../../../..");
+    initialize_genesis_state(store.clone(), &genesis, Some(home_dir));
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
     let shard_tracker = ShardTracker::new(TrackedConfig::new_empty(), epoch_manager.clone());
-    let runtime = nearcore::NightshadeRuntime::test(
-        Path::new("../../../.."),
-        store,
-        &genesis,
-        epoch_manager.clone(),
-    );
+    let runtime =
+        nearcore::NightshadeRuntime::test(home_dir, store, &genesis.config, epoch_manager.clone());
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         "test0".parse().unwrap(),
         KeyType::ED25519,
@@ -2587,9 +2587,10 @@ fn test_catchup_gas_price_change() {
             .open()
             .unwrap()
             .get_hot_store();
+        initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
-            NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+            NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
                 as Arc<dyn RuntimeAdapter>;
         (tmp_dir, store, epoch_manager, runtime)
     }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
@@ -3644,9 +3645,10 @@ mod contract_precompilation_tests {
                 .open()
                 .unwrap()
                 .get_hot_store();
+            initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
             let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
             let runtime =
-                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
                     as Arc<dyn RuntimeAdapter>;
             (tmp_dir, store, epoch_manager, runtime)
         }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
@@ -3757,9 +3759,10 @@ mod contract_precompilation_tests {
                 .open()
                 .unwrap()
                 .get_hot_store();
+            initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
             let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
             let runtime =
-                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
                     as Arc<dyn RuntimeAdapter>;
             (tmp_dir, store, epoch_manager, runtime)
         }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
@@ -3854,9 +3857,10 @@ mod contract_precompilation_tests {
                 .open()
                 .unwrap()
                 .get_hot_store();
+            initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
             let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
             let runtime =
-                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
                     as Arc<dyn RuntimeAdapter>;
             (tmp_dir, store, epoch_manager, runtime)
         }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();

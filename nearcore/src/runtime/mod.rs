@@ -7,8 +7,7 @@ use errors::FromStateViewerErrors;
 use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter, Tip};
 use near_chain::Error;
 use near_chain_configs::{
-    Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-    MIN_GC_NUM_EPOCHS_TO_KEEP,
+    GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, MIN_GC_NUM_EPOCHS_TO_KEEP,
 };
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::PublicKey;
@@ -99,7 +98,7 @@ impl NightshadeRuntime {
         };
         Self::new(
             store,
-            &config.genesis,
+            &config.genesis.config,
             epoch_manager,
             config.client_config.trie_viewer_state_size_limit,
             config.client_config.max_gas_burnt_view,
@@ -112,7 +111,7 @@ impl NightshadeRuntime {
 
     fn new(
         store: Store,
-        genesis: &Genesis,
+        genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         trie_viewer_state_size_limit: Option<u64>,
         max_gas_burnt_view: Option<Gas>,
@@ -123,7 +122,7 @@ impl NightshadeRuntime {
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
-            None => RuntimeConfigStore::for_chain_id(&genesis.config.chain_id),
+            None => RuntimeConfigStore::for_chain_id(&genesis_config.chain_id),
         };
 
         let runtime = Runtime::new();
@@ -132,7 +131,7 @@ impl NightshadeRuntime {
         let tries = ShardTries::new_with_state_snapshot(
             store.clone(),
             trie_config,
-            &genesis.config.shard_layout.get_shard_uids(),
+            &genesis_config.shard_layout.get_shard_uids(),
             flat_storage_manager.clone(),
             state_snapshot_config,
         );
@@ -145,8 +144,9 @@ impl NightshadeRuntime {
             tracing::error!(target: "runtime", ?err, "Failed to check if a state snapshot exists");
         }
 
+        let migration_data = Arc::new(load_migration_data(&genesis_config.chain_id));
         Arc::new(NightshadeRuntime {
-            genesis_config: genesis.config.clone(),
+            genesis_config: genesis_config.clone(),
             runtime_config_store,
             store,
             tries,
@@ -154,7 +154,7 @@ impl NightshadeRuntime {
             trie_viewer,
             epoch_manager,
             flat_storage_manager,
-            migration_data: Arc::new(load_migration_data(&genesis.config.chain_id)),
+            migration_data,
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
         })
     }
@@ -162,13 +162,13 @@ impl NightshadeRuntime {
     pub fn test_with_runtime_config_store(
         home_dir: &Path,
         store: Store,
-        genesis: &Genesis,
+        genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         runtime_config_store: RuntimeConfigStore,
     ) -> Arc<Self> {
         Self::new(
             store,
-            genesis,
+            genesis_config,
             epoch_manager,
             None,
             None,
@@ -187,13 +187,13 @@ impl NightshadeRuntime {
     pub fn test(
         home_dir: &Path,
         store: Store,
-        genesis: &Genesis,
+        genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> Arc<Self> {
         Self::test_with_runtime_config_store(
             home_dir,
             store,
-            genesis,
+            genesis_config,
             epoch_manager,
             RuntimeConfigStore::test(),
         )
@@ -1352,7 +1352,7 @@ mod test {
     use num_rational::Ratio;
 
     use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-    use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
+    use near_chain_configs::{Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_o11y::testonly::init_test_logger;
     use near_primitives::block::Tip;
@@ -1514,7 +1514,7 @@ mod test {
             let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
             let runtime = NightshadeRuntime::new(
                 store.clone(),
-                &genesis,
+                &genesis.config,
                 epoch_manager.clone(),
                 None,
                 None,
@@ -2820,7 +2820,7 @@ mod test {
         let runtime = NightshadeRuntime::test_with_runtime_config_store(
             tempdir.path(),
             store.clone(),
-            &genesis,
+            &genesis.config,
             epoch_manager.clone(),
             RuntimeConfigStore::new(None),
         );

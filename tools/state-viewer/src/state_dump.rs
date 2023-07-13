@@ -307,6 +307,7 @@ mod test {
         Balance, BlockHeight, BlockHeightDelta, NumBlocks, ProtocolVersion,
     };
     use near_primitives::version::PROTOCOL_VERSION;
+    use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
     use nearcore::config::GenesisExt;
@@ -331,9 +332,14 @@ mod test {
         genesis.config.protocol_version = protocol_version;
         genesis.config.use_production_config = use_production_config;
         let store = create_test_store();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-        let nightshade_runtime =
-            NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
+        let nightshade_runtime = NightshadeRuntime::test(
+            Path::new("."),
+            store.clone(),
+            &genesis.config,
+            epoch_manager.clone(),
+        );
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
         chain_genesis.gas_limit = genesis.config.gas_limit;
@@ -416,9 +422,10 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
-            NightshadeRuntime::test(Path::new("."), store, &genesis, epoch_manager.clone());
+            NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
         let records_file = tempfile::NamedTempFile::new().unwrap();
         let new_near_config = state_dump(
             epoch_manager.as_ref(),
@@ -492,9 +499,10 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
-            NightshadeRuntime::test(Path::new("."), store, &genesis, epoch_manager.clone());
+            NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
         let select_account_ids = vec!["test0".parse().unwrap()];
         let new_near_config = state_dump(
             epoch_manager.as_ref(),
@@ -554,9 +562,10 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
-            NightshadeRuntime::test(Path::new("."), store, &genesis, epoch_manager.clone());
+            NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
         let new_near_config = state_dump(
             epoch_manager.as_ref(),
             runtime,
@@ -595,9 +604,10 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
-            NightshadeRuntime::test(Path::new("."), store, &genesis, epoch_manager.clone());
+            NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
 
         let records_file = tempfile::NamedTempFile::new().unwrap();
         let new_near_config = state_dump(
@@ -647,9 +657,10 @@ mod test {
 
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
-            NightshadeRuntime::test(Path::new("."), store, &genesis, epoch_manager.clone());
+            NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
         let records_file = tempfile::NamedTempFile::new().unwrap();
         let new_near_config = state_dump(
             epoch_manager.as_ref(),
@@ -679,18 +690,20 @@ mod test {
         genesis.config.epoch_length = epoch_length;
         let store1 = create_test_store();
         let store2 = create_test_store();
+        initialize_genesis_state(store1.clone(), &genesis, None);
+        initialize_genesis_state(store2.clone(), &genesis, None);
         let epoch_manager1 = EpochManager::new_arc_handle(store1.clone(), &genesis.config);
         let epoch_manager2 = EpochManager::new_arc_handle(store2.clone(), &genesis.config);
         let runtime1 = NightshadeRuntime::test(
             Path::new("."),
             store1.clone(),
-            &genesis,
+            &genesis.config,
             epoch_manager1.clone(),
         );
         let runtime2 = NightshadeRuntime::test(
             Path::new("."),
             store2.clone(),
-            &genesis,
+            &genesis.config,
             epoch_manager2.clone(),
         );
         let mut chain_genesis = ChainGenesis::test();
@@ -764,9 +777,14 @@ mod test {
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
         let store = create_test_store();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-        let nightshade_runtime =
-            NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
+        let nightshade_runtime = NightshadeRuntime::test(
+            Path::new("."),
+            store.clone(),
+            &genesis.config,
+            epoch_manager.clone(),
+        );
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
         let mut env = TestEnv::builder(chain_genesis)
@@ -817,9 +835,10 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
-            NightshadeRuntime::test(Path::new("."), store, &genesis, epoch_manager.clone());
+            NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
         let records_file = tempfile::NamedTempFile::new().unwrap();
         let new_near_config = state_dump(
             epoch_manager.as_ref(),
@@ -873,9 +892,10 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
-            NightshadeRuntime::test(Path::new("."), store, &genesis, epoch_manager.clone());
+            NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
         let new_near_config = state_dump(
             epoch_manager.as_ref(),
             runtime,
