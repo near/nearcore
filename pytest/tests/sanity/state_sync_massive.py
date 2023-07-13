@@ -66,14 +66,17 @@ near_root, node_dirs = init_cluster(
              ["epoch_length", 300], ["block_producer_kickout_threshold", 80]], {
                  0: {
                      "state_sync_enabled": True,
+                     "store.state_snapshot_enabled": True,
                  },
                  1: {
                      "tracked_shards": [0],
                      "state_sync_enabled": True,
+                     "store.state_snapshot_enabled": True,
                  },
                  2: {
                      "tracked_shards": [0],
                      "state_sync_enabled": True,
+                     "store.state_snapshot_enabled": True,
                  }
              })
 

@@ -997,6 +997,7 @@ impl Handler<WithSpanContext<GetExecutionOutcomesForBlock>> for ViewClientActor 
             .start_timer();
         Ok(self
             .chain
+            .store()
             .get_block_execution_outcomes(&msg.block_hash)
             .map_err(|e| e.to_string())?
             .into_iter()

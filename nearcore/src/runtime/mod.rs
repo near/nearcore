@@ -50,7 +50,7 @@ use near_store::{
     ApplyStatePartResult, DBCol, PartialStorage, ShardTries, StateSnapshotConfig, Store,
     StoreCompiledContractCache, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
-use near_vm_errors::CompiledContractCache;
+use near_vm_runner::logic::CompiledContractCache;
 use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::config::RuntimeConfig;
@@ -96,6 +96,7 @@ impl NightshadeRuntime {
                 home_dir: home_dir.to_path_buf(),
                 hot_store_path: config.config.store.path.clone().unwrap_or(PathBuf::from("data")),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
+                compaction_enabled: config.config.store.state_snapshot_compaction_enabled,
             }
         } else {
             StateSnapshotConfig::Disabled
@@ -196,6 +197,7 @@ impl NightshadeRuntime {
                 home_dir: home_dir.to_path_buf(),
                 hot_store_path: PathBuf::from("data"),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
+                compaction_enabled: false,
             },
         )
     }
@@ -1247,6 +1249,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut store_update = tries.store_update();
         tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
+        // TODO: `apply_to_flat_state` inserts values with random writes, which can be time consuming.
+        //       Optimize taking into account that flat state values always correspond to a consecutive range of keys.
         flat_state_delta.apply_to_flat_state(&mut store_update, shard_uid);
         self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
@@ -1589,6 +1593,7 @@ mod test {
                     home_dir: PathBuf::from(dir.path()),
                     hot_store_path: PathBuf::from("data"),
                     state_snapshot_subdir: PathBuf::from("state_snapshot"),
+                    compaction_enabled: false,
                 },
             );
             let (store, state_roots) = runtime.genesis_state();

@@ -57,9 +57,7 @@ use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
     ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
 };
-use near_primitives::transaction::{
-    ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
-};
+use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
@@ -3245,19 +3243,14 @@ impl Chain {
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
     ) -> Result<(), Error> {
         let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
-
-        // Before working with state parts, remove existing flat storage data.
-        if let Some(flat_storage_manager) = self.runtime_adapter.get_flat_storage_manager() {
-            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
-            flat_storage_manager.remove_flat_storage_for_shard(shard_uid)?;
-        }
+        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
 
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let state_root = shard_state_header.chunk_prev_state_root();
 
         state_parts_task_scheduler(ApplyStatePartsRequest {
             runtime_adapter: self.runtime_adapter.clone(),
-            shard_id,
+            shard_uid,
             state_root,
             num_parts,
             epoch_id,
@@ -3670,39 +3663,6 @@ impl Chain {
             }
         }
         Ok(())
-    }
-
-    /// Get all execution outcomes generated when the chunk are applied
-    pub fn get_block_execution_outcomes(
-        &self,
-        block_hash: &CryptoHash,
-    ) -> Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdAndProof>>, Error> {
-        let block = self.get_block(block_hash)?;
-        let chunk_headers = block.chunks().iter().cloned().collect::<Vec<_>>();
-
-        let mut res = HashMap::new();
-        for chunk_header in chunk_headers {
-            let shard_id = chunk_header.shard_id();
-            let outcomes = self
-                .store()
-                .get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?
-                .into_iter()
-                .filter_map(|id| {
-                    let outcome_with_proof =
-                        self.store.get_outcome_by_id_and_block_hash(&id, block_hash).ok()??;
-                    Some(ExecutionOutcomeWithIdAndProof {
-                        proof: outcome_with_proof.proof,
-                        block_hash: *block_hash,
-                        outcome_with_id: ExecutionOutcomeWithId {
-                            id,
-                            outcome: outcome_with_proof.outcome,
-                        },
-                    })
-                })
-                .collect::<Vec<_>>();
-            res.insert(shard_id, outcomes);
-        }
-        Ok(res)
     }
 
     pub fn create_chunk_state_challenge(
@@ -5522,7 +5482,7 @@ impl<'a> ChainUpdate<'a> {
             true,
             is_first_block_with_chunk_of_version,
             Default::default(),
-            false,
+            true,
         )?;
 
         let (outcome_root, outcome_proofs) =
@@ -5614,7 +5574,7 @@ impl<'a> ChainUpdate<'a> {
             false,
             false,
             Default::default(),
-            false,
+            true,
         )?;
         self.save_flat_state_changes(
             *block_header.hash(),
@@ -5669,7 +5629,7 @@ pub fn collect_receipts_from_response(
 #[rtype(result = "()")]
 pub struct ApplyStatePartsRequest {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
-    pub shard_id: ShardId,
+    pub shard_uid: ShardUId,
     pub state_root: StateRoot,
     pub num_parts: u64,
     pub epoch_id: EpochId,

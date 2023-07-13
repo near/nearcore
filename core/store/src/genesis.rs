@@ -5,7 +5,7 @@ use rayon::prelude::*;
 use std::{collections::HashSet, fs, path::Path};
 
 use borsh::BorshDeserialize;
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, GenesisContents};
 use near_primitives::{
     epoch_manager::EpochConfig,
     runtime::fees::StorageUsageConfig,
@@ -31,12 +31,12 @@ pub fn initialize_genesis_state(
 ) -> Vec<StateRoot> {
     let has_dump = home_dir.join(STATE_DUMP_FILE).exists();
     if has_dump {
-        if genesis.records_len().is_ok() {
+        if let GenesisContents::Records { .. } = &genesis.contents {
             warn!(target: "store", "Found both records in genesis config and the state dump file. Will ignore the records.");
         }
         genesis_state_from_dump(store, home_dir)
     } else {
-        genesis_state_from_records(store, config, genesis)
+        genesis_state_from_genesis(store, config, genesis)
     }
 }
 
@@ -53,24 +53,28 @@ fn genesis_state_from_dump(store: Store, home_dir: &Path) -> Vec<StateRoot> {
     state_roots
 }
 
-fn genesis_state_from_records(
+fn genesis_state_from_genesis(
     store: Store,
     config: &StorageUsageConfig,
     genesis: &Genesis,
 ) -> Vec<StateRoot> {
-    match genesis.records_len() {
-        Ok(count) => {
+    match &genesis.contents {
+        GenesisContents::Records { records } => {
             info!(
-                target: "store",
-                "genesis state has {count} records, computing state roots"
+                target: "runtime",
+                "genesis state has {} records, computing state roots",
+                records.0.len(),
             )
         }
-        Err(path) => {
+        GenesisContents::RecordsFile { records_file } => {
             info!(
-                target: "store",
-                path=%path.display(),
+                target: "runtime",
+                path=%records_file.display(),
                 message="computing state roots from records",
             )
+        }
+        GenesisContents::StateRoots { state_roots } => {
+            return state_roots.clone();
         }
     }
     let initial_epoch_config = EpochConfig::from(&genesis.config);

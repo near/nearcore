@@ -3,6 +3,7 @@ use crate::{metrics, SyncStatus};
 use actix::Addr;
 use itertools::Itertools;
 use near_chain_configs::{ClientConfig, LogSummaryStyle, SyncConfig};
+use near_client_primitives::types::StateSyncStatus;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
@@ -64,6 +65,8 @@ pub struct InfoHelper {
     epoch_id: Option<EpochId>,
     /// Timestamp of starting the client.
     pub boot_time_seconds: i64,
+    // Allows more detailed logging, for example a list of orphaned blocks.
+    enable_multiline_logging: bool,
 }
 
 impl InfoHelper {
@@ -87,6 +90,7 @@ impl InfoHelper {
             log_summary_style: client_config.log_summary_style,
             boot_time_seconds: StaticClock::utc().timestamp(),
             epoch_id: None,
+            enable_multiline_logging: client_config.enable_multiline_logging,
         }
     }
 
@@ -544,7 +548,7 @@ impl InfoHelper {
             info.num_orphans,
             info.num_blocks_missing_chunks,
             info.num_blocks_in_processing,
-            blocks_info,
+            if self.enable_multiline_logging { blocks_info.to_string() } else { "".to_owned() },
         );
     }
 }
@@ -630,7 +634,7 @@ pub fn display_sync_status(
                 current_height
             )
         }
-        SyncStatus::StateSync(sync_hash, shard_statuses) => {
+        SyncStatus::StateSync(StateSyncStatus { sync_hash, sync_status: shard_statuses }) => {
             let mut res = format!("State {:?}", sync_hash);
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);

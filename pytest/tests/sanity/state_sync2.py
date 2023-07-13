@@ -22,6 +22,7 @@ nightly = len(sys.argv) > 1
 
 node_config = {
     "state_sync_enabled": True,
+    "store.state_snapshot_enabled": True,
 }
 client_config_overrides = {
     0: node_config,

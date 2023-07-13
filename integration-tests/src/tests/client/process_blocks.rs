@@ -75,6 +75,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
+use near_primitives_core::types::ShardId;
 use near_store::cold_storage::{update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
@@ -2666,12 +2667,13 @@ fn test_catchup_gas_price_change() {
         use borsh::BorshSerialize;
         let store = rt.store();
 
+        let shard_id = msg.shard_uid.shard_id as ShardId;
         for part_id in 0..msg.num_parts {
-            let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec().unwrap();
+            let key = StatePartKey(msg.sync_hash, shard_id, part_id).try_to_vec().unwrap();
             let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
 
             rt.apply_state_part(
-                msg.shard_id,
+                shard_id,
                 &msg.state_root,
                 PartId::new(part_id, msg.num_parts),
                 &part,
@@ -2744,6 +2746,7 @@ fn test_block_execution_outcomes() {
     assert_eq!(chunk.transactions().len(), 3);
     let execution_outcomes_from_block = env.clients[0]
         .chain
+        .store()
         .get_block_execution_outcomes(block.hash())
         .unwrap()
         .remove(&0)
@@ -2764,6 +2767,7 @@ fn test_block_execution_outcomes() {
     assert!(next_chunk.receipts().is_empty());
     let execution_outcomes_from_block = env.clients[0]
         .chain
+        .store()
         .get_block_execution_outcomes(next_block.hash())
         .unwrap()
         .remove(&0)
@@ -2875,6 +2879,7 @@ fn test_refund_receipts_processing() {
         let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
         let execution_outcomes_from_block = env.clients[0]
             .chain
+            .store()
             .get_block_execution_outcomes(block.hash())
             .unwrap()
             .remove(&0)
@@ -3594,9 +3599,9 @@ mod contract_precompilation_tests {
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_primitives::views::ViewApplyState;
     use near_store::{Store, StoreCompiledContractCache, TrieUpdate};
-    use near_vm_errors::CompiledContractCache;
     use near_vm_runner::get_contract_cache_key;
     use near_vm_runner::internal::VMKind;
+    use near_vm_runner::logic::CompiledContractCache;
     use node_runtime::state_viewer::TrieViewer;
 
     const EPOCH_LENGTH: u64 = 25;

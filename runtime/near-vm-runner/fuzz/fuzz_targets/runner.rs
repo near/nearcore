@@ -3,9 +3,9 @@
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::{VMConfig, VMOutcome};
 use near_vm_runner::internal::VMKind;
+use near_vm_runner::logic::mocks::mock_external::MockedExternal;
+use near_vm_runner::logic::{VMConfig, VMOutcome};
 use near_vm_runner_fuzz::{create_context, find_entry_point, ArbitraryModule};
 
 libfuzzer_sys::fuzz_target!(|module: ArbitraryModule| {
