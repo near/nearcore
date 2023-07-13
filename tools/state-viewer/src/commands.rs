@@ -715,8 +715,8 @@ pub(crate) fn replay_chain(
 
 fn recursive_child_burnt_gas(chain_store: &ChainStore, outcome: &ExecutionOutcome) -> Gas {
     let mut total_gas = 0;
-    for receipt_id in outcome.receipt_ids {
-        if let Ok(Some(receipt)) = chain_store.get_receipt(&receipt_id) {
+    for receipt_id in &outcome.receipt_ids {
+        if let Ok(Some(receipt)) = chain_store.get_receipt(receipt_id) {
             // not a refund
             if !receipt.predecessor_id.is_system() {
                 let child_outcomes = chain_store.get_outcomes_by_id(&receipt.receipt_id).unwrap();
@@ -742,8 +742,8 @@ fn find_parent(
         for shard_outcomes in all_outcomes.values() {
             for outcome in shard_outcomes {
                 let me = outcome.outcome_with_id.id;
-                for child_receipt_id in outcome.outcome_with_id.outcome.receipt_ids {
-                    if child_receipt_id == *receipt_id {
+                for child_receipt_id in &outcome.outcome_with_id.outcome.receipt_ids {
+                    if child_receipt_id == receipt_id {
                         if let Ok(Some(_)) = chain_store.get_receipt(&me) {
                             return Some(me);
                         } else if let Ok(Some(_)) = chain_store.get_transaction(&me) {
