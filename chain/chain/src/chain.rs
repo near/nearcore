@@ -2331,8 +2331,12 @@ impl Chain {
         let _timer = CryptoHashTimer::new_with_start(*block.hash(), block_start_processing_time);
 
 
-        tracing::error!(?new_head, ?prev_head);
-        panic!("Block processed");
+        if let Some(h) = new_head.clone() {
+            if h.height > 96315014 {
+                tracing::error!(?new_head, ?prev_head);
+                panic!("Block processed");
+            }
+        }
         self.check_orphans(
             me,
             *block.hash(),
