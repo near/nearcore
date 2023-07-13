@@ -18,7 +18,7 @@ use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
-use near_store::genesis::compute_storage_usage;
+use near_store::genesis::{compute_storage_usage, initialize_genesis_state};
 use near_store::{
     get_account, get_genesis_state_roots, set_access_key, set_account, set_code, Store, TrieUpdate,
 };
@@ -79,6 +79,7 @@ pub struct GenesisBuilder {
 impl GenesisBuilder {
     pub fn from_config_and_store(home_dir: &Path, config: NearConfig, store: Store) -> Self {
         let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
+        initialize_genesis_state(store.clone(), &config.genesis, Some(tmpdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
         let runtime = NightshadeRuntime::from_config(
             tmpdir.path(),
