@@ -1070,7 +1070,7 @@ fn print_receipt_costs_for_chunk(
         let total_new_burnt_gas_adj = new_burnt_gas_3 + action_data.outgoing_send_gas
             - action_data.gas_pre_burned
             + modified_nibbles * 2_280_000_000;
-        let (hops, gas_needed, impacted_accounts) = try_cover_gas(
+        let (hops, gas_extra, impacted_accounts) = try_cover_gas(
             chain_store,
             &receipt_data.receipt_ids,
             block_hash,
@@ -1112,7 +1112,7 @@ fn print_receipt_costs_for_chunk(
                 child_burnt_gas,
                 receipt_data.nep171,
                 hops,
-                gas_needed,
+                gas_extra,
                 impacted_accounts_str,
             ),
         );
