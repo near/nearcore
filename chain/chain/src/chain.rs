@@ -2366,10 +2366,10 @@ impl Chain {
         block_received_time: Instant,
         state_patch: SandboxStatePatch,
     ) -> Result<PreprocessBlockResult, Error> {
+        let header = block.header();
+
         // see if the block is already in processing or if there are too many blocks being processed
         self.blocks_in_processing.add_dry_run(block.hash())?;
-
-        let header = &block.header();
 
         debug!(target: "chain", num_approvals = header.num_approvals(), "Preprocess block");
 
@@ -2437,28 +2437,8 @@ impl Chain {
             return Err(Error::InvalidBlockHeight(prev_height));
         }
 
-        let (is_caught_up, state_sync_info, need_state_snapshot) = if self
-            .epoch_manager
-            .is_next_block_epoch_start(&prev_hash)?
-        {
-            debug!(target: "chain", block_hash=?header.hash(), "block is the first block of an epoch");
-            if !self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
-                // The previous block is not caught up for the next epoch relative to the previous
-                // block, which is the current epoch for this block, so this block cannot be applied
-                // at all yet, needs to be orphaned
-                return Err(Error::Orphan);
-            }
-
-            // For the first block of the epoch we check if we need to start download states for
-            // shards that we will care about in the next epoch. If there is no state to be downloaded,
-            // we consider that we are caught up, otherwise not
-            let state_sync_info = self.get_state_sync_info(me, block)?;
-            let is_genesis = prev_prev_hash == CryptoHash::default();
-            let need_state_snapshot = !is_genesis;
-            (state_sync_info.is_none(), state_sync_info, need_state_snapshot)
-        } else {
-            (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None, false)
-        };
+        let (is_caught_up, state_sync_info, need_state_snapshot) =
+            self.get_catchup_and_state_sync_infos(header, prev_hash, prev_prev_hash, me, block)?;
 
         self.check_if_challenged_block_on_chain(header)?;
 
@@ -2549,6 +2529,35 @@ impl Chain {
                 need_state_snapshot,
             },
         ))
+    }
+
+    fn get_catchup_and_state_sync_infos(
+        &self,
+        header: &BlockHeader,
+        prev_hash: CryptoHash,
+        prev_prev_hash: CryptoHash,
+        me: &Option<AccountId>,
+        block: &MaybeValidated<Block>,
+    ) -> Result<(bool, Option<StateSyncInfo>, bool), Error> {
+        if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
+            debug!(target: "chain", block_hash=?header.hash(), "block is the first block of an epoch");
+            if !self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
+                // The previous block is not caught up for the next epoch relative to the previous
+                // block, which is the current epoch for this block, so this block cannot be applied
+                // at all yet, needs to be orphaned
+                return Err(Error::Orphan);
+            }
+
+            // For the first block of the epoch we check if we need to start download states for
+            // shards that we will care about in the next epoch. If there is no state to be downloaded,
+            // we consider that we are caught up, otherwise not
+            let state_sync_info = self.get_state_sync_info(me, block)?;
+            let is_genesis = prev_prev_hash == CryptoHash::default();
+            let need_state_snapshot = !is_genesis;
+            Ok((state_sync_info.is_none(), state_sync_info, need_state_snapshot))
+        } else {
+            Ok((self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None, false))
+        }
     }
 
     /// Check if we can request chunks for this orphan. Conditions are
@@ -2686,7 +2695,7 @@ impl Chain {
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
         let blocks = self.blocks_with_missing_chunks.ready_blocks();
-        if blocks.len() > 0 {
+        if !blocks.is_empty() {
             debug!(target:"chain", "Got {} blocks that were missing chunks but now are ready.", blocks.len());
         }
         for block in blocks {
