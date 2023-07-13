@@ -65,10 +65,6 @@ pub fn undo_only_block_head(
         tail_height
     };
 
-    if current_head_height == target_height {
-        tracing::info!(target: "neard", target_height, "Body head is already at the desired block height.");
-        return Ok(());
-    }
     tracing::info!(target: "neard", ?target_height, ?current_head_height, ?current_header_height, "Trying to update head");
 
     let target_header = chain_store.get_block_header_by_height(target_height)?;
