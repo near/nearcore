@@ -792,14 +792,14 @@ initiates the syncing process for these shards. After the state is downloaded,
 <code>run_catchup</code> will start to apply blocks that need to be caught up.</p>
 <p>One thing to note is that <code>run_catchup</code> is located at <code>ClientActor</code>, but
 intensive work such as applying state parts and applying blocks is actually
-offloaded to <code>SyncJobActor</code> in another thread, because we don’t want
+offloaded to <code>SyncJobsActor</code> in another thread, because we don’t want
 <code>ClientActor</code> to be blocked by this. <code>run_catchup</code> is simply responsible for
-scheduling <code>SyncJobActor</code> to do the intensive job. Note that <code>SyncJobActor</code> is
+scheduling <code>SyncJobsActor</code> to do the intensive job. Note that <code>SyncJobsActor</code> is
 state-less, it doesn’t have write access to the chain. It will return the changes
 that need to be made as part of the response to <code>ClientActor</code>, and <code>ClientActor</code>
 is responsible for applying these changes. This is to ensure only one thread
 (<code>ClientActor</code>) has write access to the chain state. However, this also adds a
-lot of limits, for example, <code>SyncJobActor</code> can only be scheduled to apply one
+lot of limits, for example, <code>SyncJobsActor</code> can only be scheduled to apply one
 block at a time. Because <code>run_catchup</code> is only scheduled to run every 100ms, the
 speed of catching up blocks is limited to 100ms per block, even when blocks
 applying can be faster. Similar constraints happen to apply state parts.</p>
@@ -811,7 +811,7 @@ new epoch. This is unnecessary.</p>
 <p>Second, even though <code>run_catchup</code> is scheduled to run every 100ms, the call can
 be delayed if ClientActor has messages in its actix queue. A better way to do
 this is to move the scheduling of <code>run_catchup</code> to <code>check_triggers</code>.</p>
-<p>Third, because of how <code>run_catchup</code> interacts with <code>SyncJobActor</code>, <code>run_catchup</code>
+<p>Third, because of how <code>run_catchup</code> interacts with <code>SyncJobsActor</code>, <code>run_catchup</code>
 can catch up at most one block every 100 ms. This is because we don’t want to
 write to <code>ChainStore</code> in multiple threads. However, the changes that catching up
 blocks make do not interfere with regular block processing and they can be
@@ -1986,10 +1986,10 @@ do it more often than on new releases?</p>
 <h3 id="deeper-technical-details"><a class="header" href="#deeper-technical-details">Deeper technical details</a></h3>
 <p>It all starts in <code>preprocess_block</code> - if the node sees, that the block it is
 about to preprocess is the first block of the epoch (X+1)  - it calls
-<code>get_state_dl_info</code>, which is responsible for figuring out which shards will 
+<code>get_state_sync_info</code>, which is responsible for figuring out which shards will 
 be needed in next epoch (X+2).</p>
 <p>This is the moment, when node can request new shards that it didn't track before (using StateSync) - and if it detects that the shard layout would change in the next epoch, it also involves the StateSync - but skips the download part (as it already has the data) - and starts from state splitting.</p>
-<p>StateSync in this phase would send the <code>StateSplitRequest</code> to the <code>SyncJobActor</code> (you can think about the SyncJobActor as a background thread).</p>
+<p>StateSync in this phase would send the <code>StateSplitRequest</code> to the <code>SyncJobsActor</code> (you can think about the <code>SyncJobsActor</code> as a background thread).</p>
 <p>We'd use the background thread to do the state splitting: the goal is to change the one trie (that represents the state of the current shard) - to multiple tries (one for each of the new shards).</p>
 <p>Currently we re-use some of the code that we have for state sync (for example to figure out the number of parts) - and the we take all the items for a given part, which a list of trie <strong>items</strong> (key-value pairs that are stored in the trie - NOT trie nodes) - and for each one, we try to extract the account id that this key belongs to.</p>
 <p><strong>TODO</strong>: It seems that the code was written with the idea of persisting the &quot;progress&quot; (that's why have parts etc) - but AFAIK currently we never persist the progress of the resharding - so if the node restarts, we're starting from scratch.</p>
