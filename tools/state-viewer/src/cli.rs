@@ -481,6 +481,9 @@ pub struct ReceiptCostsCmd {
     shard_id: Option<ShardId>,
     #[clap(long, value_parser)]
     csv_file: Option<PathBuf>,
+    /// Save local receipts
+    #[clap(long)]
+    save_local: bool,
 }
 
 impl ReceiptCostsCmd {
@@ -493,6 +496,7 @@ impl ReceiptCostsCmd {
             near_config,
             store,
             self.csv_file,
+            self.save_local,
         )
     }
 }

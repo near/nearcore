@@ -8,7 +8,7 @@ use crate::tx_dump::dump_tx_from_block;
 use crate::{apply_chunk, epoch_info};
 use ansi_term::Color::Red;
 use borsh::BorshSerialize;
-use itertools::Itertools;
+use itertools::{chain, Itertools};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::RuntimeAdapter;
@@ -26,7 +26,9 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::{Action, ExecutionMetadata, ExecutionStatus, SignedTransaction};
+use near_primitives::transaction::{
+    Action, ExecutionMetadata, ExecutionOutcome, ExecutionStatus, SignedTransaction,
+};
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives::utils::create_receipt_id_from_transaction;
@@ -41,7 +43,7 @@ use near_store::{
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::balance_checker::receipt_gas_cost;
-use node_runtime::config::total_prepaid_exec_fees;
+use node_runtime::config::{total_prepaid_exec_fees, total_prepaid_gas};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde_json::json;
 use std::collections::{BTreeSet, HashMap};
@@ -711,6 +713,144 @@ pub(crate) fn replay_chain(
 //     )
 // }
 
+fn recursive_child_burnt_gas(chain_store: &ChainStore, outcome: &ExecutionOutcome) -> Gas {
+    let mut total_gas = 0;
+    for receipt_id in outcome.receipt_ids {
+        if let Ok(Some(receipt)) = chain_store.get_receipt(&receipt_id) {
+            // not a refund
+            if !receipt.predecessor_id.is_system() {
+                let child_outcomes = chain_store.get_outcomes_by_id(&receipt.receipt_id).unwrap();
+                let child_outcome = &child_outcomes[0].outcome_with_id.outcome; // take first one, idc
+                total_gas +=
+                    child_outcome.gas_burnt + recursive_child_burnt_gas(chain_store, child_outcome);
+            }
+        } else {
+            println!("RECEIPT NOT FOUND {}", receipt_id);
+        }
+    }
+    total_gas
+}
+
+fn find_parent(
+    chain_store: &ChainStore,
+    receipt_id: &CryptoHash,
+    latest_block_hash: &CryptoHash,
+) -> Option<CryptoHash> {
+    let mut block_hash = latest_block_hash.clone();
+    for _ in 0..100 {
+        let all_outcomes = chain_store.get_block_execution_outcomes(&block_hash).unwrap();
+        for shard_outcomes in all_outcomes.values() {
+            for outcome in shard_outcomes {
+                let me = outcome.outcome_with_id.id;
+                for child_receipt_id in outcome.outcome_with_id.outcome.receipt_ids {
+                    if child_receipt_id == *receipt_id {
+                        if let Ok(Some(_)) = chain_store.get_receipt(&me) {
+                            return Some(me);
+                        } else if let Ok(Some(_)) = chain_store.get_transaction(&me) {
+                            return None;
+                        } else {
+                            println!("WTF FOUND {} {}", receipt_id, me);
+                        }
+                    }
+                }
+            }
+        }
+
+        let parent_block = chain_store.get_block_header(latest_block_hash).unwrap();
+        block_hash = parent_block.prev_hash().clone();
+    }
+    println!("WTF NOT FOUND {}", receipt_id);
+    None
+}
+
+fn try_cover_gas(
+    chain_store: &ChainStore,
+    receipt_ids: &[CryptoHash],
+    block_hash: &CryptoHash,
+    gas_to_cover: Gas,
+    runtime_config: &RuntimeConfig,
+    protocol_version: ProtocolVersion,
+) -> (i32, BTreeSet<AccountId>) {
+    if gas_to_cover == 0 {
+        return Default::default();
+    }
+
+    // get parents
+    let mut parent_receipt_ids = vec![];
+    let mut gas_possible = 0;
+    let mut impacted_senders = Default::default();
+    for receipt_id in receipt_ids {
+        // receipt_id.attached_gas was not enough.
+        // check gas attached to its parent
+        let receipt = match chain_store.get_receipt(&receipt_id) {
+            Ok(Some(receipt)) => receipt,
+            _ => {
+                println!("RECEIPT NOT FOUND {}", receipt_id);
+                continue;
+            }
+        };
+        let prepaid_gas = match &receipt.receipt {
+            ReceiptEnum::Action(action_receipt) => {
+                total_prepaid_gas(&action_receipt.actions).unwrap()
+            }
+            ReceiptEnum::Data(_) => 0,
+        };
+        let maybe_parent = find_parent(chain_store, receipt_id, block_hash);
+        match maybe_parent {
+            None => {
+                // assuming that it's generated from txn
+                gas_possible += 300 * (10u64).pow(12) - prepaid_gas; // max prepaid 300 Tgas minus what was already prepaid
+                impacted_senders.insert(receipt.predecessor_id.clone());
+            }
+            Some(parent_receipt_id) => {
+                let parent_receipt = chain_store.get_receipt(&parent_receipt_id).unwrap().unwrap();
+                let parent_receipt_actions = match &parent_receipt.receipt {
+                    ReceiptEnum::Action(action_receipt) => action_receipt.actions.clone(),
+                    ReceiptEnum::Data(_) => vec![],
+                };
+                let outcomes = chain_store.get_outcomes_by_id(&parent_receipt_id).unwrap();
+                let outcome = &outcomes[0].outcome_with_id.outcome; // take first one, idc
+                let gas_burnt = outcome.gas_burnt;
+                let gas_pre_burnt =
+                    runtime_config.fees.fee(ActionCosts::new_action_receipt).exec_fee()
+                        + total_prepaid_exec_fees(
+                            &runtime_config.fees,
+                            &parent_receipt_actions,
+                            &parent_receipt.receiver_id,
+                            protocol_version,
+                        )
+                        .unwrap();
+                gas_possible += total_prepaid_gas(&parent_receipt_actions).unwrap()
+                    - (gas_burnt - gas_pre_burnt)
+                    - recursive_child_burnt_gas(chain_store, outcome);
+                parent_receipt_ids.push(parent_receipt_id);
+                impacted_senders.insert(parent_receipt.receiver_id.clone());
+            }
+        }
+    }
+
+    if gas_to_cover <= gas_possible {
+        (0, impacted_senders)
+    } else if parent_receipt_ids.is_empty() {
+        (-1, Default::default())
+    } else {
+        let (hops, parent_impacted_senders) = try_cover_gas(
+            chain_store,
+            &parent_receipt_ids,
+            block_hash,
+            gas_to_cover,
+            runtime_config,
+            protocol_version,
+        );
+        if hops == -1 {
+            (-1, Default::default())
+        } else {
+            impacted_senders.extend(parent_impacted_senders.iter());
+            (hops + 1, impacted_senders)
+        }
+    }
+}
+
 fn print_receipt_costs_for_chunk(
     height: BlockHeight,
     block_hash: &CryptoHash,
@@ -750,7 +890,9 @@ fn print_receipt_costs_for_chunk(
     struct ReceiptData {
         profile: ProfileDataV3,
         burnt_gas: Gas,
-        outcomes: usize,
+        receipt_ids: Vec<CryptoHash>,
+        child_burnt_gas: Gas,
+        nep171: usize,
         action_data: ActionData,
     }
     let mut all_receipt_data = HashMap::new();
@@ -776,7 +918,8 @@ fn print_receipt_costs_for_chunk(
                 }
             };
             let account_id = outcome.executor_id.clone();
-
+            let nep171 =
+                outcome.logs.iter().filter(|s| s.contains("\"standard\":\"nep171\"")).count();
             let execution_result = match status {
                 ExecutionStatus::Unknown => {
                     continue;
@@ -803,6 +946,8 @@ fn print_receipt_costs_for_chunk(
                     )
                     .unwrap()
                 });
+
+            let child_burnt_gas = recursive_child_burnt_gas(chain_store, outcome);
 
             let mut action_data =
                 if let Ok(Some(receipt)) = chain_store.get_receipt(&receipt_or_tx_id) {
@@ -853,7 +998,9 @@ fn print_receipt_costs_for_chunk(
                     .or_insert_with(|| ReceiptData::default());
                 receipt_data.profile.merge(&profile);
                 receipt_data.burnt_gas += burnt_gas;
-                receipt_data.outcomes += 1;
+                receipt_data.receipt_ids.push(receipt_or_tx_id);
+                receipt_data.child_burnt_gas += child_burnt_gas;
+                receipt_data.nep171 += nep171;
                 receipt_data.action_data.merge(action_data);
             } else {
                 println!("FOUND EMPTY {} gas burnt = {}", receipt_or_tx_id, burnt_gas);
@@ -864,7 +1011,8 @@ fn print_receipt_costs_for_chunk(
     for ((account_id, execution_result), receipt_data) in all_receipt_data.drain().into_iter() {
         let total_profile = receipt_data.profile;
         let total_old_burnt_gas = receipt_data.burnt_gas;
-        let total_outcomes = receipt_data.outcomes;
+        let total_outcomes = receipt_data.receipt_ids.len();
+        let child_burnt_gas = receipt_data.child_burnt_gas;
         let action_data = receipt_data.action_data;
         let all_method_names = action_data.method_names.iter().join("|");
 
@@ -917,6 +1065,18 @@ fn print_receipt_costs_for_chunk(
         // let new_burnt_gas_2 = new_burnt_gas_base + total_key_len * 2 * nibble_cost;
         // REPLACE TTN WITH MINI-TRIE COST V1
         let new_burnt_gas_3 = new_burnt_gas_base + total_trie_len * nibble_gas_cost;
+        let total_new_burnt_gas_adj =
+            new_burnt_gas_3 + action_data.outgoing_send_gas - action_data.gas_pre_burned;
+        let (hops, impacted_accounts) = try_cover_gas(
+            chain_store,
+            &receipt_data.receipt_ids,
+            block_hash,
+            total_new_burnt_gas_adj.saturating_sub(action_data.gas_attached),
+            runtime_config,
+            protocol_version,
+        );
+        let impacted_accounts_str = impacted_accounts.iter().join("|");
+
         // REPLACE TTN WITH MINI-TRIE COST V2
         // let new_burnt_gas_4 = new_burnt_gas_base + total_trie_len_2 * nibble_cost;
         // for key in state_changes_keys {
@@ -925,7 +1085,7 @@ fn print_receipt_costs_for_chunk(
         maybe_add_to_csv(
             csv_file_mutex,
             &format!(
-                "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 height,
                 account_id,
                 execution_result as i32,
@@ -946,6 +1106,10 @@ fn print_receipt_costs_for_chunk(
                 // total_key_len,
                 total_trie_len,
                 total_outcomes,
+                child_burnt_gas,
+                receipt_data.nep171,
+                hops,
+                impacted_accounts_str,
             ),
         );
 
@@ -1021,6 +1185,7 @@ pub(crate) fn print_receipt_costs(
     near_config: NearConfig,
     store: Store,
     csv_file: Option<PathBuf>,
+    save_local: bool,
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
     let csv_file = csv_file.as_mut();
@@ -1048,16 +1213,9 @@ pub(crate) fn print_receipt_costs(
     );
     let csv_file_mutex = Mutex::new(csv_file);
 
-    let count_bytes = Mutex::new(0);
-    let batch_size = 1000;
-    let mut current_height = start_height;
-    while current_height <= end_height {
-        let next_height = (end_height + 1).min(current_height + batch_size);
-
-        println!("BATCH {}", current_height);
-
-        // iterate over txns
-        (current_height..next_height).into_par_iter().for_each(|height| {
+    if save_local {
+        let count_bytes = Mutex::new(0);
+        (start_height..=end_height).into_par_iter().for_each(|height| {
             let chain_store = ChainStore::new(
                 store.clone(),
                 near_config.genesis.config.genesis_height,
@@ -1119,38 +1277,34 @@ pub(crate) fn print_receipt_costs(
             }
         });
 
-        // iterate over receipts
-        (current_height..next_height).into_par_iter().for_each(|height| {
-            let chain_store = ChainStore::new(
-                store.clone(),
-                near_config.genesis.config.genesis_height,
-                near_config.client_config.save_trie_changes,
-            );
-            match chain_store.get_block_hash_by_height(height) {
-                Ok(block_hash) => {
-                    let epoch_id = epoch_manager.get_epoch_id(&block_hash).unwrap();
-                    let protocol_version =
-                        epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
-                    let protocol_config = runtime.get_protocol_config(&epoch_id).unwrap();
-                    let runtime_config = protocol_config.runtime_config;
-                    print_receipt_costs_for_chunk(
-                        height,
-                        &block_hash,
-                        maybe_shard_id,
-                        &chain_store,
-                        &runtime_config,
-                        protocol_version,
-                        &csv_file_mutex,
-                    );
-                }
-                Err(_) => {}
-            };
-        });
-
-        current_height = next_height;
+        println!("COUNT BYTES {}", count_bytes.lock().unwrap());
     }
 
-    println!("COUNT BYTES {}", count_bytes.lock().unwrap());
+    (start_height..=end_height).into_par_iter().for_each(|height| {
+        let chain_store = ChainStore::new(
+            store.clone(),
+            near_config.genesis.config.genesis_height,
+            near_config.client_config.save_trie_changes,
+        );
+        match chain_store.get_block_hash_by_height(height) {
+            Ok(block_hash) => {
+                let epoch_id = epoch_manager.get_epoch_id(&block_hash).unwrap();
+                let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
+                let protocol_config = runtime.get_protocol_config(&epoch_id).unwrap();
+                let runtime_config = protocol_config.runtime_config;
+                print_receipt_costs_for_chunk(
+                    height,
+                    &block_hash,
+                    maybe_shard_id,
+                    &chain_store,
+                    &runtime_config,
+                    protocol_version,
+                    &csv_file_mutex,
+                );
+            }
+            Err(_) => {}
+        };
+    });
 }
 
 pub(crate) fn resulting_chunk_extra(result: &ApplyTransactionResult, gas_limit: Gas) -> ChunkExtra {
