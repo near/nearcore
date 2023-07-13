@@ -3976,6 +3976,7 @@ dependencies = [
  "opentelemetry-semantic-conventions",
  "prometheus",
  "serde",
+ "serde_json",
  "smartstring 1.0.1",
  "strum",
  "thiserror",
