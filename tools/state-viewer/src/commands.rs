@@ -801,7 +801,7 @@ fn try_cover_gas(
         match maybe_parent {
             None => {
                 // assuming that it's generated from txn
-                gas_possible += 300 * (10u64).pow(12) - prepaid_gas; // max prepaid 300 Tgas minus what was already prepaid
+                gas_possible += (300 * (10u64).pow(12)).saturating_sub(prepaid_gas); // max prepaid 300 Tgas minus what was already prepaid
                 impacted_senders.insert(receipt.predecessor_id.clone());
             }
             Some(parent_receipt_id) => {
@@ -822,9 +822,10 @@ fn try_cover_gas(
                             protocol_version,
                         )
                         .unwrap();
-                gas_possible += total_prepaid_gas(&parent_receipt_actions).unwrap()
-                    - (gas_burnt - gas_pre_burnt)
-                    - recursive_child_burnt_gas(chain_store, outcome);
+                gas_possible += total_prepaid_gas(&parent_receipt_actions)
+                    .unwrap()
+                    .saturating_sub(gas_burnt.saturating_sub(gas_pre_burnt))
+                    .saturating_sub(recursive_child_burnt_gas(chain_store, outcome));
                 parent_receipt_ids.push(parent_receipt_id);
                 impacted_senders.insert(parent_receipt.receiver_id.clone());
             }
@@ -1067,9 +1068,9 @@ fn print_receipt_costs_for_chunk(
         // let new_burnt_gas_2 = new_burnt_gas_base + total_key_len * 2 * nibble_cost;
         // REPLACE TTN WITH MINI-TRIE COST V1
         let new_burnt_gas_3 = new_burnt_gas_base + total_trie_len * nibble_gas_cost;
-        let total_new_burnt_gas_adj = new_burnt_gas_3 + action_data.outgoing_send_gas
-            - action_data.gas_pre_burned
-            + modified_nibbles * 2_280_000_000;
+        let total_new_burnt_gas_adj =
+            (new_burnt_gas_3 + action_data.outgoing_send_gas + modified_nibbles * 2_280_000_000)
+                .saturating_sub(action_data.gas_pre_burned); // ???
         let (hops, gas_extra, impacted_accounts) = try_cover_gas(
             chain_store,
             &receipt_data.receipt_ids,
