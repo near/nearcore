@@ -156,6 +156,22 @@ impl ShardLayout {
         )
     }
 
+    /// Returns the simple nightshade layout, version 2, that will be used in production.
+    /// This is work in progress and the exact way of splitting is yet to be determined.
+    pub fn get_simple_nightshade_layout_v2() -> ShardLayout {
+        ShardLayout::v1(
+            // TODO(resharding) - find the right boundary to split shards in
+            // place of just "sweat". Likely somewhere in between near.social
+            // and sweatcoin.
+            vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near", "sweat"]
+                .into_iter()
+                .map(|s| s.parse().unwrap())
+                .collect(),
+            Some(vec![vec![0], vec![1], vec![2], vec![3, 4]]),
+            2,
+        )
+    }
+
     /// Given a parent shard id, return the shard uids for the shards in the current shard layout that
     /// are split from this parent shard. If this shard layout has no parent shard layout, return None
     pub fn get_split_shard_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
@@ -546,5 +562,82 @@ mod tests {
 
     fn parse_account_ids(ids: &[&str]) -> Vec<AccountId> {
         ids.into_iter().map(|a| a.parse().unwrap()).collect()
+    }
+
+    #[test]
+    fn test_shard_layout_all() {
+        let v0 = ShardLayout::v0(1, 0);
+        let v1 = ShardLayout::get_simple_nightshade_layout();
+        let v2 = ShardLayout::get_simple_nightshade_layout_v2();
+
+        insta::assert_snapshot!(serde_json::to_string_pretty(&v0).unwrap(), @r###"
+        {
+          "V0": {
+            "num_shards": 1,
+            "version": 0
+          }
+        }
+        "###);
+        insta::assert_snapshot!(serde_json::to_string_pretty(&v1).unwrap(), @r###"
+        {
+          "V1": {
+            "boundary_accounts": [
+              "aurora",
+              "aurora-0",
+              "kkuuue2akv_1630967379.near"
+            ],
+            "shards_split_map": [
+              [
+                0,
+                1,
+                2,
+                3
+              ]
+            ],
+            "to_parent_shard_map": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "version": 1
+          }
+        }
+        "###);
+        insta::assert_snapshot!(serde_json::to_string_pretty(&v2).unwrap(), @r###"
+        {
+          "V1": {
+            "boundary_accounts": [
+              "aurora",
+              "aurora-0",
+              "kkuuue2akv_1630967379.near",
+              "sweat"
+            ],
+            "shards_split_map": [
+              [
+                0
+              ],
+              [
+                1
+              ],
+              [
+                2
+              ],
+              [
+                3,
+                4
+              ]
+            ],
+            "to_parent_shard_map": [
+              0,
+              1,
+              2,
+              3,
+              3
+            ],
+            "version": 2
+          }
+        }
+        "###);
     }
 }

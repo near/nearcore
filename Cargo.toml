@@ -67,6 +67,7 @@ members = [
     "tools/database",
     "tools/chainsync-loadtest",
     "tools/delay-detector",
+    "tools/fork-network",
     "tools/indexer/example",
     "tools/mirror",
     "tools/mock-node",
@@ -190,6 +191,7 @@ near-crypto = { path = "core/crypto" }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
 near-flat-storage = { path = "tools/flat-storage" }
+near-fork-network = { path = "tools/fork-network" }
 near-fmt = { path = "utils/fmt" }
 near-indexer = { path = "chain/indexer" }
 near-indexer-primitives = { path = "chain/indexer-primitives" }
@@ -249,7 +251,7 @@ pin-project = "1.0"
 prefix-sum-vec = "0.1.2"
 pretty_assertions = "1.2"
 primitive-types = { version = "0.10", default-features = false }
-proc-macro2 = "1"
+proc-macro2 = "1.0.64"
 prometheus = "0.13.1"
 protobuf = "3.0.1"
 protobuf-codegen = "3.0.1"
