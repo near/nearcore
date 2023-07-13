@@ -830,7 +830,7 @@ fn try_cover_gas(
     }
 
     if gas_to_cover <= gas_possible {
-        (0, impacted_senders)
+        (1, impacted_senders)
     } else if parent_receipt_ids.is_empty() {
         (-1, Default::default())
     } else {
