@@ -1,4 +1,5 @@
 use crate::download_file::{run_download_file, FileDownloadError};
+use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{anyhow, bail, Context};
 use near_chain_configs::{
     get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
@@ -10,6 +11,7 @@ use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_jsonrpc::RpcConfig;
 use near_network::config::NetworkConfig;
 use near_network::tcp;
+use near_o11y::log_config::LogConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 #[cfg(test)]
@@ -1272,23 +1274,28 @@ pub fn init_testnet_configs(
         archive,
         tracked_shards,
     );
+    let log_config = LogConfig::default();
     for i in 0..(num_validator_seats + num_non_validator_seats) as usize {
+        let config = &configs[i];
         let node_dir = dir.join(format!("{}{}", prefix, i));
         fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");
 
         validator_signers[i]
-            .write_to_file(&node_dir.join(&configs[i].validator_key_file))
+            .write_to_file(&node_dir.join(&config.validator_key_file))
             .expect("Error writing validator key file");
         network_signers[i]
-            .write_to_file(&node_dir.join(&configs[i].node_key_file))
+            .write_to_file(&node_dir.join(&config.node_key_file))
             .expect("Error writing key file");
         for key in &shard_keys {
             key.write_to_file(&node_dir.join(format!("{}_key.json", key.account_id)))
                 .expect("Error writing shard file");
         }
 
-        genesis.to_file(&node_dir.join(&configs[i].genesis_file));
-        configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME)).expect("Error writing config");
+        genesis.to_file(&node_dir.join(&config.genesis_file));
+        config.write_to_file(&node_dir.join(CONFIG_FILENAME)).expect("Error writing config");
+        log_config
+            .write_to_file(&node_dir.join(LOG_CONFIG_FILENAME))
+            .expect("Error writing log config");
         info!(target: "near", "Generated node key, validator key, genesis file in {}", node_dir.display());
     }
 }
