@@ -1069,13 +1069,13 @@ impl Chain {
 
     /// Return a StateSyncInfo that includes the information needed for syncing state for shards needed
     /// in the next epoch.
-    fn get_state_dl_info(
+    fn get_state_sync_info(
         &self,
         me: &Option<AccountId>,
         block: &Block,
     ) -> Result<Option<StateSyncInfo>, Error> {
         let prev_hash = *block.header().prev_hash();
-        let shards_to_dl = Chain::get_shards_to_dl_state(
+        let shards_to_state_sync = Chain::get_shards_to_state_sync(
             self.epoch_manager.as_ref(),
             &self.shard_tracker,
             me,
@@ -1083,7 +1083,7 @@ impl Chain {
         )?;
         let prev_block = self.get_block(&prev_hash)?;
 
-        if prev_block.chunks().len() != block.chunks().len() && !shards_to_dl.is_empty() {
+        if prev_block.chunks().len() != block.chunks().len() && !shards_to_state_sync.is_empty() {
             // Currently, the state sync algorithm assumes that the number of chunks do not change
             // between the epoch being synced to and the last epoch.
             // For example, if shard layout changes at the beginning of epoch T, validators
@@ -1100,14 +1100,14 @@ impl Chain {
             );
             debug_assert!(false);
         }
-        if shards_to_dl.is_empty() {
+        if shards_to_state_sync.is_empty() {
             Ok(None)
         } else {
-            debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_dl, me);
+            debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_state_sync, me);
 
-            let state_dl_info = StateSyncInfo {
+            let state_sync_info = StateSyncInfo {
                 epoch_tail_hash: *block.header().hash(),
-                shards: shards_to_dl
+                shards: shards_to_state_sync
                     .iter()
                     .map(|shard_id| {
                         let chunk = &prev_block.chunks()[*shard_id as usize];
@@ -1116,7 +1116,7 @@ impl Chain {
                     .collect(),
             };
 
-            Ok(Some(state_dl_info))
+            Ok(Some(state_sync_info))
         }
     }
 
@@ -2434,7 +2434,7 @@ impl Chain {
             return Err(Error::InvalidBlockHeight(prev_height));
         }
 
-        let (is_caught_up, state_dl_info, need_state_snapshot) =
+        let (is_caught_up, state_sync_info, need_state_snapshot) =
             if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
                 debug!(target: "chain", "block {} is the first block of an epoch", block.hash());
                 if !self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
@@ -2447,10 +2447,10 @@ impl Chain {
                 // For the first block of the epoch we check if we need to start download states for
                 // shards that we will care about in the next epoch. If there is no state to be downloaded,
                 // we consider that we are caught up, otherwise not
-                let state_dl_info = self.get_state_dl_info(me, block)?;
+                let state_sync_info = self.get_state_sync_info(me, block)?;
                 let is_genesis = prev_prev_hash == CryptoHash::default();
                 let need_state_snapshot = !is_genesis;
-                (state_dl_info.is_none(), state_dl_info, need_state_snapshot)
+                (state_sync_info.is_none(), state_sync_info, need_state_snapshot)
             } else {
                 (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None, false)
             };
@@ -2538,7 +2538,7 @@ impl Chain {
             apply_chunk_work,
             BlockPreprocessInfo {
                 is_caught_up,
-                state_dl_info,
+                state_sync_info,
                 incoming_receipts,
                 challenges_result,
                 challenged_blocks,
@@ -2637,7 +2637,7 @@ impl Chain {
     ///    in the current epoch that will be split into a future shard that `me` will track.
     /// 2) Shard layout will be the same. In this case, the method returns all shards that `me` will
     ///    track in the next epoch but not this epoch
-    fn get_shards_to_dl_state(
+    fn get_shards_to_state_sync(
         epoch_manager: &dyn EpochManagerAdapter,
         shard_tracker: &ShardTracker,
         me: &Option<AccountId>,
@@ -3529,7 +3529,7 @@ impl Chain {
             debug!(target: "chain", "Catching up: removing prev={:?} from the queue. I'm {:?}", block_hash, me);
             chain_store_update.remove_prev_block_to_catchup(*block_hash);
         }
-        chain_store_update.remove_state_dl_info(*epoch_first_block);
+        chain_store_update.remove_state_sync_info(*epoch_first_block);
 
         chain_store_update.commit()?;
 
@@ -5180,7 +5180,7 @@ impl<'a> ChainUpdate<'a> {
 
         let BlockPreprocessInfo {
             is_caught_up,
-            state_dl_info,
+            state_sync_info,
             incoming_receipts,
             challenges_result,
             challenged_blocks,
@@ -5199,8 +5199,8 @@ impl<'a> ChainUpdate<'a> {
                 Arc::new(receipt_proofs),
             );
         }
-        if let Some(state_dl_info) = state_dl_info {
-            self.chain_store_update.add_state_dl_info(state_dl_info);
+        if let Some(state_sync_info) = state_sync_info {
+            self.chain_store_update.add_state_sync_info(state_sync_info);
         }
 
         self.chain_store_update.save_block_extra(block.hash(), BlockExtra { challenges_result });
