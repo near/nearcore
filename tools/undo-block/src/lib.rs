@@ -73,10 +73,13 @@ pub fn undo_only_block_head(
 
     let target_header = chain_store.get_block_header_by_height(target_height)?;
     let new_head = Tip::from_header(&target_header);
+    let target_final_header = chain_store.get_block_header_by_height(target_height.checked_sub(3).unwrap())?;
+    let new_final_head = Tip::from_header(&target_final_header);
 
     let mut chain_store_update = ChainStoreUpdate::new(chain_store);
     chain_store_update.clear_head_block_data(epoch_manager)?;
     chain_store_update.save_body_head(&new_head)?;
+    chain_store_update.save_final_head(&new_final_head)?;
     chain_store_update.commit()?;
 
     let new_chain_store_head = chain_store.head()?;
