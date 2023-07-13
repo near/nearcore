@@ -3950,6 +3950,10 @@ impl Chain {
                             shard_id)
                         .entered();
                         let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
+                        if !cares_about_shard_this_epoch {
+                            tracing::error!(target: "chain", ?shard_id, ?height, cares_about_shard_this_epoch);
+                        }
+                        assert!(cares_about_shard_this_epoch);
                         match runtime.apply_transactions(
                             shard_id,
                             chunk_inner.prev_state_root(),
@@ -3967,7 +3971,7 @@ impl Chain {
                             true,
                             is_first_block_with_chunk_of_version,
                             state_patch,
-                            cares_about_shard_this_epoch,
+                            true,
                         ) {
                             Ok(apply_result) => {
                                 let apply_split_result_or_state_changes =
@@ -4011,6 +4015,10 @@ impl Chain {
                             "existing_chunk",
                             shard_id)
                         .entered();
+                        if !cares_about_shard_this_epoch {
+                            tracing::error!(target: "chain", ?shard_id, ?new_extra, ?height, cares_about_shard_this_epoch);
+                        }
+                        assert!(cares_about_shard_this_epoch);
                         match runtime.apply_transactions(
                             shard_id,
                             new_extra.state_root(),
@@ -4028,7 +4036,7 @@ impl Chain {
                             false,
                             false,
                             state_patch,
-                            cares_about_shard_this_epoch,
+                            true,
                         ) {
                             Ok(apply_result) => {
                                 let apply_split_result_or_state_changes =

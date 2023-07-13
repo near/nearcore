@@ -311,7 +311,7 @@ fn apply_block_from_range(
     maybe_add_to_csv(
         csv_file_mutex,
         &format!(
-            "{},{},{},{},{},{},{},{},{},{:?},{}",
+            "{},{},{},{},{},{},{},{},{},{},{}",
             height,
             block_hash,
             block_author,
@@ -321,7 +321,7 @@ fn apply_block_from_range(
             apply_result.total_gas_burnt,
             chunk_present,
             apply_result.processed_delayed_receipts.len(),
-            delayed_indices,
+            delayed_indices.unwrap_or(None).map_or(0, |d| d.next_available_index - d.first_index),
             apply_result.trie_changes.state_changes().len(),
         ),
     );
