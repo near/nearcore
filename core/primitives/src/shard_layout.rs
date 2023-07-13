@@ -570,8 +570,74 @@ mod tests {
         let v1 = ShardLayout::get_simple_nightshade_layout();
         let v2 = ShardLayout::get_simple_nightshade_layout_v2();
 
-        insta::assert_snapshot!(serde_json::to_string(&v0).unwrap(), @r###"{"V0":{"num_shards":1,"version":0}}"###);
-        insta::assert_snapshot!(serde_json::to_string(&v1).unwrap(), @r###"{"V1":{"boundary_accounts":["aurora","aurora-0","kkuuue2akv_1630967379.near"],"shards_split_map":[[0,1,2,3]],"to_parent_shard_map":[0,0,0,0],"version":1}}"###);
-        insta::assert_snapshot!(serde_json::to_string(&v2).unwrap(), @r###"{"V1":{"boundary_accounts":["aurora","aurora-0","kkuuue2akv_1630967379.near","sweat"],"shards_split_map":[[0],[1],[2],[3,4]],"to_parent_shard_map":[0,1,2,3,3],"version":2}}"###);
+        insta::assert_snapshot!(serde_json::to_string_pretty(&v0).unwrap(), @r###"
+        {
+          "V0": {
+            "num_shards": 1,
+            "version": 0
+          }
+        }
+        "###);
+        insta::assert_snapshot!(serde_json::to_string_pretty(&v1).unwrap(), @r###"
+        {
+          "V1": {
+            "boundary_accounts": [
+              "aurora",
+              "aurora-0",
+              "kkuuue2akv_1630967379.near"
+            ],
+            "shards_split_map": [
+              [
+                0,
+                1,
+                2,
+                3
+              ]
+            ],
+            "to_parent_shard_map": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "version": 1
+          }
+        }
+        "###);
+        insta::assert_snapshot!(serde_json::to_string_pretty(&v2).unwrap(), @r###"
+        {
+          "V1": {
+            "boundary_accounts": [
+              "aurora",
+              "aurora-0",
+              "kkuuue2akv_1630967379.near",
+              "sweat"
+            ],
+            "shards_split_map": [
+              [
+                0
+              ],
+              [
+                1
+              ],
+              [
+                2
+              ],
+              [
+                3,
+                4
+              ]
+            ],
+            "to_parent_shard_map": [
+              0,
+              1,
+              2,
+              3,
+              3
+            ],
+            "version": 2
+          }
+        }
+        "###);
     }
 }
