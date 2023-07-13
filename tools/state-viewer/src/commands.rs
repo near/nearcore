@@ -739,14 +739,13 @@ fn find_parent(
     let mut block_hash = latest_block_hash.clone();
     for _ in 0..100 {
         let block = chain_store.get_block_header(&block_hash).unwrap();
-        let height = block.height();
+        // let height = block.height();
 
         let all_outcomes = chain_store.get_block_execution_outcomes(&block_hash).unwrap();
         for shard_outcomes in all_outcomes.values() {
             for outcome in shard_outcomes {
                 let me = outcome.outcome_with_id.id;
                 for child_receipt_id in &outcome.outcome_with_id.outcome.receipt_ids {
-                    println!("{}: {} -> {}", height, me, child_receipt_id);
                     if child_receipt_id == receipt_id {
                         if let Ok(Some(_)) = chain_store.get_receipt(&me) {
                             return Some(me);
