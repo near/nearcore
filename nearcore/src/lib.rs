@@ -21,6 +21,7 @@ use near_epoch_manager::EpochManager;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
 use near_store::flat::FlatStateValuesInliningMigrationHandle;
+use near_store::genesis::initialize_genesis_state;
 use near_store::metadata::DbKind;
 use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
@@ -231,6 +232,9 @@ pub fn start_with_config_and_synchronization(
         storage.get_hot_store(),
         config.client_config.log_summary_period,
     )?;
+
+    // Initialize genesis STATE either from config or state/storage before other components.
+    initialize_genesis_state(storage.get_hot_store(), &config.genesis, Some(home_dir));
 
     let epoch_manager =
         EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config);

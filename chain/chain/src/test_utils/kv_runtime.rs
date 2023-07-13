@@ -940,10 +940,6 @@ impl EpochManagerAdapter for MockEpochManager {
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self) -> (Store, Vec<StateRoot>) {
-        (self.store.clone(), ((0..self.num_shards).map(|_| Trie::EMPTY_ROOT).collect()))
-    }
-
     fn store(&self) -> &Store {
         &self.store
     }
