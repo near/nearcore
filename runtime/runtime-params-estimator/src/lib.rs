@@ -244,8 +244,6 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::StorageRemoveRetValueByte, storage_remove_ret_value_byte),
     (Cost::TouchingTrieNode, touching_trie_node),
     (Cost::ReadCachedTrieNode, read_cached_trie_node),
-    (Cost::TouchingTrieNodeRead, touching_trie_node_read),
-    (Cost::TouchingTrieNodeWrite, touching_trie_node_write),
     (Cost::ApplyBlock, apply_block_cost),
     (Cost::ContractCompileBase, contract_compile_base),
     (Cost::ContractCompileBytes, contract_compile_bytes),
@@ -1168,24 +1166,9 @@ fn storage_remove_ret_value_byte(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn touching_trie_node(ctx: &mut EstimatorContext) -> GasCost {
-    let read = touching_trie_node_read(ctx);
-    let write = touching_trie_node_write(ctx);
-    return std::cmp::max(read, write);
-}
-
-fn touching_trie_node_read(ctx: &mut EstimatorContext) -> GasCost {
-    if let Some(cost) = ctx.cached.touching_trie_node_read.clone() {
-        return cost;
-    }
-    let warmup_iters = ctx.config.warmup_iters_per_block;
-    let measured_iters = ctx.config.iter_per_block;
-    // Number of bytes in the final key. Will create 2x that many nodes.
-    // Picked somewhat arbitrarily, balancing estimation time vs accuracy.
-    let final_key_len = 1000;
-    let cost = trie::read_node_from_db(ctx, warmup_iters, measured_iters, final_key_len);
-
-    ctx.cached.touching_trie_node_read = Some(cost.clone());
-    cost
+    // TTN write cost = TTN cost because we no longer charge it on reads since
+    // flat storage for reads was introduced
+    touching_trie_node_write(ctx)
 }
 
 fn touching_trie_node_write(ctx: &mut EstimatorContext) -> GasCost {
