@@ -727,14 +727,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blst_eip2537"
-version = "0.1.0"
-source = "git+https://github.com/sean-sn/blst_eip2537.git#bd46a10e26c17e8c12855d2bbf8486461f826d85"
-dependencies = [
- "cc",
-]
-
-[[package]]
 name = "bolero"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4350,7 +4342,6 @@ dependencies = [
  "arbitrary",
  "assert_matches",
  "blst",
- "blst_eip2537",
  "bolero",
  "borsh 0.10.2",
  "clap 4.2.4",

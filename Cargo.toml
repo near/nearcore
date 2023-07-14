@@ -107,8 +107,6 @@ base64 = "0.21"
 bencher = "0.1.5"
 bitflags = "1.2"
 blake2 = "0.9.1"
-# export BLST_SRC_DIR=/home/olga/Aurora/blst/
-blst_eip2537 = { git = "https://github.com/sean-sn/blst_eip2537.git" }
 blst = { git = "https://github.com/supranational/blst.git",  branch = "master" }
 bn = { package = "zeropool-bn", version = "0.5.11" }
 bolero = "0.8.0"
