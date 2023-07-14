@@ -324,7 +324,8 @@ impl NightshadeRuntime {
             let epoch_manager = self.epoch_manager.read();
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
             debug!(target: "runtime",
-                   "is next_block_epoch_start {}",
+                   "block height: {}, is next_block_epoch_start {}",
+                   block_height,
                    epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
             );
 
