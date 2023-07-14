@@ -2330,13 +2330,6 @@ impl Chain {
         timer.observe_duration();
         let _timer = CryptoHashTimer::new_with_start(*block.hash(), block_start_processing_time);
 
-
-        if let Some(h) = new_head.clone() {
-            if h.height > 96315014 {
-                tracing::error!(?new_head, ?prev_head);
-                panic!("Block processed");
-            }
-        }
         self.check_orphans(
             me,
             *block.hash(),
@@ -3962,10 +3955,6 @@ impl Chain {
                             shard_id)
                         .entered();
                         let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
-                        if !cares_about_shard_this_epoch {
-                            tracing::error!(target: "chain", ?shard_id, ?height, cares_about_shard_this_epoch);
-                        }
-                        assert!(cares_about_shard_this_epoch);
                         match runtime.apply_transactions(
                             shard_id,
                             chunk_inner.prev_state_root(),
@@ -4027,10 +4016,6 @@ impl Chain {
                             "existing_chunk",
                             shard_id)
                         .entered();
-                        if !cares_about_shard_this_epoch {
-                            tracing::error!(target: "chain", ?shard_id, ?new_extra, ?height, cares_about_shard_this_epoch);
-                        }
-                        assert!(cares_about_shard_this_epoch);
                         match runtime.apply_transactions(
                             shard_id,
                             new_extra.state_root(),

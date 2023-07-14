@@ -2,7 +2,6 @@ use chrono::Utc;
 use near_chain::types::{EpochManagerAdapter, LatestKnown};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_primitives::block::Tip;
-use near_primitives::types::BlockHeight;
 use near_primitives::utils::to_timestamp;
 
 pub mod cli;
@@ -51,30 +50,26 @@ pub fn undo_block(
 pub fn undo_only_block_head(
     chain_store: &mut ChainStore,
     epoch_manager: &dyn EpochManagerAdapter,
-    new_block_head: Option<BlockHeight>,
 ) -> anyhow::Result<()> {
     let current_head = chain_store.head()?;
     let current_head_height = current_head.height;
     let current_header_head = chain_store.header_head()?;
     let current_header_height = current_header_head.height;
 
-    let target_height = if let Some(new_block_head) = new_block_head {
-        new_block_head
-    } else {
-        let tail_height = chain_store.tail()?;
-        tail_height
-    };
+    let tail_height = chain_store.tail()?;
+    let tail_header = chain_store.get_block_header_by_height(tail_height)?;
+    let new_head = Tip::from_header(&tail_header);
 
-    tracing::info!(target: "neard", ?target_height, ?current_head_height, ?current_header_height, "Trying to update head");
+    tracing::info!(target: "neard", ?tail_height, ?current_head_height, ?current_header_height, "Trying to update head");
 
-    let target_header = chain_store.get_block_header_by_height(target_height)?;
-    let new_head = Tip::from_header(&target_header);
-    let target_final_header = chain_store.get_block_header_by_height(target_height.checked_sub(3).unwrap())?;
-    let new_final_head = Tip::from_header(&target_final_header);
+    if current_head_height == tail_height {
+        tracing::info!(target: "neard", "Body head is alreay at the oldest block.");
+        return Ok(());
+    }
 
     let mut chain_store_update = ChainStoreUpdate::new(chain_store);
+    chain_store_update.clear_head_block_data(epoch_manager)?;
     chain_store_update.save_body_head(&new_head)?;
-    chain_store_update.save_final_head(&new_final_head)?;
     chain_store_update.commit()?;
 
     let new_chain_store_head = chain_store.head()?;

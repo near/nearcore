@@ -1,7 +1,6 @@
 use near_chain::ChainStore;
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::EpochManager;
-use near_primitives::types::BlockHeight;
 use near_store::{Mode, NodeStorage};
 use nearcore::load_config;
 use std::path::Path;
@@ -11,10 +10,6 @@ pub struct UndoBlockCommand {
     /// Only reset the block head to the tail block. Does not reset the header head.
     #[arg(short, long)]
     reset_only_body: bool,
-
-    /// Resets block head to the given height.
-    #[arg(long)]
-    new_block_head: Option<BlockHeight>,
 }
 
 impl UndoBlockCommand {
@@ -46,7 +41,7 @@ impl UndoBlockCommand {
         );
 
         if self.reset_only_body {
-            crate::undo_only_block_head(&mut chain_store, &*epoch_manager, self.new_block_head)
+            crate::undo_only_block_head(&mut chain_store, &*epoch_manager)
         } else {
             crate::undo_block(&mut chain_store, &*epoch_manager)
         }
