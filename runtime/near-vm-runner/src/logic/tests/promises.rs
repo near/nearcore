@@ -4,17 +4,16 @@ use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::logic::types::PromiseResult;
 use crate::logic::VMLogic;
 use borsh::BorshSerialize;
-use near_account_id::AccountId;
 use near_crypto::PublicKey;
 use serde_json;
 
-#[derive(serde::Serialize)]
-struct ReceiptView<'a> {
-    receiver_id: &'a AccountId,
-    actions: &'a [Action],
-}
+fn vm_receipts<'a>(logic: &'a VMLogic) -> Vec<impl serde::Serialize + 'a> {
+    #[derive(serde::Serialize)]
+    struct ReceiptView<'a, T> {
+        receiver_id: T,
+        actions: &'a [Action],
+    }
 
-fn vm_receipts<'a>(logic: &'a VMLogic) -> Vec<ReceiptView<'a>> {
     logic
         .receipt_manager()
         .action_receipts
