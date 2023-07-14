@@ -1179,6 +1179,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         next_epoch_shard_layout: &ShardLayout,
         state_split_status: Arc<StateSplitApplyingStatus>,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
+        // TODO(resharding) use flat storage to split the trie here
         let trie = self.tries.get_view_trie_for_shard(shard_uid, *state_root);
         let shard_id = shard_uid.shard_id();
         let new_shards = next_epoch_shard_layout
