@@ -414,7 +414,7 @@ impl StateSync {
             let part_id = msg.part_id.idx;
             if msg.sync_hash != sync_hash {
                 debug!(target: "sync",
-                    "Recieved message for other sync hash: shard_id {}, part_id {} expected sync_hash {} recieved sync_hash {}.",
+                    "Received message for other sync hash: shard_id {}, part_id {} expected sync_hash {} recieved sync_hash {}.",
                     &shard_id,
                     &part_id,
                     &sync_hash,
