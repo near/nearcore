@@ -1087,8 +1087,33 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(bls12381_map_fp2_to_g2_base)?;
-        //TODO
-        return Ok(());
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
+        let mut c_fp1 = [blst::blst_fp::default(); 2];
+
+        unsafe {
+            blst::blst_fp_from_bendian(&mut c_fp1[0], data[..96].as_ptr());
+            blst::blst_fp_from_bendian(&mut c_fp1[1], data[96..].as_ptr());
+        }
+
+        let mut fp2_point: blst::blst_fp2 = blst::blst_fp2 {fp: c_fp1};
+
+        let mut g2_point = blst::blst_p2::default();
+        unsafe {
+            blst::blst_map_to_g2(&mut g2_point, &fp2_point, null());
+        }
+
+        let mut mul_res_affine = blst::blst_p2_affine::default();
+
+        unsafe {
+            blst::blst_p2_to_affine(&mut mul_res_affine, &g2_point);
+        }
+
+        let mut res = [0u8; 192];
+        unsafe {
+            blst::blst_p2_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
+        }
+
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())
     }
 
     pub fn bls12381_pairing_check(&mut self,
