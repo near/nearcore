@@ -184,20 +184,20 @@ impl<'a> PoolIteratorWrapper<'a> {
 
 pub struct NewPoolIterator<'a> {
     pool: &'a TransactionPool,
-    key_iter: Keys<'a, PoolKey, BTreeMap<Nonce, SignedTransaction>>,
-    key_progress: BTreeMap<PoolKey, Keys<'a, Nonce, SignedTransaction>>,
+    key_progress: BTreeMap<PoolKey, Bound<Nonce>>,
+    key_bound: Bound<PoolKey>,
 }
 
 impl<'a> NewPoolIterator<'a> {
     pub fn new(pool: &'a TransactionPool) -> Self {
         Self {
             pool,
-            key_iter: pool.transactions.keys(),
             key_progress: pool
                 .transactions
                 .iter()
-                .map(|(key, value)| (*key, value.keys()))
+                .map(|(key, value)| (*key, Bound::Unbounded))
                 .collect(),
+            key_bound: Bound::Unbounded,
         }
     }
 }
@@ -206,17 +206,26 @@ impl<'a> Iterator for NewPoolIterator<'a> {
     type Item = &'a SignedTransaction;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(key) = self.key_iter.next() {
-            if let Some(nonce) = self.key_progress.get_mut(key).expect("key must exist").next() {
-                return Some(self.pool.transactions.get(key).expect("").get(nonce).expect(""));
-            } else {
-                // TODO: Remove key.
+        while !self.key_progress.is_empty() {
+            while let Some((&key, &nonce_bound)) =
+                self.key_progress.range((self.key_bound, Bound::Unbounded)).next()
+            {
+                self.key_bound = Bound::Excluded(key);
+
+                let key_transactions =
+                    self.pool.transactions.get(&key).expect("Empty transaction list");
+                if let Some((nonce, tx)) =
+                    key_transactions.range((nonce_bound, Bound::Unbounded)).next()
+                {
+                    self.key_progress.insert(key, Bound::Excluded(*nonce));
+                    return Some(tx);
+                } else {
+                    self.key_progress.remove(&key);
+                }
             }
-            return None;
-        } else {
-            // TODO: Refresh key iter.
-            None
+            self.key_bound = Bound::Unbounded;
         }
+        None
     }
 }
 
@@ -372,7 +381,7 @@ mod tests {
         for tx in transactions {
             assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
         }
-        let txs = prepare_transactions(&mut pool, expected_weight);
+        let txs = prepare_transactions(&mut pool, expected_weight as usize);
         pool.remove_transactions(&txs);
         (txs.iter().map(|tx| tx.transaction.nonce).collect(), pool)
     }
@@ -387,9 +396,9 @@ mod tests {
 
     fn prepare_transactions(
         pool: &mut TransactionPool,
-        max_number_of_transactions: u32,
+        max_number_of_transactions: usize,
     ) -> Vec<SignedTransaction> {
-        pool.new_pool_iterator().take(max_number_of_transactions as usize).cloned().collect()
+        pool.new_pool_iterator().take(max_number_of_transactions).cloned().collect()
     }
 
     /// Add transactions of nonce from 1..10 in random order. Check that mempool
@@ -477,7 +486,7 @@ mod tests {
 
         assert_eq!(pool.len(), txs_to_check.len());
 
-        let mut pool_txs = prepare_transactions(&mut pool, txs_to_check.len() as u32);
+        let mut pool_txs = prepare_transactions(&mut pool, txs_to_check.len());
         pool_txs.sort_by_key(|tx| tx.transaction.nonce);
         let mut expected_txs = txs_to_check.to_vec();
         expected_txs.sort_by_key(|tx| tx.transaction.nonce);
