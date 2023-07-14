@@ -20,6 +20,7 @@ use near_primitives_core::types::{
     StorageUsage,
 };
 use std::mem::size_of;
+use std::ptr::null;
 
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
 
@@ -1053,8 +1054,30 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(bls12381_map_fp_to_g1_base)?;
-        //TODO
-        return Ok(());
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
+        let mut fp_point = blst::blst_fp::default();
+
+        unsafe {
+            blst::blst_fp_from_bendian(&mut fp_point, data.as_ptr());
+        }
+
+        let mut g1_point = blst::blst_p1::default();
+        unsafe {
+            blst::blst_map_to_g1(&mut g1_point, &fp_point, null());
+        }
+
+        let mut mul_res_affine = blst::blst_p1_affine::default();
+
+        unsafe {
+            blst::blst_p1_to_affine(&mut mul_res_affine, &g1_point);
+        }
+
+        let mut res = [0u8; 96];
+        unsafe {
+            blst::blst_p1_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
+        }
+
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())
     }
 
     pub fn bls12381_map_fp2_to_g2(
