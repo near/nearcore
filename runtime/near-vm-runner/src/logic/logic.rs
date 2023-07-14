@@ -960,7 +960,9 @@ impl<'a> VMLogic<'a> {
 
         let elements_count = data.len() / ((POINT_BYTES_LEN + SCALAR_BYTES_LEN) as usize);
         self.gas_counter.pay_per(bls12381_g1_multiexp_element, elements_count as u64)?;
-        self.gas_counter.pay_per(bls12381_g1_multiexp_element_div_log, elements_count as u64)?;
+
+        let elements_count_div_log = elements_count / (u64::ilog2(elements_count as u64) as usize);
+        self.gas_counter.pay_per(bls12381_g1_multiexp_element_div_log, elements_count_div_log as u64)?;
 
         let mut blst_points: Vec<blst::blst_p1> = vec![];
         let nbits = 32 * 8 * elements_count;
@@ -1011,7 +1013,9 @@ impl<'a> VMLogic<'a> {
 
         let elements_count = data.len() / ((POINT_BYTES_LEN + SCALAR_BYTES_LEN) as usize);
         self.gas_counter.pay_per(bls12381_g2_multiexp_element, elements_count as u64)?;
-        self.gas_counter.pay_per(bls12381_g2_multiexp_element_div_log, elements_count as u64)?;
+
+        let elements_count_div_log = elements_count / (u64::ilog2(elements_count as u64) as usize);
+        self.gas_counter.pay_per(bls12381_g2_multiexp_element_div_log, elements_count_div_log as u64)?;
 
         let mut blst_points: Vec<blst::blst_p2> = vec![];
         let nbits = 32 * 8 * elements_count;
@@ -1120,9 +1124,37 @@ impl<'a> VMLogic<'a> {
                                   value_len: u64,
                                   value_ptr: u64) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_pairing_base)?;
-        self.gas_counter.pay_base(bls12381_pairing_element)?;
-        //TODO
-        return Ok(0);
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
+        let elements_count = data.len() / 288;
+
+        self.gas_counter.pay_per(bls12381_pairing_element, elements_count as u64)?;
+
+        let mut blst_g1_list: Vec<blst::blst_p1_affine> = vec![];
+        let mut blst_g2_list: Vec<blst::blst_p2_affine> = vec![];
+
+        for i in 0..elements_count {
+            let mut g1_aff = blst::blst_p1_affine::default();
+            unsafe {
+                blst::blst_p1_deserialize(&mut g1_aff, data[i*288..i*288 + 96].as_ptr());
+            }
+
+            let mut g2_aff = blst::blst_p2_affine::default();
+            unsafe {
+                blst::blst_p2_deserialize(&mut g2_aff, data[i*288 + 96..(i + 1)*288].as_ptr());
+            }
+
+            blst_g1_list.push(g1_aff);
+            blst_g2_list.push(g2_aff);
+        }
+
+
+        let mut pairing_fp12 = blst::blst_fp12::miller_loop_n(&blst_g2_list, &blst_g1_list);
+        pairing_fp12 = pairing_fp12.final_exp();
+        let pairing_res = unsafe {
+            blst::blst_fp12_is_one(&pairing_fp12)
+        };
+
+        Ok(pairing_res as u64)
     }
 
     pub fn bls12381_g1_decompress(
