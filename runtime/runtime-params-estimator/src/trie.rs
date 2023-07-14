@@ -5,7 +5,6 @@ use near_primitives::hash::hash;
 use near_primitives::types::TrieCacheMode;
 use near_store::{TrieCachingStorage, TrieStorage};
 use near_vm_runner::logic::ExtCosts;
-use std::iter;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static SINK: AtomicUsize = AtomicUsize::new(0);
