@@ -951,11 +951,48 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(bls12381_g1_multiexp_base)?;
-        self.gas_counter.pay_base(bls12381_g1_multiexp_element)?;
-        self.gas_counter.pay_base(bls12381_g1_multiexp_element_div_log)?;
 
-        //TODO
-        return Ok(());
+        let POINT_BYTES_LEN: u64 = 96;
+        let SCALAR_BYTES_LEN: u64 = 32;
+
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
+
+        let elements_count = data.len() / ((POINT_BYTES_LEN + SCALAR_BYTES_LEN) as usize);
+        self.gas_counter.pay_per(bls12381_g1_multiexp_element, elements_count as u64)?;
+        self.gas_counter.pay_per(bls12381_g1_multiexp_element_div_log, elements_count as u64)?;
+
+        let mut blst_points: Vec<blst::blst_p1> = vec![];
+        let nbits = 32 * 8 * elements_count;
+        let mut scalars: Vec<u8> = vec![];
+        for i in 0..elements_count {
+            let mut pk_aff = blst::blst_p1_affine::default();
+            unsafe {
+                blst::blst_p1_deserialize(&mut pk_aff, data[i*128..(i*128 + 96)].as_ptr());
+            }
+
+            let mut pk = blst::blst_p1::default();
+            unsafe {
+                blst::blst_p1_from_affine(&mut pk, &pk_aff);
+            }
+
+            blst_points.push(pk);
+            scalars.extend_from_slice(&data[(i*128 + 96)..(i + 1)*128]);
+        }
+
+        let mut blst_p1s = blst::p1_affines::from(&blst_points);
+        let mut mul_res = blst_p1s.mult(&scalars, nbits);
+        let mut mul_res_affine = blst::blst_p1_affine::default();
+
+        unsafe {
+            blst::blst_p1_to_affine(&mut mul_res_affine, &mul_res);
+        }
+
+        let mut res = [0u8; 96];
+        unsafe {
+            blst::blst_p1_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
+        }
+
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())
     }
 
     pub fn bls12381_g2_multiexp(
