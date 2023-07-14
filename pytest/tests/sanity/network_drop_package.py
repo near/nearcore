@@ -50,7 +50,8 @@ class Handler(ProxyHandler):
 if __name__ == '__main__':
     success = Value('i', 0)
 
-    start_cluster(3, 0, 1, None, [["epoch_length", 500]], {}, partial(Handler, success=success))
+    start_cluster(3, 0, 1, None, [["epoch_length", 500]], {},
+                  partial(Handler, success=success))
 
     started = time.time()
 

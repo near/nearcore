@@ -28,6 +28,7 @@ class Handler(ProxyHandler):
             return msg
         return True
 
+
 if __name__ == '__main__':
     nodes = start_cluster(2, 0, 1, None, [], {}, Handler)
 

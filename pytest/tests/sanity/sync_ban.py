@@ -26,6 +26,7 @@ BAN_STRING = 'ban a fraudulent peer'
 
 
 class Handler(ProxyHandler):
+
     def __init__(self, *args, should_sync=None, should_ban=None, **kwargs):
         assert should_sync is not None
         self.should_sync = should_sync
@@ -83,10 +84,14 @@ if __name__ == '__main__':
     }
 
     should_sync = Value('i', False)
-    nodes = start_cluster(1, 1, 1, None, [["epoch_length", EPOCH_LENGTH]], {
-        0: node0_config,
-        1: node1_config
-    }, functools.partial(Handler, should_sync=should_sync, should_ban=should_ban))
+    nodes = start_cluster(
+        1, 1, 1, None, [["epoch_length", EPOCH_LENGTH]], {
+            0: node0_config,
+            1: node1_config
+        },
+        functools.partial(Handler,
+                          should_sync=should_sync,
+                          should_ban=should_ban))
 
     utils.wait_for_blocks(nodes[0], target=30, poll_interval=2)
 
@@ -109,14 +114,16 @@ if __name__ == '__main__':
             cur_height = nodes[0].get_latest_block().height
             node1_height = nodes[1].get_latest_block().height
             status1 = nodes[1].get_status()
-            print(f"Sync: node 1 at block {node1_height}, node 0 at block {cur_height}; waiting for node 1 to catch up")
+            print(
+                f"Sync: node 1 at block {node1_height}, node 0 at block {cur_height}; waiting for node 1 to catch up"
+            )
             if (abs(node1_height - cur_height) < 5 and
                     status1['sync_info']['syncing'] is False):
                 break
         time.sleep(2)
 
     if not should_ban and (tracker0.check(BAN_STRING) or
-                        tracker1.check(BAN_STRING)):
+                           tracker1.check(BAN_STRING)):
         assert False, "unexpected ban of peers"
 
     # logger.info('shutting down')

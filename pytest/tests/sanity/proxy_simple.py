@@ -20,6 +20,7 @@ TIMEOUT = 30
 
 
 class Handler(ProxyHandler):
+
     def __init__(self, *args, success=None, **kwargs):
         assert success is not None
         self.success = success

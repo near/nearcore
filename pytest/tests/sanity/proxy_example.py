@@ -48,9 +48,11 @@ class Handler(ProxyHandler):
 
         return True
 
+
 if __name__ == '__main__':
     success = Value('i', 0)
-    start_cluster(2, 0, 1, None, [], {}, functools.partial(Handler, success=success))
+    start_cluster(2, 0, 1, None, [], {},
+                  functools.partial(Handler, success=success))
 
     started = time.time()
 
