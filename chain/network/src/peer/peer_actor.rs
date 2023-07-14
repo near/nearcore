@@ -1526,7 +1526,6 @@ impl actix::Handler<stream::Frame> for PeerActor {
         // Message type agnostic stats.
         {
             metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg.len() as u64);
-            metrics::PEER_MESSAGE_RECEIVED_TOTAL.inc();
             tracing::trace!(target: "network", msg_len=msg.len());
             self.tracker.lock().increment_received(&self.clock, msg.len() as u64);
         }
