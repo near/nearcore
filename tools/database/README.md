@@ -2,7 +2,7 @@
 
 A set of tools useful when working with the underlying database.
 
-## Analyse data size distribution
+## Analyse Database
 
 The analyse database script provides an efficient way to assess the size distribution
 of keys and values within RocksDB.
@@ -78,18 +78,3 @@ available in `/home/ubuntu/.near/data/snapshot`
 
 This command can be helpful before attempting activities that can potentially
 corrupt the database.
-
-### run-migrations
-Opens the DB and runs migrations to bring it to the actual version expected by `neard`
-Example usage:
-```bash
-cargo run --bin neard database run-migrations
-```
-
-For example, if the binary expects DB version `38`, but the DB is currently
-version `36`, the command will open the DB, run migrations that bring the DB
-from version `36` to version `38`, and then exits.
-
-## State read perf
-A tool for performance testing hot storage RocksDB State column reads.
-Use help to get more details: `neard database state-perf --help`
