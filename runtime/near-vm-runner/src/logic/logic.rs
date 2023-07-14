@@ -1150,6 +1150,7 @@ impl<'a> VMLogic<'a> {
 
         let mut pairing_fp12 = blst::blst_fp12::miller_loop_n(&blst_g2_list, &blst_g1_list);
         pairing_fp12 = pairing_fp12.final_exp();
+
         let pairing_res = unsafe {
             blst::blst_fp12_is_one(&pairing_fp12)
         };
