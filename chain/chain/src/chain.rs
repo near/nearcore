@@ -489,6 +489,15 @@ impl Drop for Chain {
         let _ = self.blocks_in_processing.wait_for_all_blocks();
     }
 }
+
+/// PreprocessBlockResult is a tuple where
+/// the first element is a vector of jobs to apply chunks
+/// the second element is BlockPreprocessInfo
+type PreprocessBlockResult = (
+    Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send + 'static>>,
+    BlockPreprocessInfo,
+);
+
 impl Chain {
     pub fn make_genesis_block(
         epoch_manager: &dyn EpochManagerAdapter,
@@ -2356,49 +2365,43 @@ impl Chain {
         invalid_chunks: &mut Vec<ShardChunkHeader>,
         block_received_time: Instant,
         state_patch: SandboxStatePatch,
-    ) -> Result<
-        (
-            Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send + 'static>>,
-            BlockPreprocessInfo,
-        ),
-        Error,
-    > {
+    ) -> Result<PreprocessBlockResult, Error> {
+        let header = block.header();
+
         // see if the block is already in processing or if there are too many blocks being processed
         self.blocks_in_processing.add_dry_run(block.hash())?;
 
-        debug!(target: "chain", num_approvals = block.header().num_approvals(), "Preprocess block");
+        debug!(target: "chain", num_approvals = header.num_approvals(), "Preprocess block");
 
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
-        if !self.epoch_manager.epoch_exists(block.header().epoch_id()) {
-            return Err(Error::EpochOutOfBounds(block.header().epoch_id().clone()));
+        if !self.epoch_manager.epoch_exists(header.epoch_id()) {
+            return Err(Error::EpochOutOfBounds(header.epoch_id().clone()));
         }
 
-        if block.chunks().len()
-            != self.epoch_manager.num_shards(block.header().epoch_id())? as usize
-        {
+        if block.chunks().len() != self.epoch_manager.num_shards(header.epoch_id())? as usize {
             return Err(Error::IncorrectNumberOfChunkHeaders);
         }
 
         // Check if we have already processed this block previously.
-        check_known(self, block.header().hash())?.map_err(|e| Error::BlockKnown(e))?;
+        check_known(self, header.hash())?.map_err(|e| Error::BlockKnown(e))?;
 
         // Delay hitting the db for current chain head until we know this block is not already known.
         let head = self.head()?;
-        let is_next = block.header().prev_hash() == &head.last_block_hash;
+        let is_next = header.prev_hash() == &head.last_block_hash;
 
         // Sandbox allows fast-forwarding, so only enable when not within sandbox
         if !cfg!(feature = "sandbox") {
             // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
             // overflow-related problems
-            let block_height = block.header().height();
+            let block_height = header.height();
             if block_height > head.height + self.epoch_length * 20 {
                 return Err(Error::InvalidBlockHeight(block_height));
             }
         }
 
         // Block is an orphan if we do not know about the previous full block.
-        if !is_next && !self.block_exists(block.header().prev_hash())? {
+        if !is_next && !self.block_exists(header.prev_hash())? {
             // Before we add the block to the orphan pool, do some checks:
             // 1. Block header is signed by the block producer for height.
             // 2. Chunk headers in block body match block header.
@@ -2406,23 +2409,23 @@ impl Chain {
             // Not checked:
             // - Block producer could be slashed
             // - Chunk header signatures could be wrong
-            if !self.partial_verify_orphan_header_signature(block.header())? {
+            if !self.partial_verify_orphan_header_signature(header)? {
                 return Err(Error::InvalidSignature);
             }
             block.check_validity()?;
             // TODO: enable after #3729 and #3863
-            // self.verify_orphan_header_approvals(&block.header())?;
+            // self.verify_orphan_header_approvals(&header)?;
             return Err(Error::Orphan);
         }
 
         let epoch_protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+            self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
         if epoch_protocol_version > PROTOCOL_VERSION {
             panic!("The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}", PROTOCOL_VERSION, epoch_protocol_version);
         }
 
         // First real I/O expense.
-        let prev = self.get_previous_header(block.header())?;
+        let prev = self.get_previous_header(header)?;
         let prev_hash = *prev.hash();
         let prev_prev_hash = *prev.prev_hash();
         let prev_gas_price = prev.gas_price();
@@ -2435,42 +2438,24 @@ impl Chain {
         }
 
         let (is_caught_up, state_sync_info, need_state_snapshot) =
-            if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
-                debug!(target: "chain", "block {} is the first block of an epoch", block.hash());
-                if !self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
-                    // The previous block is not caught up for the next epoch relative to the previous
-                    // block, which is the current epoch for this block, so this block cannot be applied
-                    // at all yet, needs to be orphaned
-                    return Err(Error::Orphan);
-                }
+            self.get_catchup_and_state_sync_infos(header, prev_hash, prev_prev_hash, me, block)?;
 
-                // For the first block of the epoch we check if we need to start download states for
-                // shards that we will care about in the next epoch. If there is no state to be downloaded,
-                // we consider that we are caught up, otherwise not
-                let state_sync_info = self.get_state_sync_info(me, block)?;
-                let is_genesis = prev_prev_hash == CryptoHash::default();
-                let need_state_snapshot = !is_genesis;
-                (state_sync_info.is_none(), state_sync_info, need_state_snapshot)
-            } else {
-                (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None, false)
-            };
+        self.check_if_challenged_block_on_chain(header)?;
 
-        self.check_if_challenged_block_on_chain(block.header())?;
-
-        debug!(target: "chain", "{:?} Process block {}, is_caught_up: {}", me, block.hash(), is_caught_up);
+        debug!(target: "chain", block_hash = ?header.hash(), me=?me, is_caught_up=is_caught_up, "Process block");
 
         // Check the header is valid before we proceed with the full block.
-        self.validate_header(block.header(), provenance, challenges)?;
+        self.validate_header(header, provenance, challenges)?;
 
         self.epoch_manager.verify_block_vrf(
-            block.header().epoch_id(),
-            block.header().height(),
+            header.epoch_id(),
+            header.height(),
             &prev_random_value,
             block.vrf_value(),
             block.vrf_proof(),
         )?;
 
-        if block.header().random_value() != &hash(block.vrf_value().0.as_ref()) {
+        if header.random_value() != &hash(block.vrf_value().0.as_ref()) {
             return Err(Error::InvalidRandomnessBeaconOutput);
         }
 
@@ -2483,8 +2468,7 @@ impl Chain {
             return Err(e);
         }
 
-        let protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
         if !block.verify_gas_price(
             prev_gas_price,
             self.block_economics_config.min_gas_price(protocol_version),
@@ -2495,7 +2479,7 @@ impl Chain {
             return Err(Error::InvalidGasPrice);
         }
         let minted_amount = if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
-            Some(self.epoch_manager.get_epoch_minted_amount(block.header().next_epoch_id())?)
+            Some(self.epoch_manager.get_epoch_minted_amount(header.next_epoch_id())?)
         } else {
             None
         };
@@ -2505,11 +2489,8 @@ impl Chain {
             return Err(Error::InvalidGasPrice);
         }
 
-        let (challenges_result, challenged_blocks) = self.verify_challenges(
-            block.challenges(),
-            block.header().epoch_id(),
-            block.header().prev_hash(),
-        )?;
+        let (challenges_result, challenged_blocks) =
+            self.verify_challenges(block.challenges(), header.epoch_id(), header.prev_hash())?;
 
         let prev_block = self.get_block(&prev_hash)?;
 
@@ -2519,7 +2500,7 @@ impl Chain {
         let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
 
         // Check if block can be finalized and drop it otherwise.
-        self.check_if_finalizable(block.header())?;
+        self.check_if_finalizable(header)?;
 
         let apply_chunk_work = self.apply_chunks_preprocessing(
             me,
@@ -2548,6 +2529,35 @@ impl Chain {
                 need_state_snapshot,
             },
         ))
+    }
+
+    fn get_catchup_and_state_sync_infos(
+        &self,
+        header: &BlockHeader,
+        prev_hash: CryptoHash,
+        prev_prev_hash: CryptoHash,
+        me: &Option<AccountId>,
+        block: &MaybeValidated<Block>,
+    ) -> Result<(bool, Option<StateSyncInfo>, bool), Error> {
+        if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
+            debug!(target: "chain", block_hash=?header.hash(), "block is the first block of an epoch");
+            if !self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
+                // The previous block is not caught up for the next epoch relative to the previous
+                // block, which is the current epoch for this block, so this block cannot be applied
+                // at all yet, needs to be orphaned
+                return Err(Error::Orphan);
+            }
+
+            // For the first block of the epoch we check if we need to start download states for
+            // shards that we will care about in the next epoch. If there is no state to be downloaded,
+            // we consider that we are caught up, otherwise not
+            let state_sync_info = self.get_state_sync_info(me, block)?;
+            let is_genesis = prev_prev_hash == CryptoHash::default();
+            let need_state_snapshot = !is_genesis;
+            Ok((state_sync_info.is_none(), state_sync_info, need_state_snapshot))
+        } else {
+            Ok((self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None, false))
+        }
     }
 
     /// Check if we can request chunks for this orphan. Conditions are
@@ -2685,7 +2695,9 @@ impl Chain {
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
         let blocks = self.blocks_with_missing_chunks.ready_blocks();
-        debug!(target:"chain", "Got {} blocks that were missing chunks but now are ready.", blocks.len());
+        if !blocks.is_empty() {
+            debug!(target:"chain", "Got {} blocks that were missing chunks but now are ready.", blocks.len());
+        }
         for block in blocks {
             let block_hash = *block.block.header().hash();
             let height = block.block.header().height();
@@ -5165,7 +5177,7 @@ impl<'a> ChainUpdate<'a> {
         &mut self,
         me: &Option<AccountId>,
         block: &Block,
-        preprocess_block_info: BlockPreprocessInfo,
+        block_preprocess_info: BlockPreprocessInfo,
         apply_chunks_results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<Option<Tip>, Error> {
         let prev_hash = block.header().prev_hash();
@@ -5185,7 +5197,7 @@ impl<'a> ChainUpdate<'a> {
             challenges_result,
             challenged_blocks,
             ..
-        } = preprocess_block_info;
+        } = block_preprocess_info;
 
         if !is_caught_up {
             debug!(target: "chain", %prev_hash, hash = %*block.hash(), "Add block to catch up");

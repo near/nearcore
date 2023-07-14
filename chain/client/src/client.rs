@@ -53,6 +53,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
+use near_primitives::sharding::StateSyncInfo;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunk,
     ShardChunkHeader, ShardInfo,
@@ -2123,65 +2124,38 @@ impl Client {
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos()? {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
-            let network_adapter1 = self.network_adapter.clone();
+            let network_adapter = self.network_adapter.clone();
 
-            let new_shard_sync = {
-                let prev_hash = *self.chain.get_block(&sync_hash)?.header().prev_hash();
-                let need_to_split_states =
-                    self.epoch_manager.will_shard_layout_change(&prev_hash)?;
-                if need_to_split_states {
-                    // If the client already has the state for this epoch, skip the downloading phase
-                    let new_shard_sync = state_sync_info
-                        .shards
-                        .iter()
-                        .filter_map(|ShardInfo(shard_id, _)| {
-                            let shard_id = *shard_id;
-                            if self.shard_tracker.care_about_shard(
-                                me.as_ref(),
-                                &prev_hash,
-                                shard_id,
-                                true,
-                            ) {
-                                Some((
-                                    shard_id,
-                                    ShardSyncDownload {
-                                        downloads: vec![],
-                                        status: ShardSyncStatus::StateSplitScheduling,
-                                    },
-                                ))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-                    // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
-                    debug!(target: "catchup", progress_per_shard = ?format_shard_sync_phase_per_shard(&new_shard_sync, false), "Need to split states for shards");
-                    new_shard_sync
-                } else {
-                    debug!(target: "catchup", "do not need to split states for shards");
-                    HashMap::new()
-                }
-            };
+            let shards_to_split = self.get_shards_to_split(sync_hash, &state_sync_info, me)?;
             let state_sync_timeout = self.config.state_sync_timeout;
             let epoch_id = self.chain.get_block(&sync_hash)?.header().epoch_id().clone();
-            let (state_sync, new_shard_sync, blocks_catch_up_state) =
+
+            // TODO(resharding) what happens to the shards_to_split here when
+            // catchup_state_syncs already contains an entry for the sync hash?
+            // Does it get overwritten? Are we guaranteed that the existing
+            // entry contains the same data?
+            let (state_sync, shards_to_split, blocks_catch_up_state) =
                 self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
                     (
                         StateSync::new(
-                            network_adapter1,
+                            network_adapter,
                             state_sync_timeout,
                             &self.config.chain_id,
                             &self.config.state_sync.sync,
                         ),
-                        new_shard_sync,
+                        shards_to_split,
                         BlocksCatchUpState::new(sync_hash, epoch_id),
                     )
                 });
 
             // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
-            debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&new_shard_sync, false), "Catchup");
-
+            debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&shards_to_split, false), "Catchup");
             let use_colour = matches!(self.config.log_summary_style, LogSummaryStyle::Colored);
+
+            // Initialize the new shard sync to contain the shards to split at
+            // first. It will get updated with the shard sync download status
+            // for other shards later.
+            let new_shard_sync = shards_to_split;
             match state_sync.run(
                 me,
                 sync_hash,
@@ -2227,6 +2201,60 @@ impl Client {
         }
 
         Ok(())
+    }
+
+    /// This method checks which of the shards requested for state sync are already present.
+    /// Any shard that is currently tracked needs not to be downloaded again.
+    ///
+    /// The hidden logic here is that shards that are marked for state sync but
+    /// are currently tracked are actually marked for splitting. Please see the
+    /// comment on [`Chain::get_shards_to_state_sync`] for further explanation.
+    ///
+    /// Returns a map from the shard_id to ShardSyncDownload only for those
+    /// shards that need to be split.
+    fn get_shards_to_split(
+        &mut self,
+        sync_hash: CryptoHash,
+        state_sync_info: &StateSyncInfo,
+        me: &Option<AccountId>,
+    ) -> Result<HashMap<u64, ShardSyncDownload>, Error> {
+        let prev_hash = *self.chain.get_block(&sync_hash)?.header().prev_hash();
+        let need_to_split_states = self.epoch_manager.will_shard_layout_change(&prev_hash)?;
+
+        if !need_to_split_states {
+            debug!(target: "catchup", "do not need to split states for shards");
+            return Ok(HashMap::new());
+        }
+
+        // If the client already has the state for this epoch, skip the downloading phase
+        let shards_to_split = state_sync_info
+            .shards
+            .iter()
+            .filter_map(|ShardInfo(shard_id, _)| self.should_split_shard(shard_id, me, prev_hash))
+            .collect();
+        // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
+        debug!(target: "catchup", progress_per_shard = ?format_shard_sync_phase_per_shard(&shards_to_split, false), "Need to split states for shards");
+        Ok(shards_to_split)
+    }
+
+    /// Shard should be split if state sync was requested for it but we already
+    /// track it.
+    fn should_split_shard(
+        &mut self,
+        shard_id: &u64,
+        me: &Option<AccountId>,
+        prev_hash: CryptoHash,
+    ) -> Option<(u64, ShardSyncDownload)> {
+        let shard_id = *shard_id;
+        if self.shard_tracker.care_about_shard(me.as_ref(), &prev_hash, shard_id, true) {
+            let shard_sync_download = ShardSyncDownload {
+                downloads: vec![],
+                status: ShardSyncStatus::StateSplitScheduling,
+            };
+            Some((shard_id, shard_sync_download))
+        } else {
+            None
+        }
     }
 
     /// When accepting challenge, we verify that it's valid given signature with current validators.
