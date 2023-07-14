@@ -604,7 +604,7 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     config.path = Some(checkpoint_path);
     let archive = hot_store.get_db_kind()? == Some(DbKind::Archive);
     let opener = StoreOpener::new(checkpoint_base_path, archive, &config, None);
-    let node_storage = opener.open()?;
+    let node_storage = opener.open_in_mode(Mode::ReadWriteExisting)?;
 
     if let Some(columns_to_keep) = columns_to_keep {
         let columns_to_keep_set: std::collections::HashSet<DBCol> =
