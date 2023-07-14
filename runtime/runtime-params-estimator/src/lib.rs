@@ -126,6 +126,8 @@ pub use crate::qemu::QemuCommandBuilder;
 pub use crate::rocksdb::RocksDBTestConfig;
 
 static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
+    (Cost::Bls12381MapFpToG1Base, bls12381_map_fp_to_g1_base),
+    (Cost::Bls12381MapFp2ToG2Base, bls12381_map_fp2_to_g2_base),
     (Cost::Bls12381PairingBase, bls12381_pairing_base),
     (Cost::Bls12381PairingElement, bls12381_pairing_element),
     (Cost::Bls12381G1SumBase, bls12381_g1_sum_base),
@@ -138,8 +140,6 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::Bls12381G2MultiexpBase, bls12381_g2_multiexp_base),
     (Cost::Bls12381G2MultiexpElement, bls12381_g2_multiexp_element),
     (Cost::Bls12381G2MultiexpElementDivLog, bls12381_g2_multiexp_element_div_log),
-    (Cost::Bls12381MapFpToG1Base, bls12381_map_fp_to_g1_base),
-    (Cost::Bls12381MapFp2ToG2Base, bls12381_map_fp2_to_g2_base),
     (Cost::Bls12381G1DecompressBase, bls12381_g1_decompress_base),
     (Cost::Bls12381G1DecompressElement, bls12381_g1_decompress_element),
     (Cost::Bls12381G2DecompressBase, bls12381_g2_decompress_base),
