@@ -21,7 +21,8 @@ class Handler(ProxyHandler):
         self.blocks = 0
 
     async def handle(self, msg, fr, to):
-        if msg.enum == 'Block' and msg.Block.chunks()[0].signature.data != bytes(64):
+        if msg.enum == 'Block' and msg.Block.chunks(
+        )[0].signature.data != bytes(64):
             msg.Block.chunks()[0].signature.data = bytes(64)
             self.blocks += 1
             # Node gets banned by the peer after sending one block

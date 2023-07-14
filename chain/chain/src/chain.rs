@@ -500,7 +500,6 @@ type PreprocessBlockResult = (
     BlockPreprocessInfo,
 );
 
-
 // Used only for verify_block_hash_and_signature. See that method.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum VerifyBlockHashAndSignatureResult {

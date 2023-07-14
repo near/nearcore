@@ -3,7 +3,7 @@ from messages.tx import Receipt, SignedTransaction
 
 
 class Block:
-    
+
     def header(self):
         if self.enum == 'BlockV1':
             return self.BlockV1.header
@@ -21,6 +21,7 @@ class Block:
         elif self.enum == 'BlockV3':
             return self.BlockV3.body.chunks
         assert False, "chunks is called on Block, but the enum variant `%s` is unknown" % self.enum
+
 
 class BlockV1:
     pass
@@ -101,6 +102,7 @@ class ShardChunkV2:
 
 
 class ShardChunkHeader:
+
     @property
     def signature(self):
         if self.enum == 'V1':
@@ -242,8 +244,10 @@ class ApprovalInner:
 block_schema = [
     [
         Block, {
-            'kind': 'enum',
-            'field': 'enum',
+            'kind':
+                'enum',
+            'field':
+                'enum',
             'values': [
                 ['BlockV1', BlockV1],
                 ['BlockV2', BlockV2],
@@ -280,10 +284,8 @@ block_schema = [
         }
     ],
     [
-        BlockV3,
-        {
-            'kind':
-                'struct',
+        BlockV3, {
+            'kind': 'struct',
             'fields': [
                 ['header', BlockHeader],
                 ['body', BlockBody],
