@@ -13,8 +13,9 @@ use strum;
 
 pub use columns::DBCol;
 pub use db::{
-    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
+    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
+    GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
+    LATEST_KNOWN_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
 };
 pub use genesis_state_applier::GenesisStateApplier;
 use near_crypto::PublicKey;
@@ -29,10 +30,7 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, StateRoot};
 use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
 
-use crate::db::{
-    refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics,
-    GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
-};
+use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics};
 pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{

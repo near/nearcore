@@ -41,6 +41,7 @@ near-crypto.workspace = true
 near-database-tool.workspace = true
 near-dyn-configs.workspace = true
 near-flat-storage.workspace = true
+near-fork-network.workspace = true
 near-jsonrpc-primitives.workspace = true
 near-mirror.workspace = true
 near-network.workspace = true
@@ -69,16 +70,19 @@ delay_detector = ["nearcore/delay_detector"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
+protocol_feature_simple_nightshade_v2 = ["nearcore/protocol_feature_simple_nightshade_v2"]
 serialize_all_state_changes = ["nearcore/serialize_all_state_changes"]
 
 nightly = [
   "nightly_protocol",
   "protocol_feature_fix_staking_threshold",
+  "protocol_feature_simple_nightshade_v2",
   "serialize_all_state_changes",
   "near-chain-configs/nightly",
   "near-client/nightly",
   "near-database-tool/nightly",
   "near-dyn-configs/nightly",
+  "near-fork-network/nightly",
   "near-jsonrpc-primitives/nightly",
   "near-mirror/nightly",
   "near-network/nightly",
@@ -95,6 +99,7 @@ nightly_protocol = [
   "near-client/nightly_protocol",
   "near-database-tool/nightly_protocol",
   "near-dyn-configs/nightly_protocol",
+  "near-fork-network/nightly_protocol",
   "near-jsonrpc-primitives/nightly_protocol",
   "near-mirror/nightly_protocol",
   "near-network/nightly_protocol",

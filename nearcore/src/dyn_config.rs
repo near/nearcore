@@ -5,7 +5,7 @@ use near_o11y::log_config::LogConfig;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
-const LOG_CONFIG_FILENAME: &str = "log_config.json";
+pub const LOG_CONFIG_FILENAME: &str = "log_config.json";
 
 /// This function gets called at the startup and each time a config needs to be reloaded.
 pub fn read_updateable_configs(

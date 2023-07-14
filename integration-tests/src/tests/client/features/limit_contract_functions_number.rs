@@ -4,11 +4,12 @@ use assert_matches::assert_matches;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
-use near_primitives::errors::{ActionErrorKind, TxExecutionError};
+use near_primitives::errors::{
+    ActionErrorKind, CompilationError, FunctionCallError, PrepareError, TxExecutionError,
+};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
-use near_vm_runner::logic::errors::{CompilationError, FunctionCallErrorSer, PrepareError};
 use nearcore::config::GenesisExt;
 
 fn verify_contract_limits_upgrade(
@@ -64,7 +65,7 @@ fn verify_contract_limits_upgrade(
         status => panic!("expected transaction to fail, got {:?}", status),
     };
     match e.kind {
-        ActionErrorKind::FunctionCallError(FunctionCallErrorSer::CompilationError(
+        ActionErrorKind::FunctionCallError(FunctionCallError::CompilationError(
             CompilationError::PrepareError(e),
         )) if e == expected_prepare_err => (),
         kind => panic!("got unexpected action error kind: {:?}", kind),

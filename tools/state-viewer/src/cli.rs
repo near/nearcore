@@ -160,11 +160,21 @@ pub struct ApplyCmd {
     height: BlockHeight,
     #[clap(long)]
     shard_id: ShardId,
+    #[clap(long)]
+    use_flat_storage: bool,
 }
 
 impl ApplyCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        apply_block_at_height(self.height, self.shard_id, home_dir, near_config, store).unwrap();
+        apply_block_at_height(
+            self.height,
+            self.shard_id,
+            self.use_flat_storage,
+            home_dir,
+            near_config,
+            store,
+        )
+        .unwrap();
     }
 }
 
@@ -174,12 +184,15 @@ pub struct ApplyChunkCmd {
     chunk_hash: String,
     #[clap(long)]
     target_height: Option<u64>,
+    #[clap(long)]
+    use_flat_storage: bool,
 }
 
 impl ApplyChunkCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = ChunkHash::from(CryptoHash::from_str(&self.chunk_hash).unwrap());
-        apply_chunk(home_dir, near_config, store, hash, self.target_height).unwrap()
+        apply_chunk(home_dir, near_config, store, hash, self.target_height, self.use_flat_storage)
+            .unwrap()
     }
 }
 
@@ -199,6 +212,8 @@ pub struct ApplyRangeCmd {
     only_contracts: bool,
     #[clap(long)]
     sequential: bool,
+    #[clap(long)]
+    use_flat_storage: bool,
 }
 
 impl ApplyRangeCmd {
@@ -214,6 +229,7 @@ impl ApplyRangeCmd {
             store,
             self.only_contracts,
             self.sequential,
+            self.use_flat_storage,
         );
     }
 }
@@ -222,12 +238,14 @@ impl ApplyRangeCmd {
 pub struct ApplyReceiptCmd {
     #[clap(long)]
     hash: String,
+    #[clap(long)]
+    use_flat_storage: bool,
 }
 
 impl ApplyReceiptCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
-        apply_receipt(home_dir, near_config, store, hash).unwrap();
+        apply_receipt(home_dir, near_config, store, hash, self.use_flat_storage).unwrap();
     }
 }
 
@@ -235,12 +253,14 @@ impl ApplyReceiptCmd {
 pub struct ApplyTxCmd {
     #[clap(long)]
     hash: String,
+    #[clap(long)]
+    use_flat_storage: bool,
 }
 
 impl ApplyTxCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
-        apply_tx(home_dir, near_config, store, hash).unwrap();
+        apply_tx(home_dir, near_config, store, hash, self.use_flat_storage).unwrap();
     }
 }
 
