@@ -3408,9 +3408,13 @@ impl Chain {
         blocks_catch_up_state: &mut BlocksCatchUpState,
         block_catch_up_scheduler: &dyn Fn(BlockCatchUpRequest),
     ) -> Result<(), Error> {
-        debug!(target:"catchup", "catch up blocks: pending blocks: {:?}, processed {:?}, scheduled: {:?}, done: {:?}",
-               blocks_catch_up_state.pending_blocks, blocks_catch_up_state.processed_blocks.keys().collect::<Vec<_>>(),
-               blocks_catch_up_state.scheduled_blocks, blocks_catch_up_state.done_blocks.len());
+        tracing::debug!(
+            target: "catchup",
+            pending_blocks = ?blocks_catch_up_state.pending_blocks,
+            processed_blocks = ?blocks_catch_up_state.processed_blocks.keys().collect::<Vec<_>>(),
+            scheduled_blocks = ?blocks_catch_up_state.scheduled_blocks,
+            done_blocks = blocks_catch_up_state.done_blocks.len(),
+            "catch up blocks");
         let mut processed_blocks = HashMap::new();
         for (queued_block, results) in blocks_catch_up_state.processed_blocks.drain() {
             // If this block is parent of some blocks in processing that need to be caught up,
@@ -3461,6 +3465,7 @@ impl Chain {
                 Default::default(),
                 &mut Vec::new(),
             )?;
+            metrics::SCHEDULED_CATCHUP_BLOCK.set(block.header().height() as i64);
             blocks_catch_up_state.scheduled_blocks.insert(pending_block);
             block_catch_up_scheduler(BlockCatchUpRequest {
                 sync_hash: *sync_hash,
@@ -3983,7 +3988,7 @@ impl Chain {
                             true,
                             is_first_block_with_chunk_of_version,
                             state_patch,
-                            cares_about_shard_this_epoch,
+                            true,
                         ) {
                             Ok(apply_result) => {
                                 let apply_split_result_or_state_changes =
@@ -4044,7 +4049,7 @@ impl Chain {
                             false,
                             false,
                             state_patch,
-                            cares_about_shard_this_epoch,
+                            true,
                         ) {
                             Ok(apply_result) => {
                                 let apply_split_result_or_state_changes =
