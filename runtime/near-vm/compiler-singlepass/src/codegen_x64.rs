@@ -4921,7 +4921,7 @@ impl<'a> FuncGen<'a> {
                     }
                 }
 
-                let mut frame = self.control_stack.last_mut().unwrap();
+                let frame = self.control_stack.last_mut().unwrap();
 
                 let released: &[Location] = &self.value_stack[frame.value_stack_depth..];
                 self.machine.release_locations(self.assembler, released);

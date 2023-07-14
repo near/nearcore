@@ -214,11 +214,11 @@ impl NearVmConfig {
 }
 
 // We use following scheme for the bits forming seed:
-//  kind << 10, kind is 1 for Wasmer2, 2 for NearVm
+//  kind << 29, kind 2 is for NearVm
 //  major version << 6
 //  minor version
 const VM_CONFIG: NearVmConfig = NearVmConfig {
-    seed: (2 << 10) | (1 << 6) | 2,
+    seed: (2 << 29) | (2 << 6) | 0,
     engine: NearVmEngine::Universal,
     compiler: NearVmCompiler::Singlepass,
 };

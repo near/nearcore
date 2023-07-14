@@ -1,5 +1,5 @@
 #![doc = include_str!("../README.md")]
-#![deny(clippy::integer_arithmetic)]
+#![deny(clippy::arithmetic_side_effects)]
 
 pub use context::*;
 use near_crypto::PublicKey;

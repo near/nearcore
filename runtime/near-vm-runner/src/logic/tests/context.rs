@@ -95,7 +95,7 @@ fn test_attached_deposit_view() {
     #[track_caller]
     fn test_view(amount: u128) {
         let mut logic_builder = VMLogicBuilder::default();
-        let mut context = &mut logic_builder.context;
+        let context = &mut logic_builder.context;
         context.view_config =
             Some(ViewConfig { max_gas_burnt: VMLimitConfig::test().max_gas_burnt });
         context.account_balance = 0;
