@@ -851,8 +851,6 @@ impl Client {
 
         debug!(
             target: "client",
-            height=next_height,
-            shard_id,
             me=%validator_signer.validator_id(),
             chunk_hash=%encoded_chunk.chunk_hash().0,
             %prev_block_hash,
@@ -1571,7 +1569,7 @@ impl Client {
                     if &chunk_proposer == &validator_id {
                         let _span = tracing::debug_span!(
                             target: "client",
-                            "on_block_accepted_produce_chunk",
+                            "on_block_accepted",
                             prev_block_hash = ?*block.hash(),
                             ?shard_id)
                         .entered();
