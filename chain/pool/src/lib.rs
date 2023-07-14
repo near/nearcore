@@ -123,6 +123,10 @@ impl TransactionPool {
         PoolIteratorWrapper::new(self)
     }
 
+    pub fn new_pool_iterator(&mut self) -> NewPoolIterator<'_> {
+        NewPoolIterator::new(self)
+    }
+
     /// Removes given transactions from the pool.
     ///
     /// In practice, used to evict transactions that have already been included into the block or
@@ -137,7 +141,11 @@ impl TransactionPool {
             self.total_transaction_size -= tx.get_size();
 
             let key = self.key(&tx.transaction.signer_id, &tx.transaction.public_key);
-            self.transactions.get_mut(&key).expect("transaction group not found").remove(&tx.transaction.nonce).expect("transaction not found");
+            self.transactions
+                .get_mut(&key)
+                .expect("transaction group not found")
+                .remove(&tx.transaction.nonce)
+                .expect("transaction not found");
         }
         self.transactions.retain(|_key, group| !group.is_empty());
 
@@ -177,15 +185,21 @@ impl<'a> PoolIteratorWrapper<'a> {
 pub struct NewPoolIterator<'a> {
     pool: &'a TransactionPool,
     key_iter: Keys<'a, PoolKey, BTreeMap<Nonce, SignedTransaction>>,
-    key_progress: BTreeMap<PoolKey, Keys<'a, Nonce, SignedTransaction>>
+    key_progress: BTreeMap<PoolKey, Keys<'a, Nonce, SignedTransaction>>,
 }
 
 impl<'a> NewPoolIterator<'a> {
-    pub fn new(pool: &'a TransactionPool) -> Self { Self { 
-        pool,
-        key_iter: pool.transactions.keys(),
-        key_progress: pool.transactions.iter().map(|(key, value)| (*key, value.keys())).collect(),
-    } }
+    pub fn new(pool: &'a TransactionPool) -> Self {
+        Self {
+            pool,
+            key_iter: pool.transactions.keys(),
+            key_progress: pool
+                .transactions
+                .iter()
+                .map(|(key, value)| (*key, value.keys()))
+                .collect(),
+        }
+    }
 }
 
 impl<'a> Iterator for NewPoolIterator<'a> {
@@ -193,9 +207,7 @@ impl<'a> Iterator for NewPoolIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(key) = self.key_iter.next() {
-            if let Some(nonce) = self.key_progress
-                .get_mut(key).expect("key must exist")
-                .next() {
+            if let Some(nonce) = self.key_progress.get_mut(key).expect("key must exist").next() {
                 return Some(self.pool.transactions.get(key).expect("").get(nonce).expect(""));
             } else {
                 // TODO: Remove key.
@@ -242,8 +254,7 @@ impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
                         .expect("we've just checked that the map is not empty")
                 });
             self.pool.last_used_key = key;
-            let transactions =
-                self.pool.transactions.remove(&key).expect("just checked existence");
+            let transactions = self.pool.transactions.remove(&key).expect("just checked existence");
             self.sorted_groups.push_back(TransactionGroup {
                 key,
                 transactions: transactions.values().rev().cloned().collect(),
@@ -297,7 +308,14 @@ impl<'a> Drop for PoolIteratorWrapper<'a> {
                 .expect("Total transaction size dropped below zero");
 
             if !group.transactions.is_empty() {
-                self.pool.transactions.insert(group.key, group.transactions.iter().map(|tx| (tx.transaction.nonce, tx.clone())).collect());
+                self.pool.transactions.insert(
+                    group.key,
+                    group
+                        .transactions
+                        .iter()
+                        .map(|tx| (tx.transaction.nonce, tx.clone()))
+                        .collect(),
+                );
             }
         }
         // We can update metrics only once for the whole batch of transactions.
@@ -354,13 +372,9 @@ mod tests {
         for tx in transactions {
             assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
         }
-        (
-            prepare_transactions(&mut pool, expected_weight)
-                .iter()
-                .map(|tx| tx.transaction.nonce)
-                .collect(),
-            pool,
-        )
+        let txs = prepare_transactions(&mut pool, expected_weight);
+        pool.remove_transactions(&txs);
+        (txs.iter().map(|tx| tx.transaction.nonce).collect(), pool)
     }
 
     fn sort_pairs(a: &mut [u64]) {
@@ -375,18 +389,7 @@ mod tests {
         pool: &mut TransactionPool,
         max_number_of_transactions: u32,
     ) -> Vec<SignedTransaction> {
-        let mut res = vec![];
-        let mut pool_iter = pool.pool_iterator();
-        while res.len() < max_number_of_transactions as usize {
-            if let Some(iter) = pool_iter.next() {
-                if let Some(tx) = iter.next() {
-                    res.push(tx);
-                }
-            } else {
-                break;
-            }
-        }
-        res
+        pool.new_pool_iterator().take(max_number_of_transactions as usize).cloned().collect()
     }
 
     /// Add transactions of nonce from 1..10 in random order. Check that mempool
@@ -526,6 +529,7 @@ mod tests {
         }
         assert_eq!(pool.len(), 10);
         let txs = prepare_transactions(&mut pool, 10);
+        pool.remove_transactions(&txs);
         assert_eq!(txs.len(), 10);
         assert_eq!(pool.len(), 0);
         assert_eq!(pool.transaction_size(), 0);
