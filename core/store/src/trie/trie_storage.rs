@@ -10,7 +10,6 @@ use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{ShardId, TrieCacheMode, TrieNodesCount};
-use std::borrow::Borrow;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
@@ -614,7 +613,7 @@ impl TrieStorage for TrieCachingStorage {
         // (`storage_read_value_byte`) ~= (500 * 10**12 / 5611005) / 2**20 ~= 85 MB.
         // All values are given as of 16/03/2022. We may consider more precise limit for the chunk cache as well.
         self.inc_db_read_nodes();
-        if let TrieCacheMode::CachingChunk = self.cache_mode.borrow().get() {
+        if let TrieCacheMode::CachingChunk = self.cache_mode.get() {
             self.chunk_cache.borrow_mut().insert(*hash, val.clone());
         };
 

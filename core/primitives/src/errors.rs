@@ -5,7 +5,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::types::ProtocolVersion;
 use near_rpc_error_macro::RpcError;
-use near_vm_runner::logic::errors::FunctionCallErrorSer;
 use std::fmt::{Debug, Display};
 
 /// Error returned in the ExecutionOutcome in case of failure
@@ -469,7 +468,7 @@ pub enum ActionErrorKind {
         minimum_stake: Balance,
     },
     /// An error occurred during a `FunctionCall` Action, parameter is debug message.
-    FunctionCallError(FunctionCallErrorSer),
+    FunctionCallError(FunctionCallError),
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
     /// receipt validation.
     NewReceiptValidationError(ReceiptValidationError),
@@ -895,5 +894,300 @@ impl Debug for EpochError {
 impl From<std::io::Error> for EpochError {
     fn from(error: std::io::Error) -> Self {
         EpochError::IOErr(error.to_string())
+    }
+}
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshDeserialize,
+    BorshSerialize,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
+)]
+/// Error that can occur while preparing or executing Wasm smart-contract.
+pub enum PrepareError {
+    /// Error happened while serializing the module.
+    Serialization,
+    /// Error happened while deserializing the module.
+    Deserialization,
+    /// Internal memory declaration has been found in the module.
+    InternalMemoryDeclared,
+    /// Gas instrumentation failed.
+    ///
+    /// This most likely indicates the module isn't valid.
+    GasInstrumentation,
+    /// Stack instrumentation failed.
+    ///
+    /// This  most likely indicates the module isn't valid.
+    StackHeightInstrumentation,
+    /// Error happened during instantiation.
+    ///
+    /// This might indicate that `start` function trapped, or module isn't
+    /// instantiable and/or unlinkable.
+    Instantiate,
+    /// Error creating memory.
+    Memory,
+    /// Contract contains too many functions.
+    TooManyFunctions,
+    /// Contract contains too many locals.
+    TooManyLocals,
+}
+
+/// A kind of a trap happened during execution of a binary
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshDeserialize,
+    BorshSerialize,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
+    strum::IntoStaticStr,
+)]
+pub enum WasmTrap {
+    /// An `unreachable` opcode was executed.
+    Unreachable,
+    /// Call indirect incorrect signature trap.
+    IncorrectCallIndirectSignature,
+    /// Memory out of bounds trap.
+    MemoryOutOfBounds,
+    /// Call indirect out of bounds trap.
+    CallIndirectOOB,
+    /// An arithmetic exception, e.g. divided by zero.
+    IllegalArithmetic,
+    /// Misaligned atomic access trap.
+    MisalignedAtomicAccess,
+    /// Indirect call to null.
+    IndirectCallToNull,
+    /// Stack overflow.
+    StackOverflow,
+    /// Generic trap.
+    GenericTrap,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshDeserialize,
+    BorshSerialize,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
+    strum::IntoStaticStr,
+)]
+pub enum HostError {
+    /// String encoding is bad UTF-16 sequence
+    BadUTF16,
+    /// String encoding is bad UTF-8 sequence
+    BadUTF8,
+    /// Exceeded the prepaid gas
+    GasExceeded,
+    /// Exceeded the maximum amount of gas allowed to burn per contract
+    GasLimitExceeded,
+    /// Exceeded the account balance
+    BalanceExceeded,
+    /// Tried to call an empty method name
+    EmptyMethodName,
+    /// Smart contract panicked
+    GuestPanic { panic_msg: String },
+    /// IntegerOverflow happened during a contract execution
+    IntegerOverflow,
+    /// `promise_idx` does not correspond to existing promises
+    InvalidPromiseIndex { promise_idx: u64 },
+    /// Actions can only be appended to non-joint promise.
+    CannotAppendActionToJointPromise,
+    /// Returning joint promise is currently prohibited
+    CannotReturnJointPromise,
+    /// Accessed invalid promise result index
+    InvalidPromiseResultIndex { result_idx: u64 },
+    /// Accessed invalid register id
+    InvalidRegisterId { register_id: u64 },
+    /// Iterator `iterator_index` was invalidated after its creation by performing a mutable operation on trie
+    IteratorWasInvalidated { iterator_index: u64 },
+    /// Accessed memory outside the bounds
+    MemoryAccessViolation,
+    /// VM Logic returned an invalid receipt index
+    InvalidReceiptIndex { receipt_index: u64 },
+    /// Iterator index `iterator_index` does not exist
+    InvalidIteratorIndex { iterator_index: u64 },
+    /// VM Logic returned an invalid account id
+    InvalidAccountId,
+    /// VM Logic returned an invalid method name
+    InvalidMethodName,
+    /// VM Logic provided an invalid public key
+    InvalidPublicKey,
+    /// `method_name` is not allowed in view calls
+    ProhibitedInView { method_name: String },
+    /// The total number of logs will exceed the limit.
+    NumberOfLogsExceeded { limit: u64 },
+    /// The storage key length exceeded the limit.
+    KeyLengthExceeded { length: u64, limit: u64 },
+    /// The storage value length exceeded the limit.
+    ValueLengthExceeded { length: u64, limit: u64 },
+    /// The total log length exceeded the limit.
+    TotalLogLengthExceeded { length: u64, limit: u64 },
+    /// The maximum number of promises within a FunctionCall exceeded the limit.
+    NumberPromisesExceeded { number_of_promises: u64, limit: u64 },
+    /// The maximum number of input data dependencies exceeded the limit.
+    NumberInputDataDependenciesExceeded { number_of_input_data_dependencies: u64, limit: u64 },
+    /// The returned value length exceeded the limit.
+    ReturnedValueLengthExceeded { length: u64, limit: u64 },
+    /// The contract size for DeployContract action exceeded the limit.
+    ContractSizeExceeded { size: u64, limit: u64 },
+    /// The host function was deprecated.
+    Deprecated { method_name: String },
+    /// General errors for ECDSA recover.
+    ECRecoverError { msg: String },
+    /// Invalid input to alt_bn128 familiy of functions (e.g., point which isn't
+    /// on the curve).
+    AltBn128InvalidInput { msg: String },
+    /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
+    /// derived from bytes).
+    Ed25519VerifyInvalidInput { msg: String },
+}
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshDeserialize,
+    BorshSerialize,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
+    strum::IntoStaticStr,
+)]
+pub enum MethodResolveError {
+    MethodEmptyName,
+    MethodNotFound,
+    MethodInvalidSignature,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshDeserialize,
+    BorshSerialize,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
+    strum::IntoStaticStr,
+)]
+pub enum CompilationError {
+    CodeDoesNotExist {
+        account_id: AccountId,
+    },
+    PrepareError(PrepareError),
+    /// This is for defense in depth.
+    /// We expect our runtime-independent preparation code to fully catch all invalid wasms,
+    /// but, if it ever misses something we’ll emit this error
+    WasmerCompileError {
+        msg: String,
+    },
+}
+
+/// Serializable version of `near-vm-runner::FunctionCallError`.
+///
+/// Must never reorder/remove elements, can only add new variants at the end (but do that very
+/// carefully). It describes stable serialization format, and only used by serialization logic.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshDeserialize,
+    BorshSerialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub enum FunctionCallError {
+    /// Wasm compilation error
+    CompilationError(CompilationError),
+    /// Wasm binary env link error
+    ///
+    /// Note: this is only to deserialize old data, use execution error for new data
+    LinkError {
+        msg: String,
+    },
+    /// Import/export resolve error
+    MethodResolveError(MethodResolveError),
+    /// A trap happened during execution of a binary
+    ///
+    /// Note: this is only to deserialize old data, use execution error for new data
+    WasmTrap(WasmTrap),
+    WasmUnknownError,
+    /// Note: this is only to deserialize old data, use execution error for new data
+    HostError(HostError),
+    // Unused, can be reused by a future error but must be exactly one error to keep ExecutionError
+    // error borsh serialized at correct index
+    _EVMError,
+    ExecutionError(String),
+}
+
+impl From<near_vm_runner::logic::errors::MethodResolveError> for MethodResolveError {
+    fn from(outer_err: near_vm_runner::logic::errors::MethodResolveError) -> Self {
+        use near_vm_runner::logic::errors::MethodResolveError as MRE;
+        match outer_err {
+            MRE::MethodEmptyName => Self::MethodEmptyName,
+            MRE::MethodNotFound => Self::MethodNotFound,
+            MRE::MethodInvalidSignature => Self::MethodInvalidSignature,
+        }
+    }
+}
+
+impl From<near_vm_runner::logic::errors::PrepareError> for PrepareError {
+    fn from(outer_err: near_vm_runner::logic::errors::PrepareError) -> Self {
+        use near_vm_runner::logic::errors::PrepareError as PE;
+        match outer_err {
+            PE::Serialization => Self::Serialization,
+            PE::Deserialization => Self::Deserialization,
+            PE::InternalMemoryDeclared => Self::InternalMemoryDeclared,
+            PE::GasInstrumentation => Self::GasInstrumentation,
+            PE::StackHeightInstrumentation => Self::StackHeightInstrumentation,
+            PE::Instantiate => Self::Instantiate,
+            PE::Memory => Self::Memory,
+            PE::TooManyFunctions => Self::TooManyFunctions,
+            PE::TooManyLocals => Self::TooManyLocals,
+        }
+    }
+}
+
+impl From<near_vm_runner::logic::errors::CompilationError> for CompilationError {
+    fn from(outer_err: near_vm_runner::logic::errors::CompilationError) -> Self {
+        use near_vm_runner::logic::errors::CompilationError as CE;
+        match outer_err {
+            CE::CodeDoesNotExist { account_id } => Self::CodeDoesNotExist {
+                account_id: account_id.parse().expect("account_id in error must be valid"),
+            },
+            CE::PrepareError(pe) => Self::PrepareError(pe.into()),
+            CE::WasmerCompileError { msg } => Self::WasmerCompileError { msg },
+        }
+    }
+}
+
+impl From<near_vm_runner::logic::errors::FunctionCallError> for FunctionCallError {
+    fn from(outer_err: near_vm_runner::logic::errors::FunctionCallError) -> Self {
+        use near_vm_runner::logic::errors::FunctionCallError as FCE;
+        match outer_err {
+            FCE::CompilationError(e) => Self::CompilationError(e.into()),
+            FCE::MethodResolveError(e) => Self::MethodResolveError(e.into()),
+            // Note: We deliberately collapse all execution errors for
+            // serialization to make the DB representation less dependent
+            // on specific types in Rust code.
+            FCE::HostError(ref _e) => Self::ExecutionError(outer_err.to_string()),
+            FCE::LinkError { msg } => Self::ExecutionError(format!("Link Error: {}", msg)),
+            FCE::WasmTrap(ref _e) => Self::ExecutionError(outer_err.to_string()),
+        }
     }
 }
