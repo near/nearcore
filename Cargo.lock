@@ -3624,6 +3624,7 @@ dependencies = [
  "nearcore",
  "rayon",
  "strum",
+ "tempfile",
 ]
 
 [[package]]
@@ -4361,11 +4362,9 @@ dependencies = [
  "hex",
  "loupe",
  "memoffset 0.8.0",
- "near-account-id",
  "near-crypto",
  "near-primitives",
  "near-primitives-core",
- "near-rpc-error-macro",
  "near-stdx",
  "near-test-contracts",
  "near-vm-compiler",

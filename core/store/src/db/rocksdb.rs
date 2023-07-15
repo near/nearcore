@@ -4,7 +4,9 @@ use crate::{metadata, metrics, DBCol, StoreConfig, StoreStatistics, Temperature}
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
 };
+use once_cell::sync::Lazy;
 use std::io;
+use std::ops::Deref;
 use std::path::Path;
 use strum::IntoEnumIterator;
 use tracing::warn;
@@ -15,8 +17,29 @@ pub(crate) mod snapshot;
 /// List of integer RocskDB properties we’re reading when collecting statistics.
 ///
 /// In the end, they are exported as Prometheus metrics.
-const CF_PROPERTY_NAMES: [&'static std::ffi::CStr; 1] =
-    [::rocksdb::properties::LIVE_SST_FILES_SIZE];
+static CF_PROPERTY_NAMES: Lazy<Vec<std::ffi::CString>> = Lazy::new(|| {
+    use ::rocksdb::properties;
+    let mut ret = Vec::new();
+    ret.extend_from_slice(
+        &[
+            properties::LIVE_SST_FILES_SIZE,
+            properties::ESTIMATE_LIVE_DATA_SIZE,
+            properties::COMPACTION_PENDING,
+            properties::NUM_RUNNING_COMPACTIONS,
+            properties::ESTIMATE_PENDING_COMPACTION_BYTES,
+            properties::ESTIMATE_TABLE_READERS_MEM,
+            properties::BLOCK_CACHE_CAPACITY,
+            properties::BLOCK_CACHE_USAGE,
+            properties::CUR_SIZE_ACTIVE_MEM_TABLE,
+            properties::SIZE_ALL_MEM_TABLES,
+        ]
+        .map(std::ffi::CStr::to_owned),
+    );
+    for level in 0..=6 {
+        ret.push(properties::num_files_at_level(level));
+    }
+    ret
+});
 
 pub struct RocksDB {
     db: DB,
@@ -538,7 +561,7 @@ impl RocksDB {
 
     /// Gets every int property in CF_PROPERTY_NAMES for every column in DBCol.
     fn get_cf_statistics(&self, result: &mut StoreStatistics) {
-        for prop_name in CF_PROPERTY_NAMES {
+        for prop_name in CF_PROPERTY_NAMES.deref() {
             let values = self
                 .cf_handles()
                 .filter_map(|(col, handle)| {

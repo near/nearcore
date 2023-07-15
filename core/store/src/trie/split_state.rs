@@ -227,7 +227,7 @@ fn apply_delayed_receipts_to_split_states_impl(
         }
         // we already checked that new_shard_uid is in trie_updates and delayed_receipts_indices
         // so we can safely unwrap here
-        let mut delayed_receipts_indices =
+        let delayed_receipts_indices =
             delayed_receipts_indices_by_shard.get_mut(&new_shard_uid).unwrap();
         set(
             trie_updates.get_mut(&new_shard_uid).unwrap(),
@@ -254,7 +254,7 @@ fn apply_delayed_receipts_to_split_states_impl(
             );
             return Err(StorageError::StorageInconsistentState(err));
         }
-        let mut delayed_receipts_indices =
+        let delayed_receipts_indices =
             delayed_receipts_indices_by_shard.get_mut(&new_shard_uid).unwrap();
 
         let trie_update = trie_updates.get_mut(&new_shard_uid).unwrap();

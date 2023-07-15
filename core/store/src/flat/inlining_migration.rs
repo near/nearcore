@@ -269,7 +269,7 @@ pub fn inline_flat_state_values(
             }
             store_update.commit().expect("failed to commit inlined values");
             assert!(flat_storage_manager.set_flat_state_updates_mode(true));
-            tracing::info!(target: "store", "Unlocked flat storage after the inlining migration");
+            tracing::debug!(target: "store", "Unlocked flat storage after the inlining migration");
             inlined_total_count += inlined_batch_count;
             batch_duration = batch_inlining_start.elapsed();
             FLAT_STATE_PAUSED_DURATION.observe(batch_duration.as_secs_f64());
