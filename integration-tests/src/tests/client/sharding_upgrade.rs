@@ -484,39 +484,16 @@ fn test_shard_layout_upgrade_simple() {
     let initial_accounts = test_env.initial_accounts.clone();
     let generate_create_accounts_txs: &mut dyn FnMut(usize, bool) -> Vec<SignedTransaction> =
         &mut |max_size: usize, check_accounts: bool| -> Vec<SignedTransaction> {
-            let size = rng.gen_range(0..max_size) + 1;
-            std::iter::repeat_with(|| loop {
-                let signer_account = initial_accounts.choose(&mut rng).unwrap();
-                let signer0 = InMemorySigner::from_seed(
-                    signer_account.clone(),
-                    KeyType::ED25519,
-                    &signer_account.to_string(),
-                );
-                let account_id = gen_account(&mut rng, b"abcdefghijkmn");
-                if all_accounts.insert(account_id.clone()) {
-                    let signer = InMemorySigner::from_seed(
-                        account_id.clone(),
-                        KeyType::ED25519,
-                        account_id.as_ref(),
-                    );
-                    let tx = SignedTransaction::create_account(
-                        nonce,
-                        signer_account.clone(),
-                        account_id.clone(),
-                        NEAR_BASE,
-                        signer.public_key(),
-                        &signer0,
-                        genesis_hash,
-                    );
-                    if check_accounts {
-                        accounts_to_check.push(account_id);
-                    }
-                    nonce += 1;
-                    return tx;
-                }
-            })
-            .take(size)
-            .collect()
+            generate_create_accounts_txs(
+                &mut rng,
+                genesis_hash,
+                &initial_accounts,
+                &mut accounts_to_check,
+                &mut all_accounts,
+                &mut nonce,
+                max_size,
+                check_accounts,
+            )
         };
 
     // add transactions until after sharding upgrade finishes
@@ -539,6 +516,51 @@ fn test_shard_layout_upgrade_simple() {
     test_env.check_accounts(accounts_to_check.iter().collect());
 
     test_env.check_split_states_artifacts();
+}
+
+fn generate_create_accounts_txs(
+    mut rng: &mut rand::rngs::ThreadRng,
+    genesis_hash: CryptoHash,
+    initial_accounts: &Vec<AccountId>,
+    accounts_to_check: &mut Vec<AccountId>,
+    all_accounts: &mut HashSet<AccountId>,
+    nonce: &mut u64,
+    max_size: usize,
+    check_accounts: bool,
+) -> Vec<SignedTransaction> {
+    let size = rng.gen_range(0..max_size) + 1;
+    std::iter::repeat_with(|| loop {
+        let signer_account = initial_accounts.choose(&mut rng).unwrap();
+        let signer0 = InMemorySigner::from_seed(
+            signer_account.clone(),
+            KeyType::ED25519,
+            &signer_account.to_string(),
+        );
+        let account_id = gen_account(&mut rng, b"abcdefghijkmn");
+        if all_accounts.insert(account_id.clone()) {
+            let signer = InMemorySigner::from_seed(
+                account_id.clone(),
+                KeyType::ED25519,
+                account_id.as_ref(),
+            );
+            let tx = SignedTransaction::create_account(
+                *nonce,
+                signer_account.clone(),
+                account_id.clone(),
+                NEAR_BASE,
+                signer.public_key(),
+                &signer0,
+                genesis_hash,
+            );
+            if check_accounts {
+                accounts_to_check.push(account_id);
+            }
+            *nonce += 1;
+            return tx;
+        }
+    })
+    .take(size)
+    .collect()
 }
 
 const GAS_1: u64 = 300_000_000_000_000;
