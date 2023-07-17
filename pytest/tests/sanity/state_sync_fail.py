@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-# Spins up a node, wait until sharding is upgrade
-# and spins up another node
-# check that the node can't be started because it cannot state sync to the epoch
-# after the sharding upgrade
+
+# Spins up a node, waits until sharding is upgraded and spins up another node.
+# Check that the node can't be started because it cannot state sync to the epoch
+# after the sharding upgrade.
+
+# Depending on the version of the binary (default or nightly) it will perform
+# resharding from V0 (1 shard) to V1 (4 shards) or from V1 (4 shards) to V2 (5
+# shards).
 
 import sys, time
 import pathlib
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
-from cluster import init_cluster, spin_up_node, load_config
+from cluster import init_cluster, spin_up_node, load_config, get_binary_protocol_version
 from configured_logger import logger
 import requests
 import utils
@@ -17,13 +21,71 @@ import utils
 EPOCH_LENGTH = 10
 START_AT_BLOCK = int(EPOCH_LENGTH * 2.5)
 
+V0 = {"V0": {"num_shards": 1, "version": 0}}
+V1 = {
+    "V1": {
+        "boundary_accounts": [
+            "aurora", "aurora-0", "kkuuue2akv_1630967379.near"
+        ],
+        "shards_split_map": [[0, 1, 2, 3]],
+        "to_parent_shard_map": [0, 0, 0, 0],
+        "version": 1
+    }
+}
+
 config = load_config()
+
+binary_protocol_version = get_binary_protocol_version(config)
+assert binary_protocol_version is not None
+
+V1_PROTOCOL_VERSION = 48
+V2_PROTOCOL_VERSION = 135
+
+
+def get_initial_protocol_version(binary_protocol_version):
+    if binary_protocol_version >= V2_PROTOCOL_VERSION:
+        # We'll be testing V1 -> V2 resharding.
+        # Set the initial protocol version to a version before V2.
+        return V2_PROTOCOL_VERSION - 1
+
+    if binary_protocol_version >= V1_PROTOCOL_VERSION:
+        # We'll be testing V0 -> V1 resharding.
+        # Set the initial protocol version to a version before V1.
+        return V1_PROTOCOL_VERSION - 1
+
+    assert False
+
+
+def get_initial_shard_layout(binary_protocol_version):
+    if binary_protocol_version >= V2_PROTOCOL_VERSION:
+        # We'll be testing V1 -> V2 resharding.
+        return V1
+
+    if binary_protocol_version >= V1_PROTOCOL_VERSION:
+        # We'll be testing V0 -> V1 resharding.
+        return V0
+
+    assert False
+
+
+protocol_version = get_initial_protocol_version(binary_protocol_version)
+shard_layout = get_initial_shard_layout(binary_protocol_version)
+
 near_root, node_dirs = init_cluster(
-    2, 1, 1, config,
-    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
-     ["epoch_length", EPOCH_LENGTH], ["protocol_version", 47],
-     ["use_production_config", True], ["block_producer_kickout_threshold", 80]],
-    {
+    num_nodes=2,
+    num_observers=1,
+    num_shards=4,
+    config=config,
+    genesis_config_changes=[
+        ["min_gas_price", 0],
+        ["max_inflation_rate", [0, 1]],
+        ["epoch_length", EPOCH_LENGTH],
+        ["protocol_version", protocol_version],
+        ["use_production_config", True],
+        ["block_producer_kickout_threshold", 80],
+        ["shard_layout", shard_layout],
+    ],
+    client_config_changes={
         0: {
             "tracked_shards": [0],
             "state_sync_enabled": True,
@@ -42,7 +104,8 @@ near_root, node_dirs = init_cluster(
             "state_sync_enabled": True,
             "store.state_snapshot_enabled": True,
         }
-    })
+    },
+)
 
 started = time.time()
 
