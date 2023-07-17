@@ -831,7 +831,7 @@ impl Trie {
                     }
                     RawTrieNode::BranchNoValue(children)
                     | RawTrieNode::BranchWithValue(_, children) => {
-                        let child = children[key.at(0)].clone();
+                        let child = children[key.at(0)];
                         match child {
                             Some(child) => {
                                 node = self.retrieve_raw_node(&child)?;
