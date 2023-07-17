@@ -961,7 +961,7 @@ impl<'a> VMLogic<'a> {
         let elements_count = data.len() / ((POINT_BYTES_LEN + SCALAR_BYTES_LEN) as usize);
         self.gas_counter.pay_per(bls12381_g1_multiexp_element, elements_count as u64)?;
 
-        let elements_count_div_log = elements_count / (u64::ilog2(elements_count as u64) as usize);
+        let elements_count_div_log = elements_count / (std::cmp::max(u64::ilog2(elements_count as u64), 1) as usize);
         self.gas_counter.pay_per(bls12381_g1_multiexp_element_div_log, elements_count_div_log as u64)?;
 
         let mut blst_points: Vec<blst::blst_p1> = vec![];
@@ -1014,7 +1014,7 @@ impl<'a> VMLogic<'a> {
         let elements_count = data.len() / ((POINT_BYTES_LEN + SCALAR_BYTES_LEN) as usize);
         self.gas_counter.pay_per(bls12381_g2_multiexp_element, elements_count as u64)?;
 
-        let elements_count_div_log = elements_count / (u64::ilog2(elements_count as u64) as usize);
+        let elements_count_div_log = elements_count / (std::cmp::max(u64::ilog2(elements_count as u64), 1) as usize);
         self.gas_counter.pay_per(bls12381_g2_multiexp_element_div_log, elements_count_div_log as u64)?;
 
         let mut blst_points: Vec<blst::blst_p2> = vec![];
