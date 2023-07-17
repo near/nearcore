@@ -492,6 +492,7 @@ fn sync_state_dump() {
                                             root_dir: dump_dir.path().to_path_buf(),
                                         },
                                         num_concurrent_requests: 10,
+                                        num_concurrent_requests_during_catchup: 1,
                                     });
 
                                 let nearcore::NearNode {
