@@ -886,7 +886,7 @@ impl ChainStore {
     pub fn get_state_sync_dump_progress(
         &self,
         shard_id: ShardId,
-    ) -> Result<Option<StateSyncDumpProgress>, Error> {
+    ) -> Result<StateSyncDumpProgress, Error> {
         option_to_not_found(
             self.store
                 .get_ser(DBCol::BlockMisc, &ChainStore::state_sync_dump_progress_key(shard_id)),
@@ -902,7 +902,10 @@ impl ChainStore {
     ) -> Result<(), Error> {
         let mut store_update = self.store.store_update();
         let key = ChainStore::state_sync_dump_progress_key(shard_id);
-        store_update.set_ser(DBCol::BlockMisc, &key, &value)?;
+        match value {
+            None => store_update.delete(DBCol::BlockMisc, &key),
+            Some(value) => store_update.set_ser(DBCol::BlockMisc, &key, &value)?,
+        }
         store_update.commit().map_err(|err| err.into())
     }
 }
@@ -1249,8 +1252,8 @@ pub struct ChainStoreUpdate<'a> {
     remove_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A prev_hash to be removed with all the hashes associated with it
     remove_prev_blocks_to_catchup: Vec<CryptoHash>,
-    add_state_dl_infos: Vec<StateSyncInfo>,
-    remove_state_dl_infos: Vec<CryptoHash>,
+    add_state_sync_infos: Vec<StateSyncInfo>,
+    remove_state_sync_infos: Vec<CryptoHash>,
     challenged_blocks: HashSet<CryptoHash>,
 }
 
@@ -1273,8 +1276,8 @@ impl<'a> ChainStoreUpdate<'a> {
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
             remove_prev_blocks_to_catchup: vec![],
-            add_state_dl_infos: vec![],
-            remove_state_dl_infos: vec![],
+            add_state_sync_infos: vec![],
+            remove_state_sync_infos: vec![],
             challenged_blocks: HashSet::default(),
         }
     }
@@ -1917,12 +1920,12 @@ impl<'a> ChainStoreUpdate<'a> {
         self.remove_prev_blocks_to_catchup.push(hash);
     }
 
-    pub fn add_state_dl_info(&mut self, info: StateSyncInfo) {
-        self.add_state_dl_infos.push(info);
+    pub fn add_state_sync_info(&mut self, info: StateSyncInfo) {
+        self.add_state_sync_infos.push(info);
     }
 
-    pub fn remove_state_dl_info(&mut self, hash: CryptoHash) {
-        self.remove_state_dl_infos.push(hash);
+    pub fn remove_state_sync_info(&mut self, hash: CryptoHash) {
+        self.remove_state_sync_infos.push(hash);
     }
 
     pub fn save_challenged_block(&mut self, hash: CryptoHash) {
@@ -3019,14 +3022,14 @@ impl<'a> ChainStoreUpdate<'a> {
             prev_table.push(new_hash);
             store_update.set_ser(DBCol::BlocksToCatchup, prev_hash.as_ref(), &prev_table)?;
         }
-        for state_dl_info in self.add_state_dl_infos.drain(..) {
+        for state_sync_info in self.add_state_sync_infos.drain(..) {
             store_update.set_ser(
                 DBCol::StateDlInfos,
-                state_dl_info.epoch_tail_hash.as_ref(),
-                &state_dl_info,
+                state_sync_info.epoch_tail_hash.as_ref(),
+                &state_sync_info,
             )?;
         }
-        for hash in self.remove_state_dl_infos.drain(..) {
+        for hash in self.remove_state_sync_infos.drain(..) {
             store_update.delete(DBCol::StateDlInfos, hash.as_ref());
         }
         for hash in self.challenged_blocks.drain() {

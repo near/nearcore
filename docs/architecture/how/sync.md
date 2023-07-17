@@ -238,14 +238,14 @@ initiates the syncing process for these shards. After the state is downloaded,
 
 One thing to note is that `run_catchup` is located at `ClientActor`, but
 intensive work such as applying state parts and applying blocks is actually
-offloaded to `SyncJobActor` in another thread, because we don’t want
+offloaded to `SyncJobsActor` in another thread, because we don’t want
 `ClientActor` to be blocked by this. `run_catchup` is simply responsible for
-scheduling `SyncJobActor` to do the intensive job. Note that `SyncJobActor` is
+scheduling `SyncJobsActor` to do the intensive job. Note that `SyncJobsActor` is
 state-less, it doesn’t have write access to the chain. It will return the changes
 that need to be made as part of the response to `ClientActor`, and `ClientActor`
 is responsible for applying these changes. This is to ensure only one thread
 (`ClientActor`) has write access to the chain state. However, this also adds a
-lot of limits, for example, `SyncJobActor` can only be scheduled to apply one
+lot of limits, for example, `SyncJobsActor` can only be scheduled to apply one
 block at a time. Because `run_catchup` is only scheduled to run every 100ms, the
 speed of catching up blocks is limited to 100ms per block, even when blocks
 applying can be faster. Similar constraints happen to apply state parts.
@@ -262,7 +262,7 @@ Second, even though `run_catchup` is scheduled to run every 100ms, the call can
 be delayed if ClientActor has messages in its actix queue. A better way to do
 this is to move the scheduling of `run_catchup` to `check_triggers`.
 
-Third, because of how `run_catchup` interacts with `SyncJobActor`, `run_catchup`
+Third, because of how `run_catchup` interacts with `SyncJobsActor`, `run_catchup`
 can catch up at most one block every 100 ms. This is because we don’t want to
 write to `ChainStore` in multiple threads. However, the changes that catching up
 blocks make do not interfere with regular block processing and they can be
