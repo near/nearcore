@@ -11,7 +11,7 @@ import transaction
 
 from account import TGAS, NEAR_BASE
 import key
-from common.base import Account, Deploy, NearNodeProxy, Transaction, FunctionCall
+from common.base import Account, Deploy, NearNodeProxy, Transaction, FunctionCall, INIT_DONE
 from locust import events, runners
 from transaction import create_function_call_action
 
@@ -256,6 +256,7 @@ class TestSocialDbSetMsg(unittest.TestCase):
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
+    INIT_DONE.wait()
     # `master_funding_account` is the same on all runners, allowing to share a
     # single instance of SocialDB in its `social` sub account
     funding_account = environment.master_funding_account
