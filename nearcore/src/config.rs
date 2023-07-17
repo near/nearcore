@@ -465,20 +465,7 @@ impl Config {
             })?;
         let config: Config = serde_ignored::deserialize(
             &mut serde_json::Deserializer::from_str(&json_str_without_comments),
-            |field| {
-                let field = field.to_string();
-                // TODO(mina86): Remove this deprecation notice some time by the
-                // end of 2022.
-                if field == "network.external_address" {
-                    warn!(
-                        target: "neard",
-                        "{}: {field} is deprecated; please remove it from the config file",
-                        path.display(),
-                    );
-                } else {
-                    unrecognised_fields.push(field);
-                }
-            },
+            |field| unrecognised_fields.push(field.to_string()),
         )
         .map_err(|_| ValidationError::ConfigFileError {
             error_message: format!("Failed to deserialize config from {}", path.display()),
