@@ -3,6 +3,7 @@ import sys, time, random
 import multiprocessing
 import logging
 import pathlib
+from functools import partial
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -13,8 +14,6 @@ from proxy import ProxyHandler
 from multiprocessing import Value
 
 TIMEOUT = 90
-success = Value('i', 0)
-height = Value('i', 0)
 
 # Ratio of message that are dropped to simulate bad network performance
 DROP_RATIO = 0.05
@@ -22,7 +21,9 @@ DROP_RATIO = 0.05
 
 class Handler(ProxyHandler):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, success=None, **kwargs):
+        assert success is not None
+        self.success = success
         super().__init__(*args, **kwargs)
         self.dropped = 0
         self.total = 0
@@ -31,16 +32,11 @@ class Handler(ProxyHandler):
         if msg.enum == 'Block':
             h = msg.Block.BlockV2.header.inner_lite().height
 
-            with height.get_lock():
-                if h > height.value:
-                    height.value = h
-                    logging.info(f"Height: {h}")
-
-            with success.get_lock():
-                if h >= 10 and success.value == 0:
+            with self.success.get_lock():
+                if h >= 10 and self.success.value == 0:
                     logging.info(
                         f'SUCCESS DROP={self.dropped} TOTAL={self.total}')
-                    success.value = 1
+                    self.success.value = 1
 
         drop = random.random() < DROP_RATIO and 'Handshake' not in msg.enum
 
@@ -51,16 +47,20 @@ class Handler(ProxyHandler):
         return not drop
 
 
-start_cluster(3, 0, 1, None, [["epoch_length", 500]], {}, Handler)
+if __name__ == '__main__':
+    success = Value('i', 0)
 
-started = time.time()
+    start_cluster(3, 0, 1, None, [["epoch_length", 500]], {},
+                  partial(Handler, success=success))
 
-while True:
-    logging.info(f"Time: {time.time() - started:0.2}, Fin: {success.value}")
-    assert time.time() - started < TIMEOUT
-    time.sleep(1)
+    started = time.time()
 
-    if success.value == 1:
-        break
+    while True:
+        logging.info(f"Time: {time.time() - started:0.2}, Fin: {success.value}")
+        assert time.time() - started < TIMEOUT
+        time.sleep(1)
 
-logging.info("Success")
+        if success.value == 1:
+            break
+
+    logging.info("Success")
