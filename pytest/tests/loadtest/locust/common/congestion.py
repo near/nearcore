@@ -66,6 +66,7 @@ class ComputeSum(base.Transaction):
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
+    base.INIT_DONE.wait()
     # `master_funding_account` is the same on all runners, allowing to share a
     # single instance of congestion contract.
     funding_account = environment.master_funding_account

@@ -1313,12 +1313,12 @@ impl Runtime {
                 target: "runtime",
                 "process_receipt",
                 receipt_id = %receipt.receipt_id,
-                node_counter = ?state_update.trie().get_trie_nodes_count(),
                 predecessor = %receipt.predecessor_id,
                 receiver = %receipt.receiver_id,
                 id = %receipt.receipt_id,
             )
             .entered();
+            let node_counter_before = state_update.trie().get_trie_nodes_count();
             let result = self.process_receipt(
                 state_update,
                 apply_state,
@@ -1328,7 +1328,9 @@ impl Runtime {
                 &mut stats,
                 epoch_info_provider,
             );
-            tracing::debug!(target: "runtime", node_counter = ?state_update.trie().get_trie_nodes_count());
+            let node_counter_after = state_update.trie().get_trie_nodes_count();
+            tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
+
             if let Some(outcome_with_id) = result? {
                 *total_gas_burnt =
                     safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
