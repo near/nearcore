@@ -11,6 +11,7 @@ import multiprocessing
 import pathlib
 import requests
 import sys
+import threading
 import time
 import typing
 import unittest
@@ -550,8 +551,7 @@ def init_account_generator(parsed_options):
 
 
 # called once per process before user initialization
-@events.init.add_listener
-def on_locust_init(environment, **kwargs):
+def do_on_locust_init(environment):
     node = NearNodeProxy(environment)
 
     master_funding_key = key.Key.from_json_file(
@@ -592,6 +592,15 @@ def on_locust_init(environment, **kwargs):
 
     NearUser.funding_account = funding_account
     environment.master_funding_account = master_funding_account
+
+
+INIT_DONE = threading.Event()
+
+
+@events.init.add_listener
+def on_locust_init(environment, **kwargs):
+    do_on_locust_init(environment)
+    INIT_DONE.set()
 
 
 # Add custom CLI args here, will be available in `environment.parsed_options`
