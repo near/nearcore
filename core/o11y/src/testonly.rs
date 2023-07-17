@@ -1,7 +1,14 @@
 mod tracing_capture;
 
+use std::time::Instant;
+
 use crate::use_color_auto;
-use tracing_subscriber::{fmt as subscriber_fmt, EnvFilter};
+use core::fmt::Result;
+use tracing_subscriber::fmt;
+use tracing_subscriber::fmt::format::Writer;
+use tracing_subscriber::fmt::time::FormatTime;
+
+use tracing_subscriber::EnvFilter;
 
 pub use tracing_capture::TracingCapture;
 
@@ -18,11 +25,12 @@ fn setup_subscriber_from_filter(mut env_filter: EnvFilter) {
         }
     }
 
-    let _ = subscriber_fmt::Subscriber::builder()
+    let _ = fmt::Subscriber::builder()
         .with_ansi(use_color_auto())
-        .with_span_events(subscriber_fmt::format::FmtSpan::CLOSE)
+        .with_span_events(fmt::format::FmtSpan::CLOSE)
         .with_env_filter(env_filter)
-        .with_writer(subscriber_fmt::TestWriter::new())
+        .with_writer(fmt::TestWriter::new())
+        .with_timer(TestUptime::default())
         .try_init();
 }
 
@@ -46,4 +54,30 @@ pub fn init_test_module_logger(module: &str) {
 pub fn init_integration_logger() {
     let env_filter = EnvFilter::new("actix_web=warn,info");
     setup_subscriber_from_filter(env_filter);
+}
+
+/// Shameless copy paste of the Uptime timer in the tracing subscriber with
+/// adjusted time formatting. It measures time since the subscriber is configured.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct TestUptime {
+    epoch: Instant,
+}
+
+impl Default for TestUptime {
+    fn default() -> Self {
+        TestUptime { epoch: Instant::now() }
+    }
+}
+
+impl From<Instant> for TestUptime {
+    fn from(epoch: Instant) -> Self {
+        TestUptime { epoch }
+    }
+}
+
+impl FormatTime for TestUptime {
+    fn format_time(&self, w: &mut Writer<'_>) -> Result {
+        let e = self.epoch.elapsed();
+        write!(w, "{:2}.{:03}s", e.as_secs(), e.subsec_millis())
+    }
 }
