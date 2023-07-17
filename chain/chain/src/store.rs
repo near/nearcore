@@ -886,7 +886,7 @@ impl ChainStore {
     pub fn get_state_sync_dump_progress(
         &self,
         shard_id: ShardId,
-    ) -> Result<Option<StateSyncDumpProgress>, Error> {
+    ) -> Result<StateSyncDumpProgress, Error> {
         option_to_not_found(
             self.store
                 .get_ser(DBCol::BlockMisc, &ChainStore::state_sync_dump_progress_key(shard_id)),
@@ -902,7 +902,10 @@ impl ChainStore {
     ) -> Result<(), Error> {
         let mut store_update = self.store.store_update();
         let key = ChainStore::state_sync_dump_progress_key(shard_id);
-        store_update.set_ser(DBCol::BlockMisc, &key, &value)?;
+        match value {
+            None => store_update.delete(DBCol::BlockMisc, &key),
+            Some(value) => store_update.set_ser(DBCol::BlockMisc, &key, &value)?,
+        }
         store_update.commit().map_err(|err| err.into())
     }
 }
