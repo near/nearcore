@@ -915,7 +915,7 @@ impl<'a> VMLogic<'a> {
 
         for i in 0..elements_count {
             let pk = blst::min_pk::PublicKey::from_bytes(&data[i*96..(i + 1)*96]).unwrap();
-            res_pk.add_public_key(&pk, false);
+            res_pk.add_public_key(&pk, false).unwrap();
         }
 
         let res_ser = res_pk.to_public_key().serialize();
@@ -938,7 +938,7 @@ impl<'a> VMLogic<'a> {
 
         for i in 0..elements_count {
             let pk = blst::min_sig::PublicKey::from_bytes(&data[i*192..(i + 1)*192]).unwrap();
-            res_pk.add_public_key(&pk, false);
+            res_pk.add_public_key(&pk, false).unwrap();
         }
 
         let res_ser = res_pk.to_public_key().serialize();
@@ -953,8 +953,8 @@ impl<'a> VMLogic<'a> {
     ) -> Result<()> {
         self.gas_counter.pay_base(bls12381_g1_multiexp_base)?;
 
-        let POINT_BYTES_LEN: u64 = 96;
-        let SCALAR_BYTES_LEN: u64 = 32;
+        const POINT_BYTES_LEN: u64 = 96;
+        const SCALAR_BYTES_LEN: u64 = 32;
 
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
@@ -982,8 +982,8 @@ impl<'a> VMLogic<'a> {
             scalars.extend_from_slice(&data[(i*128 + 96)..(i + 1)*128]);
         }
 
-        let mut blst_p1s = blst::p1_affines::from(&blst_points);
-        let mut mul_res = blst_p1s.mult(&scalars, nbits);
+        let blst_p1s = blst::p1_affines::from(&blst_points);
+        let mul_res = blst_p1s.mult(&scalars, nbits);
         let mut mul_res_affine = blst::blst_p1_affine::default();
 
         unsafe {
@@ -1006,8 +1006,8 @@ impl<'a> VMLogic<'a> {
     ) -> Result<()> {
         self.gas_counter.pay_base(bls12381_g2_multiexp_base)?;
 
-        let POINT_BYTES_LEN: u64 = 192;
-        let SCALAR_BYTES_LEN: u64 = 32;
+        const POINT_BYTES_LEN: u64 = 192;
+        const SCALAR_BYTES_LEN: u64 = 32;
 
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
@@ -1035,8 +1035,8 @@ impl<'a> VMLogic<'a> {
             scalars.extend_from_slice(&data[(i*224 + 192)..(i + 1)*224]);
         }
 
-        let mut blst_p2s = blst::p2_affines::from(&blst_points);
-        let mut mul_res = blst_p2s.mult(&scalars, nbits);
+        let blst_p2s = blst::p2_affines::from(&blst_points);
+        let mul_res = blst_p2s.mult(&scalars, nbits);
         let mut mul_res_affine = blst::blst_p2_affine::default();
 
         unsafe {
@@ -1099,7 +1099,7 @@ impl<'a> VMLogic<'a> {
             blst::blst_fp_from_bendian(&mut c_fp1[1], data[96..].as_ptr());
         }
 
-        let mut fp2_point: blst::blst_fp2 = blst::blst_fp2 {fp: c_fp1};
+        let fp2_point: blst::blst_fp2 = blst::blst_fp2 {fp: c_fp1};
 
         let mut g2_point = blst::blst_p2::default();
         unsafe {
