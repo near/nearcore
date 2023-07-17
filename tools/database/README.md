@@ -93,6 +93,3 @@ from version `36` to version `38`, and then exits.
 ## State read perf
 A tool for performance testing hot storage RocksDB State column reads.
 Use help to get more details: `neard database state-perf --help`
-## State read perf
-A tool for performance testing hot storage RocksDB State column reads.
-Use help to get more details: `neard database state-perf --help`
