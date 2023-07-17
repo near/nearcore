@@ -215,11 +215,11 @@ impl Wasmer2Config {
 }
 
 // We use following scheme for the bits forming seed:
-//  kind << 10, kind is 1 for Wasmer2
+//  kind << 29, kind is 1 for Wasmer2
 //  major version << 6
 //  minor version
 const WASMER2_CONFIG: Wasmer2Config = Wasmer2Config {
-    seed: (1 << 10) | (11 << 6) | 0,
+    seed: (1 << 29) | (12 << 6) | 0,
     engine: WasmerEngine::Universal,
     compiler: WasmerCompiler::Singlepass,
 };

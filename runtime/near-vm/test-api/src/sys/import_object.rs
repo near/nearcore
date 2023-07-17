@@ -2,7 +2,7 @@
 //! manipulate and access a wasm module's imports including memories, tables, globals, and
 //! functions.
 use near_vm_vm::{Export, NamedResolver};
-use std::borrow::{Borrow, BorrowMut};
+use std::borrow::BorrowMut;
 use std::collections::VecDeque;
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
@@ -59,8 +59,7 @@ impl ImportObject {
     /// import_object.get_export("module", "name");
     /// ```
     pub fn get_export(&self, module: &str, name: &str) -> Option<Export> {
-        let guard = self.map.lock().unwrap();
-        let map_ref = guard.borrow();
+        let map_ref = self.map.lock().unwrap();
         if map_ref.contains_key(module) {
             let namespace = map_ref[module].as_ref();
             return namespace.get_namespace_export(name);
@@ -70,7 +69,7 @@ impl ImportObject {
 
     /// Returns true if the ImportObject contains namespace with the provided name.
     pub fn contains_namespace(&self, name: &str) -> bool {
-        self.map.lock().unwrap().borrow().contains_key(name)
+        self.map.lock().unwrap().contains_key(name)
     }
 
     /// Register anything that implements `LikeNamespace` as a namespace.
@@ -103,8 +102,7 @@ impl ImportObject {
 
     fn get_objects(&self) -> VecDeque<((String, String), Export)> {
         let mut out = VecDeque::new();
-        let guard = self.map.lock().unwrap();
-        let map = guard.borrow();
+        let map = self.map.lock().unwrap();
         for (name, ns) in map.iter() {
             for (id, exp) in ns.get_namespace_exports() {
                 out.push_back(((name.clone(), id), exp));
@@ -168,7 +166,7 @@ impl fmt::Debug for ImportObject {
         }
 
         f.debug_struct("ImportObject")
-            .field("map", &SecretMap::new(self.map.lock().unwrap().borrow().len()))
+            .field("map", &SecretMap::new(self.map.lock().unwrap().len()))
             .finish()
     }
 }

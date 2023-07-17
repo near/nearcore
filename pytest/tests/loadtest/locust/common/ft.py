@@ -6,7 +6,7 @@ from locust import events
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
 import key
-from common.base import Account, Deploy, NearNodeProxy, NearUser, FunctionCall
+from common.base import Account, Deploy, NearNodeProxy, NearUser, FunctionCall, INIT_DONE
 
 
 class FTContract:
@@ -116,6 +116,7 @@ class InitFTAccount(FunctionCall):
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
+    INIT_DONE.wait()
     node = NearNodeProxy(environment)
     ft_contract_code = environment.parsed_options.fungible_token_wasm
     num_ft_contracts = environment.parsed_options.num_ft_contracts

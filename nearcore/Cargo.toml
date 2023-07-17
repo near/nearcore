@@ -111,12 +111,16 @@ protocol_feature_fix_staking_threshold = [
 protocol_feature_fix_contract_loading_cost = [
   "near-vm-runner/protocol_feature_fix_contract_loading_cost",
 ]
-serialize_all_state_changes = ["near-store/serialize_all_state_changes"]
+protocol_feature_simple_nightshade_v2 = [
+    "near-primitives/protocol_feature_simple_nightshade_v2",
+]
 
+serialize_all_state_changes = ["near-store/serialize_all_state_changes"]
 nightly = [
   "nightly_protocol",
   "protocol_feature_fix_contract_loading_cost",
   "protocol_feature_fix_staking_threshold",
+  "protocol_feature_simple_nightshade_v2",
   "serialize_all_state_changes",
   "near-async/nightly",
   "near-chain-configs/nightly",
