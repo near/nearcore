@@ -3619,10 +3619,14 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap 4.2.4",
+ "indicatif",
  "near-chain-configs",
+ "near-primitives",
  "near-store",
  "nearcore",
+ "rand 0.8.5",
  "rayon",
+ "rocksdb",
  "strum",
  "tempfile",
 ]
