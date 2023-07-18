@@ -342,7 +342,7 @@ async fn load_state_parts(
                 chain
                     .set_state_part(
                         shard_id,
-                        sync_hash.unwrap(),
+                        sync_hash,
                         PartId::new(part_id, num_parts),
                         &part,
                     )
