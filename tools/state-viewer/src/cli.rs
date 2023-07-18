@@ -214,6 +214,10 @@ pub struct ApplyRangeCmd {
     sequential: bool,
     #[clap(long)]
     use_flat_storage: bool,
+    #[clap(long)]
+    range_file: Option<PathBuf>,
+    #[clap(long)]
+    new_feature: bool,
 }
 
 impl ApplyRangeCmd {
@@ -230,6 +234,8 @@ impl ApplyRangeCmd {
             self.only_contracts,
             self.sequential,
             self.use_flat_storage,
+            self.range_file,
+            self.new_feature,
         );
     }
 }

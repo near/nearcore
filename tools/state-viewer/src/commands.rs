@@ -209,6 +209,8 @@ pub(crate) fn apply_range(
     only_contracts: bool,
     sequential: bool,
     use_flat_storage: bool,
+    range_file: Option<PathBuf>,
+    new_feature: bool,
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
@@ -232,6 +234,8 @@ pub(crate) fn apply_range(
         only_contracts,
         sequential,
         use_flat_storage,
+        range_file,
+        new_feature,
     );
 }
 

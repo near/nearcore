@@ -16,6 +16,7 @@ use nearcore::NightshadeRuntime;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::fs::File;
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
@@ -121,6 +122,7 @@ fn apply_block_from_range(
     csv_file_mutex: &Mutex<Option<&mut File>>,
     only_contracts: bool,
     use_flat_storage: bool,
+    new_feature: bool,
 ) {
     // normally save_trie_changes depends on whether the node is
     // archival, but here we don't care, and can just set it to false
@@ -245,7 +247,7 @@ fn apply_block_from_range(
                 is_first_block_with_chunk_of_version,
                 Default::default(),
                 use_flat_storage,
-                false,
+                new_feature,
             )
             .unwrap()
     } else {
@@ -273,7 +275,7 @@ fn apply_block_from_range(
                 false,
                 Default::default(),
                 use_flat_storage,
-                false,
+                new_feature,
             )
             .unwrap()
     };
@@ -343,6 +345,8 @@ pub fn apply_chain_range(
     only_contracts: bool,
     sequential: bool,
     use_flat_storage: bool,
+    range_file: Option<PathBuf>,
+    new_feature: bool,
 ) {
     let parent_span = tracing::debug_span!(
         target: "state_viewer",
@@ -377,7 +381,7 @@ pub fn apply_chain_range(
         non_empty_blocks: AtomicU64::new(0),
         tgas_burned: AtomicU64::new(0),
     };
-    let process_height = |height| {
+    let process_height = |height, shard_id| {
         apply_block_from_range(
             height,
             shard_id,
@@ -390,8 +394,19 @@ pub fn apply_chain_range(
             &csv_file_mutex,
             only_contracts,
             use_flat_storage,
+            new_feature,
         );
     };
+
+    if let Some(range_file) = range_file {
+        if range_file.exists() {
+            let input = std::fs::read_to_string(&range_file).unwrap();
+            let blocks: Vec<(BlockHeight, ShardId)> = serde_json::from_str::<_>(&input).unwrap();
+            for (height, shard_id) in blocks {
+                process_height(height, shard_id);
+            }
+        }
+    }
 
     if sequential {
         range.into_iter().for_each(|height| {
@@ -401,7 +416,7 @@ pub fn apply_chain_range(
                 "process_block_in_order",
                 height)
             .entered();
-            process_height(height)
+            process_height(height, shard_id)
         });
     } else {
         range.into_par_iter().for_each(|height| {
@@ -411,7 +426,7 @@ pub fn apply_chain_range(
                 "process_block_in_parallel",
                 height)
             .entered();
-            process_height(height)
+            process_height(height, shard_id)
         });
     }
 
@@ -549,20 +564,7 @@ mod test {
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
             NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
-        apply_chain_range(
-            store,
-            &genesis,
-            None,
-            None,
-            0,
-            epoch_manager.as_ref(),
-            runtime,
-            true,
-            None,
-            false,
-            false,
-            false,
-        );
+        apply_chain_range(store, &genesis, None, None, 0, epoch_manager.as_ref(), runtime, true, None, false, false, false, None);
     }
 
     #[test]
@@ -587,20 +589,7 @@ mod test {
         let runtime =
             NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
         let mut file = tempfile::NamedTempFile::new().unwrap();
-        apply_chain_range(
-            store,
-            &genesis,
-            None,
-            None,
-            0,
-            epoch_manager.as_ref(),
-            runtime,
-            true,
-            Some(file.as_file_mut()),
-            false,
-            false,
-            false,
-        );
+        apply_chain_range(store, &genesis, None, None, 0, epoch_manager.as_ref(), runtime, true, Some(file.as_file_mut()), false, false, false, None);
         let mut csv = String::new();
         file.as_file_mut().seek(SeekFrom::Start(0)).unwrap();
         file.as_file_mut().read_to_string(&mut csv).unwrap();
