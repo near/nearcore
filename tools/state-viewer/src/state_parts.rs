@@ -303,7 +303,7 @@ async fn load_state_parts(
             let state_header = chain.get_state_response_header(shard_id, sync_hash).unwrap();
             let state_root = state_header.chunk_prev_state_root();
 
-            (state_root, epoch.epoch_height(), epoch_id, Some(sync_hash))
+            (state_root, epoch.epoch_height(), epoch_id, sync_hash)
         };
 
     let directory_path =
