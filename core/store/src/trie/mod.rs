@@ -11,7 +11,7 @@ pub use crate::trie::shard_tries::{
     KeyForStateChanges, ShardTries, StateSnapshot, StateSnapshotConfig, WrappedTrieChanges,
 };
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
-use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
+pub use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::challenge::PartialState;
@@ -24,7 +24,6 @@ use near_primitives::trie_key::TrieKey;
 pub use near_primitives::types::TrieNodesCount;
 use near_primitives::types::{StateRoot, StateRootNode};
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::hash::{Hash, Hasher};
@@ -435,10 +434,7 @@ impl Trie {
     }
 
     pub fn recording_reads(&self) -> Self {
-        let storage = TrieRecordingStorage {
-            storage: Rc::clone(&self.storage),
-            recorded: RefCell::new(Default::default()),
-        };
+        let storage = TrieRecordingStorage::new(Rc::clone(&self.storage));
         Trie { storage: Rc::new(storage), root: self.root, flat_storage_chunk_view: None }
     }
 

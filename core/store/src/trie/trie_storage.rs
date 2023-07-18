@@ -305,15 +305,22 @@ pub trait TrieStorage {
 
 /// Records every value read by retrieve_raw_bytes.
 /// Used for obtaining state parts (and challenges in the future).
-/// TODO (#6316): implement proper nodes counting logic as in TrieCachingStorage
 pub struct TrieRecordingStorage {
     pub(crate) storage: Rc<dyn TrieStorage>,
     pub(crate) recorded: RefCell<HashMap<CryptoHash, Arc<[u8]>>>,
+    pub(crate) mem_read_nodes: Cell<u64>,
+}
+
+impl TrieRecordingStorage {
+    pub fn new(storage: Rc<dyn TrieStorage>) -> Self {
+        Self { storage, recorded: Default::default(), mem_read_nodes: Default::default() }
+    }
 }
 
 impl TrieStorage for TrieRecordingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         if let Some(val) = self.recorded.borrow().get(hash).cloned() {
+            self.mem_read_nodes.set(self.mem_read_nodes.get() + 1);
             return Ok(val);
         }
         let val = self.storage.retrieve_raw_bytes(hash)?;
@@ -326,7 +333,10 @@ impl TrieStorage for TrieRecordingStorage {
     }
 
     fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        unimplemented!();
+        TrieNodesCount {
+            db_reads: self.recorded.borrow().len() as u64,
+            mem_reads: self.mem_read_nodes.get(),
+        }
     }
 }
 
@@ -336,13 +346,17 @@ impl TrieStorage for TrieRecordingStorage {
 pub struct TrieMemoryPartialStorage {
     pub(crate) recorded_storage: HashMap<CryptoHash, Arc<[u8]>>,
     pub(crate) visited_nodes: RefCell<HashSet<CryptoHash>>,
+    pub(crate) mem_read_nodes: Cell<u64>,
 }
 
 impl TrieStorage for TrieMemoryPartialStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         let result = self.recorded_storage.get(hash).cloned().ok_or(StorageError::MissingTrieValue);
         if result.is_ok() {
-            self.visited_nodes.borrow_mut().insert(*hash);
+            let inserted = self.visited_nodes.borrow_mut().insert(*hash);
+            if !inserted {
+                self.mem_read_nodes.set(self.mem_read_nodes.get() + 1);
+            }
         }
         result
     }
@@ -352,13 +366,20 @@ impl TrieStorage for TrieMemoryPartialStorage {
     }
 
     fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        unimplemented!();
+        TrieNodesCount {
+            db_reads: self.visited_nodes.borrow().len() as u64,
+            mem_reads: self.mem_read_nodes.get(),
+        }
     }
 }
 
 impl TrieMemoryPartialStorage {
     pub fn new(recorded_storage: HashMap<CryptoHash, Arc<[u8]>>) -> Self {
-        Self { recorded_storage, visited_nodes: Default::default() }
+        Self {
+            recorded_storage,
+            visited_nodes: Default::default(),
+            mem_read_nodes: Default::default(),
+        }
     }
 
     pub fn partial_state(&self) -> PartialState {
