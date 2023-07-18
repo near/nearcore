@@ -5465,6 +5465,7 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<(), Error> {
         let _span =
             tracing::debug_span!(target: "sync", "chain_update_set_state_finalize").entered();
+        tracing::error!("chain_update_set_state_finalize @1");
         let (chunk, incoming_receipts_proofs) = match shard_state_header {
             ShardStateSyncResponseHeader::V1(shard_state_header) => (
                 ShardChunk::V1(shard_state_header.chunk),
@@ -5474,27 +5475,34 @@ impl<'a> ChainUpdate<'a> {
                 (shard_state_header.chunk, shard_state_header.incoming_receipts_proofs)
             }
         };
+        tracing::error!("chain_update_set_state_finalize @2");
 
         let block_header = self
             .chain_store_update
             .get_block_header_on_chain_by_height(&sync_hash, chunk.height_included())?;
+        tracing::error!("chain_update_set_state_finalize @3");
 
         // Getting actual incoming receipts.
         let mut receipt_proof_response: Vec<ReceiptProofResponse> = vec![];
         for incoming_receipt_proof in incoming_receipts_proofs.iter() {
+            tracing::error!("chain_update_set_state_finalize @4");
             let ReceiptProofResponse(hash, _) = incoming_receipt_proof;
             let block_header = self.chain_store_update.get_block_header(hash)?;
             if block_header.height() <= chunk.height_included() {
                 receipt_proof_response.push(incoming_receipt_proof.clone());
             }
+            tracing::error!("chain_update_set_state_finalize @5");
         }
+        tracing::error!("chain_update_set_state_finalize @6");
         let receipts = collect_receipts_from_response(&receipt_proof_response);
+        tracing::error!("chain_update_set_state_finalize @7");
         // Prev block header should be present during state sync, since headers have been synced at this point.
         let gas_price = if block_header.height() == self.chain_store_update.get_genesis_height() {
             block_header.gas_price()
         } else {
             self.chain_store_update.get_block_header(block_header.prev_hash())?.gas_price()
         };
+        tracing::error!("chain_update_set_state_finalize @8");
 
         let chunk_header = chunk.cloned_header();
         let gas_limit = chunk_header.gas_limit();
@@ -5504,6 +5512,7 @@ impl<'a> ChainUpdate<'a> {
             &chunk_header.prev_block_hash(),
             shard_id,
         )?;
+        tracing::error!("chain_update_set_state_finalize @9");
 
         let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
@@ -5524,13 +5533,16 @@ impl<'a> ChainUpdate<'a> {
             Default::default(),
             true,
         )?;
+        tracing::error!("chain_update_set_state_finalize @10");
 
         let (outcome_root, outcome_proofs) =
             ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+        tracing::error!("chain_update_set_state_finalize @11");
 
         self.chain_store_update.save_chunk(chunk);
 
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
+        tracing::error!("chain_update_set_state_finalize @12");
         self.save_flat_state_changes(
             *block_header.hash(),
             *chunk_header.prev_block_hash(),
@@ -5538,7 +5550,9 @@ impl<'a> ChainUpdate<'a> {
             shard_uid,
             &apply_result.trie_changes,
         )?;
+        tracing::error!("chain_update_set_state_finalize @13");
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+        tracing::error!("chain_update_set_state_finalize @14");
         let chunk_extra = ChunkExtra::new(
             &apply_result.new_root,
             outcome_root,
@@ -5548,6 +5562,7 @@ impl<'a> ChainUpdate<'a> {
             apply_result.total_balance_burnt,
         );
         self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, chunk_extra);
+        tracing::error!("chain_update_set_state_finalize @15");
 
         self.chain_store_update.save_outgoing_receipt(
             block_header.hash(),
@@ -5569,6 +5584,7 @@ impl<'a> ChainUpdate<'a> {
                 receipt_proof_response.1,
             );
         }
+        tracing::error!("chain_update_set_state_finalize @16");
         Ok(())
     }
 
