@@ -120,7 +120,7 @@ class SweatMintBatch(FunctionCall):
     """
 
     def __init__(self, sweat_id: str, oracle: Account,
-                 recipient_step_pairs: list[RecipientSteps]):
+                 recipient_step_pairs: typing.List[RecipientSteps]):
         super().__init__(oracle, sweat_id, "record_batch")
         self.recipient_step_pairs = recipient_step_pairs
 
