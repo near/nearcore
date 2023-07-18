@@ -73,6 +73,13 @@ pub(crate) enum StatePartsSubCommand {
         #[clap(subcommand)]
         epoch_selection: EpochSelection,
     },
+    /// Finalize state sync.
+    Finalize {
+        /// If provided, this value will be used instead of looking it up in the headers.
+        /// Use if those headers or blocks are not available.
+        #[clap(long)]
+        sync_hash: CryptoHash,
+    },
 }
 
 impl StatePartsSubCommand {
@@ -164,6 +171,9 @@ impl StatePartsSubCommand {
                 }
                 StatePartsSubCommand::ReadStateHeader { epoch_selection } => {
                     read_state_header(epoch_selection, shard_id, &chain, store)
+                }
+                StatePartsSubCommand::Finalize{ sync_hash } => {
+                    finalize_state_sync(sync_hash, shard_id, &mut chain)
                 }
             }
         });
@@ -481,6 +491,13 @@ fn read_state_header(
 
     let state_header = chain.store().get_state_header(shard_id, sync_hash);
     tracing::info!(target: "state-parts", ?epoch_id, ?sync_hash, ?state_header);
+}
+
+fn finalize_state_sync(
+    sync_hash: CryptoHash,
+    shard_id: ShardId,
+    chain: &mut Chain) {
+    chain.set_state_finalize(shard_id, sync_hash, Ok(())).unwrap()
 }
 
 fn get_part_ids(part_from: Option<u64>, part_to: Option<u64>, num_parts: u64) -> Range<u64> {

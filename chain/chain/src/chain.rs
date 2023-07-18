@@ -3282,10 +3282,14 @@ impl Chain {
         sync_hash: CryptoHash,
         apply_result: Result<(), near_chain_primitives::Error>,
     ) -> Result<(), Error> {
+        tracing::error!("set_state_finalize !1");
         let _span = tracing::debug_span!(target: "sync", "set_state_finalize").entered();
+        tracing::error!("set_state_finalize !2");
         apply_result?;
 
+        tracing::error!("set_state_finalize !3");
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
+        tracing::error!("set_state_finalize !4");
         let chunk = shard_state_header.cloned_chunk();
 
         let block_hash = chunk.prev_block();
@@ -3296,15 +3300,20 @@ impl Chain {
         // So we don't have to add the storage state for shard in such case.
         // TODO(8438) - add additional test scenarios for this case.
         if *block_hash != CryptoHash::default() {
+            tracing::error!("set_state_finalize !5");
             let block_header = self.get_block_header(block_hash)?;
+            tracing::error!("set_state_finalize !6");
             let epoch_id = block_header.epoch_id();
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
+            tracing::error!("set_state_finalize !7");
 
             if let Some(flat_storage_manager) = self.runtime_adapter.get_flat_storage_manager() {
+                tracing::error!("set_state_finalize !8");
                 // Flat storage must not exist at this point because leftover keys corrupt its state.
                 assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
 
                 let mut store_update = self.runtime_adapter.store().store_update();
+                tracing::error!("set_state_finalize !9");
                 store_helper::set_flat_storage_status(
                     &mut store_update,
                     shard_uid,
@@ -3317,29 +3326,39 @@ impl Chain {
                     }),
                 );
                 store_update.commit()?;
+                tracing::error!("set_state_finalize !10");
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+                tracing::error!("set_state_finalize !11");
             }
         }
 
         let mut height = shard_state_header.chunk_height_included();
         let mut chain_update = self.chain_update();
+        tracing::error!("set_state_finalize !12");
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
+        tracing::error!("set_state_finalize !13");
         chain_update.commit()?;
+        tracing::error!("set_state_finalize !14");
 
         // We restored the state on height `shard_state_header.chunk.header.height_included`.
         // Now we should build a chain up to height of `sync_hash` block.
         loop {
             height += 1;
+            tracing::error!("set_state_finalize !15 {height}");
             let mut chain_update = self.chain_update();
             // Result of successful execution of set_state_finalize_on_height is bool,
             // should we commit and continue or stop.
             if chain_update.set_state_finalize_on_height(height, shard_id, sync_hash)? {
+                tracing::error!("set_state_finalize !16 {height}");
                 chain_update.commit()?;
+                tracing::error!("set_state_finalize !17 {height}");
             } else {
+                tracing::error!("set_state_finalize !18 {height}");
                 break;
             }
         }
 
+        tracing::error!("set_state_finalize !19");
         Ok(())
     }
 
