@@ -61,6 +61,7 @@ pub(crate) struct TriePrefetcher {
     prefetch_queue_full: GenericCounter<prometheus::core::AtomicU64>,
 }
 
+#[allow(unused)]
 impl TriePrefetcher {
     pub(crate) fn new_if_enabled(trie: &Trie) -> Option<Self> {
         if let Some(caching_storage) = trie.storage.as_caching_storage() {
