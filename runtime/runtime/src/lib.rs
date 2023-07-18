@@ -1200,13 +1200,13 @@ impl Runtime {
             num_transactions = transactions.len())
         .entered();
 
-        let mut prefetcher = TriePrefetcher::new_if_enabled(&trie);
+        let prefetcher = TriePrefetcher::new_if_enabled(&trie);
         let mut state_update = TrieUpdate::new(trie);
 
-        if let Some(prefetcher) = &mut prefetcher {
-            // Prefetcher is allowed to fail
-            _ = prefetcher.prefetch_transactions_data(transactions);
-        }
+        // if let Some(prefetcher) = &mut prefetcher {
+        //     // Prefetcher is allowed to fail
+        //     _ = prefetcher.prefetch_transactions_data(transactions);
+        // }
 
         let mut stats = ApplyStats::default();
 
@@ -1358,11 +1358,11 @@ impl Runtime {
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
 
         // We first process local receipts. They contain staking, local contract calls, etc.
-        if let Some(prefetcher) = &mut prefetcher {
-            prefetcher.clear();
-            // Prefetcher is allowed to fail
-            _ = prefetcher.prefetch_receipts_data(&local_receipts);
-        }
+        // if let Some(prefetcher) = &mut prefetcher {
+        //     prefetcher.clear();
+        //     // Prefetcher is allowed to fail
+        //     _ = prefetcher.prefetch_receipts_data(&local_receipts);
+        // }
         for receipt in local_receipts.iter() {
             if total_compute_usage < compute_limit {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
@@ -1392,11 +1392,11 @@ impl Runtime {
                 ))
             })?;
 
-            if let Some(prefetcher) = &mut prefetcher {
-                prefetcher.clear();
-                // Prefetcher is allowed to fail
-                _ = prefetcher.prefetch_receipts_data(std::slice::from_ref(&receipt));
-            }
+            // if let Some(prefetcher) = &mut prefetcher {
+            //     prefetcher.clear();
+            //     // Prefetcher is allowed to fail
+            //     _ = prefetcher.prefetch_receipts_data(std::slice::from_ref(&receipt));
+            // }
 
             // Validating the delayed receipt. If it fails, it's likely the state is inconsistent.
             validate_receipt(
@@ -1425,11 +1425,11 @@ impl Runtime {
         metrics.delayed_receipts_done(total_gas_burnt, total_compute_usage);
 
         // And then we process the new incoming receipts. These are receipts from other shards.
-        if let Some(prefetcher) = &mut prefetcher {
-            prefetcher.clear();
-            // Prefetcher is allowed to fail
-            _ = prefetcher.prefetch_receipts_data(&incoming_receipts);
-        }
+        // if let Some(prefetcher) = &mut prefetcher {
+        //     prefetcher.clear();
+        //     // Prefetcher is allowed to fail
+        //     _ = prefetcher.prefetch_receipts_data(&incoming_receipts);
+        // }
         for receipt in incoming_receipts.iter() {
             // Validating new incoming no matter whether we have available gas or not. We don't
             // want to store invalid receipts in state as delayed.

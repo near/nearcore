@@ -164,7 +164,7 @@ impl TriePrefetcher {
     }
 
     fn prefetch_trie_key(&self, trie_key: TrieKey) -> Result<(), PrefetchError> {
-        let res = self.prefetch_api.prefetch_trie_key(self.trie_root, trie_key);
+        let res = self.prefetch_api.prefetch_trie_key(self.trie_root, trie_key.to_vec());
         match res {
             Err(PrefetchError::QueueFull) => {
                 self.prefetch_queue_full.inc();

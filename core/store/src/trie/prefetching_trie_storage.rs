@@ -70,8 +70,8 @@ pub struct PrefetchApi {
     /// changing the queue to an enum.
     /// The state root is also included because multiple chunks could be applied
     /// at the same time.
-    work_queue_tx: crossbeam::channel::Sender<(StateRoot, TrieKey)>,
-    work_queue_rx: crossbeam::channel::Receiver<(StateRoot, TrieKey)>,
+    work_queue_tx: crossbeam::channel::Sender<(StateRoot, Vec<u8>)>,
+    work_queue_rx: crossbeam::channel::Receiver<(StateRoot, Vec<u8>)>,
     /// Prefetching IO threads will insert fetched data here. This is also used
     /// to mark what is already being fetched, to avoid fetching the same data
     /// multiple times.
@@ -435,7 +435,7 @@ impl PrefetchApi {
     pub fn prefetch_trie_key(
         &self,
         root: StateRoot,
-        trie_key: TrieKey,
+        trie_key: Vec<u8>,
     ) -> Result<(), PrefetchError> {
         self.work_queue_tx.try_send((root, trie_key)).map_err(|e| match e {
             crossbeam::channel::TrySendError::Full(_) => PrefetchError::QueueFull,
@@ -475,7 +475,7 @@ impl PrefetchApi {
                         // hit is small.
                         let prefetcher_trie =
                             Trie::new(Rc::new(prefetcher_storage.clone()), trie_root, None);
-                        let storage_key = trie_key.to_vec();
+                        let storage_key = trie_key;
                         metric_prefetch_sent.inc();
                         if let Ok(_maybe_value) = prefetcher_trie.get(&storage_key) {
                             near_o11y::io_trace!(count: "prefetch");
