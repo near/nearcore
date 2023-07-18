@@ -9,7 +9,6 @@ use near_o11y::metrics::prometheus::core::GenericGauge;
 use near_o11y::tracing::error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, ShardId, StateRoot, TrieNodesCount};
 use std::collections::HashMap;
 use std::rc::Rc;
