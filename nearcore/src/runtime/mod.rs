@@ -317,6 +317,7 @@ impl NightshadeRuntime {
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
         state_patch: SandboxStatePatch,
+        new_feature: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let _span = tracing::debug_span!(target: "runtime", "process_state_update").entered();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
@@ -424,6 +425,7 @@ impl NightshadeRuntime {
                 is_first_block_of_version,
                 is_first_block_with_chunk_of_version,
             },
+            new_feature,
         };
 
         let instant = Instant::now();
@@ -867,13 +869,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         last_validator_proposals: ValidatorStakeIter,
         gas_price: Balance,
         gas_limit: Gas,
-        challenges: &ChallengesResult,
+        challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
         generate_storage_proof: bool,
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
-        states_to_patch: SandboxStatePatch,
+        state_patch: SandboxStatePatch,
         use_flat_storage: bool,
+        new_feature: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie =
             self.get_trie_for_shard(shard_id, prev_block_hash, *state_root, use_flat_storage)?;
@@ -895,11 +898,12 @@ impl RuntimeAdapter for NightshadeRuntime {
             last_validator_proposals,
             gas_price,
             gas_limit,
-            challenges,
+            challenges_result,
             random_seed,
             is_new_chunk,
             is_first_block_with_chunk_of_version,
-            states_to_patch,
+            state_patch,
+            new_feature,
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e {
@@ -949,6 +953,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             is_new_chunk,
             is_first_block_with_chunk_of_version,
             Default::default(),
+            false,
         )
     }
 
@@ -1493,6 +1498,7 @@ mod test {
                     false,
                     Default::default(),
                     true,
+                    false,
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();

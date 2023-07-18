@@ -1202,6 +1202,7 @@ mod tests {
             is_new_chunk: false,
             migration_data: Arc::default(),
             migration_flags: MigrationFlags::default(),
+            new_feature: false,
         }
     }
 

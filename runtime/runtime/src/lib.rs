@@ -1665,6 +1665,7 @@ mod tests {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
+            new_feature: false,
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())

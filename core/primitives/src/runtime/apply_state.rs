@@ -42,4 +42,5 @@ pub struct ApplyState {
     pub migration_data: Arc<MigrationData>,
     /// Flags for migrations indicating whether they can be applied at this block
     pub migration_flags: MigrationFlags,
+    pub new_feature: bool,
 }

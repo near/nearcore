@@ -138,6 +138,7 @@ impl<'c> EstimatorContext<'c> {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
+            new_feature: false,
         }
     }
 

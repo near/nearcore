@@ -204,6 +204,7 @@ impl TrieViewer {
             is_new_chunk: false,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
+            new_feature: false,
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),

@@ -334,6 +334,7 @@ pub trait RuntimeAdapter: Send + Sync {
         is_first_block_with_chunk_of_version: bool,
         state_patch: SandboxStatePatch,
         use_flat_storage: bool,
+        new_feature: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let _timer =
             metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
@@ -356,6 +357,7 @@ pub trait RuntimeAdapter: Send + Sync {
             is_first_block_with_chunk_of_version,
             state_patch,
             use_flat_storage,
+            new_feature,
         )
     }
 
@@ -379,6 +381,7 @@ pub trait RuntimeAdapter: Send + Sync {
         is_first_block_with_chunk_of_version: bool,
         state_patch: SandboxStatePatch,
         use_flat_storage: bool,
+        new_feature: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
     fn check_state_transition(

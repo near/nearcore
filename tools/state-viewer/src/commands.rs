@@ -97,6 +97,7 @@ pub(crate) fn apply_block(
                 is_first_block_with_chunk_of_version,
                 Default::default(),
                 use_flat_storage,
+                false,
             )
             .unwrap()
     } else {
@@ -122,6 +123,7 @@ pub(crate) fn apply_block(
                 false,
                 Default::default(),
                 use_flat_storage,
+                false,
             )
             .unwrap()
     };
