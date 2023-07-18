@@ -22,8 +22,8 @@ use chrono::{DateTime, Utc};
 use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
     ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest, BlockCatchUpResponse,
-    StateSplitRequest, StateSplitResponse,
 };
+use near_chain::resharding::{StateSplitRequest, StateSplitResponse};
 use near_chain::state_snapshot_actor::MakeSnapshotCallback;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
