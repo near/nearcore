@@ -270,7 +270,7 @@ class NearNodeProxy:
         self.request_event.fire(**meta)
         return meta
 
-    def post_json(self, method: str, params: list[str]):
+    def post_json(self, method: str, params: typing.List[str]):
         j = {
             "method": method,
             "params": params,
