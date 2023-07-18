@@ -85,14 +85,17 @@ pub struct StoreConfig {
     /// Number of threads to execute storage background migrations.
     /// Needed to create flat storage which need to happen in parallel
     /// with block processing.
+    /// TODO (#8826): remove, because creation successfully happened in 1.34.
     pub background_migration_threads: usize,
 
     /// Enables background flat storage creation.
+    /// TODO (#8826): remove, because creation successfully happened in 1.34.
     pub flat_storage_creation_enabled: bool,
 
     /// Duration to perform background flat storage creation step. Defines how
     /// frequently we check creation status and execute work related to it in
     /// main thread (scheduling and collecting state parts, catching up blocks, etc.).
+    /// TODO (#8826): remove, because creation successfully happened in 1.34.
     pub flat_storage_creation_period: Duration,
 
     /// Enables state snapshot at the beginning of epochs.
