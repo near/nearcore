@@ -30,6 +30,7 @@ use std::rc::Rc;
 use std::str;
 
 mod config;
+mod from_flat;
 mod insert_delete;
 pub mod iterator;
 mod nibble_slice;
@@ -42,6 +43,8 @@ mod trie_storage;
 #[cfg(test)]
 mod trie_tests;
 pub mod update;
+
+pub use from_flat::construct_trie_from_flat;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -67,6 +70,7 @@ pub struct TrieCosts {
 pub enum KeyLookupMode {
     FlatStorage,
     Trie,
+    BackgroundTrieFetch,
 }
 
 const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 50 };
@@ -802,13 +806,26 @@ impl Trie {
         key: &[u8],
         mode: KeyLookupMode,
     ) -> Result<Option<ValueRef>, StorageError> {
-        let use_flat_storage =
-            matches!(mode, KeyLookupMode::FlatStorage) && self.flat_storage_chunk_view.is_some();
+        let use_flat_storage = matches!(mode, KeyLookupMode::FlatStorage | KeyLookupMode::BackgroundTrieFetch)
+                // hack to make TriePrefetchingStorage work. figure out how to do without it
+                && self.storage.as_caching_storage().is_some();
 
         if use_flat_storage {
-            let flat_state_value =
-                self.flat_storage_chunk_view.as_ref().unwrap().get_value(&key)?;
-            Ok(flat_state_value.map(|value| value.to_value_ref()))
+            if matches!(mode, KeyLookupMode::BackgroundTrieFetch) {
+                self.fetch_trie_key(key);
+            }
+            if self.flat_storage_chunk_view.is_some() {
+                let flat_state_value =
+                    self.flat_storage_chunk_view.as_ref().unwrap().get_value(&key)?;
+                Ok(flat_state_value.map(|value| value.to_value_ref()))
+            } else {
+                let caching_storage = self.storage.as_caching_storage().unwrap();
+                let store = caching_storage.store.clone();
+                let db_storage = TrieDBStorage::new(store, caching_storage.shard_uid);
+                let trie = Trie::new(Rc::new(db_storage), self.root, None);
+                let key_nibbles = NibbleSlice::new(key);
+                trie.lookup(key_nibbles)
+            }
         } else {
             let key_nibbles = NibbleSlice::new(key);
             self.lookup(key_nibbles)
@@ -894,6 +911,14 @@ impl Trie {
 
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
         self.storage.get_trie_nodes_count()
+    }
+
+    pub fn fetch_trie_key(&self, key: &[u8]) {
+        if let Some(storage) = self.storage.as_caching_storage() {
+            if let Some(prefetch_api) = &storage.prefetch_api {
+                let _ = prefetch_api.prefetch_trie_key(self.root, key.to_vec());
+            }
+        }
     }
 }
 

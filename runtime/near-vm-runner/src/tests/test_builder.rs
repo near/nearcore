@@ -1,7 +1,7 @@
 use crate::internal::VMKind;
-use near_primitives::{
+use near_primitives::runtime::{config_store::RuntimeConfigStore, fees::RuntimeFeesConfig};
+use near_primitives_core::{
     contract::ContractCode,
-    runtime::{config_store::RuntimeConfigStore, fees::RuntimeFeesConfig},
     types::Gas,
     version::{ProtocolFeature, PROTOCOL_VERSION},
 };

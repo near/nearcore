@@ -147,6 +147,7 @@ impl FlatStorage {
                 panic!("Cannot read flat state deltas metadata for shard {shard_id} from storage")
             });
         let mut deltas = HashMap::new();
+        eprintln!("deltas: {}", deltas_metadata.len());
         for delta_metadata in deltas_metadata {
             let block_hash = delta_metadata.block.hash;
             let changes: CachedFlatStateChanges =

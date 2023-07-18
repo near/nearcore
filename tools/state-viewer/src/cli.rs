@@ -1,26 +1,21 @@
 use crate::commands::*;
 use crate::contract_accounts::ContractAccountFilter;
 use crate::rocksdb_stats::get_rocksdb_stats;
-use near_chain::{ChainStore, ChainStoreAccess};
+use crate::trie_iteration_benchmark::TrieIterationBenchmarkCmd;
+
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
-use near_epoch_manager::EpochManager;
+
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::state_record::{state_record_to_account_id, StateRecord};
-use near_primitives::trie_key::col;
-use near_primitives::trie_key::trie_key_parsers::{
-    parse_account_id_from_access_key_key, parse_account_id_from_trie_key_with_separator,
-};
+
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::{Mode, NodeStorage, ShardUId, Store, Temperature, Trie, TrieDBStorage};
-use nearcore::{load_config, NearConfig};
-use std::cell::RefCell;
-use std::collections::HashMap;
+use near_store::{Mode, NodeStorage, Store, Temperature};
+use nearcore::{load_config, migrations, NearConfig};
+
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+
 use std::str::FromStr;
-use std::time::Instant;
 
 #[derive(clap::Subcommand)]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
@@ -48,6 +43,9 @@ pub enum StateViewerSubCommand {
     CheckBlock,
     /// Looks up a certain chunk.
     Chunks(ChunksCmd),
+    /// Clear recoverable data in CachedContractCode column.
+    #[clap(alias = "clear_cache")]
+    ClearCache,
     /// List account names with contracts deployed.
     #[clap(alias = "contract_accounts")]
     ContractAccounts(ContractAccountsCmd),
@@ -79,6 +77,8 @@ pub enum StateViewerSubCommand {
     /// Dump stats for the RocksDB storage.
     #[clap(name = "rocksdb-stats", alias = "rocksdb_stats")]
     RocksDBStats(RocksDBStatsCmd),
+    /// Reads all rows of a DB column and deserializes keys and values and prints them.
+    ScanDbColumn(ScanDbColumnCmd),
     /// Iterates over a trie and prints the StateRecords.
     State,
     /// Dumps or applies StateChanges.
@@ -88,15 +88,14 @@ pub enum StateViewerSubCommand {
     StateParts(StatePartsCmd),
     /// Benchmark how long does it take to iterate the trie.
     TrieIterationBenchmark(TrieIterationBenchmarkCmd),
+    #[clap(alias = "stress_test_flat_storage")]
+    StressTestFlatStorage(StressTestFlatStorageCmd),
     /// View head of the storage.
     #[clap(alias = "view_chain")]
     ViewChain(ViewChainCmd),
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
-    /// Clear recoverable data in CachedContractCode column.
-    #[clap(alias = "clear_cache")]
-    ClearCache,
 }
 
 impl StateViewerSubCommand {
@@ -110,13 +109,22 @@ impl StateViewerSubCommand {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-        let cold_config: Option<&near_store::StoreConfig> = near_config.config.cold_store.as_ref();
+        let migrator = migrations::Migrator::new(&near_config);
+        // let cold_config: Option<&near_store::StoreConfig> = near_config.config.cold_store.as_ref();
+        // let store_opener = NodeStorage::opener(
+        //     home_dir,
+        //     near_config.config.archive,
+        //     &near_config.config.store,
+        //     cold_config,
+        // );
+
         let store_opener = NodeStorage::opener(
             home_dir,
-            near_config.config.archive,
+            near_config.client_config.archive,
             &near_config.config.store,
-            cold_config,
-        );
+            near_config.config.cold_store.as_ref(),
+        )
+        .with_migrator(&migrator);
 
         let storage = store_opener.open_in_mode(mode).unwrap();
         let store = match temperature {
@@ -146,14 +154,16 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(store_opener.path()),
+            StateViewerSubCommand::ScanDbColumn(cmd) => cmd.run(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
             StateViewerSubCommand::StateChanges(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
-            StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
-            StateViewerSubCommand::TrieIterationBenchmark(cmd) => {
+            StateViewerSubCommand::StressTestFlatStorage(cmd) => {
                 cmd.run(home_dir, near_config, store)
             }
+            StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
+            StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
         }
     }
 }
@@ -498,6 +508,57 @@ impl RocksDBStatsCmd {
     }
 }
 
+#[derive(clap::Parser, Debug)]
+pub struct ScanDbColumnCmd {
+    /// Column name, e.g. 'Block' or 'BlockHeader'.
+    #[clap(long)]
+    column: String,
+    #[clap(long)]
+    from: Option<String>,
+    // List of comma-separated u8-values.
+    #[clap(long)]
+    from_bytes: Option<String>,
+    #[clap(long)]
+    to: Option<String>,
+    // List of comma-separated u8-values.
+    // For example, if a column key starts wth ShardUId and you want to scan starting from s2.v1 use `--from-bytes 1,0,0,0,2,0,0,0`.
+    // Note that the numbers are generally saved as low-endian.
+    #[clap(long)]
+    to_bytes: Option<String>,
+    #[clap(long)]
+    max_keys: Option<usize>,
+    #[clap(long, default_value = "false")]
+    no_value: bool,
+}
+
+impl ScanDbColumnCmd {
+    pub fn run(self, store: Store) {
+        let lower_bound = Self::prefix(self.from, self.from_bytes);
+        let upper_bound = Self::prefix(self.to, self.to_bytes);
+        crate::scan_db::scan_db_column(
+            &self.column,
+            lower_bound.as_deref().map(|v| v.as_ref()),
+            upper_bound.as_deref().map(|v| v.as_ref()),
+            self.max_keys,
+            self.no_value,
+            store,
+        )
+    }
+
+    fn prefix(s: Option<String>, bytes: Option<String>) -> Option<Vec<u8>> {
+        match (s, bytes) {
+            (None, None) => None,
+            (Some(s), None) => Some(s.into_bytes()),
+            (None, Some(bytes)) => {
+                Some(bytes.split(",").map(|s| s.parse::<u8>().unwrap()).collect::<Vec<u8>>())
+            }
+            (Some(_), Some(_)) => {
+                panic!("Provided both a Vec and a String as a prefix")
+            }
+        }
+    }
+}
+
 #[derive(clap::Parser)]
 pub struct StateChangesCmd {
     #[clap(subcommand)]
@@ -542,6 +603,38 @@ impl StatePartsCmd {
         );
     }
 }
+
+#[derive(clap::Parser)]
+pub struct StressTestFlatStorageCmd {
+    #[clap(long)]
+    shard_id: Option<ShardId>,
+    #[clap(long)]
+    account_ids: Option<AccountId>,
+    #[clap(long)]
+    steps: Option<u64>,
+    #[clap(long)]
+    mode: u8,
+    #[clap(long)]
+    new_feature: bool,
+    // 0: move flat storage backwards, write fake deltas
+    // 1: apply blocks forward, simulate reading deltas
+}
+
+impl StressTestFlatStorageCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        stress_test_flat_storage(
+            self.shard_id,
+            self.account_ids,
+            self.steps,
+            self.mode,
+            self.new_feature,
+            home_dir,
+            near_config,
+            store,
+        );
+    }
+}
+
 #[derive(clap::Parser)]
 pub struct ViewChainCmd {
     #[clap(long)]
@@ -620,301 +713,5 @@ impl ViewTrieCmd {
                     .unwrap();
             }
         }
-    }
-}
-
-#[derive(Clone)]
-pub enum TrieIterationType {
-    Full,
-    Shallow,
-}
-
-impl clap::ValueEnum for TrieIterationType {
-    fn value_variants<'a>() -> &'a [Self] {
-        &[Self::Full, Self::Shallow]
-    }
-
-    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
-        match self {
-            Self::Full => Some(clap::builder::PossibleValue::new("full")),
-            Self::Shallow => Some(clap::builder::PossibleValue::new("shallow")),
-        }
-    }
-}
-
-#[derive(Default)]
-struct ColumnCountMap(HashMap<u8, usize>);
-
-impl ColumnCountMap {
-    fn col_to_string(col: u8) -> &'static str {
-        match col {
-            col::ACCOUNT => "ACCOUNT",
-            col::CONTRACT_CODE => "CONTRACT_CODE",
-            col::DELAYED_RECEIPT => "DELAYED_RECEIPT",
-            col::DELAYED_RECEIPT_INDICES => "DELAYED_RECEIPT_INDICES",
-            col::ACCESS_KEY => "ACCESS KEY",
-            col::CONTRACT_DATA => "CONTRACT DATA",
-            col::RECEIVED_DATA => "RECEIVED DATA",
-            col::POSTPONED_RECEIPT_ID => "POSTPONED RECEIPT ID",
-            col::PENDING_DATA_COUNT => "PENDING DATA COUNT",
-            col::POSTPONED_RECEIPT => "POSTPONED RECEIPT",
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl std::fmt::Debug for ColumnCountMap {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut map = f.debug_map();
-        for (col, count) in &self.0 {
-            map.entry(&Self::col_to_string(*col), &count);
-        }
-        map.finish()
-    }
-}
-
-#[derive(Debug)]
-pub struct TrieIterationBenchmarkStats {
-    visited_map: ColumnCountMap,
-    pruned_map: ColumnCountMap,
-}
-
-impl TrieIterationBenchmarkStats {
-    pub fn new() -> Self {
-        Self { visited_map: ColumnCountMap::default(), pruned_map: ColumnCountMap::default() }
-    }
-
-    pub fn bump_visited(&mut self, col: u8) {
-        let entry = self.visited_map.0.entry(col).or_insert(0);
-        *entry += 1;
-    }
-
-    pub fn bump_pruned(&mut self, col: u8) {
-        let entry = self.pruned_map.0.entry(col).or_insert(0);
-        *entry += 1;
-    }
-}
-
-#[derive(clap::Parser)]
-pub struct TrieIterationBenchmarkCmd {
-    /// The type of trie iteration.
-    /// - Full will iterate over all trie keys.
-    /// - Shallow will only iterate until full account id prefix can be parsed
-    ///   in the trie key. Most notably this will skip any keys or data
-    ///   belonging to accounts.
-    #[clap(long, default_value = "full")]
-    iteration_type: TrieIterationType,
-
-    /// Limit the number of trie nodes to be iterated.
-    #[clap(long)]
-    limit: Option<u32>,
-
-    /// Print the trie nodes to stdout.
-    #[clap(long, default_value = "false")]
-    print: bool,
-}
-
-impl TrieIterationBenchmarkCmd {
-    pub fn run(self, _home_dir: &Path, near_config: NearConfig, store: Store) {
-        let genesis_config = &near_config.genesis.config;
-        let chain_store = ChainStore::new(
-            store.clone(),
-            genesis_config.genesis_height,
-            near_config.client_config.save_trie_changes,
-        );
-        let head = chain_store.head().unwrap();
-        let block = chain_store.get_block(&head.last_block_hash).unwrap();
-        let epoch_manager =
-            EpochManager::new_from_genesis_config(store.clone(), &genesis_config).unwrap();
-        let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
-
-        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
-            if chunk_header.height_included() != block.header().height() {
-                println!("chunk for shard {shard_id} is missing and will be skipped");
-            }
-        }
-
-        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
-            let shard_id = shard_id as ShardId;
-            if chunk_header.height_included() != block.header().height() {
-                println!("chunk for shard {shard_id} is missing, skipping it");
-                continue;
-            }
-            let trie = self.get_trie(shard_id, &shard_layout, &chunk_header, &store);
-
-            println!("shard id    {shard_id:#?} benchmark starting");
-            self.iter_trie(&trie);
-            println!("shard id    {shard_id:#?} benchmark finished");
-        }
-    }
-
-    fn get_trie(
-        &self,
-        shard_id: ShardId,
-        shard_layout: &near_primitives::shard_layout::ShardLayout,
-        chunk_header: &near_primitives::sharding::ShardChunkHeader,
-        store: &Store,
-    ) -> Trie {
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
-        // Note: here we get the previous state root but the shard layout
-        // corresponds to the current epoch id. In practice shouldn't
-        // matter as the shard layout doesn't change.
-        let state_root = chunk_header.prev_state_root();
-        let storage = TrieDBStorage::new(store.clone(), shard_uid);
-        let flat_storage_chunk_view = None;
-        Trie::new(Rc::new(storage), state_root, flat_storage_chunk_view)
-    }
-
-    fn iter_trie(&self, trie: &Trie) {
-        let stats = Rc::new(RefCell::new(TrieIterationBenchmarkStats::new()));
-        let stats_clone = Rc::clone(&stats);
-
-        let prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>> = match &self.iteration_type {
-            TrieIterationType::Full => None,
-            TrieIterationType::Shallow => Some(Box::new(move |key_nibbles| -> bool {
-                Self::shallow_iter_prune_condition(key_nibbles, &stats_clone)
-            })),
-        };
-
-        let start = Instant::now();
-        let mut node_count = 0;
-        let mut error_count = 0;
-        let iter = trie.iter_with_prune_condition(prune_condition);
-        let iter = match iter {
-            Ok(iter) => iter,
-            Err(err) => {
-                println!("iter error {err:#?}");
-                return;
-            }
-        };
-        for item in iter {
-            node_count += 1;
-
-            let (key, value) = match item {
-                Ok((key, value)) => (key, value),
-                Err(err) => {
-                    println!("Failed to iterate node with error: {err}");
-                    error_count += 1;
-                    continue;
-                }
-            };
-
-            stats.borrow_mut().bump_visited(key[0]);
-
-            if self.print {
-                let state_record = StateRecord::from_raw_key_value(key.clone(), value);
-                Self::print_state_record(&state_record);
-            }
-
-            if let Some(limit) = self.limit {
-                if limit < node_count {
-                    break;
-                }
-            }
-        }
-        let duration = start.elapsed();
-        println!("node count  {node_count}");
-        println!("error count {error_count}");
-        println!("time        {duration:?}");
-        println!("stats\n{:#?}", stats.borrow());
-    }
-
-    fn shallow_iter_prune_condition(
-        key_nibbles: &Vec<u8>,
-        stats: &Rc<RefCell<TrieIterationBenchmarkStats>>,
-    ) -> bool {
-        // Need at least 2 nibbles for the column type byte.
-        if key_nibbles.len() < 2 {
-            return false;
-        }
-
-        // The key method will drop the last nibble if there is an odd number of
-        // them. This is on purpose because the interesting keys have even length.
-        let key = Self::key(key_nibbles);
-        let col: u8 = key[0];
-        let result = match col {
-            // key for account only contains account id, nothing to prune
-            col::ACCOUNT => false,
-            // key for contract code only contains account id, nothing to prune
-            col::CONTRACT_CODE => false,
-            // key for delayed receipt only contains account id, nothing to prune
-            col::DELAYED_RECEIPT => false,
-            // key for delayed receipt indices is a shard singleton, nothing to prune
-            col::DELAYED_RECEIPT_INDICES => false,
-
-            // Most columns use the ACCOUNT_DATA_SEPARATOR to indicate the end
-            // of the accound id in the trie key. For those columns the
-            // partial_parse_account_id method should be used.
-            // The only exception is the ACCESS_KEY and dedicated method
-            // partial_parse_account_id_from_access_key should be used.
-            col::ACCESS_KEY => Self::partial_parse_account_id_from_access_key(&key, "ACCESS KEY"),
-            col::CONTRACT_DATA => Self::partial_parse_account_id(col, &key, "CONTRACT DATA"),
-            col::RECEIVED_DATA => Self::partial_parse_account_id(col, &key, "RECEIVED DATA"),
-            col::POSTPONED_RECEIPT_ID => {
-                Self::partial_parse_account_id(col, &key, "POSTPONED RECEIPT ID")
-            }
-            col::PENDING_DATA_COUNT => {
-                Self::partial_parse_account_id(col, &key, "PENDING DATA COUNT")
-            }
-            col::POSTPONED_RECEIPT => {
-                Self::partial_parse_account_id(col, &key, "POSTPONED RECEIPT")
-            }
-            _ => unreachable!(),
-        };
-
-        if result {
-            stats.borrow_mut().bump_pruned(col);
-        }
-
-        result
-
-        // TODO - this can be optimized, we really only need to look at the last
-        // byte of the key and check if it is the separator. This only works
-        // when doing full iteration as seeking inside of the trie would break
-        // the invariant that parent node key was already checked.
-    }
-
-    fn key(key_nibbles: &Vec<u8>) -> Vec<u8> {
-        // Intentionally ignoring the odd nibble at the end.
-        let mut result = <Vec<u8>>::with_capacity(key_nibbles.len() / 2);
-        for i in (1..key_nibbles.len()).step_by(2) {
-            result.push(key_nibbles[i - 1] * 16 + key_nibbles[i]);
-        }
-        result
-    }
-
-    fn partial_parse_account_id(col: u8, key: &Vec<u8>, col_name: &str) -> bool {
-        match parse_account_id_from_trie_key_with_separator(col, &key, "") {
-            Ok(account_id) => {
-                tracing::trace!(target: "trie-iteration-benchmark", "pruning column {col_name} account id {account_id:?}");
-                true
-            }
-            Err(_) => false,
-        }
-    }
-
-    // returns true if the partial key contains full account id
-    fn partial_parse_account_id_from_access_key(key: &Vec<u8>, col_name: &str) -> bool {
-        match parse_account_id_from_access_key_key(&key) {
-            Ok(account_id) => {
-                tracing::trace!(target: "trie-iteration-benchmark", "pruning column {col_name} account id {account_id:?}");
-                true
-            }
-            Err(_) => false,
-        }
-    }
-
-    fn print_state_record(state_record: &Option<StateRecord>) {
-        let state_record_string = match state_record {
-            None => "none".to_string(),
-            Some(state_record) => {
-                format!(
-                    "{} {:?}",
-                    &state_record.get_type_string(),
-                    state_record_to_account_id(&state_record)
-                )
-            }
-        };
-        println!("{state_record_string}");
     }
 }

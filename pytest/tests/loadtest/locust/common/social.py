@@ -12,7 +12,7 @@ import transaction
 from account import TGAS, NEAR_BASE
 import cluster
 import key
-from common.base import Account, CreateSubAccount, Deploy, NearUser, Transaction, is_tag_active, send_transaction
+from common.base import Account, CreateSubAccount, Deploy, NearUser, Transaction, send_transaction
 from locust import events, runners
 from transaction import create_function_call_action
 
@@ -25,10 +25,10 @@ class SocialDbSet(Transaction):
         self.sender = sender
 
     @abstractmethod
-    def build_args(self):
-        ...
+    def build_args(self) -> str:
+        """Returns arguments for the transaction function call."""
 
-    def sign_and_serialize(self, block_hash):
+    def sign_and_serialize(self, block_hash) -> bytes:
         args = self.build_args()
         return transaction.sign_function_call_tx(self.sender.key,
                                                  self.contract_id, "set",
@@ -37,6 +37,9 @@ class SocialDbSet(Transaction):
                                                  self.sender.use_nonce(),
                                                  block_hash)
 
+    def sender_id(self) -> str:
+        return self.sender.key.account_id
+
 
 class SubmitPost(SocialDbSet):
 
@@ -44,7 +47,7 @@ class SubmitPost(SocialDbSet):
         super().__init__(contract_id, sender)
         self.content = content
 
-    def build_args(self):
+    def build_args(self) -> str:
         return social_post_args(self.sender.key.account_id, self.content)
 
 
@@ -55,7 +58,7 @@ class Follow(SocialDbSet):
         super().__init__(contract_id, sender)
         self.follow_list = follow_list
 
-    def build_args(self):
+    def build_args(self) -> str:
         follow_list = self.follow_list
         sender = self.sender.key.account_id
         return social_follow_args(sender, follow_list)
@@ -67,7 +70,7 @@ class InitSocialDB(Transaction):
         super().__init__()
         self.contract = contract
 
-    def sign_and_serialize(self, block_hash):
+    def sign_and_serialize(self, block_hash) -> bytes:
         # Call the #[init] function, no arguments
         call_new_action = create_function_call_action("new", "", 100 * TGAS, 0)
 
@@ -83,6 +86,9 @@ class InitSocialDB(Transaction):
             key.account_id, nonce, [call_new_action, call_set_status_action],
             block_hash, key.account_id, key.decoded_pk(), key.decoded_sk())
 
+    def sender_id(self) -> str:
+        return self.contract.key.account_id
+
 
 class InitSocialDbAccount(Transaction):
     """
@@ -97,7 +103,7 @@ class InitSocialDbAccount(Transaction):
         self.contract_id = contract_id
         self.account = account
 
-    def sign_and_serialize(self, block_hash):
+    def sign_and_serialize(self, block_hash) -> bytes:
         args = json.dumps({"account_id": self.account.key.account_id})
         return transaction.sign_function_call_tx(self.account.key,
                                                  self.contract_id,
@@ -106,6 +112,9 @@ class InitSocialDbAccount(Transaction):
                                                  300 * TGAS, 1 * NEAR_BASE,
                                                  self.account.use_nonce(),
                                                  block_hash)
+
+    def sender_id(self) -> str:
+        return self.account.key.account_id
 
 
 def social_db_build_index_obj(key_list_pairs: dict) -> dict:
@@ -127,7 +136,7 @@ def social_db_build_index_obj(key_list_pairs: dict) -> dict:
     A dict instead of a list of tuples doesn't work because keys can be duplicated.
     """
 
-    def serialize_values(values: list[(str, dict)]):
+    def serialize_values(values: list[tuple[str, dict]]):
         return json.dumps([{"key": k, "value": v} for k, v in values])
 
     return {
@@ -160,7 +169,7 @@ def social_db_set_msg(sender: str, values: dict, index: dict) -> str:
     return json.dumps(msg)
 
 
-def social_follow_args(sender: str, follow_list: list[str]):
+def social_follow_args(sender: str, follow_list: list[str]) -> str:
     follow_map = {}
     graph = []
     notify = []
@@ -268,9 +277,6 @@ class TestSocialDbSetMsg(unittest.TestCase):
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
-    if not is_tag_active(environment, "social"):
-        return
-
     # `master_funding_account` is the same on all runners, allowing to share a
     # single instance of SocialDB in its `social` sub account
     funding_account = environment.master_funding_account
@@ -281,8 +287,8 @@ def on_locust_init(environment, **kwargs):
         if environment.parsed_options.social_db_wasm is None:
             raise SystemExit(
                 f"Running SocialDB workload requires `--social_db_wasm $SOCIAL_CONTRACT`. "
-                "Either provide the WASM (can be downloaded from https://github.com/NearSocial/social-db/tree/aa7fafaac92a7dd267993d6c210246420a561370/res) "
-                "or run with `--exclude-tag social`")
+                "Provide the WASM (can be downloaded from https://github.com/NearSocial/social-db/tree/aa7fafaac92a7dd267993d6c210246420a561370/res)."
+            )
 
         social_contract_code = environment.parsed_options.social_db_wasm
         contract_key = key.Key.from_random(environment.social_account_id)
@@ -308,8 +314,7 @@ def on_locust_init(environment, **kwargs):
 def _(parser):
     parser.add_argument(
         "--social-db-wasm",
-        type=str,
-        required=False,
+        default="res/social_db.wasm",
         help=
         "Path to the compiled SocialDB contract, get it from https://github.com/NearSocial/social-db/tree/aa7fafaac92a7dd267993d6c210246420a561370/res"
     )

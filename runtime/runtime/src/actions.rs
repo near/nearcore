@@ -8,7 +8,7 @@ use borsh::BorshSerialize;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::checked_feature;
-use near_primitives::config::ViewConfig;
+use near_primitives::config::{ExtCosts, ViewConfig};
 use near_primitives::contract::ContractCode;
 use near_primitives::delegate_action::{DelegateAction, SignedDelegateAction};
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
@@ -24,8 +24,7 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
-    is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
-    DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
+    ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
@@ -38,6 +37,7 @@ use near_vm_errors::{
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{ActionCosts, VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
+use num_traits::Pow;
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
@@ -108,6 +108,7 @@ pub(crate) fn execute_function_call(
     if checked_feature!("stable", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
     }
+    println!("enter action {}", action_hash);
     let result = near_vm_runner::run(
         &code,
         &function_call.method_name,
@@ -119,6 +120,7 @@ pub(crate) fn execute_function_call(
         apply_state.current_protocol_version,
         apply_state.cache.as_deref(),
     );
+    println!("exit action {}", action_hash);
     if checked_feature!("stable", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
     }
@@ -178,6 +180,15 @@ pub(crate) fn action_function_call(
         )
         .into());
     }
+
+    // initialize node counts?
+    let node_counts = if apply_state.new_feature {
+        state_update.test_get_node_counts(action_hash)
+    } else {
+        Default::default()
+    };
+    println!("got {} node counts", node_counts.len());
+
     let mut runtime_ext = RuntimeExt::new(
         state_update,
         account_id,
@@ -187,8 +198,10 @@ pub(crate) fn action_function_call(
         &apply_state.block_hash,
         epoch_info_provider,
         apply_state.current_protocol_version,
+        node_counts,
+        apply_state.new_feature,
     );
-    let outcome = execute_function_call(
+    let outcome_result = execute_function_call(
         apply_state,
         &mut runtime_ext,
         account,
@@ -200,7 +213,32 @@ pub(crate) fn action_function_call(
         config,
         is_last_action,
         None,
-    )?;
+    );
+    // gather node counts
+    if apply_state.new_feature {
+        assert!(runtime_ext.node_counts.borrow().is_empty());
+    } else {
+        let node_counts = runtime_ext.node_counts.borrow().clone();
+        println!("putting {} node counts", node_counts.len());
+        state_update.test_put_node_counts(action_hash, node_counts);
+    }
+
+    let outcome = outcome_result?;
+    let old_used_gas = outcome.used_gas;
+    let mut new_used_gas = old_used_gas;
+    new_used_gas -= outcome.profile.get_ext_cost(ExtCosts::touching_trie_node);
+    new_used_gas -= outcome.profile.get_ext_cost(ExtCosts::read_cached_trie_node);
+    let write_bytes = outcome.profile.get_ext_cost(ExtCosts::storage_write_key_byte)
+        / config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_write_key_byte);
+    new_used_gas += write_bytes * 74_000_000_000;
+    println!(
+        "GAS {} {} {} {} {}",
+        action_hash,
+        write_bytes,
+        (old_used_gas as f64) / 10f64.pow(9),
+        (new_used_gas as f64) / 10f64.pow(9),
+        outcome.profile.total_compute_usage(&config.wasm_config.ext_costs)
+    );
 
     match &outcome.aborted {
         None => {
@@ -888,7 +926,7 @@ pub(crate) fn check_account_existence(
                 }
                 .into());
             } else {
-                if is_implicit_account_creation_enabled(current_protocol_version)
+                if checked_feature!("stable", ImplicitAccountCreation, current_protocol_version)
                     && account_id.is_implicit()
                 {
                     // If the account doesn't exist and it's 64-length hex account ID, then you
@@ -909,8 +947,11 @@ pub(crate) fn check_account_existence(
         }
         Action::Transfer(_) => {
             if account.is_none() {
-                return if is_implicit_account_creation_enabled(current_protocol_version)
-                    && is_the_only_action
+                return if checked_feature!(
+                    "stable",
+                    ImplicitAccountCreation,
+                    current_protocol_version
+                ) && is_the_only_action
                     && account_id.is_implicit()
                     && !is_refund
                 {
@@ -1202,6 +1243,7 @@ mod tests {
             is_new_chunk: false,
             migration_data: Arc::default(),
             migration_flags: MigrationFlags::default(),
+            new_feature: false,
         }
     }
 
@@ -1374,13 +1416,13 @@ mod tests {
     #[test]
     fn test_validate_delegate_action_key_update_nonce() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
-        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
-        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let sender_id = &signed_delegate_action.delegate_action.sender_id;
+        let sender_pub_key = &signed_delegate_action.delegate_action.public_key;
         let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
 
         let apply_state =
             create_apply_state(signed_delegate_action.delegate_action.max_block_height);
-        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+        let mut state_update = setup_account(sender_id, sender_pub_key, &access_key);
 
         // Everything is ok
         let mut result = ActionResult::default();

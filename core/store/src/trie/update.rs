@@ -7,9 +7,9 @@ use near_primitives::state::ValueRef;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
-    TrieCacheMode,
+    TrieCacheMode, TrieNodesCount,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 mod iterator;
 
 /// Key-value update. Contains a TrieKey and a value.
@@ -160,6 +160,18 @@ impl TrieUpdate {
         if let Some(storage) = self.trie.storage.as_caching_storage() {
             storage.set_mode(state);
         }
+    }
+
+    pub fn test_get_node_counts(&self, action_hash: &CryptoHash) -> VecDeque<TrieNodesCount> {
+        self.trie.storage.test_get_node_counts(action_hash)
+    }
+
+    pub fn test_put_node_counts(
+        &self,
+        action_hash: &CryptoHash,
+        node_counts: VecDeque<TrieNodesCount>,
+    ) {
+        self.trie.storage.test_put_node_counts(action_hash, node_counts);
     }
 }
 

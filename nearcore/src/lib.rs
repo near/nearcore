@@ -1,4 +1,5 @@
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
+use crate::metrics::spawn_trie_metrics_loop;
 pub use crate::runtime::NightshadeRuntime;
 
 use crate::cold_storage::spawn_cold_store_loop;
@@ -221,6 +222,12 @@ pub fn start_with_config_and_synchronization(
         None
     };
 
+    let trie_metrics_arbiter = spawn_trie_metrics_loop(
+        config.clone(),
+        storage.get_hot_store(),
+        config.client_config.log_summary_period,
+    )?;
+
     let epoch_manager =
         EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config);
     let shard_tracker =
@@ -371,7 +378,8 @@ pub fn start_with_config_and_synchronization(
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
-    let mut arbiters = vec![client_arbiter_handle, shards_manager_arbiter_handle];
+    let mut arbiters =
+        vec![client_arbiter_handle, shards_manager_arbiter_handle, trie_metrics_arbiter];
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);
     }

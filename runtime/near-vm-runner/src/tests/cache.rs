@@ -7,12 +7,11 @@ use crate::runner::VMResult;
 use crate::wasmer2_runner::Wasmer2VM;
 use crate::{prepare, MockCompiledContractCache};
 use assert_matches::assert_matches;
-use near_primitives::contract::ContractCode;
-use near_primitives::hash::CryptoHash;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::types::{CompiledContract, CompiledContractCache};
+use near_primitives_core::contract::ContractCode;
+use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_stable_hasher::StableHasher;
-use near_vm_errors::VMRunnerError;
+use near_vm_errors::{CompiledContract, CompiledContractCache, VMRunnerError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::VMConfig;
 use std::hash::{Hash, Hasher};
@@ -124,11 +123,11 @@ fn test_wasmer2_artifact_output_stability() {
     let compiled_hashes = [
         16241863964906842660,
         9891733092817574479,
-        10546692418763942004,
-        13653435153125107606,
+        17353479639813695155,
+        14282522049460604929,
         10549554738494211661,
-        11197084127324548219,
-        6788687979647989853,
+        15523181531223292814,
+        1999054137996096555,
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {

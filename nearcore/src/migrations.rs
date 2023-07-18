@@ -76,7 +76,7 @@ pub fn load_migration_data(chain_id: &str) -> MigrationData {
     }
 }
 
-pub(super) struct Migrator<'a> {
+pub struct Migrator<'a> {
     config: &'a crate::config::NearConfig,
 }
 

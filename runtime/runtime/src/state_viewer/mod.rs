@@ -184,6 +184,8 @@ impl TrieViewer {
             &view_state.block_hash,
             epoch_info_provider,
             view_state.current_protocol_version,
+            Default::default(),
+            false,
         );
         let config_store = RuntimeConfigStore::new(None);
         let config = config_store.get_config(PROTOCOL_VERSION);
@@ -204,6 +206,7 @@ impl TrieViewer {
             is_new_chunk: false,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
+            new_feature: false,
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),

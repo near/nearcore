@@ -22,7 +22,6 @@ use near_primitives::challenge::ChallengesResult;
 use near_primitives::config::ExtCosts;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
-use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -33,14 +32,12 @@ use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
 use near_primitives::state_part::PartId;
-use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
-    EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause,
-    StateChangesForSplitStates, StateRoot, StateRootNode,
+    AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
+    NumShards, ShardId, StateChangeCause, StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -48,6 +45,7 @@ use near_primitives::views::{
     ViewStateResult,
 };
 use near_store::flat::FlatStorageManager;
+use near_store::genesis::initialize_genesis_state;
 use near_store::metadata::DbKind;
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
@@ -55,6 +53,7 @@ use near_store::{
     ApplyStatePartResult, DBCol, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
     StoreUpdate, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
+use near_vm_errors::CompiledContractCache;
 use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::config::RuntimeConfig;
@@ -63,18 +62,13 @@ use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
     ValidatorAccountsUpdate,
 };
-use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error};
 
 pub mod errors;
-
-const STATE_DUMP_FILE: &str = "state_dump";
-const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 
 /// Defines Nightshade state transition and validator rotation.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
@@ -83,7 +77,7 @@ pub struct NightshadeRuntime {
     runtime_config_store: RuntimeConfigStore,
 
     store: Store,
-    tries: ShardTries,
+    pub tries: ShardTries,
     trie_viewer: TrieViewer,
     flat_storage_manager: FlatStorageManager,
     pub runtime: Runtime,
@@ -126,7 +120,7 @@ impl NightshadeRuntime {
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
-            None => NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id),
+            None => Self::create_runtime_config_store(&genesis.config.chain_id),
         };
 
         let runtime = Runtime::new();
@@ -214,105 +208,10 @@ impl NightshadeRuntime {
         }
     }
 
-    fn genesis_state_from_dump(store: Store, home_dir: &Path) -> Vec<StateRoot> {
-        error!(target: "near", "Loading genesis from a state dump file. Do not use this outside of genesis-tools");
-        let mut state_file = home_dir.to_path_buf();
-        state_file.push(STATE_DUMP_FILE);
-        store.load_state_from_file(state_file.as_path()).expect("Failed to read state dump");
-        let mut roots_files = home_dir.to_path_buf();
-        roots_files.push(GENESIS_ROOTS_FILE);
-        let data = fs::read(roots_files).expect("Failed to read genesis roots file.");
-        let state_roots: Vec<StateRoot> =
-            BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
-        state_roots
-    }
-
-    fn genesis_state_from_records(store: Store, genesis: &Genesis) -> Vec<StateRoot> {
-        match genesis.records_len() {
-            Ok(count) => {
-                info!(
-                    target: "runtime",
-                    "genesis state has {count} records, computing state roots"
-                )
-            }
-            Err(path) => {
-                info!(
-                    target: "runtime",
-                    path=%path.display(),
-                    message="computing state roots from records",
-                )
-            }
-        }
-        let initial_epoch_config = EpochConfig::from(&genesis.config);
-        let shard_layout = initial_epoch_config.shard_layout;
-        let num_shards = shard_layout.num_shards();
-        let mut shard_account_ids: Vec<HashSet<AccountId>> =
-            (0..num_shards).map(|_| HashSet::new()).collect();
-        let mut has_protocol_account = false;
-        info!(
-            target: "runtime",
-            "distributing records to shards"
-        );
-        genesis.for_each_record(|record: &StateRecord| {
-            shard_account_ids[state_record_to_shard_id(record, &shard_layout) as usize]
-                .insert(state_record_to_account_id(record).clone());
-            if let StateRecord::Account { account_id, .. } = record {
-                if account_id == &genesis.config.protocol_treasury_account {
-                    has_protocol_account = true;
-                }
-            }
-        });
-        assert!(has_protocol_account, "Genesis spec doesn't have protocol treasury account");
-        let tries = ShardTries::new(
-            store.clone(),
-            TrieConfig::default(),
-            &genesis.config.shard_layout.get_shard_uids(),
-            FlatStorageManager::new(store),
-        );
-        let runtime = Runtime::new();
-        let runtime_config_store =
-            NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id);
-        let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
-        let writers = std::sync::atomic::AtomicUsize::new(0);
-        (0..num_shards)
-            .into_par_iter()
-            .map(|shard_id| {
-                let validators = genesis
-                    .config
-                    .validators
-                    .iter()
-                    .filter_map(|account_info| {
-                        if account_id_to_shard_id(&account_info.account_id, &shard_layout)
-                            == shard_id
-                        {
-                            Some((
-                                account_info.account_id.clone(),
-                                account_info.public_key.clone(),
-                                account_info.amount,
-                            ))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>();
-
-                runtime.apply_genesis_state(
-                    &writers,
-                    tries.clone(),
-                    shard_id,
-                    &validators,
-                    genesis,
-                    runtime_config,
-                    shard_account_ids[shard_id as usize].clone(),
-                )
-            })
-            .collect()
-    }
-
     /// On first start: compute state roots, load genesis state into storage.
     /// After that: return genesis state roots. The state is not guaranteed to be in storage, as
     /// GC and state sync are allowed to delete it.
-    pub fn initialize_genesis_state_if_needed(
+    fn initialize_genesis_state_if_needed(
         store: Store,
         home_dir: &Path,
         genesis: &Genesis,
@@ -325,29 +224,17 @@ impl NightshadeRuntime {
                 .expect("Store failed on genesis intialization")
                 .expect("Genesis state roots not found in storage")
         } else {
+            let runtime_config_store = Self::create_runtime_config_store(&genesis.config.chain_id);
+            let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
+            let store_usage_config = &runtime_config.fees.storage_usage_config;
             let genesis_hash = genesis.json_hash();
-            let state_roots = Self::initialize_genesis_state(store.clone(), home_dir, genesis);
+            let state_roots =
+                initialize_genesis_state(store.clone(), home_dir, &store_usage_config, genesis);
             let mut store_update = store.store_update();
             set_genesis_hash(&mut store_update, &genesis_hash);
             set_genesis_state_roots(&mut store_update, &state_roots);
             store_update.commit().expect("Store failed on genesis intialization");
             state_roots
-        }
-    }
-
-    pub fn initialize_genesis_state(
-        store: Store,
-        home_dir: &Path,
-        genesis: &Genesis,
-    ) -> Vec<StateRoot> {
-        let has_dump = home_dir.join(STATE_DUMP_FILE).exists();
-        if has_dump {
-            if genesis.records_len().is_ok() {
-                warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
-            }
-            Self::genesis_state_from_dump(store, home_dir)
-        } else {
-            Self::genesis_state_from_records(store, genesis)
         }
     }
 
@@ -405,6 +292,7 @@ impl NightshadeRuntime {
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
         state_patch: SandboxStatePatch,
+        new_feature: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let _span = tracing::debug_span!(target: "runtime", "process_state_update").entered();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
@@ -513,6 +401,7 @@ impl NightshadeRuntime {
                 is_first_block_of_version,
                 is_first_block_with_chunk_of_version,
             },
+            new_feature,
         };
 
         let instant = Instant::now();
@@ -550,6 +439,14 @@ impl NightshadeRuntime {
         metrics::APPLY_CHUNK_DELAY
             .with_label_values(&[&format_total_gas_burnt(total_gas_burnt)])
             .observe(elapsed.as_secs_f64());
+        let shard_label = shard_id.to_string();
+        metrics::DELAYED_RECEIPTS_COUNT
+            .with_label_values(&[&shard_label])
+            .set(apply_result.delayed_receipts_count as i64);
+        if let Some(metrics) = apply_result.metrics {
+            metrics.report(&shard_label);
+        }
+
         let total_balance_burnt = apply_result
             .stats
             .tx_burnt_amount
@@ -660,6 +557,41 @@ impl NightshadeRuntime {
         }
         Ok(epoch_start_height)
     }
+
+    fn obtain_state_part_impl(
+        &self,
+        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+        state_root: &StateRoot,
+        part_id: PartId,
+    ) -> Result<Vec<u8>, Error> {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "obtain_state_part",
+            part_id = part_id.idx,
+            shard_id,
+            %prev_hash,
+            num_parts = part_id.total)
+        .entered();
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
+        let trie =
+            self.tries.get_trie_with_block_hash_for_shard(shard_uid, *state_root, &prev_hash, true);
+        let result = match trie.get_trie_nodes_for_part(prev_hash, part_id) {
+            Ok(partial_state) => partial_state,
+            Err(e) => {
+                error!(target: "runtime",
+                    "Can't get trie nodes for state part {}/{} for prev hash \
+                    {prev_hash} and state root {state_root}: {:?}",
+                    part_id.idx, part_id.total, e
+                );
+                return Err(e.into());
+            }
+        }
+        .try_to_vec()
+        .expect("serializer should not fail");
+        Ok(result)
+    }
 }
 
 fn format_total_gas_burnt(gas: Gas) -> String {
@@ -693,10 +625,6 @@ fn apply_delayed_receipts<'a>(
     }
 
     Ok(new_state_roots)
-}
-
-pub fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &ShardLayout) -> ShardId {
-    account_id_to_shard_id(state_record_to_account_id(state_record), shard_layout)
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
@@ -872,6 +800,9 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         }
         debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", transactions.len(), num_checked_transactions);
+        metrics::PREPARE_TX_SIZE
+            .with_label_values(&[&shard_id.to_string()])
+            .observe(total_size as f64);
         Ok(transactions)
     }
 
@@ -939,6 +870,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         is_first_block_with_chunk_of_version: bool,
         states_to_patch: SandboxStatePatch,
         use_flat_storage: bool,
+        new_feature: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie =
             self.get_trie_for_shard(shard_id, prev_block_hash, *state_root, use_flat_storage)?;
@@ -965,6 +897,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             is_new_chunk,
             is_first_block_with_chunk_of_version,
             states_to_patch,
+            new_feature,
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e {
@@ -1014,6 +947,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             is_new_chunk,
             is_first_block_with_chunk_of_version,
             Default::default(),
+            false,
         )
     }
 
@@ -1160,6 +1094,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    // Wrapper to get the metrics.
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
@@ -1175,28 +1110,14 @@ impl RuntimeAdapter for NightshadeRuntime {
             %prev_hash,
             num_parts = part_id.total)
         .entered();
-        let _timer = metrics::STATE_SYNC_OBTAIN_PART_DELAY
-            .with_label_values(&[&shard_id.to_string()])
-            .start_timer();
-
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
-        let trie =
-            self.tries.get_trie_with_block_hash_for_shard(shard_uid, *state_root, &prev_hash, true);
-        let result = match trie.get_trie_nodes_for_part(prev_hash, part_id) {
-            Ok(partial_state) => partial_state,
-            Err(e) => {
-                error!(target: "runtime",
-                    "Can't get trie nodes for state part {}/{} for prev hash \
-                    {prev_hash} and state root {state_root}: {:?}",
-                    part_id.idx, part_id.total, e
-                );
-                return Err(e.into());
-            }
-        }
-        .try_to_vec()
-        .expect("serializer should not fail");
-        Ok(result)
+        let instant = Instant::now();
+        let res = self.obtain_state_part_impl(shard_id, prev_hash, state_root, part_id);
+        let elapsed = instant.elapsed();
+        let is_ok = if res.is_ok() { "ok" } else { "error" };
+        metrics::STATE_SYNC_OBTAIN_PART_DELAY
+            .with_label_values(&[&shard_id.to_string(), is_ok])
+            .observe(elapsed.as_secs_f64());
+        res
     }
 
     fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool {
@@ -1566,6 +1487,7 @@ mod test {
                     false,
                     Default::default(),
                     true,
+                    false,
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();

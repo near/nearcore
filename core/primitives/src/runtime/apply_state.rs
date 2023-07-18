@@ -2,9 +2,10 @@ use crate::runtime::migration_data::{MigrationData, MigrationFlags};
 use crate::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
-    types::{Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId, Gas},
+    types::{Balance, BlockHeight, EpochHeight, EpochId, Gas},
     version::ProtocolVersion,
 };
+use near_vm_errors::CompiledContractCache;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -41,4 +42,5 @@ pub struct ApplyState {
     pub migration_data: Arc<MigrationData>,
     /// Flags for migrations indicating whether they can be applied at this block
     pub migration_flags: MigrationFlags,
+    pub new_feature: bool,
 }

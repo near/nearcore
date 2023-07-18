@@ -1,10 +1,88 @@
 #![doc = include_str!("../README.md")]
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_account_id::AccountId;
+use near_primitives_core::hash::CryptoHash;
 use near_rpc_error_macro::RpcError;
 use std::any::Any;
 use std::fmt::{self, Error, Formatter};
 use std::io;
+
+// ----------8<----------
+// TODO: this does not belong in near-vm-errors but near-vm-runner.
+// See #9176 and #9180 for more context.
+#[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize)]
+pub enum CompiledContract {
+    CompileModuleError(crate::CompilationError),
+    Code(Vec<u8>),
+}
+
+/// Cache for compiled modules
+pub trait CompiledContractCache: Send + Sync {
+    fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()>;
+    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>>;
+    fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
+        self.get(key).map(|entry| entry.is_some())
+    }
+}
+
+impl fmt::Debug for dyn CompiledContractCache {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Compiled contracts cache")
+    }
+}
+
+/// Counts trie nodes reads during tx/receipt execution for proper storage costs charging.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TrieNodesCount {
+    /// Potentially expensive trie node reads which are served from disk in the worst case.
+    pub db_reads: u64,
+    /// Cheap trie node reads which are guaranteed to be served from RAM.
+    pub mem_reads: u64,
+}
+
+impl TrieNodesCount {
+    /// Used to determine the number of trie nodes charged during some operation.
+    pub fn checked_sub(self, other: &Self) -> Option<Self> {
+        Some(Self {
+            db_reads: self.db_reads.checked_sub(other.db_reads)?,
+            mem_reads: self.mem_reads.checked_sub(other.mem_reads)?,
+        })
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ParseCount {
+    #[error("error")]
+    Format,
+}
+
+impl serde::Serialize for TrieNodesCount {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&format!("{},{}", self.db_reads, self.mem_reads))
+    }
+}
+
+impl<'a> serde::Deserialize<'a> for TrieNodesCount {
+    fn deserialize<D: serde::Deserializer<'a>>(d: D) -> Result<Self, D::Error> {
+        <String as serde::Deserialize>::deserialize(d)?.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+impl std::str::FromStr for TrieNodesCount {
+    type Err = ParseCount;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<_> = s.split(',').collect();
+        if parts.len() != 2 {
+            return Err(Self::Err::Format);
+        }
+        Ok(TrieNodesCount {
+            db_reads: parts[0].parse().map_err(|_| Self::Err::Format)?,
+            mem_reads: parts[1].parse().map_err(|_| Self::Err::Format)?,
+        })
+    }
+}
+// ---------->8----------
 
 /// For bugs in the runtime itself, crash and die is the usual response.
 ///

@@ -10,6 +10,8 @@ use near_primitives::version::ProtocolVersion;
 use near_store::{get_code, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_errors::{AnyError, VMLogicError};
 use near_vm_logic::{External, StorageGetMode, ValuePtr};
+use std::cell::RefCell;
+use std::collections::VecDeque;
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -21,6 +23,8 @@ pub struct RuntimeExt<'a> {
     last_block_hash: &'a CryptoHash,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
+    pub node_counts: RefCell<VecDeque<TrieNodesCount>>,
+    pub new_feature: bool,
 }
 
 /// Error used by `RuntimeExt`.
@@ -61,6 +65,8 @@ impl<'a> RuntimeExt<'a> {
         last_block_hash: &'a CryptoHash,
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
+        node_counts: VecDeque<TrieNodesCount>,
+        new_feature: bool,
     ) -> Self {
         RuntimeExt {
             trie_update,
@@ -72,6 +78,8 @@ impl<'a> RuntimeExt<'a> {
             last_block_hash,
             epoch_info_provider,
             current_protocol_version,
+            node_counts: RefCell::new(node_counts),
+            new_feature,
         }
     }
 
@@ -119,7 +127,14 @@ impl<'a> External for RuntimeExt<'a> {
         let storage_key = self.create_storage_key(key);
         let mode = match mode {
             StorageGetMode::FlatStorage => KeyLookupMode::FlatStorage,
-            StorageGetMode::Trie => KeyLookupMode::Trie,
+            StorageGetMode::Trie => {
+                // println!("{:?}", storage_key.to_vec());
+                if self.new_feature {
+                    KeyLookupMode::BackgroundTrieFetch
+                } else {
+                    KeyLookupMode::Trie
+                }
+            }
         };
         self.trie_update
             .get_ref(&storage_key, mode)
@@ -137,7 +152,13 @@ impl<'a> External for RuntimeExt<'a> {
         let storage_key = self.create_storage_key(key);
         let mode = match mode {
             StorageGetMode::FlatStorage => KeyLookupMode::FlatStorage,
-            StorageGetMode::Trie => KeyLookupMode::Trie,
+            StorageGetMode::Trie => {
+                if self.new_feature {
+                    KeyLookupMode::BackgroundTrieFetch
+                } else {
+                    KeyLookupMode::Trie
+                }
+            }
         };
         self.trie_update
             .get_ref(&storage_key, mode)
@@ -181,7 +202,16 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        self.trie_update.trie().get_trie_nodes_count()
+        if self.new_feature {
+            let count = self.node_counts.borrow_mut().pop_front().unwrap();
+            // println!("sub {}", self.node_counts.borrow().len());
+            count
+        } else {
+            let count = self.trie_update.trie().get_trie_nodes_count();
+            self.node_counts.borrow_mut().push_back(count.clone());
+            // println!("add {}", self.node_counts.borrow().len());
+            count
+        }
     }
 
     fn validator_stake(&self, account_id: &AccountId) -> ExtResult<Option<Balance>> {

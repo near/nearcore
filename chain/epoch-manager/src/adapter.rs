@@ -655,7 +655,10 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_id: &EpochId,
     ) -> Result<ProtocolVersion, EpochError> {
         let epoch_manager = self.read();
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version())
+        match epoch_manager.enforced_protocol_version {
+            None => Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version()),
+            Some(pv) => Ok(pv),
+        }
     }
 
     // TODO #3488 this likely to be updated

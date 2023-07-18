@@ -144,6 +144,7 @@ pub struct EpochManager {
     /// Used for tests as a bit of white-box testing.
     #[cfg(test)]
     epoch_info_aggregator_loop_counter: std::sync::atomic::AtomicUsize,
+    enforced_protocol_version: Option<ProtocolVersion>,
 }
 
 impl EpochManager {
@@ -197,6 +198,7 @@ impl EpochManager {
             #[cfg(test)]
             epoch_info_aggregator_loop_counter: Default::default(),
             largest_final_height: 0,
+            enforced_protocol_version: None,
         };
         let genesis_epoch_id = EpochId::default();
         if !epoch_manager.has_epoch_info(&genesis_epoch_id)? {

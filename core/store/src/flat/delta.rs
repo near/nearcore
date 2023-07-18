@@ -22,7 +22,7 @@ pub struct FlatStateDeltaMetadata {
     pub block: BlockInfo,
 }
 
-#[derive(Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct KeyForFlatStateDelta {
     pub shard_uid: ShardUId,
     pub block_hash: CryptoHash,
