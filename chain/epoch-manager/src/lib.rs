@@ -983,6 +983,7 @@ impl EpochManager {
     }
 
     pub fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
+        tracing::error!(?block_hash, "get_epoch_id (1");
         Ok(self.get_block_info(block_hash)?.epoch_id().clone())
     }
 
@@ -992,9 +993,14 @@ impl EpochManager {
     }
 
     pub fn get_prev_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
+        tracing::error!(?block_hash, "get_prev_epoch_id *1");
         let epoch_first_block = *self.get_block_info(block_hash)?.epoch_first_block();
+        tracing::error!(?block_hash, ?epoch_first_block, "get_prev_epoch_id *2");
         let prev_epoch_last_hash = *self.get_block_info(&epoch_first_block)?.prev_hash();
-        self.get_epoch_id(&prev_epoch_last_hash)
+        tracing::error!(?block_hash, ?epoch_first_block, ?prev_epoch_last_hash, "get_prev_epoch_id *3");
+        let res = self.get_epoch_id(&prev_epoch_last_hash)?;
+        tracing::error!(?block_hash, ?epoch_first_block, ?prev_epoch_last_hash, ?res, "get_prev_epoch_id *4");
+        Ok(res)
     }
 
     pub fn get_epoch_info_from_hash(
@@ -1604,6 +1610,7 @@ impl EpochManager {
     /// EpochError::IOErr if storage returned an error
     /// EpochError::MissingBlock if block is not in storage
     pub fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
+        tracing::error!(?hash, "get_block_info )1");
         self.blocks_info.get_or_try_put(*hash, |hash| {
             self.store
                 .get_ser(DBCol::BlockInfo, hash.as_ref())?
