@@ -1,6 +1,4 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_account_id::AccountId;
-use near_rpc_error_macro::RpcError;
 use std::any::Any;
 use std::fmt::{self, Error, Formatter};
 use std::io;
@@ -55,44 +53,7 @@ pub enum FunctionCallError {
     HostError(HostError),
 }
 
-/// Serializable version of `FunctionCallError`. Must never reorder/remove elements, can only
-/// add new variants at the end (but do that very carefully).
-/// It describes stable serialization format, and only used by serialization logic.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    BorshDeserialize,
-    BorshSerialize,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-pub enum FunctionCallErrorSer {
-    /// Wasm compilation error
-    CompilationError(CompilationError),
-    /// Wasm binary env link error
-    ///
-    /// Note: this is only to deserialize old data, use execution error for new data
-    LinkError {
-        msg: String,
-    },
-    /// Import/export resolve error
-    MethodResolveError(MethodResolveError),
-    /// A trap happened during execution of a binary
-    ///
-    /// Note: this is only to deserialize old data, use execution error for new data
-    WasmTrap(WasmTrap),
-    WasmUnknownError,
-    /// Note: this is only to deserialize old data, use execution error for new data
-    HostError(HostError),
-    // Unused, can be reused by a future error but must be exactly one error to keep ExecutionError
-    // error borsh serialized at correct index
-    _EVMError,
-    ExecutionError(String),
-}
-
-#[derive(Debug, strum::IntoStaticStr, thiserror::Error)]
+#[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
 pub enum CacheError {
     #[error("cache read error")]
     ReadError(#[source] io::Error),
@@ -104,18 +65,7 @@ pub enum CacheError {
     SerializationError { hash: [u8; 32] },
 }
 /// A kind of a trap happened during execution of a binary
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    BorshDeserialize,
-    BorshSerialize,
-    RpcError,
-    serde::Deserialize,
-    serde::Serialize,
-    strum::IntoStaticStr,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum WasmTrap {
     /// An `unreachable` opcode was executed.
     Unreachable,
@@ -137,39 +87,17 @@ pub enum WasmTrap {
     GenericTrap,
 }
 
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    BorshDeserialize,
-    BorshSerialize,
-    RpcError,
-    serde::Deserialize,
-    serde::Serialize,
-    strum::IntoStaticStr,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum MethodResolveError {
     MethodEmptyName,
     MethodNotFound,
     MethodInvalidSignature,
 }
 
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    BorshDeserialize,
-    BorshSerialize,
-    RpcError,
-    serde::Deserialize,
-    serde::Serialize,
-    strum::IntoStaticStr,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, strum::IntoStaticStr)]
 pub enum CompilationError {
     CodeDoesNotExist {
-        account_id: AccountId,
+        account_id: Box<str>,
     },
     PrepareError(PrepareError),
     /// This is for defense in depth.
@@ -180,17 +108,7 @@ pub enum CompilationError {
     },
 }
 
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    BorshDeserialize,
-    BorshSerialize,
-    RpcError,
-    serde::Deserialize,
-    serde::Serialize,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 /// Error that can occur while preparing or executing Wasm smart-contract.
 pub enum PrepareError {
     /// Error happened while serializing the module.
@@ -220,18 +138,7 @@ pub enum PrepareError {
     TooManyLocals,
 }
 
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    BorshDeserialize,
-    BorshSerialize,
-    RpcError,
-    serde::Deserialize,
-    serde::Serialize,
-    strum::IntoStaticStr,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum HostError {
     /// String encoding is bad UTF-16 sequence
     BadUTF16,
@@ -259,8 +166,6 @@ pub enum HostError {
     InvalidPromiseResultIndex { result_idx: u64 },
     /// Accessed invalid register id
     InvalidRegisterId { register_id: u64 },
-    /// Iterator `iterator_index` was invalidated after its creation by performing a mutable operation on trie
-    IteratorWasInvalidated { iterator_index: u64 },
     /// Accessed memory outside the bounds
     MemoryAccessViolation,
     /// VM Logic returned an invalid receipt index
@@ -321,27 +226,6 @@ impl std::error::Error for VMLogicError {}
 pub enum InconsistentStateError {
     /// Math operation with a value from the state resulted in a integer overflow.
     IntegerOverflow,
-}
-
-impl From<FunctionCallError> for FunctionCallErrorSer {
-    fn from(outer_err: FunctionCallError) -> Self {
-        match outer_err {
-            FunctionCallError::CompilationError(e) => FunctionCallErrorSer::CompilationError(e),
-            FunctionCallError::MethodResolveError(e) => FunctionCallErrorSer::MethodResolveError(e),
-            // Note: We deliberately collapse all execution errors for
-            // serialization to make the DB representation less dependent
-            // on specific types in Rust code.
-            FunctionCallError::HostError(ref _e) => {
-                FunctionCallErrorSer::ExecutionError(outer_err.to_string())
-            }
-            FunctionCallError::LinkError { msg } => {
-                FunctionCallErrorSer::ExecutionError(format!("Link Error: {}", msg))
-            }
-            FunctionCallError::WasmTrap(ref _e) => {
-                FunctionCallErrorSer::ExecutionError(outer_err.to_string())
-            }
-        }
-    }
 }
 
 impl From<HostError> for VMLogicError {
@@ -476,36 +360,81 @@ impl std::fmt::Display for HostError {
             BadUTF8 => write!(f, "String encoding is bad UTF-8 sequence."),
             BadUTF16 => write!(f, "String encoding is bad UTF-16 sequence."),
             GasExceeded => write!(f, "Exceeded the prepaid gas."),
-            GasLimitExceeded => write!(f, "Exceeded the maximum amount of gas allowed to burn per contract."),
+            GasLimitExceeded => {
+                write!(f, "Exceeded the maximum amount of gas allowed to burn per contract.")
+            }
             BalanceExceeded => write!(f, "Exceeded the account balance."),
             EmptyMethodName => write!(f, "Tried to call an empty method name."),
             GuestPanic { panic_msg } => write!(f, "Smart contract panicked: {}", panic_msg),
             IntegerOverflow => write!(f, "Integer overflow."),
-            InvalidIteratorIndex { iterator_index } => write!(f, "Iterator index {:?} does not exist", iterator_index),
-            InvalidPromiseIndex { promise_idx } => write!(f, "{:?} does not correspond to existing promises", promise_idx),
-            CannotAppendActionToJointPromise => write!(f, "Actions can only be appended to non-joint promise."),
-            CannotReturnJointPromise => write!(f, "Returning joint promise is currently prohibited."),
-            InvalidPromiseResultIndex { result_idx } => write!(f, "Accessed invalid promise result index: {:?}", result_idx),
-            InvalidRegisterId { register_id } => write!(f, "Accessed invalid register id: {:?}", register_id),
-            IteratorWasInvalidated { iterator_index } => write!(f, "Iterator {:?} was invalidated after its creation by performing a mutable operation on trie", iterator_index),
+            InvalidIteratorIndex { iterator_index } => {
+                write!(f, "Iterator index {:?} does not exist", iterator_index)
+            }
+            InvalidPromiseIndex { promise_idx } => {
+                write!(f, "{:?} does not correspond to existing promises", promise_idx)
+            }
+            CannotAppendActionToJointPromise => {
+                write!(f, "Actions can only be appended to non-joint promise.")
+            }
+            CannotReturnJointPromise => {
+                write!(f, "Returning joint promise is currently prohibited.")
+            }
+            InvalidPromiseResultIndex { result_idx } => {
+                write!(f, "Accessed invalid promise result index: {:?}", result_idx)
+            }
+            InvalidRegisterId { register_id } => {
+                write!(f, "Accessed invalid register id: {:?}", register_id)
+            }
             MemoryAccessViolation => write!(f, "Accessed memory outside the bounds."),
-            InvalidReceiptIndex { receipt_index } => write!(f, "VM Logic returned an invalid receipt index: {:?}", receipt_index),
+            InvalidReceiptIndex { receipt_index } => {
+                write!(f, "VM Logic returned an invalid receipt index: {:?}", receipt_index)
+            }
             InvalidAccountId => write!(f, "VM Logic returned an invalid account id"),
             InvalidMethodName => write!(f, "VM Logic returned an invalid method name"),
             InvalidPublicKey => write!(f, "VM Logic provided an invalid public key"),
-            ProhibitedInView { method_name } => write!(f, "{} is not allowed in view calls", method_name),
-            NumberOfLogsExceeded { limit } => write!(f, "The number of logs will exceed the limit {}", limit),
-            KeyLengthExceeded { length, limit } => write!(f, "The length of a storage key {} exceeds the limit {}", length, limit),
-            ValueLengthExceeded { length, limit } => write!(f, "The length of a storage value {} exceeds the limit {}", length, limit),
-            TotalLogLengthExceeded{ length, limit } => write!(f, "The length of a log message {} exceeds the limit {}", length, limit),
-            NumberPromisesExceeded { number_of_promises, limit } => write!(f, "The number of promises within a FunctionCall {} exceeds the limit {}", number_of_promises, limit),
-            NumberInputDataDependenciesExceeded { number_of_input_data_dependencies, limit } => write!(f, "The number of input data dependencies {} exceeds the limit {}", number_of_input_data_dependencies, limit),
-            ReturnedValueLengthExceeded { length, limit } => write!(f, "The length of a returned value {} exceeds the limit {}", length, limit),
-            ContractSizeExceeded { size, limit } => write!(f, "The size of a contract code in DeployContract action {} exceeds the limit {}", size, limit),
-            Deprecated {method_name}=> write!(f, "Attempted to call deprecated host function {}", method_name),
+            ProhibitedInView { method_name } => {
+                write!(f, "{} is not allowed in view calls", method_name)
+            }
+            NumberOfLogsExceeded { limit } => {
+                write!(f, "The number of logs will exceed the limit {}", limit)
+            }
+            KeyLengthExceeded { length, limit } => {
+                write!(f, "The length of a storage key {} exceeds the limit {}", length, limit)
+            }
+            ValueLengthExceeded { length, limit } => {
+                write!(f, "The length of a storage value {} exceeds the limit {}", length, limit)
+            }
+            TotalLogLengthExceeded { length, limit } => {
+                write!(f, "The length of a log message {} exceeds the limit {}", length, limit)
+            }
+            NumberPromisesExceeded { number_of_promises, limit } => write!(
+                f,
+                "The number of promises within a FunctionCall {} exceeds the limit {}",
+                number_of_promises, limit
+            ),
+            NumberInputDataDependenciesExceeded { number_of_input_data_dependencies, limit } => {
+                write!(
+                    f,
+                    "The number of input data dependencies {} exceeds the limit {}",
+                    number_of_input_data_dependencies, limit
+                )
+            }
+            ReturnedValueLengthExceeded { length, limit } => {
+                write!(f, "The length of a returned value {} exceeds the limit {}", length, limit)
+            }
+            ContractSizeExceeded { size, limit } => write!(
+                f,
+                "The size of a contract code in DeployContract action {} exceeds the limit {}",
+                size, limit
+            ),
+            Deprecated { method_name } => {
+                write!(f, "Attempted to call deprecated host function {}", method_name)
+            }
             AltBn128InvalidInput { msg } => write!(f, "AltBn128 invalid input: {}", msg),
             ECRecoverError { msg } => write!(f, "ECDSA recover error: {}", msg),
-            Ed25519VerifyInvalidInput { msg } => write!(f, "ED25519 signature verification error: {}", msg),
+            Ed25519VerifyInvalidInput { msg } => {
+                write!(f, "ED25519 signature verification error: {}", msg)
+            }
         }
     }
 }

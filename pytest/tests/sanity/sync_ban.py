@@ -19,97 +19,112 @@ from peer import *
 from proxy import ProxyHandler
 import utils
 
-should_ban = sys.argv[1] == 'true'
-
 TIMEOUT = 300
 EPOCH_LENGTH = 50
 
 BAN_STRING = 'ban a fraudulent peer'
 
-should_sync = Value('i', False)
-
 
 class Handler(ProxyHandler):
+
+    def __init__(self, *args, should_sync=None, should_ban=None, **kwargs):
+        assert should_sync is not None
+        self.should_sync = should_sync
+        assert should_ban is not None
+        self.should_ban = should_ban
+        super().__init__(*args, **kwargs)
 
     async def handle(self, msg, fr, to):
         if msg is not None:
             if msg.enum == 'Block':
                 loop = asyncio.get_running_loop()
                 send = functools.partial(self.do_send_message, msg, 1)
-                if should_sync.value:
+                if self.should_sync.value:
                     loop.call_later(1, send)
                 return False
             elif msg.enum == 'BlockRequest':
                 loop = asyncio.get_running_loop()
                 send = functools.partial(self.do_send_message, msg, 0)
-                if should_sync.value:
+                if self.should_sync.value:
                     loop.call_later(6, send)
                 return False
             elif msg.enum == 'BlockHeaders':
-                if should_ban:
+                if self.should_ban:
                     return False
                 loop = asyncio.get_running_loop()
                 send = functools.partial(self.do_send_message, msg, 1)
-                if should_sync.value:
+                if self.should_sync.value:
                     loop.call_later(2, send)
                 return False
         return True
 
 
-node0_config = {
-    "consensus": {
-        "min_block_production_delay": {
-            "secs": 0,
-            "nanos": 400000000
+if __name__ == '__main__':
+    should_ban = sys.argv[1] == 'true'
+    node0_config = {
+        "consensus": {
+            "min_block_production_delay": {
+                "secs": 0,
+                "nanos": 1000000000
+            },
         },
     }
-}
-node1_config = {
-    "consensus": {
-        "header_sync_initial_timeout": {
-            "secs": 3,
-            "nanos": 0
+    node1_config = {
+        "consensus": {
+            "header_sync_initial_timeout": {
+                "secs": 3,
+                "nanos": 0
+            },
+            "header_sync_stall_ban_timeout": {
+                "secs": 5,
+                "nanos": 0
+            }
         },
-        "header_sync_stall_ban_timeout": {
-            "secs": 5,
-            "nanos": 0
-        }
-    },
-    "tracked_shards": [0]
-}
-nodes = start_cluster(1, 1, 1, None, [["epoch_length", EPOCH_LENGTH]], {
-    0: node0_config,
-    1: node1_config
-}, Handler)
+        "tracked_shards": [0]
+    }
 
-utils.wait_for_blocks(nodes[0], target=110, poll_interval=2)
+    should_sync = Value('i', False)
+    nodes = start_cluster(
+        1, 1, 1, None, [["epoch_length", EPOCH_LENGTH]], {
+            0: node0_config,
+            1: node1_config
+        },
+        functools.partial(Handler,
+                          should_sync=should_sync,
+                          should_ban=should_ban))
 
-should_sync.value = True
+    utils.wait_for_blocks(nodes[0], target=30, poll_interval=2)
 
-logger.info("sync node 1")
+    should_sync.value = True
 
-start = time.time()
+    logger.info("sync node 1")
 
-tracker0 = utils.LogTracker(nodes[0])
-tracker1 = utils.LogTracker(nodes[1])
+    start = time.time()
 
-while True:
-    assert time.time() - start < TIMEOUT
+    tracker0 = utils.LogTracker(nodes[0])
+    tracker1 = utils.LogTracker(nodes[1])
 
-    if should_ban:
-        if tracker1.check(BAN_STRING):
-            break
-    else:
-        cur_height = nodes[0].get_latest_block().height
-        node1_height = nodes[1].get_latest_block().height
-        if (abs(node1_height - cur_height) < 5 and
-                status1['sync_info']['syncing'] is False):
-            break
-    time.sleep(2)
+    while True:
+        assert time.time() - start < TIMEOUT
 
-if not should_ban and (tracker0.check(BAN_STRING) or
-                       tracker1.check(BAN_STRING)):
-    assert False, "unexpected ban of peers"
+        if should_ban:
+            if tracker1.check(BAN_STRING):
+                break
+        else:
+            cur_height = nodes[0].get_latest_block().height
+            node1_height = nodes[1].get_latest_block().height
+            status1 = nodes[1].get_status()
+            print(
+                f"Sync: node 1 at block {node1_height}, node 0 at block {cur_height}; waiting for node 1 to catch up"
+            )
+            if (abs(node1_height - cur_height) < 5 and
+                    status1['sync_info']['syncing'] is False):
+                break
+        time.sleep(2)
 
-logger.info('shutting down')
-time.sleep(10)
+    if not should_ban and (tracker0.check(BAN_STRING) or
+                           tracker1.check(BAN_STRING)):
+        assert False, "unexpected ban of peers"
+
+    # logger.info('shutting down')
+    # time.sleep(10)

@@ -40,7 +40,6 @@ nightly = [
   "near-vm-runner/nightly",
 ]
 default = []
-dump_errors_schema = ["near-vm-runner/dump_errors_schema"]
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
   "near-o11y/nightly_protocol",

@@ -1,6 +1,6 @@
 use clap::Parser;
 use near_store::db::{Database, RocksDB};
-use near_store::{DBCol, StoreConfig};
+use near_store::DBCol;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -8,14 +8,16 @@ use std::sync::{Arc, Mutex};
 use std::{panic, println};
 use strum::IntoEnumIterator;
 
+use crate::utils::open_rocksdb;
+
 #[derive(Parser)]
 pub(crate) struct AnalyseDataSizeDistributionCommand {
-    #[arg(short, long)]
     /// If specified only this column will be analysed
+    #[arg(short, long)]
     column: Option<String>,
 
-    #[arg(short, long, default_value_t = 100)]
     /// Number of count sizes to output
+    #[arg(short, long, default_value_t = 100)]
     top_k: usize,
 }
 
@@ -195,16 +197,7 @@ fn get_column_families(input_col: &Option<String>) -> Vec<DBCol> {
 
 impl AnalyseDataSizeDistributionCommand {
     pub(crate) fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
-        // Set db options for maximum read performance
-        let store_config = StoreConfig::default();
-        let db = RocksDB::open(
-            home,
-            &store_config,
-            near_store::Mode::ReadOnly,
-            near_store::Temperature::Hot,
-        )
-        .unwrap();
-
+        let db = open_rocksdb(home)?;
         let column_families = get_column_families(&self.column);
         let results = read_all_pairs(&db, &column_families);
         results.print_results(self.top_k);

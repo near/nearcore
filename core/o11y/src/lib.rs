@@ -1,5 +1,5 @@
 #![doc = include_str!("../README.md")]
-#![deny(clippy::integer_arithmetic)]
+#![deny(clippy::arithmetic_side_effects)]
 
 pub use context::*;
 use near_crypto::PublicKey;
@@ -12,7 +12,6 @@ use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use std::borrow::Cow;
 use std::path::PathBuf;
 use tracing::level_filters::LevelFilter;
-use tracing::log::info;
 use tracing::subscriber::DefaultGuard;
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_opentelemetry::OpenTelemetryLayer;
@@ -460,7 +459,7 @@ pub fn reload_log_config(config: Option<&log_config::LogConfig>) {
     };
     match result {
         Ok(_) => {
-            info!("Updated the logging layer according to `log_config.json`");
+            tracing::info!("Updated the logging layer according to `log_config.json`");
         }
         Err(err) => {
             eprintln!(

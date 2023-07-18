@@ -224,7 +224,7 @@ impl RequestPool {
     pub fn fetch(&mut self, current_time: time::Instant) -> Vec<(ChunkHash, ChunkRequestInfo)> {
         let mut removed_requests = HashSet::<ChunkHash>::default();
         let mut requests = Vec::new();
-        for (chunk_hash, mut chunk_request) in self.requests.iter_mut() {
+        for (chunk_hash, chunk_request) in self.requests.iter_mut() {
             if current_time - chunk_request.added >= self.max_duration {
                 debug!(target: "chunks", "Evicted chunk requested that was never fetched {} (shard_id: {})", chunk_hash.0, chunk_request.shard_id);
                 removed_requests.insert(chunk_hash.clone());
