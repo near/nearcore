@@ -11,7 +11,7 @@ use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutc
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::{get, DBCol, Store};
+use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::fs::File;
@@ -120,6 +120,7 @@ fn apply_block_from_range(
     verbose_output: bool,
     csv_file_mutex: &Mutex<Option<&mut File>>,
     only_contracts: bool,
+    use_flat_storage: bool,
 ) {
     // normally save_trie_changes depends on whether the node is
     // archival, but here we don't care, and can just set it to false
@@ -243,7 +244,7 @@ fn apply_block_from_range(
                 true,
                 is_first_block_with_chunk_of_version,
                 Default::default(),
-                false,
+                use_flat_storage,
             )
             .unwrap()
     } else {
@@ -270,7 +271,7 @@ fn apply_block_from_range(
                 false,
                 false,
                 Default::default(),
-                false,
+                use_flat_storage,
             )
             .unwrap()
     };
@@ -287,8 +288,8 @@ fn apply_block_from_range(
 
     let state_update =
         runtime_adapter.get_tries().new_trie_update(shard_uid, *chunk_extra.state_root());
-    let delayed_indices: Option<DelayedReceiptIndices> =
-        get(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
+    let delayed_indices =
+        near_store::get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices);
 
     match existing_chunk_extra {
         Some(existing_chunk_extra) => {
@@ -320,7 +321,7 @@ fn apply_block_from_range(
             apply_result.total_gas_burnt,
             chunk_present,
             apply_result.processed_delayed_receipts.len(),
-            delayed_indices.map_or(0, |d| d.next_available_index - d.first_index),
+            delayed_indices.unwrap_or(None).map_or(0, |d| d.next_available_index - d.first_index),
             apply_result.trie_changes.state_changes().len(),
         ),
     );
@@ -339,6 +340,7 @@ pub fn apply_chain_range(
     csv_file: Option<&mut File>,
     only_contracts: bool,
     sequential: bool,
+    use_flat_storage: bool,
 ) {
     let parent_span = tracing::debug_span!(
         target: "state_viewer",
@@ -347,7 +349,8 @@ pub fn apply_chain_range(
         ?end_height,
         %shard_id,
         only_contracts,
-        sequential)
+        sequential,
+        use_flat_storage)
     .entered();
     let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
     let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
@@ -384,6 +387,7 @@ pub fn apply_chain_range(
             verbose_output,
             &csv_file_mutex,
             only_contracts,
+            use_flat_storage,
         );
     };
 
@@ -555,6 +559,7 @@ mod test {
             None,
             false,
             false,
+            false,
         );
     }
 
@@ -590,6 +595,7 @@ mod test {
             runtime,
             true,
             Some(file.as_file_mut()),
+            false,
             false,
             false,
         );

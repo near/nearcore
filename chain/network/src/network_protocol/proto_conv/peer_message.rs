@@ -4,7 +4,8 @@ use super::*;
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::{
-    Disconnect, PeerMessage, PeersRequest, PeersResponse, RoutingTableUpdate, SyncAccountsData,
+    AdvertisedPeerDistance, Disconnect, DistanceVector, PeerMessage, PeersRequest, PeersResponse,
+    RoutingTableUpdate, SyncAccountsData,
 };
 use crate::network_protocol::{RoutedMessage, RoutedMessageV2};
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
@@ -39,6 +40,70 @@ impl TryFrom<&proto::RoutingTableUpdate> for RoutingTableUpdate {
         Ok(Self {
             edges: try_from_slice(&x.edges).map_err(Self::Error::Edges)?,
             accounts: try_from_slice(&x.accounts).map_err(Self::Error::Accounts)?,
+        })
+    }
+}
+
+//////////////////////////////////////////
+
+#[derive(thiserror::Error, Debug)]
+pub enum ParseAdvertisedPeerDistanceError {
+    #[error("destination {0}")]
+    Destination(ParseRequiredError<ParsePublicKeyError>),
+}
+
+impl From<&AdvertisedPeerDistance> for proto::AdvertisedPeerDistance {
+    fn from(x: &AdvertisedPeerDistance) -> Self {
+        Self {
+            destination: MF::some((&x.destination).into()),
+            distance: x.distance,
+            ..Default::default()
+        }
+    }
+}
+
+impl TryFrom<&proto::AdvertisedPeerDistance> for AdvertisedPeerDistance {
+    type Error = ParseAdvertisedPeerDistanceError;
+    fn try_from(x: &proto::AdvertisedPeerDistance) -> Result<Self, Self::Error> {
+        Ok(Self {
+            destination: try_from_required(&x.destination).map_err(Self::Error::Destination)?,
+            distance: x.distance,
+        })
+    }
+}
+
+//////////////////////////////////////////
+
+//////////////////////////////////////////
+
+#[derive(thiserror::Error, Debug)]
+pub enum ParseDistanceVectorError {
+    #[error("root {0}")]
+    Root(ParseRequiredError<ParsePublicKeyError>),
+    #[error("distances {0}")]
+    Distances(ParseVecError<ParseAdvertisedPeerDistanceError>),
+    #[error("edges {0}")]
+    Edges(ParseVecError<ParseEdgeError>),
+}
+
+impl From<&DistanceVector> for proto::DistanceVector {
+    fn from(x: &DistanceVector) -> Self {
+        Self {
+            root: MF::some((&x.root).into()),
+            distances: x.distances.iter().map(Into::into).collect(),
+            edges: x.edges.iter().map(Into::into).collect(),
+            ..Default::default()
+        }
+    }
+}
+
+impl TryFrom<&proto::DistanceVector> for DistanceVector {
+    type Error = ParseDistanceVectorError;
+    fn try_from(x: &proto::DistanceVector) -> Result<Self, Self::Error> {
+        Ok(Self {
+            root: try_from_required(&x.root).map_err(Self::Error::Root)?,
+            distances: try_from_slice(&x.distances).map_err(Self::Error::Distances)?,
+            edges: try_from_slice(&x.edges).map_err(Self::Error::Edges)?,
         })
     }
 }
@@ -93,6 +158,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::SyncRoutingTable(rtu) => ProtoMT::SyncRoutingTable(rtu.into()),
+                PeerMessage::DistanceVector(spt) => ProtoMT::DistanceVector(spt.into()),
                 PeerMessage::RequestUpdateNonce(pei) => {
                     ProtoMT::UpdateNonceRequest(proto::UpdateNonceRequest {
                         partial_edge_info: MF::some(pei.into()),
@@ -182,6 +248,8 @@ pub enum ParsePeerMessageError {
     LastEdge(ParseRequiredError<ParseEdgeError>),
     #[error("sync_routing_table: {0}")]
     SyncRoutingTable(ParseRoutingTableUpdateError),
+    #[error("shortest_path_tree: {0}")]
+    DistanceVector(ParseDistanceVectorError),
     #[error("update_nonce_requrest: {0}")]
     UpdateNonceRequest(ParseRequiredError<ParsePartialEdgeInfoError>),
     #[error("update_nonce_response: {0}")]
@@ -230,6 +298,9 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::SyncRoutingTable(rtu) => PeerMessage::SyncRoutingTable(
                 rtu.try_into().map_err(Self::Error::SyncRoutingTable)?,
             ),
+            ProtoMT::DistanceVector(spt) => {
+                PeerMessage::DistanceVector(spt.try_into().map_err(Self::Error::DistanceVector)?)
+            }
             ProtoMT::UpdateNonceRequest(unr) => PeerMessage::RequestUpdateNonce(
                 try_from_required(&unr.partial_edge_info)
                     .map_err(Self::Error::UpdateNonceRequest)?,

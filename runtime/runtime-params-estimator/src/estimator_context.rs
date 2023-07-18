@@ -18,7 +18,7 @@ use near_store::flat::{
 };
 use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
-use near_vm_logic::{ExtCosts, VMLimitConfig};
+use near_vm_runner::logic::{ExtCosts, VMLimitConfig};
 use node_runtime::{ApplyState, Runtime};
 use std::collections::HashMap;
 use std::iter;
@@ -43,7 +43,6 @@ pub(crate) struct CachedCosts {
     pub(crate) compile_cost_base_per_byte_v2: Option<(GasCost, GasCost)>,
     pub(crate) gas_metering_cost_base_per_op: Option<(GasCost, GasCost)>,
     pub(crate) apply_block: Option<GasCost>,
-    pub(crate) touching_trie_node_read: Option<GasCost>,
     pub(crate) touching_trie_node_write: Option<GasCost>,
     pub(crate) ed25519_verify_base: Option<GasCost>,
 }

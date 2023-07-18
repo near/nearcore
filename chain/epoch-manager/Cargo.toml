@@ -31,9 +31,15 @@ expensive_tests = []
 protocol_feature_fix_staking_threshold = ["near-primitives/protocol_feature_fix_staking_threshold"]
 nightly = [
   "nightly_protocol",
-  "near-primitives/nightly",
   "protocol_feature_fix_staking_threshold",
+  "near-chain-configs/nightly",
+  "near-primitives/nightly",
+  "near-store/nightly",
 ]
 mock_node = []
-nightly_protocol = ["near-primitives/nightly_protocol"]
+nightly_protocol = [
+  "near-chain-configs/nightly_protocol",
+  "near-primitives/nightly_protocol",
+  "near-store/nightly_protocol",
+]
 no_cache = []

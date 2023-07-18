@@ -1,7 +1,7 @@
 //! Less legacy validation for old protocol versions.
 
-use near_vm_logic::errors::PrepareError;
-use near_vm_logic::VMConfig;
+use crate::logic::errors::PrepareError;
+use crate::logic::VMConfig;
 use parity_wasm::builder;
 use parity_wasm::elements::{self, External, MemorySection};
 
@@ -234,7 +234,7 @@ pub(crate) fn validate_contract(
 
 #[cfg(test)]
 mod test {
-    use near_vm_logic::{ContractPrepareVersion, VMConfig};
+    use crate::logic::{ContractPrepareVersion, VMConfig};
 
     #[test]
     fn v1_preparation_generates_valid_contract() {

@@ -1,0 +1,39 @@
+[package]
+name = "near-database-tool"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+indicatif.workspace = true
+rand.workspace = true
+rayon.workspace = true
+rocksdb.workspace = true
+strum.workspace = true
+tempfile.workspace = true
+
+nearcore.workspace = true
+near-chain-configs.workspace = true
+near-store.workspace = true
+near-primitives.workspace = true
+
+[features]
+nightly = [
+  "nightly_protocol",
+  "near-chain-configs/nightly",
+  "near-primitives/nightly",
+  "near-store/nightly",
+  "nearcore/nightly",
+]
+nightly_protocol = [
+  "near-chain-configs/nightly_protocol",
+  "near-primitives/nightly_protocol",
+  "near-store/nightly_protocol",
+  "nearcore/nightly_protocol",
+]

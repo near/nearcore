@@ -8,11 +8,11 @@ pub(crate) mod test_builder;
 mod ts_contract;
 mod wasm_validation;
 
+use crate::logic::{VMConfig, VMContext};
 use crate::vm_kind::VMKind;
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 use near_primitives_core::config::ContractPrepareVersion;
 use near_primitives_core::types::ProtocolVersion;
-use near_vm_logic::{VMConfig, VMContext};
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";

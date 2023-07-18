@@ -1,10 +1,10 @@
 use crate::errors::ContractPrecompilatonResult;
+use crate::logic::errors::{CacheError, CompilationError};
+use crate::logic::{CompiledContract, CompiledContractCache, ProtocolVersion, VMConfig};
 use crate::vm_kind::VMKind;
 use borsh::BorshSerialize;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::hash::CryptoHash;
-use near_vm_logic::errors::{CacheError, CompilationError};
-use near_vm_logic::{CompiledContract, CompiledContractCache, ProtocolVersion, VMConfig};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
@@ -87,10 +87,6 @@ impl fmt::Debug for MockCompiledContractCache {
         fmt::Debug::fmt(hm, f)
     }
 }
-
-/// Size of in-memory cache for compiled and loaded contracts.
-#[cfg(all(not(feature = "no_cache"), target_arch = "x86_64"))]
-pub(crate) const CACHE_SIZE: usize = 128;
 
 /// Precompiles contract for the current default VM, and stores result to the cache.
 /// Returns `Ok(true)` if compiled code was added to the cache, and `Ok(false)` if element

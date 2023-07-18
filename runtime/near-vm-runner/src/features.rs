@@ -20,12 +20,12 @@ pub(crate) struct WasmFeatures {
     sign_extension: bool,
 }
 
-impl From<near_vm_logic::ContractPrepareVersion> for WasmFeatures {
-    fn from(version: near_vm_logic::ContractPrepareVersion) -> Self {
+impl From<crate::logic::ContractPrepareVersion> for WasmFeatures {
+    fn from(version: crate::logic::ContractPrepareVersion) -> Self {
         let sign_extension = match version {
-            near_vm_logic::ContractPrepareVersion::V0 => false,
-            near_vm_logic::ContractPrepareVersion::V1 => false,
-            near_vm_logic::ContractPrepareVersion::V2 => true,
+            crate::logic::ContractPrepareVersion::V0 => false,
+            crate::logic::ContractPrepareVersion::V1 => false,
+            crate::logic::ContractPrepareVersion::V2 => true,
         };
         WasmFeatures { sign_extension }
     }

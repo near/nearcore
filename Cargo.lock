@@ -1534,9 +1534,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-queue"
-version = "0.3.6"
+version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cd42583b04998a5363558e5f9291ee5a5ff6b49944332103f251e7479a82aa7"
+checksum = "d1cfb3ea8a53f37c40dea2c7bedcbd88bdfae54f5e2175d6ecaff1c988353add"
 dependencies = [
  "cfg-if 1.0.0",
  "crossbeam-utils",
@@ -2782,7 +2782,6 @@ dependencies = [
  "near-telemetry",
  "near-test-contracts",
  "near-undo-block",
- "near-vm-logic",
  "near-vm-runner",
  "nearcore",
  "node-runtime",
@@ -3548,6 +3547,7 @@ dependencies = [
  "reed-solomon-erasure",
  "regex",
  "rust-s3",
+ "serde",
  "serde_json",
  "strum",
  "sysinfo",
@@ -3561,6 +3561,7 @@ name = "near-client-primitives"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "ansi_term",
  "chrono",
  "near-chain-configs",
  "near-chain-primitives",
@@ -3610,6 +3611,24 @@ dependencies = [
  "subtle",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "near-database-tool"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap 4.2.4",
+ "indicatif",
+ "near-chain-configs",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+ "rand 0.8.5",
+ "rayon",
+ "rocksdb",
+ "strum",
+ "tempfile",
 ]
 
 [[package]]
@@ -3672,6 +3691,24 @@ name = "near-fmt"
 version = "0.0.0"
 dependencies = [
  "near-primitives-core",
+]
+
+[[package]]
+name = "near-fork-network"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap 4.2.4",
+ "near-chain",
+ "near-chain-configs",
+ "near-crypto",
+ "near-epoch-manager",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+ "strum",
+ "tracing",
 ]
 
 [[package]]
@@ -3931,10 +3968,12 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "atty",
+ "base64 0.21.0",
  "bencher",
  "clap 4.2.4",
  "itoa",
  "near-crypto",
+ "near-fmt",
  "near-primitives-core",
  "once_cell",
  "opentelemetry",
@@ -3942,6 +3981,7 @@ dependencies = [
  "opentelemetry-semantic-conventions",
  "prometheus",
  "serde",
+ "serde_json",
  "smartstring 1.0.1",
  "strum",
  "thiserror",
@@ -4029,7 +4069,7 @@ dependencies = [
  "near-primitives-core",
  "near-rpc-error-macro",
  "near-stdx",
- "near-vm-logic",
+ "near-vm-runner",
  "num-rational",
  "once_cell",
  "primitive-types",
@@ -4173,7 +4213,7 @@ dependencies = [
  "near-o11y",
  "near-primitives",
  "near-stdx",
- "near-vm-logic",
+ "near-vm-runner",
  "num_cpus",
  "once_cell",
  "rand 0.8.5",
@@ -4291,6 +4331,7 @@ version = "0.0.0"
 dependencies = [
  "backtrace",
  "cfg-if 1.0.0",
+ "crossbeam-queue",
  "enumset",
  "finite-wasm",
  "lazy_static",
@@ -4302,36 +4343,10 @@ dependencies = [
  "region",
  "rkyv",
  "rustc-demangle",
+ "rustix 0.37.20",
  "target-lexicon 0.12.3",
  "thiserror",
  "tracing",
-]
-
-[[package]]
-name = "near-vm-logic"
-version = "0.0.0"
-dependencies = [
- "borsh 0.10.2",
- "ed25519-dalek",
- "expect-test",
- "hex",
- "near-account-id",
- "near-crypto",
- "near-fmt",
- "near-o11y",
- "near-primitives-core",
- "near-rpc-error-macro",
- "near-stdx",
- "ripemd",
- "serde",
- "serde_json",
- "serde_with",
- "sha2 0.10.6",
- "sha3",
- "strum",
- "thiserror",
- "tracing",
- "zeropool-bn",
 ]
 
 [[package]]
@@ -4341,23 +4356,24 @@ dependencies = [
  "anyhow",
  "arbitrary",
  "assert_matches",
+ "base64 0.21.0",
  "bolero",
  "borsh 0.10.2",
  "clap 4.2.4",
+ "ed25519-dalek",
  "expect-test",
  "finite-wasm",
  "hex",
  "loupe",
  "memoffset 0.8.0",
- "near-cache",
+ "near-crypto",
  "near-primitives",
  "near-primitives-core",
- "near-stable-hasher",
+ "near-stdx",
  "near-test-contracts",
  "near-vm-compiler",
  "near-vm-compiler-singlepass",
  "near-vm-engine",
- "near-vm-logic",
  "near-vm-types",
  "near-vm-vm",
  "once_cell",
@@ -4366,7 +4382,14 @@ dependencies = [
  "prefix-sum-vec",
  "pwasm-utils",
  "rand 0.8.5",
+ "ripemd",
  "serde",
+ "serde_json",
+ "serde_with",
+ "sha2 0.10.6",
+ "sha3",
+ "strum",
+ "thiserror",
  "tracing",
  "wasm-encoder 0.27.0",
  "wasm-smith",
@@ -4382,6 +4405,7 @@ dependencies = [
  "wasmprinter",
  "wasmtime",
  "wat",
+ "zeropool-bn",
 ]
 
 [[package]]
@@ -4392,7 +4416,6 @@ dependencies = [
  "libfuzzer-sys",
  "near-primitives",
  "near-test-contracts",
- "near-vm-logic",
  "near-vm-runner",
  "wasm-smith",
  "wasmprinter",
@@ -4519,7 +4542,6 @@ dependencies = [
  "near-rosetta-rpc",
  "near-store",
  "near-telemetry",
- "near-vm-logic",
  "near-vm-runner",
  "node-runtime",
  "num-rational",
@@ -4558,8 +4580,10 @@ dependencies = [
  "near-client",
  "near-config-utils",
  "near-crypto",
+ "near-database-tool",
  "near-dyn-configs",
  "near-flat-storage",
+ "near-fork-network",
  "near-jsonrpc-primitives",
  "near-mirror",
  "near-network",
@@ -4627,7 +4651,6 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-test-contracts",
- "near-vm-logic",
  "near-vm-runner",
  "num-bigint",
  "num-rational",
@@ -5191,9 +5214,9 @@ checksum = "dbf0c48bc1d91375ae5c3cd81e3722dff1abcf81a30960240640d223f59fe0e5"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.56"
+version = "1.0.64"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b63bdb0cd06f1f4dedf69b254734f9b45af66e4a031e42a7480257d9898b435"
+checksum = "78803b62cbf1f46fde80d7c0e803111524b9877184cfe7c3033659490ac7a7da"
 dependencies = [
  "unicode-ident",
 ]
@@ -5763,7 +5786,6 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-test-contracts",
- "near-vm-logic",
  "near-vm-runner",
  "nearcore",
  "node-runtime",
@@ -6453,6 +6475,7 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 name = "state-viewer"
 version = "0.0.0"
 dependencies = [
+ "actix",
  "ansi_term",
  "anyhow",
  "borsh 0.10.2",

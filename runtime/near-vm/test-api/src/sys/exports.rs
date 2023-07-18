@@ -9,39 +9,6 @@ use thiserror::Error;
 /// export [`Extern`] from the [`Instance`] exports.
 ///
 /// [`Instance`]: crate::Instance
-///
-/// # Examples
-///
-/// ## Incompatible export type
-///
-/// ```should_panic
-/// # use near_vm_test_api::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value, ExportError};
-/// # let store = Store::default();
-/// # let wasm_bytes = wat2wasm(r#"
-/// # (module
-/// #   (global $one (export "glob") f32 (f32.const 1)))
-/// # "#.as_bytes()).unwrap();
-/// # let module = Module::new(&store, wasm_bytes).unwrap();
-/// # let import_object = imports! {};
-/// # let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object).unwrap();
-/// #
-/// // This results in an error.
-/// let export = instance.lookup_function("glob").unwrap();
-/// ```
-///
-/// ## Missing export
-///
-/// ```should_panic
-/// # use near_vm_test_api::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value, ExportError};
-/// # let store = Store::default();
-/// # let wasm_bytes = wat2wasm("(module)".as_bytes()).unwrap();
-/// # let module = Module::new(&store, wasm_bytes).unwrap();
-/// # let import_object = imports! {};
-/// # let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object).unwrap();
-/// #
-/// // This results with an error: `ExportError::Missing`.
-/// let export = instance.lookup("unknown").unwrap();
-/// ```
 #[derive(Error, Debug)]
 pub enum ExportError {
     /// An error than occurs when the exported type and the expected type

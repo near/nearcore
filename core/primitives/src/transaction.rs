@@ -11,7 +11,7 @@ use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-pub use near_vm_logic::action::{
+pub use near_vm_runner::logic::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
