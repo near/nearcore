@@ -43,6 +43,10 @@ pub(crate) enum StatePartsSubCommand {
         /// Use if those headers or blocks are not available.
         #[clap(long)]
         state_root: Option<StateRoot>,
+        /// If provided, this value will be used instead of looking it up in the headers.
+        /// Use if those headers or blocks are not available.
+        #[clap(long)]
+        sync_hash: Option<CryptoHash>,
         /// Choose a single part id.
         /// If None - affects all state parts.
         #[clap(long)]
@@ -110,7 +114,13 @@ impl StatePartsSubCommand {
             let credentials_file =
                 near_config.config.s3_credentials_file.clone().map(|file| home_dir.join(file));
             match self {
-                StatePartsSubCommand::Load { action, state_root, part_id, epoch_selection } => {
+                StatePartsSubCommand::Load {
+                    action,
+                    state_root,
+                    sync_hash,
+                    part_id,
+                    epoch_selection,
+                } => {
                     let external = create_external_connection(
                         root_dir,
                         s3_bucket,
@@ -124,6 +134,7 @@ impl StatePartsSubCommand {
                         shard_id,
                         part_id,
                         state_root,
+                        sync_hash,
                         &mut chain,
                         chain_id,
                         store,
@@ -271,6 +282,7 @@ async fn load_state_parts(
     shard_id: ShardId,
     part_id: Option<u64>,
     maybe_state_root: Option<StateRoot>,
+    maybe_sync_hash: Option<CryptoHash>,
     chain: &mut Chain,
     chain_id: &str,
     store: Store,
@@ -278,10 +290,10 @@ async fn load_state_parts(
 ) {
     let epoch_id = epoch_selection.to_epoch_id(store, chain);
     let (state_root, epoch_height, epoch_id, sync_hash) =
-        if let (Some(state_root), EpochSelection::EpochHeight { epoch_height }) =
-            (maybe_state_root, &epoch_selection)
+        if let (Some(state_root), Some(sync_hash), EpochSelection::EpochHeight { epoch_height }) =
+            (maybe_state_root, maybe_sync_hash, &epoch_selection)
         {
-            (state_root, *epoch_height, epoch_id, None)
+            (state_root, *epoch_height, epoch_id, sync_hash)
         } else {
             let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
 
