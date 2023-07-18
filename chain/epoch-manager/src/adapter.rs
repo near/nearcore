@@ -558,11 +558,16 @@ impl EpochManagerAdapter for EpochManagerHandle {
         prev_block_hash: &CryptoHash,
     ) -> Result<EpochId, EpochError> {
         let epoch_manager = self.read();
-        if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
-            epoch_manager.get_epoch_id(prev_block_hash).map_err(EpochError::from)
+        tracing::error!(?prev_block_hash, "get_prev_epoch_id_from_prev_block ^1");
+        let res = if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
+            tracing::error!(?prev_block_hash, "get_prev_epoch_id_from_prev_block ^2");
+            epoch_manager.get_epoch_id(prev_block_hash).map_err(EpochError::from)?
         } else {
-            epoch_manager.get_prev_epoch_id(prev_block_hash).map_err(EpochError::from)
-        }
+            tracing::error!(?prev_block_hash, "get_prev_epoch_id_from_prev_block ^3");
+            epoch_manager.get_prev_epoch_id(prev_block_hash).map_err(EpochError::from)?
+        };
+        tracing::error!(?prev_block_hash, ?res, "get_prev_epoch_id_from_prev_block ^4");
+        Ok(res)
     }
 
     fn get_estimated_protocol_upgrade_block_height(

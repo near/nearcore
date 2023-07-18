@@ -1047,8 +1047,12 @@ impl EpochManager {
 
     /// Returns true if next block after given block hash is in the new epoch.
     pub fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
+        tracing::error!(?parent_hash, "is_next_block_epoch_start &1");
         let block_info = self.get_block_info(parent_hash)?;
-        self.is_next_block_in_next_epoch(&block_info)
+        tracing::error!(?parent_hash, ?block_info, "is_next_block_epoch_start &2");
+        let res = self.is_next_block_in_next_epoch(&block_info)?;
+        tracing::error!(?parent_hash, res, "is_next_block_epoch_start &3");
+        Ok(res)
     }
 
     pub fn get_epoch_id_from_prev_block(
