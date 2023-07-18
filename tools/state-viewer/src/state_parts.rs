@@ -172,7 +172,7 @@ impl StatePartsSubCommand {
                 StatePartsSubCommand::ReadStateHeader { epoch_selection } => {
                     read_state_header(epoch_selection, shard_id, &chain, store)
                 }
-                StatePartsSubCommand::Finalize{ sync_hash } => {
+                StatePartsSubCommand::Finalize { sync_hash } => {
                     finalize_state_sync(sync_hash, shard_id, &mut chain)
                 }
             }
@@ -350,12 +350,7 @@ async fn load_state_parts(
         match action {
             LoadAction::Apply => {
                 chain
-                    .set_state_part(
-                        shard_id,
-                        sync_hash,
-                        PartId::new(part_id, num_parts),
-                        &part,
-                    )
+                    .set_state_part(shard_id, sync_hash, PartId::new(part_id, num_parts), &part)
                     .unwrap();
                 chain
                     .runtime_adapter
@@ -493,10 +488,7 @@ fn read_state_header(
     tracing::info!(target: "state-parts", ?epoch_id, ?sync_hash, ?state_header);
 }
 
-fn finalize_state_sync(
-    sync_hash: CryptoHash,
-    shard_id: ShardId,
-    chain: &mut Chain) {
+fn finalize_state_sync(sync_hash: CryptoHash, shard_id: ShardId, chain: &mut Chain) {
     chain.set_state_finalize(shard_id, sync_hash, Ok(())).unwrap()
 }
 
