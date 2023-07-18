@@ -21,6 +21,7 @@ pub struct RuntimeExt<'a> {
     last_block_hash: &'a CryptoHash,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
+    new_feature: bool,
 }
 
 /// Error used by `RuntimeExt`.
@@ -61,6 +62,7 @@ impl<'a> RuntimeExt<'a> {
         last_block_hash: &'a CryptoHash,
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
+        new_feature: bool,
     ) -> Self {
         RuntimeExt {
             trie_update,
@@ -72,6 +74,7 @@ impl<'a> RuntimeExt<'a> {
             last_block_hash,
             epoch_info_provider,
             current_protocol_version,
+            new_feature,
         }
     }
 
@@ -119,7 +122,11 @@ impl<'a> External for RuntimeExt<'a> {
         let storage_key = self.create_storage_key(key);
         let mode = match mode {
             StorageGetMode::FlatStorage => KeyLookupMode::FlatStorage,
-            StorageGetMode::Trie => KeyLookupMode::Trie,
+            StorageGetMode::Trie => if self.new_feature {
+                KeyLookupMode::BackgroundTrieFetch
+            } else {
+                KeyLookupMode::Trie
+            },
         };
         self.trie_update
             .get_ref(&storage_key, mode)
@@ -137,7 +144,11 @@ impl<'a> External for RuntimeExt<'a> {
         let storage_key = self.create_storage_key(key);
         let mode = match mode {
             StorageGetMode::FlatStorage => KeyLookupMode::FlatStorage,
-            StorageGetMode::Trie => KeyLookupMode::Trie,
+            StorageGetMode::Trie => if self.new_feature {
+                KeyLookupMode::BackgroundTrieFetch
+            } else {
+                KeyLookupMode::Trie
+            },
         };
         self.trie_update
             .get_ref(&storage_key, mode)

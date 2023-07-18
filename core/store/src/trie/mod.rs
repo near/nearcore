@@ -72,6 +72,7 @@ pub struct TrieCosts {
 pub enum KeyLookupMode {
     FlatStorage,
     Trie,
+    BackgroundTrieFetch,
 }
 
 const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 50 };
