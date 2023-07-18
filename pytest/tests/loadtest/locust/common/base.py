@@ -205,6 +205,25 @@ class CreateSubAccount(Transaction):
         return self.sender
 
 
+class AddFullAccessKey(Transaction):
+
+    def __init__(self, parent: Account, new_key: key.Key):
+        super().__init__()
+        self.sender = parent
+        self.new_key = new_key
+
+    def sign_and_serialize(self, block_hash) -> bytes:
+        action = transaction.create_full_access_key_action(
+            self.new_key.decoded_pk())
+        return transaction.sign_and_serialize_transaction(
+            self.sender.key.account_id, self.sender.use_nonce(),
+            [action], block_hash, self.sender.key.account_id,
+            self.sender.key.decoded_pk(), self.sender.key.decoded_sk())
+
+    def sender_account(self) -> Account:
+        return self.sender
+
+
 class NearNodeProxy:
     """
     Wrapper around a RPC node connection that tracks requests on locust.
