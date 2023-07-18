@@ -9,10 +9,15 @@ fn is_first_epoch_with_protocol_version(
     epoch_manager: &dyn EpochManagerAdapter,
     prev_block_hash: &CryptoHash,
 ) -> Result<bool, Error> {
+    tracing::error!(?prev_block_hash, "is_first_epoch_with_protocol_version $1");
     let prev_epoch_id = epoch_manager.get_prev_epoch_id_from_prev_block(prev_block_hash)?;
+    tracing::error!(?prev_block_hash, ?prev_epoch_id, "is_first_epoch_with_protocol_version $2");
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+    tracing::error!(?prev_block_hash, ?epoch_id, "is_first_epoch_with_protocol_version $3");
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+    tracing::error!(?prev_block_hash, ?protocol_version, "is_first_epoch_with_protocol_version $4");
     let prev_epoch_protocol_version = epoch_manager.get_epoch_protocol_version(&prev_epoch_id)?;
+    tracing::error!(?prev_block_hash, ?prev_epoch_protocol_version, "is_first_epoch_with_protocol_version $5");
     Ok(protocol_version != prev_epoch_protocol_version)
 }
 
