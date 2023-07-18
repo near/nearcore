@@ -3282,14 +3282,10 @@ impl Chain {
         sync_hash: CryptoHash,
         apply_result: Result<(), near_chain_primitives::Error>,
     ) -> Result<(), Error> {
-        tracing::error!("set_state_finalize !1");
         let _span = tracing::debug_span!(target: "sync", "set_state_finalize").entered();
-        tracing::error!("set_state_finalize !2");
         apply_result?;
 
-        tracing::error!("set_state_finalize !3");
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        tracing::error!("set_state_finalize !4");
         let chunk = shard_state_header.cloned_chunk();
 
         let block_hash = chunk.prev_block();
@@ -3300,20 +3296,15 @@ impl Chain {
         // So we don't have to add the storage state for shard in such case.
         // TODO(8438) - add additional test scenarios for this case.
         if *block_hash != CryptoHash::default() {
-            tracing::error!("set_state_finalize !5");
             let block_header = self.get_block_header(block_hash)?;
-            tracing::error!("set_state_finalize !6");
             let epoch_id = block_header.epoch_id();
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
-            tracing::error!("set_state_finalize !7");
 
             if let Some(flat_storage_manager) = self.runtime_adapter.get_flat_storage_manager() {
-                tracing::error!("set_state_finalize !8");
                 // Flat storage must not exist at this point because leftover keys corrupt its state.
                 assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
 
                 let mut store_update = self.runtime_adapter.store().store_update();
-                tracing::error!("set_state_finalize !9");
                 store_helper::set_flat_storage_status(
                     &mut store_update,
                     shard_uid,
@@ -3326,39 +3317,29 @@ impl Chain {
                     }),
                 );
                 store_update.commit()?;
-                tracing::error!("set_state_finalize !10");
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
-                tracing::error!("set_state_finalize !11");
             }
         }
 
         let mut height = shard_state_header.chunk_height_included();
         let mut chain_update = self.chain_update();
-        tracing::error!("set_state_finalize !12");
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
-        tracing::error!("set_state_finalize !13");
         chain_update.commit()?;
-        tracing::error!("set_state_finalize !14");
 
         // We restored the state on height `shard_state_header.chunk.header.height_included`.
         // Now we should build a chain up to height of `sync_hash` block.
         loop {
             height += 1;
-            tracing::error!("set_state_finalize !15 {height}");
             let mut chain_update = self.chain_update();
             // Result of successful execution of set_state_finalize_on_height is bool,
             // should we commit and continue or stop.
             if chain_update.set_state_finalize_on_height(height, shard_id, sync_hash)? {
-                tracing::error!("set_state_finalize !16 {height}");
                 chain_update.commit()?;
-                tracing::error!("set_state_finalize !17 {height}");
             } else {
-                tracing::error!("set_state_finalize !18 {height}");
                 break;
             }
         }
 
-        tracing::error!("set_state_finalize !19");
         Ok(())
     }
 
@@ -5465,7 +5446,6 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<(), Error> {
         let _span =
             tracing::debug_span!(target: "sync", "chain_update_set_state_finalize").entered();
-        tracing::error!("chain_update_set_state_finalize @1");
         let (chunk, incoming_receipts_proofs) = match shard_state_header {
             ShardStateSyncResponseHeader::V1(shard_state_header) => (
                 ShardChunk::V1(shard_state_header.chunk),
@@ -5475,34 +5455,27 @@ impl<'a> ChainUpdate<'a> {
                 (shard_state_header.chunk, shard_state_header.incoming_receipts_proofs)
             }
         };
-        tracing::error!("chain_update_set_state_finalize @2");
 
         let block_header = self
             .chain_store_update
             .get_block_header_on_chain_by_height(&sync_hash, chunk.height_included())?;
-        tracing::error!("chain_update_set_state_finalize @3");
 
         // Getting actual incoming receipts.
         let mut receipt_proof_response: Vec<ReceiptProofResponse> = vec![];
         for incoming_receipt_proof in incoming_receipts_proofs.iter() {
-            tracing::error!("chain_update_set_state_finalize @4");
             let ReceiptProofResponse(hash, _) = incoming_receipt_proof;
             let block_header = self.chain_store_update.get_block_header(hash)?;
             if block_header.height() <= chunk.height_included() {
                 receipt_proof_response.push(incoming_receipt_proof.clone());
             }
-            tracing::error!("chain_update_set_state_finalize @5");
         }
-        tracing::error!("chain_update_set_state_finalize @6");
         let receipts = collect_receipts_from_response(&receipt_proof_response);
-        tracing::error!("chain_update_set_state_finalize @7");
         // Prev block header should be present during state sync, since headers have been synced at this point.
         let gas_price = if block_header.height() == self.chain_store_update.get_genesis_height() {
             block_header.gas_price()
         } else {
             self.chain_store_update.get_block_header(block_header.prev_hash())?.gas_price()
         };
-        tracing::error!("chain_update_set_state_finalize @8");
 
         let chunk_header = chunk.cloned_header();
         let gas_limit = chunk_header.gas_limit();
@@ -5510,7 +5483,6 @@ impl<'a> ChainUpdate<'a> {
         // during protocol version RestoreReceiptsAfterFixApplyChunks.
         // TODO(nikurt): Determine the value correctly.
         let is_first_block_with_chunk_of_version = false;
-        tracing::error!("chain_update_set_state_finalize @9");
 
         let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
@@ -5531,16 +5503,13 @@ impl<'a> ChainUpdate<'a> {
             Default::default(),
             true,
         )?;
-        tracing::error!("chain_update_set_state_finalize @10");
 
         let (outcome_root, outcome_proofs) =
             ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
-        tracing::error!("chain_update_set_state_finalize @11");
 
         self.chain_store_update.save_chunk(chunk);
 
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
-        tracing::error!("chain_update_set_state_finalize @12");
         self.save_flat_state_changes(
             *block_header.hash(),
             *chunk_header.prev_block_hash(),
@@ -5548,9 +5517,7 @@ impl<'a> ChainUpdate<'a> {
             shard_uid,
             &apply_result.trie_changes,
         )?;
-        tracing::error!("chain_update_set_state_finalize @13");
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
-        tracing::error!("chain_update_set_state_finalize @14");
         let chunk_extra = ChunkExtra::new(
             &apply_result.new_root,
             outcome_root,
@@ -5560,7 +5527,6 @@ impl<'a> ChainUpdate<'a> {
             apply_result.total_balance_burnt,
         );
         self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, chunk_extra);
-        tracing::error!("chain_update_set_state_finalize @15");
 
         self.chain_store_update.save_outgoing_receipt(
             block_header.hash(),
@@ -5582,7 +5548,6 @@ impl<'a> ChainUpdate<'a> {
                 receipt_proof_response.1,
             );
         }
-        tracing::error!("chain_update_set_state_finalize @16");
         Ok(())
     }
 
