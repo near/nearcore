@@ -271,6 +271,7 @@ impl Client {
             config.state_sync_timeout,
             &config.chain_id,
             &config.state_sync.sync,
+            false,
         );
         let num_block_producer_seats = config.num_block_producer_seats as usize;
         let data_parts = epoch_manager.num_data_parts();
@@ -2140,6 +2141,7 @@ impl Client {
                             state_sync_timeout,
                             &self.config.chain_id,
                             &self.config.state_sync.sync,
+                            true,
                         ),
                         shards_to_split,
                         BlocksCatchUpState::new(sync_hash, epoch_id),
