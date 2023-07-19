@@ -288,6 +288,32 @@ impl RoutingTableUpdate {
         Self { edges, accounts }
     }
 }
+
+/// Denotes a network path to `destination` of length `distance`.
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct AdvertisedPeerDistance {
+    pub destination: PeerId,
+    pub distance: u32,
+}
+
+/// Struct shared by a peer listing the distances it has to other peers
+/// in the NEAR network.
+///
+/// It includes a collection of signed edges forming a spanning tree
+/// which verifiably achieves the advertised routing distances.
+///
+/// The distances in the tree may be the same or better than the advertised
+/// distances; see routing::graph_v2::tests::inconsistent_peers.
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct DistanceVector {
+    /// PeerId of the node sending the message.
+    pub root: PeerId,
+    /// List of distances the root has to other peers in the network.
+    pub distances: Vec<AdvertisedPeerDistance>,
+    /// Spanning tree of signed edges achieving the claimed distances (or better).
+    pub edges: Vec<Edge>,
+}
+
 /// Structure representing handshake between peers.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
@@ -361,6 +387,7 @@ pub enum PeerMessage {
     LastEdge(Edge),
     /// Contains accounts and edge information.
     SyncRoutingTable(RoutingTableUpdate),
+    DistanceVector(DistanceVector),
     RequestUpdateNonce(PartialEdgeInfo),
 
     SyncAccountsData(SyncAccountsData),

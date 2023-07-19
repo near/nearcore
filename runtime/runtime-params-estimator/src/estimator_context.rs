@@ -43,7 +43,6 @@ pub(crate) struct CachedCosts {
     pub(crate) compile_cost_base_per_byte_v2: Option<(GasCost, GasCost)>,
     pub(crate) gas_metering_cost_base_per_op: Option<(GasCost, GasCost)>,
     pub(crate) apply_block: Option<GasCost>,
-    pub(crate) touching_trie_node_read: Option<GasCost>,
     pub(crate) touching_trie_node_write: Option<GasCost>,
     pub(crate) ed25519_verify_base: Option<GasCost>,
 }

@@ -1,5 +1,5 @@
 #![doc = include_str!("../README.md")]
-#![deny(clippy::integer_arithmetic)]
+#![deny(clippy::arithmetic_side_effects)]
 
 pub use context::*;
 use near_crypto::PublicKey;
@@ -459,10 +459,13 @@ pub fn reload_log_config(config: Option<&log_config::LogConfig>) {
     };
     match result {
         Ok(_) => {
-            println!("Updated the logging layer according to `log_config.json`");
+            tracing::info!("Updated the logging layer according to `log_config.json`");
         }
         Err(err) => {
-            println!("Failed to update the logging layer according to the changed `log_config.json`. Errors: {:?}", err);
+            eprintln!(
+                "Failed to update the logging layer according to the changed `log_config.json`. Errors: {:?}",
+                err
+            );
         }
     }
 }

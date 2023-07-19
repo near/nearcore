@@ -335,11 +335,6 @@ pub trait RuntimeAdapter: Send + Sync {
         state_patch: SandboxStatePatch,
         use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
-        let _span = tracing::debug_span!(
-            target: "runtime",
-            "apply_transactions",
-            shard_id)
-        .entered();
         let _timer =
             metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         self.apply_transactions_with_optional_storage_proof(

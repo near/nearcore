@@ -31,8 +31,7 @@ use near_store::{
     StorageError, TrieUpdate,
 };
 use near_vm_runner::logic::errors::{
-    CompilationError, FunctionCallError, FunctionCallErrorSer, InconsistentStateError,
-    VMRunnerError,
+    CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::{ActionCosts, VMContext, VMOutcome};
@@ -58,7 +57,7 @@ pub(crate) fn execute_function_call(
         Ok(Some(code)) => code,
         Ok(None) => {
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
-                account_id: account_id.clone(),
+                account_id: account_id.as_str().into(),
             });
             return Ok(VMOutcome::nop_outcome(error));
         }
@@ -241,8 +240,7 @@ pub(crate) fn action_function_call(
         }
         // Update action result with the abort error converted to the
         // transaction runtime's format of errors.
-        let ser: FunctionCallErrorSer = err.into();
-        let action_err: ActionError = ActionErrorKind::FunctionCallError(ser).into();
+        let action_err: ActionError = ActionErrorKind::FunctionCallError(err.into()).into();
         result.result = Err(action_err);
     }
     result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;

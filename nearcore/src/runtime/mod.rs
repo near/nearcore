@@ -324,8 +324,7 @@ impl NightshadeRuntime {
             let epoch_manager = self.epoch_manager.read();
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
             debug!(target: "runtime",
-                   "block height: {}, is next_block_epoch_start {}",
-                   block_height,
+                   "is next_block_epoch_start {}",
                    epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
             );
 
@@ -1179,6 +1178,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         next_epoch_shard_layout: &ShardLayout,
         state_split_status: Arc<StateSplitApplyingStatus>,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
+        // TODO(resharding) use flat storage to split the trie here
         let trie = self.tries.get_view_trie_for_shard(shard_uid, *state_root);
         let shard_id = shard_uid.shard_id();
         let new_shards = next_epoch_shard_layout
