@@ -645,7 +645,7 @@ mod test {
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
             NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
-        apply_chain_range(store, &genesis, None, None, 0, epoch_manager.as_ref(), runtime, true, None, false, false, false, None);
+        apply_chain_range(store, &genesis, None, None, 0, epoch_manager.as_ref(), runtime, true, None, false, false, false, None, false);
     }
 
     #[test]
@@ -670,7 +670,7 @@ mod test {
         let runtime =
             NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
         let mut file = tempfile::NamedTempFile::new().unwrap();
-        apply_chain_range(store, &genesis, None, None, 0, epoch_manager.as_ref(), runtime, true, Some(file.as_file_mut()), false, false, false, None);
+        apply_chain_range(store, &genesis, None, None, 0, epoch_manager.as_ref(), runtime, true, Some(file.as_file_mut()), false, false, false, None, false);
         let mut csv = String::new();
         file.as_file_mut().seek(SeekFrom::Start(0)).unwrap();
         file.as_file_mut().read_to_string(&mut csv).unwrap();
