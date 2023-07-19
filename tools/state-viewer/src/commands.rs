@@ -19,7 +19,6 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
-use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
@@ -29,7 +28,6 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::config::{ExtCosts, ParameterCost};
 use near_primitives_core::types::Gas;
-use near_primitives_core::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
 use nearcore::{NearConfig, NightshadeRuntime};
@@ -224,7 +222,7 @@ pub(crate) fn apply_range(
         let base_runtime_config_store = RuntimeConfigStore::new(None);
         let mut runtime_config = base_runtime_config_store.get_config(61).as_ref().clone(); // current stable
         let old_costs = runtime_config.wasm_config.ext_costs.costs.clone();
-        runtime_config.wasm_config.ext_costs.costs.map(|cost| match it {
+        runtime_config.wasm_config.ext_costs.costs.map(|cost| match cost {
             ExtCosts::touching_trie_node => ParameterCost { gas: 0, compute: 0 },
             cost @ _ => old_costs.index(cost),
         });
