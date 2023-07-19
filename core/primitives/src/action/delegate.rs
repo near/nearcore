@@ -4,8 +4,8 @@
 //! This is the module containing the types introduced for delegate actions.
 
 pub use self::private_non_delegate_action::NonDelegateAction;
-use super::action::Action;
-use super::signable_message::{SignableMessage, SignableMessageType};
+use super::Action;
+use crate::signable_message::{SignableMessage, SignableMessageType};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::{hash, CryptoHash};
@@ -133,7 +133,7 @@ mod private_non_delegate_action {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::logic::action::CreateAccountAction;
+    use crate::action::CreateAccountAction;
     use near_crypto::KeyType;
 
     /// A serialized `Action::Delegate(SignedDelegateAction)` for testing.

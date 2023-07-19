@@ -1,18 +1,19 @@
-use super::action::{
+use near_crypto::PublicKey;
+use near_primitives::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
-use super::errors::HostError;
-use super::logic;
-use super::types::ReceiptIndex;
-use super::DataReceiver;
-use super::External;
-use near_crypto::PublicKey;
+use near_primitives::receipt::DataReceiver;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Gas};
 use near_primitives_core::types::{Balance, Nonce};
 use near_primitives_core::types::{GasDistribution, GasWeight};
+use near_vm_runner::logic::VMLogicError;
+use near_vm_runner::logic::{External, HostError};
+
+/// near_vm_runner::types is not public.
+type ReceiptIndex = u64;
 
 type ActionReceipts = Vec<(AccountId, ReceiptMetadata)>;
 
@@ -31,7 +32,7 @@ pub struct ReceiptMetadata {
 }
 
 #[derive(Default, Clone, PartialEq)]
-pub(super) struct ReceiptManager {
+pub struct ReceiptManager {
     pub(super) action_receipts: ActionReceipts,
     gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
 }
@@ -102,7 +103,7 @@ impl ReceiptManager {
         ext: &mut dyn External,
         receipt_indices: Vec<ReceiptIndex>,
         receiver_id: AccountId,
-    ) -> logic::Result<ReceiptIndex> {
+    ) -> Result<ReceiptIndex, VMLogicError> {
         let mut input_data_ids = vec![];
         for receipt_index in receipt_indices {
             let data_id = ext.generate_data_id();
@@ -134,7 +135,7 @@ impl ReceiptManager {
     pub(super) fn append_action_create_account(
         &mut self,
         receipt_index: ReceiptIndex,
-    ) -> logic::Result<()> {
+    ) -> Result<(), VMLogicError> {
         self.append_action(receipt_index, Action::CreateAccount(CreateAccountAction {}));
         Ok(())
     }
@@ -153,7 +154,7 @@ impl ReceiptManager {
         &mut self,
         receipt_index: ReceiptIndex,
         code: Vec<u8>,
-    ) -> logic::Result<()> {
+    ) -> Result<(), VMLogicError> {
         self.append_action(receipt_index, Action::DeployContract(DeployContractAction { code }));
         Ok(())
     }
@@ -186,7 +187,7 @@ impl ReceiptManager {
         attached_deposit: Balance,
         prepaid_gas: Gas,
         gas_weight: GasWeight,
-    ) -> logic::Result<()> {
+    ) -> Result<(), VMLogicError> {
         let action_index = self.append_action(
             receipt_index,
             Action::FunctionCall(FunctionCallAction {
@@ -222,7 +223,7 @@ impl ReceiptManager {
         &mut self,
         receipt_index: ReceiptIndex,
         deposit: Balance,
-    ) -> logic::Result<()> {
+    ) -> Result<(), VMLogicError> {
         self.append_action(receipt_index, Action::Transfer(TransferAction { deposit }));
         Ok(())
     }
@@ -298,7 +299,7 @@ impl ReceiptManager {
         allowance: Option<Balance>,
         receiver_id: AccountId,
         method_names: Vec<Vec<u8>>,
-    ) -> logic::Result<()> {
+    ) -> Result<(), VMLogicError> {
         self.append_action(
             receipt_index,
             Action::AddKey(AddKeyAction {
@@ -354,7 +355,7 @@ impl ReceiptManager {
         &mut self,
         receipt_index: ReceiptIndex,
         beneficiary_id: AccountId,
-    ) -> logic::Result<()> {
+    ) -> Result<(), VMLogicError> {
         self.append_action(
             receipt_index,
             Action::DeleteAccount(DeleteAccountAction { beneficiary_id }),

@@ -27,6 +27,7 @@ near-chain-configs.workspace = true
 near-crypto.workspace = true
 near-o11y.workspace = true
 near-primitives.workspace = true
+near-primitives-core.workspace = true
 near-store.workspace = true
 near-vm-runner.workspace = true
 

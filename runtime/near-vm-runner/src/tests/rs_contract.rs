@@ -1,8 +1,7 @@
-use crate::logic::action::{Action, FunctionCallAction};
 use crate::logic::errors::{FunctionCallError, HostError, WasmTrap};
-use crate::logic::mocks::mock_external::MockedExternal;
+use crate::logic::mocks::mock_external::{MockAction, MockedExternal};
 use crate::logic::types::ReturnData;
-use crate::logic::{ReceiptMetadata, VMConfig};
+use crate::logic::VMConfig;
 use near_primitives::test_utils::encode;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
@@ -291,14 +290,11 @@ fn attach_unspent_gas_but_burn_all_gas() {
 
         let err = outcome.aborted.as_ref().unwrap();
         assert!(matches!(err, FunctionCallError::HostError(HostError::GasLimitExceeded)));
-        match &outcome.action_receipts.as_slice() {
-            [(_, ReceiptMetadata { actions, .. })] => match actions.as_slice() {
-                [Action::FunctionCall(FunctionCallAction { gas, .. })] => {
-                    assert!(*gas > prepaid_gas / 3);
-                }
-                other => panic!("unexpected actions: {other:?}"),
-            },
-            other => panic!("unexpected receipts: {other:?}"),
+        match &external.action_log[..] {
+            [_, MockAction::FunctionCallWeight { prepaid_gas: gas, .. }] => {
+                assert!(*gas > prepaid_gas / 3)
+            }
+            other => panic!("unexpected actions: {other:?}"),
         }
     });
 }
@@ -333,14 +329,9 @@ fn attach_unspent_gas_but_use_all_gas() {
         let err = outcome.aborted.as_ref().unwrap();
         assert!(matches!(err, FunctionCallError::HostError(HostError::GasExceeded)));
 
-        match &outcome.action_receipts.as_slice() {
-            [(_, ReceiptMetadata { actions, .. }), _] => match actions.as_slice() {
-                [Action::FunctionCall(FunctionCallAction { gas, .. })] => {
-                    assert_eq!(*gas, 0);
-                }
-                other => panic!("unexpected actions: {other:?}"),
-            },
-            other => panic!("unexpected receipts: {other:?}"),
+        match &external.action_log[..] {
+            [_, MockAction::FunctionCallWeight { prepaid_gas: gas, .. }, _] => assert_eq!(*gas, 0),
+            other => panic!("unexpected actions: {other:?}"),
         }
     });
 }
