@@ -3,9 +3,9 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::{
-    Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
-    PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
-    RoutedMessageBody, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
+    DistanceVector, Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError,
+    PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse,
+    RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -15,6 +15,7 @@ use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
 use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::routing::edge::verify_nonce;
+use crate::routing::NetworkTopologyChange;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::stats::metrics;
 use crate::tcp;
@@ -1202,6 +1203,18 @@ impl PeerActor {
                         .push(Event::MessageProcessed(conn.tier, peer_msg));
                 }));
             }
+            PeerMessage::DistanceVector(dv) => {
+                let clock = self.clock.clone();
+                let conn = conn.clone();
+                let network_state = self.network_state.clone();
+                ctx.spawn(wrap_future(async move {
+                    Self::handle_distance_vector(&clock, &network_state, conn.clone(), dv).await;
+                    network_state
+                        .config
+                        .event_sink
+                        .push(Event::MessageProcessed(conn.tier, peer_msg));
+                }));
+            }
             PeerMessage::SyncAccountsData(msg) => {
                 metrics::SYNC_ACCOUNTS_DATA
                     .with_label_values(&[
@@ -1303,7 +1316,7 @@ impl PeerActor {
                     return;
                 }
 
-                self.network_state.tier2_add_route_back(&self.clock, &conn, msg.as_ref());
+                self.network_state.add_route_back(&self.clock, &conn, msg.as_ref());
                 if for_me {
                     // Handle Ping and Pong message if they are for us without sending to client.
                     // i.e. Return false in case of Ping and Pong
@@ -1376,6 +1389,27 @@ impl PeerActor {
         match network_state.client.announce_account(accounts).await {
             Err(ban_reason) => conn.stop(Some(ban_reason)),
             Ok(accounts) => network_state.add_accounts(accounts).await,
+        }
+    }
+
+    async fn handle_distance_vector(
+        clock: &time::Clock,
+        network_state: &Arc<NetworkState>,
+        conn: Arc<connection::Connection>,
+        distance_vector: DistanceVector,
+    ) {
+        let _span = tracing::trace_span!(target: "network", "handle_distance_vector").entered();
+
+        if conn.peer_info.id != distance_vector.root {
+            conn.stop(Some(ReasonForBan::InvalidDistanceVector));
+            return;
+        }
+
+        if let Err(ban_reason) = network_state
+            .update_routes(&clock, NetworkTopologyChange::PeerAdvertisedDistances(distance_vector))
+            .await
+        {
+            conn.stop(Some(ban_reason));
         }
     }
 }

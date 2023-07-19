@@ -1,12 +1,13 @@
 import random
 import sys
 import pathlib
+import typing
 from locust import events
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
 import key
-from common.base import Account, Deploy, NearNodeProxy, NearUser, FunctionCall
+from common.base import Account, Deploy, NearNodeProxy, NearUser, FunctionCall, INIT_DONE
 
 
 class FTContract:
@@ -46,7 +47,7 @@ class FTContract:
     def random_receiver(self, sender: str) -> str:
         return self.random_receivers(sender, 1)[0]
 
-    def random_receivers(self, sender: str, num) -> list[str]:
+    def random_receivers(self, sender: str, num) -> typing.List[str]:
         rng = random.Random()
         receivers = rng.sample(self.registered_users, num)
         # Sender must be != receiver but maybe there is no other registered user
@@ -116,6 +117,7 @@ class InitFTAccount(FunctionCall):
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
+    INIT_DONE.wait()
     node = NearNodeProxy(environment)
     ft_contract_code = environment.parsed_options.fungible_token_wasm
     num_ft_contracts = environment.parsed_options.num_ft_contracts

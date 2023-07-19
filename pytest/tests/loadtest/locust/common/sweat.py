@@ -1,6 +1,6 @@
 import typing
 from common.ft import FTContract, InitFTAccount
-from common.base import Account, NearNodeProxy, NearUser, FunctionCall, MultiFunctionCall
+from common.base import Account, NearNodeProxy, NearUser, FunctionCall, MultiFunctionCall, INIT_DONE
 import locust
 import sys
 import pathlib
@@ -120,7 +120,7 @@ class SweatMintBatch(FunctionCall):
     """
 
     def __init__(self, sweat_id: str, oracle: Account,
-                 recipient_step_pairs: list[RecipientSteps]):
+                 recipient_step_pairs: typing.List[RecipientSteps]):
         super().__init__(oracle, sweat_id, "record_batch")
         self.recipient_step_pairs = recipient_step_pairs
 
@@ -130,6 +130,7 @@ class SweatMintBatch(FunctionCall):
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
+    INIT_DONE.wait()
     node = NearNodeProxy(environment)
     worker_id = getattr(environment.runner, "worker_index", "_master")
     run_id = environment.parsed_options.run_id

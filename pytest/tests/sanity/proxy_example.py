@@ -20,12 +20,13 @@ from proxy import ProxyHandler
 from multiprocessing import Value
 
 TIMEOUT = 30
-success = Value('i', 0)
 
 
 class Handler(ProxyHandler):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, success=None, **kwargs):
+        assert success is not None
+        self.success = success
         super().__init__(*args, **kwargs)
         self.peers_response = 0
 
@@ -43,18 +44,21 @@ class Handler(ProxyHandler):
             self.peers_response += 1
             logger.info(f"Total PeersResponses = {self.peers_response}")
             if self.peers_response == 2:
-                success.value = 1
+                self.success.value = 1
 
         return True
 
 
-start_cluster(2, 0, 1, None, [], {}, Handler)
+if __name__ == '__main__':
+    success = Value('i', 0)
+    start_cluster(2, 0, 1, None, [], {},
+                  functools.partial(Handler, success=success))
 
-started = time.time()
+    started = time.time()
 
-while True:
-    assert time.time() - started < TIMEOUT
-    time.sleep(1)
+    while True:
+        assert time.time() - started < TIMEOUT
+        time.sleep(1)
 
-    if success.value == 1:
-        break
+        if success.value == 1:
+            break

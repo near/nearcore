@@ -166,6 +166,7 @@ impl StateSync {
         timeout: TimeDuration,
         chain_id: &str,
         sync_config: &SyncConfig,
+        catchup: bool,
     ) -> Self {
         let inner = match sync_config {
             SyncConfig::Peers => StateSyncInner::Peers {
@@ -175,6 +176,7 @@ impl StateSync {
             SyncConfig::ExternalStorage(ExternalStorageConfig {
                 location,
                 num_concurrent_requests,
+                num_concurrent_requests_during_catchup,
             }) => {
                 let external = match location {
                     ExternalStorageLocation::S3 { bucket, region } => {
@@ -188,11 +190,14 @@ impl StateSync {
                         ExternalConnection::Filesystem { root_dir: root_dir.clone() }
                     }
                 };
+                let num_permits = if catchup {
+                    *num_concurrent_requests_during_catchup
+                } else {
+                    *num_concurrent_requests
+                } as usize;
                 StateSyncInner::PartsFromExternal {
                     chain_id: chain_id.to_string(),
-                    semaphore: Arc::new(tokio::sync::Semaphore::new(
-                        *num_concurrent_requests as usize,
-                    )),
+                    semaphore: Arc::new(tokio::sync::Semaphore::new(num_permits)),
                     external,
                 }
             }
@@ -1414,6 +1419,7 @@ mod test {
             TimeDuration::from_secs(1),
             "chain_id",
             &SyncConfig::Peers,
+            false,
         );
         let mut new_shard_sync = HashMap::new();
 

@@ -2,7 +2,7 @@
 
 A set of tools useful when working with the underlying database.
 
-## Analyse Database
+## Analyse data size distribution
 
 The analyse database script provides an efficient way to assess the size distribution
 of keys and values within RocksDB.
@@ -78,3 +78,7 @@ available in `/home/ubuntu/.near/data/snapshot`
 
 This command can be helpful before attempting activities that can potentially
 corrupt the database.
+
+## State read perf
+A tool for performance testing hot storage RocksDB State column reads.
+Use help to get more details: `neard database state-perf --help`

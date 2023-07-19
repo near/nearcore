@@ -16,6 +16,7 @@ use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_actix::RegisterPeerError;
 use crate::routing::route_back_cache::RouteBackCache;
+use crate::routing::NetworkTopologyChange;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::stats::metrics;
 use crate::store;
@@ -118,6 +119,9 @@ pub(crate) struct NetworkState {
     pub pending_reconnect: Mutex<Vec<PeerInfo>>,
     /// A graph of the whole NEAR network.
     pub graph: Arc<crate::routing::Graph>,
+    /// A sparsified graph of the whole NEAR network.
+    /// TODO(saketh): deprecate graph above, rename this to RoutingTable
+    pub graph_v2: Arc<crate::routing::GraphV2>,
 
     /// Hashes of the body of recently received routed messages.
     /// It allows us to determine whether messages arrived faster over TIER1 or TIER2 network.
@@ -141,8 +145,11 @@ pub(crate) struct NetworkState {
 
     /// Mutex which prevents overlapping calls to tier1_advertise_proxies.
     tier1_advertise_proxies_mutex: tokio::sync::Mutex<()>,
-    /// Demultiplexer aggregating calls to add_edges().
+    /// Demultiplexer aggregating calls to add_edges(), for V1 routing protocol
     add_edges_demux: demux::Demux<Vec<Edge>, Result<(), ReasonForBan>>,
+    /// Demultiplexer aggregating calls to update_routes(), for V2 routing protocol
+    update_routes_demux:
+        demux::Demux<crate::routing::NetworkTopologyChange, Result<(), ReasonForBan>>,
 
     /// Mutex serializing calls to set_chain_info(), which mutates a bunch of stuff non-atomically.
     /// TODO(gprusak): make it use synchronization primitives in some more canonical way.
@@ -170,6 +177,10 @@ impl NetworkState {
                 },
                 store.clone(),
             )),
+            graph_v2: Arc::new(crate::routing::GraphV2::new(crate::routing::GraphConfigV2 {
+                node_id: config.node_id(),
+                prune_edges_after: Some(PRUNE_EDGES_AFTER),
+            })),
             genesis_id,
             client,
             shards_manager_adapter,
@@ -190,6 +201,7 @@ impl NetworkState {
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
             add_edges_demux: demux::Demux::new(config.routing_table_update_rate_limit),
+            update_routes_demux: demux::Demux::new(config.routing_table_update_rate_limit),
             set_chain_info_mutex: Mutex::new(()),
             config,
             created_at: clock.now(),
@@ -318,9 +330,13 @@ impl NetworkState {
                     // First verify and broadcast the edge of the connection, so that in case
                     // it is invalid, the connection is not added to the pool.
                     // TODO(gprusak): consider actually banning the peer for consistency.
-                    this.add_edges(&clock, vec![edge])
+                    this.add_edges(&clock, vec![edge.clone()])
                         .await
                         .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
+                    // Update the V2 routing table
+                    this.update_routes(&clock, NetworkTopologyChange::PeerConnected(peer_info.id.clone(), edge.clone()))
+                        .await.map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
+                    // Insert to the local connection pool
                     this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
                     // Write to the peer store
                     this.peer_store.peer_connected(&clock, peer_info);
@@ -363,6 +379,11 @@ impl NetworkState {
                     this.add_edges(&clock, vec![edge_update.clone()]).await.unwrap();
                 }
             }
+
+            // Update the V2 routing table
+            this.update_routes(&clock, NetworkTopologyChange::PeerDisconnected(peer_id.clone()))
+                .await
+                .unwrap();
 
             // Save the fact that we are disconnecting to the PeerStore.
             let res = match reason {
@@ -494,30 +515,34 @@ impl NetworkState {
                 };
                 return self.tier1.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
-            tcp::Tier::T2 => match self.tier2_find_route(&clock, &msg.target) {
-                Ok(peer_id) => {
-                    // Remember if we expect a response for this message.
-                    if msg.author == my_peer_id && msg.expect_response() {
-                        tracing::trace!(target: "network", ?msg, "initiate route back");
-                        self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
+            tcp::Tier::T2 => {
+                match self.tier2_find_route(&clock, &msg.target) {
+                    Ok(peer_id) => {
+                        // Remember if we expect a response for this message.
+                        if msg.author == my_peer_id && msg.expect_response() {
+                            tracing::trace!(target: "network", ?msg, "initiate route back");
+                            self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
+                        }
+                        return self
+                            .tier2
+                            .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
                     }
-                    return self.tier2.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
-                }
-                Err(find_route_error) => {
-                    // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                    metrics::MessageDropped::NoRouteFound.inc(&msg.body);
+                    Err(find_route_error) => {
+                        // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
+                        metrics::MessageDropped::NoRouteFound.inc(&msg.body);
 
-                    tracing::debug!(target: "network",
-                          account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
-                          to = ?msg.target,
-                          reason = ?find_route_error,
-                          known_peers = ?self.graph.routing_table.reachable_peers(),
-                          msg = ?msg.body,
-                        "Drop signed message"
-                    );
-                    return false;
+                        tracing::debug!(target: "network",
+                              account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
+                              to = ?msg.target,
+                              reason = ?find_route_error,
+                              known_peers = ?self.graph.routing_table.reachable_peers(),
+                              msg = ?msg.body,
+                            "Drop signed message"
+                        );
+                        return false;
+                    }
                 }
-            },
+            }
         }
     }
 
@@ -696,6 +721,27 @@ impl NetworkState {
                     // OK
                     _ => {}
                 }
+            }
+            for t in tasks {
+                let _ = t.await;
+            }
+
+            // Now that `graph` has been synchronized with the state of the local connections,
+            // use it as the source of truth to fix the local state in `graph_v2`
+            let mut tasks = vec![];
+            let node_id = this.config.node_id();
+            for edge in graph.local_edges.values() {
+                let other_peer = edge.other(&node_id).unwrap();
+                tasks.push(match edge.edge_type() {
+                    EdgeState::Active => this.update_routes(
+                        &clock,
+                        NetworkTopologyChange::PeerConnected(other_peer.clone(), edge.clone()),
+                    ),
+                    EdgeState::Removed => this.update_routes(
+                        &clock,
+                        NetworkTopologyChange::PeerDisconnected(other_peer.clone()),
+                    ),
+                });
             }
             for t in tasks {
                 let _ = t.await;

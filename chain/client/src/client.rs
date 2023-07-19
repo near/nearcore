@@ -272,6 +272,7 @@ impl Client {
             config.state_sync_timeout,
             &config.chain_id,
             &config.state_sync.sync,
+            false,
         );
         let num_block_producer_seats = config.num_block_producer_seats as usize;
         let data_parts = epoch_manager.num_data_parts();
@@ -852,8 +853,6 @@ impl Client {
 
         debug!(
             target: "client",
-            height=next_height,
-            shard_id,
             me=%validator_signer.validator_id(),
             chunk_hash=%encoded_chunk.chunk_hash().0,
             %prev_block_hash,
@@ -1583,7 +1582,7 @@ impl Client {
                     if &chunk_proposer == &validator_id {
                         let _span = tracing::debug_span!(
                             target: "client",
-                            "on_block_accepted_produce_chunk",
+                            "on_block_accepted",
                             prev_block_hash = ?*block.hash(),
                             ?shard_id)
                         .entered();
@@ -2154,6 +2153,7 @@ impl Client {
                             state_sync_timeout,
                             &self.config.chain_id,
                             &self.config.state_sync.sync,
+                            true,
                         ),
                         shards_to_split,
                         BlocksCatchUpState::new(sync_hash, epoch_id),
