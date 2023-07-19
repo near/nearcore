@@ -115,6 +115,27 @@ impl NightshadeRuntime {
         )
     }
 
+    pub fn from_config_tmp(
+        home_dir: &Path,
+        store: Store,
+        config: &NearConfig,
+        epoch_manager: Arc<EpochManagerHandle>,
+        runtime_config_store: Option<RuntimeConfigStore>,
+    ) -> Arc<Self> {
+        Self::new(
+            home_dir,
+            store,
+            &config.genesis,
+            epoch_manager,
+            config.client_config.trie_viewer_state_size_limit,
+            config.client_config.max_gas_burnt_view,
+            runtime_config_store,
+            config.config.gc.gc_num_epochs_to_keep(),
+            TrieConfig::from_store_config(&config.config.store),
+            state_snapshot_config,
+        )
+    }
+
     fn new(
         home_dir: &Path,
         store: Store,

@@ -19,13 +19,17 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
+use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
+use near_primitives_core::config::{ExtCosts, ParameterCost};
 use near_primitives_core::types::Gas;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
 use nearcore::{NearConfig, NightshadeRuntime};
@@ -34,6 +38,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
+use std::ops::Index;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -215,11 +220,24 @@ pub(crate) fn apply_range(
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
-    let runtime = NightshadeRuntime::from_config(
+    let runtime_config_store = if new_feature {
+        let base_runtime_config_store = RuntimeConfigStore::new(None);
+        let mut runtime_config = base_runtime_config_store.get_config(61).as_ref().clone(); // current stable
+        let old_costs = runtime_config.wasm_config.ext_costs.costs.clone();
+        runtime_config.wasm_config.ext_costs.costs.map(|cost| match it {
+            ExtCosts::touching_trie_node => ParameterCost { gas: 0, compute: 0 },
+            cost @ _ => old_costs.index(cost),
+        });
+        Some(RuntimeConfigStore::with_one_config(runtime_config))
+    } else {
+        None
+    };
+    let runtime = NightshadeRuntime::from_config_tmp(
         home_dir,
         store.clone(),
         &near_config,
         epoch_manager.clone(),
+        runtime_config_store,
     );
     apply_chain_range(
         store,

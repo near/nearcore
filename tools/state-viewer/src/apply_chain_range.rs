@@ -1,4 +1,3 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, RuntimeAdapter};
@@ -8,21 +7,24 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::DelayedReceiptIndices;
-use near_primitives::transaction::{Action, ExecutionMetadata, ExecutionOutcomeWithId, ExecutionOutcomeWithProof, ExecutionStatus};
+use near_primitives::transaction::{
+    Action, ExecutionMetadata, ExecutionOutcomeWithId, ExecutionOutcomeWithProof, ExecutionStatus,
+};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives_core::config::ExtCosts;
+use near_primitives_core::profile::ProfileDataV3;
+use near_primitives_core::types::{AccountId, Gas};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use near_primitives_core::config::ExtCosts;
-use near_primitives_core::profile::ProfileDataV3;
-use near_primitives_core::types::{AccountId, Gas};
 
 fn timestamp_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -129,13 +131,9 @@ fn parse_outcome(outcome: ExecutionOutcomeWithId) -> Option<ReceiptData> {
     let gas_burnt = outcome.outcome.gas_burnt;
     let status = outcome.outcome.status;
     match outcome.outcome.metadata {
-        ExecutionMetadata::V3(profile) => Some(ReceiptData {
-            id,
-            receiver_id,
-            gas_burnt,
-            profile,
-            status,
-        }),
+        ExecutionMetadata::V3(profile) => {
+            Some(ReceiptData { id, receiver_id, gas_burnt, profile, status })
+        }
         _ => None,
     }
 }
@@ -259,11 +257,8 @@ fn apply_block_from_range(
             }
         }
 
-        let gas_limit = if new_feature {
-            chunk_inner.gas_limit() * 100
-        } else {
-            chunk_inner.gas_limit()
-        };
+        let gas_limit =
+            if new_feature { chunk_inner.gas_limit() * 100 } else { chunk_inner.gas_limit() };
         runtime_adapter
             .apply_transactions(
                 shard_id,
@@ -292,11 +287,8 @@ fn apply_block_from_range(
             chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
         prev_chunk_extra = Some(chunk_extra.clone());
 
-        let gas_limit = if new_feature {
-            chunk_extra.gas_limit() * 100
-        } else {
-            chunk_extra.gas_limit()
-        };
+        let gas_limit =
+            if new_feature { chunk_extra.gas_limit() * 100 } else { chunk_extra.gas_limit() };
         runtime_adapter
             .apply_transactions(
                 shard_id,
@@ -321,16 +313,24 @@ fn apply_block_from_range(
             .unwrap()
     };
 
-    let existing_all_outcomes = chain_store
-        .get_block_execution_outcomes(&block_hash).unwrap();
-    let existing_outcomes: Vec<_> = existing_all_outcomes.get(&shard_id).cloned().unwrap_or_default().iter().map(|outcome| outcome.outcome_with_id.clone()).collect();
+    let existing_all_outcomes = chain_store.get_block_execution_outcomes(&block_hash).unwrap();
+    let existing_outcomes: Vec<_> = existing_all_outcomes
+        .get(&shard_id)
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|outcome| outcome.outcome_with_id.clone())
+        .collect();
     let outcomes = apply_result.outcomes.clone();
 
-    let existing_profiles: Vec<_> = existing_outcomes.iter().cloned().map(parse_outcome).flatten().collect();
+    let existing_profiles: Vec<_> =
+        existing_outcomes.iter().cloned().map(parse_outcome).flatten().collect();
     let profiles: Vec<_> = outcomes.iter().cloned().map(parse_outcome).flatten().collect();
 
-    let existing_receipts: HashMap<CryptoHash, ReceiptData> = HashMap::from_iter(existing_profiles.iter().map(|r| (r.id, r.clone())));
-    let receipts: HashMap<CryptoHash, ReceiptData> = HashMap::from_iter(profiles.iter().map(|r| (r.id, r.clone())));
+    let existing_receipts: HashMap<CryptoHash, ReceiptData> =
+        HashMap::from_iter(existing_profiles.iter().map(|r| (r.id, r.clone())));
+    let receipts: HashMap<CryptoHash, ReceiptData> =
+        HashMap::from_iter(profiles.iter().map(|r| (r.id, r.clone())));
 
     let existing_ids: HashSet<CryptoHash> = HashSet::from_iter(existing_receipts.keys().cloned());
     let ids: HashSet<CryptoHash> = HashSet::from_iter(receipts.keys().cloned());
@@ -345,8 +345,10 @@ fn apply_block_from_range(
         let receiver_id = existing_data.receiver_id.clone();
         let entry = diff_data.entry(receiver_id).or_insert_with(|| Default::default());
         match receipts.get(&id) {
-            Some(other_data) => { entry.push((existing_data, other_data)); }
-            None => {},
+            Some(other_data) => {
+                entry.push((existing_data, other_data));
+            }
+            None => {}
         }
     }
 
@@ -354,9 +356,15 @@ fn apply_block_from_range(
     for (account_id, diffs) in diff_data.iter() {
         println!("{} {} {}", height, shard_id, account_id);
         for (existing, new) in diffs {
-            println!("{} | {:?} -> {:?} | {} -> {} | {} -> {}", existing.id, existing.status, new.status, existing.gas_burnt, new.gas_burnt,
-                     existing.profile.get_ext_cost(ExtCosts::touching_trie_node),
-                     new.profile.get_ext_cost(ExtCosts::touching_trie_node),
+            println!(
+                "{} | {:?} -> {:?} | {} -> {} | {} -> {}",
+                existing.id,
+                existing.status,
+                new.status,
+                existing.gas_burnt,
+                new.gas_burnt,
+                existing.profile.get_ext_cost(ExtCosts::touching_trie_node),
+                new.profile.get_ext_cost(ExtCosts::touching_trie_node),
             );
         }
     }
@@ -486,6 +494,7 @@ pub fn apply_chain_range(
             for (height, shard_id) in blocks {
                 process_height(height, shard_id);
             }
+            return;
         }
     }
 
@@ -645,7 +654,22 @@ mod test {
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
             NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
-        apply_chain_range(store, &genesis, None, None, 0, epoch_manager.as_ref(), runtime, true, None, false, false, false, None, false);
+        apply_chain_range(
+            store,
+            &genesis,
+            None,
+            None,
+            0,
+            epoch_manager.as_ref(),
+            runtime,
+            true,
+            None,
+            false,
+            false,
+            false,
+            None,
+            false,
+        );
     }
 
     #[test]
@@ -670,7 +694,22 @@ mod test {
         let runtime =
             NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
         let mut file = tempfile::NamedTempFile::new().unwrap();
-        apply_chain_range(store, &genesis, None, None, 0, epoch_manager.as_ref(), runtime, true, Some(file.as_file_mut()), false, false, false, None, false);
+        apply_chain_range(
+            store,
+            &genesis,
+            None,
+            None,
+            0,
+            epoch_manager.as_ref(),
+            runtime,
+            true,
+            Some(file.as_file_mut()),
+            false,
+            false,
+            false,
+            None,
+            false,
+        );
         let mut csv = String::new();
         file.as_file_mut().seek(SeekFrom::Start(0)).unwrap();
         file.as_file_mut().read_to_string(&mut csv).unwrap();
