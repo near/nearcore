@@ -258,7 +258,7 @@ fn apply_block_from_range(
         }
 
         let gas_limit =
-            if new_feature { chunk_inner.gas_limit() * 100 } else { chunk_inner.gas_limit() };
+            if new_feature { chunk_inner.gas_limit() * 1000 } else { chunk_inner.gas_limit() };
         runtime_adapter
             .apply_transactions(
                 shard_id,
@@ -288,7 +288,7 @@ fn apply_block_from_range(
         prev_chunk_extra = Some(chunk_extra.clone());
 
         let gas_limit =
-            if new_feature { chunk_extra.gas_limit() * 100 } else { chunk_extra.gas_limit() };
+            if new_feature { chunk_extra.gas_limit() * 1000 } else { chunk_extra.gas_limit() };
         runtime_adapter
             .apply_transactions(
                 shard_id,

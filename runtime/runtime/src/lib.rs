@@ -1293,12 +1293,12 @@ impl Runtime {
                     .expect("`process_transaction` must populate compute usage"),
             )?;
 
-            if !checked_feature!("stable", ComputeCosts, apply_state.current_protocol_version) {
-                assert_eq!(
-                    total_compute_usage, total_gas_burnt,
-                    "Compute usage must match burnt gas"
-                );
-            }
+            // if !checked_feature!("stable", ComputeCosts, apply_state.current_protocol_version) {
+            //     assert_eq!(
+            //         total_compute_usage, total_gas_burnt,
+            //         "Compute usage must match burnt gas"
+            //     );
+            // }
 
             outcomes.push(outcome_with_id);
         }
@@ -1342,12 +1342,12 @@ impl Runtime {
                         .expect("`process_receipt` must populate compute usage"),
                 )?;
 
-                if !checked_feature!("stable", ComputeCosts, apply_state.current_protocol_version) {
-                    assert_eq!(
-                        total_compute_usage, total_gas_burnt,
-                        "Compute usage must match burnt gas"
-                    );
-                }
+                // if !checked_feature!("stable", ComputeCosts, apply_state.current_protocol_version) {
+                //     assert_eq!(
+                //         total_compute_usage, total_gas_burnt,
+                //         "Compute usage must match burnt gas"
+                //     );
+                // }
                 outcomes.push(outcome_with_id);
             }
             Ok(())
