@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, RuntimeAdapter};
@@ -7,7 +8,7 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::DelayedReceiptIndices;
-use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
+use near_primitives::transaction::{Action, ExecutionMetadata, ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -19,6 +20,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use near_primitives_core::profile::ProfileDataV3;
+use near_primitives_core::types::{AccountId, Gas};
 
 fn timestamp_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -107,6 +110,28 @@ fn maybe_add_to_csv(csv_file_mutex: &Mutex<Option<&mut File>>, s: &str) {
     let mut csv_file = csv_file_mutex.lock().unwrap();
     if let Some(csv_file) = csv_file.as_mut() {
         writeln!(csv_file, "{}", s).unwrap();
+    }
+}
+
+struct ReceiptData {
+    id: CryptoHash,
+    receiver_id: AccountId,
+    gas_burnt: Gas,
+    profile: ProfileDataV3,
+}
+
+fn parse_outcome(outcome: ExecutionOutcomeWithId) -> Option<ReceiptData> {
+    let id = outcome.id;
+    let receiver_id = outcome.outcome.executor_id;
+    let gas_burnt = outcome.outcome.gas_burnt;
+    match outcome.outcome.metadata {
+        ExecutionMetadata::V3(profile) => Some(ReceiptData {
+            id,
+            receiver_id,
+            gas_burnt,
+            profile,
+        }),
+        _ => None,
     }
 }
 
@@ -228,6 +253,12 @@ fn apply_block_from_range(
                 return;
             }
         }
+
+        let gas_limit = if new_feature {
+            chunk_inner.gas_limit() * 100
+        } else {
+            chunk_inner.gas_limit()
+        };
         runtime_adapter
             .apply_transactions(
                 shard_id,
@@ -240,7 +271,7 @@ fn apply_block_from_range(
                 chunk.transactions(),
                 chunk_inner.validator_proposals(),
                 prev_block.header().gas_price(),
-                chunk_inner.gas_limit(),
+                gas_limit,
                 block.header().challenges_result(),
                 *block.header().random_value(),
                 true,
@@ -256,6 +287,11 @@ fn apply_block_from_range(
             chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
         prev_chunk_extra = Some(chunk_extra.clone());
 
+        let gas_limit = if new_feature {
+            chunk_extra.gas_limit() * 100
+        } else {
+            chunk_extra.gas_limit()
+        };
         runtime_adapter
             .apply_transactions(
                 shard_id,
@@ -268,7 +304,7 @@ fn apply_block_from_range(
                 &[],
                 chunk_extra.validator_proposals(),
                 block.header().gas_price(),
-                chunk_extra.gas_limit(),
+                gas_limit,
                 block.header().challenges_result(),
                 *block.header().random_value(),
                 false,
@@ -279,6 +315,22 @@ fn apply_block_from_range(
             )
             .unwrap()
     };
+
+    let existing_all_outcomes = chain_store
+        .get_block_execution_outcomes(&block_hash).unwrap();
+    let existing_outcomes: Vec<_> = existing_all_outcomes.get(&shard_id).unwrap_or_default().iter().map(|outcome| outcome.outcome_with_id).collect();
+    let outcomes = apply_result.outcomes;
+
+    let existing_profiles: Vec<_> = existing_outcomes.iter().cloned().map(parse_outcome).flatten().collect();
+    let profiles: Vec<_> = outcomes.iter().cloned().map(parse_outcome).flatten().collect();
+
+    let existing_receipt_ids = HashMap::from_iter(existing_profiles.iter().map(|r| (r.id, r)));
+    let receipt_ids = HashMap::from_iter(profiles.iter().map(|r| (r.id, r)));
+    let diff_ids: Vec<_> = HashSet::from_iter(existing_receipt_ids.keys().cloned()).difference(&receipt_ids).collect();
+    if diff_ids.len() > 0 {
+        println!("NOT EXECUTED: {} {} {:?}", height, shard_id, diff_ids);
+    }
+
 
     let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
     let chunk_extra = ChunkExtra::new(
