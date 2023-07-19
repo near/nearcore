@@ -1,9 +1,8 @@
 /// Implementation for all resharding logic.
 /// StateSplitRequest and StateSplitResponse are exchanged across the client_actor and sync_jobs_actor.
 /// build_state_for_split_shards_preprocessing and build_state_for_split_shards_postprocessing are handled
-/// by the client_actor while the heavy resharding build_state_for_split_shards is done by sync_jobs_actor 
+/// by the client_actor while the heavy resharding build_state_for_split_shards is done by sync_jobs_actor
 /// so as to not affect client.
-
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
