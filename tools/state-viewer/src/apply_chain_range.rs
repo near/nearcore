@@ -369,6 +369,10 @@ fn apply_block_from_range(
         }
     }
 
+    if new_feature {
+        return;
+    }
+
     let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
     let chunk_extra = ChunkExtra::new(
         &apply_result.new_root,
