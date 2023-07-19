@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, RuntimeAdapter};
@@ -335,6 +335,13 @@ fn apply_block_from_range(
         println!("NOT EXECUTED: {} {} {:?}", height, shard_id, diff_ids);
     }
 
+    let mut diff_data: BTreeMap<_, Vec<_>> = Default::default();
+    for id in existing_ids {
+        let existing_data = existing_receipts.get(&id).unwrap();
+        let receiver_id = existing_data.receiver_id.clone();
+        let entry = diff_data.entry(receiver_id).or_insert_with(|| Default::default());
+        entry.push((existing_data, receipts.get(&id).unwrap()));
+    }
 
     let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
     let chunk_extra = ChunkExtra::new(
