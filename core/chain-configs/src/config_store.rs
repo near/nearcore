@@ -36,6 +36,8 @@ impl ChainConfigStore {
         let initial_chain_config = Arc::new(ChainConfig::new(genesis_config_snapshot));
         let mut store = BTreeMap::new();
         Self::populate_config_store(&mut store);
+        println!("Mirko: ide store");
+        println!("{:?}", store);
         Self { initial_chain_config, store }
     }
 
