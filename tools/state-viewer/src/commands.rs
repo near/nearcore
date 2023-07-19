@@ -222,9 +222,9 @@ pub(crate) fn apply_range(
         let base_runtime_config_store = RuntimeConfigStore::new(None);
         let mut runtime_config = base_runtime_config_store.get_config(61).as_ref().clone(); // current stable
         let old_costs = runtime_config.wasm_config.ext_costs.costs.clone();
-        runtime_config.wasm_config.ext_costs.costs.map(|cost| match cost {
+        runtime_config.wasm_config.ext_costs.costs = old_costs.map(|cost, value| match cost {
             ExtCosts::touching_trie_node => ParameterCost { gas: 0, compute: 0 },
-            cost @ _ => old_costs.index(cost),
+            _ => value,
         });
         Some(RuntimeConfigStore::with_one_config(runtime_config))
     } else {
