@@ -8,7 +8,7 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::DelayedReceiptIndices;
-use near_primitives::transaction::{Action, ExecutionMetadata, ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
+use near_primitives::transaction::{Action, ExecutionMetadata, ExecutionOutcomeWithId, ExecutionOutcomeWithProof, ExecutionStatus};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -20,6 +20,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use near_primitives_core::config::ExtCosts;
 use near_primitives_core::profile::ProfileDataV3;
 use near_primitives_core::types::{AccountId, Gas};
 
@@ -119,18 +120,21 @@ struct ReceiptData {
     receiver_id: AccountId,
     gas_burnt: Gas,
     profile: ProfileDataV3,
+    status: ExecutionStatus,
 }
 
 fn parse_outcome(outcome: ExecutionOutcomeWithId) -> Option<ReceiptData> {
     let id = outcome.id;
     let receiver_id = outcome.outcome.executor_id;
     let gas_burnt = outcome.outcome.gas_burnt;
+    let status = outcome.outcome.status;
     match outcome.outcome.metadata {
         ExecutionMetadata::V3(profile) => Some(ReceiptData {
             id,
             receiver_id,
             gas_burnt,
             profile,
+            status,
         }),
         _ => None,
     }
@@ -340,7 +344,21 @@ fn apply_block_from_range(
         let existing_data = existing_receipts.get(&id).unwrap();
         let receiver_id = existing_data.receiver_id.clone();
         let entry = diff_data.entry(receiver_id).or_insert_with(|| Default::default());
-        entry.push((existing_data, receipts.get(&id).unwrap()));
+        match receipts.get(&id) {
+            Some(other_data) => { entry.push((existing_data, other_data)); }
+            None => {},
+        }
+    }
+
+    // TODO: hide NEW costs under new_feature!
+    for (account_id, diffs) in diff_data.iter() {
+        println!("{} {} {}", height, shard_id, account_id);
+        for (existing, new) in diffs {
+            println!("{} | {:?} -> {:?} | {} -> {} | {} -> {}", existing.id, existing.status, new.status, existing.gas_burnt, new.gas_burnt,
+                     existing.profile.get_ext_cost(ExtCosts::touching_trie_node),
+                     new.profile.get_ext_cost(ExtCosts::touching_trie_node),
+            );
+        }
     }
 
     let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
