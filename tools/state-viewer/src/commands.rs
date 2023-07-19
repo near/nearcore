@@ -36,7 +36,6 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
-use std::ops::Index;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
