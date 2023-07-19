@@ -113,6 +113,7 @@ fn maybe_add_to_csv(csv_file_mutex: &Mutex<Option<&mut File>>, s: &str) {
     }
 }
 
+#[derive(Clone)]
 struct ReceiptData {
     id: CryptoHash,
     receiver_id: AccountId,
