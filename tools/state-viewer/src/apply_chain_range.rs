@@ -328,8 +328,8 @@ fn apply_block_from_range(
     let existing_receipts: HashMap<CryptoHash, ReceiptData> = HashMap::from_iter(existing_profiles.iter().map(|r| (r.id, r.clone())));
     let receipts: HashMap<CryptoHash, ReceiptData> = HashMap::from_iter(profiles.iter().map(|r| (r.id, r.clone())));
 
-    let existing_ids = HashSet::from_iter(existing_receipts.keys().cloned());
-    let ids = HashSet::from_iter(receipts.keys().cloned());
+    let existing_ids: HashSet<CryptoHash> = HashSet::from_iter(existing_receipts.keys().cloned());
+    let ids: HashSet<CryptoHash> = HashSet::from_iter(receipts.keys().cloned());
     let diff_ids: Vec<&CryptoHash> = existing_ids.difference(&ids).collect();
     if diff_ids.len() > 0 {
         println!("NOT EXECUTED: {} {} {:?}", height, shard_id, diff_ids);
