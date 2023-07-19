@@ -318,7 +318,7 @@ fn apply_block_from_range(
 
     let existing_all_outcomes = chain_store
         .get_block_execution_outcomes(&block_hash).unwrap();
-    let existing_outcomes: Vec<_> = existing_all_outcomes.get(&shard_id).unwrap_or_default().iter().map(|outcome| outcome.outcome_with_id).collect();
+    let existing_outcomes: Vec<_> = existing_all_outcomes.get(&shard_id).clone().unwrap_or_default().iter().map(|outcome| outcome.outcome_with_id).collect();
     let outcomes = apply_result.outcomes;
 
     let existing_profiles: Vec<_> = existing_outcomes.iter().cloned().map(parse_outcome).flatten().collect();
