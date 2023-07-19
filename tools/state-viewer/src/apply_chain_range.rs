@@ -324,9 +324,9 @@ fn apply_block_from_range(
     let existing_profiles: Vec<_> = existing_outcomes.iter().cloned().map(parse_outcome).flatten().collect();
     let profiles: Vec<_> = outcomes.iter().cloned().map(parse_outcome).flatten().collect();
 
-    let existing_receipt_ids = HashMap::from_iter(existing_profiles.iter().map(|r| (r.id, r)));
-    let receipt_ids = HashMap::from_iter(profiles.iter().map(|r| (r.id, r)));
-    let diff_ids: Vec<_> = HashSet::from_iter(existing_receipt_ids.keys().cloned()).difference(&receipt_ids).collect();
+    let existing_receipts = HashMap::from_iter(existing_profiles.iter().map(|r| (r.id, r)));
+    let receipts = HashMap::from_iter(profiles.iter().map(|r| (r.id, r)));
+    let diff_ids: Vec<_> = HashSet::from_iter(existing_receipts.keys().cloned()).difference(&receipts.keys().into()).collect();
     if diff_ids.len() > 0 {
         println!("NOT EXECUTED: {} {} {:?}", height, shard_id, diff_ids);
     }
