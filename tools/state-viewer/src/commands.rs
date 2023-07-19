@@ -221,8 +221,15 @@ pub(crate) fn apply_range(
         let base_runtime_config_store = RuntimeConfigStore::new(None);
         let mut runtime_config = base_runtime_config_store.get_config(61).as_ref().clone(); // current stable
         let old_costs = runtime_config.wasm_config.ext_costs.costs.clone();
+        let modify_key_byte_gas = 25_000_000_000;
         runtime_config.wasm_config.ext_costs.costs = old_costs.map(|cost, value| match cost {
             ExtCosts::touching_trie_node => ParameterCost { gas: 0, compute: 0 },
+            ExtCosts::storage_write_key_byte => {
+                ParameterCost { gas: modify_key_byte_gas, compute: modify_key_byte_gas * 3 }
+            }
+            ExtCosts::storage_remove_key_byte => {
+                ParameterCost { gas: modify_key_byte_gas, compute: modify_key_byte_gas * 3 }
+            }
             _ => value,
         });
         Some(RuntimeConfigStore::with_one_config(runtime_config))
