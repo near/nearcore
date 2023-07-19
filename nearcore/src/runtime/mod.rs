@@ -132,7 +132,7 @@ impl NightshadeRuntime {
             runtime_config_store,
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
-            state_snapshot_config,
+            StateSnapshotConfig::Disabled,
         )
     }
 
