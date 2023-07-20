@@ -1,6 +1,6 @@
 use crate::download_file::{run_download_file, FileDownloadError};
 use anyhow::{anyhow, bail, Context};
-use near_chain_configs::{get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisValidationMode, LogSummaryStyle, MutableConfigValue, StateSyncConfig, GenesisConfigSnapshot, GenesisSnapshot};
+use near_chain_configs::{get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode, LogSummaryStyle, MutableConfigValue, StateSyncConfig};
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
@@ -511,7 +511,7 @@ impl Config {
 }
 
 #[easy_ext::ext(GenesisExt)]
-impl GenesisSnapshot {
+impl Genesis {
     // Creates new genesis with a given set of accounts and shard layout.
     // The first num_validator_seats from accounts will be treated as 'validators'.
     pub fn test_with_seeds(
@@ -543,7 +543,7 @@ impl GenesisSnapshot {
             );
         }
         add_protocol_account(&mut records);
-        let config_snapshot = GenesisConfigSnapshot {
+        let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
             genesis_time: StaticClock::utc(),
             chain_id: random_chain_id(),
@@ -1442,24 +1442,24 @@ pub fn load_config(
     };
 
     let genesis_file = dir.join(&config.genesis_file);
-    let genesis_snapshot_result = match &config.genesis_records_file {
+    let genesis_result = match &config.genesis_records_file {
         // only load Genesis from file. Skip test for now.
         // this allows us to know the chain_id in order to check tracked_shards even if semantics checks fail.
-        Some(records_file) => GenesisSnapshot::from_files(
+        Some(records_file) => Genesis::from_files(
             &genesis_file,
             dir.join(records_file),
             GenesisValidationMode::UnsafeFast,
         ),
-        None => GenesisSnapshot::from_file(&genesis_file, GenesisValidationMode::UnsafeFast),
+        None => Genesis::from_file(&genesis_file, GenesisValidationMode::UnsafeFast),
     };
 
-    let genesis_snapshot = match genesis_snapshot_result {
-        Ok(genesis_snapshot) => {
-            if let Err(e) = genesis_snapshot.validate(genesis_validation) {
+    let genesis = match genesis_result {
+        Ok(genesis) => {
+            if let Err(e) = genesis.validate(genesis_validation) {
                 validation_errors.push_errors(e)
             };
             if validator_signer.is_some()
-                && matches!(genesis_snapshot.config.chain_id.as_ref(), MAINNET | TESTNET | BETANET)
+                && matches!(genesis.config.chain_id.as_ref(), MAINNET | TESTNET | BETANET)
                 && config.tracked_shards.is_empty()
             {
                 // Make sure validators tracks all shards, see
@@ -1467,7 +1467,7 @@ pub fn load_config(
                 let error_message = "The `chain_id` field specified in genesis is among mainnet/betanet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector";
                 validation_errors.push_cross_file_semantics_error(error_message.to_string());
             }
-            Some(genesis_snapshot)
+            Some(genesis)
         }
         Err(error) => {
             validation_errors.push_errors(error);
@@ -1477,12 +1477,12 @@ pub fn load_config(
 
     validation_errors.return_ok_or_error()?;
 
-    if genesis_snapshot.is_none() || network_signer.is_none() {
+    if genesis.is_none() || network_signer.is_none() {
         panic!("Genesis and network_signer should not be None by now.")
     }
     let near_config = NearConfig::new(
         config,
-        Genesis::from_genesis_snapshot(genesis_snapshot.unwrap()),
+        Genesis::from_genesis(genesis.unwrap()),
         network_signer.unwrap().into(),
         validator_signer,
     )?;
