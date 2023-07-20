@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use crate::ChainConfig;
 use crate::config::ChainConfigPatch;
-use crate::genesis_config::GenesisConfigSnapshot;
+use crate::genesis_config::GenesisConfig;
 use std::fs::File;
 use std::io::Read;
 use serde_json;
@@ -30,11 +30,11 @@ pub struct ChainConfigStore {
 }
 
 impl ChainConfigStore {
-    /// Constructs a new store. Initial chain config is read from provided genesis_config_snapshot.
+    /// Constructs a new store. Initial chain config is read from provided genesis_config.
     /// Stored values are read from config path list file and specific patches are read from the
     /// files that are named after the protocol version when they should be applied.
-    pub fn new(genesis_config_snapshot: GenesisConfigSnapshot) -> Self {
-        let initial_chain_config = Arc::new(ChainConfig::new(genesis_config_snapshot));
+    pub fn new(genesis_config: GenesisConfig) -> Self {
+        let initial_chain_config = Arc::new(ChainConfig::new(genesis_config));
         let mut store = BTreeMap::new();
         Self::populate_config_store(*initial_chain_config, &mut store);
         println!("Mirko: ide init config");

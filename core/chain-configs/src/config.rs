@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use crate::genesis_config::GenesisConfigSnapshot;
+use crate::genesis_config::GenesisConfig;
 use smart_default::SmartDefault;
 
 #[derive(Clone, SmartDefault, serde::Serialize, serde::Deserialize, Debug)]
@@ -21,8 +21,8 @@ pub struct ChainConfigPatch {
 }
 
 impl ChainConfig {
-    pub fn new(genesis_config_snapshot: GenesisConfigSnapshot) -> Self {
-        Self { protocol_reward_rate: genesis_config_snapshot.protocol_reward_rate }
+    pub fn new(genesis_config: GenesisConfig) -> Self {
+        Self { protocol_reward_rate: genesis_config.protocol_reward_rate }
     }
 
     pub fn from_values(protocol_reward_rate: Rational32) -> Self {
