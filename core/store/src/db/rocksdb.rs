@@ -147,7 +147,7 @@ impl RocksDB {
         .map_err(into_other)?;
         if cfg!(feature = "single_thread_rocksdb") {
             // These have to be set after open db
-            let mut env = Env::default().unwrap();
+            let mut env = Env::new().unwrap();
             env.set_bottom_priority_background_threads(0);
             env.set_high_priority_background_threads(0);
             env.set_low_priority_background_threads(0);
@@ -473,8 +473,7 @@ fn rocksdb_block_based_options(
     let mut block_opts = BlockBasedOptions::default();
     block_opts.set_block_size(block_size.as_u64().try_into().unwrap());
     // We create block_cache for each of 47 columns, so the total cache size is 32 * 47 = 1504mb
-    block_opts
-        .set_block_cache(&Cache::new_lru_cache(cache_size.as_u64().try_into().unwrap()).unwrap());
+    block_opts.set_block_cache(&Cache::new_lru_cache(cache_size.as_u64().try_into().unwrap()));
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
     block_opts.set_cache_index_and_filter_blocks(true);
     block_opts.set_bloom_filter(10.0, true);
@@ -584,7 +583,7 @@ impl Drop for RocksDB {
         if cfg!(feature = "single_thread_rocksdb") {
             // RocksDB with only one thread stuck on wait some condition var
             // Turn on additional threads to proceed
-            let mut env = Env::default().unwrap();
+            let mut env = Env::new().unwrap();
             env.set_background_threads(4);
         }
         self.db.cancel_all_background_work(true);
