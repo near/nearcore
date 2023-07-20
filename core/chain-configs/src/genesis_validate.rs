@@ -1,4 +1,4 @@
-use crate::{Genesis, GenesisConfig};
+use crate::genesis_config::{Genesis, GenesisConfig};
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::state_record::StateRecord;
