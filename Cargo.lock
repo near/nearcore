@@ -3581,7 +3581,6 @@ dependencies = [
  "near-chunks-primitives",
  "near-crypto",
  "near-primitives",
- "once_cell",
  "serde",
  "serde_json",
  "strum",
