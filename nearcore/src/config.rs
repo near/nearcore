@@ -1482,7 +1482,7 @@ pub fn load_config(
     }
     let near_config = NearConfig::new(
         config,
-        Genesis::from_genesis(genesis.unwrap()),
+        genesis.unwrap(),
         network_signer.unwrap().into(),
         validator_signer,
     )?;
