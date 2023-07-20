@@ -7,7 +7,7 @@ use std::path::Path;
 use crate::genesis_config::GenesisConfig;
 use smart_default::SmartDefault;
 
-#[derive(Clone, SmartDefault, serde::Serialize, serde::Deserialize, Debug)]
+#[derive(Clone, Copy, SmartDefault, serde::Serialize, serde::Deserialize, Debug)]
 pub struct ChainConfig {
     /// Protocol treasury rate
     #[default(Rational32::from_integer(0))]
