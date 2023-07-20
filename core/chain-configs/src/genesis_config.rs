@@ -513,10 +513,12 @@ impl Genesis {
                 &path.as_ref().display()
             ),
         })?;
+
         let mut json_str = String::new();
         file.read_to_string(&mut json_str).map_err(|_| ValidationError::GenesisFileError {
             error_message: "Failed to read genesis config file to string. ".to_string(),
         })?;
+
         let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)
             .map_err(|_| ValidationError::GenesisFileError {
                 error_message: "Failed to strip comments from genesis config file".to_string(),
@@ -634,6 +636,7 @@ impl Genesis {
             }
         }
     }
+
     /// Forces loading genesis records into memory.
     ///
     /// This is meant for **tests only**.  In production code you should be
