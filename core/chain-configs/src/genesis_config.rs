@@ -34,7 +34,6 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use tracing::warn;
-use near_primitives::types::EpochHeight;
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
 
@@ -595,7 +594,7 @@ impl Genesis {
             path,
             serde_json::to_vec_pretty(self).expect("Error serializing the genesis config."),
         )
-            .expect("Failed to create / write a genesis config file.");
+        .expect("Failed to create / write a genesis config file.");
     }
 
     /// Hash of the json-serialized input.
