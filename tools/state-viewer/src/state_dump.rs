@@ -91,7 +91,6 @@ pub fn state_dump(
             let records_file = File::create(records_path).unwrap();
             let mut ser = serde_json::Serializer::new(records_file);
             let mut seq = ser.serialize_seq(None).unwrap();
-            let epoch_height = epoch_manager.get_epoch_info(last_block_header.epoch_id()).unwrap().epoch_height();
             let total_supply = iterate_over_records(
                 runtime,
                 state_roots,
@@ -106,13 +105,12 @@ pub fn state_dump(
             // minting tokens every epoch.
             genesis_config.total_supply = total_supply;
             change_genesis_config(&mut genesis_config, change_config);
-            near_config.genesis = Genesis::new_with_path(genesis_config, records_path, epoch_height).unwrap();
+            near_config.genesis = Genesis::new_with_path(genesis_config, records_path).unwrap();
             near_config.config.genesis_records_file =
                 Some(records_path.file_name().unwrap().to_str().unwrap().to_string());
         }
         None => {
             let mut records: Vec<StateRecord> = vec![];
-            let epoch_height = epoch_manager.get_epoch_info(last_block_header.epoch_id()).unwrap().epoch_height();
             let total_supply = iterate_over_records(
                 runtime,
                 state_roots,
@@ -126,7 +124,7 @@ pub fn state_dump(
             // minting tokens every epoch.
             genesis_config.total_supply = total_supply;
             change_genesis_config(&mut genesis_config, change_config);
-            near_config.genesis = Genesis::new(genesis_config, records.into(), epoch_height).unwrap();
+            near_config.genesis = Genesis::new(genesis_config, records.into()).unwrap();
         }
     }
     near_config

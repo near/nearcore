@@ -632,7 +632,7 @@ impl NearConfig {
         network_key_pair: KeyFile,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
     ) -> anyhow::Result<Self> {
-        let chain_config_store = ChainConfigStore::new(genesis.config.clone());
+        let chain_config_store = ChainConfigStore::new(genesis.clone().config);
         Ok(NearConfig {
             config: config.clone(),
             client_config: ClientConfig {
@@ -702,8 +702,8 @@ impl NearConfig {
             rpc_config: config.rpc,
             #[cfg(feature = "rosetta_rpc")]
             rosetta_rpc_config: config.rosetta_rpc,
-            genesis,
-            chain_config: **chain_config_store.get_config(genesis.config.protocol_version.clone()),
+            genesis: genesis.clone(),
+            chain_config: **chain_config_store.get_config(genesis.config.protocol_version),
             validator_signer,
         })
     }

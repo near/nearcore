@@ -8,10 +8,7 @@ use near_chain::types::{
     ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, RuntimeAdapter, Tip,
 };
 use near_chain::Error;
-use near_chain_configs::{
-    Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-    MIN_GC_NUM_EPOCHS_TO_KEEP,
-};
+use near_chain_configs::{Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, MIN_GC_NUM_EPOCHS_TO_KEEP, ChainConfigStore};
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
@@ -80,6 +77,7 @@ const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
+    chain_config_store: ChainConfigStore,
     runtime_config_store: RuntimeConfigStore,
 
     store: Store,
@@ -128,6 +126,7 @@ impl NightshadeRuntime {
             Some(store) => store,
             None => NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id),
         };
+        let chain_config_store = ChainConfigStore::new(genesis.config.clone());
 
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
@@ -150,6 +149,7 @@ impl NightshadeRuntime {
         );
         Arc::new(NightshadeRuntime {
             genesis_config,
+            chain_config_store,
             runtime_config_store,
             store,
             tries,
@@ -1404,8 +1404,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let runtime_config =
             self.runtime_config_store.get_config(protocol_version).as_ref().clone();
 
-        let chain_config =
-            genesis_config.chain_config_store.get_config(genesis_config.protocol_version).as_ref().clone();
+        let chain_config = **self.chain_config_store.get_config(genesis_config.protocol_version);
         Ok(ProtocolConfig { genesis_config, chain_config, runtime_config })
     }
 

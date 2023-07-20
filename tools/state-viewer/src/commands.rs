@@ -358,7 +358,6 @@ pub(crate) fn dump_state(
         load_trie_stop_at_height(store, home_dir, &near_config, mode);
     let height = header.height();
     let home_dir = PathBuf::from(&home_dir);
-    let epoch_height = epoch_manager.get_epoch_info(header.epoch_id()).unwrap().epoch_height();
 
     if stream {
         let output_dir = file.unwrap_or(home_dir.join("output"));
@@ -373,7 +372,7 @@ pub(crate) fn dump_state(
             change_config,
         );
         println!("Saving state at {:?} @ {} into {}", state_roots, height, output_dir.display(),);
-        new_near_config.save_to_dir(&output_dir, epoch_height);
+        new_near_config.save_to_dir(&output_dir);
     } else {
         let new_near_config = state_dump(
             epoch_manager.as_ref(),
@@ -386,7 +385,7 @@ pub(crate) fn dump_state(
         );
         let output_file = file.unwrap_or(home_dir.join("output.json"));
         println!("Saving state at {:?} @ {} into {}", state_roots, height, output_file.display(),);
-        new_near_config.genesis.to_file(&output_file, epoch_height);
+        new_near_config.genesis.to_file(&output_file);
     }
 }
 
