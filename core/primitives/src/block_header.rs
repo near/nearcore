@@ -151,6 +151,51 @@ pub struct BlockHeaderInnerRestV3 {
     pub latest_protocol_version: ProtocolVersion,
 }
 
+/// Add `block_body_hash`
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
+pub struct BlockHeaderInnerRestV4 {
+    /// Hash of block body
+    pub block_body_hash: CryptoHash,
+    /// Root hash of the chunk receipts in the given block.
+    pub chunk_receipts_root: MerkleHash,
+    /// Root hash of the chunk headers in the given block.
+    pub chunk_headers_root: MerkleHash,
+    /// Root hash of the chunk transactions in the given block.
+    pub chunk_tx_root: MerkleHash,
+    /// Root hash of the challenges in the given block.
+    pub challenges_root: MerkleHash,
+    /// The output of the randomness beacon
+    pub random_value: CryptoHash,
+    /// Validator proposals.
+    pub validator_proposals: Vec<ValidatorStake>,
+    /// Mask for new chunks included in the block
+    pub chunk_mask: Vec<bool>,
+    /// Gas price. Same for all chunks
+    pub gas_price: Balance,
+    /// Total supply of tokens in the system
+    pub total_supply: Balance,
+    /// List of challenges result from previous block.
+    pub challenges_result: ChallengesResult,
+
+    /// Last block that has full BFT finality
+    pub last_final_block: CryptoHash,
+    /// Last block that has doomslug finality
+    pub last_ds_final_block: CryptoHash,
+
+    /// The ordinal of the Block on the Canonical Chain
+    pub block_ordinal: NumBlocks,
+
+    pub prev_height: BlockHeight,
+
+    pub epoch_sync_data_hash: Option<CryptoHash>,
+
+    /// All the approvals included in this block
+    pub approvals: Vec<Option<Signature>>,
+
+    /// Latest protocol version that this block producer has.
+    pub latest_protocol_version: ProtocolVersion,
+}
+
 /// The part of the block approval that is different for endorsements and skips
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ApprovalInner {
@@ -285,6 +330,25 @@ pub struct BlockHeaderV3 {
     pub hash: CryptoHash,
 }
 
+/// V3 -> V4: Add hash of block body to inner_rest
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
+#[borsh_init(init)]
+pub struct BlockHeaderV4 {
+    pub prev_hash: CryptoHash,
+
+    /// Inner part of the block header that gets hashed, split into two parts, one that is sent
+    ///    to light clients, and the rest
+    pub inner_lite: BlockHeaderInnerLite,
+    pub inner_rest: BlockHeaderInnerRestV4,
+
+    /// Signature of the block producer.
+    pub signature: Signature,
+
+    /// Cached value of hash for this block.
+    #[borsh_skip]
+    pub hash: CryptoHash,
+}
+
 impl BlockHeaderV2 {
     pub fn init(&mut self) {
         self.hash = BlockHeader::compute_hash(
@@ -305,6 +369,16 @@ impl BlockHeaderV3 {
     }
 }
 
+impl BlockHeaderV4 {
+    pub fn init(&mut self) {
+        self.hash = BlockHeader::compute_hash(
+            self.prev_hash,
+            &self.inner_lite.try_to_vec().expect("Failed to serialize"),
+            &self.inner_rest.try_to_vec().expect("Failed to serialize"),
+        );
+    }
+}
+
 /// Versioned BlockHeader data structure.
 /// For each next version, document what are the changes between versions.
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
@@ -312,6 +386,7 @@ pub enum BlockHeader {
     BlockHeaderV1(Arc<BlockHeaderV1>),
     BlockHeaderV2(Arc<BlockHeaderV2>),
     BlockHeaderV3(Arc<BlockHeaderV3>),
+    BlockHeaderV4(Arc<BlockHeaderV4>),
 }
 
 impl BlockHeader {
@@ -332,6 +407,7 @@ impl BlockHeader {
         next_epoch_protocol_version: ProtocolVersion,
         height: BlockHeight,
         prev_hash: CryptoHash,
+        #[cfg(feature = "protocol_feature_block_header_v4")] block_body_hash: CryptoHash,
         prev_state_root: MerkleHash,
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
@@ -367,6 +443,9 @@ impl BlockHeader {
             next_bp_hash,
             block_merkle_root,
         };
+        // This function still preserves code for old block header versions. These code are no longer
+        // used in production, but we still have features tests in the code that uses them.
+        // So we still keep the old code here.
         let last_header_v2_version =
             crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
         // Previously we passed next_epoch_protocol_version here, which is incorrect, but we need
@@ -432,6 +511,45 @@ impl BlockHeader {
                 hash,
             }))
         } else {
+            #[cfg(feature = "protocol_feature_block_header_v4")]
+            if crate::checked_feature!(
+                "protocol_feature_block_header_v4",
+                BlockHeaderV4,
+                this_epoch_protocol_version
+            ) {
+                let inner_rest = BlockHeaderInnerRestV4 {
+                    block_body_hash,
+                    chunk_receipts_root,
+                    chunk_headers_root,
+                    chunk_tx_root,
+                    challenges_root,
+                    random_value,
+                    validator_proposals,
+                    chunk_mask,
+                    gas_price,
+                    block_ordinal,
+                    total_supply,
+                    challenges_result,
+                    last_final_block,
+                    last_ds_final_block,
+                    prev_height,
+                    epoch_sync_data_hash,
+                    approvals,
+                    latest_protocol_version: get_protocol_version(next_epoch_protocol_version),
+                };
+                let (hash, signature) = signer.sign_block_header_parts(
+                    prev_hash,
+                    &inner_lite.try_to_vec().expect("Failed to serialize"),
+                    &inner_rest.try_to_vec().expect("Failed to serialize"),
+                );
+                return Self::BlockHeaderV4(Arc::new(BlockHeaderV4 {
+                    prev_hash,
+                    inner_lite,
+                    inner_rest,
+                    signature,
+                    hash,
+                }));
+            }
             let inner_rest = BlockHeaderInnerRestV3 {
                 chunk_receipts_root,
                 chunk_headers_root,
@@ -470,6 +588,7 @@ impl BlockHeader {
         genesis_protocol_version: ProtocolVersion,
         height: BlockHeight,
         state_root: MerkleHash,
+        #[cfg(feature = "protocol_feature_block_header_v4")] block_body_hash: CryptoHash,
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
@@ -553,6 +672,45 @@ impl BlockHeader {
                 hash,
             }))
         } else {
+            #[cfg(feature = "protocol_feature_block_header_v4")]
+            if crate::checked_feature!(
+                "protocol_feature_block_header_v4",
+                BlockHeaderV4,
+                genesis_protocol_version
+            ) {
+                let inner_rest = BlockHeaderInnerRestV4 {
+                    chunk_receipts_root,
+                    chunk_headers_root,
+                    chunk_tx_root,
+                    challenges_root,
+                    block_body_hash,
+                    random_value: CryptoHash::default(),
+                    validator_proposals: vec![],
+                    chunk_mask: vec![true; chunks_included as usize],
+                    block_ordinal: 1, // It is guaranteed that Chain has the only Block which is Genesis
+                    gas_price: initial_gas_price,
+                    total_supply: initial_total_supply,
+                    challenges_result: vec![],
+                    last_final_block: CryptoHash::default(),
+                    last_ds_final_block: CryptoHash::default(),
+                    prev_height: 0,
+                    epoch_sync_data_hash: None, // Epoch Sync cannot be executed up to Genesis
+                    approvals: vec![],
+                    latest_protocol_version: genesis_protocol_version,
+                };
+                let hash = BlockHeader::compute_hash(
+                    CryptoHash::default(),
+                    &inner_lite.try_to_vec().expect("Failed to serialize"),
+                    &inner_rest.try_to_vec().expect("Failed to serialize"),
+                );
+                return Self::BlockHeaderV4(Arc::new(BlockHeaderV4 {
+                    prev_hash: CryptoHash::default(),
+                    inner_lite,
+                    inner_rest,
+                    signature: Signature::empty(KeyType::ED25519),
+                    hash,
+                }));
+            }
             let inner_rest = BlockHeaderInnerRestV3 {
                 chunk_receipts_root,
                 chunk_headers_root,
@@ -593,6 +751,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.hash,
             BlockHeader::BlockHeaderV2(header) => &header.hash,
             BlockHeader::BlockHeaderV3(header) => &header.hash,
+            BlockHeader::BlockHeaderV4(header) => &header.hash,
         }
     }
 
@@ -602,6 +761,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.prev_hash,
             BlockHeader::BlockHeaderV2(header) => &header.prev_hash,
             BlockHeader::BlockHeaderV3(header) => &header.prev_hash,
+            BlockHeader::BlockHeaderV4(header) => &header.prev_hash,
         }
     }
 
@@ -611,6 +771,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.signature,
             BlockHeader::BlockHeaderV2(header) => &header.signature,
             BlockHeader::BlockHeaderV3(header) => &header.signature,
+            BlockHeader::BlockHeaderV4(header) => &header.signature,
         }
     }
 
@@ -620,6 +781,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => header.inner_lite.height,
             BlockHeader::BlockHeaderV2(header) => header.inner_lite.height,
             BlockHeader::BlockHeaderV3(header) => header.inner_lite.height,
+            BlockHeader::BlockHeaderV4(header) => header.inner_lite.height,
         }
     }
 
@@ -629,6 +791,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(_) => None,
             BlockHeader::BlockHeaderV2(_) => None,
             BlockHeader::BlockHeaderV3(header) => Some(header.inner_rest.prev_height),
+            BlockHeader::BlockHeaderV4(header) => Some(header.inner_rest.prev_height),
         }
     }
 
@@ -638,6 +801,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.epoch_id,
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite.epoch_id,
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite.epoch_id,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_lite.epoch_id,
         }
     }
 
@@ -647,6 +811,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.next_epoch_id,
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite.next_epoch_id,
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite.next_epoch_id,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_lite.next_epoch_id,
         }
     }
 
@@ -656,6 +821,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.prev_state_root,
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite.prev_state_root,
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite.prev_state_root,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_lite.prev_state_root,
         }
     }
 
@@ -665,6 +831,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.chunk_receipts_root,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.chunk_receipts_root,
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.chunk_receipts_root,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_rest.chunk_receipts_root,
         }
     }
 
@@ -674,6 +841,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.chunk_headers_root,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.chunk_headers_root,
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.chunk_headers_root,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_rest.chunk_headers_root,
         }
     }
 
@@ -683,6 +851,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.chunk_tx_root,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.chunk_tx_root,
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.chunk_tx_root,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_rest.chunk_tx_root,
         }
     }
 
@@ -695,6 +864,9 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV3(header) => {
                 header.inner_rest.chunk_mask.iter().map(|&x| u64::from(x)).sum::<u64>()
             }
+            BlockHeader::BlockHeaderV4(header) => {
+                header.inner_rest.chunk_mask.iter().map(|&x| u64::from(x)).sum::<u64>()
+            }
         }
     }
 
@@ -704,6 +876,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.challenges_root,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.challenges_root,
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.challenges_root,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_rest.challenges_root,
         }
     }
 
@@ -713,6 +886,17 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.outcome_root,
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite.outcome_root,
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite.outcome_root,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_lite.outcome_root,
+        }
+    }
+
+    #[inline]
+    pub fn block_body_hash(&self) -> Option<CryptoHash> {
+        match self {
+            BlockHeader::BlockHeaderV1(_) => None,
+            BlockHeader::BlockHeaderV2(_) => None,
+            BlockHeader::BlockHeaderV3(_) => None,
+            BlockHeader::BlockHeaderV4(header) => Some(header.inner_rest.block_body_hash),
         }
     }
 
@@ -722,6 +906,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => header.inner_lite.timestamp,
             BlockHeader::BlockHeaderV2(header) => header.inner_lite.timestamp,
             BlockHeader::BlockHeaderV3(header) => header.inner_lite.timestamp,
+            BlockHeader::BlockHeaderV4(header) => header.inner_lite.timestamp,
         }
     }
 
@@ -737,6 +922,9 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV3(header) => {
                 ValidatorStakeIter::new(&header.inner_rest.validator_proposals)
             }
+            BlockHeader::BlockHeaderV4(header) => {
+                ValidatorStakeIter::new(&header.inner_rest.validator_proposals)
+            }
         }
     }
 
@@ -746,6 +934,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.chunk_mask,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.chunk_mask,
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.chunk_mask,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_rest.chunk_mask,
         }
     }
 
@@ -755,6 +944,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(_) => 0, // not applicable
             BlockHeader::BlockHeaderV2(_) => 0, // not applicable
             BlockHeader::BlockHeaderV3(header) => header.inner_rest.block_ordinal,
+            BlockHeader::BlockHeaderV4(header) => header.inner_rest.block_ordinal,
         }
     }
 
@@ -764,6 +954,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => header.inner_rest.gas_price,
             BlockHeader::BlockHeaderV2(header) => header.inner_rest.gas_price,
             BlockHeader::BlockHeaderV3(header) => header.inner_rest.gas_price,
+            BlockHeader::BlockHeaderV4(header) => header.inner_rest.gas_price,
         }
     }
 
@@ -773,6 +964,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => header.inner_rest.total_supply,
             BlockHeader::BlockHeaderV2(header) => header.inner_rest.total_supply,
             BlockHeader::BlockHeaderV3(header) => header.inner_rest.total_supply,
+            BlockHeader::BlockHeaderV4(header) => header.inner_rest.total_supply,
         }
     }
 
@@ -782,6 +974,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.random_value,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.random_value,
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.random_value,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_rest.random_value,
         }
     }
 
@@ -791,6 +984,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.last_final_block,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.last_final_block,
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.last_final_block,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_rest.last_final_block,
         }
     }
 
@@ -800,6 +994,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.last_ds_final_block,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.last_ds_final_block,
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.last_ds_final_block,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_rest.last_ds_final_block,
         }
     }
 
@@ -809,6 +1004,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.challenges_result,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.challenges_result,
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.challenges_result,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_rest.challenges_result,
         }
     }
 
@@ -818,6 +1014,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.next_bp_hash,
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite.next_bp_hash,
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite.next_bp_hash,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_lite.next_bp_hash,
         }
     }
 
@@ -827,6 +1024,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite.block_merkle_root,
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite.block_merkle_root,
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite.block_merkle_root,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_lite.block_merkle_root,
         }
     }
 
@@ -836,6 +1034,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(_) => None,
             BlockHeader::BlockHeaderV2(_) => None,
             BlockHeader::BlockHeaderV3(header) => header.inner_rest.epoch_sync_data_hash,
+            BlockHeader::BlockHeaderV4(header) => header.inner_rest.epoch_sync_data_hash,
         }
     }
 
@@ -845,6 +1044,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.approvals,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.approvals,
             BlockHeader::BlockHeaderV3(header) => &header.inner_rest.approvals,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_rest.approvals,
         }
     }
 
@@ -869,6 +1069,7 @@ impl BlockHeader {
             }
             BlockHeader::BlockHeaderV2(_header) => true,
             BlockHeader::BlockHeaderV3(_header) => true,
+            BlockHeader::BlockHeaderV4(_header) => true,
         }
     }
 
@@ -878,6 +1079,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV1(header) => header.inner_rest.latest_protocol_version,
             BlockHeader::BlockHeaderV2(header) => header.inner_rest.latest_protocol_version,
             BlockHeader::BlockHeaderV3(header) => header.inner_rest.latest_protocol_version,
+            BlockHeader::BlockHeaderV4(header) => header.inner_rest.latest_protocol_version,
         }
     }
 
@@ -892,6 +1094,9 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV3(header) => {
                 header.inner_lite.try_to_vec().expect("Failed to serialize")
             }
+            BlockHeader::BlockHeaderV4(header) => {
+                header.inner_lite.try_to_vec().expect("Failed to serialize")
+            }
         }
     }
 
@@ -904,6 +1109,9 @@ impl BlockHeader {
                 header.inner_rest.try_to_vec().expect("Failed to serialize")
             }
             BlockHeader::BlockHeaderV3(header) => {
+                header.inner_rest.try_to_vec().expect("Failed to serialize")
+            }
+            BlockHeader::BlockHeaderV4(header) => {
                 header.inner_rest.try_to_vec().expect("Failed to serialize")
             }
         }
