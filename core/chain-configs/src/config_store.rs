@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use near_primitives::types::EpochHeight;
 use std::sync::Arc;
 use crate::ChainConfig;
 use crate::config::ChainConfigPatch;
@@ -8,30 +7,31 @@ use std::fs::File;
 use std::io::Read;
 use serde_json;
 use std::env;
+use near_primitives::types::ProtocolVersion;
 
 pub const RESOURCES_DIR: &str = "core/chain-configs/res/";
 pub const CONFIG_PATCH_LIST_FILENAME: &str = "config_patch_list.json";
 
-/// Stores epochs when new config patches should be applied.
+/// Stores protocol versions when new config patches should be applied.
 /// This list is used to load files with config patches.
 #[derive(Debug, serde::Deserialize)]
 pub struct ConfigPatchList {
-    epoch_patches: Vec<EpochHeight>,
+    protocol_version_patches: Vec<ProtocolVersion>,
 }
 
-/// Stores chain config for each epoch where it was updated.
+/// Stores chain config for each protocol version where it was updated.
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ChainConfigStore {
-    /// Initial chain config when bootstrapping network at epoch 0.
+    /// Initial chain config at genesis block.
     pub initial_chain_config: Arc<ChainConfig>,
-    /// Maps epoch to the config.
-    store: BTreeMap<EpochHeight, Arc<ChainConfigPatch>>,
+    /// Maps protocol version to the config.
+    store: BTreeMap<ProtocolVersion, Arc<ChainConfigPatch>>,
 }
 
 impl ChainConfigStore {
     /// Constructs a new store. Initial chain config is read from provided genesis_config_snapshot.
     /// Stored values are read from config path list file and specific patches are read from the
-    /// files that are names after the epoch when they should be applied.
+    /// files that are named after the protocol version when they should be applied.
     pub fn new(genesis_config_snapshot: GenesisConfigSnapshot) -> Self {
         let initial_chain_config = Arc::new(ChainConfig::new(genesis_config_snapshot));
         let mut store = BTreeMap::new();
@@ -41,18 +41,18 @@ impl ChainConfigStore {
         Self { initial_chain_config, store }
     }
 
-    fn populate_config_store(store: &mut BTreeMap<EpochHeight, Arc<ChainConfigPatch>>) {
+    fn populate_config_store(store: &mut BTreeMap<ProtocolVersion, Arc<ChainConfigPatch>>) {
         let config_patch_list = Self::get_config_patch_list();
 
-        for epoch_height in config_patch_list.epoch_patches {
-            let chain_config_patch = Self::load_chain_config(epoch_height);
-            store.insert(epoch_height, Arc::new(chain_config_patch));
+        for protocol_veriosn in config_patch_list.protocol_version_patches {
+            let chain_config_patch = Self::load_chain_config(protocol_veriosn);
+            store.insert(protocol_veriosn, Arc::new(chain_config_patch));
         }
     }
 
-    fn load_chain_config(epoch_height: EpochHeight) -> ChainConfigPatch {
+    fn load_chain_config(protocol_version: ProtocolVersion) -> ChainConfigPatch {
         let current_dir = env::current_dir().expect("Failed to get the current directory");
-        let path = current_dir.join(RESOURCES_DIR).join(epoch_height.to_string() + ".json");
+        let path = current_dir.join(RESOURCES_DIR).join(protocol_version.to_string() + ".json");
         let mut file = File::open(&path).expect("Failed to open chain config patch file.");
         let mut json_str = String::new();
         file.read_to_string(&mut json_str)
@@ -92,10 +92,10 @@ impl ChainConfigStore {
         Self { initial_chain_config, store }
     }
 
-    /// Returns initial config with applied all relevat config overrides for provided epoch.
-    pub fn get_config(&self, epoch_height: EpochHeight) -> Arc<ChainConfig> {
+    /// Returns initial config with applied all relevant config overrides for provided protocol version.
+    pub fn get_config(&self, protocol_version: ProtocolVersion) -> Arc<ChainConfig> {
         let mut config = self.initial_chain_config.as_ref().clone();
-        for (_, config_patch) in self.store.range(..=epoch_height) {
+        for (_, config_patch) in self.store.range(..=protocol_version) {
             config = config.apply_patch(config_patch.as_ref());
         }
         Arc::new(config)
