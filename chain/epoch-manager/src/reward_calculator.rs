@@ -5,7 +5,7 @@ use primitive_types::U256;
 
 use near_chain_configs::{GenesisConfig, ChainConfigStore, ChainConfig};
 use near_primitives::checked_feature;
-use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats, EpochHeight};
+use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
 use near_primitives::version::{ProtocolVersion, ENABLE_INFLATION_PROTOCOL_VERSION};
 
 pub(crate) const NUM_NS_IN_SECOND: u64 = 1_000_000_000;
