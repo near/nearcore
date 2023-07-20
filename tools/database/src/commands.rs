@@ -45,7 +45,7 @@ impl DatabaseCommand {
                 .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
                 cmd.run(home, near_config.config.archive, &near_config.config.store)
             }
-            SumCommand::RunMigrationsCommand(cmd) => {
+            SubCommand::RunMigrationsCommand(cmd) => {
                 let mut near_config = nearcore::config::load_config(
                     &home,
                     near_chain_configs::GenesisValidationMode::UnsafeFast,

@@ -62,6 +62,16 @@ Then you can call
 `neard database change-db-kind --new-kind Cold change-hot`.
 Notice that even though in your mind this db is cold, in your config this db hot, so you have to pass `change-hot`.
 
+### run-migrations
+Opens the DB and runs migrations to bring it to the actual version expected by `neard`
+Example usage:
+```bash
+cargo run --bin neard database run-migrations
+```
+
+For example, if the binary expects DB version `38`, but the DB is currently
+version `36`, the command will open the DB, run migrations that bring the DB
+from version `36` to version `38`, and then exits.
 ## Make a DB Snapshot
 
 Makes a copy of a DB (hot store only) at a specified location. If the
