@@ -44,10 +44,18 @@ pub(crate) fn apply_block(
     epoch_manager: &dyn EpochManagerAdapter,
     runtime: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
+    use_flat_storage: bool,
 ) -> (Block, ApplyTransactionResult) {
     let block = chain_store.get_block(&block_hash).unwrap();
     let height = block.header().height();
     let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
+    if use_flat_storage {
+        runtime
+            .get_flat_storage_manager()
+            .unwrap()
+            .create_flat_storage_for_shard(shard_uid)
+            .unwrap();
+    }
     let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
         let chunk = chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap();
         let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap();
@@ -88,7 +96,7 @@ pub(crate) fn apply_block(
                 true,
                 is_first_block_with_chunk_of_version,
                 Default::default(),
-                false,
+                use_flat_storage,
             )
             .unwrap()
     } else {
@@ -113,7 +121,7 @@ pub(crate) fn apply_block(
                 false,
                 false,
                 Default::default(),
-                false,
+                use_flat_storage,
             )
             .unwrap()
     };
@@ -123,6 +131,7 @@ pub(crate) fn apply_block(
 pub(crate) fn apply_block_at_height(
     height: BlockHeight,
     shard_id: ShardId,
+    use_flat_storage: bool,
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
@@ -142,6 +151,7 @@ pub(crate) fn apply_block_at_height(
         epoch_manager.as_ref(),
         runtime.as_ref(),
         &mut chain_store,
+        use_flat_storage,
     );
     check_apply_block_result(
         &block,
@@ -158,6 +168,7 @@ pub(crate) fn apply_chunk(
     store: Store,
     chunk_hash: ChunkHash,
     target_height: Option<u64>,
+    use_flat_storage: bool,
 ) -> anyhow::Result<()> {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime = NightshadeRuntime::from_config(
@@ -178,6 +189,7 @@ pub(crate) fn apply_chunk(
         chunk_hash,
         target_height,
         None,
+        use_flat_storage,
     )?;
     println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(&apply_result, gas_limit));
     Ok(())
@@ -194,6 +206,7 @@ pub(crate) fn apply_range(
     store: Store,
     only_contracts: bool,
     sequential: bool,
+    use_flat_storage: bool,
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
@@ -216,6 +229,7 @@ pub(crate) fn apply_range(
         csv_file.as_mut(),
         only_contracts,
         sequential,
+        use_flat_storage,
     );
 }
 
@@ -224,6 +238,7 @@ pub(crate) fn apply_receipt(
     near_config: NearConfig,
     store: Store,
     hash: CryptoHash,
+    use_flat_storage: bool,
 ) -> anyhow::Result<()> {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime = NightshadeRuntime::from_config(
@@ -238,6 +253,7 @@ pub(crate) fn apply_receipt(
         runtime.as_ref(),
         store,
         hash,
+        use_flat_storage,
     )
     .map(|_| ())
 }
@@ -247,6 +263,7 @@ pub(crate) fn apply_tx(
     near_config: NearConfig,
     store: Store,
     hash: CryptoHash,
+    use_flat_storage: bool,
 ) -> anyhow::Result<()> {
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime = NightshadeRuntime::from_config(
@@ -261,6 +278,7 @@ pub(crate) fn apply_tx(
         runtime.as_ref(),
         store,
         hash,
+        use_flat_storage,
     )
     .map(|_| ())
 }
@@ -567,32 +585,45 @@ pub(crate) fn print_chain(
                 if let Ok(epoch_id) = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())
                 {
                     cur_epoch_id = Some(epoch_id.clone());
-                    if epoch_manager.is_next_block_epoch_start(header.prev_hash()).unwrap() {
-                        println!("{:?}", account_id_to_blocks);
-                        account_id_to_blocks = HashMap::new();
-                        println!(
-                            "Epoch {} Validators {:?}",
-                            format_hash(epoch_id.0, show_full_hashes),
-                            epoch_manager
-                                .get_epoch_block_producers_ordered(&epoch_id, header.hash())
-                                .unwrap()
-                        );
-                    }
-                    let block_producer =
-                        epoch_manager.get_block_producer(&epoch_id, header.height()).unwrap();
+                    match epoch_manager.is_next_block_epoch_start(header.prev_hash()) {
+                        Ok(true) => {
+                            println!("{:?}", account_id_to_blocks);
+                            account_id_to_blocks = HashMap::new();
+                            println!(
+                                "Epoch {} Validators {:?}",
+                                format_hash(epoch_id.0, show_full_hashes),
+                                epoch_manager
+                                    .get_epoch_block_producers_ordered(&epoch_id, header.hash())
+                            );
+                        }
+                        Err(err) => {
+                            println!("Don't know if next block is epoch start: {err:?}");
+                        }
+                        _ => {}
+                    };
+                    let block_producer = epoch_manager
+                        .get_block_producer(&epoch_id, header.height())
+                        .map(|account_id| account_id.to_string())
+                        .ok()
+                        .unwrap_or("error".to_owned());
                     account_id_to_blocks
                         .entry(block_producer.clone())
                         .and_modify(|e| *e += 1)
                         .or_insert(1);
 
-                    let block = chain_store.get_block(&block_hash).unwrap().clone();
+                    let block = if let Ok(block) = chain_store.get_block(&block_hash) {
+                        block.clone()
+                    } else {
+                        continue;
+                    };
 
                     let mut chunk_debug_str: Vec<String> = Vec::new();
 
                     for shard_id in 0..header.chunk_mask().len() {
                         let chunk_producer = epoch_manager
                             .get_chunk_producer(&epoch_id, header.height(), shard_id as u64)
-                            .unwrap();
+                            .map(|account_id| account_id.to_string())
+                            .unwrap_or("CP Unknown".to_owned());
                         if header.chunk_mask()[shard_id] {
                             let chunk_hash = &block.chunks()[shard_id].chunk_hash();
                             if let Ok(chunk) = chain_store.get_chunk(chunk_hash) {
@@ -632,7 +663,10 @@ pub(crate) fn print_chain(
                 }
             }
         } else if let Some(epoch_id) = &cur_epoch_id {
-            let block_producer = epoch_manager.get_block_producer(epoch_id, height).unwrap();
+            let block_producer = epoch_manager
+                .get_block_producer(epoch_id, height)
+                .map(|account_id| account_id.to_string())
+                .unwrap_or("error".to_owned());
             println!("{: >3} {} | {: >10}", height, Red.bold().paint("MISSING"), block_producer);
         } else {
             println!("{: >3} {}", height, Red.bold().paint("MISSING"));
@@ -732,8 +766,8 @@ pub(crate) fn view_chain(
         if chunk_header.height_included() == block.header().height() {
             let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, &shard_layout);
             chunk_extras
-                .push((i, chain_store.get_chunk_extra(block.hash(), &shard_uid).unwrap().clone()));
-            chunks.push((i, chain_store.get_chunk(&chunk_header.chunk_hash()).unwrap().clone()));
+                .push((i, chain_store.get_chunk_extra(block.hash(), &shard_uid).ok().clone()));
+            chunks.push((i, chain_store.get_chunk(&chunk_header.chunk_hash()).ok().clone()));
         }
     }
     let chunk_extras = block
@@ -743,7 +777,7 @@ pub(crate) fn view_chain(
         .filter_map(|(i, chunk_header)| {
             if chunk_header.height_included() == block.header().height() {
                 let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, &shard_layout);
-                Some((i, chain_store.get_chunk_extra(block.hash(), &shard_uid).unwrap()))
+                Some((i, chain_store.get_chunk_extra(block.hash(), &shard_uid).ok()))
             } else {
                 None
             }

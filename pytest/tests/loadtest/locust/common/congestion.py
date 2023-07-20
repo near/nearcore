@@ -66,6 +66,7 @@ class ComputeSum(base.Transaction):
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
+    base.INIT_DONE.wait()
     # `master_funding_account` is the same on all runners, allowing to share a
     # single instance of congestion contract.
     funding_account = environment.master_funding_account
@@ -81,9 +82,8 @@ def on_locust_init(environment, **kwargs):
 
     account = base.Account(
         key.Key.from_seed_testonly(environment.congestion_account_id))
-    if not node.account_exists(account.key.account_id):
-        node.create_contract_account(funding_account, account.key)
-    account.refresh_nonce(node.node)
+    node.prepare_account(account, funding_account, 50000,
+                         "create contract account")
     node.send_tx_retry(
         base.Deploy(
             account,

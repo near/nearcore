@@ -2,7 +2,7 @@
 version = "0.0.0" # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
-rust-version = "1.70.0"
+rust-version = "1.71.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -250,7 +250,7 @@ pin-project = "1.0"
 prefix-sum-vec = "0.1.2"
 pretty_assertions = "1.2"
 primitive-types = { version = "0.10", default-features = false }
-proc-macro2 = "1"
+proc-macro2 = "1.0.64"
 prometheus = "0.13.1"
 protobuf = "3.0.1"
 protobuf-codegen = "3.0.1"
@@ -270,7 +270,7 @@ reqwest = { version = "0.11.14", features = ["blocking"] }
 ripemd = "0.1.1"
 rkyv = "0.7.31"
 rlimit = "0.7"
-rocksdb = { version = "0.19.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib", "jemalloc"] }
+rocksdb = { version = "0.21.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib", "jemalloc"] }
 runtime-tester = { path = "test-utils/runtime-tester" }
 rusqlite = { version = "0.27.0", features = ["bundled", "chrono", "functions"] }
 rustc-demangle = "0.1"

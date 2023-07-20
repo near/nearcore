@@ -1,13 +1,13 @@
-import json
 import random
 import sys
 import pathlib
+import typing
 from locust import events
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
 import key
-from common.base import Account, Deploy, NearNodeProxy, NearUser, FunctionCall
+from common.base import Account, Deploy, NearNodeProxy, NearUser, FunctionCall, INIT_DONE
 
 
 class FTContract:
@@ -15,8 +15,9 @@ class FTContract:
     # going to pay for storage
     INIT_BALANCE = NearUser.INIT_BALANCE
 
-    def __init__(self, account: Account, code: str):
+    def __init__(self, account: Account, ft_distributor: Account, code: str):
         self.account = account
+        self.ft_distributor = ft_distributor
         self.registered_users = []
         self.code = code
 
@@ -25,12 +26,8 @@ class FTContract:
         Deploy and initialize the contract on chain.
         The account is created if it doesn't exist yet.
         """
-        if not node.account_exists(self.account.key.account_id):
-            node.create_contract_account(parent,
-                                         self.account.key,
-                                         balance=FTContract.INIT_BALANCE)
-
-        self.account.refresh_nonce(node.node)
+        node.prepare_account(self.account, parent, FTContract.INIT_BALANCE,
+                             "create contract account")
         node.send_tx_retry(Deploy(self.account, self.code, "FT"), "deploy ft")
         self.init_contract(node)
 
@@ -38,26 +35,26 @@ class FTContract:
         node.send_tx_retry(InitFT(self.account), "init ft")
 
     def register_user(self, user: NearUser):
-        user.send_tx(InitFTAccount(self.account, user.account),
-                     locust_name="Init FT Account")
-        user.send_tx(TransferFT(self.account,
-                                self.account,
-                                user.account_id,
-                                how_much=10**8),
-                     locust_name="FT Funding")
+        user.send_tx_retry(InitFTAccount(self.account, user.account),
+                           locust_name="Init FT Account")
+        user.send_tx_retry(TransferFT(self.account,
+                                      self.ft_distributor,
+                                      user.account_id,
+                                      how_much=10**8),
+                           locust_name="FT Funding")
         self.registered_users.append(user.account_id)
 
     def random_receiver(self, sender: str) -> str:
         return self.random_receivers(sender, 1)[0]
 
-    def random_receivers(self, sender: str, num) -> list[str]:
+    def random_receivers(self, sender: str, num) -> typing.List[str]:
         rng = random.Random()
         receivers = rng.sample(self.registered_users, num)
         # Sender must be != receiver but maybe there is no other registered user
-        # yet, so we just send to the contract account which is registered
-        # implicitly from the start
+        # yet, so we just send to the ft_distributor account which is registered
+        # from the start
         return list(
-            map(lambda a: a.replace(sender, self.account.key.account_id),
+            map(lambda a: a.replace(sender, self.ft_distributor.key.account_id),
                 receivers))
 
 
@@ -120,6 +117,7 @@ class InitFTAccount(FunctionCall):
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
+    INIT_DONE.wait()
     node = NearNodeProxy(environment)
     ft_contract_code = environment.parsed_options.fungible_token_wasm
     num_ft_contracts = environment.parsed_options.num_ft_contracts
@@ -135,7 +133,7 @@ def on_locust_init(environment, **kwargs):
             parent_id, '_ft')
         contract_key = key.Key.from_random(account_id)
         ft_account = Account(contract_key)
-        ft_contract = FTContract(ft_account, ft_contract_code)
+        ft_contract = FTContract(ft_account, ft_account, ft_contract_code)
         ft_contract.install(node, funding_account)
         environment.ft_contracts.append(ft_contract)
 

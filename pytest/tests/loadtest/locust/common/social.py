@@ -2,6 +2,7 @@ from abc import abstractmethod
 import json
 import sys
 import pathlib
+import typing
 import unittest
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
@@ -11,7 +12,7 @@ import transaction
 
 from account import TGAS, NEAR_BASE
 import key
-from common.base import Account, Deploy, NearNodeProxy, Transaction, FunctionCall
+from common.base import Account, Deploy, NearNodeProxy, Transaction, FunctionCall, INIT_DONE
 from locust import events, runners
 from transaction import create_function_call_action
 
@@ -40,7 +41,7 @@ class SubmitPost(SocialDbSet):
 class Follow(SocialDbSet):
 
     def __init__(self, contract_id: str, sender: Account,
-                 follow_list: list[str]):
+                 follow_list: typing.List[str]):
         super().__init__(contract_id, sender)
         self.follow_list = follow_list
 
@@ -118,7 +119,7 @@ def social_db_build_index_obj(key_list_pairs: dict) -> dict:
     A dict instead of a list of tuples doesn't work because keys can be duplicated.
     """
 
-    def serialize_values(values: list[tuple[str, dict]]):
+    def serialize_values(values: typing.List[typing.Tuple[str, dict]]):
         return json.dumps([{"key": k, "value": v} for k, v in values])
 
     return {
@@ -151,7 +152,7 @@ def social_db_set_msg(sender: str, values: dict, index: dict) -> dict:
     return msg
 
 
-def social_follow_args(sender: str, follow_list: list[str]) -> dict:
+def social_follow_args(sender: str, follow_list: typing.List[str]) -> dict:
     follow_map = {}
     graph = []
     notify = []
@@ -256,6 +257,7 @@ class TestSocialDbSetMsg(unittest.TestCase):
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
+    INIT_DONE.wait()
     # `master_funding_account` is the same on all runners, allowing to share a
     # single instance of SocialDB in its `social` sub account
     funding_account = environment.master_funding_account
@@ -268,10 +270,9 @@ def on_locust_init(environment, **kwargs):
         social_account = Account(contract_key)
 
         node = NearNodeProxy(environment)
-        if not node.account_exists(social_account.key.account_id):
-            node.create_contract_account(funding_account, social_account.key,
-                                         50000.0)
-            social_account.refresh_nonce(node.node)
+        existed = node.prepare_account(social_account, funding_account, 50000,
+                                       "create contract account")
+        if not existed:
             node.send_tx_retry(
                 Deploy(social_account, social_contract_code, "Social DB"),
                 "deploy socialDB contract")
