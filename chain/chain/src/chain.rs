@@ -74,7 +74,7 @@ use near_store::flat::{
     store_helper, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageError,
     FlatStorageReadyStatus, FlatStorageStatus,
 };
-use near_store::StorageError;
+use near_store::{get_genesis_state_roots, StorageError};
 use near_store::{DBCol, ShardTries, WrappedTrieChanges};
 use once_cell::sync::OnceCell;
 use rand::seq::SliceRandom;
@@ -503,7 +503,8 @@ impl Chain {
         runtime_adapter: &dyn RuntimeAdapter,
         chain_genesis: &ChainGenesis,
     ) -> Result<Block, Error> {
-        let (_, state_roots) = runtime_adapter.genesis_state();
+        let state_roots = get_genesis_state_roots(runtime_adapter.store())?
+            .expect("genesis should be initialized.");
         let genesis_chunks = genesis_chunks(
             state_roots,
             epoch_manager.num_shards(&EpochId::default())?,
@@ -577,9 +578,13 @@ impl Chain {
         make_snapshot_callback: Option<MakeSnapshotCallback>,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
-        let (store, state_roots) = runtime_adapter.genesis_state();
-        let mut store =
-            ChainStore::new(store, chain_genesis.height, chain_config.save_trie_changes);
+        let state_roots = get_genesis_state_roots(runtime_adapter.store())?
+            .expect("genesis should be initialized.");
+        let mut store = ChainStore::new(
+            runtime_adapter.store().clone(),
+            chain_genesis.height,
+            chain_config.save_trie_changes,
+        );
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
             epoch_manager.num_shards(&EpochId::default())?,

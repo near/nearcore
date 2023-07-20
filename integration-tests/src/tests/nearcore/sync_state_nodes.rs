@@ -18,6 +18,7 @@ use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::MaybeValidated;
+use near_store::genesis::initialize_genesis_state;
 use near_store::{NodeStorage, Store};
 use nearcore::{config::GenesisExt, load_test_config, start_with_config, NightshadeRuntime};
 use std::ops::ControlFlow;
@@ -570,12 +571,13 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                                 .open()
                                 .unwrap()
                                 .get_hot_store();
+                        initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
                         let epoch_manager =
                             EpochManager::new_arc_handle(store.clone(), &genesis.config);
                         let runtime = NightshadeRuntime::test(
                             tmp_dir.path(),
                             store.clone(),
-                            &genesis,
+                            &genesis.config,
                             epoch_manager.clone(),
                         ) as Arc<dyn RuntimeAdapter>;
                         (tmp_dir, store, epoch_manager, runtime)
