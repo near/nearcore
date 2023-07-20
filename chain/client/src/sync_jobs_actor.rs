@@ -139,11 +139,10 @@ impl actix::Handler<WithSpanContext<StateSplitRequest>> for SyncJobsActor {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let shard_id = msg.shard_id;
         let sync_hash = msg.sync_hash;
-        let results = Chain::build_state_for_split_shards(msg);
+        let new_state_roots = Chain::build_state_for_split_shards(msg);
 
         self.client_addr.do_send(
-            StateSplitResponse { sync_hash, shard_id, new_state_roots: results }
-                .with_span_context(),
+            StateSplitResponse { sync_hash, shard_id, new_state_roots }.with_span_context(),
         );
     }
 }

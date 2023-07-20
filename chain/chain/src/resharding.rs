@@ -1,7 +1,7 @@
 /// Implementation for all resharding logic.
-/// StateSplitRequest and StateSplitResponse are exchanged across the client_actor and sync_jobs_actor.
+/// StateSplitRequest and StateSplitResponse are exchanged across the client_actor and SyncJobsActor.
 /// build_state_for_split_shards_preprocessing and build_state_for_split_shards_postprocessing are handled
-/// by the client_actor while the heavy resharding build_state_for_split_shards is done by sync_jobs_actor
+/// by the client_actor while the heavy resharding build_state_for_split_shards is done by SyncJobsActor
 /// so as to not affect client.
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -170,7 +170,7 @@ impl Chain {
         state_roots: Result<HashMap<ShardUId, StateRoot>, Error>,
     ) -> Result<(), Error> {
         let prev_hash = *self.get_block_header(sync_hash)?.prev_hash();
-        let mut chain_store_update = self.store.store_update();
+        let mut chain_store_update = self.mut_store().store_update();
         for (shard_uid, state_root) in state_roots? {
             // here we store the state roots in chunk_extra in the database for later use
             let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
