@@ -42,7 +42,8 @@ use near_primitives::views::{
     QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
 };
 use near_store::{
-    DBCol, PartialStorage, ShardTries, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
+    set_genesis_state_roots, DBCol, PartialStorage, ShardTries, Store, StoreUpdate, Trie,
+    TrieChanges, WrappedTrieChanges,
 };
 
 use crate::types::{ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter};
@@ -355,6 +356,11 @@ impl KeyValueRuntime {
         // We cannot do any reasonable validations of it in test_utils.
         let state = HashMap::from([(Trie::EMPTY_ROOT, kv_state)]);
         let state_size = HashMap::from([(Trie::EMPTY_ROOT, data_len)]);
+
+        let mut store_update = store.store_update();
+        let genesis_roots: Vec<CryptoHash> = (0..num_shards).map(|_| Trie::EMPTY_ROOT).collect();
+        set_genesis_state_roots(&mut store_update, &genesis_roots);
+        store_update.commit().expect("Store failed on genesis intialization");
 
         Arc::new(KeyValueRuntime {
             store,
@@ -939,10 +945,6 @@ impl EpochManagerAdapter for MockEpochManager {
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self) -> (Store, Vec<StateRoot>) {
-        (self.store.clone(), ((0..self.num_shards).map(|_| Trie::EMPTY_ROOT).collect()))
-    }
-
     fn store(&self) -> &Store {
         &self.store
     }

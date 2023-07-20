@@ -17,7 +17,6 @@ pub use db::{
     GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
     LATEST_KNOWN_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
 };
-pub use genesis_state_applier::GenesisStateApplier;
 use near_crypto::PublicKey;
 use near_fmt::{AbbrBytes, StorageKey};
 use near_primitives::account::{AccessKey, Account};
@@ -46,7 +45,6 @@ pub mod config;
 pub mod db;
 pub mod flat;
 pub mod genesis;
-pub mod genesis_state_applier;
 pub mod metadata;
 pub mod metrics;
 pub mod migrations;

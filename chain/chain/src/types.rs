@@ -239,9 +239,6 @@ impl ChainGenesis {
 /// Naming note: `state_root` is a pre state root for block `block_hash` and a
 /// post state root for block `prev_hash`.
 pub trait RuntimeAdapter: Send + Sync {
-    /// Get store and genesis state roots
-    fn genesis_state(&self) -> (Store, Vec<StateRoot>);
-
     fn get_tries(&self) -> ShardTries;
 
     fn store(&self) -> &Store;

@@ -11,7 +11,7 @@ use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
-use near_store::test_utils::create_test_store;
+use near_store::{genesis::initialize_genesis_state, test_utils::create_test_store};
 use nearcore::{config::GenesisExt, NightshadeRuntime};
 use testlib::fees_utils::FeeHelper;
 
@@ -33,9 +33,14 @@ fn build_genesis() -> Genesis {
 fn setup_env(genesis: &Genesis) -> TestEnv {
     init_integration_logger();
     let store = create_test_store();
+    initialize_genesis_state(store.clone(), &genesis, None);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-    let runtime =
-        NightshadeRuntime::test(Path::new("."), store.clone(), genesis, epoch_manager.clone());
+    let runtime = NightshadeRuntime::test(
+        Path::new("."),
+        store.clone(),
+        &genesis.config,
+        epoch_manager.clone(),
+    );
     TestEnv::builder(ChainGenesis::new(&genesis))
         .stores(vec![store])
         .epoch_managers(vec![epoch_manager])

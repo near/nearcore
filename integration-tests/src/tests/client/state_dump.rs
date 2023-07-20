@@ -22,6 +22,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::flat::store_helper;
+use near_store::genesis::initialize_genesis_state;
 use near_store::DBCol;
 use near_store::{NodeStorage, Store};
 use nearcore::config::GenesisExt;
@@ -50,9 +51,10 @@ fn test_state_dump() {
                 .open()
                 .unwrap()
                 .get_hot_store();
+            initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
             let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
             let runtime =
-                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
                     as Arc<dyn RuntimeAdapter>;
             (tmp_dir, store, epoch_manager, runtime)
         }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
@@ -169,9 +171,10 @@ fn run_state_sync_with_dumped_parts(
                 .open()
                 .unwrap()
                 .get_hot_store();
+            initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
             let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
             let runtime =
-                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
                     as Arc<dyn RuntimeAdapter>;
             (tmp_dir, store, epoch_manager, runtime)
         }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
