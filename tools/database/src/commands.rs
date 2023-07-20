@@ -1,5 +1,6 @@
 use crate::adjust_database::ChangeDbKindCommand;
 use crate::analyse_data_size_distribution::AnalyseDataSizeDistributionCommand;
+use crate::run_migrations::RunMigrationsCommand;
 use clap::Parser;
 use std::path::PathBuf;
 
@@ -17,6 +18,9 @@ enum SubCommand {
 
     /// Change DbKind of hot or cold db.
     ChangeDbKind(ChangeDbKindCommand),
+
+    /// Run migrations,
+    RunMigrations(RunMigrationsCommand),
 }
 
 impl DatabaseCommand {
@@ -30,6 +34,14 @@ impl DatabaseCommand {
                 )
                 .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
                 cmd.run(home, &near_config)
+            }
+            SumCommand::RunMigrationsCommand(cmd) => {
+                let mut near_config = nearcore::config::load_config(
+                    &home,
+                    near_chain_configs::GenesisValidationMode::UnsafeFast,
+                )
+                    .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+                cmd.run(home, &mut near_config)
             }
         }
     }
