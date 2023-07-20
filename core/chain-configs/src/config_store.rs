@@ -38,53 +38,6 @@ impl ChainConfigStore {
         let mut store = BTreeMap::new();
         store.insert(0, initial_chain_config.clone());
         Self::populate_config_store(*initial_chain_config, &mut store);
-        println!("Mirko: ide init config");
-        println!("{:?}", initial_chain_config);
-        println!("Mirko: ide store");
-        println!("{:?}", store);
-        println!("Mirko: ide chain config");
-        println!("{:?}", store
-            .range((Bound::Unbounded, Bound::Included(0)))
-            .next_back()
-            .unwrap_or_else(|| {
-                panic!("Not found ChainConfig for protocol version {}", 0)
-            })
-            .1);
-        println!("{:?}", store
-            .range((Bound::Unbounded, Bound::Included(5)))
-            .next_back()
-            .unwrap_or_else(|| {
-                panic!("Not found ChainConfig for protocol version {}", 5)
-            })
-            .1);
-        println!("{:?}", store
-            .range((Bound::Unbounded, Bound::Included(10)))
-            .next_back()
-            .unwrap_or_else(|| {
-                panic!("Not found ChainConfig for protocol version {}", 10)
-            })
-            .1);
-        println!("{:?}", store
-            .range((Bound::Unbounded, Bound::Included(15)))
-            .next_back()
-            .unwrap_or_else(|| {
-                panic!("Not found ChainConfig for protocol version {}", 15)
-            })
-            .1);
-        println!("{:?}", store
-            .range((Bound::Unbounded, Bound::Included(20)))
-            .next_back()
-            .unwrap_or_else(|| {
-                panic!("Not found ChainConfig for protocol version {}", 20)
-            })
-            .1);
-        println!("{:?}", store
-            .range((Bound::Unbounded, Bound::Included(25)))
-            .next_back()
-            .unwrap_or_else(|| {
-                panic!("Not found ChainConfig for protocol version {}", 25)
-            })
-            .1);
         Self { initial_chain_config, store }
     }
 
