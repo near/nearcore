@@ -182,57 +182,6 @@ pub struct GenesisConfig {
     pub use_production_config: bool,
 }
 
-impl GenesisConfig {
-    /// Parses GenesisConfig from a JSON string.
-    /// The string can be a JSON with comments.
-    /// It panics if the contents cannot be parsed from JSON to the GenesisConfig structure.
-    pub fn from_json(value: &str) -> Self {
-        let json_str_without_comments: String =
-            near_config_utils::strip_comments_from_json_str(&value.to_string())
-                .expect("Failed to strip comments from genesis config.");
-        serde_json::from_str(&json_str_without_comments)
-            .expect("Failed to deserialize the genesis config.")
-    }
-
-    /// Reads GenesisConfig from a JSON file.
-    /// The file can be a JSON with comments.
-    /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
-    /// GenesisConfig structure.
-    pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let mut file = File::open(path).with_context(|| "Could not open genesis config file.")?;
-        let mut json_str = String::new();
-        file.read_to_string(&mut json_str)?;
-        let json_str_without_comments: String =
-            near_config_utils::strip_comments_from_json_str(&json_str)?;
-        let genesis_config: GenesisConfig = serde_json::from_str(&json_str_without_comments)
-            .with_context(|| "Failed to deserialize the genesis config.")?;
-        Ok(genesis_config)
-    }
-
-    /// Writes GenesisConfig to the file.
-    pub fn to_file<P: AsRef<Path>>(&self, path: P) {
-        std::fs::write(
-            path,
-            serde_json::to_vec_pretty(self).expect("Error serializing the genesis config."),
-        )
-            .expect("Failed to create / write a genesis config file.");
-    }
-
-    /// Get validators from genesis config
-    pub fn validators(&self) -> Vec<ValidatorStake> {
-        self.validators
-            .iter()
-            .map(|account_info| {
-                ValidatorStake::new(
-                    account_info.account_id.clone(),
-                    account_info.public_key.clone(),
-                    account_info.amount,
-                )
-            })
-            .collect()
-    }
-}
-
 impl From<&GenesisConfig> for EpochConfig {
     fn from(config: &GenesisConfig) -> Self {
         EpochConfig {
@@ -334,6 +283,57 @@ pub struct Genesis {
         skip_serializing_if = "contents_are_not_records"
     )]
     pub contents: GenesisContents,
+}
+
+impl GenesisConfig {
+    /// Parses GenesisConfig from a JSON string.
+    /// The string can be a JSON with comments.
+    /// It panics if the contents cannot be parsed from JSON to the GenesisConfig structure.
+    pub fn from_json(value: &str) -> Self {
+        let json_str_without_comments: String =
+            near_config_utils::strip_comments_from_json_str(&value.to_string())
+                .expect("Failed to strip comments from genesis config.");
+        serde_json::from_str(&json_str_without_comments)
+            .expect("Failed to deserialize the genesis config.")
+    }
+
+    /// Reads GenesisConfig from a JSON file.
+    /// The file can be a JSON with comments.
+    /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
+    /// GenesisConfig structure.
+    pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
+        let mut file = File::open(path).with_context(|| "Could not open genesis config file.")?;
+        let mut json_str = String::new();
+        file.read_to_string(&mut json_str)?;
+        let json_str_without_comments: String =
+            near_config_utils::strip_comments_from_json_str(&json_str)?;
+        let genesis_config: GenesisConfig = serde_json::from_str(&json_str_without_comments)
+            .with_context(|| "Failed to deserialize the genesis config.")?;
+        Ok(genesis_config)
+    }
+
+    /// Writes GenesisConfig to the file.
+    pub fn to_file<P: AsRef<Path>>(&self, path: P) {
+        std::fs::write(
+            path,
+            serde_json::to_vec_pretty(self).expect("Error serializing the genesis config."),
+        )
+            .expect("Failed to create / write a genesis config file.");
+    }
+
+    /// Get validators from genesis config
+    pub fn validators(&self) -> Vec<ValidatorStake> {
+        self.validators
+            .iter()
+            .map(|account_info| {
+                ValidatorStake::new(
+                    account_info.account_id.clone(),
+                    account_info.public_key.clone(),
+                    account_info.amount,
+                )
+            })
+            .collect()
+    }
 }
 
 impl GenesisRecords {
