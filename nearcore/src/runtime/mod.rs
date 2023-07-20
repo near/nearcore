@@ -325,7 +325,7 @@ impl NightshadeRuntime {
                 .expect("Store failed on genesis intialization")
                 .expect("Genesis state roots not found in storage")
         } else {
-            let genesis_hash = genesis.get_initial_config_snapshot().json_hash();
+            let genesis_hash = genesis.json_hash();
             let state_roots = Self::initialize_genesis_state(store.clone(), home_dir, genesis);
             let mut store_update = store.store_update();
             set_genesis_hash(&mut store_update, &genesis_hash);
@@ -1404,18 +1404,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         let runtime_config =
             self.runtime_config_store.get_config(protocol_version).as_ref().clone();
 
-        let epoch_manager = self.epoch_manager.read();
-        match epoch_manager.get_epoch_info(epoch_id) {
-            Ok(epoch_info) => {
-                let epoch_height = epoch_info.as_ref().epoch_height();
-                let chain_config =
-                    genesis_config.chain_config_store.get_config(epoch_height).as_ref().clone();
-                Ok(ProtocolConfig { genesis_config, chain_config, runtime_config })
-            }
-            Err(error) => {
-                return Err(Error::Other(error.to_string()));
-            }
-        }
+        let chain_config =
+            genesis_config.chain_config_store.get_config(genesis_config.protocol_version).as_ref().clone();
+        Ok(ProtocolConfig { genesis_config, chain_config, runtime_config })
     }
 
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
