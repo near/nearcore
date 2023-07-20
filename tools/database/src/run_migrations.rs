@@ -1,6 +1,3 @@
-use near_store::metadata::DbKind;
-use near_store::{Mode, NodeStorage};
-use nearcore::{migrations, NearConfig, open_storage};
 use std::path::Path;
 
 /// This can potentially support db specified not in config, but in command line.
@@ -24,7 +21,7 @@ impl RunMigrationsCommand {
             near_chain_configs::GenesisValidationMode::UnsafeFast,
         )
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-        open_storage(home_dir, &mut near_config)?;
+        nearcore::open_storage(home_dir, &mut near_config)?;
         Ok(())
     }
 }
