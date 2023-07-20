@@ -10,10 +10,8 @@ use near_chain_configs::{
     Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
     MIN_GC_NUM_EPOCHS_TO_KEEP,
 };
-use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
-use near_o11y::log_assert;
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
@@ -29,7 +27,6 @@ use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{
@@ -44,7 +41,6 @@ use near_primitives::views::{
 use near_store::flat::FlatStorageManager;
 use near_store::genesis::initialize_genesis_state;
 use near_store::metadata::DbKind;
-use near_store::split_state::get_delayed_receipts;
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
     ApplyStatePartResult, DBCol, PartialStorage, ShardTries, StateSnapshotConfig, Store,
@@ -59,7 +55,7 @@ use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
     ValidatorAccountsUpdate,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -637,33 +633,6 @@ fn format_total_gas_burnt(gas: Gas) -> String {
     format!("{:.0}", ((gas as f64) / 1e14).ceil() * 100.0)
 }
 
-fn apply_delayed_receipts<'a>(
-    tries: &ShardTries,
-    orig_shard_uid: ShardUId,
-    orig_state_root: StateRoot,
-    state_roots: HashMap<ShardUId, StateRoot>,
-    account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
-) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-    let orig_trie_update = tries.new_trie_update_view(orig_shard_uid, orig_state_root);
-
-    let mut start_index = None;
-    let mut new_state_roots = state_roots;
-    while let Some((next_index, receipts)) =
-        get_delayed_receipts(&orig_trie_update, start_index, STATE_PART_MEMORY_LIMIT)?
-    {
-        let (store_update, updated_state_roots) = tries.apply_delayed_receipts_to_split_states(
-            &new_state_roots,
-            &receipts,
-            account_id_to_shard_id,
-        )?;
-        new_state_roots = updated_state_roots;
-        start_index = Some(next_index);
-        store_update.commit()?;
-    }
-
-    Ok(new_state_roots)
-}
-
 impl RuntimeAdapter for NightshadeRuntime {
     fn genesis_state(&self) -> (Store, Vec<StateRoot>) {
         (self.store.clone(), self.genesis_state_roots.clone())
@@ -1169,63 +1138,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                 ),
             })
             .collect())
-    }
-
-    fn build_state_for_split_shards(
-        &self,
-        shard_uid: ShardUId,
-        state_root: &StateRoot,
-        next_epoch_shard_layout: &ShardLayout,
-        state_split_status: Arc<StateSplitApplyingStatus>,
-    ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-        // TODO(resharding) use flat storage to split the trie here
-        let trie = self.tries.get_view_trie_for_shard(shard_uid, *state_root);
-        let shard_id = shard_uid.shard_id();
-        let new_shards = next_epoch_shard_layout
-            .get_split_shard_uids(shard_id)
-            .ok_or(Error::InvalidShardId(shard_id))?;
-        let mut state_roots: HashMap<_, _> =
-            new_shards.iter().map(|shard_uid| (*shard_uid, Trie::EMPTY_ROOT)).collect();
-        let split_shard_ids: HashSet<_> = new_shards.into_iter().collect();
-        let checked_account_id_to_shard_id = |account_id: &AccountId| {
-            let new_shard_uid = account_id_to_shard_uid(account_id, next_epoch_shard_layout);
-            // check that all accounts in the shard are mapped the shards that this shard will split
-            // to according to shard layout
-            assert!(
-                split_shard_ids.contains(&new_shard_uid),
-                "Inconsistent shard_layout specs. Account {:?} in shard {:?} and in shard {:?}, but the former is not parent shard for the latter",
-                account_id,
-                shard_uid,
-                new_shard_uid,
-            );
-            new_shard_uid
-        };
-
-        let state_root_node = trie.retrieve_root_node()?;
-        let num_parts = get_num_state_parts(state_root_node.memory_usage);
-        if state_split_status.total_parts.set(num_parts).is_err() {
-            log_assert!(false, "splitting state was done twice for shard {}", shard_id);
-        }
-        debug!(target: "runtime", "splitting state for shard {} to {} parts to build new states", shard_id, num_parts);
-        for part_id in 0..num_parts {
-            let trie_items = trie.get_trie_items_for_part(PartId::new(part_id, num_parts))?;
-            let (store_update, new_state_roots) = self.tries.add_values_to_split_states(
-                &state_roots,
-                trie_items.into_iter().map(|(key, value)| (key, Some(value))).collect(),
-                &checked_account_id_to_shard_id,
-            )?;
-            state_roots = new_state_roots;
-            store_update.commit()?;
-            state_split_status.done_parts.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        }
-        state_roots = apply_delayed_receipts(
-            &self.tries,
-            shard_uid,
-            *state_root,
-            state_roots,
-            &checked_account_id_to_shard_id,
-        )?;
-        Ok(state_roots)
     }
 
     fn apply_state_part(
