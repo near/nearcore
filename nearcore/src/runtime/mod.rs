@@ -8,7 +8,10 @@ use near_chain::types::{
     ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, RuntimeAdapter, Tip,
 };
 use near_chain::Error;
-use near_chain_configs::{Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, MIN_GC_NUM_EPOCHS_TO_KEEP, ChainConfigStore};
+use near_chain_configs::{
+    ChainConfigStore, Genesis, GenesisConfig, ProtocolConfig,
+    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, MIN_GC_NUM_EPOCHS_TO_KEEP
+};
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
@@ -1521,7 +1524,7 @@ mod test {
     use num_rational::Ratio;
 
     use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-    use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis};
+    use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_o11y::testonly::init_test_logger;
     use near_primitives::block::Tip;

@@ -1,8 +1,8 @@
 use crate::download_file::{run_download_file, FileDownloadError};
 use anyhow::{anyhow, bail, Context};
 use near_chain_configs::{
-        get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
-        LogSummaryStyle, MutableConfigValue, StateSyncConfig, ChainConfig, ChainConfigStore
+    get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
+    LogSummaryStyle, MutableConfigValue, StateSyncConfig, ChainConfig, ChainConfigStore
 };
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -19,8 +19,8 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{
-        AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
-        NumShards, ShardId, EpochHeight
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
+    NumShards, ShardId, EpochHeight
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
