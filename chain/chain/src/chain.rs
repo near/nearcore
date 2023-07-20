@@ -5479,12 +5479,10 @@ impl<'a> ChainUpdate<'a> {
 
         let chunk_header = chunk.cloned_header();
         let gas_limit = chunk_header.gas_limit();
-        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
-            &mut self.chain_store_update,
-            self.epoch_manager.as_ref(),
-            &chunk_header.prev_block_hash(),
-            shard_id,
-        )?;
+        // This is set to false because the value is only relevant
+        // during protocol version RestoreReceiptsAfterFixApplyChunks.
+        // TODO(nikurt): Determine the value correctly.
+        let is_first_block_with_chunk_of_version = false;
 
         let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
