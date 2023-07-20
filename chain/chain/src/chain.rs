@@ -71,6 +71,7 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
+use near_store::flat::delta::CompressionInfo;
 use near_store::flat::{
     store_helper, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageError,
     FlatStorageReadyStatus, FlatStorageStatus,
@@ -3304,15 +3305,20 @@ impl Chain {
                 // Flat storage must not exist at this point because leftover keys corrupt its state.
                 assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
 
+                let flat_head_hash = *chunk.prev_block();
+                let flat_head_header = self.get_block_header(&flat_head_hash)?;
+                let flat_head_prev_hash = *flat_head_header.prev_hash();
+                let flat_head_height : BlockHeight = chunk.height_included().checked_sub(1).ok_or_else(||near_chain_primitives::Error::Other("wrong height included of a chunk".to_string()))?;
+
                 let mut store_update = self.runtime_adapter.store().store_update();
                 store_helper::set_flat_storage_status(
                     &mut store_update,
                     shard_uid,
                     FlatStorageStatus::Ready(FlatStorageReadyStatus {
                         flat_head: near_store::flat::BlockInfo {
-                            hash: *block_hash,
-                            prev_hash: *block_header.prev_hash(),
-                            height: block_header.height(),
+                            hash: flat_head_hash,
+                            prev_hash: flat_head_prev_hash,
+                            height: flat_head_height,
                         },
                     }),
                 );
@@ -4149,7 +4155,8 @@ impl Chain {
                 let head = self.head()?;
                 let epoch_id = self.epoch_manager.get_epoch_id(&head.prev_block_hash)?;
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-                (helper.make_snapshot_callback)(head.prev_block_hash, shard_layout.get_shard_uids())
+                // TODO: Add heights included of all chunks
+                (helper.make_snapshot_callback)(head.prev_block_hash, shard_layout.get_shard_uids(), todo!())
             }
         }
         Ok(())
@@ -5038,10 +5045,28 @@ impl<'a> ChainUpdate<'a> {
         shard_uid: ShardUId,
         trie_changes: &WrappedTrieChanges,
     ) -> Result<(), Error> {
+        let compression_info = if trie_changes.state_changes().is_empty() {
+            let prev_delta_metadata = store_helper::get_delta_metadata(
+                self.chain_store_update.store(),
+                shard_uid,
+                prev_hash,
+            )
+            .map_err(|e| StorageError::from(e))?;
+            prev_delta_metadata.map(|metadata| {
+                metadata.compression_info.unwrap_or(CompressionInfo {
+                    last_height_with_changes: metadata.block.height,
+                    last_block_with_changes: metadata.block.hash,
+                })
+            })
+        } else {
+            None
+        };
+
         let delta = FlatStateDelta {
             changes: FlatStateChanges::from_state_changes(&trie_changes.state_changes()),
             metadata: FlatStateDeltaMetadata {
                 block: near_store::flat::BlockInfo { hash: block_hash, height, prev_hash },
+                compression_info,
             },
         };
 

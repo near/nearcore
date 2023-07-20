@@ -16,20 +16,16 @@ pub struct FlatStateDelta {
     pub changes: FlatStateChanges,
 }
 
-/// Information about a block.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy, serde::Serialize)]
-pub struct PrevBlockWithChanges {
-    pub height: BlockHeight,
-    pub hash: CryptoHash,
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy)]
+pub struct CompressionInfo {
+    pub last_height_with_changes: BlockHeight,
+    pub last_block_with_changes: CryptoHash,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy, serde::Serialize)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy)]
 pub struct FlatStateDeltaMetadata {
     pub block: BlockInfo,
-    /// `None` if the block itself has flat state changes.
-    /// `Some` if the block has no flat state changes, and contains
-    /// info of the last block with some flat state changes.
-    pub prev_block_with_changes: Option<PrevBlockWithChanges>,
+    pub compression_info: Option<CompressionInfo>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
@@ -49,7 +45,7 @@ impl KeyForFlatStateDelta {
 /// Delta of the state for some shard and block, stores mapping from keys to values
 /// or None, if key was removed in this block.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Default, PartialEq, Eq)]
-pub struct FlatStateChanges(pub HashMap<Vec<u8>, Option<FlatStateValue>>);
+pub struct FlatStateChanges(pub(crate) HashMap<Vec<u8>, Option<FlatStateValue>>);
 
 impl<T> From<T> for FlatStateChanges
 where
