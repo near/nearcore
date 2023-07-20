@@ -22,6 +22,12 @@ import messages.crypto
 import messages.block
 
 
+config = cluster.load_config()
+binary_protocol_version = cluster.get_binary_protocol_version(config)
+assert binary_protocol_version is not None
+BLOCK_HEADER_V4_PROTOCOL_VERSION = 138
+
+
 def serialize(msg: typing.Any) -> bytes:
     return serializer.BinarySerializer(messages.schema).serialize(msg)
 
@@ -305,13 +311,14 @@ class HashTestCase(unittest.TestCase):
         """
         self._test_block_hash(3, 50)
 
-    def test_block_hash_v4(self):
-        """Starts a cluster using protocol version 138 and verifies block hashes.
+    if binary_protocol_version >= BLOCK_HEADER_V4_PROTOCOL_VERSION:
+        def test_block_hash_v4(self):
+            """Starts a cluster using protocol version 138 and verifies block hashes.
 
-        The cluster is started with a protocol version in which the fourth
-        version of the BlockHeaderInnerRest has been used.
-        """
-        self._test_block_hash(4, 138)
+            The cluster is started with a protocol version in which the fourth
+            version of the BlockHeaderInnerRest has been used.
+            """
+            self._test_block_hash(4, 138)
 
     def test_block_hash_latest(self):
         """Starts a cluster using latest protocol and verifies block hashes.
@@ -321,7 +328,10 @@ class HashTestCase(unittest.TestCase):
         BlockHeaderInnerRest message has been introduced and this test needs to
         be updated to support it.
         """
-        self._test_block_hash(4)
+        if binary_protocol_version >= BLOCK_HEADER_V4_PROTOCOL_VERSION:
+            self._test_block_hash(4)
+        else:
+            self._test_block_hash(3)
 
 
 if __name__ == '__main__':
