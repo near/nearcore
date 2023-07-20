@@ -27,7 +27,6 @@ use delay_detector::DelayDetector;
 use itertools::Itertools;
 use lru::LruCache;
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
-use near_client_primitives::types::StateSplitApplyingStatus;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
@@ -3343,53 +3342,6 @@ impl Chain {
         Ok(())
     }
 
-    pub fn build_state_for_split_shards_preprocessing(
-        &self,
-        sync_hash: &CryptoHash,
-        shard_id: ShardId,
-        state_split_scheduler: &dyn Fn(StateSplitRequest),
-        state_split_status: Arc<StateSplitApplyingStatus>,
-    ) -> Result<(), Error> {
-        let (epoch_id, next_epoch_id) = {
-            let block_header = self.get_block_header(sync_hash)?;
-            (block_header.epoch_id().clone(), block_header.next_epoch_id().clone())
-        };
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-        let next_epoch_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let prev_hash = *self.get_block_header(sync_hash)?.prev_hash();
-        let state_root = *self.get_chunk_extra(&prev_hash, &shard_uid)?.state_root();
-        assert_ne!(shard_layout, next_epoch_shard_layout);
-
-        state_split_scheduler(StateSplitRequest {
-            runtime_adapter: self.runtime_adapter.clone(),
-            sync_hash: *sync_hash,
-            shard_id,
-            shard_uid,
-            state_root,
-            next_epoch_shard_layout,
-            state_split_status,
-        });
-
-        Ok(())
-    }
-
-    pub fn build_state_for_split_shards_postprocessing(
-        &mut self,
-        sync_hash: &CryptoHash,
-        state_roots: Result<HashMap<ShardUId, StateRoot>, Error>,
-    ) -> Result<(), Error> {
-        let prev_hash = *self.get_block_header(sync_hash)?.prev_hash();
-        let mut chain_update = self.chain_update();
-        for (shard_uid, state_root) in state_roots? {
-            // here we store the state roots in chunk_extra in the database for later use
-            let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
-            chain_update.chain_store_update.save_chunk_extra(&prev_hash, &shard_uid, chunk_extra);
-            debug!(target:"chain", "Finish building split state for shard {:?} {:?} {:?} ", shard_uid, prev_hash, state_root);
-        }
-        chain_update.commit()
-    }
-
     pub fn clear_downloaded_parts(
         &mut self,
         shard_id: ShardId,
@@ -5678,26 +5630,6 @@ pub struct BlockCatchUpResponse {
     pub sync_hash: CryptoHash,
     pub block_hash: CryptoHash,
     pub results: Vec<Result<ApplyChunkResult, Error>>,
-}
-
-#[derive(actix::Message)]
-#[rtype(result = "()")]
-pub struct StateSplitRequest {
-    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
-    pub sync_hash: CryptoHash,
-    pub shard_id: ShardId,
-    pub shard_uid: ShardUId,
-    pub state_root: StateRoot,
-    pub next_epoch_shard_layout: ShardLayout,
-    pub state_split_status: Arc<StateSplitApplyingStatus>,
-}
-
-#[derive(actix::Message)]
-#[rtype(result = "()")]
-pub struct StateSplitResponse {
-    pub sync_hash: CryptoHash,
-    pub shard_id: ShardId,
-    pub new_state_roots: Result<HashMap<ShardUId, StateRoot>, Error>,
 }
 
 /// Helper to track blocks catch up

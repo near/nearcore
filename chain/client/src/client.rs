@@ -14,9 +14,10 @@ use lru::LruCache;
 use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
-    OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
+    OrphanMissingChunks, TX_ROUTING_HEIGHT_HORIZON,
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
+use near_chain::resharding::StateSplitRequest;
 use near_chain::state_snapshot_actor::MakeSnapshotCallback;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
