@@ -4,7 +4,7 @@
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
 use crate::genesis_validate::validate_genesis;
-use crate::{ChainConfigStore, ChainConfig};
+use crate::ChainConfig;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_config_utils::ValidationError;
