@@ -182,6 +182,12 @@ pub struct GenesisConfig {
     pub use_production_config: bool,
 }
 
+impl GenesisConfig {
+    pub fn use_production_config(&self) -> bool {
+        self.use_production_config || self.chain_id == "testnet" || self.chain_id == "mainnet"
+    }
+}
+
 impl From<&GenesisConfig> for EpochConfig {
     fn from(config: &GenesisConfig) -> Self {
         EpochConfig {
@@ -270,7 +276,7 @@ fn contents_are_not_records(contents: &GenesisContents) -> bool {
 /// However, we can't enforce that invariant. All fields are public, but the clients are expected to
 /// use the provided methods for instantiation, serialization and deserialization.
 /// Refer to `test_loading_localnet_genesis` to see an example of serialized Genesis JSON.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Genesis {
     #[serde(flatten)]
     pub config: GenesisConfig,
@@ -318,7 +324,7 @@ impl GenesisConfig {
             path,
             serde_json::to_vec_pretty(self).expect("Error serializing the genesis config."),
         )
-            .expect("Failed to create / write a genesis config file.");
+        .expect("Failed to create / write a genesis config file.");
     }
 
     /// Get validators from genesis config
@@ -534,9 +540,9 @@ impl Genesis {
         records_path: P2,
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError>
-        where
-            P1: AsRef<Path>,
-            P2: AsRef<Path>,
+    where
+        P1: AsRef<Path>,
+        P2: AsRef<Path>,
     {
         let genesis_config = GenesisConfig::from_file(config_path).map_err(|error| {
             let error_message = error.to_string();
