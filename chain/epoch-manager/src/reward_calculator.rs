@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use num_rational::Rational32;
 use primitive_types::U256;
 
-use near_chain_configs::{GenesisConfig, ChainConfigStore};
+use near_chain_configs::{GenesisConfig, ChainConfigStore, ChainConfig};
 use near_primitives::checked_feature;
 use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats, EpochHeight};
 use near_primitives::version::{ProtocolVersion, ENABLE_INFLATION_PROTOCOL_VERSION};
@@ -20,12 +20,13 @@ pub struct RewardCalculator {
     pub online_min_threshold: Rational32,
     pub online_max_threshold: Rational32,
     pub num_seconds_per_year: u64,
-    pub chain_config_store: ChainConfigStore,
+    pub chain_config: ChainConfig,
 }
 
 impl RewardCalculator {
     pub fn new(config: &GenesisConfig) -> Self {
-        let chain_config_store = config.clone().chain_config_store;
+        let chain_config_store = ChainConfigStore::new(config.clone());
+        let chain_config = **chain_config_store.get_config(config.protocol_version);
         RewardCalculator {
             max_inflation_rate: config.max_inflation_rate,
             num_blocks_per_year: config.num_blocks_per_year,
@@ -34,7 +35,7 @@ impl RewardCalculator {
             online_max_threshold: config.online_max_threshold,
             online_min_threshold: config.online_min_threshold,
             num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
-            chain_config_store: chain_config_store,
+            chain_config: chain_config,
         }
     }
     /// Calculate validator reward for an epoch based on their block and chunk production stats.
@@ -46,7 +47,6 @@ impl RewardCalculator {
         validator_stake: &HashMap<AccountId, Balance>,
         total_supply: Balance,
         protocol_version: ProtocolVersion,
-        epoch_height: EpochHeight,
         genesis_protocol_version: ProtocolVersion,
         epoch_duration: u64,
     ) -> (HashMap<AccountId, Balance>, Balance) {
@@ -59,7 +59,7 @@ impl RewardCalculator {
         let protocol_reward_rate = if use_hardcoded_value {
             Rational32::new_raw(1, 10)
         } else {
-            self.chain_config_store.get_config(epoch_height).protocol_reward_rate
+            self.chain_config.protocol_reward_rate
         };
         let epoch_total_reward: u128 =
             if checked_feature!("stable", RectifyInflation, protocol_version) {

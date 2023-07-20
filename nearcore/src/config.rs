@@ -1,6 +1,6 @@
 use crate::download_file::{run_download_file, FileDownloadError};
 use anyhow::{anyhow, bail, Context};
-use near_chain_configs::{get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode, LogSummaryStyle, MutableConfigValue, StateSyncConfig};
+use near_chain_configs::{get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode, LogSummaryStyle, MutableConfigValue, StateSyncConfig, ChainConfig, ChainConfigStore};
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
@@ -621,6 +621,7 @@ pub struct NearConfig {
     pub rosetta_rpc_config: Option<RosettaRpcConfig>,
     pub telemetry_config: TelemetryConfig,
     pub genesis: Genesis,
+    pub chain_config: ChainConfig,
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
 }
 
@@ -631,6 +632,7 @@ impl NearConfig {
         network_key_pair: KeyFile,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
     ) -> anyhow::Result<Self> {
+        let chain_config_store = ChainConfigStore::new(genesis.config.clone());
         Ok(NearConfig {
             config: config.clone(),
             client_config: ClientConfig {
@@ -701,6 +703,7 @@ impl NearConfig {
             #[cfg(feature = "rosetta_rpc")]
             rosetta_rpc_config: config.rosetta_rpc,
             genesis,
+            chain_config: **chain_config_store.get_config(genesis.config.protocol_version.clone()),
             validator_signer,
         })
     }
