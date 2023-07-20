@@ -7,8 +7,8 @@ use errors::FromStateViewerErrors;
 use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter, Tip};
 use near_chain::Error;
 use near_chain_configs::{
-    Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-    MIN_GC_NUM_EPOCHS_TO_KEEP,
+    ChainConfigStore, Genesis, GenesisConfig, ProtocolConfig,
+    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, MIN_GC_NUM_EPOCHS_TO_KEEP
 };
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::PublicKey;
@@ -71,6 +71,7 @@ pub mod errors;
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
+    chain_config_store: ChainConfigStore,
     runtime_config_store: RuntimeConfigStore,
 
     store: Store,
@@ -131,6 +132,7 @@ impl NightshadeRuntime {
             Some(store) => store,
             None => Self::create_runtime_config_store(&genesis.config.chain_id),
         };
+        let chain_config_store = ChainConfigStore::new(genesis.config.clone());
 
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
@@ -163,6 +165,7 @@ impl NightshadeRuntime {
 
         Arc::new(NightshadeRuntime {
             genesis_config,
+            chain_config_store,
             runtime_config_store,
             store,
             tries,
@@ -1303,7 +1306,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         genesis_config.shard_layout = shard_config.shard_layout;
         let runtime_config =
             self.runtime_config_store.get_config(protocol_version).as_ref().clone();
-        Ok(ProtocolConfig { genesis_config, runtime_config })
+
+        let chain_config = **self.chain_config_store.get_config(genesis_config.protocol_version);
+        Ok(ProtocolConfig { genesis_config, chain_config, runtime_config })
     }
 
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {

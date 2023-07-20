@@ -3,7 +3,7 @@ use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{anyhow, bail, Context};
 use near_chain_configs::{
     get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
-    LogSummaryStyle, MutableConfigValue, StateSyncConfig,
+    LogSummaryStyle, MutableConfigValue, StateSyncConfig, ChainConfig, ChainConfigStore
 };
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -22,7 +22,7 @@ use near_primitives::static_clock::StaticClock;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
-    NumShards, ShardId,
+    NumShards, ShardId
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -622,6 +622,7 @@ pub struct NearConfig {
     pub rosetta_rpc_config: Option<RosettaRpcConfig>,
     pub telemetry_config: TelemetryConfig,
     pub genesis: Genesis,
+    pub chain_config: ChainConfig,
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
 }
 
@@ -632,6 +633,7 @@ impl NearConfig {
         network_key_pair: KeyFile,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
     ) -> anyhow::Result<Self> {
+        let chain_config_store = ChainConfigStore::new(genesis.clone().config);
         Ok(NearConfig {
             config: config.clone(),
             client_config: ClientConfig {
@@ -703,7 +705,8 @@ impl NearConfig {
             rpc_config: config.rpc,
             #[cfg(feature = "rosetta_rpc")]
             rosetta_rpc_config: config.rosetta_rpc,
-            genesis,
+            genesis: genesis.clone(),
+            chain_config: **chain_config_store.get_config(genesis.config.protocol_version),
             validator_signer,
         })
     }
@@ -1120,6 +1123,7 @@ pub fn init_configs(
                 genesis_time: StaticClock::utc(),
                 chain_id,
                 genesis_height: 0,
+                protocol_reward_rate: PROTOCOL_REWARD_RATE,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,
                 num_block_producer_seats_per_shard: get_num_seats_per_shard(
                     num_shards,
@@ -1141,7 +1145,6 @@ pub fn init_configs(
                     amount: TESTING_INIT_STAKE,
                 }],
                 transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
-                protocol_reward_rate: PROTOCOL_REWARD_RATE,
                 max_inflation_rate: MAX_INFLATION_RATE,
                 total_supply: get_initial_supply(&records),
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
