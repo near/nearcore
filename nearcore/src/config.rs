@@ -569,7 +569,7 @@ impl Genesis {
             shard_layout,
             ..Default::default()
         };
-        GenesisSnapshot::new(config_snapshot, records.into()).unwrap()
+        Genesis::new(config, records.into()).unwrap()
     }
 
     pub fn test(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
@@ -717,7 +717,7 @@ impl NearConfig {
 impl NearConfig {
     /// Test tool to save configs back to the folder.
     /// Useful for dynamic creating testnet configs and then saving them in different folders.
-    pub fn save_to_dir(&self, dir: &Path, epoch_height: EpochHeight) {
+    pub fn save_to_dir(&self, dir: &Path) {
         fs::create_dir_all(dir).expect("Failed to create directory");
 
         self.config.write_to_file(&dir.join(CONFIG_FILENAME)).expect("Error writing config");
@@ -736,7 +736,7 @@ impl NearConfig {
             .write_to_file(&dir.join(&self.config.node_key_file))
             .expect("Error writing key file");
 
-        self.genesis.to_file(dir.join(&self.config.genesis_file), epoch_height);
+        self.genesis.to_file(dir.join(&self.config.genesis_file));
     }
 }
 
