@@ -3,11 +3,9 @@ use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
-use crate::Mode;
 use crate::{checkpoint_hot_storage_and_cleanup_columns, metrics, DBCol, NodeStorage, PrefetchApi};
 use crate::{Store, StoreConfig, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
-use near_primitives::block::Block;
 use near_primitives::borsh::maybestd::collections::HashMap;
 use near_primitives::errors::EpochError;
 use near_primitives::errors::StorageError;
@@ -62,36 +60,22 @@ impl StateSnapshot {
         prev_block_hash: CryptoHash,
         flat_storage_manager: FlatStorageManager,
         shard_uids: &[ShardUId],
-        block: Option<&Block>,
     ) -> Self {
         tracing::debug!(target: "state_snapshot", ?shard_uids, ?prev_block_hash, "new StateSnapshot");
         for shard_uid in shard_uids {
             if let Err(err) = flat_storage_manager.create_flat_storage_for_shard(*shard_uid) {
                 tracing::warn!(target: "state_snapshot", ?err, ?shard_uid, "Failed to create a flat storage for snapshot shard");
-                continue;
-            }
-            if let Some(block) = block {
+            } else {
                 let flat_storage =
                     flat_storage_manager.get_flat_storage_for_shard(*shard_uid).unwrap();
-                let current_flat_head = flat_storage.get_head_hash();
-                tracing::debug!(target: "state_snapshot", ?shard_uid, ?current_flat_head, block_hash = ?block.header().hash(), block_height = block.header().height(), "Moving FlatStorage head of the snapshot");
+                tracing::debug!(target: "state_snapshot", ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), desired_flat_head = ?prev_block_hash, "Moving FlatStorage head of the snapshot");
                 let _timer = metrics::MOVE_STATE_SNAPSHOT_FLAT_HEAD_ELAPSED
                     .with_label_values(&[&shard_uid.shard_id.to_string()])
                     .start_timer();
-                if let Some(chunk) = block.chunks().get(shard_uid.shard_id as usize) {
-                    // Flat state snapshot needs to be at a height that lets it
-                    // replay the last chunk of the shard.
-                    let desired_flat_head = chunk.prev_block_hash();
-                    match flat_storage.update_flat_head(desired_flat_head, true) {
-                        Ok(_) => {
-                            tracing::debug!(target: "state_snapshot", ?shard_uid, ?current_flat_head, ?desired_flat_head, "Successfully moved FlatStorage head of the snapshot");
-                        }
-                        Err(err) => {
-                            tracing::error!(target: "state_snapshot", ?shard_uid, ?err, ?current_flat_head, ?desired_flat_head, "Failed to move FlatStorage head of the snapshot");
-                        }
-                    }
+                if let Err(err) = flat_storage.update_flat_head(todo!()) {
+                    tracing::error!(target: "state_snapshot", ?err, ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), ?prev_block_hash, "Failed to Move FlatStorage head of the snapshot");
                 } else {
-                    tracing::error!(target: "state_snapshot", ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), ?prev_block_hash, "Failed to move FlatStorage head of the snapshot, no chunk");
+                    tracing::debug!(target: "state_snapshot", ?shard_uid, new_flat_head = ?flat_storage.get_head_hash(), desired_flat_head = ?prev_block_hash, "Successfully moved FlatStorage head of the snapshot");
                 }
             }
         }
@@ -453,7 +437,7 @@ impl ShardTries {
         &self,
         prev_block_hash: &CryptoHash,
         shard_uids: &[ShardUId],
-        block: &Block,
+
     ) -> Result<(), anyhow::Error> {
         metrics::HAS_STATE_SNAPSHOT.set(0);
         // The function returns an `anyhow::Error`, because no special handling of errors is done yet. The errors are logged and ignored.
@@ -524,7 +508,6 @@ impl ShardTries {
                     *prev_block_hash,
                     flat_storage_manager,
                     shard_uids,
-                    Some(block),
                 ));
                 metrics::HAS_STATE_SNAPSHOT.set(1);
                 tracing::info!(target: "state_snapshot", ?prev_block_hash, "Made a checkpoint");
@@ -649,7 +632,7 @@ impl ShardTries {
                     let store_config = StoreConfig::default();
 
                     let opener = NodeStorage::opener(&snapshot_dir, false, &store_config, None);
-                    let storage = opener.open_in_mode(Mode::ReadOnly)?;
+                    let storage = opener.open()?;
                     let store = storage.get_hot_store();
                     let flat_storage_manager = FlatStorageManager::new(store.clone());
 
@@ -660,7 +643,6 @@ impl ShardTries {
                         *prev_block_hash,
                         flat_storage_manager,
                         &shard_uids,
-                        None,
                     ));
                     metrics::HAS_STATE_SNAPSHOT.set(1);
                     tracing::info!(target: "runtime", ?prev_block_hash, ?snapshot_dir, "Detected and opened a state snapshot.");
