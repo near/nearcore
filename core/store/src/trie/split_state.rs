@@ -174,14 +174,14 @@ impl ShardTries {
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
         receipts: &[Receipt],
-        account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
+        account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
         apply_delayed_receipts_to_split_states_impl(
             &mut trie_updates,
             receipts,
             &[],
-            account_id_to_shard_id,
+            account_id_to_shard_uid,
         )?;
         self.finalize_and_apply_trie_updates(trie_updates)
     }
@@ -207,7 +207,7 @@ fn apply_delayed_receipts_to_split_states_impl(
     trie_updates: &mut HashMap<ShardUId, TrieUpdate>,
     insert_receipts: &[Receipt],
     delete_receipts: &[Receipt],
-    account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
+    account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
 ) -> Result<(), StorageError> {
     let mut delayed_receipts_indices_by_shard = HashMap::new();
     for (shard_uid, update) in trie_updates.iter() {
@@ -215,7 +215,7 @@ fn apply_delayed_receipts_to_split_states_impl(
     }
 
     for receipt in insert_receipts {
-        let new_shard_uid: ShardUId = account_id_to_shard_id(&receipt.receiver_id);
+        let new_shard_uid: ShardUId = account_id_to_shard_uid(&receipt.receiver_id);
         if !trie_updates.contains_key(&new_shard_uid) {
             let err = format!(
                 "Account {} is in new shard {:?} but state_roots only contains {:?}",
@@ -244,7 +244,7 @@ fn apply_delayed_receipts_to_split_states_impl(
     }
 
     for receipt in delete_receipts {
-        let new_shard_uid: ShardUId = account_id_to_shard_id(&receipt.receiver_id);
+        let new_shard_uid: ShardUId = account_id_to_shard_uid(&receipt.receiver_id);
         if !trie_updates.contains_key(&new_shard_uid) {
             let err = format!(
                 "Account {} is in new shard {:?} but state_roots only contains {:?}",
