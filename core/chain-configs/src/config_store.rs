@@ -7,6 +7,7 @@ use std::fs::File;
 use std::io::Read;
 use serde_json;
 use std::env;
+use std::ops::Bound;
 use near_primitives::types::ProtocolVersion;
 
 pub const RESOURCES_DIR: &str = "core/chain-configs/res/";
@@ -25,7 +26,7 @@ pub struct ChainConfigStore {
     /// Initial chain config at genesis block.
     pub initial_chain_config: Arc<ChainConfig>,
     /// Maps protocol version to the config.
-    store: BTreeMap<ProtocolVersion, Arc<ChainConfigPatch>>,
+    store: BTreeMap<ProtocolVersion, Arc<ChainConfig>>,
 }
 
 impl ChainConfigStore {
@@ -35,22 +36,30 @@ impl ChainConfigStore {
     pub fn new(genesis_config_snapshot: GenesisConfigSnapshot) -> Self {
         let initial_chain_config = Arc::new(ChainConfig::new(genesis_config_snapshot));
         let mut store = BTreeMap::new();
-        Self::populate_config_store(&mut store);
+        Self::populate_config_store(*initial_chain_config, &mut store);
+        println!("Mirko: ide init config");
+        println!("{:?}", initial_chain_config);
         println!("Mirko: ide store");
         println!("{:?}", store);
         Self { initial_chain_config, store }
     }
 
-    fn populate_config_store(store: &mut BTreeMap<ProtocolVersion, Arc<ChainConfigPatch>>) {
+    fn populate_config_store(
+        initial_chain_config: ChainConfig,
+        store: &mut BTreeMap<ProtocolVersion, Arc<ChainConfig>>,
+    ) {
         let config_patch_list = Self::get_config_patch_list();
+        let mut curr_config = initial_chain_config.clone();
 
         for protocol_veriosn in config_patch_list.protocol_version_patches {
-            let chain_config_patch = Self::load_chain_config(protocol_veriosn);
-            store.insert(protocol_veriosn, Arc::new(chain_config_patch));
+            let chain_config_patch = Self::load_chain_config_patch(protocol_veriosn);
+            curr_config = curr_config.apply_patch(&chain_config_patch);
+
+            store.insert(protocol_veriosn, Arc::new(curr_config.clone()));
         }
     }
 
-    fn load_chain_config(protocol_version: ProtocolVersion) -> ChainConfigPatch {
+    fn load_chain_config_patch(protocol_version: ProtocolVersion) -> ChainConfigPatch {
         let current_dir = env::current_dir().expect("Failed to get the current directory");
         let path = current_dir.join(RESOURCES_DIR).join(protocol_version.to_string() + ".json");
         let mut file = File::open(&path).expect("Failed to open chain config patch file.");
@@ -81,7 +90,7 @@ impl ChainConfigStore {
     pub fn from_chain_config(chain_config: ChainConfig) -> Self {
         let initial_chain_config = Arc::new(chain_config);
         let mut store = BTreeMap::new();
-        Self::populate_config_store(&mut store);
+        Self::populate_config_store(*initial_chain_config, &mut store);
         Self { initial_chain_config, store }
     }
 
@@ -93,11 +102,13 @@ impl ChainConfigStore {
     }
 
     /// Returns initial config with applied all relevant config overrides for provided protocol version.
-    pub fn get_config(&self, protocol_version: ProtocolVersion) -> Arc<ChainConfig> {
-        let mut config = self.initial_chain_config.as_ref().clone();
-        for (_, config_patch) in self.store.range(..=protocol_version) {
-            config = config.apply_patch(config_patch.as_ref());
-        }
-        Arc::new(config)
+    pub fn get_config(&self, protocol_version: ProtocolVersion) -> &Arc<ChainConfig> {
+        self.store
+            .range((Bound::Unbounded, Bound::Included(protocol_version)))
+            .next_back()
+            .unwrap_or_else(|| {
+                panic!("Not found ChainConfig for protocol version {}", protocol_version)
+            })
+            .1
     }
 }
