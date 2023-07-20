@@ -1,16 +1,5 @@
 use std::path::Path;
 
-/// This can potentially support db specified not in config, but in command line.
-/// `ChangeRelative { path: Path, archive: bool }`
-/// But it is a pain to implement, because of all the current storage possibilities.
-/// So, I'll leave it as a TODO(posvyatokum): implement relative path DbSelector.
-/// This can be useful workaround for config modification.
-#[derive(clap::Subcommand)]
-enum DbSelector {
-    ChangeHot,
-    ChangeCold,
-}
-
 #[derive(clap::Args)]
 pub(crate) struct RunMigrationsCommand { }
 
