@@ -79,7 +79,7 @@ fn default_max_kickout_stake_threshold() -> u8 {
 }
 
 #[derive(Debug, Clone, SmartDefault, serde::Serialize, serde::Deserialize)]
-pub struct GenesisConfigSnapshot {
+pub struct GenesisConfig {
     /// Protocol version that this genesis works with.
     pub protocol_version: ProtocolVersion,
     /// Official time of blockchain start.
@@ -182,164 +182,9 @@ pub struct GenesisConfigSnapshot {
     pub use_production_config: bool,
 }
 
-#[derive(Debug, Clone, SmartDefault, serde::Serialize, serde::Deserialize)]
-pub struct GenesisConfig {
-    /// Protocol version that this genesis works with.
-    pub protocol_version: ProtocolVersion,
-    /// Official time of blockchain start.
-    #[default(Utc::now())]
-    pub genesis_time: DateTime<Utc>,
-    /// ID of the blockchain. This must be unique for every blockchain.
-    /// If your testnet blockchains do not have unique chain IDs, you will have a bad time.
-    pub chain_id: String,
-    /// Height of genesis block.
-    pub genesis_height: BlockHeight,
-    pub chain_config_store: ChainConfigStore,
-    /// Number of block producer seats at genesis.
-    pub num_block_producer_seats: NumSeats,
-    /// Defines number of shards and number of block producer seats per each shard at genesis.
-    /// Note: not used with protocol_feature_chunk_only_producers -- replaced by minimum_validators_per_shard
-    /// Note: not used before as all block producers produce chunks for all shards
-    pub num_block_producer_seats_per_shard: Vec<NumSeats>,
-    /// Expected number of hidden validators per shard.
-    pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
-    /// Enable dynamic re-sharding.
-    pub dynamic_resharding: bool,
-    /// Threshold of stake that needs to indicate that they ready for upgrade.
-    #[serde(default = "default_protocol_upgrade_stake_threshold")]
-    #[default(Rational32::new(8, 10))]
-    pub protocol_upgrade_stake_threshold: Rational32,
-    /// Epoch length counted in block heights.
-    pub epoch_length: BlockHeightDelta,
-    /// Initial gas limit.
-    pub gas_limit: Gas,
-    /// Minimum gas price. It is also the initial gas price.
-    #[serde(with = "dec_format")]
-    pub min_gas_price: Balance,
-    #[serde(with = "dec_format")]
-    #[default(MAX_GAS_PRICE)]
-    pub max_gas_price: Balance,
-    /// Criterion for kicking out block producers (this is a number between 0 and 100)
-    pub block_producer_kickout_threshold: u8,
-    /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
-    pub chunk_producer_kickout_threshold: u8,
-    /// Online minimum threshold below which validator doesn't receive reward.
-    #[serde(default = "default_online_min_threshold")]
-    #[default(Rational32::new(90, 100))]
-    pub online_min_threshold: Rational32,
-    /// Online maximum threshold above which validator gets full reward.
-    #[serde(default = "default_online_max_threshold")]
-    #[default(Rational32::new(99, 100))]
-    pub online_max_threshold: Rational32,
-    /// Gas price adjustment rate
-    #[default(Rational32::from_integer(0))]
-    pub gas_price_adjustment_rate: Rational32,
-    /// List of initial validators.
-    pub validators: Vec<AccountInfo>,
-    /// Number of blocks for which a given transaction is valid
-    pub transaction_validity_period: NumBlocks,
-    /// Maximum inflation on the total supply every epoch.
-    #[default(Rational32::from_integer(0))]
-    pub max_inflation_rate: Rational32,
-    /// Total supply of tokens at genesis.
-    #[serde(with = "dec_format")]
-    pub total_supply: Balance,
-    /// Expected number of blocks per year
-    pub num_blocks_per_year: NumBlocks,
-    /// Protocol treasury account
-    #[default("near".parse().unwrap())]
-    pub protocol_treasury_account: AccountId,
-    /// Fishermen stake threshold.
-    #[serde(with = "dec_format")]
-    pub fishermen_threshold: Balance,
-    /// The minimum stake required for staking is last seat price divided by this number.
-    #[serde(default = "default_minimum_stake_divisor")]
-    #[default(10)]
-    pub minimum_stake_divisor: u64,
-    /// Layout information regarding how to split accounts to shards
-    #[serde(default = "default_shard_layout")]
-    #[default(ShardLayout::v0_single_shard())]
-    pub shard_layout: ShardLayout,
-    #[serde(default = "default_num_chunk_only_producer_seats")]
-    #[default(300)]
-    pub num_chunk_only_producer_seats: NumSeats,
-    /// The minimum number of validators each shard must have
-    #[serde(default = "default_minimum_validators_per_shard")]
-    #[default(1)]
-    pub minimum_validators_per_shard: NumSeats,
-    #[serde(default = "default_max_kickout_stake_threshold")]
-    #[default(100)]
-    /// Max stake percentage of the validators we will kick out.
-    pub max_kickout_stake_perc: u8,
-    /// The lowest ratio s/s_total any block producer can have.
-    /// See <https://github.com/near/NEPs/pull/167> for details
-    #[serde(default = "default_minimum_stake_ratio")]
-    #[default(Rational32::new(160, 1_000_000))]
-    pub minimum_stake_ratio: Rational32,
-    #[serde(default = "default_use_production_config")]
-    #[default(false)]
-    /// This is only for test purposes. We hard code some configs for mainnet and testnet
-    /// in AllEpochConfig, and we want to have a way to test that code path. This flag is for that.
-    /// If set to true, the node will use the same config override path as mainnet and testnet.
-    pub use_production_config: bool,
-}
-
 impl GenesisConfig {
-    pub fn from_genesis_config_snapshot(genesis_config_snapshot: GenesisConfigSnapshot) -> Self {
-        let chain_config_store = ChainConfigStore::new(genesis_config_snapshot.clone());
-        Self {
-            protocol_version: genesis_config_snapshot.protocol_version,
-            genesis_time: genesis_config_snapshot.genesis_time,
-            chain_id: genesis_config_snapshot.chain_id,
-            genesis_height: genesis_config_snapshot.genesis_height,
-            chain_config_store: chain_config_store,
-            num_block_producer_seats: genesis_config_snapshot.num_block_producer_seats,
-            num_block_producer_seats_per_shard: genesis_config_snapshot.num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard: genesis_config_snapshot.avg_hidden_validator_seats_per_shard,
-            dynamic_resharding: genesis_config_snapshot.dynamic_resharding,
-            protocol_upgrade_stake_threshold: genesis_config_snapshot.protocol_upgrade_stake_threshold,
-            epoch_length: genesis_config_snapshot.epoch_length,
-            gas_limit: genesis_config_snapshot.gas_limit,
-            min_gas_price: genesis_config_snapshot.min_gas_price,
-            max_gas_price: genesis_config_snapshot.max_gas_price,
-            block_producer_kickout_threshold: genesis_config_snapshot.block_producer_kickout_threshold,
-            chunk_producer_kickout_threshold: genesis_config_snapshot.chunk_producer_kickout_threshold,
-            online_min_threshold: genesis_config_snapshot.online_min_threshold,
-            online_max_threshold: genesis_config_snapshot.online_max_threshold,
-            gas_price_adjustment_rate: genesis_config_snapshot.gas_price_adjustment_rate,
-            validators: genesis_config_snapshot.validators,
-            transaction_validity_period: genesis_config_snapshot.transaction_validity_period,
-            max_inflation_rate: genesis_config_snapshot.max_inflation_rate,
-            total_supply: genesis_config_snapshot.total_supply,
-            num_blocks_per_year: genesis_config_snapshot.num_blocks_per_year,
-            protocol_treasury_account: genesis_config_snapshot.protocol_treasury_account,
-            fishermen_threshold: genesis_config_snapshot.fishermen_threshold,
-            minimum_stake_divisor: genesis_config_snapshot.minimum_stake_divisor,
-            shard_layout: genesis_config_snapshot.shard_layout,
-            num_chunk_only_producer_seats: genesis_config_snapshot.num_chunk_only_producer_seats,
-            minimum_validators_per_shard: genesis_config_snapshot.minimum_validators_per_shard,
-            max_kickout_stake_perc: genesis_config_snapshot.max_kickout_stake_perc,
-            minimum_stake_ratio: genesis_config_snapshot.minimum_stake_ratio,
-            use_production_config: genesis_config_snapshot.use_production_config,
-        }
-    }
-
     pub fn use_production_config(&self) -> bool {
         self.use_production_config || self.chain_id == "testnet" || self.chain_id == "mainnet"
-    }
-
-    /// Get validators from genesis config
-    pub fn validators(&self) -> Vec<ValidatorStake> {
-        self.validators
-            .iter()
-            .map(|account_info| {
-                ValidatorStake::new(
-                    account_info.account_id.clone(),
-                    account_info.public_key.clone(),
-                    account_info.amount,
-                )
-            })
-            .collect()
     }
 }
 
@@ -427,21 +272,6 @@ fn contents_are_not_records(contents: &GenesisContents) -> bool {
     }
 }
 
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct GenesisSnapshot {
-    #[serde(flatten)]
-    pub config: GenesisConfigSnapshot,
-    /// Custom deserializer used instead of serde(default),
-    /// because serde(flatten) doesn't work with default for some reason
-    /// The corresponding issue has been open since 2019, so any day now.
-    #[serde(
-    flatten,
-    deserialize_with = "no_value_and_null_as_default",
-    skip_serializing_if = "contents_are_not_records"
-    )]
-    pub contents: GenesisContents,
-}
-
 /// `Genesis` has an invariant that `total_supply` is equal to the supply seen in the records.
 /// However, we can't enforce that invariant. All fields are public, but the clients are expected to
 /// use the provided methods for instantiation, serialization and deserialization.
@@ -459,61 +289,6 @@ pub struct Genesis {
         skip_serializing_if = "contents_are_not_records"
     )]
     pub contents: GenesisContents,
-}
-
-impl GenesisConfigSnapshot {
-    pub fn from_genesis_config(genesis_config: GenesisConfig, chain_config: &ChainConfig) -> Self {
-        Self {
-            protocol_version: genesis_config.protocol_version,
-            genesis_time: genesis_config.genesis_time,
-            chain_id: genesis_config.chain_id,
-            genesis_height: genesis_config.genesis_height,
-            num_block_producer_seats: genesis_config.num_block_producer_seats,
-            num_block_producer_seats_per_shard: genesis_config.num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard: genesis_config.avg_hidden_validator_seats_per_shard,
-            dynamic_resharding: genesis_config.dynamic_resharding,
-            protocol_upgrade_stake_threshold: genesis_config.protocol_upgrade_stake_threshold,
-            epoch_length: genesis_config.epoch_length,
-            gas_limit: genesis_config.gas_limit,
-            min_gas_price: genesis_config.min_gas_price,
-            max_gas_price: genesis_config.max_gas_price,
-            block_producer_kickout_threshold: genesis_config.block_producer_kickout_threshold,
-            chunk_producer_kickout_threshold: genesis_config.chunk_producer_kickout_threshold,
-            online_min_threshold: genesis_config.online_min_threshold,
-            online_max_threshold: genesis_config.online_max_threshold,
-            gas_price_adjustment_rate: genesis_config.gas_price_adjustment_rate,
-            validators: genesis_config.validators,
-            transaction_validity_period: genesis_config.transaction_validity_period,
-            protocol_reward_rate: chain_config.protocol_reward_rate,
-            max_inflation_rate: genesis_config.max_inflation_rate,
-            total_supply: genesis_config.total_supply,
-            num_blocks_per_year: genesis_config.num_blocks_per_year,
-            protocol_treasury_account: genesis_config.protocol_treasury_account,
-            fishermen_threshold: genesis_config.fishermen_threshold,
-            minimum_stake_divisor: genesis_config.minimum_stake_divisor,
-            shard_layout: genesis_config.shard_layout,
-            num_chunk_only_producer_seats: genesis_config.num_chunk_only_producer_seats,
-            minimum_validators_per_shard: genesis_config.minimum_validators_per_shard,
-            max_kickout_stake_perc: genesis_config.max_kickout_stake_perc,
-            minimum_stake_ratio: genesis_config.minimum_stake_ratio,
-            use_production_config: genesis_config.use_production_config,
-        }
-    }
-
-    /// Reads GenesisConfigSnapshot from a JSON file.
-    /// The file can be a JSON with comments.
-    /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
-    /// GenesisConfigSnapshot structure.
-    pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let mut file = File::open(path).with_context(|| "Could not open genesis config file.")?;
-        let mut json_str = String::new();
-        file.read_to_string(&mut json_str)?;
-        let json_str_without_comments: String =
-            near_config_utils::strip_comments_from_json_str(&json_str)?;
-        let genesis_config: GenesisConfigSnapshot = serde_json::from_str(&json_str_without_comments)
-            .with_context(|| "Failed to deserialize the genesis config.")?;
-        Ok(genesis_config)
-    }
 }
 
 impl GenesisRecords {
@@ -637,7 +412,7 @@ impl GenesisJsonHasher {
         Self { digest: sha2::Sha256::new() }
     }
 
-    pub fn process_config(&mut self, config: &GenesisConfigSnapshot) {
+    pub fn process_config(&mut self, config: &GenesisConfig) {
         let mut ser = Serializer::pretty(&mut self.digest);
         config.serialize(&mut ser).expect("Error serializing the genesis config.");
     }
@@ -647,7 +422,7 @@ impl GenesisJsonHasher {
         record.serialize(&mut ser).expect("Error serializing the genesis record.");
     }
 
-    pub fn process_genesis(&mut self, genesis: &GenesisSnapshot) {
+    pub fn process_genesis(&mut self, genesis: &Genesis) {
         self.process_config(&genesis.config);
         genesis.for_each_record(|record: &StateRecord| {
             self.process_record(record);
@@ -664,28 +439,19 @@ pub enum GenesisValidationMode {
     UnsafeFast,
 }
 
-impl GenesisSnapshot {
-    pub fn new(config_snapshot: GenesisConfigSnapshot, records: GenesisRecords) -> Result<Self, ValidationError> {
-        Self::new_validated(config_snapshot, records, GenesisValidationMode::Full)
+impl Genesis {
+    pub fn new(config: GenesisConfig, records: GenesisRecords) -> Result<Self, ValidationError> {
+        Self::new_validated(config, records, GenesisValidationMode::Full)
     }
 
-    pub fn from_genesis(genesis: Genesis, epoch_height: EpochHeight) -> Self {
-        let chain_config = genesis.config.chain_config_store.get_config(epoch_height);
-        Self {
-            config: GenesisConfigSnapshot::from_genesis_config(genesis.config.clone(), &chain_config),
-            contents: genesis.contents.clone()
-        }
+    pub fn new_with_path<P: AsRef<Path>>(
+        config: GenesisConfig,
+        records_file: P,
+    ) -> Result<Self, ValidationError> {
+        Self::new_with_path_validated(config, records_file, GenesisValidationMode::Full)
     }
 
-    pub fn from_genesis_for_initial_config(genesis: &Genesis) -> Self {
-        let chain_config = genesis.config.chain_config_store.initial_chain_config.as_ref();
-        Self {
-            config: GenesisConfigSnapshot::from_genesis_config(genesis.config.clone(), chain_config),
-            contents: genesis.contents.clone()
-        }
-    }
-
-    /// Reads GenesisSnapshot from a single JSON file, the file can be JSON with comments
+    /// Reads Genesis from a single JSON file, the file can be JSON with comments
     /// This function will collect all errors regarding genesis.json and push them to validation_errors
     pub fn from_file<P: AsRef<Path>>(
         path: P,
@@ -697,26 +463,24 @@ impl GenesisSnapshot {
                 &path.as_ref().display()
             ),
         })?;
-
         let mut json_str = String::new();
         file.read_to_string(&mut json_str).map_err(|_| ValidationError::GenesisFileError {
             error_message: "Failed to read genesis config file to string. ".to_string(),
         })?;
-
         let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)
             .map_err(|_| ValidationError::GenesisFileError {
                 error_message: "Failed to strip comments from genesis config file".to_string(),
             })?;
 
-        let genesis_snapshot =
-            serde_json::from_str::<GenesisSnapshot>(&json_str_without_comments).map_err(|_| {
+        let genesis =
+            serde_json::from_str::<Genesis>(&json_str_without_comments).map_err(|_| {
                 ValidationError::GenesisFileError {
                     error_message: "Failed to deserialize the genesis records.".to_string(),
                 }
             })?;
 
-        genesis_snapshot.validate(genesis_validation)?;
-        Ok(genesis_snapshot)
+        genesis.validate(genesis_validation)?;
+        Ok(genesis)
     }
 
     /// Reads Genesis from config and records files.
@@ -729,37 +493,36 @@ impl GenesisSnapshot {
             P1: AsRef<Path>,
             P2: AsRef<Path>,
     {
-        let genesis_config_snapshot = GenesisConfigSnapshot::from_file(config_path).map_err(|error| {
+        let genesis_config = GenesisConfig::from_file(config_path).map_err(|error| {
             let error_message = error.to_string();
             ValidationError::GenesisFileError { error_message: error_message }
         })?;
-        Self::new_with_path_validated(genesis_config_snapshot, records_path, genesis_validation)
+        Self::new_with_path_validated(genesis_config, records_path, genesis_validation)
     }
 
     fn new_validated(
-        config_shapshot: GenesisConfigSnapshot,
+        config: GenesisConfig,
         records: GenesisRecords,
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError> {
-        let genesis_snapshot = Self { config: config_shapshot, contents: GenesisContents::Records { records } };
-        genesis_snapshot.validate(genesis_validation)?;
-        Ok(genesis_snapshot)
+        let genesis = Self { config, contents: GenesisContents::Records { records } };
+        genesis.validate(genesis_validation)?;
+        Ok(genesis)
     }
 
-
     fn new_with_path_validated<P: AsRef<Path>>(
-        config_snapshot: GenesisConfigSnapshot,
+        config: GenesisConfig,
         records_file: P,
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError> {
-        let genesis_snapshot = Self {
-            config: config_snapshot,
+        let genesis = Self {
+            config,
             contents: GenesisContents::RecordsFile {
                 records_file: records_file.as_ref().to_path_buf(),
             },
         };
-        genesis_snapshot.validate(genesis_validation)?;
-        Ok(genesis_snapshot)
+        genesis.validate(genesis_validation)?;
+        Ok(genesis)
     }
 
     pub fn validate(
@@ -775,7 +538,7 @@ impl GenesisSnapshot {
         }
     }
 
-    /// Writes GenesisSnapshot to the file.
+    /// Writes Genesis to the file.
     pub fn to_file<P: AsRef<Path>>(&self, path: P) {
         std::fs::write(
             path,
@@ -790,6 +553,14 @@ impl GenesisSnapshot {
         let mut hasher = GenesisJsonHasher::new();
         hasher.process_genesis(self);
         hasher.finalize()
+    }
+
+    /// Returns number of records in the genesis or path to records file.
+    pub fn records_len(&self) -> Result<usize, &Path> {
+        match &self.contents {
+            GenesisContents::Records { records } => Ok(records.0.len()),
+            GenesisContents::RecordsFile { records_file } => Err(&records_file),
+        }
     }
 
     /// If records vector is empty processes records stream from records_file.
@@ -813,7 +584,6 @@ impl GenesisSnapshot {
             }
         }
     }
-
     /// Forces loading genesis records into memory.
     ///
     /// This is meant for **tests only**.  In production code you should be
@@ -835,97 +605,6 @@ impl GenesisSnapshot {
             _ => {
                 unreachable!("Records should have been set previously");
             }
-        }
-    }
-}
-
-impl Genesis {
-    pub fn new(config: GenesisConfig, records: GenesisRecords, epoch_height: EpochHeight) -> Result<Self, ValidationError> {
-        Self::new_validated(config, records, GenesisValidationMode::Full, epoch_height)
-    }
-
-    fn new_validated(
-        config: GenesisConfig,
-        records: GenesisRecords,
-        genesis_validation: GenesisValidationMode,
-        epoch_height: EpochHeight,
-    ) -> Result<Self, ValidationError> {
-        let genesis = Self { config: config, contents: GenesisContents::Records { records } };
-        let genesis_snapshot = GenesisSnapshot::from_genesis(genesis.clone(), epoch_height);
-        genesis_snapshot.validate(genesis_validation)?;
-        Ok(genesis)
-    }
-
-    pub fn new_with_path<P: AsRef<Path>>(
-        genesis_config: GenesisConfig,
-        records_file: P,
-        epoch_height: EpochHeight,
-    ) -> Result<Self, ValidationError> {
-        Self::new_with_path_validated(genesis_config, records_file, GenesisValidationMode::Full, epoch_height)
-    }
-
-    fn new_with_path_validated<P: AsRef<Path>>(
-        genesis_config: GenesisConfig,
-        records_file: P,
-        genesis_validation: GenesisValidationMode,
-        epoch_height: EpochHeight,
-    ) -> Result<Self, ValidationError> {
-        let genesis = Self {
-            config: genesis_config,
-            contents: GenesisContents::RecordsFile {
-                records_file: records_file.as_ref().to_path_buf(),
-            },
-        };
-
-        let genesis_snapshot = GenesisSnapshot::from_genesis(genesis.clone(), epoch_height);
-        genesis_snapshot.validate(genesis_validation)?;
-        Ok(genesis)
-    }
-
-    pub fn from_genesis_snapshot(genesis_snapshot: GenesisSnapshot) -> Self {
-        Self {
-            config: GenesisConfig::from_genesis_config_snapshot(genesis_snapshot.config),
-            contents: genesis_snapshot.contents,
-        }
-    }
-
-    pub fn get_initial_config_snapshot(&self) -> GenesisSnapshot {
-        GenesisSnapshot::from_genesis_for_initial_config(self)
-    }
-
-    /// Writes Genesis to the file.
-    pub fn to_file<P: AsRef<Path>>(&self, path: P, epoch_height: EpochHeight) {
-        let genesis_snapshot = GenesisSnapshot::from_genesis(self.clone(), epoch_height);
-        genesis_snapshot.to_file(path);
-    }
-
-    /// If records vector is empty processes records stream from records_file.
-    /// May panic if records_file is removed or is in wrong format.
-    pub fn for_each_record(&self, mut callback: impl FnMut(&StateRecord)) {
-        match &self.contents {
-            GenesisContents::Records { records } => {
-                for record in &records.0 {
-                    callback(record);
-                }
-            }
-            GenesisContents::RecordsFile { records_file } => {
-                let callback_move = |record: StateRecord| {
-                    callback(&record);
-                };
-                let reader = BufReader::new(
-                    File::open(&records_file).expect("error while opening records file"),
-                );
-                stream_records_from_file(reader, callback_move)
-                    .expect("error while streaming records");
-            }
-        }
-    }
-
-    /// Returns number of records in the genesis or path to records file.
-    pub fn records_len(&self) -> Result<usize, &Path> {
-        match &self.contents {
-            GenesisContents::Records { records } => Ok(records.0.len()),
-            GenesisContents::RecordsFile { records_file } => Err(&records_file),
         }
     }
 }
