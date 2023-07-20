@@ -41,6 +41,28 @@ impl ChainConfigStore {
         println!("{:?}", initial_chain_config);
         println!("Mirko: ide store");
         println!("{:?}", store);
+        println!("Mirko: ide chain config");
+        println!("{:?}", store
+            .range((Bound::Unbounded, Bound::Included(0)))
+            .next_back()
+            .unwrap_or_else(|| {
+                panic!("Not found ChainConfig for protocol version {}", protocol_version)
+            })
+            .1);
+        println!("{:?}", store
+            .range((Bound::Unbounded, Bound::Included(5)))
+            .next_back()
+            .unwrap_or_else(|| {
+                panic!("Not found ChainConfig for protocol version {}", protocol_version)
+            })
+            .1);
+        println!("{:?}", store
+            .range((Bound::Unbounded, Bound::Included(10)))
+            .next_back()
+            .unwrap_or_else(|| {
+                panic!("Not found ChainConfig for protocol version {}", protocol_version)
+            })
+            .1);
         Self { initial_chain_config, store }
     }
 
