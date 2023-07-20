@@ -46,21 +46,21 @@ impl ChainConfigStore {
             .range((Bound::Unbounded, Bound::Included(0)))
             .next_back()
             .unwrap_or_else(|| {
-                panic!("Not found ChainConfig for protocol version {}", protocol_version)
+                panic!("Not found ChainConfig for protocol version {}", 0)
             })
             .1);
         println!("{:?}", store
             .range((Bound::Unbounded, Bound::Included(5)))
             .next_back()
             .unwrap_or_else(|| {
-                panic!("Not found ChainConfig for protocol version {}", protocol_version)
+                panic!("Not found ChainConfig for protocol version {}", 5)
             })
             .1);
         println!("{:?}", store
             .range((Bound::Unbounded, Bound::Included(10)))
             .next_back()
             .unwrap_or_else(|| {
-                panic!("Not found ChainConfig for protocol version {}", protocol_version)
+                panic!("Not found ChainConfig for protocol version {}", 10)
             })
             .1);
         Self { initial_chain_config, store }
