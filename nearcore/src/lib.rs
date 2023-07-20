@@ -233,7 +233,9 @@ pub fn start_with_config_and_synchronization(
         config.client_config.log_summary_period,
     )?;
 
-    // Initialize genesis STATE either from config or state/storage before other components.
+    // Initialize genesis_state in store either from genesis config or dump before other components.
+    // We only initialize if the genesis state is not already initialized in store.
+    // This sets up genesis_state_roots and genesis_hash in store.
     initialize_genesis_state(storage.get_hot_store(), &config.genesis, Some(home_dir));
 
     let epoch_manager =
