@@ -155,7 +155,9 @@ def doit(seq=[]):
         assert time.time() - last_iter < TIMEOUT_PER_ITER
 
         height, hash_ = nodes[0].get_latest_block()
-        logging.info(f"Node 0 at height {height}; time since last staking iteration: {time.time() - last_iter} seconds")
+        logging.info(
+            f"Node 0 at height {height}; time since last staking iteration: {time.time() - last_iter} seconds"
+        )
         send_fakes = send_reals = False
 
         if (height + EPOCH_LENGTH - FAKE_OFFSET) // EPOCH_LENGTH > (
@@ -192,6 +194,7 @@ def doit(seq=[]):
             last_staked_height += EPOCH_LENGTH
 
         time.sleep(1)
+
 
 if __name__ == "__main__":
     doit()

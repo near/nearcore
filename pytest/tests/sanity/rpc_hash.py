@@ -21,7 +21,6 @@ import messages
 import messages.crypto
 import messages.block
 
-
 config = cluster.load_config()
 binary_protocol_version = cluster.get_binary_protocol_version(config)
 assert binary_protocol_version is not None
@@ -209,7 +208,8 @@ class HashTestCase(unittest.TestCase):
             self.assertEqual(block_hash, compute_block_hash(header, msg_ver))
 
         # Now try with a different block body hash
-        header['block_body_hash'] = '4rMxTeTF9LehPbzB2xhVa4xWVtbyjRfvL7qsxc8sL7WP';
+        header[
+            'block_body_hash'] = '4rMxTeTF9LehPbzB2xhVa4xWVtbyjRfvL7qsxc8sL7WP'
         for msg_ver, block_hash in (
             (1, '3ckGjcedZiN3RnvfiuEN83BtudDTVa9Pub4yZ8R737qt'),
             (2, 'Hezx56VTH815G6JTzWqJ7iuWxdR9X4ZqGwteaDF8q2z'),
@@ -312,6 +312,7 @@ class HashTestCase(unittest.TestCase):
         self._test_block_hash(3, 50)
 
     if binary_protocol_version >= BLOCK_HEADER_V4_PROTOCOL_VERSION:
+
         def test_block_hash_v4(self):
             """Starts a cluster using protocol version 138 and verifies block hashes.
 
