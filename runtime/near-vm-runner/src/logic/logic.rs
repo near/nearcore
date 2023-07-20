@@ -180,11 +180,6 @@ impl<'a> VMLogic<'a> {
         &self.logs
     }
 
-    // /// Returns receipt metadata for created receipts
-    // pub fn action_receipts(&self) -> &[(AccountId, ReceiptMetadata)] {
-    //     &self.receipt_manager.action_receipts
-    // }
-
     #[cfg(test)]
     pub(super) fn gas_counter(&self) -> &GasCounter {
         &self.gas_counter
