@@ -1,3 +1,4 @@
+use crate::logic::mocks::mock_external::MockAction;
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
 use crate::logic::types::Gas;
@@ -118,59 +119,45 @@ fn test_hit_prepaid_gas_limit() {
     assert_eq!(outcome.used_gas, gas_limit);
 }
 
-// #[track_caller]
-// fn assert_with_gas(receipt: &ReceiptMetadata, expcted_gas: Gas) {
-//     match receipt.actions[0] {
-//         Action::FunctionCall(FunctionCallAction { gas, .. }) => {
-//             assert_eq!(expcted_gas, gas);
-//         }
-//         _ => {
-//             panic!("expected function call action");
-//         }
-//     }
-// }
-
 #[track_caller]
-fn function_call_weight_check(function_calls: &[(Gas, u64, Gas)]) {
+fn function_call_weight_verify(function_calls: &[(Gas, u64, Gas)], after_distribute: bool) {
     let gas_limit = 10_000_000_000;
-
     let mut logic_builder = VMLogicBuilder::free();
     logic_builder.config.limit_config.max_gas_burnt = gas_limit;
     logic_builder.context.prepaid_gas = gas_limit;
     let mut logic = logic_builder.build();
-
-    let mut ratios = vec![];
 
     // Schedule all function calls
     for &(static_gas, gas_weight, _) in function_calls {
         let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
         promise_batch_action_function_call_weight(&mut logic, index, 0, static_gas, gas_weight)
             .expect("batch action function call should succeed");
-        ratios.push((index, gas_weight));
+    }
+    let (outcome, accessor): (_, fn(&(Gas, u64, Gas)) -> Gas) = if after_distribute {
+        (Some(logic.compute_outcome_and_distribute_gas()), |(_, _, expected)| *expected)
+    } else {
+        (None, |(static_gas, _, _)| *static_gas)
+    };
+
+    // Assert expected amount of gas was associated with the action
+    let function_call_gas = logic_builder.ext.action_log.iter().filter_map(|a| {
+        let MockAction::FunctionCallWeight { prepaid_gas, .. } = a else { return None };
+        Some(prepaid_gas)
+    });
+    for (prepaid_gas, fc) in function_call_gas.zip(function_calls) {
+        assert_eq!(*prepaid_gas, accessor(fc));
     }
 
-    // FIXME(actions): check without receipts somehow? Move test elsewhere?
-    // // Test static gas assigned before
-    // let receipts = logic.receipt_manager().action_receipts.iter().map(|(_, rec)| rec);
-    // for (receipt, &(static_gas, _, _)) in receipts.zip(function_calls) {
-    //     assert_with_gas(receipt, static_gas);
-    // }
+    if let Some(outcome) = outcome {
+        // Verify that all gas was consumed (assumes at least one ratio is provided)
+        assert_eq!(outcome.used_gas, gas_limit);
+    }
+}
 
-    // let outcome = logic.compute_outcome_and_distribute_gas();
-
-    // // Test gas is distributed after outcome calculated.
-    // let receipts = outcome.action_receipts.iter().map(|(_, rec)| rec);
-
-    // // Assert lengths are equal for zip
-    // assert_eq!(receipts.len(), function_calls.len());
-
-    // // Assert sufficient amount was given to
-    // for (receipt, &(_, _, expected)) in receipts.zip(function_calls) {
-    //     assert_with_gas(receipt, expected);
-    // }
-
-    // // Verify that all gas was consumed (assumes at least one ratio is provided)
-    // assert_eq!(outcome.used_gas, gas_limit);
+#[track_caller]
+fn function_call_weight_check(function_calls: &[(Gas, u64, Gas)]) {
+    function_call_weight_verify(function_calls, false);
+    function_call_weight_verify(function_calls, true);
 }
 
 #[test]
