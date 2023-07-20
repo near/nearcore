@@ -72,7 +72,7 @@ impl StateSnapshot {
                 let _timer = metrics::MOVE_STATE_SNAPSHOT_FLAT_HEAD_ELAPSED
                     .with_label_values(&[&shard_uid.shard_id.to_string()])
                     .start_timer();
-                if let Err(err) = flat_storage.update_flat_head(&prev_block_hash) {
+                if let Err(err) = flat_storage.update_flat_head(todo!()) {
                     tracing::error!(target: "state_snapshot", ?err, ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), ?prev_block_hash, "Failed to Move FlatStorage head of the snapshot");
                 } else {
                     tracing::debug!(target: "state_snapshot", ?shard_uid, new_flat_head = ?flat_storage.get_head_hash(), desired_flat_head = ?prev_block_hash, "Successfully moved FlatStorage head of the snapshot");
@@ -437,6 +437,7 @@ impl ShardTries {
         &self,
         prev_block_hash: &CryptoHash,
         shard_uids: &[ShardUId],
+
     ) -> Result<(), anyhow::Error> {
         metrics::HAS_STATE_SNAPSHOT.set(0);
         // The function returns an `anyhow::Error`, because no special handling of errors is done yet. The errors are logged and ignored.

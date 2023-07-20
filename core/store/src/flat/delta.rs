@@ -3,7 +3,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::{FlatStateValue, ValueRef};
-use near_primitives::types::RawStateChangesWithTrieKey;
+use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -17,8 +17,15 @@ pub struct FlatStateDelta {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy)]
+pub struct CompressionInfo {
+    pub last_height_with_changes: BlockHeight,
+    pub last_block_with_changes: CryptoHash,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy)]
 pub struct FlatStateDeltaMetadata {
     pub block: BlockInfo,
+    pub compression_info: Option<CompressionInfo>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug)]

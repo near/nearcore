@@ -7,7 +7,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use tracing::{debug, warn};
 
-use crate::flat::delta::CachedFlatStateChanges;
+use crate::flat::delta::{CachedFlatStateChanges, CompressionInfo};
 use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use crate::{Store, StoreUpdate};
 
@@ -223,7 +223,27 @@ impl FlatStorage {
         }
         let shard_uid = guard.shard_uid;
         let shard_id = shard_uid.shard_id();
-        let blocks = guard.get_blocks_to_head(new_head)?;
+
+        let last_block_with_changes : CryptoHash = {
+            let metadata = guard.deltas.get(new_head).ok_or_else(|| missing_delta_error(new_head))?.metadata;
+            match metadata.compression_info {
+                None => {
+                    *new_head
+                }
+                Some(CompressionInfo{ last_height_with_changes, last_block_with_changes }) => {
+                    if last_height_with_changes < guard.flat_head.height {
+                        tracing::warn!(target: "store", ?metadata, flat_head = ?guard.flat_head, "Inconsistent CompressionInfo");
+                        guard.flat_head.hash
+                    } else {
+                        last_block_with_changes
+                    }
+                }
+            }
+        };
+        tracing::debug!(target: "store", flat_head = ?guard.flat_head, ?last_block_with_changes, ?new_head, "Moving flat head");
+        let new_head = last_block_with_changes;
+        let blocks = guard.get_blocks_to_head(&new_head)?;
+
         for block_hash in blocks.into_iter().rev() {
             let mut store_update = StoreUpdate::new(guard.store.storage.clone());
             // Delta must exist because flat storage is locked and we could retrieve

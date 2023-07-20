@@ -46,6 +46,19 @@ pub fn get_all_deltas_metadata(
         .collect()
 }
 
+pub fn get_delta_metadata(
+    store: &Store,
+    shard_uid: ShardUId,
+    block_hash: CryptoHash,
+) -> FlatStorageResult<Option<FlatStateDeltaMetadata>> {
+    let key = KeyForFlatStateDelta { shard_uid, block_hash }.to_bytes();
+    store.get_ser(DBCol::FlatStateDeltaMetadata, &key).map_err(|err| {
+        FlatStorageError::StorageInternalError(format!(
+            "failed to read delta metadata for {key:?}: {err}"
+        ))
+    })
+}
+
 pub fn set_delta(store_update: &mut StoreUpdate, shard_uid: ShardUId, delta: &FlatStateDelta) {
     let key = KeyForFlatStateDelta { shard_uid, block_hash: delta.metadata.block.hash }.to_bytes();
     store_update
