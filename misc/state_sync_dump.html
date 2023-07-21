@@ -154,9 +154,9 @@ storage, making downloading the state both low latency and reliable process,
 thanks to the robust infrastructure of external storage such as S3.</p>
 <h2 id="how-to"><a class="header" href="#how-to">How-to</a></h2>
 <p><a href="https://github.com/near/nearcore/pull/8661">#8661</a> adds an experimental option
-to dump state of every epoch to external storage. At the moment only S3 is
-supported as external storage.</p>
-<p>To enable, add this to your <code>config.json</code> file:</p>
+to dump state of every epoch to external storage.</p>
+<h3 id="s3"><a class="header" href="#s3">S3</a></h3>
+<p>To enable S3 as your external storage, add this to your <code>config.json</code> file:</p>
 <pre><code class="language-json">&quot;state_sync&quot;: {
   &quot;dump&quot;: {
     &quot;location&quot;: {
@@ -171,6 +171,22 @@ supported as external storage.</p>
 <p>And run your node with environment variables <code>AWS_ACCESS_KEY_ID</code> and
 <code>AWS_SECRET_ACCESS_KEY</code>:</p>
 <pre><code class="language-shell">AWS_ACCESS_KEY_ID=&quot;MY_ACCESS_KEY&quot; AWS_SECRET_ACCESS_KEY=&quot;MY_AWS_SECRET_ACCESS_KEY&quot; ./neard run
+</code></pre>
+<h3 id="google-cloud-storage"><a class="header" href="#google-cloud-storage">Google Cloud Storage</a></h3>
+<p>To enable Google Cloud Storage as your external storage, add this to your <code>config.json</code> file:</p>
+<pre><code class="language-json">&quot;state_sync&quot;: {
+  &quot;dump&quot;: {
+    &quot;location&quot;: {
+      &quot;GCS&quot;: {
+        &quot;bucket&quot;: &quot;my-gcs-bucket&quot;,
+      }
+    }
+  }
+}
+</code></pre>
+<p>And run your node with an environment variable <code>SERVICE_ACCOUNT</code> or <code>GOOGLE_APPLICATION_CREDENTIALS</code>
+pointing to the credentials json file</p>
+<pre><code class="language-shell">SERVICE_ACCOUNT=/path/to/file  ./neard run
 </code></pre>
 <h2 id="dump-to-a-local-filesystem"><a class="header" href="#dump-to-a-local-filesystem">Dump to a local filesystem</a></h2>
 <p>Add this to your <code>config.json</code> file to dump state of every epoch to local filesystem:</p>
