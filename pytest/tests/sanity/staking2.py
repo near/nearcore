@@ -5,7 +5,7 @@
 # Before the "fake" tx we expect the stakes to be equal to the largest of the last three "real" stakes for
 # each node. Before "real" txs it is the largest of the same value, and the last "fake" stake.
 
-import sys, time, base58, random
+import sys, time, base58, random, logging
 import pathlib
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
@@ -155,6 +155,9 @@ def doit(seq=[]):
         assert time.time() - last_iter < TIMEOUT_PER_ITER
 
         height, hash_ = nodes[0].get_latest_block()
+        logging.info(
+            f"Node 0 at height {height}; time since last staking iteration: {time.time() - last_iter} seconds"
+        )
         send_fakes = send_reals = False
 
         if (height + EPOCH_LENGTH - FAKE_OFFSET) // EPOCH_LENGTH > (
@@ -189,6 +192,8 @@ def doit(seq=[]):
 
         elif send_reals:
             last_staked_height += EPOCH_LENGTH
+
+        time.sleep(1)
 
 
 if __name__ == "__main__":

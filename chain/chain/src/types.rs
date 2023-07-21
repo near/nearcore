@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
@@ -11,7 +10,6 @@ use num_rational::Rational32;
 use crate::metrics;
 use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
-use near_client_primitives::types::StateSplitApplyingStatus;
 use near_pool::types::PoolIterator;
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::checked_feature;
@@ -241,9 +239,6 @@ impl ChainGenesis {
 /// Naming note: `state_root` is a pre state root for block `block_hash` and a
 /// post state root for block `prev_hash`.
 pub trait RuntimeAdapter: Send + Sync {
-    /// Get store and genesis state roots
-    fn genesis_state(&self) -> (Store, Vec<StateRoot>);
-
     fn get_tries(&self) -> ShardTries;
 
     fn store(&self) -> &Store;
@@ -335,11 +330,6 @@ pub trait RuntimeAdapter: Send + Sync {
         state_patch: SandboxStatePatch,
         use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
-        let _span = tracing::debug_span!(
-            target: "runtime",
-            "apply_transactions",
-            shard_id)
-        .entered();
         let _timer =
             metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         self.apply_transactions_with_optional_storage_proof(
@@ -442,14 +432,6 @@ pub trait RuntimeAdapter: Send + Sync {
         state_changes: StateChangesForSplitStates,
     ) -> Result<Vec<ApplySplitStateResult>, Error>;
 
-    fn build_state_for_split_shards(
-        &self,
-        shard_uid: ShardUId,
-        state_root: &StateRoot,
-        next_epoch_shard_layout: &ShardLayout,
-        state_split_status: Arc<StateSplitApplyingStatus>,
-    ) -> Result<HashMap<ShardUId, StateRoot>, Error>;
-
     /// Should be executed after accepting all the parts to set up a new state.
     fn apply_state_part(
         &self,
@@ -491,6 +473,8 @@ pub struct LatestKnown {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use chrono::Utc;
     use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
 

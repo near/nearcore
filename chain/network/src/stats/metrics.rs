@@ -168,14 +168,6 @@ pub(crate) static PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES: Lazy<IntCounterVec> = Laz
     )
     .unwrap()
 });
-// TODO(mina86): This has been deprecated in 1.30.  Remove at 1.32 or so.
-pub(crate) static PEER_MESSAGE_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter(
-        "near_peer_message_received_total",
-        "Deprecated; aggregate near_peer_message_received_by_type_total instead",
-    )
-    .unwrap()
-});
 pub(crate) static PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_peer_message_received_by_type_total",

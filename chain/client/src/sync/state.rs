@@ -28,8 +28,9 @@ use actix_rt::ArbiterHandle;
 use chrono::{DateTime, Duration, Utc};
 use futures::{future, FutureExt};
 use near_async::messaging::CanSendAsync;
-use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
+use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::near_chain_primitives;
+use near_chain::resharding::StateSplitRequest;
 use near_chain::Chain;
 use near_chain_configs::{ExternalStorageConfig, ExternalStorageLocation, SyncConfig};
 use near_client_primitives::types::{
@@ -166,6 +167,7 @@ impl StateSync {
         timeout: TimeDuration,
         chain_id: &str,
         sync_config: &SyncConfig,
+        catchup: bool,
     ) -> Self {
         let inner = match sync_config {
             SyncConfig::Peers => StateSyncInner::Peers {
@@ -175,6 +177,7 @@ impl StateSync {
             SyncConfig::ExternalStorage(ExternalStorageConfig {
                 location,
                 num_concurrent_requests,
+                num_concurrent_requests_during_catchup,
             }) => {
                 let external = match location {
                     ExternalStorageLocation::S3 { bucket, region } => {
@@ -193,11 +196,14 @@ impl StateSync {
                         bucket: bucket.clone(),
                     },
                 };
+                let num_permits = if catchup {
+                    *num_concurrent_requests_during_catchup
+                } else {
+                    *num_concurrent_requests
+                } as usize;
                 StateSyncInner::PartsFromExternal {
                     chain_id: chain_id.to_string(),
-                    semaphore: Arc::new(tokio::sync::Semaphore::new(
-                        *num_concurrent_requests as usize,
-                    )),
+                    semaphore: Arc::new(tokio::sync::Semaphore::new(num_permits)),
                     external,
                 }
             }
@@ -419,7 +425,7 @@ impl StateSync {
             let part_id = msg.part_id.idx;
             if msg.sync_hash != sync_hash {
                 debug!(target: "sync",
-                    "Recieved message for other sync hash: shard_id {}, part_id {} expected sync_hash {} recieved sync_hash {}.",
+                    "Received message for other sync hash: shard_id {}, part_id {} expected sync_hash {} recieved sync_hash {}.",
                     &shard_id,
                     &part_id,
                     &sync_hash,
@@ -1419,6 +1425,7 @@ mod test {
             TimeDuration::from_secs(1),
             "chain_id",
             &SyncConfig::Peers,
+            false,
         );
         let mut new_shard_sync = HashMap::new();
 

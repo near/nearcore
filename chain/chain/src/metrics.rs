@@ -110,3 +110,10 @@ pub static STATE_PART_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
 pub static NUM_INVALID_BLOCKS: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_num_invalid_blocks", "Number of invalid blocks").unwrap()
 });
+pub(crate) static SCHEDULED_CATCHUP_BLOCK: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_catchup_scheduled_block_height",
+        "Tracks the progress of blocks catching up",
+    )
+    .unwrap()
+});

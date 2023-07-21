@@ -26,6 +26,7 @@ pub const DEFAULT_GC_NUM_EPOCHS_TO_KEEP: u64 = 5;
 
 /// Default number of concurrent requests to external storage to fetch state parts.
 pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL: u32 = 25;
+pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL: u32 = 5;
 
 /// Configuration for garbage collection.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -77,14 +78,22 @@ fn default_num_concurrent_requests() -> u32 {
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL
 }
 
+fn default_num_concurrent_requests_during_catchup() -> u32 {
+    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct ExternalStorageConfig {
     /// Location of state parts.
     pub location: ExternalStorageLocation,
     /// When fetching state parts from external storage, throttle fetch requests
-    /// to this many concurrent requests per shard.
+    /// to this many concurrent requests.
     #[serde(default = "default_num_concurrent_requests")]
     pub num_concurrent_requests: u32,
+    /// During catchup, the node will use a different number of concurrent requests
+    /// to reduce the performance impact of state sync.
+    #[serde(default = "default_num_concurrent_requests_during_catchup")]
+    pub num_concurrent_requests_during_catchup: u32,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]

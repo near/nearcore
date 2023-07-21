@@ -177,6 +177,9 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
                 net::PeerMessage::SyncRoutingTable(rtu.into())
             }
             mem::PeerMessage::RequestUpdateNonce(e) => net::PeerMessage::RequestUpdateNonce(e),
+            mem::PeerMessage::DistanceVector(_) => {
+                panic!("DistanceVector is not supported in Borsh encoding")
+            }
 
             // This message is not supported, we translate it to an empty RoutingTableUpdate.
             mem::PeerMessage::SyncAccountsData(_) => {
