@@ -1,5 +1,6 @@
 use crate::network_protocol::Edge;
 use near_primitives::network::PeerId;
+use near_primitives::views::{EdgeCacheView, LabeledEdgeView};
 use std::collections::hash_map::{Entry, Iter};
 use std::collections::{HashMap, HashSet};
 
@@ -355,6 +356,29 @@ impl EdgeCache {
             Some(edges)
         } else {
             None
+        }
+    }
+
+    pub(crate) fn get_debug_view(&self) -> EdgeCacheView {
+        EdgeCacheView {
+            peer_labels: self.p2id.clone(),
+            spanning_trees: self
+                .active_trees
+                .iter()
+                .map(|(peer_id, edge_keys)| {
+                    (
+                        self.get_id(&peer_id),
+                        edge_keys
+                            .iter()
+                            .map(|key| LabeledEdgeView {
+                                peer0: self.get_id(&key.peer0),
+                                peer1: self.get_id(&key.peer1),
+                                nonce: *self.verified_nonces.get(&key).unwrap(),
+                            })
+                            .collect(),
+                    )
+                })
+                .collect(),
         }
     }
 }
