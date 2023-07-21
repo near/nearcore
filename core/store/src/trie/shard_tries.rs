@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock, TryLockError};
+use near_primitives::block::Block;
 
 struct ShardTriesInner {
     store: Store,
@@ -60,22 +61,34 @@ impl StateSnapshot {
         prev_block_hash: CryptoHash,
         flat_storage_manager: FlatStorageManager,
         shard_uids: &[ShardUId],
+        block: Option<&Block>,
     ) -> Self {
         tracing::debug!(target: "state_snapshot", ?shard_uids, ?prev_block_hash, "new StateSnapshot");
         for shard_uid in shard_uids {
             if let Err(err) = flat_storage_manager.create_flat_storage_for_shard(*shard_uid) {
                 tracing::warn!(target: "state_snapshot", ?err, ?shard_uid, "Failed to create a flat storage for snapshot shard");
-            } else {
+                continue;
+            }
+            if let Some(block) = block {
                 let flat_storage =
                     flat_storage_manager.get_flat_storage_for_shard(*shard_uid).unwrap();
-                tracing::debug!(target: "state_snapshot", ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), desired_flat_head = ?prev_block_hash, "Moving FlatStorage head of the snapshot");
+                let current_flat_head = flat_storage.get_head_hash();
+                tracing::debug!(target: "state_snapshot", ?shard_uid, ?current_flat_head, block_hash = ?block.header().hash(), block_height = block.header().height(), "Moving FlatStorage head of the snapshot");
                 let _timer = metrics::MOVE_STATE_SNAPSHOT_FLAT_HEAD_ELAPSED
                     .with_label_values(&[&shard_uid.shard_id.to_string()])
                     .start_timer();
-                if let Err(err) = flat_storage.update_flat_head(todo!()) {
-                    tracing::error!(target: "state_snapshot", ?err, ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), ?prev_block_hash, "Failed to Move FlatStorage head of the snapshot");
+                if let Some(chunk) = block.chunks().get(shard_uid.shard_id as usize) {
+                    let desired_flat_head= chunk.prev_block_hash();
+                    match flat_storage.update_flat_head(desired_flat_head, true) {
+                        Ok(_) => {
+                            tracing::debug!(target: "state_snapshot", ?shard_uid, ?current_flat_head, ?desired_flat_head, "Successfully moved FlatStorage head of the snapshot");
+                        },
+                        Err(err) => {
+                            tracing::error!(target: "state_snapshot", ?shard_uid, ?err, ?current_flat_head, ?desired_flat_head, "Failed to move FlatStorage head of the snapshot");
+                        },
+                    }
                 } else {
-                    tracing::debug!(target: "state_snapshot", ?shard_uid, new_flat_head = ?flat_storage.get_head_hash(), desired_flat_head = ?prev_block_hash, "Successfully moved FlatStorage head of the snapshot");
+                    tracing::error!(target: "state_snapshot", ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), ?prev_block_hash, "Failed to move FlatStorage head of the snapshot, no chunk");
                 }
             }
         }
@@ -437,7 +450,7 @@ impl ShardTries {
         &self,
         prev_block_hash: &CryptoHash,
         shard_uids: &[ShardUId],
-
+        block: &Block,
     ) -> Result<(), anyhow::Error> {
         metrics::HAS_STATE_SNAPSHOT.set(0);
         // The function returns an `anyhow::Error`, because no special handling of errors is done yet. The errors are logged and ignored.
@@ -508,6 +521,7 @@ impl ShardTries {
                     *prev_block_hash,
                     flat_storage_manager,
                     shard_uids,
+                    Some(block),
                 ));
                 metrics::HAS_STATE_SNAPSHOT.set(1);
                 tracing::info!(target: "state_snapshot", ?prev_block_hash, "Made a checkpoint");
@@ -643,6 +657,7 @@ impl ShardTries {
                         *prev_block_hash,
                         flat_storage_manager,
                         &shard_uids,
+                        None,
                     ));
                     metrics::HAS_STATE_SNAPSHOT.set(1);
                     tracing::info!(target: "runtime", ?prev_block_hash, ?snapshot_dir, "Detected and opened a state snapshot.");

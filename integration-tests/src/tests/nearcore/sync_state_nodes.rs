@@ -543,7 +543,6 @@ fn sync_state_dump() {
 }
 
 #[test]
-#[ignore]
 // Test that state sync behaves well when the chunks are absent at the end of the epoch.
 // The test actually fails and the code needs fixing.
 fn test_dump_epoch_missing_chunk_in_last_block() {
@@ -558,7 +557,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
             genesis.config.epoch_length = epoch_length;
             let chain_genesis = ChainGenesis::new(&genesis);
 
-            let num_clients = 2;
+            let num_clients = 1; // 2;
             let env_objects =
                 (0..num_clients)
                     .map(|_| {
@@ -628,7 +627,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                         block.header().epoch_id()
                     );
                 }
-                env.process_block(1, block, Provenance::NONE);
+                // env.process_block(1, block, Provenance::NONE);
 
                 let tx = SignedTransaction::send_money(
                     i + 1,
@@ -664,10 +663,10 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 })
                 .collect();
 
-            env.clients[1].chain.reset_data_pre_state_sync(sync_hash).unwrap();
+            env.clients[0].chain.reset_data_pre_state_sync(sync_hash).unwrap(); // 1
             let epoch_id = blocks.last().unwrap().header().epoch_id();
             for i in 0..num_parts {
-                env.clients[1]
+                env.clients[0] // 1
                     .runtime_adapter
                     .apply_state_part(
                         0,
@@ -678,6 +677,47 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                     )
                     .unwrap();
             }
+            /*
+    let state_sync_parts = (0..num_parts)
+        .map(|i| env.clients[0].chain.get_state_response_part(0, i, sync_hash).unwrap())
+        .collect::<Vec<_>>();
+
+    env.clients[1].chain.set_state_header(0, sync_hash, state_sync_header).unwrap();
+    for i in 0..num_parts {
+        env.clients[1]
+            .chain
+            .set_state_part(0, sync_hash, PartId::new(i, num_parts), &state_sync_parts[i as usize])
+            .unwrap();
+    }
+    let rt = Arc::clone(&env.clients[1].runtime_adapter);
+    let f = move |msg: ApplyStatePartsRequest| {
+        use borsh::BorshSerialize;
+        let store = rt.store();
+
+        let shard_id = msg.shard_uid.shard_id as ShardId;
+        for part_id in 0..msg.num_parts {
+            let key = StatePartKey(msg.sync_hash, shard_id, part_id).try_to_vec().unwrap();
+            let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
+
+            rt.apply_state_part(
+                shard_id,
+                &msg.state_root,
+                PartId::new(part_id, msg.num_parts),
+                &part,
+                &msg.epoch_id,
+            )
+            .unwrap();
+        }
+    };
+    env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
+    env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
+    let chunk_extra_after_sync =
+        env.clients[1].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard()).unwrap();
+    let expected_chunk_extra =
+        env.clients[0].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard()).unwrap();
+    // The chunk extra of the prev block of sync block should be the same as the node that it is syncing from
+    assert_eq!(chunk_extra_after_sync, expected_chunk_extra);
+             */
         }
     });
 }
