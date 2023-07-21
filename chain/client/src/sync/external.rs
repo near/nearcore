@@ -17,7 +17,10 @@ pub enum ExternalConnection {
         root_dir: PathBuf,
     },
     GCS {
+        // Used for uploading and listing state parts.
+        // Requires valid credentials to be specified through env variable.
         gcs_client: Arc<cloud_storage::Client>,
+        // Used for anonymously downloading state parts.
         reqwest_client: Arc<reqwest::Client>,
         bucket: String,
     },
@@ -135,6 +138,9 @@ impl ExternalConnection {
         return path_buf.file_name().unwrap().to_str().unwrap().to_string();
     }
 
+    /// When using GCS external connection, this function requires credentials.
+    /// Thus, this function shouldn't be used for sync node that is expected to operate anonymously.
+    /// Only dump nodes should use this function.
     pub async fn list_state_parts(
         &self,
         shard_id: ShardId,
