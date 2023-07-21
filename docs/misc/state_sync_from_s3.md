@@ -62,10 +62,9 @@ To enable Google Cloud Storage as your external storage, add this to your `confi
 }
 ```
 
-And run your node with an environment variable `SERVICE_ACCOUNT` or `GOOGLE_APPLICATION_CREDENTIALS`
-pointing to the credentials json file
+Then run the `neard` binary and it will access GCS anonymously:
 ```shell
-SERVICE_ACCOUNT=/path/to/file  ./neard run
+./neard run
 ```
 
 ## Sync from a local filesystem

@@ -22,6 +22,7 @@ rand.workspace = true
 rayon.workspace = true
 redis.workspace = true
 regex.workspace = true
+reqwest.workspace = true
 rust-s3.workspace = true
 serde.workspace = true
 serde_json.workspace = true

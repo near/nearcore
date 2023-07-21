@@ -188,7 +188,8 @@ impl StateSync {
                         ExternalConnection::Filesystem { root_dir: root_dir.clone() }
                     }
                     ExternalStorageLocation::GCS { bucket } => ExternalConnection::GCS {
-                        client: Arc::new(cloud_storage::Client::default()),
+                        gcs_client: Arc::new(cloud_storage::Client::default()),
+                        reqwest_client: Arc::new(reqwest::Client::default()),
                         bucket: bucket.clone(),
                     },
                 };

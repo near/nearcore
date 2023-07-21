@@ -10,10 +10,21 @@ use std::time::Instant;
 /// Connection to the external storage.
 #[derive(Clone)]
 pub enum ExternalConnection {
-    S3 { bucket: Arc<s3::Bucket> },
-    Filesystem { root_dir: PathBuf },
-    GCS { client: Arc<cloud_storage::Client>, bucket: String },
+    S3 {
+        bucket: Arc<s3::Bucket>,
+    },
+    Filesystem {
+        root_dir: PathBuf,
+    },
+    GCS {
+        gcs_client: Arc<cloud_storage::Client>,
+        reqwest_client: Arc<reqwest::Client>,
+        bucket: String,
+    },
 }
+
+const GCS_ENCODE_SET: &percent_encoding::AsciiSet =
+    &percent_encoding::NON_ALPHANUMERIC.remove(b'-').remove(b'.').remove(b'_');
 
 impl ExternalConnection {
     pub async fn get_part(
@@ -40,10 +51,26 @@ impl ExternalConnection {
                 let data = std::fs::read(&path)?;
                 Ok(data)
             }
-            ExternalConnection::GCS { client, bucket } => {
-                let result = client.object().download(bucket, location).await;
-                tracing::debug!(target: "sync", %shard_id, location, error = ?result.as_ref().err(), num_bytes = result.as_ref().map_or(0, |x| x.len()), "GCS request finished");
-                Ok(result?)
+            ExternalConnection::GCS { reqwest_client, bucket, .. } => {
+                // Download should be handled anonymously, therefore we are not using cloud-storage crate.
+                let url = format!(
+                    "https://storage.googleapis.com/storage/v1/b/{}/o/{}?alt=media",
+                    percent_encoding::percent_encode(bucket.as_bytes(), GCS_ENCODE_SET),
+                    percent_encoding::percent_encode(location.as_bytes(), GCS_ENCODE_SET),
+                );
+                let response = reqwest_client.get(&url).send().await?.error_for_status();
+
+                match response {
+                    Err(e) => {
+                        tracing::debug!(target: "sync", %shard_id, location, error = ?e, "GCS state_part request failed");
+                        Err(e.into())
+                    }
+                    Ok(r) => {
+                        let bytes = r.bytes().await?.to_vec();
+                        tracing::debug!(target: "sync", %shard_id, location, num_bytes = bytes.len(), "GCS state_part request finished");
+                        Ok(bytes)
+                    }
+                }
             }
         }
     }
@@ -89,8 +116,8 @@ impl ExternalConnection {
                 tracing::debug!(target: "state_sync_dump", shard_id, part_length = state_part.len(), ?location, "Wrote a state part to a file");
                 Ok(())
             }
-            ExternalConnection::GCS { client, bucket } => {
-                client
+            ExternalConnection::GCS { gcs_client, bucket, .. } => {
+                gcs_client
                     .object()
                     .create(bucket, state_part.to_vec(), location, "application/octet-stream")
                     .await?;
@@ -141,10 +168,10 @@ impl ExternalConnection {
                 }
                 Ok(file_names)
             }
-            ExternalConnection::GCS { client, bucket } => {
+            ExternalConnection::GCS { gcs_client, bucket, .. } => {
                 let prefix = format!("{}/", directory_path);
                 tracing::debug!(target: "state_sync_dump", shard_id, ?directory_path, "List state parts in GCS");
-                Ok(client
+                Ok(gcs_client
                     .object()
                     .list(
                         bucket,
@@ -332,7 +359,8 @@ mod test {
 
         // Define bucket.
         let connection = ExternalConnection::GCS {
-            client: std::sync::Arc::new(cloud_storage::Client::default()),
+            gcs_client: std::sync::Arc::new(cloud_storage::Client::default()),
+            reqwest_client: std::sync::Arc::new(reqwest::Client::default()),
             bucket: "state-parts".to_string(),
         };
 

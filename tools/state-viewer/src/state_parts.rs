@@ -188,7 +188,11 @@ fn create_external_connection(
         .expect("Failed to create an S3 bucket");
         ExternalConnection::S3 { bucket: Arc::new(bucket) }
     } else if let Some(bucket) = gcs_bucket {
-        ExternalConnection::GCS { client: Arc::new(cloud_storage::Client::default()), bucket }
+        ExternalConnection::GCS {
+            gcs_client: Arc::new(cloud_storage::Client::default()),
+            reqwest_client: Arc::new(reqwest::Client::default()),
+            bucket,
+        }
     } else {
         panic!(
             "Please provide --root-dir, or both of --s3-bucket and --s3-region, or --gcs-bucket"
