@@ -49,6 +49,10 @@ pub fn spawn_state_sync_dump(
                 "Failed to authenticate connection to S3. Please either provide AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or create a credentials file and link it in config.json as 's3_credentials_file'."))
         },
         ExternalStorageLocation::Filesystem { root_dir } => ExternalConnection::Filesystem { root_dir },
+        ExternalStorageLocation::GCS { bucket } => ExternalConnection::GCS {
+            gcs_client: Arc::new(cloud_storage::Client::default()),
+            reqwest_client: Arc::new(reqwest::Client::default()),
+            bucket },
     };
 
     // Determine how many threads to start.
