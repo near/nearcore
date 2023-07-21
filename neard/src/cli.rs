@@ -406,11 +406,6 @@ pub(super) struct RunCmd {
     /// configuration will be taken.
     #[clap(long)]
     max_gas_burnt_view: Option<Gas>,
-    /// Path to folder with file named "config_patch_list.json" with list of protocol changes.
-    /// In the same folder there should be files names "10.json" that indicates that chain config
-    /// should be applied for protocol version 10 and above.
-    #[clap(long)]
-    chain_config_patch_path: Option<String>,
 }
 
 impl RunCmd {
@@ -421,12 +416,6 @@ impl RunCmd {
         verbose_target: Option<&str>,
         o11y_opts: &near_o11y::Options,
     ) {
-        if self.chain_config_patch_path.is_some() {
-            println!("Mirko: Putanja {}:", self.chain_config_patch_path.unwrap());
-        } else {
-            println!("Mirko: Nema putanje");
-        }
-
         // Load configs from home.
         let mut near_config = nearcore::config::load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
