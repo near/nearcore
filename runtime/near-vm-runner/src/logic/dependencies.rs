@@ -461,10 +461,7 @@ pub trait External {
     /// that can have unused gas distributed to them (according to the weights returned.)
     ///
     /// The last callback argument indicates that this element is the last one.
-    fn unused_gas_recipients(
-        &mut self,
-        callback: &mut dyn FnMut(&mut Gas, &mut GasWeight, bool)
-    );
+    fn unused_gas_recipients(&mut self, callback: &mut dyn FnMut(&mut Gas, &mut GasWeight, bool));
 
     /// # Panic
     ///
