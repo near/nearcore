@@ -12,6 +12,7 @@ use futures::{future, FutureExt};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{CanSend, IntoSender, LateBoundSender, Sender};
 use near_async::time;
+use near_chain::resharding::StateSplitRequest;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_chunks::ShardsManager;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
@@ -26,7 +27,7 @@ use tracing::info;
 
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use chrono::Utc;
-use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
+use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest};
 use near_chain::state_snapshot_actor::MakeSnapshotCallback;
 use near_chain::test_utils::{
     wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
@@ -2396,7 +2397,6 @@ pub fn run_catchup(
     let state_split = move |msg: StateSplitRequest| {
         state_split_inside_messages.write().unwrap().push(msg);
     };
-    let runtime = client.runtime_adapter.clone();
     let _ = System::new();
     let state_parts_arbiter_handle = Arbiter::new().handle();
     loop {
@@ -2422,17 +2422,14 @@ pub fn run_catchup(
             catchup_done = false;
         }
         for msg in state_split_messages.write().unwrap().drain(..) {
-            let results = runtime.build_state_for_split_shards(
-                msg.shard_uid,
-                &msg.state_root,
-                &msg.next_epoch_shard_layout,
-                msg.state_split_status,
-            );
-            if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+            let sync_hash = msg.sync_hash;
+            let shard_id = msg.shard_id;
+            let results = Chain::build_state_for_split_shards(msg);
+            if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&sync_hash) {
                 // We are doing catchup
-                sync.set_split_result(msg.shard_id, results);
+                sync.set_split_result(shard_id, results);
             } else {
-                client.state_sync.set_split_result(msg.shard_id, results);
+                client.state_sync.set_split_result(shard_id, results);
             }
             catchup_done = false;
         }

@@ -4,7 +4,7 @@ use near_client_primitives::debug::{
 };
 #[cfg(feature = "debug_types")]
 use near_primitives::views::{
-    CatchupStatusView, ChainProcessingInfo, NetworkGraphView, PeerStoreView,
+    CatchupStatusView, ChainProcessingInfo, NetworkGraphView, NetworkRoutesView, PeerStoreView,
     RecentOutboundConnectionsView, RequestedStatePartsView, SyncStatusView,
 };
 
@@ -32,6 +32,7 @@ pub enum DebugStatusResponse {
     RequestedStateParts(Vec<RequestedStatePartsView>),
     NetworkGraph(NetworkGraphView),
     RecentOutboundConnections(RecentOutboundConnectionsView),
+    Routes(NetworkRoutesView),
 }
 
 #[cfg(feature = "debug_types")]

@@ -46,18 +46,30 @@ fn test_block_with_challenges() {
     let signer = env.clients[0].validator_signer.as_ref().unwrap().clone();
 
     {
-        let body = match &mut block {
-            Block::BlockV1(_) => unreachable!(),
-            Block::BlockV2(body) => Arc::make_mut(body),
-        };
         let challenge_body = ChallengeBody::BlockDoubleSign(BlockDoubleSign {
             left_block_header: genesis.header().try_to_vec().unwrap(),
             right_block_header: genesis.header().try_to_vec().unwrap(),
         });
         let challenge = Challenge::produce(challenge_body, &*signer);
-        body.challenges = vec![challenge];
+        let challenges = vec![challenge];
+        match &mut block {
+            Block::BlockV1(_) => unreachable!(),
+            Block::BlockV2(body) => {
+                let body = Arc::make_mut(body);
+                body.challenges = challenges.clone();
+            }
+            Block::BlockV3(body) => {
+                let body = Arc::make_mut(body);
+                body.body.challenges = challenges.clone();
+            }
+        };
+        #[cfg(feature = "protocol_feature_block_header_v4")]
+        {
+            let block_body_hash = block.compute_block_body_hash().unwrap();
+            block.mut_header().get_mut().inner_rest.block_body_hash = block_body_hash;
+        }
         block.mut_header().get_mut().inner_rest.challenges_root =
-            Block::compute_challenges_root(&body.challenges);
+            Block::compute_challenges_root(&challenges);
         block.mut_header().resign(&*signer);
     }
 

@@ -28,8 +28,9 @@ use actix_rt::ArbiterHandle;
 use chrono::{DateTime, Duration, Utc};
 use futures::{future, FutureExt};
 use near_async::messaging::CanSendAsync;
-use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
+use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::near_chain_primitives;
+use near_chain::resharding::StateSplitRequest;
 use near_chain::Chain;
 use near_chain_configs::{ExternalStorageConfig, ExternalStorageLocation, SyncConfig};
 use near_client_primitives::types::{
@@ -189,6 +190,11 @@ impl StateSync {
                     ExternalStorageLocation::Filesystem { root_dir } => {
                         ExternalConnection::Filesystem { root_dir: root_dir.clone() }
                     }
+                    ExternalStorageLocation::GCS { bucket } => ExternalConnection::GCS {
+                        gcs_client: Arc::new(cloud_storage::Client::default()),
+                        reqwest_client: Arc::new(reqwest::Client::default()),
+                        bucket: bucket.clone(),
+                    },
                 };
                 let num_permits = if catchup {
                     *num_concurrent_requests_during_catchup
