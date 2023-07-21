@@ -190,6 +190,11 @@ impl StateSync {
                     ExternalStorageLocation::Filesystem { root_dir } => {
                         ExternalConnection::Filesystem { root_dir: root_dir.clone() }
                     }
+                    ExternalStorageLocation::GCS { bucket } => ExternalConnection::GCS {
+                        gcs_client: Arc::new(cloud_storage::Client::default()),
+                        reqwest_client: Arc::new(reqwest::Client::default()),
+                        bucket: bucket.clone(),
+                    },
                 };
                 let num_permits = if catchup {
                     *num_concurrent_requests_during_catchup
