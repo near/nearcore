@@ -221,9 +221,8 @@ impl FlatStorage {
         if !guard.move_head_enabled {
             return Ok(());
         }
-        if new_head == &guard.flat_head.hash {
-            return Ok(());
-        }
+        let current_flat_head_hash = guard.flat_head.hash;
+        let current_flat_head_height = guard.flat_head.height;
 
         let shard_uid = guard.shard_uid;
         let shard_id = shard_uid.shard_id();
@@ -231,36 +230,30 @@ impl FlatStorage {
         let new_head = if strict {
             *new_head
         } else {
-            let last_block_with_changes = {
-                let metadata = guard.deltas.get(new_head).ok_or_else(|| missing_delta_error(new_head))?.metadata;
-                match metadata.compression_info {
+            let mut new_head = *new_head;
+            for _skip in 0..2 {
+                if new_head == current_flat_head_hash {
+                    return Ok(());
+                }
+                let metadata = guard.deltas.get(&new_head).ok_or(missing_delta_error(&new_head))?.metadata;
+                new_head = match metadata.compression_info {
                     None => {
-                        *new_head
+                        metadata.block.prev_hash
                     }
                     Some(CompressionInfo { last_height_with_changes, last_block_with_changes }) => {
-                        if last_height_with_changes < guard.flat_head.height {
-                            tracing::warn!(target: "store", ?metadata, flat_head = ?guard.flat_head, "Inconsistent CompressionInfo");
-                            guard.flat_head.hash
-                        } else {
-                            last_block_with_changes
+                        if last_height_with_changes <= current_flat_head_height {
+                            return Ok(());
                         }
+                        last_block_with_changes
                     }
-                }
-            };
-
-
-            let new_head = if let Some(delta) = guard.deltas.get(&last_block_with_changes) {
-                delta.metadata.block.prev_hash
-            } else {
-                tracing::debug!(target: "store", flat_head = ?guard.flat_head, ?last_block_with_changes, ?new_head, "Not moving flat head, because no prior block to 'last_block_with_changes' is known. Maybe it's already the flat head.");
-                return Ok(());
-            };
+                };
+            }
             new_head
         };
-        if new_head == guard.flat_head.hash {
+        if new_head == current_flat_head_hash {
             return Ok(());
         }
-        tracing::debug!(target: "store", flat_head = ?guard.flat_head, ?new_head, "Moving flat head");
+        tracing::debug!(target: "store", flat_head = ?current_flat_head_hash, ?new_head, "Moving flat head");
         let blocks = guard.get_blocks_to_head(&new_head)?;
 
         for block_hash in blocks.into_iter().rev() {
