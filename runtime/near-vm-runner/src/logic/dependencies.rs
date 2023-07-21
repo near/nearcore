@@ -6,7 +6,6 @@ use super::VMLogicError;
 use near_crypto::PublicKey;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Gas;
-use near_primitives_core::types::GasDistribution;
 use near_primitives_core::types::GasWeight;
 use near_primitives_core::types::Nonce;
 use near_primitives_core::types::{AccountId, Balance};
@@ -454,7 +453,18 @@ pub trait External {
     /// # Returns
     ///
     /// Function returns a [GasDistribution] that indicates how the gas was distributed.
-    fn distribute_unused_gas(&mut self, unused_gas: Gas) -> GasDistribution;
+    // fn distribute_unused_gas(&mut self, unused_gas: Gas) -> GasDistribution;
+
+    /// Call a callback function for each of the unused gas recipients.
+    ///
+    /// This function returns references to the weights and the current prepaid gas for the actions
+    /// that can have unused gas distributed to them (according to the weights returned.)
+    ///
+    /// The last callback argument indicates that this element is the last one.
+    fn unused_gas_recipients(
+        &mut self,
+        callback: &mut dyn FnMut(&mut Gas, &mut GasWeight, bool)
+    );
 
     /// # Panic
     ///

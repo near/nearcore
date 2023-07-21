@@ -1,19 +1,19 @@
+use crate::receipt_manager::{FunctionCallActionIndex, ReceiptManager};
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{
-    AccountId, Balance, EpochId, EpochInfoProvider, Gas, GasDistribution, TrieCacheMode,
-    TrieNodesCount,
+    AccountId, Balance, EpochId, EpochInfoProvider, Gas, TrieCacheMode, TrieNodesCount,
 };
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
+use near_primitives_core::types::GasWeight;
 use near_store::{get_code, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
-
-use crate::receipt_manager::ReceiptManager;
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -337,14 +337,31 @@ impl<'a> External for RuntimeExt<'a> {
         })
     }
 
-    fn distribute_unused_gas(&mut self, unused_gas: Gas) -> GasDistribution {
-        self.with_receipt_manager(move |_, rm| rm.distribute_unused_gas(unused_gas))
-    }
-
     fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {
         self.receipt_manager
             .as_ref()
             .unwrap_or_else(|| panic!("do not nest with_receipt_manager calls!"))
             .get_receipt_receiver(receipt_index)
+    }
+
+    fn unused_gas_recipients(&mut self, callback: &mut dyn FnMut(&mut Gas, &mut GasWeight, bool)) {
+        let Some(ReceiptManager { gas_weights, action_receipts, .. }) = self.receipt_manager
+            else { panic!("do not nest with_receipt_manager calls!") };
+        let mut weights_iter = gas_weights.iter_mut().peekable();
+        loop {
+            let Some((index, weight)) = weights_iter.next() else { break };
+            let FunctionCallActionIndex { receipt_index, action_index } = *index;
+            let Some(Action::FunctionCall(action)) =
+                action_receipts
+                .get_mut(receipt_index)
+                .and_then(|(_, receipt)| receipt.actions.get_mut(action_index))
+            else {
+                panic!(
+                    "Invalid function call index (promise_index={receipt_index}, action_index={action_index})",
+                );
+            };
+            let FunctionCallAction { gas, .. } = action;
+            callback(gas, weight, weights_iter.peek().is_none())
+        }
     }
 }

@@ -2,8 +2,12 @@ use crate::logic::types::ReceiptIndex;
 use crate::logic::TrieNodesCount;
 use crate::logic::{External, StorageGetMode, ValuePtr};
 use near_primitives_core::hash::{hash, CryptoHash};
-use near_primitives_core::types::{AccountId, Balance, Gas, GasDistribution};
+use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight};
 use std::collections::HashMap;
+
+#[derive(serde::Serialize)]
+#[serde(remote = "GasWeight")]
+struct GasWeightSer(u64);
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub enum MockAction {
@@ -24,7 +28,8 @@ pub enum MockAction {
         args: Vec<u8>,
         attached_deposit: u128,
         prepaid_gas: Gas,
-        gas_weight: u64,
+        #[serde(with = "GasWeightSer")]
+        gas_weight: GasWeight,
     },
     Transfer {
         receipt_index: ReceiptIndex,
@@ -179,7 +184,7 @@ impl External for MockedExternal {
         args: Vec<u8>,
         attached_deposit: Balance,
         prepaid_gas: Gas,
-        gas_weight: near_primitives_core::types::GasWeight,
+        gas_weight: GasWeight,
     ) -> Result<(), crate::logic::VMLogicError> {
         self.action_log.push(MockAction::FunctionCallWeight {
             receipt_index,
@@ -187,7 +192,7 @@ impl External for MockedExternal {
             args,
             attached_deposit,
             prepaid_gas,
-            gas_weight: gas_weight.0,
+            gas_weight,
         });
         Ok(())
     }
@@ -256,39 +261,21 @@ impl External for MockedExternal {
         Ok(())
     }
 
-    fn distribute_unused_gas(&mut self, unused_gas: Gas) -> GasDistribution {
-        let gas_weight_sum: u128 = self
-            .action_log
-            .iter()
-            .filter_map(|action| {
-                let MockAction::FunctionCallWeight { gas_weight, .. } = action else { return None };
-                Some(*gas_weight as u128)
-            })
-            .sum();
-        if gas_weight_sum == 0 {
-            return GasDistribution::NoRatios;
-        }
-        let mut distributed = 0;
-
-        let mut gas_iterator = self
+    fn unused_gas_recipients(&mut self, callback: &mut dyn FnMut(&mut Gas, &mut GasWeight, bool)) {
+        let mut iter = self
             .action_log
             .iter_mut()
             .filter_map(|action| {
-                let MockAction::FunctionCallWeight { prepaid_gas, gas_weight, .. } = action else { return None };
+                let MockAction::FunctionCallWeight {
+                    prepaid_gas, gas_weight, ..
+                } = action else { return None };
                 Some((prepaid_gas, gas_weight))
-            }).peekable();
-
+            })
+            .peekable();
         loop {
-            let Some((gas, weight)) = gas_iterator.next() else { break };
-            let assign = (unused_gas as u128 * *weight as u128 / gas_weight_sum) as u64;
-            *gas += assign;
-            distributed += assign;
-            if gas_iterator.peek().is_none() {
-                *gas += unused_gas - distributed;
-                break;
-            }
+            let Some((gas, weight)) = iter.next() else { break };
+            callback(gas, weight, iter.peek().is_none());
         }
-        GasDistribution::All
     }
 
     fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {

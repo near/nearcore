@@ -6,9 +6,7 @@ use near_primitives::action::{
 use near_primitives::receipt::DataReceiver;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{AccountId, Gas};
-use near_primitives_core::types::{Balance, Nonce};
-use near_primitives_core::types::{GasDistribution, GasWeight};
+use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
 use near_vm_runner::logic::VMLogicError;
 use near_vm_runner::logic::{External, HostError};
 
@@ -34,34 +32,16 @@ pub struct ReceiptMetadata {
 #[derive(Default, Clone, PartialEq)]
 pub struct ReceiptManager {
     pub(super) action_receipts: ActionReceipts,
-    gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
+    pub(super) gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
 }
 
 /// Indexes the [`ReceiptManager`]'s action receipts and actions.
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct FunctionCallActionIndex {
+pub(super) struct FunctionCallActionIndex {
     /// Index of [`ReceiptMetadata`] in the action receipts of [`ReceiptManager`].
-    receipt_index: usize,
+    pub(super) receipt_index: usize,
     /// Index of the [`Action`] within the [`ReceiptMetadata`].
-    action_index: usize,
-}
-
-fn get_fuction_call_action_mut(
-    action_receipts: &mut ActionReceipts,
-    index: FunctionCallActionIndex,
-) -> &mut FunctionCallAction {
-    let FunctionCallActionIndex { receipt_index, action_index } = index;
-    if let Some(Action::FunctionCall(action)) = action_receipts
-        .get_mut(receipt_index)
-        .and_then(|(_, receipt)| receipt.actions.get_mut(action_index))
-    {
-        action
-    } else {
-        panic!(
-            "Invalid function call index \
-             (promise_index={receipt_index}, action_index={action_index})",
-        );
-    }
+    pub(super) action_index: usize,
 }
 
 impl ReceiptManager {
@@ -361,55 +341,5 @@ impl ReceiptManager {
             Action::DeleteAccount(DeleteAccountAction { beneficiary_id }),
         );
         Ok(())
-    }
-
-    /// Distribute the gas among the scheduled function calls that specify a gas weight.
-    ///
-    /// Distributes the gas passed in by splitting it among weights defined in `gas_weights`.
-    /// This will sum all weights, retrieve the gas per weight, then update each function
-    /// to add the respective amount of gas. Once all gas is distributed, the remainder of
-    /// the gas not assigned due to precision loss is added to the last function with a weight.
-    ///
-    /// # Arguments
-    ///
-    /// * `gas` - amount of unused gas to distribute
-    ///
-    /// # Returns
-    ///
-    /// Function returns a [GasDistribution] that indicates how the gas was distributed.
-    pub(super) fn distribute_unused_gas(&mut self, unused_gas: Gas) -> GasDistribution {
-        let gas_weight_sum: u128 =
-            self.gas_weights.iter().map(|(_, GasWeight(weight))| *weight as u128).sum();
-
-        if gas_weight_sum == 0 {
-            return GasDistribution::NoRatios;
-        }
-
-        let mut distribute_gas = |index: &FunctionCallActionIndex, assigned_gas: Gas| {
-            let FunctionCallAction { gas, .. } =
-                get_fuction_call_action_mut(&mut self.action_receipts, *index);
-
-            // Operation cannot overflow because the amount of assigned gas is a fraction of
-            // the unused gas and is using floor division.
-            *gas += assigned_gas;
-        };
-
-        let mut distributed = 0;
-        for (action_index, GasWeight(weight)) in &self.gas_weights {
-            // Multiplication is done in u128 with max values of u64::MAX so this cannot overflow.
-            // Division result can be truncated to 64 bits because gas_weight_sum >= weight.
-            let assigned_gas = (unused_gas as u128 * *weight as u128 / gas_weight_sum) as u64;
-
-            distribute_gas(action_index, assigned_gas as u64);
-
-            distributed += assigned_gas
-        }
-
-        // Distribute remaining gas to final action.
-        if let Some((last_idx, _)) = self.gas_weights.last() {
-            distribute_gas(last_idx, unused_gas - distributed);
-        }
-        self.gas_weights.clear();
-        GasDistribution::All
     }
 }
