@@ -1,17 +1,18 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use near_primitives::trie_key::TrieKey;
 use rand::seq::SliceRandom;
 use rand::Rng;
 
 use crate::db::TestDB;
 use crate::metadata::{DbKind, DbVersion, DB_VERSION};
-use crate::{DBCol, NodeStorage, ShardTries, Store};
+use crate::{get, get_delayed_receipt_indices, DBCol, NodeStorage, ShardTries, Store};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DataReceipt, Receipt, ReceiptEnum};
 use near_primitives::shard_layout::{ShardUId, ShardVersion};
-use near_primitives::types::NumShards;
+use near_primitives::types::{NumShards, StateRoot};
 use std::str::from_utf8;
 
 /// Creates an in-memory node storage.
@@ -199,4 +200,22 @@ pub fn simplify_changes(changes: &[(Vec<u8>, Option<Vec<u8>>)]) -> Vec<(Vec<u8>,
     let mut result: Vec<_> = state.into_iter().map(|(k, v)| (k, Some(v))).collect();
     result.sort();
     result
+}
+
+pub fn get_all_delayed_receipts(
+    tries: &ShardTries,
+    shard_uid: &ShardUId,
+    state_root: &StateRoot,
+) -> Vec<Receipt> {
+    let state_update = &tries.new_trie_update(*shard_uid, *state_root);
+    let mut delayed_receipt_indices = get_delayed_receipt_indices(state_update).unwrap();
+
+    let mut receipts = vec![];
+    while delayed_receipt_indices.first_index < delayed_receipt_indices.next_available_index {
+        let key = TrieKey::DelayedReceipt { index: delayed_receipt_indices.first_index };
+        let receipt = get(state_update, &key).unwrap().unwrap();
+        delayed_receipt_indices.first_index += 1;
+        receipts.push(receipt);
+    }
+    receipts
 }
