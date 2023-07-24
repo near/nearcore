@@ -611,6 +611,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
             for i in 1..=target_height {
                 let block = env.clients[0].produce_block(i).unwrap().unwrap();
                 blocks.push(block.clone());
+                // TODO: Make it random.
                 if (i % epoch_length) != 0
                     && epoch_length - (i % epoch_length) <= num_last_chunks_missing
                 {
@@ -632,7 +633,9 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                         block.header().epoch_id()
                     );
                 }
-                env.process_block(1, block, Provenance::NONE);
+                for i in 1..num_clients {
+                    env.process_block(i, block.clone(), Provenance::NONE);
+                }
 
                 let tx = SignedTransaction::send_money(
                     i + 1,
