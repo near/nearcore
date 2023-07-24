@@ -45,7 +45,7 @@ impl DatabaseCommand {
                 .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
                 cmd.run(home, near_config.config.archive, &near_config.config.store)
             }
-            SubCommand::RunMigrationsCommand(cmd) => cmd.run(home),
+            SubCommand::RunMigrations(cmd) => cmd.run(home),
             SubCommand::StatePerf(cmd) => cmd.run(home),
         }
     }
