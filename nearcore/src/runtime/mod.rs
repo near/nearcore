@@ -692,6 +692,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let delayed_receipts_indices: DelayedReceiptIndices =
             near_store::get(&state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
+        let receipt_count_limit = 50_usize.saturating_sub(delayed_receipts_indices.len() as usize);
 
         // In general, we limit the number of transactions via send_fees.
         // However, as a second line of defense, we want to limit the byte size
@@ -704,10 +705,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             / (runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_write_value_byte)
                 + runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_read_value_byte));
 
-        while total_gas_burnt < transactions_gas_limit && total_size < size_limit {
-            if delayed_receipts_indices.len() > 50 {
-                break;
-            }
+        while total_gas_burnt < transactions_gas_limit
+            && total_size < size_limit
+            && transactions.len() < receipt_count_limit
+        {
             if let Some(iter) = pool_iterator.next() {
                 while let Some(tx) = iter.next() {
                     num_checked_transactions += 1;
