@@ -26,10 +26,11 @@ class FTContract:
         Deploy and initialize the contract on chain.
         The account is created if it doesn't exist yet.
         """
-        node.prepare_account(self.account, parent, FTContract.INIT_BALANCE,
+        existed = node.prepare_account(self.account, parent, FTContract.INIT_BALANCE,
                              "create contract account")
-        node.send_tx_retry(Deploy(self.account, self.code, "FT"), "deploy ft")
-        self.init_contract(node)
+        if not existed:
+            node.send_tx_retry(Deploy(self.account, self.code, "FT"), "deploy ft")
+            self.init_contract(node)
 
     def init_contract(self, node: NearNodeProxy):
         node.send_tx_retry(InitFT(self.account), "init ft")

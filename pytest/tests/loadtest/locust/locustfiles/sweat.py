@@ -47,6 +47,7 @@ class SweatUser(NearUser):
     @task(1)
     def record_single_batch(self):
         rng = random.Random()
+        # just around the log limit
         batch_size = min(rng.randint(100, 150),
                          len(self.sweat.registered_users))
         receivers = self.sweat.random_receivers(self.account_id, batch_size)
@@ -67,13 +68,10 @@ class SweatUser(NearUser):
         rng = random.Random()
         # just around 300Tgas
         batch_size = rng.randint(700, 750)
-        # just around the log limit
-        # batch_size = rng.randint(150, 180)
         receivers = self.sweat.random_receivers(self.account_id, batch_size)
         tx = SweatMintBatch(
             self.sweat.account.key.account_id,
-            self.sweat.
-            oracle,  # TODO: one oracel shared between users of a worker => nonce conflict
+            self.sweat.oracle,
             [[account_id, rng.randint(1000, 3000)] for account_id in receivers])
         self.send_tx(tx, locust_name="Sweat record batch (stress test)")
 
