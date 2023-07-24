@@ -529,7 +529,10 @@ mod tests {
         for i in 1..5 {
             let delta = FlatStateDelta {
                 changes: FlatStateChanges::default(),
-                metadata: FlatStateDeltaMetadata { block: chain.get_block(i), compression_info: None },
+                metadata: FlatStateDeltaMetadata {
+                    block: chain.get_block(i),
+                    compression_info: None,
+                },
             };
             store_helper::set_delta(&mut store_update, shard_uid, &delta);
         }
@@ -587,7 +590,10 @@ mod tests {
         for i in 1..5 {
             let delta = FlatStateDelta {
                 changes: FlatStateChanges::default(),
-                metadata: FlatStateDeltaMetadata { block: chain.get_block(i * 2), compression_info: None },
+                metadata: FlatStateDeltaMetadata {
+                    block: chain.get_block(i * 2),
+                    compression_info: None,
+                },
             };
             store_helper::set_delta(&mut store_update, shard_uid, &delta);
         }
@@ -632,7 +638,10 @@ mod tests {
                     vec![1],
                     Some(FlatStateValue::value_ref(&[i as u8])),
                 )]),
-                metadata: FlatStateDeltaMetadata { block: chain.get_block(i), compression_info: None },
+                metadata: FlatStateDeltaMetadata {
+                    block: chain.get_block(i),
+                    compression_info: None,
+                },
             };
             store_helper::set_delta(&mut store_update, shard_uid, &delta);
         }
@@ -663,7 +672,10 @@ mod tests {
                     (vec![1], None),
                     (vec![2], Some(FlatStateValue::value_ref(&[1]))),
                 ]),
-                metadata: FlatStateDeltaMetadata { block: chain.get_block_info(&hash), compression_info: None },
+                metadata: FlatStateDeltaMetadata {
+                    block: chain.get_block_info(&hash),
+                    compression_info: None,
+                },
             })
             .unwrap();
         store_update.commit().unwrap();
