@@ -159,13 +159,7 @@ impl Block {
                 vrf_value: body.vrf_value,
                 vrf_proof: body.vrf_proof,
             }))
-        } else if checked_feature!(
-            "protocol_feature_block_header_v4",
-            BlockHeaderV4,
-            this_epoch_protocol_version
-        ) {
-            Block::BlockV3(Arc::new(BlockV3 { header, body }))
-        } else {
+        } else if !checked_feature!("stable", BlockHeaderV4, this_epoch_protocol_version) {
             Block::BlockV2(Arc::new(BlockV2 {
                 header,
                 chunks: body.chunks,
@@ -173,6 +167,8 @@ impl Block {
                 vrf_value: body.vrf_value,
                 vrf_proof: body.vrf_proof,
             }))
+        } else {
+            Block::BlockV3(Arc::new(BlockV3 { header, body }))
         }
     }
 
@@ -197,7 +193,6 @@ impl Block {
             genesis_protocol_version,
             height,
             Block::compute_state_root(&body.chunks),
-            #[cfg(feature = "protocol_feature_block_header_v4")]
             Block::compute_block_body_hash_impl(&body),
             Block::compute_chunk_receipts_root(&body.chunks),
             Block::compute_chunk_headers_root(&body.chunks).0,
@@ -302,7 +297,6 @@ impl Block {
             next_epoch_protocol_version,
             height,
             *prev.hash(),
-            #[cfg(feature = "protocol_feature_block_header_v4")]
             Block::compute_block_body_hash_impl(&body),
             Block::compute_state_root(&body.chunks),
             Block::compute_chunk_receipts_root(&body.chunks),

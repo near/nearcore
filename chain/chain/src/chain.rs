@@ -1467,11 +1467,7 @@ impl Chain {
         let epoch_protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         // Check that block body hash matches the block body. This makes sure that the block body
         // content is not tampered
-        if checked_feature!(
-            "protocol_feature_block_header_v4",
-            BlockHeaderV4,
-            epoch_protocol_version
-        ) {
+        if checked_feature!("stable", BlockHeaderV4, epoch_protocol_version) {
             let block_body_hash = block.compute_block_body_hash();
             if block_body_hash.is_none() {
                 tracing::warn!("Block version too old for block: {:?}", block.hash());
