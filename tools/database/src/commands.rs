@@ -50,7 +50,7 @@ impl DatabaseCommand {
                     &home,
                     near_chain_configs::GenesisValidationMode::UnsafeFast,
                 )
-                    .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+                .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
                 cmd.run(home, &mut near_config)
             }
             SubCommand::StatePerf(cmd) => cmd.run(home),
