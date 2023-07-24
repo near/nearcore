@@ -7,13 +7,10 @@ use errors::FromStateViewerErrors;
 use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter, Tip};
 use near_chain::Error;
 use near_chain_configs::{
-    Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-    MIN_GC_NUM_EPOCHS_TO_KEEP,
+    GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, MIN_GC_NUM_EPOCHS_TO_KEEP,
 };
-use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
-use near_o11y::log_assert;
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
@@ -29,12 +26,11 @@ use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    NumShards, ShardId, StateChangeCause, StateChangesForSplitStates, StateRoot, StateRootNode,
+    ShardId, StateChangeCause, StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -42,24 +38,20 @@ use near_primitives::views::{
     ViewStateResult,
 };
 use near_store::flat::FlatStorageManager;
-use near_store::genesis::initialize_genesis_state;
 use near_store::metadata::DbKind;
-use near_store::split_state::get_delayed_receipts;
 use near_store::{
-    get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
     ApplyStatePartResult, DBCol, PartialStorage, ShardTries, StateSnapshotConfig, Store,
     StoreCompiledContractCache, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_runner::logic::CompiledContractCache;
 use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
-use node_runtime::config::RuntimeConfig;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
     ValidatorAccountsUpdate,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -79,7 +71,6 @@ pub struct NightshadeRuntime {
     flat_storage_manager: FlatStorageManager,
     pub runtime: Runtime,
     epoch_manager: Arc<EpochManagerHandle>,
-    genesis_state_roots: Vec<StateRoot>,
     migration_data: Arc<MigrationData>,
     gc_num_epochs_to_keep: u64,
 }
@@ -102,9 +93,8 @@ impl NightshadeRuntime {
             StateSnapshotConfig::Disabled
         };
         Self::new(
-            home_dir,
             store,
-            &config.genesis,
+            &config.genesis.config,
             epoch_manager,
             config.client_config.trie_viewer_state_size_limit,
             config.client_config.max_gas_burnt_view,
@@ -116,9 +106,8 @@ impl NightshadeRuntime {
     }
 
     fn new(
-        home_dir: &Path,
         store: Store,
-        genesis: &Genesis,
+        genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         trie_viewer_state_size_limit: Option<u64>,
         max_gas_burnt_view: Option<Gas>,
@@ -129,21 +118,11 @@ impl NightshadeRuntime {
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
-            None => Self::create_runtime_config_store(&genesis.config.chain_id),
+            None => RuntimeConfigStore::for_chain_id(&genesis_config.chain_id),
         };
 
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
-        let genesis_config = genesis.config.clone();
-        assert_eq!(
-            genesis_config.shard_layout.num_shards(),
-            genesis_config.num_block_producer_seats_per_shard.len() as NumShards,
-            "genesis config shard_layout and num_block_producer_seats_per_shard indicate inconsistent number of shards {} vs {}",
-            genesis_config.shard_layout.num_shards(),
-            genesis_config.num_block_producer_seats_per_shard.len() as NumShards,
-        );
-        let state_roots =
-            Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         let tries = ShardTries::new_with_state_snapshot(
             store.clone(),
@@ -161,8 +140,9 @@ impl NightshadeRuntime {
             tracing::error!(target: "runtime", ?err, "Failed to check if a state snapshot exists");
         }
 
+        let migration_data = Arc::new(load_migration_data(&genesis_config.chain_id));
         Arc::new(NightshadeRuntime {
-            genesis_config,
+            genesis_config: genesis_config.clone(),
             runtime_config_store,
             store,
             tries,
@@ -170,8 +150,7 @@ impl NightshadeRuntime {
             trie_viewer,
             epoch_manager,
             flat_storage_manager,
-            genesis_state_roots: state_roots,
-            migration_data: Arc::new(load_migration_data(&genesis.config.chain_id)),
+            migration_data,
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
         })
     }
@@ -179,14 +158,13 @@ impl NightshadeRuntime {
     pub fn test_with_runtime_config_store(
         home_dir: &Path,
         store: Store,
-        genesis: &Genesis,
+        genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         runtime_config_store: RuntimeConfigStore,
     ) -> Arc<Self> {
         Self::new(
-            home_dir,
             store,
-            genesis,
+            genesis_config,
             epoch_manager,
             None,
             None,
@@ -205,62 +183,16 @@ impl NightshadeRuntime {
     pub fn test(
         home_dir: &Path,
         store: Store,
-        genesis: &Genesis,
+        genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> Arc<Self> {
         Self::test_with_runtime_config_store(
             home_dir,
             store,
-            genesis,
+            genesis_config,
             epoch_manager,
             RuntimeConfigStore::test(),
         )
-    }
-
-    /// Create store of runtime configs for the given chain id.
-    ///
-    /// For mainnet and other chains except testnet we don't need to override runtime config for
-    /// first protocol versions.
-    /// For testnet, runtime config for genesis block was (incorrectly) different, that's why we
-    /// need to override it specifically to preserve compatibility.
-    fn create_runtime_config_store(chain_id: &str) -> RuntimeConfigStore {
-        match chain_id {
-            "testnet" => {
-                let genesis_runtime_config = RuntimeConfig::initial_testnet_config();
-                RuntimeConfigStore::new(Some(&genesis_runtime_config))
-            }
-            _ => RuntimeConfigStore::new(None),
-        }
-    }
-
-    /// On first start: compute state roots, load genesis state into storage.
-    /// After that: return genesis state roots. The state is not guaranteed to be in storage, as
-    /// GC and state sync are allowed to delete it.
-    fn initialize_genesis_state_if_needed(
-        store: Store,
-        home_dir: &Path,
-        genesis: &Genesis,
-    ) -> Vec<StateRoot> {
-        let stored_hash = get_genesis_hash(&store).expect("Store failed on genesis intialization");
-        if let Some(_hash) = stored_hash {
-            // TODO: re-enable this check (#4447)
-            //assert_eq!(hash, genesis_hash, "Storage already exists, but has a different genesis");
-            get_genesis_state_roots(&store)
-                .expect("Store failed on genesis intialization")
-                .expect("Genesis state roots not found in storage")
-        } else {
-            let runtime_config_store = Self::create_runtime_config_store(&genesis.config.chain_id);
-            let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
-            let store_usage_config = &runtime_config.fees.storage_usage_config;
-            let genesis_hash = genesis.json_hash();
-            let state_roots =
-                initialize_genesis_state(store.clone(), home_dir, &store_usage_config, genesis);
-            let mut store_update = store.store_update();
-            set_genesis_hash(&mut store_update, &genesis_hash);
-            set_genesis_state_roots(&mut store_update, &state_roots);
-            store_update.commit().expect("Store failed on genesis intialization");
-            state_roots
-        }
     }
 
     fn get_shard_uid_from_prev_hash(
@@ -638,38 +570,7 @@ fn format_total_gas_burnt(gas: Gas) -> String {
     format!("{:.0}", ((gas as f64) / 1e14).ceil() * 100.0)
 }
 
-fn apply_delayed_receipts<'a>(
-    tries: &ShardTries,
-    orig_shard_uid: ShardUId,
-    orig_state_root: StateRoot,
-    state_roots: HashMap<ShardUId, StateRoot>,
-    account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
-) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-    let orig_trie_update = tries.new_trie_update_view(orig_shard_uid, orig_state_root);
-
-    let mut start_index = None;
-    let mut new_state_roots = state_roots;
-    while let Some((next_index, receipts)) =
-        get_delayed_receipts(&orig_trie_update, start_index, STATE_PART_MEMORY_LIMIT)?
-    {
-        let (store_update, updated_state_roots) = tries.apply_delayed_receipts_to_split_states(
-            &new_state_roots,
-            &receipts,
-            account_id_to_shard_id,
-        )?;
-        new_state_roots = updated_state_roots;
-        start_index = Some(next_index);
-        store_update.commit()?;
-    }
-
-    Ok(new_state_roots)
-}
-
 impl RuntimeAdapter for NightshadeRuntime {
-    fn genesis_state(&self) -> (Store, Vec<StateRoot>) {
-        (self.store.clone(), self.genesis_state_roots.clone())
-    }
-
     fn store(&self) -> &Store {
         &self.store
     }
@@ -1172,63 +1073,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             .collect())
     }
 
-    fn build_state_for_split_shards(
-        &self,
-        shard_uid: ShardUId,
-        state_root: &StateRoot,
-        next_epoch_shard_layout: &ShardLayout,
-        state_split_status: Arc<StateSplitApplyingStatus>,
-    ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-        // TODO(resharding) use flat storage to split the trie here
-        let trie = self.tries.get_view_trie_for_shard(shard_uid, *state_root);
-        let shard_id = shard_uid.shard_id();
-        let new_shards = next_epoch_shard_layout
-            .get_split_shard_uids(shard_id)
-            .ok_or(Error::InvalidShardId(shard_id))?;
-        let mut state_roots: HashMap<_, _> =
-            new_shards.iter().map(|shard_uid| (*shard_uid, Trie::EMPTY_ROOT)).collect();
-        let split_shard_ids: HashSet<_> = new_shards.into_iter().collect();
-        let checked_account_id_to_shard_id = |account_id: &AccountId| {
-            let new_shard_uid = account_id_to_shard_uid(account_id, next_epoch_shard_layout);
-            // check that all accounts in the shard are mapped the shards that this shard will split
-            // to according to shard layout
-            assert!(
-                split_shard_ids.contains(&new_shard_uid),
-                "Inconsistent shard_layout specs. Account {:?} in shard {:?} and in shard {:?}, but the former is not parent shard for the latter",
-                account_id,
-                shard_uid,
-                new_shard_uid,
-            );
-            new_shard_uid
-        };
-
-        let state_root_node = trie.retrieve_root_node()?;
-        let num_parts = get_num_state_parts(state_root_node.memory_usage);
-        if state_split_status.total_parts.set(num_parts).is_err() {
-            log_assert!(false, "splitting state was done twice for shard {}", shard_id);
-        }
-        debug!(target: "runtime", "splitting state for shard {} to {} parts to build new states", shard_id, num_parts);
-        for part_id in 0..num_parts {
-            let trie_items = trie.get_trie_items_for_part(PartId::new(part_id, num_parts))?;
-            let (store_update, new_state_roots) = self.tries.add_values_to_split_states(
-                &state_roots,
-                trie_items.into_iter().map(|(key, value)| (key, Some(value))).collect(),
-                &checked_account_id_to_shard_id,
-            )?;
-            state_roots = new_state_roots;
-            store_update.commit()?;
-            state_split_status.done_parts.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        }
-        state_roots = apply_delayed_receipts(
-            &self.tries,
-            shard_uid,
-            *state_root,
-            state_roots,
-            &checked_account_id_to_shard_id,
-        )?;
-        Ok(state_roots)
-    }
-
     fn apply_state_part(
         &self,
         shard_id: ShardId,
@@ -1418,24 +1262,26 @@ mod test {
     use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
+    use near_store::genesis::initialize_genesis_state;
     use num_rational::Ratio;
 
     use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-    use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
+    use near_chain_configs::{Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_o11y::testonly::init_test_logger;
     use near_primitives::block::Tip;
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
     use near_primitives::types::{
-        BlockHeightDelta, Nonce, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
+        BlockHeightDelta, Nonce, NumShards, ValidatorId, ValidatorInfoIdentifier,
+        ValidatorKickoutReason,
     };
     use near_primitives::validator_signer::ValidatorSigner;
     use near_primitives::views::{
         AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
         ValidatorKickoutView,
     };
-    use near_store::NodeStorage;
+    use near_store::{get_genesis_state_roots, NodeStorage};
 
     use super::*;
 
@@ -1580,11 +1426,12 @@ mod test {
             }
             let genesis_total_supply = genesis.config.total_supply;
             let genesis_protocol_version = genesis.config.protocol_version;
+
+            initialize_genesis_state(store.clone(), &genesis, Some(dir.path()));
             let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
             let runtime = NightshadeRuntime::new(
-                dir.path(),
-                store,
-                &genesis,
+                store.clone(),
+                &genesis.config,
                 epoch_manager.clone(),
                 None,
                 None,
@@ -1598,7 +1445,7 @@ mod test {
                     compaction_enabled: false,
                 },
             );
-            let (store, state_roots) = runtime.genesis_state();
+            let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
             let genesis_hash = hash(&[0]);
 
             // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
@@ -2886,11 +2733,12 @@ mod test {
         let store = near_store::test_utils::create_test_store();
 
         let tempdir = tempfile::tempdir().unwrap();
+        initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime = NightshadeRuntime::test_with_runtime_config_store(
             tempdir.path(),
             store.clone(),
-            &genesis,
+            &genesis.config,
             epoch_manager.clone(),
             RuntimeConfigStore::new(None),
         );
