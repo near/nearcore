@@ -7,8 +7,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use near_chain_primitives::error::Error;
-use near_client_primitives::types::StateSplitApplyingStatus;
-use near_o11y::log_assert;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
 use near_primitives::state_part::PartId;
@@ -28,11 +26,9 @@ use crate::Chain;
 pub struct StateSplitRequest {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub sync_hash: CryptoHash,
-    pub shard_id: ShardId,
     pub shard_uid: ShardUId,
     pub state_root: StateRoot,
     pub next_epoch_shard_layout: ShardLayout,
-    pub state_split_status: Arc<StateSplitApplyingStatus>,
 }
 
 #[derive(actix::Message)]
@@ -76,7 +72,6 @@ impl Chain {
         sync_hash: &CryptoHash,
         shard_id: ShardId,
         state_split_scheduler: &dyn Fn(StateSplitRequest),
-        state_split_status: Arc<StateSplitApplyingStatus>,
     ) -> Result<(), Error> {
         let (epoch_id, next_epoch_id) = {
             let block_header = self.get_block_header(sync_hash)?;
@@ -92,11 +87,9 @@ impl Chain {
         state_split_scheduler(StateSplitRequest {
             runtime_adapter: self.runtime_adapter.clone(),
             sync_hash: *sync_hash,
-            shard_id,
             shard_uid,
             state_root,
             next_epoch_shard_layout,
-            state_split_status,
         });
 
         Ok(())
@@ -104,13 +97,21 @@ impl Chain {
 
     pub fn build_state_for_split_shards(
         state_split_request: StateSplitRequest,
+    ) -> StateSplitResponse {
+        let shard_id = state_split_request.shard_uid.shard_id();
+        let sync_hash = state_split_request.sync_hash;
+        let new_state_roots = Self::build_state_for_split_shards_impl(state_split_request);
+        StateSplitResponse { shard_id, sync_hash, new_state_roots }
+    }
+
+    fn build_state_for_split_shards_impl(
+        state_split_request: StateSplitRequest,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         let StateSplitRequest {
             runtime_adapter,
             shard_uid,
             state_root,
             next_epoch_shard_layout,
-            state_split_status,
             ..
         } = state_split_request;
         // TODO(resharding) use flat storage to split the trie here
@@ -139,9 +140,6 @@ impl Chain {
 
         let state_root_node = trie.retrieve_root_node()?;
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
-        if state_split_status.total_parts.set(num_parts).is_err() {
-            log_assert!(false, "splitting state was done twice for shard {}", shard_id);
-        }
         debug!(target: "runtime", "splitting state for shard {} to {} parts to build new states", shard_id, num_parts);
         for part_id in 0..num_parts {
             let trie_items = trie.get_trie_items_for_part(PartId::new(part_id, num_parts))?;
@@ -152,7 +150,6 @@ impl Chain {
             )?;
             state_roots = new_state_roots;
             store_update.commit()?;
-            state_split_status.done_parts.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         }
         state_roots = apply_delayed_receipts(
             &tries,
