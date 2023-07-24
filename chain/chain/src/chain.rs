@@ -3393,7 +3393,13 @@ impl Chain {
                 let flat_head_hash = *chunk.prev_block();
                 let flat_head_header = self.get_block_header(&flat_head_hash)?;
                 let flat_head_prev_hash = *flat_head_header.prev_hash();
-                let flat_head_height = chunk.height_included().checked_sub(1).ok_or(near_chain_primitives::Error::Other("wrong height included of a chunk".to_string()))?;
+                let flat_head_height = chunk.height_included().checked_sub(1).ok_or(
+                    near_chain_primitives::Error::Other(
+                        "wrong height included of a chunk".to_string(),
+                    ),
+                )?;
+
+                tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
 
                 let mut store_update = self.runtime_adapter.store().store_update();
                 store_helper::set_flat_storage_status(
@@ -4199,7 +4205,11 @@ impl Chain {
                 let epoch_id = self.epoch_manager.get_epoch_id(&head.prev_block_hash)?;
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
                 let last_block = self.get_block(&head.last_block_hash)?;
-                (helper.make_snapshot_callback)(head.prev_block_hash, shard_layout.get_shard_uids(), last_block)
+                (helper.make_snapshot_callback)(
+                    head.prev_block_hash,
+                    shard_layout.get_shard_uids(),
+                    last_block,
+                )
             }
         }
         Ok(())

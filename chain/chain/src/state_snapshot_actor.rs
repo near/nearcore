@@ -1,11 +1,11 @@
 use actix::AsyncContext;
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_store::flat::FlatStorageManager;
 use near_store::ShardTries;
 use std::sync::Arc;
-use near_primitives::block::Block;
 
 /// Runs tasks related to state snapshots.
 pub struct StateSnapshotActor {

@@ -6,6 +6,7 @@ use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
 use crate::{checkpoint_hot_storage_and_cleanup_columns, metrics, DBCol, NodeStorage, PrefetchApi};
 use crate::{Store, StoreConfig, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
+use near_primitives::block::Block;
 use near_primitives::borsh::maybestd::collections::HashMap;
 use near_primitives::errors::EpochError;
 use near_primitives::errors::StorageError;
@@ -20,7 +21,6 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock, TryLockError};
-use near_primitives::block::Block;
 
 struct ShardTriesInner {
     store: Store,
@@ -78,14 +78,14 @@ impl StateSnapshot {
                     .with_label_values(&[&shard_uid.shard_id.to_string()])
                     .start_timer();
                 if let Some(chunk) = block.chunks().get(shard_uid.shard_id as usize) {
-                    let desired_flat_head= chunk.prev_block_hash();
+                    let desired_flat_head = chunk.prev_block_hash();
                     match flat_storage.update_flat_head(desired_flat_head, true) {
                         Ok(_) => {
                             tracing::debug!(target: "state_snapshot", ?shard_uid, ?current_flat_head, ?desired_flat_head, "Successfully moved FlatStorage head of the snapshot");
-                        },
+                        }
                         Err(err) => {
                             tracing::error!(target: "state_snapshot", ?shard_uid, ?err, ?current_flat_head, ?desired_flat_head, "Failed to move FlatStorage head of the snapshot");
-                        },
+                        }
                     }
                 } else {
                     tracing::error!(target: "state_snapshot", ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), ?prev_block_hash, "Failed to move FlatStorage head of the snapshot, no chunk");

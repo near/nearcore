@@ -4,6 +4,7 @@ use clap::Parser;
 use near_chain::flat_storage_creator::FlatStorageShardCreator;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_store::flat::{
     inline_flat_state_values, store_helper, FlatStateDelta, FlatStateDeltaMetadata,
@@ -15,7 +16,6 @@ use nearcore::{load_config, NearConfig, NightshadeRuntime};
 use std::sync::atomic::AtomicBool;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tqdm::tqdm;
-use near_chain_configs::GenesisValidationMode;
 
 #[derive(Parser)]
 pub struct FlatStorageCommand {
@@ -143,9 +143,18 @@ impl FlatStorageCommand {
         (node_storage, epoch_manager, hot_runtime, chain_store, hot_store)
     }
 
-    pub fn run(&self, home_dir: &PathBuf, genesis_validation: GenesisValidationMode) -> anyhow::Result<()> {
+    pub fn run(
+        &self,
+        home_dir: &PathBuf,
+        genesis_validation: GenesisValidationMode,
+    ) -> anyhow::Result<()> {
         let near_config = load_config(home_dir, genesis_validation)?;
-        let opener = NodeStorage::opener(home_dir, near_config.config.archive, &near_config.config.store, None);
+        let opener = NodeStorage::opener(
+            home_dir,
+            near_config.config.archive,
+            &near_config.config.store,
+            None,
+        );
 
         match &self.subcmd {
             SubCommand::View => {
