@@ -102,6 +102,12 @@ impl<'a> ConfigValidator<'a> {
                             self.validation_errors.push_config_semantics_error(error_message);
                         }
                     }
+                    ExternalStorageLocation::GCS { bucket } => {
+                        if bucket.is_empty() {
+                            let error_message = format!("'config.state_sync.dump.location.GCS.bucket' needs to be specified when 'config.state_sync.dump.location.GCS' is present.");
+                            self.validation_errors.push_config_semantics_error(error_message);
+                        }
+                    }
                 }
             }
             match &state_sync.sync {
@@ -117,6 +123,12 @@ impl<'a> ConfigValidator<'a> {
                         ExternalStorageLocation::Filesystem { root_dir } => {
                             if root_dir.as_path() == Path::new("") {
                                 let error_message = format!("'config.state_sync.sync.ExternalStorage.location.Filesystem.root_dir' needs to be specified when 'config.state_sync.sync.ExternalStorage.location.Filesystem' is present.");
+                                self.validation_errors.push_config_semantics_error(error_message);
+                            }
+                        }
+                        ExternalStorageLocation::GCS { bucket } => {
+                            if bucket.is_empty() {
+                                let error_message = format!("'config.state_sync.sync.ExternalStorage.location.GCS.bucket' needs to be specified when 'config.state_sync.sync.ExternalStorage.location.GCS' is present.");
                                 self.validation_errors.push_config_semantics_error(error_message);
                             }
                         }

@@ -591,6 +591,9 @@ pub struct StatePartsCmd {
     /// Store state parts in an S3 bucket.
     #[clap(long)]
     s3_region: Option<String>,
+    /// Store state parts in an GCS bucket.
+    #[clap(long)]
+    gcs_bucket: Option<String>,
     /// Dump or Apply state parts.
     #[clap(subcommand)]
     command: crate::state_parts::StatePartsSubCommand,
@@ -603,6 +606,7 @@ impl StatePartsCmd {
             self.root_dir,
             self.s3_bucket,
             self.s3_region,
+            self.gcs_bucket,
             home_dir,
             near_config,
             store,

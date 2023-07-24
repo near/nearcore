@@ -12,6 +12,7 @@ use crate::{metrics, SyncStatus};
 use actix_rt::ArbiterHandle;
 use lru::LruCache;
 use near_async::messaging::{CanSend, Sender};
+use near_chain::chain::VerifyBlockHashAndSignatureResult;
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
     OrphanMissingChunks, TX_ROUTING_HEIGHT_HORIZON,
@@ -1027,6 +1028,17 @@ impl Client {
                 .mark_block_dropped(block.hash(), DroppedReason::HeightProcessed);
             return Ok(());
         }
+
+        // Before we proceed with any further processing, we first check that the block
+        // hash and signature matches to make sure the block is indeed produced by the assigned
+        // block producer. If not, we drop the block immediately and ban the peer
+        if self.chain.verify_block_hash_and_signature(&block)?
+            == VerifyBlockHashAndSignatureResult::Incorrect
+        {
+            self.ban_peer(peer_id, ReasonForBan::BadBlockHeader);
+            return Err(near_chain::Error::InvalidSignature);
+        }
+
         let prev_hash = *block.header().prev_hash();
         let block = block.into();
         self.verify_and_rebroadcast_block(&block, was_requested, &peer_id)?;

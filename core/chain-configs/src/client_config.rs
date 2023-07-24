@@ -107,6 +107,9 @@ pub enum ExternalStorageLocation {
     Filesystem {
         root_dir: PathBuf,
     },
+    GCS {
+        bucket: String,
+    },
 }
 
 /// Configures how to dump state to external storage.

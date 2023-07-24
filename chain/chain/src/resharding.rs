@@ -230,7 +230,7 @@ mod tests {
     fn test_split_and_update_states() {
         // build states
         let mut rng = rand::thread_rng();
-        for _ in 0..1 {
+        for _ in 0..20 {
             test_split_and_update_state_impl(&mut rng);
         }
     }
