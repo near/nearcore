@@ -17,15 +17,15 @@ pub struct FlatStateDelta {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy)]
-pub(crate) struct CompressionInfo {
-    pub(crate) last_height_with_changes: BlockHeight,
-    pub(crate) last_block_with_changes: CryptoHash,
+pub struct CompressionInfo {
+    pub last_height_with_changes: BlockHeight,
+    pub last_block_with_changes: CryptoHash,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy)]
 pub struct FlatStateDeltaMetadata {
     pub block: BlockInfo,
-    pub(crate) compression_info: Option<CompressionInfo>,
+    pub compression_info: Option<CompressionInfo>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
