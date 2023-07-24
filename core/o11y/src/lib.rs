@@ -462,7 +462,10 @@ pub fn reload_log_config(config: Option<&log_config::LogConfig>) {
             tracing::info!("Updated the logging layer according to `log_config.json`");
         }
         Err(err) => {
-            tracing::info!("Failed to update the logging layer according to the changed `log_config.json`. Errors: {:?}", err);
+            eprintln!(
+                "Failed to update the logging layer according to the changed `log_config.json`. Errors: {:?}",
+                err
+            );
         }
     }
 }

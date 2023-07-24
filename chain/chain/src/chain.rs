@@ -71,6 +71,7 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
+use near_store::flat::delta::CompressionInfo;
 use near_store::flat::{
     store_helper, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageError,
     FlatStorageReadyStatus, FlatStorageStatus,
