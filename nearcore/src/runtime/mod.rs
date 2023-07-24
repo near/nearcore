@@ -324,8 +324,7 @@ impl NightshadeRuntime {
             let epoch_manager = self.epoch_manager.read();
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
             debug!(target: "runtime",
-                   "block height: {}, is next_block_epoch_start {}",
-                   block_height,
+                   "is next_block_epoch_start {}",
                    epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
             );
 
@@ -1516,7 +1515,7 @@ mod test {
                             height,
                             prev_hash: *prev_block_hash,
                         },
-                        prev_block_with_changes: None,
+                        compression_info: None,
                     },
                 };
                 let new_store_update = flat_storage.add_delta(delta).unwrap();

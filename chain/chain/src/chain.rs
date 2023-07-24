@@ -2191,7 +2191,7 @@ impl Chain {
                 new_flat_head = *self.genesis.hash();
             }
             // Try to update flat head.
-            flat_storage.update_flat_head(&new_flat_head).unwrap_or_else(|err| {
+            flat_storage.update_flat_head(&new_flat_head, false).unwrap_or_else(|err| {
                 match &err {
                     FlatStorageError::BlockNotSupported(_) => {
                         // It's possible that new head is not a child of current flat head, e.g. when we have a
@@ -3308,7 +3308,13 @@ impl Chain {
                 let flat_head_hash = *chunk.prev_block();
                 let flat_head_header = self.get_block_header(&flat_head_hash)?;
                 let flat_head_prev_hash = *flat_head_header.prev_hash();
-                let flat_head_height : BlockHeight = chunk.height_included().checked_sub(1).ok_or_else(||near_chain_primitives::Error::Other("wrong height included of a chunk".to_string()))?;
+                let flat_head_height = chunk.height_included().checked_sub(1).ok_or(
+                    near_chain_primitives::Error::Other(
+                        "wrong height included of a chunk".to_string(),
+                    ),
+                )?;
+
+                tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
 
                 let mut store_update = self.runtime_adapter.store().store_update();
                 store_helper::set_flat_storage_status(
@@ -3414,9 +3420,13 @@ impl Chain {
         blocks_catch_up_state: &mut BlocksCatchUpState,
         block_catch_up_scheduler: &dyn Fn(BlockCatchUpRequest),
     ) -> Result<(), Error> {
-        debug!(target:"catchup", "catch up blocks: pending blocks: {:?}, processed {:?}, scheduled: {:?}, done: {:?}",
-               blocks_catch_up_state.pending_blocks, blocks_catch_up_state.processed_blocks.keys().collect::<Vec<_>>(),
-               blocks_catch_up_state.scheduled_blocks, blocks_catch_up_state.done_blocks.len());
+        tracing::debug!(
+            target: "catchup",
+            pending_blocks = ?blocks_catch_up_state.pending_blocks,
+            processed_blocks = ?blocks_catch_up_state.processed_blocks.keys().collect::<Vec<_>>(),
+            scheduled_blocks = ?blocks_catch_up_state.scheduled_blocks,
+            done_blocks = blocks_catch_up_state.done_blocks.len(),
+            "catch up blocks");
         let mut processed_blocks = HashMap::new();
         for (queued_block, results) in blocks_catch_up_state.processed_blocks.drain() {
             // If this block is parent of some blocks in processing that need to be caught up,
@@ -3467,6 +3477,7 @@ impl Chain {
                 Default::default(),
                 &mut Vec::new(),
             )?;
+            metrics::SCHEDULED_CATCHUP_BLOCK.set(block.header().height() as i64);
             blocks_catch_up_state.scheduled_blocks.insert(pending_block);
             block_catch_up_scheduler(BlockCatchUpRequest {
                 sync_hash: *sync_hash,
@@ -3989,7 +4000,7 @@ impl Chain {
                             true,
                             is_first_block_with_chunk_of_version,
                             state_patch,
-                            cares_about_shard_this_epoch,
+                            true,
                         ) {
                             Ok(apply_result) => {
                                 let apply_split_result_or_state_changes =
@@ -4050,7 +4061,7 @@ impl Chain {
                             false,
                             false,
                             state_patch,
-                            cares_about_shard_this_epoch,
+                            true,
                         ) {
                             Ok(apply_result) => {
                                 let apply_split_result_or_state_changes =
@@ -4155,8 +4166,12 @@ impl Chain {
                 let head = self.head()?;
                 let epoch_id = self.epoch_manager.get_epoch_id(&head.prev_block_hash)?;
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-                // TODO: Add heights included of all chunks
-                (helper.make_snapshot_callback)(head.prev_block_hash, shard_layout.get_shard_uids(), todo!())
+                let last_block = self.get_block(&head.last_block_hash)?;
+                (helper.make_snapshot_callback)(
+                    head.prev_block_hash,
+                    shard_layout.get_shard_uids(),
+                    last_block,
+                )
             }
         }
         Ok(())
