@@ -477,7 +477,7 @@ impl ShardTries {
                 let _timer = metrics::MAKE_STATE_SNAPSHOT_ELAPSED.start_timer();
                 // `write()` lock is held for the whole duration of this function.
                 // Accessing the snapshot in other parts of the system will fail.
-                let mut state_snapshot_lock = self.0.state_snapshot.write().unwrap();
+                let mut state_snapshot_lock = self.0.state_snapshot.write().map_err(|_| anyhow::Error::msg("error accessing write lock of state_snapshot"))?;
                 if let Some(state_snapshot) = &*state_snapshot_lock {
                     if &state_snapshot.prev_block_hash == prev_block_hash {
                         tracing::warn!(target: "state_snapshot", ?prev_block_hash, "Requested a state snapshot but that is already available");
@@ -572,7 +572,7 @@ impl ShardTries {
         let _span =
             tracing::info_span!(target: "state_snapshot", "compact_state_snapshot").entered();
         // It's fine if the access to state snapshot blocks.
-        let state_snapshot_lock = self.0.state_snapshot.read().unwrap();
+        let state_snapshot_lock = self.0.state_snapshot.read().map_err(|_| anyhow::Error::msg("error accessing read lock of state_snapshot"))?;
         if let Some(state_snapshot) = &*state_snapshot_lock {
             let _timer = metrics::COMPACT_STATE_SNAPSHOT_ELAPSED.start_timer();
             Ok(state_snapshot.store.compact()?)
@@ -679,14 +679,14 @@ impl ShardTries {
                 let flat_storage_manager = FlatStorageManager::new(store.clone());
 
                 let shard_uids = get_shard_uids_fn(snapshot_hash)?;
-                    let mut guard = self.0.state_snapshot.write().unwrap();
-                    *guard = Some(StateSnapshot::new(
-                        store,
-                        snapshot_hash,
-                        flat_storage_manager,
-                        &shard_uids,
-                        None,
-                    ));
+                let mut guard = self.0.state_snapshot.write().map_err(|_| anyhow::Error::msg("error accessing write lock of state_snapshot"))?;
+                *guard = Some(StateSnapshot::new(
+                    store,
+                    snapshot_hash,
+                    flat_storage_manager,
+                    &shard_uids,
+                    None,
+                ));
                 metrics::HAS_STATE_SNAPSHOT.set(1);
                 tracing::info!(target: "runtime", ?snapshot_hash, ?snapshot_path, "Detected and opened a state snapshot.");
                 Ok(())
