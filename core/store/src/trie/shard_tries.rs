@@ -617,7 +617,7 @@ impl ShardTries {
         home_dir.join(hot_store_path).join(state_snapshot_subdir).join(format!("{prev_block_hash}"))
     }
 
-    /// Retrieves STATE_SNAPSHOT_KEY for the given shard.
+    /// Retrieves STATE_SNAPSHOT_KEY
     pub fn get_state_snapshot_hash(&self) -> Result<CryptoHash, io::Error> {
         option_to_not_found(
             self.0.store.get_ser(DBCol::BlockMisc, STATE_SNAPSHOT_KEY),
@@ -670,7 +670,6 @@ impl ShardTries {
                     .ok_or(anyhow::anyhow!("{snapshot_path:?} needs to have a parent dir"))?;
                 tracing::debug!(target: "state_snapshot", ?snapshot_path, ?parent_path);
 
-                // actually we should only store such snapshot_hash when we are sure it is stored in file system
                 let store_config = StoreConfig::default();
 
                 let opener = NodeStorage::opener(&snapshot_path, false, &store_config, None);
