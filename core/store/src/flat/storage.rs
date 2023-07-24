@@ -87,17 +87,33 @@ impl FlatStorageInner {
         let flat_head = &self.flat_head;
         let mut block_hash = *target_block_hash;
         let mut blocks = vec![];
+        let mut first_height = None;
         while block_hash != flat_head.hash {
             blocks.push(block_hash);
-            block_hash = self
+            let metadata = self
                 .deltas
                 .get(&block_hash)
                 .ok_or_else(|| self.create_block_not_supported_error(target_block_hash))?
-                .metadata
-                .block
-                .prev_hash;
+                .metadata;
+            if first_height.is_none() {
+                first_height = Some(metadata.block.height);
+            }
+
+            block_hash = match metadata.compression_info {
+                None => metadata.block.prev_hash,
+                Some(compression_info) => {
+                    if compression_info.last_height_with_changes > flat_head.height {
+                        compression_info.last_block_with_changes
+                    } else {
+                        flat_head.hash
+                    }
+                }
+            };
         }
-        self.metrics.set_distance_to_head(blocks.len());
+        self.metrics.set_distance_to_head(
+            blocks.len(),
+            first_height.map(|height| height - flat_head.height),
+        );
 
         Ok(blocks)
     }
@@ -216,32 +232,47 @@ impl FlatStorage {
     /// Update the head of the flat storage, including updating the flat state in memory and on disk
     /// and updating the flat state to reflect the state at the new head. If updating to given head is not possible,
     /// returns an error.
-    pub fn update_flat_head(&self, new_head: &CryptoHash) -> Result<(), FlatStorageError> {
+    pub fn update_flat_head(
+        &self,
+        new_head: &CryptoHash,
+        strict: bool,
+    ) -> Result<(), FlatStorageError> {
         let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
         if !guard.move_head_enabled {
             return Ok(());
         }
+        let current_flat_head_hash = guard.flat_head.hash;
+        let current_flat_head_height = guard.flat_head.height;
+
         let shard_uid = guard.shard_uid;
         let shard_id = shard_uid.shard_id();
 
-        let last_block_with_changes : CryptoHash = {
-            let metadata = guard.deltas.get(new_head).ok_or_else(|| missing_delta_error(new_head))?.metadata;
-            match metadata.compression_info {
-                None => {
-                    *new_head
+        let new_head = if strict {
+            *new_head
+        } else {
+            let mut new_head = *new_head;
+            for _skip in 0..2 {
+                if new_head == current_flat_head_hash {
+                    return Ok(());
                 }
-                Some(CompressionInfo{ last_height_with_changes, last_block_with_changes }) => {
-                    if last_height_with_changes < guard.flat_head.height {
-                        tracing::warn!(target: "store", ?metadata, flat_head = ?guard.flat_head, "Inconsistent CompressionInfo");
-                        guard.flat_head.hash
-                    } else {
+                let metadata =
+                    guard.deltas.get(&new_head).ok_or(missing_delta_error(&new_head))?.metadata;
+                new_head = match metadata.compression_info {
+                    None => metadata.block.prev_hash,
+                    Some(CompressionInfo { last_height_with_changes, last_block_with_changes }) => {
+                        if last_height_with_changes <= current_flat_head_height {
+                            return Ok(());
+                        }
                         last_block_with_changes
                     }
-                }
+                };
             }
+            new_head
         };
-        tracing::debug!(target: "store", flat_head = ?guard.flat_head, ?last_block_with_changes, ?new_head, "Moving flat head");
-        let new_head = last_block_with_changes;
+        if new_head == current_flat_head_hash {
+            return Ok(());
+        }
+        tracing::debug!(target: "store", flat_head = ?current_flat_head_hash, ?new_head, "Moving flat head");
         let blocks = guard.get_blocks_to_head(&new_head)?;
 
         for block_hash in blocks.into_iter().rev() {
@@ -498,7 +529,7 @@ mod tests {
         for i in 1..5 {
             let delta = FlatStateDelta {
                 changes: FlatStateChanges::default(),
-                metadata: FlatStateDeltaMetadata { block: chain.get_block(i) },
+                metadata: FlatStateDeltaMetadata { block: chain.get_block(i), compression_info: None },
             };
             store_helper::set_delta(&mut store_update, shard_uid, &delta);
         }
@@ -511,23 +542,23 @@ mod tests {
         // Check `BlockNotSupported` errors which are fine to occur during regular block processing.
         // First, check that flat head can be moved to block 1.
         let flat_head_hash = chain.get_block_hash(1);
-        assert_eq!(flat_storage.update_flat_head(&flat_head_hash), Ok(()));
+        assert_eq!(flat_storage.update_flat_head(&flat_head_hash, false), Ok(()));
         // Check that attempt to move flat head to block 2 results in error because it lays in unreachable fork.
         let fork_block_hash = chain.get_block_hash(2);
         assert_eq!(
-            flat_storage.update_flat_head(&fork_block_hash),
+            flat_storage.update_flat_head(&fork_block_hash, false),
             Err(FlatStorageError::BlockNotSupported((flat_head_hash, fork_block_hash)))
         );
         // Check that attempt to move flat head to block 0 results in error because it is an unreachable parent.
         let parent_block_hash = chain.get_block_hash(0);
         assert_eq!(
-            flat_storage.update_flat_head(&parent_block_hash),
+            flat_storage.update_flat_head(&parent_block_hash, false),
             Err(FlatStorageError::BlockNotSupported((flat_head_hash, parent_block_hash)))
         );
         // Check that attempt to move flat head to non-existent block results in the same error.
         let not_existing_hash = hash(&[1, 2, 3]);
         assert_eq!(
-            flat_storage.update_flat_head(&not_existing_hash),
+            flat_storage.update_flat_head(&not_existing_hash, false),
             Err(FlatStorageError::BlockNotSupported((flat_head_hash, not_existing_hash)))
         );
         // Corrupt DB state for block 3 and try moving flat head to it.
@@ -536,7 +567,7 @@ mod tests {
         store_helper::remove_delta(&mut store_update, shard_uid, chain.get_block_hash(3));
         store_update.commit().unwrap();
         assert_matches!(
-            flat_storage.update_flat_head(&chain.get_block_hash(3)),
+            flat_storage.update_flat_head(&chain.get_block_hash(3), false),
             Err(FlatStorageError::StorageInternalError(_))
         );
     }
@@ -556,7 +587,7 @@ mod tests {
         for i in 1..5 {
             let delta = FlatStateDelta {
                 changes: FlatStateChanges::default(),
-                metadata: FlatStateDeltaMetadata { block: chain.get_block(i * 2) },
+                metadata: FlatStateDeltaMetadata { block: chain.get_block(i * 2), compression_info: None },
             };
             store_helper::set_delta(&mut store_update, shard_uid, &delta);
         }
@@ -569,7 +600,7 @@ mod tests {
 
         // Check that flat head can be moved to block 8.
         let flat_head_hash = chain.get_block_hash(8);
-        assert_eq!(flat_storage.update_flat_head(&flat_head_hash), Ok(()));
+        assert_eq!(flat_storage.update_flat_head(&flat_head_hash, false), Ok(()));
     }
 
     // This tests basic use cases for FlatStorageChunkView and FlatStorage.
@@ -601,7 +632,7 @@ mod tests {
                     vec![1],
                     Some(FlatStateValue::value_ref(&[i as u8])),
                 )]),
-                metadata: FlatStateDeltaMetadata { block: chain.get_block(i) },
+                metadata: FlatStateDeltaMetadata { block: chain.get_block(i), compression_info: None },
             };
             store_helper::set_delta(&mut store_update, shard_uid, &delta);
         }
@@ -632,7 +663,7 @@ mod tests {
                     (vec![1], None),
                     (vec![2], Some(FlatStateValue::value_ref(&[1]))),
                 ]),
-                metadata: FlatStateDeltaMetadata { block: chain.get_block_info(&hash) },
+                metadata: FlatStateDeltaMetadata { block: chain.get_block_info(&hash), compression_info: None },
             })
             .unwrap();
         store_update.commit().unwrap();
@@ -660,7 +691,7 @@ mod tests {
 
         // 5. Move the flat head to block 5, verify that chunk_view0 still returns the same values
         // and chunk_view1 returns an error. Also check that DBCol::FlatState is updated correctly
-        flat_storage.update_flat_head(&chain.get_block_hash(5)).unwrap();
+        flat_storage.update_flat_head(&chain.get_block_hash(5), false).unwrap();
         assert_eq!(
             store_helper::get_flat_state_value(&store, shard_uid, &[1]).unwrap(),
             Some(FlatStateValue::value_ref(&[5]))
@@ -684,7 +715,7 @@ mod tests {
 
         // 6. Move the flat head to block 10, verify that chunk_view0 still returns the same values
         //    Also checks that DBCol::FlatState is updated correctly.
-        flat_storage.update_flat_head(&chain.get_block_hash(10)).unwrap();
+        flat_storage.update_flat_head(&chain.get_block_hash(10), false).unwrap();
         let blocks = flat_storage.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
         assert_eq!(blocks.len(), 0);
         assert_eq!(store_helper::get_flat_state_value(&store, shard_uid, &[1]).unwrap(), None);
