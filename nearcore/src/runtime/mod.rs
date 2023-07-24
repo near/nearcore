@@ -698,10 +698,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         // a bound of at most 10000 receipts processed in a chunk.
         let delayed_receipts_indices: DelayedReceiptIndices =
             near_store::get(&state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
-        let max_processed_receipts_in_chunk =
-            gas_limit / runtime_config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
-        let new_receipt_count_limit =
-            max_processed_receipts_in_chunk.saturating_sub(delayed_receipts_indices.len()) as usize;
+        let new_receipt_count_limit = if let min_fee = runtime_config.fees.fee(ActionCosts::new_action_receipt).exec_fee() > 0 {
+            let max_processed_receipts_in_chunk = gas_limit / min_fee;
+            max_processed_receipts_in_chunk.saturating_sub(delayed_receipts_indices.len()) as usize
+        } else {
+            usize::MAX
+        };
 
         // In general, we limit the number of transactions via send_fees.
         // However, as a second line of defense, we want to limit the byte size
