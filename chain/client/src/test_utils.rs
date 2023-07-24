@@ -2422,14 +2422,12 @@ pub fn run_catchup(
             catchup_done = false;
         }
         for msg in state_split_messages.write().unwrap().drain(..) {
-            let sync_hash = msg.sync_hash;
-            let shard_id = msg.shard_id;
-            let results = Chain::build_state_for_split_shards(msg);
-            if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&sync_hash) {
+            let response = Chain::build_state_for_split_shards(msg);
+            if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&response.sync_hash) {
                 // We are doing catchup
-                sync.set_split_result(shard_id, results);
+                sync.set_split_result(response.shard_id, response.new_state_roots);
             } else {
-                client.state_sync.set_split_result(shard_id, results);
+                client.state_sync.set_split_result(response.shard_id, response.new_state_roots);
             }
             catchup_done = false;
         }
