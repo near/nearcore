@@ -161,4 +161,8 @@ skip = [
 
     # webrtc-util depends on old version of nix depends on old version of memoffset
     { name = "memoffset", version = "=0.6.5" },
+
+    # cloud-storage
+    { name = "base64", version = "=0.12.3" },
+    { name = "num-bigint", version = "=0.2.6" },
 ]

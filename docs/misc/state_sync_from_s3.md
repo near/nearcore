@@ -16,10 +16,11 @@ decentralized solution.
 ## How-to
 
 [#8789](https://github.com/near/nearcore/pull/8789) adds an experimental option
-to sync state from external storage. At the moment only S3 is
-supported as external storage.
+to sync state from external storage.
 
-To enable, add this to your `config.json` file:
+### S3
+
+To enable S3 as your external storage, add this to your `config.json` file:
 
 ```json
 "state_sync_enabled": true,
@@ -38,6 +39,30 @@ To enable, add this to your `config.json` file:
 ```
 
 Then run the `neard` binary and it will access S3 anonymously:
+```shell
+./neard run
+```
+
+### Google Cloud Storage
+
+To enable Google Cloud Storage as your external storage, add this to your `config.json` file:
+
+```json
+"state_sync_enabled": true,
+"state_sync": {
+  "sync": {
+    "ExternalStorage": {
+      "location": {
+        "GCS": {
+          "bucket": "my-gcs-bucket",
+        }
+      }
+    }
+  }
+}
+```
+
+Then run the `neard` binary and it will access GCS anonymously:
 ```shell
 ./neard run
 ```
