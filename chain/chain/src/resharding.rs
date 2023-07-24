@@ -211,6 +211,7 @@ mod tests {
     use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{StateChangeCause, StateChangesForSplitStates, StateRoot};
+    use near_store::flat::FlatStateChanges;
     use near_store::test_utils::{
         create_tries, gen_receipts, gen_unique_accounts, get_all_delayed_receipts,
     };
@@ -236,10 +237,11 @@ mod tests {
     }
 
     fn test_split_and_update_state_impl(rng: &mut impl Rng) {
+        let shard_uid = ShardUId::single_shard();
         let tries = Arc::new(create_tries());
         // add accounts and receipts to state
         let mut account_ids = gen_unique_accounts(rng, 1, 100);
-        let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), Trie::EMPTY_ROOT);
+        let mut trie_update = tries.new_trie_update(shard_uid, Trie::EMPTY_ROOT);
         for account_id in account_ids.iter() {
             set_account(
                 &mut trie_update,
@@ -262,10 +264,11 @@ mod tests {
                 },
             );
             trie_update.commit(StateChangeCause::Resharding);
-            let (_, trie_changes, _) = trie_update.finalize().unwrap();
+            let (_, trie_changes, state_changes) = trie_update.finalize().unwrap();
             let mut store_update = tries.store_update();
-            let state_root =
-                tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+            let state_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+            let flat_state_changes = FlatStateChanges::from_state_changes(&state_changes);
+            flat_state_changes.apply_to_flat_state(&mut store_update, shard_uid);
             store_update.commit().unwrap();
             state_root
         };
@@ -275,7 +278,7 @@ mod tests {
         let response = Chain::build_state_for_split_shards(StateSplitRequest {
             tries: tries.clone(),
             sync_hash: state_root,
-            shard_uid: ShardUId::single_shard(),
+            shard_uid,
             state_root,
             next_epoch_shard_layout: next_epoch_shard_layout.clone(),
         });
@@ -292,7 +295,7 @@ mod tests {
         for _ in 0..10 {
             // add accounts
             let new_accounts = gen_unique_accounts(rng, 1, 10);
-            let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), state_root);
+            let mut trie_update = tries.new_trie_update(shard_uid, state_root);
             for account_id in new_accounts.iter() {
                 set_account(
                     &mut trie_update,
@@ -344,8 +347,7 @@ mod tests {
             trie_update.commit(StateChangeCause::Resharding);
             let (_, trie_changes, state_changes) = trie_update.finalize().unwrap();
             let mut store_update = tries.store_update();
-            let new_state_root =
-                tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+            let new_state_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
             store_update.commit().unwrap();
             state_root = new_state_root;
 
