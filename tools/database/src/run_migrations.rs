@@ -6,7 +6,7 @@ pub(crate) struct RunMigrationsCommand {}
 impl RunMigrationsCommand {
     pub(crate) fn run(&self, home_dir: &Path) -> anyhow::Result<()> {
         let mut near_config = nearcore::config::load_config(
-            &home,
+            &home_dir,
             near_chain_configs::GenesisValidationMode::UnsafeFast,
         )
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
