@@ -20,10 +20,10 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
+use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, RwLock, TryLockError};
-use std::io;
 
 struct ShardTriesInner {
     store: Store,
@@ -477,7 +477,9 @@ impl ShardTries {
                 let _timer = metrics::MAKE_STATE_SNAPSHOT_ELAPSED.start_timer();
                 // `write()` lock is held for the whole duration of this function.
                 // Accessing the snapshot in other parts of the system will fail.
-                let mut state_snapshot_lock = self.0.state_snapshot.write().map_err(|_| anyhow::Error::msg("error accessing write lock of state_snapshot"))?;
+                let mut state_snapshot_lock = self.0.state_snapshot.write().map_err(|_| {
+                    anyhow::Error::msg("error accessing write lock of state_snapshot")
+                })?;
                 if let Some(state_snapshot) = &*state_snapshot_lock {
                     if &state_snapshot.prev_block_hash == prev_block_hash {
                         tracing::warn!(target: "state_snapshot", ?prev_block_hash, "Requested a state snapshot but that is already available");
@@ -489,17 +491,19 @@ impl ShardTries {
                         // This will delete all existing snapshots from file system. If failed, will retry until success
                         let mut delete_state_snapshots_from_file_system = false;
                         while !delete_state_snapshots_from_file_system {
-                            delete_state_snapshots_from_file_system = self.delete_all_state_snapshots(
-                                home_dir,
-                                hot_store_path,
-                                state_snapshot_subdir,
-                            );
+                            delete_state_snapshots_from_file_system = self
+                                .delete_all_state_snapshots(
+                                    home_dir,
+                                    hot_store_path,
+                                    state_snapshot_subdir,
+                                );
                         }
-                        
+
                         // this will delete the STATE_SNAPSHOT_KEY-value pair from db. If failed, will retry until success
                         let mut delete_state_snapshot_from_db = false;
                         while !delete_state_snapshot_from_db {
-                            delete_state_snapshot_from_db = match self.set_state_snapshot_hash(None) {
+                            delete_state_snapshot_from_db = match self.set_state_snapshot_hash(None)
+                            {
                                 Ok(_) => true,
                                 Err(err) => {
                                     // This will be retried.
@@ -508,7 +512,7 @@ impl ShardTries {
                                 }
                             }
                         }
-                        
+
                         metrics::HAS_STATE_SNAPSHOT.set(0);
                     }
                 }
@@ -546,16 +550,18 @@ impl ShardTries {
                     shard_uids,
                     Some(block),
                 ));
-                
+
                 // this will set the new hash for state snapshot in rocksdb. will retry until success.
                 let mut set_state_snapshot_in_db = false;
                 while !set_state_snapshot_in_db {
-                    set_state_snapshot_in_db = match self.set_state_snapshot_hash(Some(*prev_block_hash)) {
+                    set_state_snapshot_in_db = match self
+                        .set_state_snapshot_hash(Some(*prev_block_hash))
+                    {
                         Ok(_) => true,
                         Err(err) => {
                             // This will be retried.
                             tracing::debug!(target: "state_snapshot", ?err, "Failed to set the new state snapshot for BlockMisc::STATE_SNAPSHOT_KEY in rocksdb");
-                                false
+                            false
                         }
                     }
                 }
@@ -572,7 +578,11 @@ impl ShardTries {
         let _span =
             tracing::info_span!(target: "state_snapshot", "compact_state_snapshot").entered();
         // It's fine if the access to state snapshot blocks.
-        let state_snapshot_lock = self.0.state_snapshot.read().map_err(|_| anyhow::Error::msg("error accessing read lock of state_snapshot"))?;
+        let state_snapshot_lock = self
+            .0
+            .state_snapshot
+            .read()
+            .map_err(|_| anyhow::Error::msg("error accessing read lock of state_snapshot"))?;
         if let Some(state_snapshot) = &*state_snapshot_lock {
             let _timer = metrics::COMPACT_STATE_SNAPSHOT_ELAPSED.start_timer();
             Ok(state_snapshot.store.compact()?)
@@ -678,7 +688,9 @@ impl ShardTries {
                 let flat_storage_manager = FlatStorageManager::new(store.clone());
 
                 let shard_uids = get_shard_uids_fn(snapshot_hash)?;
-                let mut guard = self.0.state_snapshot.write().map_err(|_| anyhow::Error::msg("error accessing write lock of state_snapshot"))?;
+                let mut guard = self.0.state_snapshot.write().map_err(|_| {
+                    anyhow::Error::msg("error accessing write lock of state_snapshot")
+                })?;
                 *guard = Some(StateSnapshot::new(
                     store,
                     snapshot_hash,
