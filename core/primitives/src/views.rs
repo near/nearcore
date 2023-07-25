@@ -945,7 +945,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 hash: CryptoHash::default(),
             };
             header.init();
-            BlockHeader::BlockHeaderV4(Arc::new(header));
+            BlockHeader::BlockHeaderV4(Arc::new(header))
         }
     }
 }

@@ -574,7 +574,7 @@ impl BlockHeader {
                 inner_rest,
                 signature,
                 hash,
-            }));
+            }))
         }
     }
 
@@ -729,7 +729,7 @@ impl BlockHeader {
                 inner_rest,
                 signature: Signature::empty(KeyType::ED25519),
                 hash,
-            }));
+            }))
         }
     }
 
