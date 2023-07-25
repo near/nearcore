@@ -1,3 +1,5 @@
+import { EntityQuery } from './entity_debug/types';
+
 export interface StatusResponse {
     chain_id: string;
     latest_protocol_version: number;
@@ -444,4 +446,25 @@ export async function fetchChainProcessingStatus(
 ): Promise<ChainProcessingStatusResponse> {
     const response = await fetch(`http://${addr}/debug/api/chain_processing_status`);
     return await response.json();
+}
+
+export type ApiEntityDataEntryValue = string | ApiEntityData;
+export type ApiEntityData = { entries: ApiEntityDataEntry[] };
+export type ApiEntityDataEntry = { name: string; value: ApiEntityDataEntryValue };
+
+export async function fetchEntity(
+    addr: string,
+    request: EntityQuery
+): Promise<ApiEntityDataEntryValue> {
+    const response = await fetch(`http://${addr}/debug/api/entity`, {
+        body: JSON.stringify(request),
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        method: 'POST',
+    });
+    if (response.status !== 200) {
+        throw await response.text();
+    }
+    return response.json();
 }

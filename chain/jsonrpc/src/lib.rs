@@ -22,6 +22,7 @@ pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
+use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQuery};
 use near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse;
 use near_network::tcp;
 use near_network::PeerManagerActor;
@@ -33,6 +34,7 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
 use serde_json::{json, Value};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::{sleep, timeout};
 use tracing::{error, info};
@@ -219,6 +221,7 @@ struct JsonRpcHandler {
     genesis_config: GenesisConfig,
     enable_debug_rpc: bool,
     debug_pages_src_path: Option<PathBuf>,
+    entity_debug_handler: Arc<dyn EntityDebugHandler>,
 }
 
 impl JsonRpcHandler {
@@ -1375,6 +1378,16 @@ async fn debug_handler(
     }
 }
 
+async fn handle_entity_debug(
+    req: web::Json<EntityQuery>,
+    handler: web::Data<JsonRpcHandler>,
+) -> Result<HttpResponse, HttpError> {
+    match handler.entity_debug_handler.query(req.0) {
+        Ok(value) => Ok(HttpResponse::Ok().json(&value)),
+        Err(err) => Ok(HttpResponse::ServiceUnavailable().body(format!("{:?}", err))),
+    }
+}
+
 async fn debug_block_status_handler(
     path: web::Path<u64>,
     handler: web::Data<JsonRpcHandler>,
@@ -1521,6 +1534,7 @@ pub fn start_http(
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
     peer_manager_addr: Option<Addr<PeerManagerActor>>,
+    entity_debug_handler: Arc<dyn EntityDebugHandler>,
 ) -> Vec<(&'static str, actix_web::dev::ServerHandle)> {
     let RpcConfig {
         addr,
@@ -1546,6 +1560,7 @@ pub fn start_http(
                 genesis_config: genesis_config.clone(),
                 enable_debug_rpc,
                 debug_pages_src_path: debug_pages_src_path.clone().map(Into::into),
+                entity_debug_handler: entity_debug_handler.clone(),
             }))
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())
@@ -1566,6 +1581,7 @@ pub fn start_http(
                     .route(web::get().to(tier1_network_info_handler)),
             )
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
+            .service(web::resource("/debug/api/entity").route(web::post().to(handle_entity_debug)))
             .service(web::resource("/debug/api/{api}").route(web::get().to(debug_handler)))
             .service(
                 web::resource("/debug/api/block_status/{starting_height}")

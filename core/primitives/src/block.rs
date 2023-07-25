@@ -682,7 +682,7 @@ impl<'a> ChunksCollection<'a> {
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
 /// blockchain tree. References the max height and the latest and previous
 /// blocks for convenience
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Tip {
     /// Height of the tip (max height of the fork)
     pub height: BlockHeight,
