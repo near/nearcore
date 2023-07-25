@@ -18,10 +18,10 @@ thanks to the robust infrastructure of external storage such as S3.
 ## How-to
 
 [#8661](https://github.com/near/nearcore/pull/8661) adds an experimental option
-to dump state of every epoch to external storage. At the moment only S3 is
-supported as external storage.
+to dump state of every epoch to external storage.
 
-To enable, add this to your `config.json` file:
+### S3
+To enable S3 as your external storage, add this to your `config.json` file:
 
 ```json
 "state_sync": {
@@ -40,6 +40,27 @@ And run your node with environment variables `AWS_ACCESS_KEY_ID` and
 `AWS_SECRET_ACCESS_KEY`:
 ```shell
 AWS_ACCESS_KEY_ID="MY_ACCESS_KEY" AWS_SECRET_ACCESS_KEY="MY_AWS_SECRET_ACCESS_KEY" ./neard run
+```
+
+### Google Cloud Storage
+To enable Google Cloud Storage as your external storage, add this to your `config.json` file:
+
+```json
+"state_sync": {
+  "dump": {
+    "location": {
+      "GCS": {
+        "bucket": "my-gcs-bucket",
+      }
+    }
+  }
+}
+```
+
+And run your node with an environment variable `SERVICE_ACCOUNT` or `GOOGLE_APPLICATION_CREDENTIALS`
+pointing to the credentials json file
+```shell
+SERVICE_ACCOUNT=/path/to/file  ./neard run
 ```
 
 ## Dump to a local filesystem

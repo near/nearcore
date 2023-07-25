@@ -2,7 +2,7 @@ use near_chain_configs::{Genesis, GenesisValidationMode};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::state_record::StateRecord;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::genesis_state_applier::compute_genesis_storage_usage;
+use near_store::genesis::compute_genesis_storage_usage;
 use std::fs::File;
 use tracing::debug;
 

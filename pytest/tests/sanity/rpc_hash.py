@@ -21,6 +21,11 @@ import messages
 import messages.crypto
 import messages.block
 
+config = cluster.load_config()
+binary_protocol_version = cluster.get_binary_protocol_version(config)
+assert binary_protocol_version is not None
+BLOCK_HEADER_V4_PROTOCOL_VERSION = 138
+
 
 def serialize(msg: typing.Any) -> bytes:
     return serializer.BinarySerializer(messages.schema).serialize(msg)
@@ -46,7 +51,7 @@ def compute_block_hash(header: typing.Dict[str, typing.Any],
         return int(value)
 
     def get_hash(key: str) -> typing.Optional[bytes]:
-        value = header[key]
+        value = header.get(key)
         if value is None:
             return value
         result = base58.b58decode(value)
@@ -73,13 +78,15 @@ def compute_block_hash(header: typing.Dict[str, typing.Any],
     inner_rest_msg = {
         1: messages.block.BlockHeaderInnerRest,
         2: messages.block.BlockHeaderInnerRestV2,
-        3: messages.block.BlockHeaderInnerRestV3
+        3: messages.block.BlockHeaderInnerRestV3,
+        4: messages.block.BlockHeaderInnerRestV4,
     }[msg_version]
 
     inner_rest = inner_rest_msg()
     # Some of the fields are superfluous in some of the versions of the message
     # but that’s quite all right.  Serialiser will ignore them and
     # unconditionally setting them makes the code simpler.
+    inner_rest.block_body_hash = get_hash('block_body_hash')
     inner_rest.chunk_receipts_root = get_hash('chunk_receipts_root')
     inner_rest.chunk_headers_root = get_hash('chunk_headers_root')
     inner_rest.chunk_tx_root = get_hash('chunk_tx_root')
@@ -139,6 +146,8 @@ class HashTestCase(unittest.TestCase):
                 'BUcVEkMq3DcZzDGgeh1sb7FFuD86XYcXpEt25Cf34LuP',
             'prev_state_root':
                 'Bn786g4GdJJigSP4qRSaVCfeMotWVX88cV1LTZhD6o3z',
+            'block_body_hash':
+                '4K3NiGuqYGqKPnYp6XeGd2kdN4P9veL6rYcWkLKWXZCu',  # some arbitrary string
             'chunk_receipts_root':
                 '9ETNjrt6MkwTgSVMMbpukfxRshSD1avBUUa4R4NuqwHv',
             'chunk_headers_root':
@@ -194,6 +203,18 @@ class HashTestCase(unittest.TestCase):
             (1, '3ckGjcedZiN3RnvfiuEN83BtudDTVa9Pub4yZ8R737qt'),
             (2, 'Hezx56VTH815G6JTzWqJ7iuWxdR9X4ZqGwteaDF8q2z'),
             (3, 'Finjr87adnUqpFHVXbmAWiVAY12EA9G4DfUw27XYHox'),
+            (4, '2QfdGyGWByEeL2ZSy8u2LoBa4pdDwf5KoDrr94W6oeB6'),
+        ):
+            self.assertEqual(block_hash, compute_block_hash(header, msg_ver))
+
+        # Now try with a different block body hash
+        header[
+            'block_body_hash'] = '4rMxTeTF9LehPbzB2xhVa4xWVtbyjRfvL7qsxc8sL7WP'
+        for msg_ver, block_hash in (
+            (1, '3ckGjcedZiN3RnvfiuEN83BtudDTVa9Pub4yZ8R737qt'),
+            (2, 'Hezx56VTH815G6JTzWqJ7iuWxdR9X4ZqGwteaDF8q2z'),
+            (3, 'Finjr87adnUqpFHVXbmAWiVAY12EA9G4DfUw27XYHox'),
+            (4, '3Cdm4sS9b4jdypMezP8ta6p2ecyRSJC9uaGUJTY18MUH'),
         ):
             self.assertEqual(block_hash, compute_block_hash(header, msg_ver))
 
@@ -203,6 +224,7 @@ class HashTestCase(unittest.TestCase):
             (1, '3ckGjcedZiN3RnvfiuEN83BtudDTVa9Pub4yZ8R737qt'),
             (2, 'Hezx56VTH815G6JTzWqJ7iuWxdR9X4ZqGwteaDF8q2z'),
             (3, '82v8RAc66tWpdjRCsoSrgnzpU6JMhpjbWKmUEcfkzX6T'),
+            (4, '9BYhkbWkKTLJj46goq5WPEzUJDf5juHJnBu2jjoHL7yc'),
         ):
             self.assertEqual(block_hash, compute_block_hash(header, msg_ver))
 
@@ -212,6 +234,7 @@ class HashTestCase(unittest.TestCase):
             (1, 'EE2JtxdqWLBDKqNARxdFDqH36mEJ1xJ6LjQ9f7qCSDRE'),
             (2, '2WdpJD5dYPjEMn3EYbm1BhGgCAX7ksxJGTQm4xHazBxt'),
             (3, '3bx6vfbH8GrYp8UFMagiBgYyKMH63D7Qo5J7jCsNbh9o'),
+            (4, 'CTDBpUpCdhdCjCMfaFD5r96PyKDK756aXw69toLYEaSH'),
         ):
             self.assertEqual(block_hash, compute_block_hash(header, msg_ver))
 
@@ -288,6 +311,16 @@ class HashTestCase(unittest.TestCase):
         """
         self._test_block_hash(3, 50)
 
+    if binary_protocol_version >= BLOCK_HEADER_V4_PROTOCOL_VERSION:
+
+        def test_block_hash_v4(self):
+            """Starts a cluster using protocol version 138 and verifies block hashes.
+
+            The cluster is started with a protocol version in which the fourth
+            version of the BlockHeaderInnerRest has been used.
+            """
+            self._test_block_hash(4, 138)
+
     def test_block_hash_latest(self):
         """Starts a cluster using latest protocol and verifies block hashes.
 
@@ -296,7 +329,10 @@ class HashTestCase(unittest.TestCase):
         BlockHeaderInnerRest message has been introduced and this test needs to
         be updated to support it.
         """
-        self._test_block_hash(3)
+        if binary_protocol_version >= BLOCK_HEADER_V4_PROTOCOL_VERSION:
+            self._test_block_hash(4)
+        else:
+            self._test_block_hash(3)
 
 
 if __name__ == '__main__':

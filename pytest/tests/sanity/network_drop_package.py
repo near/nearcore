@@ -30,7 +30,7 @@ class Handler(ProxyHandler):
 
     async def handle(self, msg, fr, to):
         if msg.enum == 'Block':
-            h = msg.Block.BlockV2.header.inner_lite().height
+            h = msg.Block.header().inner_lite().height
 
             with self.success.get_lock():
                 if h >= 10 and self.success.value == 0:

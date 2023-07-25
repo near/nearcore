@@ -4,6 +4,7 @@
 # Create a proxy that nullifies chunk signatures in blocks, test that blocks get rejected.
 import sys, time, asyncio
 import pathlib
+import logging
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -20,8 +21,9 @@ class Handler(ProxyHandler):
         self.blocks = 0
 
     async def handle(self, msg, fr, to):
-        if msg.enum == 'Block':
-            msg.Block.BlockV2.chunks[0].signature.data = bytes(64)
+        if msg.enum == 'Block' and msg.Block.chunks(
+        )[0].signature.data != bytes(64):
+            msg.Block.chunks()[0].signature.data = bytes(64)
             self.blocks += 1
             # Node gets banned by the peer after sending one block
             assert self.blocks <= 2

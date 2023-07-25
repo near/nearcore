@@ -43,6 +43,10 @@ pub(crate) enum StatePartsSubCommand {
         /// Use if those headers or blocks are not available.
         #[clap(long)]
         state_root: Option<StateRoot>,
+        /// If provided, this value will be used instead of looking it up in the headers.
+        /// Use if those headers or blocks are not available.
+        #[clap(long)]
+        sync_hash: Option<CryptoHash>,
         /// Choose a single part id.
         /// If None - affects all state parts.
         #[clap(long)]
@@ -69,6 +73,13 @@ pub(crate) enum StatePartsSubCommand {
         #[clap(subcommand)]
         epoch_selection: EpochSelection,
     },
+    /// Finalize state sync.
+    Finalize {
+        /// If provided, this value will be used instead of looking it up in the headers.
+        /// Use if those headers or blocks are not available.
+        #[clap(long)]
+        sync_hash: CryptoHash,
+    },
 }
 
 impl StatePartsSubCommand {
@@ -78,6 +89,7 @@ impl StatePartsSubCommand {
         root_dir: Option<PathBuf>,
         s3_bucket: Option<String>,
         s3_region: Option<String>,
+        gcs_bucket: Option<String>,
         home_dir: &Path,
         near_config: NearConfig,
         store: Store,
@@ -110,11 +122,18 @@ impl StatePartsSubCommand {
             let credentials_file =
                 near_config.config.s3_credentials_file.clone().map(|file| home_dir.join(file));
             match self {
-                StatePartsSubCommand::Load { action, state_root, part_id, epoch_selection } => {
+                StatePartsSubCommand::Load {
+                    action,
+                    state_root,
+                    sync_hash,
+                    part_id,
+                    epoch_selection,
+                } => {
                     let external = create_external_connection(
                         root_dir,
                         s3_bucket,
                         s3_region,
+                        gcs_bucket,
                         None,
                         Mode::Readonly,
                     );
@@ -124,6 +143,7 @@ impl StatePartsSubCommand {
                         shard_id,
                         part_id,
                         state_root,
+                        sync_hash,
                         &mut chain,
                         chain_id,
                         store,
@@ -136,6 +156,7 @@ impl StatePartsSubCommand {
                         root_dir,
                         s3_bucket,
                         s3_region,
+                        gcs_bucket,
                         credentials_file,
                         Mode::Readwrite,
                     );
@@ -154,6 +175,9 @@ impl StatePartsSubCommand {
                 StatePartsSubCommand::ReadStateHeader { epoch_selection } => {
                     read_state_header(epoch_selection, shard_id, &chain, store)
                 }
+                StatePartsSubCommand::Finalize { sync_hash } => {
+                    finalize_state_sync(sync_hash, shard_id, &mut chain)
+                }
             }
         });
         sys.run().unwrap();
@@ -169,6 +193,7 @@ fn create_external_connection(
     root_dir: Option<PathBuf>,
     bucket: Option<String>,
     region: Option<String>,
+    gcs_bucket: Option<String>,
     credentials_file: Option<PathBuf>,
     mode: Mode,
 ) -> ExternalConnection {
@@ -183,8 +208,16 @@ fn create_external_connection(
         }
         .expect("Failed to create an S3 bucket");
         ExternalConnection::S3 { bucket: Arc::new(bucket) }
+    } else if let Some(bucket) = gcs_bucket {
+        ExternalConnection::GCS {
+            gcs_client: Arc::new(cloud_storage::Client::default()),
+            reqwest_client: Arc::new(reqwest::Client::default()),
+            bucket,
+        }
     } else {
-        panic!("Please provide --root-dir or both of --s3-bucket and --s3-region");
+        panic!(
+            "Please provide --root-dir, or both of --s3-bucket and --s3-region, or --gcs-bucket"
+        );
     }
 }
 
@@ -271,6 +304,7 @@ async fn load_state_parts(
     shard_id: ShardId,
     part_id: Option<u64>,
     maybe_state_root: Option<StateRoot>,
+    maybe_sync_hash: Option<CryptoHash>,
     chain: &mut Chain,
     chain_id: &str,
     store: Store,
@@ -278,10 +312,10 @@ async fn load_state_parts(
 ) {
     let epoch_id = epoch_selection.to_epoch_id(store, chain);
     let (state_root, epoch_height, epoch_id, sync_hash) =
-        if let (Some(state_root), EpochSelection::EpochHeight { epoch_height }) =
-            (maybe_state_root, &epoch_selection)
+        if let (Some(state_root), Some(sync_hash), EpochSelection::EpochHeight { epoch_height }) =
+            (maybe_state_root, maybe_sync_hash, &epoch_selection)
         {
-            (state_root, *epoch_height, epoch_id, None)
+            (state_root, *epoch_height, epoch_id, sync_hash)
         } else {
             let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
 
@@ -291,7 +325,7 @@ async fn load_state_parts(
             let state_header = chain.get_state_response_header(shard_id, sync_hash).unwrap();
             let state_root = state_header.chunk_prev_state_root();
 
-            (state_root, epoch.epoch_height(), epoch_id, Some(sync_hash))
+            (state_root, epoch.epoch_height(), epoch_id, sync_hash)
         };
 
     let directory_path =
@@ -328,12 +362,7 @@ async fn load_state_parts(
         match action {
             LoadAction::Apply => {
                 chain
-                    .set_state_part(
-                        shard_id,
-                        sync_hash.unwrap(),
-                        PartId::new(part_id, num_parts),
-                        &part,
-                    )
+                    .set_state_part(shard_id, sync_hash, PartId::new(part_id, num_parts), &part)
                     .unwrap();
                 chain
                     .runtime_adapter
@@ -469,6 +498,10 @@ fn read_state_header(
 
     let state_header = chain.store().get_state_header(shard_id, sync_hash);
     tracing::info!(target: "state-parts", ?epoch_id, ?sync_hash, ?state_header);
+}
+
+fn finalize_state_sync(sync_hash: CryptoHash, shard_id: ShardId, chain: &mut Chain) {
+    chain.set_state_finalize(shard_id, sync_hash, Ok(())).unwrap()
 }
 
 fn get_part_ids(part_from: Option<u64>, part_to: Option<u64>, num_parts: u64) -> Range<u64> {
