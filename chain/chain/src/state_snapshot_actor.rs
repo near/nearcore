@@ -100,7 +100,11 @@ pub fn get_make_snapshot_callback(
     compaction_enabled: bool,
 ) -> MakeSnapshotCallback {
     Arc::new(move |prev_block_hash, shard_uids, block| {
-        tracing::info!(target: "state_snapshot", ?prev_block_hash, ?shard_uids, "start_snapshot_callback sends `MakeSnapshotCallback` to state_snapshot_addr");
+        tracing::info!(
+            target: "state_snapshot",
+            ?prev_block_hash,
+            ?shard_uids,
+            "start_snapshot_callback sends `MakeSnapshotCallback` to state_snapshot_addr");
         if flat_storage_manager.set_flat_state_updates_mode(false) {
             state_snapshot_addr.do_send(
                 MakeSnapshotRequest { prev_block_hash, shard_uids, block, compaction_enabled }

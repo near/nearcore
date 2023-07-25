@@ -4,8 +4,9 @@
 use std::io;
 
 use crate::db::FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY;
-use crate::flat::delta::{FlatStateChanges, KeyForFlatStateDelta};
+use crate::flat::delta::{FlatStateChanges, KeyForFlatStateDelta, PrevBlockWithChanges};
 use crate::flat::types::FlatStorageError;
+use crate::flat::FlatStorageReadyStatus;
 use crate::{DBCol, Store, StoreUpdate};
 use borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
@@ -47,7 +48,7 @@ pub fn get_all_deltas_metadata(
 }
 
 /// Retrieves a row of `FlatStateDeltaMetadata` for the given key.
-pub fn get_delta_metadata(
+fn get_delta_metadata(
     store: &Store,
     shard_uid: ShardUId,
     block_hash: CryptoHash,
@@ -58,6 +59,45 @@ pub fn get_delta_metadata(
             "failed to read delta metadata for {key:?}: {err}"
         ))
     })
+}
+
+pub fn get_prev_block_with_changes(
+    store: &Store,
+    shard_uid: ShardUId,
+    block_hash: CryptoHash,
+    prev_hash: CryptoHash,
+) -> FlatStorageResult<Option<PrevBlockWithChanges>> {
+    let prev_delta_metadata = get_delta_metadata(store, shard_uid, prev_hash)?;
+    let prev_delta_metadata = match prev_delta_metadata {
+        None => {
+            // DeltaMetadata not found, which means the prev block is the flat head.
+            let flat_storage_status = get_flat_storage_status(store, shard_uid)?;
+            match flat_storage_status {
+                FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }) => {
+                    if flat_head.hash == prev_hash {
+                        Some(PrevBlockWithChanges { height: flat_head.height, hash: prev_hash })
+                    } else {
+                        tracing::error!(target: "store", ?block_hash, ?prev_hash, "Missing delta metadata");
+                        None
+                    }
+                }
+                _ => {
+                    return Err(FlatStorageError::StorageInternalError(
+                        "Flat Storage not ready".to_string(),
+                    ));
+                }
+            }
+        }
+        Some(metadata) => {
+            // If the prev block contains `prev_block_with_changes`, then use that value.
+            // Otherwise reference the prev block.
+            Some(metadata.prev_block_with_changes.unwrap_or(PrevBlockWithChanges {
+                height: metadata.block.height,
+                hash: metadata.block.hash,
+            }))
+        }
+    };
+    Ok(prev_delta_metadata)
 }
 
 pub fn set_delta(store_update: &mut StoreUpdate, shard_uid: ShardUId, delta: &FlatStateDelta) {

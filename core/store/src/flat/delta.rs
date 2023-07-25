@@ -16,16 +16,20 @@ pub struct FlatStateDelta {
     pub changes: FlatStateChanges,
 }
 
+/// Information about a block.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy)]
-pub struct CompressionInfo {
-    pub last_height_with_changes: BlockHeight,
-    pub last_block_with_changes: CryptoHash,
+pub struct PrevBlockWithChanges {
+    pub height: BlockHeight,
+    pub hash: CryptoHash,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy)]
 pub struct FlatStateDeltaMetadata {
     pub block: BlockInfo,
-    pub compression_info: Option<CompressionInfo>,
+    /// `None` if the block itself has flat state changes.
+    /// `Some` if the block has no flat state changes, and contains
+    /// info of the last block with some flat state changes.
+    pub prev_block_with_changes: Option<PrevBlockWithChanges>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug)]

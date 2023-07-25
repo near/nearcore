@@ -1361,7 +1361,7 @@ mod test {
                             height,
                             prev_hash: *prev_block_hash,
                         },
-                        compression_info: None,
+                        prev_block_with_changes: None,
                     },
                 };
                 let new_store_update = flat_storage.add_delta(delta).unwrap();

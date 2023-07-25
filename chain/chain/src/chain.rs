@@ -86,7 +86,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 use tracing::{debug, error, info, warn, Span};
-use near_store::flat::delta::CompressionInfo;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -5098,20 +5097,19 @@ impl<'a> ChainUpdate<'a> {
         shard_uid: ShardUId,
         trie_changes: &WrappedTrieChanges,
     ) -> Result<(), Error> {
-        let compression_info = if trie_changes.state_changes().is_empty() {
-            let prev_delta_metadata = store_helper::get_delta_metadata(
+        let prev_block_with_changes = if trie_changes.state_changes().is_empty() {
+            // The current block has no flat state changes.
+            // Find the last block with flat state changes by looking it up in
+            // the prev block.
+            store_helper::get_prev_block_with_changes(
                 self.chain_store_update.store(),
                 shard_uid,
+                block_hash,
                 prev_hash,
             )
-            .map_err(|e| StorageError::from(e))?;
-            prev_delta_metadata.map(|metadata| {
-                metadata.compression_info.unwrap_or(CompressionInfo {
-                    last_height_with_changes: metadata.block.height,
-                    last_block_with_changes: metadata.block.hash,
-                })
-            })
+            .map_err(|e| StorageError::from(e))?
         } else {
+            // The current block has flat state changes.
             None
         };
 
@@ -5119,7 +5117,7 @@ impl<'a> ChainUpdate<'a> {
             changes: FlatStateChanges::from_state_changes(&trie_changes.state_changes()),
             metadata: FlatStateDeltaMetadata {
                 block: near_store::flat::BlockInfo { hash: block_hash, height, prev_hash },
-                compression_info,
+                prev_block_with_changes,
             },
         };
 
