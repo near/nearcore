@@ -104,19 +104,29 @@ impl<'a> RuntimeExt<'a> {
         self.current_protocol_version
     }
 
+    /// Provide concurrent mutable access to both the `Self` and the `ReceiptManager` contained
+    /// therein.
+    ///
+    /// During the duration of the closure the `Self::receipt_manager` field is not available (two
+    /// separate mutable references to both `Self` and `ReceiptManager` are provided), which means
+    /// that nested calls to this function are a programming error and will cause a panic.
+    ///
+    /// In general it would be prudent to not deal with `Self` within the callback at all, if you
+    /// can avoid it.
     pub fn with_receipt_manager<R>(
         &mut self,
         cb: impl FnOnce(&mut Self, &mut ReceiptManager) -> R,
     ) -> R {
-        let mut old_receipt_manager =
-            self.receipt_manager.take().expect("do not nest with_receipt_manager");
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            cb(self, &mut old_receipt_manager)
-        }));
-        let temp_receipt_manager = self.receipt_manager.replace(old_receipt_manager);
-        let result = result.unwrap_or_else(|payload| std::panic::resume_unwind(payload));
-        assert!(matches!(temp_receipt_manager, None));
-        result
+        /// Reset the `Self::receipt_manager` back when dropped (either as a result of unwinding,
+        /// or a return.)
+        struct Guard<'rm, 'rext>(Option<&'rm mut ReceiptManager>, &'rext mut RuntimeExt<'rm>);
+        impl<'rm, 'rext> Drop for Guard<'rm, 'rext> {
+            fn drop(&mut self) {
+                std::mem::swap(&mut self.1.receipt_manager, &mut self.0);
+            }
+        }
+        let mut guard = Guard(self.receipt_manager.take(), self);
+        cb(guard.1, guard.0.as_mut().expect("do not nest with_receipt_manager!"))
     }
 }
 
