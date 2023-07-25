@@ -2861,7 +2861,7 @@ fn test_refund_receipts_processing() {
             assert_matches!(
                 receipt_outcome.outcome_with_id.outcome.status,
                 ExecutionStatus::Failure(TxExecutionError::ActionError(_))
-                );
+            );
             refund_receipt_ids.extend(receipt_outcome.outcome_with_id.outcome.receipt_ids);
         } else {
             unreachable!("Transaction must succeed");
