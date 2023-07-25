@@ -554,23 +554,23 @@ mod tests {
         // Check `BlockNotSupported` errors which are fine to occur during regular block processing.
         // First, check that flat head can be moved to block 1.
         let flat_head_hash = chain.get_block_hash(1);
-        assert_eq!(flat_storage.update_flat_head(&flat_head_hash, false), Ok(()));
+        assert_eq!(flat_storage.update_flat_head(&flat_head_hash, true), Ok(()));
         // Check that attempt to move flat head to block 2 results in error because it lays in unreachable fork.
         let fork_block_hash = chain.get_block_hash(2);
         assert_eq!(
-            flat_storage.update_flat_head(&fork_block_hash, false),
+            flat_storage.update_flat_head(&fork_block_hash, true),
             Err(FlatStorageError::BlockNotSupported((flat_head_hash, fork_block_hash)))
         );
         // Check that attempt to move flat head to block 0 results in error because it is an unreachable parent.
         let parent_block_hash = chain.get_block_hash(0);
         assert_eq!(
-            flat_storage.update_flat_head(&parent_block_hash, false),
+            flat_storage.update_flat_head(&parent_block_hash, true),
             Err(FlatStorageError::BlockNotSupported((flat_head_hash, parent_block_hash)))
         );
         // Check that attempt to move flat head to non-existent block results in the same error.
         let not_existing_hash = hash(&[1, 2, 3]);
         assert_eq!(
-            flat_storage.update_flat_head(&not_existing_hash, false),
+            flat_storage.update_flat_head(&not_existing_hash, true),
             Err(FlatStorageError::BlockNotSupported((flat_head_hash, not_existing_hash)))
         );
         // Corrupt DB state for block 3 and try moving flat head to it.
@@ -579,7 +579,7 @@ mod tests {
         store_helper::remove_delta(&mut store_update, shard_uid, chain.get_block_hash(3));
         store_update.commit().unwrap();
         assert_matches!(
-            flat_storage.update_flat_head(&chain.get_block_hash(3), false),
+            flat_storage.update_flat_head(&chain.get_block_hash(3), true),
             Err(FlatStorageError::StorageInternalError(_))
         );
     }
@@ -712,7 +712,7 @@ mod tests {
 
         // 5. Move the flat head to block 5, verify that chunk_view0 still returns the same values
         // and chunk_view1 returns an error. Also check that DBCol::FlatState is updated correctly
-        flat_storage.update_flat_head(&chain.get_block_hash(5), false).unwrap();
+        flat_storage.update_flat_head(&chain.get_block_hash(5), true).unwrap();
         assert_eq!(
             store_helper::get_flat_state_value(&store, shard_uid, &[1]).unwrap(),
             Some(FlatStateValue::value_ref(&[5]))
@@ -736,7 +736,7 @@ mod tests {
 
         // 6. Move the flat head to block 10, verify that chunk_view0 still returns the same values
         //    Also checks that DBCol::FlatState is updated correctly.
-        flat_storage.update_flat_head(&chain.get_block_hash(10), false).unwrap();
+        flat_storage.update_flat_head(&chain.get_block_hash(10), true).unwrap();
         let blocks = flat_storage.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
         assert_eq!(blocks.len(), 0);
         assert_eq!(store_helper::get_flat_state_value(&store, shard_uid, &[1]).unwrap(), None);
