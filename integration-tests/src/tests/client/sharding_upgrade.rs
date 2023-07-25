@@ -66,17 +66,17 @@ fn get_expected_shards_num(epoch_length: u64, height: BlockHeight, testing_v2: b
     }
 }
 
-/// Test environment prepared for testing the sharding upgrade. 
+/// Test environment prepared for testing the sharding upgrade.
 /// Epoch 0, blocks 1-5  : 1 shard
 /// Epoch 1, blocks 6-10 : 1 shard, state split happens
 /// Epoch 2: blocks 10-15: 4 shards, shard layout upgrades to simple_nightshade_layout,
-/// 
+///
 /// If V2 is enabled the test continues:
 /// Epoch 3: blocks 16-20: 4 shards, state split happens
 /// Epoch 4: blocks 21-25: 5 shards, shard layout upgrades to simple_nightshade_layout_v2
-/// 
+///
 /// Note: if the test is extended to more epochs, garbage collection will
-/// kick in and delete data that is checked at the end of the test. 
+/// kick in and delete data that is checked at the end of the test.
 struct TestShardUpgradeEnv {
     env: TestEnv,
     initial_accounts: Vec<AccountId>,
@@ -135,7 +135,7 @@ impl TestShardUpgradeEnv {
 
     /// produces and processes the next block
     /// also checks that all accounts in initial_accounts are intact
-    /// 
+    ///
     /// please also see the step_impl for changing the protocol version
     fn step(&mut self, p_drop_chunk: f64) {
         self.step_impl(p_drop_chunk, SIMPLE_NIGHTSHADE_PROTOCOL_VERSION, false);
@@ -143,7 +143,7 @@ impl TestShardUpgradeEnv {
 
     /// produces and processes the next block also checks that all accounts in
     /// initial_accounts are intact
-    /// 
+    ///
     /// allows for changing the protocol version in the middle of the test the
     /// testing_v2 argument means whether the test should expect the sharding
     /// layout V2 to be used once the appropriate protocol version is reached
