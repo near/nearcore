@@ -30,7 +30,6 @@ const shardUId: FieldSemantic = {
     parser: (_, v) => {
         const shardId = v.match(/^s(\d+)[.]v\d+$/);
         const shardIdKey = shardId ? [new NumericEntityKey('shard_id', parseInt(shardId[1]))] : [];
-        console.log(shardIdKey);
         return [new StringEntityKey('shard_uid', v), ...shardIdKey];
     },
 };
@@ -147,6 +146,10 @@ const trieNode = {
         path: nibbles,
         leaf_path: trieKey,
         extension: triePath,
+        // The following is a bit of a hack. The children of a trie node are
+        // returned with keys 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, a, , b, c, d, e, f;
+        // the first 10 are numeric so they get interpreted as array indices,
+        // the last 6 are not numeric so they get interpreted as struct fields.
         a: triePath,
         b: triePath,
         c: triePath,
@@ -212,23 +215,23 @@ const flatStateDeltaMetadata = {
 };
 
 export const fieldSemantics: Record<EntityType, FieldSemantic> = {
-    Tip: tip,
-    Block: block,
-    BlockHeader: blockHeader,
-    BlockHash: blockHash,
-    Chunk: chunk,
-    Transaction: transaction,
-    Receipt: receipt,
-    ExecutionOutcome: executionOutcome,
-    TrieRoot: triePath,
-    TrieNode: trieNode,
-    EpochInfo: epochInfo,
-    ShardId: shardId,
-    ShardUId: shardUId,
-    ShardLayout: undefined,
     AllShards: { array: shardUId },
-    FlatStorageStatus: flatStorageStatus,
+    Block: block,
+    BlockHash: blockHash,
+    BlockHeader: blockHeader,
+    Chunk: chunk,
+    EpochInfo: epochInfo,
+    ExecutionOutcome: executionOutcome,
+    FlatState: undefined,
     FlatStateChanges: flatStateChanges,
     FlatStateDeltaMetadata: flatStateDeltaMetadata,
-    FlatState: undefined,
+    FlatStorageStatus: flatStorageStatus,
+    Receipt: receipt,
+    ShardId: shardId,
+    ShardLayout: undefined,
+    ShardUId: shardUId,
+    Tip: tip,
+    Transaction: transaction,
+    TrieNode: trieNode,
+    TrieRoot: triePath,
 };

@@ -26,7 +26,7 @@ export const EntityDataValueView = ({ entry, hideName }: EntityDataValueViewProp
     const [expanded, setExpanded] = useState(false);
     const [hovering, setHovering] = useState(false);
     const [, setChildrenVersion] = useState(0);
-    const { keys: contextKeys, dispatch: contextKeysDispatch } = useContext(PinnedKeysContext);
+    const { keys: pinnedKeys, dispatch: pinnedKeysDispatch } = useContext(PinnedKeysContext);
 
     const addQuery = useCallback(
         (query: EntityQuery) => {
@@ -91,9 +91,9 @@ export const EntityDataValueView = ({ entry, hideName }: EntityDataValueViewProp
                 {entryValue}
             </div>
             {entry.keys.map((key) => {
-                const selected = contextKeys.some(
-                    (contextKey) =>
-                        contextKey.type() === key.type() && contextKey.toString() === key.toString()
+                const selected = pinnedKeys.some(
+                    (pinnedKey) =>
+                        pinnedKey.type() === key.type() && pinnedKey.toString() === key.toString()
                 );
                 if (selected || hovering) {
                     return (
@@ -102,11 +102,11 @@ export const EntityDataValueView = ({ entry, hideName }: EntityDataValueViewProp
                             key={key.type()}
                             onClick={(e) =>
                                 e.currentTarget.classList.contains('selected')
-                                    ? contextKeysDispatch({
+                                    ? pinnedKeysDispatch({
                                           type: 'remove-key',
                                           keyType: key.type(),
                                       })
-                                    : contextKeysDispatch({ type: 'add-key', key })
+                                    : pinnedKeysDispatch({ type: 'add-key', key })
                             }>
                             {selected ? '☑' : '☐'} {key.type()}
                         </div>
@@ -115,7 +115,7 @@ export const EntityDataValueView = ({ entry, hideName }: EntityDataValueViewProp
                 return null;
             })}
             {hovering &&
-                getAvailableQueries(entry.keys, contextKeys).map(({ queryType, keys, query }) => {
+                getAvailableQueries(entry.keys, pinnedKeys).map(({ queryType, keys, query }) => {
                     const entityType = entityQueryOutputType[queryType];
                     return (
                         <>
@@ -193,7 +193,13 @@ type AvailableQuery = {
     query: EntityQuery | null;
 };
 
-function getAvailableQueries(keys: EntityKey[], contextKeys: EntityKey[]): AvailableQuery[] {
+/// Calculates the queries that we should display on a given value, based on the keys that are
+/// derived from that value, as well as the keys that are pinned.
+///
+/// A query is available if:
+///   - the query can be constructed from some of the keys in "keys" and "pinnedKeys"; and
+///   - the query has at least one explicit key in "keys"
+function getAvailableQueries(keys: EntityKey[], pinnedKeys: EntityKey[]): AvailableQuery[] {
     const result: AvailableQuery[] = [];
     const keyTypeToKey = new Map<EntityKeyType, EntityKey>();
     const explicitKeyTypes = new Set<EntityKeyType>();
@@ -201,7 +207,7 @@ function getAvailableQueries(keys: EntityKey[], contextKeys: EntityKey[]): Avail
         keyTypeToKey.set(key.type(), key);
         explicitKeyTypes.add(key.type());
     }
-    for (const key of contextKeys) {
+    for (const key of pinnedKeys) {
         if (!keyTypeToKey.has(key.type())) {
             keyTypeToKey.set(key.type(), key);
         }
@@ -209,21 +215,19 @@ function getAvailableQueries(keys: EntityKey[], contextKeys: EntityKey[]): Avail
 
     for (const queryType of entityQueryTypes) {
         let explicitKeyCount = 0;
-        let anyKeyNotFound = false;
+        let allQueryKeysFound = true;
         const keys = entityQueryKeyTypes[queryType].map(({ keyType, implicitOnly }) => {
             const key = keyTypeToKey.get(keyType) ?? null;
             if (explicitKeyTypes.has(keyType) && !implicitOnly) {
                 explicitKeyCount++;
             }
             if (key === null) {
-                anyKeyNotFound = true;
+                allQueryKeysFound = false;
             }
             return { keyType, key };
         });
         if (explicitKeyCount > 0) {
-            if (anyKeyNotFound) {
-                result.push({ queryType, keys, query: null });
-            } else {
+            if (allQueryKeysFound) {
                 const query: EntityQuery = {};
                 const args: { [_ in EntityKeyType]?: unknown } = {};
                 query[queryType] = args as any;
@@ -233,6 +237,8 @@ function getAvailableQueries(keys: EntityKey[], contextKeys: EntityKey[]): Avail
                     }
                 }
                 result.push({ queryType, keys, query });
+            } else {
+                result.push({ queryType, keys, query: null });
             }
         }
     }

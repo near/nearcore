@@ -1,9 +1,8 @@
-use std::sync::Arc;
-
+use crate::entity_debug_serializer::serialize_entity;
 use anyhow::anyhow;
 use borsh::BorshSerialize;
-use near_chain::BlockHeader;
-use near_chain::{types::RuntimeAdapter, Block};
+use near_chain::types::RuntimeAdapter;
+use near_chain::{Block, BlockHeader};
 use near_epoch_manager::EpochManagerAdapter;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::types::entity_debug::{
@@ -27,8 +26,7 @@ use near_store::{
     HEAD_KEY,
 };
 use serde::Serialize;
-
-use crate::entity_debug_serializer::serialize_entity;
+use std::sync::Arc;
 
 pub struct EntityDebugHandlerImpl {
     pub epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -39,6 +37,10 @@ pub struct EntityDebugHandlerImpl {
 impl EntityDebugHandlerImpl {
     fn query_impl(&self, query: EntityQuery) -> anyhow::Result<EntityDataValue> {
         match query {
+            EntityQuery::AllShardsByEpochId { epoch_id } => {
+                let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+                Ok(serialize_entity(&shard_layout.get_shard_uids()))
+            }
             EntityQuery::BlockByHash { block_hash } => {
                 let block = self
                     .store
@@ -49,19 +51,19 @@ impl EntityDebugHandlerImpl {
                     .get_block_producer(block.header().epoch_id(), block.header().height())?;
                 Ok(serialize_entity(&BlockView::from_author_block(author, block)))
             }
-            EntityQuery::BlockHeaderByHash { block_hash } => {
-                let block_header = self
-                    .store
-                    .get_ser::<BlockHeader>(DBCol::BlockHeader, &block_hash.try_to_vec().unwrap())?
-                    .ok_or_else(|| anyhow!("Block header not found"))?;
-                Ok(serialize_entity(&BlockHeaderView::from(block_header)))
-            }
             EntityQuery::BlockHashByHeight { block_height } => {
                 let block_hash = self
                     .store
                     .get_ser::<CryptoHash>(DBCol::BlockHeight, &block_height.try_to_vec().unwrap())?
                     .ok_or_else(|| anyhow!("Block height not found"))?;
                 Ok(serialize_entity(&block_hash))
+            }
+            EntityQuery::BlockHeaderByHash { block_hash } => {
+                let block_header = self
+                    .store
+                    .get_ser::<BlockHeader>(DBCol::BlockHeader, &block_hash.try_to_vec().unwrap())?
+                    .ok_or_else(|| anyhow!("Block header not found"))?;
+                Ok(serialize_entity(&BlockHeaderView::from(block_header)))
             }
             EntityQuery::ChunkByHash { chunk_hash } => {
                 let chunk = self
@@ -81,22 +83,55 @@ impl EntityDebugHandlerImpl {
                 let epoch_info = self.epoch_manager.get_epoch_info(&epoch_id)?;
                 Ok(serialize_entity(&*epoch_info))
             }
-            EntityQuery::TransactionByHash { transaction_hash } => {
-                let transaction = self
+            EntityQuery::FlatStateByTrieKey { trie_key, shard_uid } => {
+                let state = self
                     .store
-                    .get_ser::<SignedTransaction>(
-                        DBCol::Transactions,
-                        &transaction_hash.try_to_vec().unwrap(),
+                    .get_ser::<FlatStateValue>(
+                        DBCol::FlatState,
+                        &encode_flat_state_db_key(shard_uid, &hex::decode(&trie_key)?),
                     )?
-                    .ok_or_else(|| anyhow!("Transaction not found"))?;
-                Ok(serialize_entity(&SignedTransactionView::from(transaction)))
+                    .ok_or_else(|| anyhow!("Flat state not found"))?;
+                let data = self.deref_flat_state_value(state, shard_uid)?;
+                Ok(serialize_entity(&hex::encode(&data)))
             }
-            EntityQuery::ReceiptById { receipt_id } => {
-                let receipt = self
+            EntityQuery::FlatStateChangesByBlockHash { block_hash, shard_uid } => {
+                let changes = self
                     .store
-                    .get_ser::<Receipt>(DBCol::Receipts, &receipt_id.try_to_vec().unwrap())?
-                    .ok_or_else(|| anyhow!("Receipt not found"))?;
-                Ok(serialize_entity(&ReceiptView::from(receipt)))
+                    .get_ser::<FlatStateChanges>(
+                        DBCol::FlatStateChanges,
+                        &KeyForFlatStateDelta { block_hash, shard_uid }.try_to_vec().unwrap(),
+                    )?
+                    .ok_or_else(|| anyhow!("Flat state changes not found"))?;
+                let mut changes_view = Vec::new();
+                for (key, value) in changes.0.into_iter() {
+                    let key = hex::encode(&key);
+                    let value = match value {
+                        Some(v) => Some(hex::encode(&self.deref_flat_state_value(v, shard_uid)?)),
+                        None => None,
+                    };
+                    changes_view.push(FlatStateChangeView { key, value });
+                }
+                Ok(serialize_entity(&changes_view))
+            }
+            EntityQuery::FlatStateDeltaMetadataByBlockHash { block_hash, shard_uid } => {
+                let metadata = self
+                    .store
+                    .get_ser::<FlatStateDeltaMetadata>(
+                        DBCol::FlatStateDeltaMetadata,
+                        &KeyForFlatStateDelta { block_hash, shard_uid }.try_to_vec().unwrap(),
+                    )?
+                    .ok_or_else(|| anyhow!("Flat state delta metadata not found"))?;
+                Ok(serialize_entity(&metadata))
+            }
+            EntityQuery::FlatStorageStatusByShardUId { shard_uid } => {
+                let status = self
+                    .store
+                    .get_ser::<FlatStorageStatus>(
+                        DBCol::FlatStorageStatus,
+                        &shard_uid.try_to_vec().unwrap(),
+                    )?
+                    .ok_or_else(|| anyhow!("Flat storage status not found"))?;
+                Ok(serialize_entity(&status))
             }
             EntityQuery::OutcomeByTransactionHash { transaction_hash: outcome_id }
             | EntityQuery::OutcomeByReceiptId { receipt_id: outcome_id } => {
@@ -124,25 +159,60 @@ impl EntityDebugHandlerImpl {
                     .ok_or_else(|| anyhow!("Outcome not found"))?;
                 Ok(serialize_entity(&ExecutionOutcomeView::from(outcome.outcome)))
             }
-            EntityQuery::TrieRootByChunkHash { chunk_hash } => {
-                let chunk = self
+            EntityQuery::ReceiptById { receipt_id } => {
+                let receipt = self
                     .store
-                    .get_ser::<ShardChunk>(DBCol::Chunks, &chunk_hash.try_to_vec().unwrap())?
-                    .ok_or_else(|| anyhow!("Chunk not found"))?;
-                let shard_layout = self
-                    .epoch_manager
-                    .get_shard_layout_from_prev_block(&chunk.cloned_header().prev_block_hash())?;
+                    .get_ser::<Receipt>(DBCol::Receipts, &receipt_id.try_to_vec().unwrap())?
+                    .ok_or_else(|| anyhow!("Receipt not found"))?;
+                Ok(serialize_entity(&ReceiptView::from(receipt)))
+            }
+            EntityQuery::ShardIdByAccountId { account_id, epoch_id } => {
+                let shard_id =
+                    self.epoch_manager.account_id_to_shard_id(&account_id.parse()?, &epoch_id)?;
+                Ok(serialize_entity(&shard_id))
+            }
+            EntityQuery::ShardLayoutByEpochId { epoch_id } => {
+                let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+                Ok(serialize_entity(&shard_layout))
+            }
+            EntityQuery::ShardUIdByShardId { shard_id, epoch_id } => {
+                let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
                 let shard_uid = *shard_layout
                     .get_shard_uids()
-                    .get(chunk.shard_id() as usize)
-                    .ok_or_else(|| anyhow!("Shard {} not found", chunk.shard_id()))?;
-                let path =
-                    TriePath { path: vec![], shard_uid, state_root: chunk.prev_state_root() };
-                Ok(serialize_entity(&path.to_string()))
+                    .get(shard_id as usize)
+                    .ok_or_else(|| anyhow!("Shard {} not found", shard_id))?;
+                Ok(serialize_entity(&shard_uid))
             }
-            EntityQuery::TrieRootByStateRoot { state_root, shard_uid } => {
-                let path = TriePath { path: vec![], shard_uid, state_root };
-                Ok(serialize_entity(&path.to_string()))
+            EntityQuery::TipAtFinalHead(_) => {
+                let tip = self
+                    .store
+                    .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?
+                    .ok_or_else(|| anyhow!("Tip not found"))?;
+                Ok(serialize_entity(&tip))
+            }
+            EntityQuery::TipAtHead(_) => {
+                let tip = self
+                    .store
+                    .get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?
+                    .ok_or_else(|| anyhow!("Tip not found"))?;
+                Ok(serialize_entity(&tip))
+            }
+            EntityQuery::TipAtHeaderHead(_) => {
+                let tip = self
+                    .store
+                    .get_ser::<Tip>(DBCol::BlockMisc, HEADER_HEAD_KEY)?
+                    .ok_or_else(|| anyhow!("Tip not found"))?;
+                Ok(serialize_entity(&tip))
+            }
+            EntityQuery::TransactionByHash { transaction_hash } => {
+                let transaction = self
+                    .store
+                    .get_ser::<SignedTransaction>(
+                        DBCol::Transactions,
+                        &transaction_hash.try_to_vec().unwrap(),
+                    )?
+                    .ok_or_else(|| anyhow!("Transaction not found"))?;
+                Ok(serialize_entity(&SignedTransactionView::from(transaction)))
             }
             EntityQuery::TrieNode { trie_path } => {
                 let trie_path =
@@ -240,97 +310,25 @@ impl EntityDebugHandlerImpl {
                 }
                 Ok(EntityDataValue::Struct(Box::new(entity_data)))
             }
-            EntityQuery::ShardIdByAccountId { account_id, epoch_id } => {
-                let shard_id =
-                    self.epoch_manager.account_id_to_shard_id(&account_id.parse()?, &epoch_id)?;
-                Ok(serialize_entity(&shard_id))
-            }
-            EntityQuery::ShardUIdByShardId { shard_id, epoch_id } => {
-                let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+            EntityQuery::TrieRootByChunkHash { chunk_hash } => {
+                let chunk = self
+                    .store
+                    .get_ser::<ShardChunk>(DBCol::Chunks, &chunk_hash.try_to_vec().unwrap())?
+                    .ok_or_else(|| anyhow!("Chunk not found"))?;
+                let shard_layout = self
+                    .epoch_manager
+                    .get_shard_layout_from_prev_block(&chunk.cloned_header().prev_block_hash())?;
                 let shard_uid = *shard_layout
                     .get_shard_uids()
-                    .get(shard_id as usize)
-                    .ok_or_else(|| anyhow!("Shard {} not found", shard_id))?;
-                Ok(serialize_entity(&shard_uid))
+                    .get(chunk.shard_id() as usize)
+                    .ok_or_else(|| anyhow!("Shard {} not found", chunk.shard_id()))?;
+                let path =
+                    TriePath { path: vec![], shard_uid, state_root: chunk.prev_state_root() };
+                Ok(serialize_entity(&path.to_string()))
             }
-            EntityQuery::ShardLayoutByEpochId { epoch_id } => {
-                let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-                Ok(serialize_entity(&shard_layout))
-            }
-            EntityQuery::AllShardsByEpochId { epoch_id } => {
-                let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-                Ok(serialize_entity(&shard_layout.get_shard_uids()))
-            }
-            EntityQuery::TipAtHead(_) => {
-                let tip = self
-                    .store
-                    .get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?
-                    .ok_or_else(|| anyhow!("Tip not found"))?;
-                Ok(serialize_entity(&tip))
-            }
-            EntityQuery::TipAtHeaderHead(_) => {
-                let tip = self
-                    .store
-                    .get_ser::<Tip>(DBCol::BlockMisc, HEADER_HEAD_KEY)?
-                    .ok_or_else(|| anyhow!("Tip not found"))?;
-                Ok(serialize_entity(&tip))
-            }
-            EntityQuery::TipAtFinalHead(_) => {
-                let tip = self
-                    .store
-                    .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?
-                    .ok_or_else(|| anyhow!("Tip not found"))?;
-                Ok(serialize_entity(&tip))
-            }
-            EntityQuery::FlatStorageStatusByShardUId { shard_uid } => {
-                let status = self
-                    .store
-                    .get_ser::<FlatStorageStatus>(
-                        DBCol::FlatStorageStatus,
-                        &shard_uid.try_to_vec().unwrap(),
-                    )?
-                    .ok_or_else(|| anyhow!("Flat storage status not found"))?;
-                Ok(serialize_entity(&status))
-            }
-            EntityQuery::FlatStateByTrieKey { trie_key, shard_uid } => {
-                let state = self
-                    .store
-                    .get_ser::<FlatStateValue>(
-                        DBCol::FlatState,
-                        &encode_flat_state_db_key(shard_uid, &hex::decode(&trie_key)?),
-                    )?
-                    .ok_or_else(|| anyhow!("Flat state not found"))?;
-                let data = self.deref_flat_state_value(state, shard_uid)?;
-                Ok(serialize_entity(&hex::encode(&data)))
-            }
-            EntityQuery::FlatStateChangesByBlockHash { block_hash, shard_uid } => {
-                let changes = self
-                    .store
-                    .get_ser::<FlatStateChanges>(
-                        DBCol::FlatStateChanges,
-                        &KeyForFlatStateDelta { block_hash, shard_uid }.try_to_vec().unwrap(),
-                    )?
-                    .ok_or_else(|| anyhow!("Flat state changes not found"))?;
-                let mut changes_view = Vec::new();
-                for (key, value) in changes.0.into_iter() {
-                    let key = hex::encode(&key);
-                    let value = match value {
-                        Some(v) => Some(hex::encode(&self.deref_flat_state_value(v, shard_uid)?)),
-                        None => None,
-                    };
-                    changes_view.push(FlatStateChangeView { key, value });
-                }
-                Ok(serialize_entity(&changes_view))
-            }
-            EntityQuery::FlatStateDeltaMetadataByBlockHash { block_hash, shard_uid } => {
-                let metadata = self
-                    .store
-                    .get_ser::<FlatStateDeltaMetadata>(
-                        DBCol::FlatStateDeltaMetadata,
-                        &KeyForFlatStateDelta { block_hash, shard_uid }.try_to_vec().unwrap(),
-                    )?
-                    .ok_or_else(|| anyhow!("Flat state delta metadata not found"))?;
-                Ok(serialize_entity(&metadata))
+            EntityQuery::TrieRootByStateRoot { state_root, shard_uid } => {
+                let path = TriePath { path: vec![], shard_uid, state_root };
+                Ok(serialize_entity(&path.to_string()))
             }
         }
     }

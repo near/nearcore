@@ -1,16 +1,12 @@
-/// This file contains structures for the Entity Debug UI.
-/// They are to be sent to the UI as JSON.
-use near_primitives::{
-    hash::CryptoHash,
-    shard_layout::ShardUId,
-    types::{BlockHeight, EpochId, ShardId},
-};
+// This file contains structures for the Entity Debug UI.
+// They are to be sent to the UI as JSON.
+use crate::errors::RpcError;
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::{hash::CryptoHash, shard_layout::ShardUId};
 use serde::{Deserialize, Serialize};
 
-use crate::errors::RpcError;
-
 /// One entry to be displayed in the UI as a single row.
-#[derive(Serialize)]
+#[derive(Serialize, Debug, PartialEq, Eq)]
 pub struct EntityDataEntry {
     /// Can be a struct field name or a stringified array index.
     pub name: String,
@@ -20,7 +16,7 @@ pub struct EntityDataEntry {
 /// Represents either a single value, or a struct. An array is also considered
 /// a struct, with keys being array indices. All value types are represented as
 /// strings even if they are numerical, for simplicity.
-#[derive(Serialize)]
+#[derive(Serialize, Debug, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum EntityDataValue {
     String(String),
@@ -28,7 +24,7 @@ pub enum EntityDataValue {
 }
 
 /// A list of entries - either a struct or an array.
-#[derive(Serialize)]
+#[derive(Serialize, Debug, PartialEq, Eq)]
 pub struct EntityDataStruct {
     pub entries: Vec<EntityDataEntry>,
 }
@@ -53,31 +49,31 @@ impl EntityDataStruct {
 /// e.g. BlockHeaderByHash.
 #[derive(Serialize, Deserialize)]
 pub enum EntityQuery {
-    TipAtHead(()),
-    TipAtHeaderHead(()),
-    TipAtFinalHead(()),
+    AllShardsByEpochId { epoch_id: EpochId },
     BlockByHash { block_hash: CryptoHash },
-    BlockHeaderByHash { block_hash: CryptoHash },
     BlockHashByHeight { block_height: BlockHeight },
+    BlockHeaderByHash { block_hash: CryptoHash },
     ChunkByHash { chunk_hash: CryptoHash },
     EpochInfoByEpochId { epoch_id: EpochId },
-    TransactionByHash { transaction_hash: CryptoHash },
-    ReceiptById { receipt_id: CryptoHash },
-    OutcomeByTransactionHash { transaction_hash: CryptoHash },
-    OutcomeByTransactionHashAndBlockHash { transaction_hash: CryptoHash, block_hash: CryptoHash },
-    OutcomeByReceiptId { receipt_id: CryptoHash },
-    OutcomeByReceiptIdAndBlockHash { receipt_id: CryptoHash, block_hash: CryptoHash },
-    TrieRootByChunkHash { chunk_hash: CryptoHash },
-    TrieRootByStateRoot { state_root: CryptoHash, shard_uid: ShardUId },
-    TrieNode { trie_path: String },
-    ShardIdByAccountId { account_id: String, epoch_id: EpochId },
-    ShardUIdByShardId { shard_id: ShardId, epoch_id: EpochId },
-    ShardLayoutByEpochId { epoch_id: EpochId },
-    AllShardsByEpochId { epoch_id: EpochId },
-    FlatStorageStatusByShardUId { shard_uid: ShardUId },
     FlatStateByTrieKey { trie_key: String, shard_uid: ShardUId },
     FlatStateChangesByBlockHash { block_hash: CryptoHash, shard_uid: ShardUId },
     FlatStateDeltaMetadataByBlockHash { block_hash: CryptoHash, shard_uid: ShardUId },
+    FlatStorageStatusByShardUId { shard_uid: ShardUId },
+    OutcomeByReceiptId { receipt_id: CryptoHash },
+    OutcomeByReceiptIdAndBlockHash { receipt_id: CryptoHash, block_hash: CryptoHash },
+    OutcomeByTransactionHash { transaction_hash: CryptoHash },
+    OutcomeByTransactionHashAndBlockHash { transaction_hash: CryptoHash, block_hash: CryptoHash },
+    ReceiptById { receipt_id: CryptoHash },
+    ShardIdByAccountId { account_id: String, epoch_id: EpochId },
+    ShardLayoutByEpochId { epoch_id: EpochId },
+    ShardUIdByShardId { shard_id: ShardId, epoch_id: EpochId },
+    TipAtFinalHead(()),
+    TipAtHead(()),
+    TipAtHeaderHead(()),
+    TransactionByHash { transaction_hash: CryptoHash },
+    TrieNode { trie_path: String },
+    TrieRootByChunkHash { chunk_hash: CryptoHash },
+    TrieRootByStateRoot { state_root: CryptoHash, shard_uid: ShardUId },
 }
 
 /// We use a trait for this, because jsonrpc does not have access to low-level

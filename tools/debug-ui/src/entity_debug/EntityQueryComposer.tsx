@@ -14,10 +14,10 @@ import './EntityQueryComposer.scss';
 import { PinnedKeysContext } from './pinned_keys';
 
 export const EntityQueryComposer = () => {
-    const { keys: contextKeys } = useContext(PinnedKeysContext);
+    const { keys: pinnedKeys } = useContext(PinnedKeysContext);
     const [query, queryDispatch] = useReducer(composingQueryReducer, {
         queryType: entityQueryTypes[0],
-        keys: contextKeys,
+        keys: pinnedKeys,
     });
     const { dispatch: allQueriesDispatch } = useContext(AllQueriesContext);
     const fetcher = useContext(FetcherContext);

@@ -19,7 +19,7 @@ export const EntityDebugView = ({ addr }: EntityDebugViewProps) => {
         results: [],
         selectedIndex: -1,
     });
-    const [contextKeys, contextKeysDispatcher] = useReducer(pinnedKeysReducer, []);
+    const [pinnedKeys, pinnedKeysDispatcher] = useReducer(pinnedKeysReducer, []);
     const selectedQueryResult =
         allQueries.selectedIndex === -1 ? null : allQueries.results[allQueries.selectedIndex];
 
@@ -57,8 +57,8 @@ export const EntityDebugView = ({ addr }: EntityDebugViewProps) => {
                 }}>
                 <PinnedKeysContext.Provider
                     value={{
-                        keys: contextKeys,
-                        dispatch: contextKeysDispatcher,
+                        keys: pinnedKeys,
+                        dispatch: pinnedKeysDispatcher,
                     }}>
                     {render}
                 </PinnedKeysContext.Provider>

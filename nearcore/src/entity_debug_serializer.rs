@@ -1,5 +1,5 @@
 /// This file implements a completely new serialization format which
-/// flattens anything that implements serde::Serialize into an
+/// transforms anything that implements serde::Serialize into an
 /// EntityDataValue (i.e. a generic tree of string key-value pairs).
 ///
 /// This is used for the Entity Debug UI. The reason why we don't use
@@ -484,4 +484,124 @@ where
     let mut data = EntitySerializerData::new();
     value.serialize(data.serializer(String::new())).unwrap();
     data.output.entries.into_iter().next().unwrap().value
+}
+
+#[cfg(test)]
+mod tests {
+    use super::serialize_entity;
+    use near_jsonrpc_primitives::types::entity_debug::{
+        EntityDataEntry, EntityDataStruct, EntityDataValue,
+    };
+    use serde::Serialize;
+
+    fn val<T: ToString>(s: T) -> EntityDataValue {
+        EntityDataValue::String(s.to_string())
+    }
+
+    fn tree(entries: Vec<(&str, EntityDataValue)>) -> EntityDataValue {
+        EntityDataValue::Struct(Box::new(EntityDataStruct {
+            entries: entries
+                .into_iter()
+                .map(|(name, value)| EntityDataEntry { name: name.to_owned(), value })
+                .collect(),
+        }))
+    }
+
+    #[test]
+    fn test_serialize_primitives() {
+        assert_eq!(serialize_entity(&(123 as u64)), val("123"));
+        assert_eq!(
+            serialize_entity(&(10000000000000000000000000000000 as u128)),
+            val("10000000000000000000000000000000")
+        );
+        assert_eq!(serialize_entity(&"abc"), val("abc"));
+        assert_eq!(serialize_entity(&true), val("true"));
+    }
+
+    #[test]
+    fn test_serialize_structs() {
+        #[derive(Serialize)]
+        struct A {
+            a: u64,
+            b: String,
+        }
+        assert_eq!(
+            serialize_entity(&A { a: 123, b: "abc".to_owned() }),
+            tree(vec![("a", val("123")), ("b", val("abc"))])
+        );
+
+        #[derive(Serialize)]
+        struct B {
+            x: A,
+            y: Box<A>,
+        }
+        assert_eq!(
+            serialize_entity(&B {
+                x: A { a: 123, b: "abc".to_owned() },
+                y: Box::new(A { a: 456, b: "def".to_owned() }),
+            }),
+            tree(vec![
+                ("x", tree(vec![("a", val("123")), ("b", val("abc"))])),
+                ("y", tree(vec![("a", val("456")), ("b", val("def"))])),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_serialize_vecs() {
+        assert_eq!(
+            serialize_entity(&vec![1, 2, 3]),
+            tree(vec![("0", val("1")), ("1", val("2")), ("2", val("3"))])
+        );
+
+        #[derive(Serialize)]
+        struct A {
+            x: u64,
+        }
+        assert_eq!(
+            serialize_entity(&vec![A { x: 1 }, A { x: 2 }]),
+            tree(vec![("0", tree(vec![("x", val("1"))])), ("1", tree(vec![("x", val("2"))])),])
+        );
+    }
+
+    #[test]
+    fn test_serialize_tuples() {
+        assert_eq!(
+            serialize_entity(&(1, 2, 3)),
+            tree(vec![("0", val("1")), ("1", val("2")), ("2", val("3"))])
+        );
+    }
+
+    #[test]
+    fn test_serialize_maps() {
+        use std::collections::HashMap;
+        let mut map = HashMap::new();
+        map.insert("a".to_owned(), 1);
+        map.insert("b".to_owned(), 2);
+        assert_eq!(serialize_entity(&map), tree(vec![("a", val("1")), ("b", val("2"))]));
+    }
+
+    #[test]
+    fn test_serialize_enums() {
+        #[derive(Serialize)]
+        enum A {
+            A1,
+            A2(u64),
+            A3 { x: u64 },
+            A4(()),
+            A5((String, String)),
+        }
+
+        assert_eq!(serialize_entity(&A::A1), val("A1"));
+        assert_eq!(serialize_entity(&A::A2(123)), tree(vec![("A2", val("123"))]));
+        assert_eq!(
+            serialize_entity(&A::A3 { x: 123 }),
+            tree(vec![("A3", tree(vec![("x", val("123"))]))])
+        );
+        assert_eq!(serialize_entity(&A::A4(())), tree(vec![("A4", val("()"))]));
+        assert_eq!(
+            serialize_entity(&A::A5(("abc".to_owned(), "def".to_owned()))),
+            tree(vec![("A5", tree(vec![("0", val("abc")), ("1", val("def"))]))])
+        );
+    }
 }

@@ -1,41 +1,41 @@
 /// Each key type represents a unique kind of input to an entity debug query.
 export type EntityKeyType =
+    | 'account_id'
     | 'block_hash'
-    | 'block_ordinal'
     | 'block_height'
+    | 'block_ordinal'
     | 'chunk_hash'
     | 'epoch_id'
-    | 'transaction_hash'
     | 'receipt_id'
-    | 'account_id'
     | 'shard_id'
     | 'shard_uid'
     | 'state_root'
-    | 'trie_path'
-    | 'trie_key';
+    | 'transaction_hash'
+    | 'trie_key'
+    | 'trie_path';
 
 /// Each entity type represents a unique kind of output from an entity debug
 /// query.
 export type EntityType =
-    | 'Tip'
+    | 'AllShards'
     | 'Block'
-    | 'BlockHeader'
     | 'BlockHash'
+    | 'BlockHeader'
     | 'Chunk'
     | 'EpochInfo'
-    | 'Transaction'
-    | 'Receipt'
     | 'ExecutionOutcome'
-    | 'TrieRoot'
-    | 'TrieNode'
-    | 'ShardId'
-    | 'ShardUId'
-    | 'ShardLayout'
-    | 'AllShards'
-    | 'FlatStorageStatus'
+    | 'FlatState'
     | 'FlatStateChanges'
     | 'FlatStateDeltaMetadata'
-    | 'FlatState';
+    | 'FlatStorageStatus'
+    | 'Receipt'
+    | 'ShardId'
+    | 'ShardLayout'
+    | 'ShardUId'
+    | 'Tip'
+    | 'Transaction'
+    | 'TrieNode'
+    | 'TrieRoot';
 
 /// Interface for a concrete entity key.
 export interface EntityKey {
@@ -118,31 +118,31 @@ export class EntityDataValueNode {
 
 /// Mirrors the EntityQuery type from Rust side.
 export type EntityQuery = {
-    TipAtHead?: null;
-    TipAtHeaderHead?: null;
-    TipAtFinalHead?: null;
+    AllShardsByEpochId?: { epoch_id: string };
     BlockByHash?: { block_hash: string };
-    BlockHeaderByHash?: { block_hash: string };
     BlockHashByHeight?: { block_height: number };
+    BlockHeaderByHash?: { block_hash: string };
     ChunkByHash?: { chunk_hash: string };
     EpochInfoByEpochId?: { epoch_id: string };
-    TransactionByHash?: { transaction_hash: string };
-    ReceiptById?: { receipt_id: string };
-    OutcomeByTransactionHash?: { transaction_hash: string };
-    OutcomeByTransactionHashAndBlockHash?: { transaction_hash: string; block_hash: string };
-    OutcomeByReceiptId?: { receipt_id: string };
-    OutcomeByReceiptIdAndBlockHash?: { receipt_id: string; block_hash: string };
-    TrieRootByChunkHash?: { chunk_hash: string };
-    TrieRootByStateRoot?: { state_root: string; shard_uid: string };
-    TrieNode?: { trie_path: string };
-    ShardIdByAccountId?: { account_id: string };
-    ShardUIdByShardId?: { shard_id: number; epoch_id: string };
-    ShardLayoutByEpochId?: { epoch_id: string };
-    AllShardsByEpochId?: { epoch_id: string };
-    FlatStorageStatusByShardUId?: { shard_uid: string };
     FlatStateByTrieKey?: { trie_key: string };
     FlatStateChangesByBlockHash?: { block_hash: string };
     FlatStateDeltaMetadataByBlockHash?: { block_hash: string };
+    FlatStorageStatusByShardUId?: { shard_uid: string };
+    OutcomeByReceiptId?: { receipt_id: string };
+    OutcomeByReceiptIdAndBlockHash?: { receipt_id: string; block_hash: string };
+    OutcomeByTransactionHash?: { transaction_hash: string };
+    OutcomeByTransactionHashAndBlockHash?: { transaction_hash: string; block_hash: string };
+    ReceiptById?: { receipt_id: string };
+    ShardIdByAccountId?: { account_id: string };
+    ShardLayoutByEpochId?: { epoch_id: string };
+    ShardUIdByShardId?: { shard_id: number; epoch_id: string };
+    TipAtFinalHead?: null;
+    TipAtHead?: null;
+    TipAtHeaderHead?: null;
+    TransactionByHash?: { transaction_hash: string };
+    TrieNode?: { trie_path: string };
+    TrieRootByChunkHash?: { chunk_hash: string };
+    TrieRootByStateRoot?: { state_root: string; shard_uid: string };
 };
 
 export type EntityQueryType = keyof EntityQuery;
@@ -152,31 +152,31 @@ export function getQueryType(query: EntityQuery): EntityQueryType {
 }
 
 export const entityQueryTypes: EntityQueryType[] = [
-    'TipAtHead',
-    'TipAtHeaderHead',
-    'TipAtFinalHead',
+    'AllShardsByEpochId',
     'BlockByHash',
-    'BlockHeaderByHash',
     'BlockHashByHeight',
+    'BlockHeaderByHash',
     'ChunkByHash',
     'EpochInfoByEpochId',
-    'TransactionByHash',
-    'ReceiptById',
-    'OutcomeByTransactionHash',
-    'OutcomeByTransactionHashAndBlockHash',
-    'OutcomeByReceiptId',
-    'OutcomeByReceiptIdAndBlockHash',
-    'TrieRootByChunkHash',
-    'TrieRootByStateRoot',
-    'TrieNode',
-    'ShardIdByAccountId',
-    'ShardUIdByShardId',
-    'ShardLayoutByEpochId',
-    'AllShardsByEpochId',
-    'FlatStorageStatusByShardUId',
     'FlatStateByTrieKey',
     'FlatStateChangesByBlockHash',
     'FlatStateDeltaMetadataByBlockHash',
+    'FlatStorageStatusByShardUId',
+    'OutcomeByReceiptId',
+    'OutcomeByReceiptIdAndBlockHash',
+    'OutcomeByTransactionHash',
+    'OutcomeByTransactionHashAndBlockHash',
+    'ReceiptById',
+    'ShardIdByAccountId',
+    'ShardLayoutByEpochId',
+    'ShardUIdByShardId',
+    'TipAtFinalHead',
+    'TipAtHead',
+    'TipAtHeaderHead',
+    'TransactionByHash',
+    'TrieNode',
+    'TrieRootByChunkHash',
+    'TrieRootByStateRoot',
 ];
 
 /// See entityQueryKeyTypes.
@@ -210,61 +210,61 @@ function implicitQueryKey(keyType: EntityKeyType): EntityQueryKeySpec {
 ///
 /// For queries that require multiple keys, additional keys are specified by pinning.
 export const entityQueryKeyTypes: Record<EntityQueryType, EntityQueryKeySpec[]> = {
-    TipAtHead: [],
-    TipAtHeaderHead: [],
-    TipAtFinalHead: [],
+    AllShardsByEpochId: [queryKey('epoch_id')],
     BlockByHash: [queryKey('block_hash')],
-    BlockHeaderByHash: [queryKey('block_hash')],
     BlockHashByHeight: [queryKey('block_height')],
+    BlockHeaderByHash: [queryKey('block_hash')],
     ChunkByHash: [queryKey('chunk_hash')],
     EpochInfoByEpochId: [queryKey('epoch_id')],
-    TransactionByHash: [queryKey('transaction_hash')],
-    ReceiptById: [queryKey('receipt_id')],
+    FlatStateByTrieKey: [queryKey('trie_key'), implicitQueryKey('shard_uid')],
+    FlatStateChangesByBlockHash: [queryKey('block_hash'), implicitQueryKey('shard_uid')],
+    FlatStateDeltaMetadataByBlockHash: [queryKey('block_hash'), implicitQueryKey('shard_uid')],
+    FlatStorageStatusByShardUId: [queryKey('shard_uid')],
+    OutcomeByReceiptId: [queryKey('receipt_id')],
+    OutcomeByReceiptIdAndBlockHash: [queryKey('receipt_id'), implicitQueryKey('block_hash')],
     OutcomeByTransactionHash: [queryKey('transaction_hash')],
     OutcomeByTransactionHashAndBlockHash: [
         queryKey('transaction_hash'),
         implicitQueryKey('block_hash'),
     ],
-    OutcomeByReceiptId: [queryKey('receipt_id')],
-    OutcomeByReceiptIdAndBlockHash: [queryKey('receipt_id'), implicitQueryKey('block_hash')],
+    ReceiptById: [queryKey('receipt_id')],
+    ShardIdByAccountId: [queryKey('account_id'), implicitQueryKey('epoch_id')],
+    ShardLayoutByEpochId: [queryKey('epoch_id')],
+    ShardUIdByShardId: [queryKey('shard_id'), implicitQueryKey('epoch_id')],
+    TipAtFinalHead: [],
+    TipAtHead: [],
+    TipAtHeaderHead: [],
+    TransactionByHash: [queryKey('transaction_hash')],
+    TrieNode: [queryKey('trie_path')],
     TrieRootByChunkHash: [queryKey('chunk_hash')],
     TrieRootByStateRoot: [queryKey('state_root'), implicitQueryKey('shard_uid')],
-    TrieNode: [queryKey('trie_path')],
-    ShardIdByAccountId: [queryKey('account_id'), implicitQueryKey('epoch_id')],
-    ShardUIdByShardId: [queryKey('shard_id'), implicitQueryKey('epoch_id')],
-    ShardLayoutByEpochId: [queryKey('epoch_id')],
-    AllShardsByEpochId: [queryKey('epoch_id')],
-    FlatStorageStatusByShardUId: [queryKey('shard_uid')],
-    FlatStateByTrieKey: [queryKey('trie_key'), implicitQueryKey('shard_uid')],
-    FlatStateChangesByBlockHash: [queryKey('block_hash'), implicitQueryKey('shard_uid')],
-    FlatStateDeltaMetadataByBlockHash: [queryKey('block_hash'), implicitQueryKey('shard_uid')],
 };
 
 /// Specifies the expected output entity type for each query.
 export const entityQueryOutputType: Record<EntityQueryType, EntityType> = {
-    TipAtHead: 'Tip',
-    TipAtHeaderHead: 'Tip',
-    TipAtFinalHead: 'Tip',
+    AllShardsByEpochId: 'AllShards',
     BlockByHash: 'Block',
-    BlockHeaderByHash: 'BlockHeader',
     BlockHashByHeight: 'BlockHash',
+    BlockHeaderByHash: 'BlockHeader',
     ChunkByHash: 'Chunk',
     EpochInfoByEpochId: 'EpochInfo',
-    TransactionByHash: 'Transaction',
-    ReceiptById: 'Receipt',
-    OutcomeByTransactionHash: 'ExecutionOutcome',
-    OutcomeByTransactionHashAndBlockHash: 'ExecutionOutcome',
-    OutcomeByReceiptId: 'ExecutionOutcome',
-    OutcomeByReceiptIdAndBlockHash: 'ExecutionOutcome',
-    TrieRootByChunkHash: 'TrieRoot',
-    TrieRootByStateRoot: 'TrieRoot',
-    TrieNode: 'TrieNode',
-    ShardIdByAccountId: 'ShardId',
-    ShardUIdByShardId: 'ShardUId',
-    ShardLayoutByEpochId: 'ShardLayout',
-    AllShardsByEpochId: 'AllShards',
-    FlatStorageStatusByShardUId: 'FlatStorageStatus',
     FlatStateByTrieKey: 'FlatState',
     FlatStateChangesByBlockHash: 'FlatStateChanges',
     FlatStateDeltaMetadataByBlockHash: 'FlatStateDeltaMetadata',
+    FlatStorageStatusByShardUId: 'FlatStorageStatus',
+    OutcomeByReceiptId: 'ExecutionOutcome',
+    OutcomeByReceiptIdAndBlockHash: 'ExecutionOutcome',
+    OutcomeByTransactionHash: 'ExecutionOutcome',
+    OutcomeByTransactionHashAndBlockHash: 'ExecutionOutcome',
+    ReceiptById: 'Receipt',
+    ShardIdByAccountId: 'ShardId',
+    ShardLayoutByEpochId: 'ShardLayout',
+    ShardUIdByShardId: 'ShardUId',
+    TipAtFinalHead: 'Tip',
+    TipAtHead: 'Tip',
+    TipAtHeaderHead: 'Tip',
+    TransactionByHash: 'Transaction',
+    TrieNode: 'TrieNode',
+    TrieRootByChunkHash: 'TrieRoot',
+    TrieRootByStateRoot: 'TrieRoot',
 };

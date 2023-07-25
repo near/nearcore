@@ -25,7 +25,6 @@ export const EntityDataRootView = ({ node, removalCallback }: EntityDataRootView
                 setEntry(result);
             },
             (err) => {
-                console.log(err);
                 setError('' + err);
             }
         );

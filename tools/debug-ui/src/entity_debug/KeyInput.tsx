@@ -19,7 +19,6 @@ export const KeyInput = ({ keyType }: KeyInputProps) => {
     const onInput = useCallback(
         (e: FormEvent<HTMLInputElement>) => {
             const value = e.currentTarget.value;
-            console.log(value);
             setText(value);
             const parsedKey = parseEntityKey(keyType, value);
             if (!parsedKey) {
