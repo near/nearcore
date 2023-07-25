@@ -136,7 +136,7 @@ impl TestShardUpgradeEnv {
     /// produces and processes the next block
     /// also checks that all accounts in initial_accounts are intact
     /// 
-    /// please also see the step_impl for chaning the protocol version
+    /// please also see the step_impl for changing the protocol version
     fn step(&mut self, p_drop_chunk: f64) {
         self.step_impl(p_drop_chunk, SIMPLE_NIGHTSHADE_PROTOCOL_VERSION, false);
     }
@@ -144,7 +144,7 @@ impl TestShardUpgradeEnv {
     /// produces and processes the next block also checks that all accounts in
     /// initial_accounts are intact
     /// 
-    /// allows for chaning the protocol version in the middle of the test the
+    /// allows for changing the protocol version in the middle of the test the
     /// testing_v2 argument means whether the test should expect the sharding
     /// layout V2 to be used once the appropriate protocol version is reached
     fn step_impl(
