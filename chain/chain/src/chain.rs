@@ -3392,11 +3392,7 @@ impl Chain {
                 let flat_head_hash = *chunk.prev_block();
                 let flat_head_header = self.get_block_header(&flat_head_hash)?;
                 let flat_head_prev_hash = *flat_head_header.prev_hash();
-                let flat_head_height = chunk.height_included().checked_sub(1).ok_or(
-                    near_chain_primitives::Error::Other(
-                        "wrong height included of a chunk".to_string(),
-                    ),
-                )?;
+                let flat_head_height = flat_head_header.height();
 
                 tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
 
