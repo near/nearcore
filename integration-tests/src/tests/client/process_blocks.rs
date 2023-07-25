@@ -2788,8 +2788,8 @@ fn test_refund_receipts_processing() {
     );
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
-    // Set gas limit to be small enough to produce some delay receipts, but
-    // large enough for transactions to get through.
+    // Set gas limit to be small enough to produce some delayed receipts, but large enough for
+    // transactions to get through.
     genesis.config.gas_limit = 100_000_000;
     let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
@@ -2799,9 +2799,9 @@ fn test_refund_receipts_processing() {
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let mut tx_hashes = vec![];
-    // send transactions to a non-existing account to generate refund
+    // Send transactions to a non-existing account to generate refunds.
     for i in 0..3 {
-        // send transaction to the same account to generate local receipts
+        // Send transaction from the same account to generate local receipts.
         let tx = SignedTransaction::send_money(
             i + 1,
             "test0".parse().unwrap(),
@@ -2853,22 +2853,19 @@ fn test_refund_receipts_processing() {
     }
 
     let mut refund_receipt_ids = HashSet::new();
-    for (_, id) in tx_hashes.into_iter().enumerate() {
-        let execution_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
-        assert_eq!(execution_outcome.outcome_with_id.outcome.receipt_ids.len(), 1);
-        match execution_outcome.outcome_with_id.outcome.status {
-            ExecutionStatus::SuccessReceiptId(id) => {
-                let receipt_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
-                assert_matches!(
-                    receipt_outcome.outcome_with_id.outcome.status,
-                    ExecutionStatus::Failure(TxExecutionError::ActionError(_))
+    for tx_hash in tx_hashes {
+        let tx_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
+        assert_eq!(tx_outcome.outcome_with_id.outcome.receipt_ids.len(), 1);
+        if let ExecutionStatus::SuccessReceiptId(id) = tx_outcome.outcome_with_id.outcome.status {
+            let receipt_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
+            assert_matches!(
+                receipt_outcome.outcome_with_id.outcome.status,
+                ExecutionStatus::Failure(TxExecutionError::ActionError(_))
                 );
-                for id in receipt_outcome.outcome_with_id.outcome.receipt_ids.iter() {
-                    refund_receipt_ids.insert(*id);
-                }
-            }
-            _ => assert!(false),
-        };
+            refund_receipt_ids.extend(receipt_outcome.outcome_with_id.outcome.receipt_ids);
+        } else {
+            unreachable!("Transaction must succeed");
+        }
     }
 
     let ending_block_height = block_height - 1;

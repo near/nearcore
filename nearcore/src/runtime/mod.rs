@@ -690,8 +690,8 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
-        // To avoid limiting the throughput of the network, we want to include just enough receipts
-        // to saturate the capacity of the chunk even in case when all of these receipts end up using
+        // To avoid limiting the throughput of the network, we want to include enough receipts to
+        // saturate the capacity of the chunk even in case when all of these receipts end up using
         // the smallest possible amount of gas, which is at least the cost of execution of action
         // receipt.
         // Currently, the min execution cost is ~100 GGas and the chunk capacity is 1 PGas, giving
@@ -702,7 +702,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         let new_receipt_count_limit = if min_fee > 0 {
             // Round up to include at least one receipt.
             let max_processed_receipts_in_chunk = (gas_limit + min_fee - 1) / min_fee;
-            max_processed_receipts_in_chunk.saturating_sub(delayed_receipts_indices.len()) as usize
+            // Allow at most 2 chunks worth of delayed receipts. This way under congestion,
+            // after processing a single chunk, we will still have at least 1 chunk worth of
+            // delayed receipts, ensuring the high throughput even if the next chunk producer
+            // does not include any receipts.
+            // This buffer size is a trade-off between the max queue size and system efficiency
+            // under congestion.
+            let delayed_receipt_count_limit = max_processed_receipts_in_chunk * 2;
+            delayed_receipt_count_limit.saturating_sub(delayed_receipts_indices.len()) as usize
         } else {
             usize::MAX
         };
