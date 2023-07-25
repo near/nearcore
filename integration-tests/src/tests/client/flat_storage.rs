@@ -488,6 +488,10 @@ fn test_flat_storage_iter() {
 }
 
 #[test]
+/// Initializes flat storage, then creates a Trie to read the flat storage
+/// exactly at the flat head block.
+/// Add another block to the flat state, which moves flat head and makes the
+/// state of the previous flat head inaccessible.
 fn test_not_supported_block() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
