@@ -1,21 +1,22 @@
-use borsh::BorshSerialize;
-use near_client::ProcessTxResponse;
-
 use crate::tests::client::process_blocks::set_block_protocol_version;
+use assert_matches::assert_matches;
+use borsh::BorshSerialize;
+use itertools::Itertools;
 use near_chain::near_chain_primitives::Error;
+use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::{run_catchup, TestEnv};
+use near_client::{Client, ProcessTxResponse};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
-use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid};
-use near_primitives::transaction::{
-    Action, DeployContractAction, FunctionCallAction, SignedTransaction,
-};
+use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid, ShardLayout};
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{Action, DeployContractAction, FunctionCallAction};
 use near_primitives::types::{BlockHeight, NumShards, ProtocolVersion, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolFeature;
@@ -25,14 +26,11 @@ use near_primitives_core::version::PROTOCOL_VERSION;
 use near_store::test_utils::{gen_account, gen_unique_accounts};
 use nearcore::config::GenesisExt;
 use nearcore::NEAR_BASE;
-use tracing::debug;
-
-use assert_matches::assert_matches;
-use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
+use tracing::debug;
 
 use super::utils::TestEnvNightshadeSetupExt;
 
@@ -47,6 +45,26 @@ const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion =
 const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion = PROTOCOL_VERSION + 1;
 
 const P_CATCHUP: f64 = 0.2;
+
+struct TestShardUpgradeEnv {
+    env: TestEnv,
+    initial_accounts: Vec<AccountId>,
+    init_txs: Vec<SignedTransaction>,
+    txs_by_height: BTreeMap<u64, Vec<SignedTransaction>>,
+    epoch_length: u64,
+    num_validators: usize,
+    num_clients: usize,
+}
+
+// The log output is a combined output from all clients.
+//
+// This method returns a span that can make it easier to undertand which logs
+// belong to which client. It's not perfect as it doesn't cover actors.
+fn client_span(client: &Client) -> tracing::Span {
+    let me = client.validator_signer.as_ref().map(|x| x.validator_id().clone());
+    let me = me.map(|account_id| account_id.to_string()).unwrap_or("".to_string());
+    return tracing::trace_span!(target:"test", "client", me=?me);
+}
 
 // Return the expected number of shards.
 // The number of shards depends on height and whether shard layout V2 is enabled.
@@ -66,27 +84,13 @@ fn get_expected_shards_num(epoch_length: u64, height: BlockHeight, testing_v2: b
     }
 }
 
-/// Test environment prepared for testing the sharding upgrade. 
+/// Test shard layout upgrade. This function runs `env` to produce and process blocks
+/// from 1 to 3 * epoch_length + 1, ie, to the beginning of epoch 3.
 /// Epoch 0, blocks 1-5  : 1 shard
 /// Epoch 1, blocks 6-10 : 1 shard, state split happens
 /// Epoch 2: blocks 10-15: 4 shards, shard layout upgrades to simple_nightshade_layout,
-/// 
-/// If V2 is enabled the test continues:
-/// Epoch 3: blocks 16-20: 4 shards, state split happens
-/// Epoch 4: blocks 21-25: 5 shards, shard layout upgrades to simple_nightshade_layout_v2
-/// 
-/// Note: if the test is extended to more epochs, garbage collection will
-/// kick in and delete data that is checked at the end of the test. 
-struct TestShardUpgradeEnv {
-    env: TestEnv,
-    initial_accounts: Vec<AccountId>,
-    init_txs: Vec<SignedTransaction>,
-    txs_by_height: HashMap<u64, Vec<SignedTransaction>>,
-    epoch_length: u64,
-    num_validators: usize,
-    num_clients: usize,
-}
-
+/// Epoch 3: blocks 16-20: 4 shards, state split happens if V2 is enabled
+/// Epoch 4: blocks 21-25: 5 shards, shard layout upgrades to simple_nightshade_layout_v2 if V2 is enabled
 impl TestShardUpgradeEnv {
     fn new(
         epoch_length: u64,
@@ -98,9 +102,8 @@ impl TestShardUpgradeEnv {
         let mut rng = thread_rng();
         let validators: Vec<AccountId> =
             (0..num_validators).map(|i| format!("test{}", i).parse().unwrap()).collect();
-        let initial_accounts =
-            [validators, gen_unique_accounts(&mut rng, num_init_accounts, num_init_accounts)]
-                .concat();
+        let extra_accounts = gen_unique_accounts(&mut rng, num_init_accounts, num_init_accounts);
+        let initial_accounts = [validators, extra_accounts].concat();
         let genesis =
             setup_genesis(epoch_length, num_validators as u64, initial_accounts.clone(), gas_limit);
         let chain_genesis = ChainGenesis::new(&genesis);
@@ -109,6 +112,11 @@ impl TestShardUpgradeEnv {
             .validator_seats(num_validators)
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
+            // set archive to true so that we can have tests with more than
+            // gc_num_epochs_to_keep epochs
+            // TODO(resharding) it would be better to check data on the fly or
+            // increase the gc_num_epochs_to_keep
+            .archive(true)
             .build();
         Self {
             env,
@@ -117,7 +125,7 @@ impl TestShardUpgradeEnv {
             num_validators,
             num_clients,
             init_txs: vec![],
-            txs_by_height: HashMap::new(),
+            txs_by_height: BTreeMap::new(),
         }
     }
 
@@ -126,47 +134,39 @@ impl TestShardUpgradeEnv {
         self.init_txs = init_txs;
     }
 
-    /// `txs_by_height` is a hashmap from block height to transactions to be
-    /// included at block at that height
+    /// `txs_by_height` is a BTreeMap from block height to transactions to be included at block at
+    /// that height
     fn set_tx_at_height(&mut self, height: u64, txs: Vec<SignedTransaction>) {
-        debug!(target:"test", "adding txs at height {} txs: {:?}", height, txs.iter().map(|x|x.get_hash()).collect::<Vec<_>>());
+        debug!(target:"test", "adding txs at height {} txs: {:?}", height, txs.iter().map(|x|x.get_hash()).collect_vec());
         self.txs_by_height.insert(height, txs);
     }
 
     /// produces and processes the next block
     /// also checks that all accounts in initial_accounts are intact
-    /// 
-    /// please also see the step_impl for chaning the protocol version
     fn step(&mut self, p_drop_chunk: f64) {
-        self.step_impl(p_drop_chunk, SIMPLE_NIGHTSHADE_PROTOCOL_VERSION, false);
+        self.step_impl(p_drop_chunk, SIMPLE_NIGHTSHADE_PROTOCOL_VERSION, false).unwrap();
     }
 
-    /// produces and processes the next block also checks that all accounts in
-    /// initial_accounts are intact
-    /// 
-    /// allows for chaning the protocol version in the middle of the test the
-    /// testing_v2 argument means whether the test should expect the sharding
-    /// layout V2 to be used once the appropriate protocol version is reached
     fn step_impl(
         &mut self,
         p_drop_chunk: f64,
         protocol_version: ProtocolVersion,
         testing_v2: bool,
-    ) {
+    ) -> Result<(), Error> {
         let env = &mut self.env;
         let mut rng = thread_rng();
-        let head = env.clients[0].chain.head().unwrap();
+        let head = env.clients[0].chain.head()?;
         let height = head.height + 1;
         let expected_num_shards = get_expected_shards_num(self.epoch_length, height, testing_v2);
 
         // add transactions for the next block
         if height == 1 {
-            for tx in self.init_txs.iter() {
-                for j in 0..self.num_validators {
-                    assert_eq!(
-                        env.clients[j].process_tx(tx.clone(), false, false),
-                        ProcessTxResponse::ValidTx
-                    );
+            for j in 0..self.num_validators {
+                let client = &mut env.clients[j];
+                let _span = client_span(client).entered();
+                for tx in self.init_txs.iter() {
+                    let response = client.process_tx(tx.clone(), false, false);
+                    assert_eq!(response, ProcessTxResponse::ValidTx);
                 }
             }
         }
@@ -176,70 +176,68 @@ impl TestShardUpgradeEnv {
         // Therefore, if we want a transaction to be included at the block at `height+1`, we must add
         // it when we are producing the block at `height`
         if let Some(txs) = self.txs_by_height.get(&(height + 1)) {
-            for tx in txs {
-                for j in 0..self.num_validators {
-                    assert_eq!(
-                        env.clients[j].process_tx(tx.clone(), false, false),
-                        ProcessTxResponse::ValidTx
-                    );
+            for j in 0..self.num_validators {
+                let client = &mut env.clients[j];
+                let _span = client_span(client).entered();
+                for tx in txs {
+                    debug!("process tx {:?}", tx.get_hash());
+                    let response = client.process_tx(tx.clone(), false, false);
+                    assert_eq!(response, ProcessTxResponse::ValidTx);
                 }
             }
         }
 
         // produce block
+
         let block_producer = {
-            let epoch_id = env.clients[0]
-                .epoch_manager
-                .get_epoch_id_from_prev_block(&head.last_block_hash)
-                .unwrap();
-            env.clients[0].epoch_manager.get_block_producer(&epoch_id, height).unwrap()
+            let client = &env.clients[0];
+            let parent_hash = &head.last_block_hash;
+            let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
+            client.epoch_manager.get_block_producer(&epoch_id, height)?
         };
         let block_producer_client = env.client(&block_producer);
         let mut block = block_producer_client.produce_block(height).unwrap().unwrap();
+
         set_block_protocol_version(&mut block, block_producer.clone(), protocol_version);
-        // Make sure that catchup is done before the end of each epoch, but when it is done is
+        // make sure that catchup is done before the end of each epoch, but when it is done is
         // by chance. This simulates when catchup takes a long time to be done
-        // Note: if the catchup happens only at the last block of an epoch then
-        // client will fail to produce the chunks in the first block of the next epoch.
         let should_catchup = rng.gen_bool(P_CATCHUP) || height % self.epoch_length == 0;
         // process block, this also triggers chunk producers for the next block to produce chunks
         for j in 0..self.num_clients {
-            let produce_chunks = !rng.gen_bool(p_drop_chunk);
+            let mut client = &mut env.clients[j];
+            let _span = client_span(client).entered();
+            let should_produce_chunk = !rng.gen_bool(p_drop_chunk);
             // Here we don't just call self.clients[i].process_block_sync_with_produce_chunk_options
             // because we want to call run_catchup before finish processing this block. This simulates
             // that catchup and block processing run in parallel.
-            env.clients[j]
-                .start_process_block(
-                    MaybeValidated::from(block.clone()),
-                    Provenance::NONE,
-                    Arc::new(|_| {}),
-                )
-                .unwrap();
+            let block = MaybeValidated::from(block.clone());
+            let apply_chunks_done_callback = Arc::new(|_| {});
+            client.start_process_block(block, Provenance::NONE, apply_chunks_done_callback)?;
             if should_catchup {
-                run_catchup(&mut env.clients[j], &[]).unwrap();
+                run_catchup(&mut client, &[]).unwrap();
             }
-            while wait_for_all_blocks_in_processing(&mut env.clients[j].chain) {
-                let (_, errors) =
-                    env.clients[j].postprocess_ready_blocks(Arc::new(|_| {}), produce_chunks);
+            while wait_for_all_blocks_in_processing(&mut client.chain) {
+                let apply_chunks_done_callback = Arc::new(|_| {});
+                let (_, errors) = client
+                    .postprocess_ready_blocks(apply_chunks_done_callback, should_produce_chunk);
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
             if should_catchup {
-                run_catchup(&mut env.clients[j], &[]).unwrap();
+                run_catchup(&mut client, &[]).unwrap();
             }
         }
 
-        {
-            let num_shards = env.clients[0]
+        assert_eq!(
+            env.clients[0]
                 .epoch_manager
-                .get_shard_layout_from_prev_block(block.hash())
-                .unwrap()
-                .num_shards();
-            tracing::info!(height, num_shards, expected_num_shards, "num shards");
-            assert_eq!(num_shards, expected_num_shards);
-        }
+                .get_shard_layout_from_prev_block(block.hash())?
+                .num_shards(),
+            expected_num_shards
+        );
 
         env.process_partial_encoded_chunks();
         for j in 0..self.num_clients {
+            let _span = client_span(&env.clients[j]).entered();
             env.process_shards_manager_responses_and_finish_processing_blocks(j);
         }
 
@@ -247,6 +245,8 @@ impl TestShardUpgradeEnv {
         for account_id in self.initial_accounts.iter() {
             check_account(env, account_id, &block);
         }
+
+        Ok(())
     }
 
     /// check that all accounts in `accounts` exist in the current state
@@ -341,51 +341,25 @@ impl TestShardUpgradeEnv {
             .epoch_manager
             .get_shard_layout_from_prev_block(&head.last_block_hash)
             .unwrap();
-        let mut txs_to_check = vec![];
-        txs_to_check.extend(&self.init_txs);
-        for (height, txs) in self.txs_by_height.iter() {
-            if !skip_heights.contains(height) {
-                txs_to_check.extend(txs);
-            }
-        }
 
         let mut successful_txs = Vec::new();
-        for tx in txs_to_check {
-            let id = &tx.get_hash();
-            let account_id = &tx.transaction.signer_id;
-            let shard_uid = account_id_to_shard_uid(account_id, &shard_layout);
-            for (i, account_id) in env.validators.iter().enumerate() {
-                let cares_about_shard = env.clients[i].shard_tracker.care_about_shard(
-                    Some(account_id),
-                    block.header().prev_hash(),
-                    shard_uid.shard_id(),
-                    true,
-                );
-                if cares_about_shard {
-                    let execution_outcomes =
-                        env.clients[i].chain.get_transaction_execution_result(id).unwrap();
-                    if execution_outcomes.is_empty() {
-                        assert!(allow_not_started, "transaction {:?} not processed", id);
-                    } else {
-                        let final_outcome =
-                            env.clients[i].chain.get_final_transaction_result(id).unwrap();
 
-                        let outcome_status = final_outcome.status.clone();
-                        if matches!(outcome_status, FinalExecutionStatus::SuccessValue(_)) {
-                            successful_txs.push(tx.get_hash());
-                        } else {
-                            panic!("tx failed {:?}", final_outcome);
-                        }
-                        for outcome in final_outcome.receipts_outcome {
-                            assert_matches!(
-                                outcome.outcome.status,
-                                ExecutionStatusView::SuccessValue(_)
-                            );
-                        }
-                    }
-                }
+        tracing::info!("checking initial transactions");
+        for tx in &self.init_txs {
+            check_tx(env, &block, &shard_layout, tx, allow_not_started, &mut successful_txs);
+        }
+
+        for (height, txs) in self.txs_by_height.iter() {
+            if skip_heights.contains(height) {
+                continue;
+            }
+            tracing::info!("checking transactions at height {height} ");
+
+            for tx in txs {
+                check_tx(env, &block, &shard_layout, tx, allow_not_started, &mut successful_txs);
             }
         }
+
         successful_txs
     }
 
@@ -412,10 +386,11 @@ impl TestShardUpgradeEnv {
                         .chain
                         .get_shard_id_for_receipt_id(&receipt.receipt_id)
                         .unwrap();
-                    assert_eq!(
-                        target_shard_id,
-                        account_id_to_shard_id(&receipt.receiver_id, &shard_layout)
-                    );
+                    let account_shard_id =
+                        account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
+
+                    tracing::trace!(target: "test", target_shard_id, account_shard_id, ?receipt, "checking receipt id to shard id");
+                    assert_eq!(target_shard_id, account_shard_id);
                 }
             }
         }
@@ -443,6 +418,58 @@ impl TestShardUpgradeEnv {
     }
 }
 
+fn check_tx(
+    env: &mut TestEnv,
+    block: &Block,
+    shard_layout: &ShardLayout,
+    tx: &SignedTransaction,
+    allow_not_started: bool,
+    successful_txs: &mut Vec<CryptoHash>,
+) {
+    let id = &tx.get_hash();
+    tracing::trace!(target:"test", tx=?id, "checking transaction");
+
+    let account_id = &tx.transaction.signer_id;
+    let shard_uid = account_id_to_shard_uid(account_id, shard_layout);
+    for (i, account_id) in env.validators.iter().enumerate() {
+        let client = &env.clients[i];
+        let _span = client_span(client).entered();
+        let cares_about_shard = client.shard_tracker.care_about_shard(
+            Some(account_id),
+            block.header().prev_hash(),
+            shard_uid.shard_id(),
+            true,
+        );
+        if !cares_about_shard {
+            continue;
+        }
+        let execution_outcomes = client.chain.get_transaction_execution_result(id).unwrap();
+        if execution_outcomes.is_empty() {
+            tracing::error!(allow_not_started, tx=?id, "transaction not processed");
+            panic!("transaction not processed");
+        }
+        let final_outcome = client.chain.get_final_transaction_result(id);
+        let final_outcome = match final_outcome {
+            Ok(final_outcome) => final_outcome,
+            Err(err) => {
+                tracing::error!(target:"test", tx=?id, err=?err, "failed to get final transaction result");
+                panic!("failed to get final transaction result");
+            }
+        };
+
+        let outcome_status = final_outcome.status.clone();
+        if matches!(outcome_status, FinalExecutionStatus::SuccessValue(_)) {
+            successful_txs.push(tx.get_hash());
+        } else {
+            tracing::error!(target:"test", tx=?id, ?final_outcome, "tx failed");
+            panic!("tx failed");
+        }
+        for outcome in final_outcome.receipts_outcome {
+            assert_matches!(outcome.outcome.status, ExecutionStatusView::SuccessValue(_));
+        }
+    }
+}
+
 /// Checks that account exists in the state after `block` is processed
 /// This function checks both state_root from chunk extra and state root from chunk header, if
 /// the corresponding chunk is included in the block
@@ -453,42 +480,49 @@ fn check_account(env: &mut TestEnv, account_id: &AccountId, block: &Block) {
     let shard_uid = account_id_to_shard_uid(account_id, &shard_layout);
     let shard_id = shard_uid.shard_id();
     for (i, me) in env.validators.iter().enumerate() {
-        if env.clients[i].shard_tracker.care_about_shard(Some(me), prev_hash, shard_id, true) {
-            let state_root = *env.clients[i]
-                .chain
-                .get_chunk_extra(block.hash(), &shard_uid)
-                .unwrap()
-                .state_root();
-            env.clients[i]
-                .runtime_adapter
+        let _span = client_span(&env.clients[i]).entered();
+
+        let client = &env.clients[i];
+        let runtime_adapter = &client.runtime_adapter;
+
+        if !client.shard_tracker.care_about_shard(Some(me), prev_hash, shard_id, true) {
+            continue;
+        }
+
+        let chunk_extra = client.chain.get_chunk_extra(block.hash(), &shard_uid).unwrap();
+        let state_root = *chunk_extra.state_root();
+        let query_result = runtime_adapter.query(
+            shard_uid,
+            &state_root,
+            block.header().height(),
+            0,
+            prev_hash,
+            block.hash(),
+            block.header().epoch_id(),
+            &QueryRequest::ViewAccount { account_id: account_id.clone() },
+        );
+        match query_result {
+            Ok(_) => {}
+            Err(err) => {
+                tracing::error!(target:"test", ?account_id, ?shard_uid, ?err, "failed view account");
+                panic!("failed view account");
+            }
+        }
+
+        let chunk = &block.chunks()[shard_id as usize];
+        if chunk.height_included() == block.header().height() {
+            runtime_adapter
                 .query(
                     shard_uid,
-                    &state_root,
+                    &chunk.prev_state_root(),
                     block.header().height(),
                     0,
-                    prev_hash,
+                    block.header().prev_hash(),
                     block.hash(),
                     block.header().epoch_id(),
                     &QueryRequest::ViewAccount { account_id: account_id.clone() },
                 )
                 .unwrap();
-
-            let chunk = &block.chunks()[shard_id as usize];
-            if chunk.height_included() == block.header().height() {
-                env.clients[i]
-                    .runtime_adapter
-                    .query(
-                        shard_uid,
-                        &chunk.prev_state_root(),
-                        block.header().height(),
-                        0,
-                        block.header().prev_hash(),
-                        block.hash(),
-                        block.header().epoch_id(),
-                        &QueryRequest::ViewAccount { account_id: account_id.clone() },
-                    )
-                    .unwrap();
-            }
         }
     }
 }
@@ -544,20 +578,19 @@ fn test_shard_layout_upgrade_simple() {
             )
         };
 
+    let skip_heights = vec![2 * epoch_length + 1, 4 * epoch_length + 1];
     // add transactions until after sharding upgrade finishes
-    // TODO(resharding) fix handling transactions in V1->V2 and add transactions
-    // for heights 3 * epoch_length to 6 * epoch_length
+    // TODO(resharding) fix handling transactions in V1->V2 and add more transactions
     for height in 2..3 * epoch_length {
-        test_env.set_tx_at_height(
-            height,
-            generate_create_accounts_txs(10, height != 2 * epoch_length + 1),
-        );
+        let check_accounts = !skip_heights.contains(&height);
+        let txs = generate_create_accounts_txs(10, check_accounts);
+        test_env.set_tx_at_height(height, txs);
     }
 
     let mut protocol_version = SIMPLE_NIGHTSHADE_PROTOCOL_VERSION;
     for height in 1..2 * epoch_length {
         debug!(target:"test", height, "step");
-        test_env.step_impl(0., protocol_version, true);
+        test_env.step_impl(0., protocol_version, true).unwrap();
         test_env.check_receipt_id_to_shard_id();
     }
 
@@ -569,24 +602,26 @@ fn test_shard_layout_upgrade_simple() {
         protocol_version = SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION;
     }
 
-    for height in 2 * epoch_length..5 * epoch_length + 1 {
+    for height in 2 * epoch_length..6 * epoch_length {
         debug!(target:"test", height, "step");
-        test_env.step_impl(0., protocol_version, true);
+        test_env.step_impl(0., protocol_version, true).unwrap();
         test_env.check_receipt_id_to_shard_id();
     }
 
-    // transactions added for height = 2 * epoch_length + 1 will not be processed, that's a known
-    // issue for the shard upgrade implementation. It is because transaction pools are stored by
-    // shard id and we do not migrate transactions that are still in the pool at the end of the
-    // sharding upgrade
-    test_env.check_tx_outcomes(false, vec![2 * epoch_length + 1]);
+    // Transactions added for the first block after resharding will not be
+    // processed, that's a known issue for the shard upgrade implementation. It
+    // is because transaction pools are stored by shard id and we do not migrate
+    // transactions that are still in the pool at the end of the sharding
+    // upgrade.
+    test_env.check_tx_outcomes(false, skip_heights);
+
     test_env.check_accounts(accounts_to_check.iter().collect());
 
     test_env.check_split_states_artifacts();
 }
 
 fn generate_create_accounts_txs(
-    mut rng: &mut rand::rngs::ThreadRng,
+    mut rng: &mut impl Rng,
     genesis_hash: CryptoHash,
     initial_accounts: &Vec<AccountId>,
     accounts_to_check: &mut Vec<AccountId>,
