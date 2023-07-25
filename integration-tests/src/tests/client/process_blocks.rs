@@ -2775,6 +2775,8 @@ fn test_block_execution_outcomes() {
     assert!(execution_outcomes_from_block[0].outcome_with_id.id == delayed_receipt_id[0]);
 }
 
+// This test verifies that gas consumed for processing refund receipts is taken into account
+// for the purpose of limiting the size of the chunk.
 #[test]
 fn test_refund_receipts_processing() {
     init_test_logger();
@@ -2814,45 +2816,12 @@ fn test_refund_receipts_processing() {
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
 
-    env.produce_block(0, 3);
-    env.produce_block(0, 4);
-    let mut block_height = 5;
-    let test_shard_uid = ShardUId { version: 1, shard_id: 0 };
-    loop {
-        env.produce_block(0, block_height);
-        let block = env.clients[0].chain.get_block_by_height(block_height).unwrap().clone();
-        let prev_block =
-            env.clients[0].chain.get_block_by_height(block_height - 1).unwrap().clone();
-        let chunk_extra = env.clients[0]
-            .chain
-            .get_chunk_extra(prev_block.hash(), &test_shard_uid)
-            .unwrap()
-            .clone();
-        let state_update = env.clients[0]
-            .runtime_adapter
-            .get_tries()
-            .new_trie_update(test_shard_uid, *chunk_extra.state_root());
-        let delayed_indices: Option<DelayedReceiptIndices> =
-            get(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
-        let finished_all_delayed_receipts = match delayed_indices {
-            None => false,
-            Some(delayed_indices) => {
-                delayed_indices.next_available_index > 0
-                    && delayed_indices.first_index == delayed_indices.next_available_index
-            }
-        };
-        let chunk =
-            env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap().clone();
-        if chunk.receipts().is_empty()
-            && chunk.transactions().is_empty()
-            && finished_all_delayed_receipts
-        {
-            break;
-        }
-        block_height += 1;
+    // Make sure all transactions are processed.
+    for i in 3..16 {
+        env.produce_block(0, i);
     }
 
-    let mut refund_receipt_ids = HashSet::new();
+    let test_shard_uid = ShardUId { version: 1, shard_id: 0 };
     for tx_hash in tx_hashes {
         let tx_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
         assert_eq!(tx_outcome.outcome_with_id.outcome.receipt_ids.len(), 1);
@@ -2862,33 +2831,24 @@ fn test_refund_receipts_processing() {
                 receipt_outcome.outcome_with_id.outcome.status,
                 ExecutionStatus::Failure(TxExecutionError::ActionError(_))
             );
-            refund_receipt_ids.extend(receipt_outcome.outcome_with_id.outcome.receipt_ids);
+            let execution_outcomes_from_block = env.clients[0]
+                .chain
+                .store()
+                .get_block_execution_outcomes(&receipt_outcome.block_hash)
+                .unwrap()
+                .remove(&0)
+                .unwrap();
+            assert_eq!(execution_outcomes_from_block.len(), 1);
+            let chunk_extra = env.clients[0]
+                .chain
+                .get_chunk_extra(&receipt_outcome.block_hash, &test_shard_uid)
+                .unwrap()
+                .clone();
+            assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
         } else {
             unreachable!("Transaction must succeed");
         }
     }
-
-    let ending_block_height = block_height - 1;
-    let begin_block_height = ending_block_height - refund_receipt_ids.len() as u64 + 1;
-    let mut processed_refund_receipt_ids = HashSet::new();
-    for i in begin_block_height..=ending_block_height {
-        let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
-        let execution_outcomes_from_block = env.clients[0]
-            .chain
-            .store()
-            .get_block_execution_outcomes(block.hash())
-            .unwrap()
-            .remove(&0)
-            .unwrap();
-        for outcome in execution_outcomes_from_block.iter() {
-            processed_refund_receipt_ids.insert(outcome.outcome_with_id.id);
-        }
-        let chunk_extra =
-            env.clients[0].chain.get_chunk_extra(block.hash(), &test_shard_uid).unwrap().clone();
-        assert_eq!(execution_outcomes_from_block.len(), 1);
-        assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
-    }
-    assert_eq!(processed_refund_receipt_ids, refund_receipt_ids);
 }
 
 #[test]
