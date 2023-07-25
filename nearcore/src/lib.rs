@@ -391,8 +391,8 @@ pub fn start_with_config_and_synchronization(
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
         let entity_debug_handler = EntityDebugHandlerImpl {
-            epoch_manager: view_epoch_manager.clone(),
-            runtime: view_runtime.clone(),
+            epoch_manager: view_epoch_manager,
+            runtime: view_runtime,
             store: hot_store,
         };
         rpc_servers.extend(near_jsonrpc::start_http(
