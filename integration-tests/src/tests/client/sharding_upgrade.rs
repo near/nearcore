@@ -234,7 +234,6 @@ impl TestShardUpgradeEnv {
                 .get_shard_layout_from_prev_block(block.hash())
                 .unwrap()
                 .num_shards();
-            tracing::info!(height, num_shards, expected_num_shards, "num shards");
             assert_eq!(num_shards, expected_num_shards);
         }
 
