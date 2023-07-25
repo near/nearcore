@@ -68,7 +68,7 @@ pub fn get_prev_block_with_changes(
     prev_hash: CryptoHash,
 ) -> FlatStorageResult<Option<PrevBlockWithChanges>> {
     let prev_delta_metadata = get_delta_metadata(store, shard_uid, prev_hash)?;
-    let prev_delta_metadata = match prev_delta_metadata {
+    let prev_block_with_changes = match prev_delta_metadata {
         None => {
             // DeltaMetadata not found, which means the prev block is the flat head.
             let flat_storage_status = get_flat_storage_status(store, shard_uid)?;
@@ -81,11 +81,8 @@ pub fn get_prev_block_with_changes(
                         None
                     }
                 }
-                _ => {
-                    return Err(FlatStorageError::StorageInternalError(
-                        "Flat Storage not ready".to_string(),
-                    ));
-                }
+                // Don't do any performance optimizations while flat storage is not ready.
+                _ => None,
             }
         }
         Some(metadata) => {
@@ -97,7 +94,7 @@ pub fn get_prev_block_with_changes(
             }))
         }
     };
-    Ok(prev_delta_metadata)
+    Ok(prev_block_with_changes)
 }
 
 pub fn set_delta(store_update: &mut StoreUpdate, shard_uid: ShardUId, delta: &FlatStateDelta) {
