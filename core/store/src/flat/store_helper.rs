@@ -46,6 +46,7 @@ pub fn get_all_deltas_metadata(
         .collect()
 }
 
+/// Retrieves a row of `FlatStateDeltaMetadata` for the given key.
 pub fn get_delta_metadata(
     store: &Store,
     shard_uid: ShardUId,

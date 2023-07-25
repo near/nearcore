@@ -207,6 +207,10 @@ pub fn migrate_36_to_37(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Migrates the database from version 37 to 38.
+///
+/// Rewrites FlatStateDeltaMetadata to add a bit to Metadata, `compression_info`.
+/// That bit is initialized with a `None` regardless of the corresponding flat state changes.
 pub fn migrate_37_to_38(store: &Store) -> anyhow::Result<()> {
     #[derive(borsh::BorshDeserialize)]
     struct LegacyFlatStateDeltaMetadata {
