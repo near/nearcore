@@ -700,7 +700,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             near_store::get(&state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
         let min_fee = runtime_config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
         let new_receipt_count_limit = if min_fee > 0 {
-            let max_processed_receipts_in_chunk = gas_limit / min_fee;
+            // Round up to include at least one receipt.
+            let max_processed_receipts_in_chunk = (gas_limit + min_fee - 1) / min_fee;
             max_processed_receipts_in_chunk.saturating_sub(delayed_receipts_indices.len()) as usize
         } else {
             usize::MAX
