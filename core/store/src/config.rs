@@ -85,18 +85,26 @@ pub struct StoreConfig {
     /// Number of threads to execute storage background migrations.
     /// Needed to create flat storage which need to happen in parallel
     /// with block processing.
+    /// TODO (#8826): remove, because creation successfully happened in 1.34.
     pub background_migration_threads: usize,
 
     /// Enables background flat storage creation.
+    /// TODO (#8826): remove, because creation successfully happened in 1.34.
     pub flat_storage_creation_enabled: bool,
 
     /// Duration to perform background flat storage creation step. Defines how
     /// frequently we check creation status and execute work related to it in
     /// main thread (scheduling and collecting state parts, catching up blocks, etc.).
+    /// TODO (#8826): remove, because creation successfully happened in 1.34.
     pub flat_storage_creation_period: Duration,
 
     /// Enables state snapshot at the beginning of epochs.
+    /// Needed if a node wants to be able to respond to state part requests.
     pub state_snapshot_enabled: bool,
+
+    // State Snapshot compaction usually is a good thing.
+    // It makes state snapshots tiny (10GB) over the course of an epoch.
+    pub state_snapshot_compaction_enabled: bool,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -236,7 +244,12 @@ impl Default for StoreConfig {
             // flat storage head quickly. State read work is much more expensive.
             flat_storage_creation_period: Duration::from_secs(1),
 
-            state_snapshot_enabled: true,
+            // State Snapshots involve filesystem operations and costly IO operations.
+            // Let's keep it disabled by default for now.
+            state_snapshot_enabled: false,
+
+            // Compaction involves a lot of IO and takes considerable amount of time.
+            state_snapshot_compaction_enabled: false,
         }
     }
 }

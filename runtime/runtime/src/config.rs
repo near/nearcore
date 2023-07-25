@@ -1,6 +1,6 @@
 //! Settings of the parameters of the runtime.
 
-use near_vm_logic::ActionCosts;
+use near_vm_runner::logic::ActionCosts;
 use num_bigint::BigUint;
 use num_traits::cast::ToPrimitive;
 use num_traits::pow::Pow;

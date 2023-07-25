@@ -9,17 +9,20 @@ license.workspace = true
 publish = false
 
 [dependencies]
+actix.workspace = true
 ansi_term.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 chrono.workspace = true
 clap.workspace = true
+cloud-storage.workspace = true
 itertools.workspace = true
 once_cell.workspace = true
 rand.workspace = true
 rayon.workspace = true
 redis.workspace = true
 regex.workspace = true
+reqwest.workspace = true
 rust-s3.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -54,7 +57,29 @@ sandbox = [
   "near-client/sandbox",
 ]
 nightly = [
-    "nightly_protocol",
-    "nearcore/nightly"
+  "nightly_protocol",
+  "near-chain-configs/nightly",
+  "near-chain/nightly",
+  "near-client/nightly",
+  "near-epoch-manager/nightly",
+  "near-network/nightly",
+  "near-o11y/nightly",
+  "near-primitives-core/nightly",
+  "near-primitives/nightly",
+  "near-store/nightly",
+  "nearcore/nightly",
+  "node-runtime/nightly",
 ]
-nightly_protocol = ["nearcore/nightly_protocol"]
+nightly_protocol = [
+  "near-chain-configs/nightly_protocol",
+  "near-chain/nightly_protocol",
+  "near-client/nightly_protocol",
+  "near-epoch-manager/nightly_protocol",
+  "near-network/nightly_protocol",
+  "near-o11y/nightly_protocol",
+  "near-primitives-core/nightly_protocol",
+  "near-primitives/nightly_protocol",
+  "near-store/nightly_protocol",
+  "nearcore/nightly_protocol",
+  "node-runtime/nightly_protocol",
+]

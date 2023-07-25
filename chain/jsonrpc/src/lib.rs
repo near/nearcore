@@ -811,6 +811,10 @@ impl JsonRpcHandler {
                         )
                         .await?
                         .rpc_into(),
+                    "/debug/api/network_routes" => self
+                        .peer_manager_send(near_network::debug::GetDebugStatus::Routes)
+                        .await?
+                        .rpc_into(),
                     _ => return Ok(None),
                 };
             Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {

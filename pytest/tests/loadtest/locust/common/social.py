@@ -2,6 +2,7 @@ from abc import abstractmethod
 import json
 import sys
 import pathlib
+import typing
 import unittest
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
@@ -10,32 +11,18 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
 import transaction
 
 from account import TGAS, NEAR_BASE
-import cluster
 import key
-from common.base import Account, CreateSubAccount, Deploy, NearNodeProxy, Transaction
+from common.base import Account, Deploy, NearNodeProxy, Transaction, FunctionCall, INIT_DONE
 from locust import events, runners
 from transaction import create_function_call_action
 
 
-class SocialDbSet(Transaction):
+class SocialDbSet(FunctionCall):
 
     def __init__(self, contract_id: str, sender: Account):
-        super().__init__()
+        super().__init__(sender, contract_id, "set")
         self.contract_id = contract_id
         self.sender = sender
-
-    @abstractmethod
-    def build_args(self) -> str:
-        """Returns arguments for the transaction function call."""
-
-    def sign_and_serialize(self, block_hash) -> bytes:
-        args = self.build_args()
-        return transaction.sign_function_call_tx(self.sender.key,
-                                                 self.contract_id, "set",
-                                                 args.encode('utf-8'),
-                                                 300 * TGAS, 0,
-                                                 self.sender.use_nonce(),
-                                                 block_hash)
 
     def sender_account(self) -> Account:
         return self.sender
@@ -47,18 +34,18 @@ class SubmitPost(SocialDbSet):
         super().__init__(contract_id, sender)
         self.content = content
 
-    def build_args(self) -> str:
+    def args(self) -> dict:
         return social_post_args(self.sender.key.account_id, self.content)
 
 
 class Follow(SocialDbSet):
 
     def __init__(self, contract_id: str, sender: Account,
-                 follow_list: list[str]):
+                 follow_list: typing.List[str]):
         super().__init__(contract_id, sender)
         self.follow_list = follow_list
 
-    def build_args(self) -> str:
+    def args(self) -> dict:
         follow_list = self.follow_list
         sender = self.sender.key.account_id
         return social_follow_args(sender, follow_list)
@@ -90,7 +77,7 @@ class InitSocialDB(Transaction):
         return self.contract
 
 
-class InitSocialDbAccount(Transaction):
+class InitSocialDbAccount(FunctionCall):
     """
     Send initial storage balance to ensure the account can use social DB.
 
@@ -99,19 +86,15 @@ class InitSocialDbAccount(Transaction):
     """
 
     def __init__(self, contract_id: str, account: Account):
-        super().__init__()
+        super().__init__(account,
+                         contract_id,
+                         "storage_deposit",
+                         balance=1 * NEAR_BASE)
         self.contract_id = contract_id
         self.account = account
 
-    def sign_and_serialize(self, block_hash) -> bytes:
-        args = json.dumps({"account_id": self.account.key.account_id})
-        return transaction.sign_function_call_tx(self.account.key,
-                                                 self.contract_id,
-                                                 "storage_deposit",
-                                                 args.encode('utf-8'),
-                                                 300 * TGAS, 1 * NEAR_BASE,
-                                                 self.account.use_nonce(),
-                                                 block_hash)
+    def args(self) -> dict:
+        return {"account_id": self.account.key.account_id}
 
     def sender_account(self) -> Account:
         return self.account
@@ -136,7 +119,7 @@ def social_db_build_index_obj(key_list_pairs: dict) -> dict:
     A dict instead of a list of tuples doesn't work because keys can be duplicated.
     """
 
-    def serialize_values(values: list[tuple[str, dict]]):
+    def serialize_values(values: typing.List[typing.Tuple[str, dict]]):
         return json.dumps([{"key": k, "value": v} for k, v in values])
 
     return {
@@ -144,7 +127,7 @@ def social_db_build_index_obj(key_list_pairs: dict) -> dict:
     }
 
 
-def social_db_set_msg(sender: str, values: dict, index: dict) -> str:
+def social_db_set_msg(sender: str, values: dict, index: dict) -> dict:
     """
     Construct a SocialDB `set` function argument.
 
@@ -166,10 +149,10 @@ def social_db_set_msg(sender: str, values: dict, index: dict) -> str:
     updates = values.copy()
     updates["index"] = social_db_build_index_obj(index)
     msg = {"data": {sender: updates}}
-    return json.dumps(msg)
+    return msg
 
 
-def social_follow_args(sender: str, follow_list: list[str]) -> str:
+def social_follow_args(sender: str, follow_list: typing.List[str]) -> dict:
     follow_map = {}
     graph = []
     notify = []
@@ -187,7 +170,7 @@ def social_follow_args(sender: str, follow_list: list[str]) -> str:
     return social_db_set_msg(sender, values, index)
 
 
-def social_post_args(sender: str, text: str):
+def social_post_args(sender: str, text: str) -> dict:
     values = {"post": {"main": json.dumps({"type": "md", "text": text})}}
     index = {"post": [("main", {"type": "md"})]}
     msg = social_db_set_msg(sender, values, index)
@@ -199,8 +182,7 @@ class TestSocialDbSetMsg(unittest.TestCase):
     def test_follow(self):
         sender = "alice.near"
         follow_list = ["bob.near"]
-        msg = social_follow_args(sender, follow_list)
-        parsed_msg = json.loads(msg)
+        parsed_msg = social_follow_args(sender, follow_list)
         expected_msg = {
             "data": {
                 "alice.near": {
@@ -224,8 +206,7 @@ class TestSocialDbSetMsg(unittest.TestCase):
     def test_mass_follow(self):
         sender = "alice.near"
         follow_list = ["bob.near", "caroline.near", "david.near"]
-        msg = social_follow_args(sender, follow_list)
-        parsed_msg = json.loads(msg)
+        parsed_msg = social_follow_args(sender, follow_list)
         expected_msg = {
             "data": {
                 "alice.near": {
@@ -255,8 +236,7 @@ class TestSocialDbSetMsg(unittest.TestCase):
     def test_post(self):
         sender = "alice.near"
         text = "#Title\n\nbody"
-        msg = social_post_args(sender, text)
-        parsed_msg = json.loads(msg)
+        parsed_msg = social_post_args(sender, text)
         expected_msg = {
             "data": {
                 "alice.near": {
@@ -277,6 +257,7 @@ class TestSocialDbSetMsg(unittest.TestCase):
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
+    INIT_DONE.wait()
     # `master_funding_account` is the same on all runners, allowing to share a
     # single instance of SocialDB in its `social` sub account
     funding_account = environment.master_funding_account
@@ -284,24 +265,14 @@ def on_locust_init(environment, **kwargs):
 
     # Create SocialDB account, unless we are a worker, in which case the master already did it
     if not isinstance(environment.runner, runners.WorkerRunner):
-        if environment.parsed_options.social_db_wasm is None:
-            raise SystemExit(
-                f"Running SocialDB workload requires `--social_db_wasm $SOCIAL_CONTRACT`. "
-                "Provide the WASM (can be downloaded from https://github.com/NearSocial/social-db/tree/aa7fafaac92a7dd267993d6c210246420a561370/res)."
-            )
-
         social_contract_code = environment.parsed_options.social_db_wasm
         contract_key = key.Key.from_seed_testonly(environment.social_account_id)
         social_account = Account(contract_key)
 
         node = NearNodeProxy(environment)
-        if not node.account_exists(social_account.key.account_id):
-            node.send_tx_retry(
-                CreateSubAccount(funding_account,
-                                 social_account.key,
-                                 balance=50000.0),
-                "create socialDB funding account")
-            social_account.refresh_nonce(node.node)
+        existed = node.prepare_account(social_account, funding_account, 50000,
+                                       "create contract account")
+        if not existed:
             node.send_tx_retry(
                 Deploy(social_account, social_contract_code, "Social DB"),
                 "deploy socialDB contract")

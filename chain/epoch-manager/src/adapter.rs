@@ -795,6 +795,10 @@ impl EpochManagerAdapter for EpochManagerHandle {
         }
     }
 
+    /// Returns true if the header signature is signed by the assigned block producer and the block
+    /// producer is not slashed
+    /// This function requires that the previous block of `header` has been processed.
+    /// If not, it returns EpochError::MissingBlock.
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
         let epoch_manager = self.read();
         let block_producer =

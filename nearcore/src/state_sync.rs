@@ -3,10 +3,12 @@ use borsh::BorshSerialize;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation};
-use near_client::sync::state::{
-    external_storage_location, external_storage_location_directory, get_part_id_from_filename,
-    is_part_filename, ExternalConnection, StateSync, STATE_DUMP_ITERATION_TIME_LIMIT_SECS,
+use near_client::sync::external::{create_bucket_readwrite, external_storage_location};
+use near_client::sync::external::{
+    external_storage_location_directory, get_part_id_from_filename, is_part_filename,
+    ExternalConnection,
 };
+use near_client::sync::state::{StateSync, STATE_DUMP_ITERATION_TIME_LIMIT_SECS};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
@@ -16,6 +18,7 @@ use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot
 use near_store::DBCol;
 use rand::{thread_rng, Rng};
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -29,6 +32,7 @@ pub fn spawn_state_sync_dump(
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
     account_id: Option<AccountId>,
+    credentials_file: Option<PathBuf>,
 ) -> anyhow::Result<Option<StateSyncDumpHandle>> {
     let dump_config = if let Some(dump_config) = client_config.state_sync.dump.clone() {
         dump_config
@@ -40,23 +44,15 @@ pub fn spawn_state_sync_dump(
     tracing::info!(target: "state_sync_dump", "Spawning the state sync dump loop");
 
     let external = match dump_config.location {
-        ExternalStorageLocation::S3 { bucket, region } => {
-            // Credentials to establish a connection are taken from environment variables:
-            // * `AWS_ACCESS_KEY_ID`
-            // * `AWS_SECRET_ACCESS_KEY`
-            let creds = match s3::creds::Credentials::default() {
-                Ok(creds) => creds,
-                Err(err) => {
-                    tracing::error!(target: "state_sync_dump", "Failed to create a connection to S3. Did you provide environment variables AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY?");
-                    return Err(err.into());
-                }
-            };
-            let bucket = s3::Bucket::new(&bucket, region.parse::<s3::Region>()?, creds)?;
-            ExternalConnection::S3 { bucket: Arc::new(bucket) }
-        }
-        ExternalStorageLocation::Filesystem { root_dir } => {
-            ExternalConnection::Filesystem { root_dir }
-        }
+        ExternalStorageLocation::S3 { bucket, region } => ExternalConnection::S3{
+            bucket: Arc::new(create_bucket_readwrite(&bucket, &region, Duration::from_secs(30), credentials_file).expect(
+                "Failed to authenticate connection to S3. Please either provide AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or create a credentials file and link it in config.json as 's3_credentials_file'."))
+        },
+        ExternalStorageLocation::Filesystem { root_dir } => ExternalConnection::Filesystem { root_dir },
+        ExternalStorageLocation::GCS { bucket } => ExternalConnection::GCS {
+            gcs_client: Arc::new(cloud_storage::Client::default()),
+            reqwest_client: Arc::new(reqwest::Client::default()),
+            bucket },
     };
 
     // Determine how many threads to start.
@@ -182,7 +178,7 @@ fn get_current_state(
     epoch_manager: Arc<dyn EpochManagerAdapter>,
 ) -> Result<Option<(EpochId, EpochHeight, CryptoHash)>, Error> {
     let was_last_epoch_dumped = match chain.store().get_state_sync_dump_progress(*shard_id) {
-        Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, .. })) => Some(epoch_id),
+        Ok(StateSyncDumpProgress::AllDumped { epoch_id, .. }) => Some(epoch_id),
         _ => None,
     };
 
@@ -346,11 +342,7 @@ async fn state_sync_dump(
                                         &shard_id,
                                         epoch_height,
                                         Some(state_part.len()),
-                                        num_parts
-                                            .checked_sub(
-                                                parts_to_dump.len().checked_add(1).unwrap() as u64,
-                                            )
-                                            .unwrap(),
+                                        num_parts.checked_sub(parts_to_dump.len() as u64).unwrap(),
                                         num_parts,
                                     );
                                     dumped_any_state_part = true;
@@ -496,7 +488,8 @@ fn get_latest_epoch(
     let header = chain.get_block_header(&hash)?;
     let final_hash = header.last_final_block();
     let sync_hash = StateSync::get_epoch_start_sync_hash(chain, final_hash)?;
-    let epoch_id = head.epoch_id;
+    let final_block_header = chain.get_block_header(&final_hash)?;
+    let epoch_id = final_block_header.epoch_id().clone();
     let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
     let epoch_height = epoch_info.epoch_height();
     tracing::debug!(target: "state_sync_dump", ?final_hash, ?sync_hash, ?epoch_id, epoch_height, "get_latest_epoch");

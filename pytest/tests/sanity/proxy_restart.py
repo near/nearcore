@@ -14,9 +14,10 @@ import utils
 
 TARGET_HEIGHT = 20
 
-nodes = start_cluster(2, 0, 1, None, [], {}, ProxyHandler)
+if __name__ == '__main__':
+    nodes = start_cluster(2, 0, 1, None, [], {}, ProxyHandler)
 
-nodes[1].kill()
-nodes[1].start(boot_node=nodes[0])
+    nodes[1].kill()
+    nodes[1].start(boot_node=nodes[0])
 
-utils.wait_for_blocks(nodes[1], target=TARGET_HEIGHT)
+    utils.wait_for_blocks(nodes[1], target=TARGET_HEIGHT)

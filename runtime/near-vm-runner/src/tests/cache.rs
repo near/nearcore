@@ -3,6 +3,10 @@
 
 use super::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
 use crate::internal::VMKind;
+use crate::logic::errors::VMRunnerError;
+use crate::logic::mocks::mock_external::MockedExternal;
+use crate::logic::VMConfig;
+use crate::logic::{CompiledContract, CompiledContractCache};
 use crate::runner::VMResult;
 use crate::wasmer2_runner::Wasmer2VM;
 use crate::{prepare, MockCompiledContractCache};
@@ -10,11 +14,6 @@ use assert_matches::assert_matches;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
-use near_stable_hasher::StableHasher;
-use near_vm_errors::{CompiledContract, CompiledContractCache, VMRunnerError};
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::VMConfig;
-use std::hash::{Hash, Hasher};
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use wasmer_compiler::{CpuFeature, Target};
@@ -62,7 +61,7 @@ fn test_does_not_cache_io_error() {
             make_cached_contract_call_vm(&config, &cache, &code, "main", prepaid_gas, vm_kind);
         assert_matches!(
             result.err(),
-            Some(VMRunnerError::CacheError(near_vm_errors::CacheError::ReadError(_)))
+            Some(VMRunnerError::CacheError(crate::logic::errors::CacheError::ReadError(_)))
         );
 
         cache.set_write_fault(true);
@@ -70,7 +69,7 @@ fn test_does_not_cache_io_error() {
             make_cached_contract_call_vm(&config, &cache, &code, "main", prepaid_gas, vm_kind);
         assert_matches!(
             result.err(),
-            Some(VMRunnerError::CacheError(near_vm_errors::CacheError::WriteError(_)))
+            Some(VMRunnerError::CacheError(crate::logic::errors::CacheError::WriteError(_)))
         );
     })
 }
@@ -121,13 +120,13 @@ fn test_wasmer2_artifact_output_stability() {
     ];
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let compiled_hashes = [
-        16241863964906842660,
-        9891733092817574479,
-        17353479639813695155,
-        14282522049460604929,
-        10549554738494211661,
-        15523181531223292814,
-        1999054137996096555,
+        10064221885882795403,
+        3125775751094251057,
+        10028445138356098295,
+        12076298193069645776,
+        5262356478082097591,
+        15002713309850850128,
+        17666356303775050986,
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {
@@ -136,9 +135,7 @@ fn test_wasmer2_artifact_output_stability() {
         let config = VMConfig::test();
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::Wasmer2).unwrap();
-        let mut hasher = StableHasher::new();
-        (&contract.code(), &prepared_code).hash(&mut hasher);
-        got_prepared_hashes.push(hasher.finish());
+        got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));
 
         let mut features = CpuFeature::set();
         features.insert(CpuFeature::AVX);
@@ -147,9 +144,7 @@ fn test_wasmer2_artifact_output_stability() {
         let vm = Wasmer2VM::new_for_target(config, target);
         let artifact = vm.compile_uncached(&contract).unwrap();
         let serialized = artifact.serialize().unwrap();
-        let mut hasher = StableHasher::new();
-        serialized.hash(&mut hasher);
-        let this_hash = hasher.finish();
+        let this_hash = crate::utils::stable_hash(&serialized);
         got_compiled_hashes.push(this_hash);
 
         std::fs::write(format!("/tmp/artifact{}", this_hash), serialized).unwrap();
@@ -179,7 +174,6 @@ fn test_wasmer2_artifact_output_stability() {
 fn test_near_vm_artifact_output_stability() {
     use crate::near_vm_runner::NearVM;
     use near_vm_compiler::{CpuFeature, Target};
-    use near_vm_engine::Executable;
     // If this test has failed, you want to adjust the necessary constants so that `cache::vm_hash`
     // changes (and only then the hashes here).
     //
@@ -197,13 +191,13 @@ fn test_near_vm_artifact_output_stability() {
     ];
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let compiled_hashes = [
-        11507498784243099762,
-        14031545576101638739,
-        2630687984789910827,
-        15828343131478480720,
-        6078633865191114650,
-        1749545310758671460,
-        15841184848317093324,
+        4853457605418485197,
+        13732980080772388685,
+        13113947215618315585,
+        14806575926393320657,
+        12949634280637067071,
+        6571507299571270433,
+        2426595065881413005,
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {
@@ -212,9 +206,7 @@ fn test_near_vm_artifact_output_stability() {
         let config = VMConfig::test();
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::NearVm).unwrap();
-        let mut hasher = StableHasher::new();
-        (&contract.code(), &prepared_code).hash(&mut hasher);
-        got_prepared_hashes.push(hasher.finish());
+        got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));
 
         let mut features = CpuFeature::set();
         features.insert(CpuFeature::AVX);
@@ -223,9 +215,7 @@ fn test_near_vm_artifact_output_stability() {
         let vm = NearVM::new_for_target(config, target);
         let artifact = vm.compile_uncached(&contract).unwrap();
         let serialized = artifact.serialize().unwrap();
-        let mut hasher = StableHasher::new();
-        serialized.hash(&mut hasher);
-        let this_hash = hasher.finish();
+        let this_hash = crate::utils::stable_hash(&serialized);
         got_compiled_hashes.push(this_hash);
 
         std::fs::write(format!("/tmp/artifact{}", this_hash), serialized).unwrap();

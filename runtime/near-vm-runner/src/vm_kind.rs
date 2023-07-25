@@ -1,6 +1,6 @@
+use crate::logic::ProtocolVersion;
 use borsh::BorshSerialize;
 use near_primitives_core::checked_feature;
-use near_vm_logic::ProtocolVersion;
 use std::hash::Hash;
 
 // Note, that VMKind is part of serialization protocol, so we cannot remove entries from this list

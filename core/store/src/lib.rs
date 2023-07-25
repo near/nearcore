@@ -13,10 +13,10 @@ use strum;
 
 pub use columns::DBCol;
 pub use db::{
-    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
+    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
+    GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
+    LATEST_KNOWN_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
 };
-pub use genesis_state_applier::GenesisStateApplier;
 use near_crypto::PublicKey;
 use near_fmt::{AbbrBytes, StorageKey};
 use near_primitives::account::{AccessKey, Account};
@@ -27,12 +27,9 @@ use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, StateRoot};
-use near_vm_errors::{CompiledContract, CompiledContractCache};
+use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
 
-use crate::db::{
-    refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics,
-    GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
-};
+use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics};
 pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
@@ -48,7 +45,6 @@ pub mod config;
 pub mod db;
 pub mod flat;
 pub mod genesis;
-pub mod genesis_state_applier;
 pub mod metadata;
 pub mod metrics;
 pub mod migrations;
@@ -1014,7 +1010,7 @@ mod tests {
     /// Check StoreCompiledContractCache implementation.
     #[test]
     fn test_store_compiled_contract_cache() {
-        use near_vm_errors::{CompiledContract, CompiledContractCache};
+        use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
         use std::str::FromStr;
 
         let store = crate::test_utils::create_test_store();

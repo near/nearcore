@@ -1,11 +1,11 @@
 use crate::internal::VMKind;
+use crate::logic::{mocks::mock_external::MockedExternal, ProtocolVersion, VMContext, VMOutcome};
 use near_primitives::runtime::{config_store::RuntimeConfigStore, fees::RuntimeFeesConfig};
 use near_primitives_core::{
     contract::ContractCode,
     types::Gas,
     version::{ProtocolFeature, PROTOCOL_VERSION},
 };
-use near_vm_logic::{mocks::mock_external::MockedExternal, ProtocolVersion, VMContext, VMOutcome};
 use std::{collections::HashSet, fmt::Write};
 
 pub(crate) fn test_builder() -> TestBuilder {
@@ -254,9 +254,9 @@ fn fmt_outcome_without_abort(
     out: &mut dyn std::fmt::Write,
 ) -> std::fmt::Result {
     let return_data_str = match &outcome.return_data {
-        near_vm_logic::ReturnData::None => "None".to_string(),
-        near_vm_logic::ReturnData::ReceiptIndex(_) => "Receipt".to_string(),
-        near_vm_logic::ReturnData::Value(v) => format!("Value [{} bytes]", v.len()),
+        crate::logic::ReturnData::None => "None".to_string(),
+        crate::logic::ReturnData::ReceiptIndex(_) => "Receipt".to_string(),
+        crate::logic::ReturnData::Value(v) => format!("Value [{} bytes]", v.len()),
     };
     write!(
         out,

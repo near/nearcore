@@ -33,6 +33,7 @@ config = load_config()
 node_config = {
     "tracked_shards": [0],
     "state_sync_enabled": True,
+    "store.state_snapshot_enabled": True,
 }
 
 near_root, node_dirs = init_cluster(

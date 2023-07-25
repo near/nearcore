@@ -75,7 +75,9 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
+use near_primitives_core::types::ShardId;
 use near_store::cold_storage::{update_cold_db, update_cold_head};
+use near_store::genesis::initialize_genesis_state;
 use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
@@ -1286,16 +1288,13 @@ fn test_bad_orphan() {
         // Orphan block with a valid header, but garbage in body
         let mut block = env.clients[0].produce_block(8).unwrap().unwrap();
         {
+            let block = block.get_mut();
             // Change the chunk in any way, chunk_headers_root won't match
-            let body = match &mut block {
-                Block::BlockV1(_) => unreachable!(),
-                Block::BlockV2(body) => Arc::make_mut(body),
-            };
-            let chunk = match &mut body.chunks[0] {
-                ShardChunkHeader::V1(_) => unreachable!(),
-                ShardChunkHeader::V2(_) => unreachable!(),
-                ShardChunkHeader::V3(chunk) => chunk,
-            };
+            #[cfg(feature = "protocol_feature_block_header_v4")]
+            let chunk = &mut block.body.chunks[0].get_mut();
+            #[cfg(not(feature = "protocol_feature_block_header_v4"))]
+            let chunk = &mut block.chunks[0].get_mut();
+
             match &mut chunk.inner {
                 ShardChunkHeaderInner::V1(inner) => inner.outcome_root = CryptoHash([1; 32]),
                 ShardChunkHeaderInner::V2(inner) => inner.outcome_root = CryptoHash([1; 32]),
@@ -1323,15 +1322,11 @@ fn test_bad_orphan() {
         let mut block = env.clients[0].produce_block(10).unwrap().unwrap();
         let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
         {
-            let body = match &mut block {
-                Block::BlockV1(_) => unreachable!(),
-                Block::BlockV2(body) => Arc::make_mut(body),
-            };
-            let chunk = match &mut body.chunks[0] {
-                ShardChunkHeader::V1(_) => unreachable!(),
-                ShardChunkHeader::V2(_) => unreachable!(),
-                ShardChunkHeader::V3(chunk) => chunk,
-            };
+            // Change the chunk in any way, chunk_headers_root won't match
+            #[cfg(feature = "protocol_feature_block_header_v4")]
+            let chunk = block.get_mut().body.chunks[0].get_mut();
+            #[cfg(not(feature = "protocol_feature_block_header_v4"))]
+            let chunk = block.get_mut().chunks[0].get_mut();
             chunk.signature = some_signature;
             chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }
@@ -1830,9 +1825,10 @@ fn test_process_block_after_state_sync() {
             .open()
             .unwrap()
             .get_hot_store();
+        initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
-            NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+            NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
                 as Arc<dyn RuntimeAdapter>;
         (tmp_dir, store, epoch_manager, runtime)
     }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
@@ -2192,14 +2188,12 @@ fn test_incorrect_validator_key_produce_block() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     let chain_genesis = ChainGenesis::new(&genesis);
     let store = create_test_store();
+    let home_dir = Path::new("../../../..");
+    initialize_genesis_state(store.clone(), &genesis, Some(home_dir));
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
     let shard_tracker = ShardTracker::new(TrackedConfig::new_empty(), epoch_manager.clone());
-    let runtime = nearcore::NightshadeRuntime::test(
-        Path::new("../../../.."),
-        store,
-        &genesis,
-        epoch_manager.clone(),
-    );
+    let runtime =
+        nearcore::NightshadeRuntime::test(home_dir, store, &genesis.config, epoch_manager.clone());
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         "test0".parse().unwrap(),
         KeyType::ED25519,
@@ -2491,6 +2485,11 @@ fn test_validate_chunk_extra() {
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
         block.mut_header().get_mut().inner_lite.outcome_root =
             Block::compute_outcome_root(block.chunks().iter());
+        #[cfg(feature = "protocol_feature_block_header_v4")]
+        {
+            block.mut_header().get_mut().inner_rest.block_body_hash =
+                block.compute_block_body_hash().unwrap();
+        }
         block.mut_header().resign(&validator_signer);
         let res = env.clients[0].process_block_test(block.clone().into(), Provenance::NONE);
         assert_matches!(res.unwrap_err(), near_chain::Error::ChunksMissing(_));
@@ -2586,9 +2585,10 @@ fn test_catchup_gas_price_change() {
             .open()
             .unwrap()
             .get_hot_store();
+        initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
-            NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+            NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
                 as Arc<dyn RuntimeAdapter>;
         (tmp_dir, store, epoch_manager, runtime)
     }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
@@ -2666,12 +2666,13 @@ fn test_catchup_gas_price_change() {
         use borsh::BorshSerialize;
         let store = rt.store();
 
+        let shard_id = msg.shard_uid.shard_id as ShardId;
         for part_id in 0..msg.num_parts {
-            let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec().unwrap();
+            let key = StatePartKey(msg.sync_hash, shard_id, part_id).try_to_vec().unwrap();
             let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
 
             rt.apply_state_part(
-                msg.shard_id,
+                shard_id,
                 &msg.state_root,
                 PartId::new(part_id, msg.num_parts),
                 &part,
@@ -2744,6 +2745,7 @@ fn test_block_execution_outcomes() {
     assert_eq!(chunk.transactions().len(), 3);
     let execution_outcomes_from_block = env.clients[0]
         .chain
+        .store()
         .get_block_execution_outcomes(block.hash())
         .unwrap()
         .remove(&0)
@@ -2764,6 +2766,7 @@ fn test_block_execution_outcomes() {
     assert!(next_chunk.receipts().is_empty());
     let execution_outcomes_from_block = env.clients[0]
         .chain
+        .store()
         .get_block_execution_outcomes(next_block.hash())
         .unwrap()
         .remove(&0)
@@ -2875,6 +2878,7 @@ fn test_refund_receipts_processing() {
         let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
         let execution_outcomes_from_block = env.clients[0]
             .chain
+            .store()
             .get_block_execution_outcomes(block.hash())
             .unwrap()
             .remove(&0)
@@ -3336,9 +3340,9 @@ fn test_not_broadcast_block_on_accept() {
 }
 
 #[test]
-#[should_panic]
-// TODO (#3729): reject header version downgrade
+#[cfg_attr(not(feature = "protocol_feature_block_header_v4"), should_panic)]
 fn test_header_version_downgrade() {
+    init_test_logger();
     use borsh::ser::BorshSerialize;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = 5;
@@ -3594,9 +3598,9 @@ mod contract_precompilation_tests {
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_primitives::views::ViewApplyState;
     use near_store::{Store, StoreCompiledContractCache, TrieUpdate};
-    use near_vm_errors::CompiledContractCache;
     use near_vm_runner::get_contract_cache_key;
     use near_vm_runner::internal::VMKind;
+    use near_vm_runner::logic::CompiledContractCache;
     use node_runtime::state_viewer::TrieViewer;
 
     const EPOCH_LENGTH: u64 = 25;
@@ -3639,9 +3643,10 @@ mod contract_precompilation_tests {
                 .open()
                 .unwrap()
                 .get_hot_store();
+            initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
             let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
             let runtime =
-                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
                     as Arc<dyn RuntimeAdapter>;
             (tmp_dir, store, epoch_manager, runtime)
         }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
@@ -3752,9 +3757,10 @@ mod contract_precompilation_tests {
                 .open()
                 .unwrap()
                 .get_hot_store();
+            initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
             let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
             let runtime =
-                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
                     as Arc<dyn RuntimeAdapter>;
             (tmp_dir, store, epoch_manager, runtime)
         }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
@@ -3849,9 +3855,10 @@ mod contract_precompilation_tests {
                 .open()
                 .unwrap()
                 .get_hot_store();
+            initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
             let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
             let runtime =
-                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
                     as Arc<dyn RuntimeAdapter>;
             (tmp_dir, store, epoch_manager, runtime)
         }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();

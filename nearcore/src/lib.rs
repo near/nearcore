@@ -21,6 +21,7 @@ use near_epoch_manager::EpochManager;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
 use near_store::flat::FlatStateValuesInliningMigrationHandle;
+use near_store::genesis::initialize_genesis_state;
 use near_store::metadata::DbKind;
 use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
@@ -232,6 +233,11 @@ pub fn start_with_config_and_synchronization(
         config.client_config.log_summary_period,
     )?;
 
+    // Initialize genesis_state in store either from genesis config or dump before other components.
+    // We only initialize if the genesis state is not already initialized in store.
+    // This sets up genesis_state_roots and genesis_hash in store.
+    initialize_genesis_state(storage.get_hot_store(), &config.genesis, Some(home_dir));
+
     let epoch_manager =
         EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config);
     let shard_tracker =
@@ -304,7 +310,11 @@ pub fn start_with_config_and_synchronization(
         if let (Some(flat_storage_manager), Some(state_snapshot_actor)) =
             (runtime.get_flat_storage_manager(), state_snapshot_actor)
         {
-            Some(get_make_snapshot_callback(state_snapshot_actor, flat_storage_manager))
+            Some(get_make_snapshot_callback(
+                state_snapshot_actor,
+                flat_storage_manager,
+                config.config.store.state_snapshot_compaction_enabled,
+            ))
         } else {
             None
         };
@@ -348,6 +358,7 @@ pub fn start_with_config_and_synchronization(
             None
         };
 
+    let credentials_file = config.config.s3_credentials_file;
     let state_sync_dump_handle = spawn_state_sync_dump(
         &config.client_config,
         chain_genesis,
@@ -355,6 +366,7 @@ pub fn start_with_config_and_synchronization(
         shard_tracker,
         runtime,
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
+        credentials_file.map(|filename| home_dir.join(filename)),
     )?;
 
     #[allow(unused_mut)]

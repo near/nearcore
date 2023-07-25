@@ -1,0 +1,43 @@
+[package]
+name = "near-fork-network"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+strum.workspace = true
+tracing.workspace = true
+
+near-chain.workspace = true
+near-chain-configs.workspace = true
+near-crypto.workspace = true
+near-epoch-manager.workspace = true
+near-store.workspace = true
+nearcore.workspace = true
+near-primitives.workspace = true
+
+[features]
+nightly = [
+  "nightly_protocol",
+  "near-chain-configs/nightly",
+  "near-chain/nightly",
+  "near-epoch-manager/nightly",
+  "near-primitives/nightly",
+  "near-store/nightly",
+  "nearcore/nightly",
+]
+nightly_protocol = [
+  "near-chain-configs/nightly_protocol",
+  "near-chain/nightly_protocol",
+  "near-epoch-manager/nightly_protocol",
+  "near-primitives/nightly_protocol",
+  "near-store/nightly_protocol",
+  "nearcore/nightly_protocol",
+]

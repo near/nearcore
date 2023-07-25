@@ -65,6 +65,7 @@ pub enum ReasonForBan {
     InvalidPeerId = 8,
     InvalidHash = 9,
     InvalidEdge = 10,
+    InvalidDistanceVector = 11,
     Blacklisted = 14,
 }
 

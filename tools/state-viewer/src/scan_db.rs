@@ -1,17 +1,20 @@
 use borsh::BorshDeserialize;
+use near_chain::types::LatestKnown;
 use near_epoch_manager::types::EpochInfoAggregator;
-use near_primitives::block::{Block, BlockHeader};
+use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{get_block_shard_uid_rev, ShardUId};
-use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
+use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, StateSyncInfo};
 use near_primitives::state::FlatStateValue;
-use near_primitives::syncing::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
+use near_primitives::syncing::{
+    ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, StateSyncDumpProgress,
+};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::EpochId;
+use near_primitives::types::{EpochId, StateRoot};
 use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash_rev};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
@@ -84,8 +87,7 @@ fn format_key_and_value<'a>(
         ),
         DBCol::BlockMisc => (
             Box::new(String::from_utf8_lossy(key).to_string()),
-            // TODO: Show some values as strings and some as uints.
-            Box::new(value.to_vec()),
+            format_block_misc_value(key, value),
         ),
         DBCol::BlockRefCount => (
             Box::new(CryptoHash::try_from(key).unwrap()),
@@ -150,6 +152,14 @@ fn format_key_and_value<'a>(
             Box::new(BlockHeight::try_from_slice(key).unwrap()),
             Box::new(HashSet::<CryptoHash>::try_from_slice(value).unwrap()),
         ),
+        DBCol::IncomingReceipts => (
+            Box::new(get_block_shard_id_rev(key).unwrap()),
+            Box::new(Vec::<ReceiptProof>::try_from_slice(value).unwrap()),
+        ),
+        DBCol::OutgoingReceipts => (
+            Box::new(get_block_shard_id_rev(key).unwrap()),
+            Box::new(Vec::<Receipt>::try_from_slice(value).unwrap()),
+        ),
         DBCol::OutcomeIds => (
             Box::new(get_block_shard_id_rev(key).unwrap()),
             Box::new(Vec::<CryptoHash>::try_from_slice(value).unwrap()),
@@ -205,5 +215,32 @@ fn format_key_and_value<'a>(
             Box::new(TrieChanges::try_from_slice(value).unwrap()),
         ),
         _ => (Box::new(key), Box::new(value)),
+    }
+}
+
+fn format_block_misc_value<'a>(key: &'a [u8], value: &'a [u8]) -> Box<dyn Debug + 'a> {
+    if key == near_store::HEAD_KEY
+        || key == near_store::HEADER_HEAD_KEY
+        || key == near_store::FINAL_HEAD_KEY
+        || key == near_store::COLD_HEAD_KEY
+        || key == b"SYNC_HEAD"
+    {
+        Box::new(Tip::try_from_slice(value).unwrap())
+    } else if key == near_store::TAIL_KEY
+        || key == near_store::CHUNK_TAIL_KEY
+        || key == near_store::FORK_TAIL_KEY
+        || key == near_store::LARGEST_TARGET_HEIGHT_KEY
+    {
+        Box::new(BlockHeight::try_from_slice(value).unwrap())
+    } else if key == near_store::LATEST_KNOWN_KEY {
+        Box::new(LatestKnown::try_from_slice(value).unwrap())
+    } else if key == near_store::GENESIS_JSON_HASH_KEY {
+        Box::new(CryptoHash::try_from(value).unwrap())
+    } else if key == near_store::GENESIS_STATE_ROOTS_KEY {
+        Box::new(Vec::<StateRoot>::try_from_slice(value).unwrap())
+    } else if key.starts_with(near_store::STATE_SYNC_DUMP_KEY) {
+        Box::new(StateSyncDumpProgress::try_from_slice(value).unwrap())
+    } else {
+        Box::new(value)
     }
 }

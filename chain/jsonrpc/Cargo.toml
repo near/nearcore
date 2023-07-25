@@ -42,8 +42,29 @@ test_features = [
   "near-jsonrpc-primitives/test_features",
   "near-jsonrpc-adversarial-primitives/test_features",
 ]
-nightly = ["nightly_protocol"]
-nightly_protocol = ["near-primitives/nightly_protocol"]
+nightly = [
+  "nightly_protocol",
+  "near-chain-configs/nightly",
+  "near-client-primitives/nightly",
+  "near-client/nightly",
+  "near-jsonrpc-adversarial-primitives/nightly",
+  "near-jsonrpc-client/nightly",
+  "near-jsonrpc-primitives/nightly",
+  "near-network/nightly",
+  "near-o11y/nightly",
+  "near-primitives/nightly",
+]
+nightly_protocol = [
+  "near-chain-configs/nightly_protocol",
+  "near-client-primitives/nightly_protocol",
+  "near-client/nightly_protocol",
+  "near-jsonrpc-adversarial-primitives/nightly_protocol",
+  "near-jsonrpc-client/nightly_protocol",
+  "near-jsonrpc-primitives/nightly_protocol",
+  "near-network/nightly_protocol",
+  "near-o11y/nightly_protocol",
+  "near-primitives/nightly_protocol",
+]
 sandbox = [
   "near-client/sandbox",
 ]

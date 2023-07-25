@@ -946,3 +946,23 @@ def load_config():
     else:
         logger.info(f"Use default config {config}")
     return config
+
+
+# Returns the protocol version of the binary.
+def get_binary_protocol_version(config) -> typing.Optional[int]:
+    binary_name = config.get('binary_name', 'neard')
+    near_root = config.get('near_root')
+    binary_path = os.path.join(near_root, binary_name)
+
+    # Get the protocol version of the binary
+    # The --version output looks like this:
+    # neard (release trunk) (build 1.1.0-3884-ge93793a61-modified) (rustc 1.71.0) (protocol 137) (db 37)
+    out = subprocess.check_output([binary_path, "--version"], text=True)
+    out = out.replace('(', '')
+    out = out.replace(')', '')
+    tokens = out.split()
+    n = len(tokens)
+    for i in range(n):
+        if tokens[i] == "protocol" and i + 1 < n:
+            return int(tokens[i + 1])
+    return None

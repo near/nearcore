@@ -92,6 +92,7 @@ pub enum StateSnapshotConfig {
         home_dir: PathBuf,
         hot_store_path: PathBuf,
         state_snapshot_subdir: PathBuf,
+        compaction_enabled: bool,
     },
 }
 
@@ -448,7 +449,12 @@ impl ShardTries {
                 tracing::info!(target: "state_snapshot", "State Snapshots are disabled");
                 Ok(())
             }
-            StateSnapshotConfig::Enabled { home_dir, hot_store_path, state_snapshot_subdir } => {
+            StateSnapshotConfig::Enabled {
+                home_dir,
+                hot_store_path,
+                state_snapshot_subdir,
+                compaction_enabled: _,
+            } => {
                 let _timer = metrics::MAKE_STATE_SNAPSHOT_ELAPSED.start_timer();
                 // `write()` lock is held for the whole duration of this function.
                 // Accessing the snapshot in other parts of the system will fail.
@@ -578,7 +584,12 @@ impl ShardTries {
                 tracing::debug!(target: "state_snapshot", "Disabled");
                 return Ok(());
             }
-            StateSnapshotConfig::Enabled { home_dir, hot_store_path, state_snapshot_subdir } => {
+            StateSnapshotConfig::Enabled {
+                home_dir,
+                hot_store_path,
+                state_snapshot_subdir,
+                compaction_enabled: _,
+            } => {
                 let path = Self::get_state_snapshot_base_dir(
                     &CryptoHash::new(),
                     &home_dir,
