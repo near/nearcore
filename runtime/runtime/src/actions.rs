@@ -21,7 +21,9 @@ use near_primitives::transaction::{
     FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode,
+};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
@@ -30,6 +32,7 @@ use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
     StorageError, TrieUpdate,
 };
+use near_vm_runner::logic::action::TransferActionV2;
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
@@ -342,7 +345,7 @@ pub(crate) fn try_refund_allowance(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
     public_key: &PublicKey,
-    transfer: &TransferAction,
+    deposit: Balance,
 ) -> Result<(), StorageError> {
     if let Some(mut access_key) = get_access_key(state_update, account_id, public_key)? {
         let mut updated = false;
@@ -350,7 +353,7 @@ pub(crate) fn try_refund_allowance(
             &mut access_key.permission
         {
             if let Some(allowance) = function_call_permission.allowance.as_mut() {
-                let new_allowance = allowance.saturating_add(transfer.deposit);
+                let new_allowance = allowance.saturating_add(deposit);
                 if new_allowance > *allowance {
                     *allowance = new_allowance;
                     updated = true;
@@ -371,6 +374,26 @@ pub(crate) fn action_transfer(
     account.set_amount(account.amount().checked_add(transfer.deposit).ok_or_else(|| {
         StorageError::StorageInconsistentState("Account balance integer overflow".to_string())
     })?);
+    Ok(())
+}
+
+pub(crate) fn action_transfer_v2(
+    account: &mut Account,
+    transfer: &TransferActionV2,
+) -> Result<(), StorageError> {
+    if transfer.nonrefundable {
+        account.set_nonrefundable(
+            account.nonrefundable().checked_add(transfer.deposit).ok_or_else(|| {
+                StorageError::StorageInconsistentState(
+                    "Non-refundable account balance integer overflow".to_string(),
+                )
+            })?,
+        );
+    } else {
+        account.set_amount(account.amount().checked_add(transfer.deposit).ok_or_else(|| {
+            StorageError::StorageInconsistentState("Account balance integer overflow".to_string())
+        })?);
+    }
     Ok(())
 }
 
@@ -414,6 +437,7 @@ pub(crate) fn action_create_account(
     *account = Some(Account::new(
         0,
         0,
+        0,
         CryptoHash::default(),
         fee_config.storage_usage_config.num_bytes_account,
     ));
@@ -425,9 +449,10 @@ pub(crate) fn action_implicit_account_creation_transfer(
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     account_id: &AccountId,
-    transfer: &TransferAction,
+    deposit: Balance,
     block_height: BlockHeight,
     current_protocol_version: ProtocolVersion,
+    nonrefundable: bool,
 ) {
     *actor_id = account_id.clone();
 
@@ -444,9 +469,21 @@ pub(crate) fn action_implicit_account_creation_transfer(
     // unwrap: Can only fail if `account_id` is not implicit.
     let public_key = PublicKey::from_implicit_account(account_id).unwrap();
 
+    // TODO(jakmeier): feature flag?
+    let refundable_balance;
+    let nonrefundable_balance;
+    if nonrefundable {
+        refundable_balance = 0;
+        nonrefundable_balance = deposit;
+    } else {
+        refundable_balance = deposit;
+        nonrefundable_balance = 0;
+    }
+
     *account = Some(Account::new(
-        transfer.deposit,
+        refundable_balance,
         0,
+        nonrefundable_balance,
         CryptoHash::default(),
         fee_config.storage_usage_config.num_bytes_account
             + public_key.len() as u64
@@ -865,6 +902,7 @@ pub(crate) fn check_actor_permissions(
         }
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
         Action::Delegate(_) => (),
+        Action::TransferV2(_) => todo!("TODO(jakmeier"),
     };
     Ok(())
 }
@@ -904,7 +942,7 @@ pub(crate) fn check_account_existence(
                 }
             }
         }
-        Action::Transfer(_) => {
+        Action::Transfer(_) | Action::TransferV2(_) => {
             if account.is_none() {
                 return if checked_feature!(
                     "stable",

@@ -345,6 +345,8 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     );
                 }
 
+                near_primitives::transaction::Action::TransferV2(_) => todo!("TODO(jakmeier)"),
+
                 near_primitives::transaction::Action::Stake(action) => {
                     operations.push(
                         validated_operations::StakeOperation {

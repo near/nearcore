@@ -163,7 +163,13 @@ impl ForkNetworkCommand {
         let liquid_balance = 100_000_000 * NEAR_BASE;
         storage_mutator.set_account(
             self_validator.validator_id().clone(),
-            Account::new(liquid_balance, self_account.amount, CryptoHash::default(), storage_bytes),
+            Account::new(
+                liquid_balance,
+                self_account.amount,
+                0,
+                CryptoHash::default(),
+                storage_bytes,
+            ),
         )?;
         storage_mutator.set_access_key(
             self_account.account_id.clone(),

@@ -122,7 +122,8 @@ impl From<Account> for AccountView {
 
 impl From<&AccountView> for Account {
     fn from(view: &AccountView) -> Self {
-        Account::new(view.amount, view.locked, view.code_hash, view.storage_usage)
+        // TODO(jakmeier): expose nonrefundable storage on account view
+        Account::new(view.amount, view.locked, 0, view.code_hash, view.storage_usage)
     }
 }
 
@@ -1212,6 +1213,9 @@ impl From<Action> for ActionView {
                 deposit: action.deposit,
             },
             Action::Transfer(action) => ActionView::Transfer { deposit: action.deposit },
+            Action::TransferV2(..) => {
+                todo!("TODO(jakmeier")
+            }
             Action::Stake(action) => {
                 ActionView::Stake { stake: action.stake, public_key: action.public_key }
             }

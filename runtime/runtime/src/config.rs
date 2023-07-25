@@ -99,7 +99,7 @@ pub fn total_send_fees(
                     + config.fee(ActionCosts::function_call_byte).send_fee(sender_is_receiver)
                         * num_bytes
             }
-            Transfer(_) => {
+            Transfer(_) | TransferV2(_) => {
                 // Account for implicit account creation
                 let is_receiver_implicit =
                     checked_feature!("stable", ImplicitAccountCreation, current_protocol_version)
@@ -202,7 +202,7 @@ pub fn exec_fee(
             config.fee(ActionCosts::function_call_base).exec_fee()
                 + config.fee(ActionCosts::function_call_byte).exec_fee() * num_bytes
         }
-        Transfer(_) => {
+        Transfer(_) | TransferV2(_) => {
             // Account for implicit account creation
             let is_receiver_implicit =
                 checked_feature!("stable", ImplicitAccountCreation, current_protocol_version)

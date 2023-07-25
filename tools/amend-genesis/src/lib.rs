@@ -47,22 +47,34 @@ fn set_total_balance(dst: &mut Account, src: &Account) {
 }
 
 impl AccountRecords {
-    fn new(amount: Balance, locked: Balance, num_bytes_account: u64) -> Self {
+    fn new(
+        amount: Balance,
+        locked: Balance,
+        nonrefundable: Balance,
+        num_bytes_account: u64,
+    ) -> Self {
         let mut ret = Self::default();
-        ret.set_account(amount, locked, num_bytes_account);
+        ret.set_account(amount, locked, nonrefundable, num_bytes_account);
         ret
     }
 
     fn new_validator(stake: Balance, num_bytes_account: u64) -> Self {
         let mut ret = Self::default();
-        ret.set_account(0, stake, num_bytes_account);
+        ret.set_account(0, stake, 0, num_bytes_account);
         ret.amount_needed = true;
         ret
     }
 
-    fn set_account(&mut self, amount: Balance, locked: Balance, num_bytes_account: u64) {
+    fn set_account(
+        &mut self,
+        amount: Balance,
+        locked: Balance,
+        nonrefundable: Balance,
+        num_bytes_account: u64,
+    ) {
         assert!(self.account.is_none());
-        let account = Account::new(amount, locked, CryptoHash::default(), num_bytes_account);
+        let account =
+            Account::new(amount, locked, nonrefundable, CryptoHash::default(), num_bytes_account);
         self.account = Some(account);
     }
 
@@ -181,6 +193,7 @@ fn parse_extra_records(
                         let r = AccountRecords::new(
                             account.amount(),
                             account.locked(),
+                            account.nonrefundable(),
                             num_bytes_account,
                         );
                         e.insert(r);
@@ -194,7 +207,12 @@ fn parse_extra_records(
                                 &account_id
                             ));
                         }
-                        r.set_account(account.amount(), account.locked(), num_bytes_account);
+                        r.set_account(
+                            account.amount(),
+                            account.locked(),
+                            account.nonrefundable(),
+                            num_bytes_account,
+                        );
                     }
                 }
             }

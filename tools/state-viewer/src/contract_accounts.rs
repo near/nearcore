@@ -334,6 +334,7 @@ fn try_find_actions_spawned_by_receipt(
                                     Action::DeployContract(_) => ActionType::DeployContract,
                                     Action::FunctionCall(_) => ActionType::FunctionCall,
                                     Action::Transfer(_) => ActionType::Transfer,
+                                    Action::TransferV2(_) => ActionType::Transfer,
                                     Action::Stake(_) => ActionType::Stake,
                                     Action::AddKey(_) => ActionType::AddKey,
                                     Action::DeleteKey(_) => ActionType::DeleteKey,

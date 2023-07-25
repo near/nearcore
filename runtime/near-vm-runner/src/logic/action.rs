@@ -155,6 +155,24 @@ pub struct TransferAction {
     BorshDeserialize,
     PartialEq,
     Eq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+// TODO(jakmeier): hide behind feature flag
+pub struct TransferActionV2 {
+    #[serde(with = "dec_format")]
+    pub deposit: Balance,
+    /// If this flag is set, the balance will be added to the receiver's non-refundable balance.
+    pub nonrefundable: bool,
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
     Debug,
     Clone,
     serde::Serialize,
@@ -169,12 +187,15 @@ pub enum Action {
     /// Sets a Wasm code to a receiver_id
     DeployContract(DeployContractAction),
     FunctionCall(FunctionCallAction),
+    /// To be deprecated with NEP XXX
     Transfer(TransferAction),
     Stake(StakeAction),
     AddKey(AddKeyAction),
     DeleteKey(DeleteKeyAction),
     DeleteAccount(DeleteAccountAction),
     Delegate(super::delegate_action::SignedDelegateAction),
+    /// TODO: hide behind cfg feature
+    TransferV2(TransferActionV2),
 }
 
 impl Action {

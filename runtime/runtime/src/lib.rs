@@ -377,7 +377,7 @@ impl Runtime {
                             state_update,
                             &receipt.receiver_id,
                             &action_receipt.signer_public_key,
-                            transfer,
+                            transfer.deposit,
                         )?;
                     }
                 } else {
@@ -394,9 +394,44 @@ impl Runtime {
                         account,
                         actor_id,
                         &receipt.receiver_id,
-                        transfer,
+                        transfer.deposit,
                         apply_state.block_height,
                         apply_state.current_protocol_version,
+                        false,
+                    );
+                }
+            }
+            Action::TransferV2(transfer) => {
+                // TOOD(jakmeier): This is just a copy-paste of `Transfer` with two lines changed, it should be refactored
+                if let Some(account) = account.as_mut() {
+                    action_transfer_v2(account, transfer)?;
+                    // Check if this is a gas refund, then try to refund the access key allowance.
+                    if is_refund && action_receipt.signer_id == receipt.receiver_id {
+                        try_refund_allowance(
+                            state_update,
+                            &receipt.receiver_id,
+                            &action_receipt.signer_public_key,
+                            transfer.deposit,
+                        )?;
+                    }
+                } else {
+                    // Implicit account creation
+                    debug_assert!(checked_feature!(
+                        "stable",
+                        ImplicitAccountCreation,
+                        apply_state.current_protocol_version
+                    ));
+                    debug_assert!(!is_refund);
+                    action_implicit_account_creation_transfer(
+                        state_update,
+                        &apply_state.config.fees,
+                        account,
+                        actor_id,
+                        &receipt.receiver_id,
+                        transfer.deposit,
+                        apply_state.block_height,
+                        apply_state.current_protocol_version,
+                        transfer.nonrefundable,
                     );
                 }
             }

@@ -279,6 +279,7 @@ impl GenesisBuilder {
         let account = Account::new(
             testing_init_balance,
             testing_init_stake,
+            0,
             self.additional_accounts_code_hash,
             0,
         );
