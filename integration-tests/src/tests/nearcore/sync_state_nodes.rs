@@ -633,9 +633,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                         block.header().epoch_id()
                     );
                 }
-                for i in 1..num_clients {
-                    env.process_block(i, block.clone(), Provenance::NONE);
-                }
+                env.process_block(1, block, Provenance::NONE);
 
                 let tx = SignedTransaction::send_money(
                     i + 1,
@@ -671,11 +669,10 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 })
                 .collect();
 
-            let apply_client = num_clients - 1;
-            env.clients[apply_client].chain.reset_data_pre_state_sync(sync_hash).unwrap(); // 1
+            env.clients[1].chain.reset_data_pre_state_sync(sync_hash).unwrap();
             let epoch_id = blocks.last().unwrap().header().epoch_id();
             for i in 0..num_parts {
-                env.clients[apply_client]
+                env.clients[1]
                     .runtime_adapter
                     .apply_state_part(
                         0,
@@ -687,12 +684,9 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                     .unwrap();
             }
 
-            env.clients[apply_client]
-                .chain
-                .set_state_header(0, sync_hash, state_sync_header)
-                .unwrap();
+            env.clients[1].chain.set_state_header(0, sync_hash, state_sync_header).unwrap();
             for i in 0..num_parts {
-                env.clients[apply_client]
+                env.clients[1]
                     .chain
                     .set_state_part(
                         0,
@@ -702,7 +696,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                     )
                     .unwrap();
             }
-            let rt = Arc::clone(&env.clients[apply_client].runtime_adapter);
+            let rt = Arc::clone(&env.clients[1].runtime_adapter);
             let f = move |msg: ApplyStatePartsRequest| {
                 use borsh::BorshSerialize;
                 let store = rt.store();
@@ -722,34 +716,29 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                     .unwrap();
                 }
             };
-            env.clients[apply_client]
-                .chain
-                .schedule_apply_state_parts(0, sync_hash, num_parts, &f)
-                .unwrap();
-            env.clients[apply_client].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
+            env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
+            env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
             let last_chunk_height = epoch_length - num_last_chunks_missing;
             for height in 1..epoch_length {
                 if height < last_chunk_height {
-                    assert!(env.clients[apply_client]
+                    assert!(env.clients[1]
                         .chain
                         .get_chunk_extra(blocks[height as usize].hash(), &ShardUId::single_shard())
                         .is_err());
                 } else {
-                    let chunk_extra = env.clients[apply_client]
+                    let chunk_extra = env.clients[1]
                         .chain
                         .get_chunk_extra(blocks[height as usize].hash(), &ShardUId::single_shard())
                         .unwrap();
-                    if apply_client != 0 {
-                        let expected_chunk_extra = env.clients[0]
-                            .chain
-                            .get_chunk_extra(
-                                blocks[last_chunk_height as usize].hash(),
-                                &ShardUId::single_shard(),
-                            )
-                            .unwrap();
-                        // The chunk extra of the prev block of sync block should be the same as the node that it is syncing from
-                        assert_eq!(chunk_extra, expected_chunk_extra);
-                    }
+                    let expected_chunk_extra = env.clients[0]
+                        .chain
+                        .get_chunk_extra(
+                            blocks[last_chunk_height as usize].hash(),
+                            &ShardUId::single_shard(),
+                        )
+                        .unwrap();
+                    // The chunk extra of the prev block of sync block should be the same as the node that it is syncing from
+                    assert_eq!(chunk_extra, expected_chunk_extra);
                 }
             }
         }
