@@ -563,9 +563,7 @@ impl ScanDbColumnCmd {
                 Some(bytes.split(",").map(|s| s.parse::<u8>().unwrap()).collect::<Vec<u8>>())
             }
             (None, None, Some(hash)) => Some(hash.try_to_vec().unwrap()),
-            _ => {
-                panic!("Provided both a Vec and a String as a prefix")
-            }
+            _ => panic!("Need to provide exactly one of bytes, str, or hash"),
         }
     }
 }
