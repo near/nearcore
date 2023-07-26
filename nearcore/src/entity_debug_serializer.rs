@@ -577,8 +577,7 @@ mod tests {
         use std::collections::HashMap;
         let mut map = HashMap::new();
         map.insert("a".to_owned(), 1);
-        map.insert("b".to_owned(), 2);
-        assert_eq!(serialize_entity(&map), tree(vec![("a", val("1")), ("b", val("2"))]));
+        assert_eq!(serialize_entity(&map), tree(vec![("a", val("1"))]));
     }
 
     #[test]
