@@ -1,4 +1,5 @@
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
+use crate::entity_debug::EntityDebugHandlerImpl;
 use crate::metrics::spawn_trie_metrics_loop;
 pub use crate::runtime::NightshadeRuntime;
 
@@ -21,6 +22,7 @@ use near_epoch_manager::EpochManager;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
 use near_store::flat::FlatStateValuesInliningMigrationHandle;
+use near_store::genesis::initialize_genesis_state;
 use near_store::metadata::DbKind;
 use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
@@ -36,6 +38,9 @@ pub mod config;
 mod config_validate;
 mod download_file;
 pub mod dyn_config;
+#[cfg(feature = "json_rpc")]
+mod entity_debug;
+mod entity_debug_serializer;
 mod metrics;
 pub mod migrations;
 mod runtime;
@@ -232,6 +237,11 @@ pub fn start_with_config_and_synchronization(
         config.client_config.log_summary_period,
     )?;
 
+    // Initialize genesis_state in store either from genesis config or dump before other components.
+    // We only initialize if the genesis state is not already initialized in store.
+    // This sets up genesis_state_roots and genesis_hash in store.
+    initialize_genesis_state(storage.get_hot_store(), &config.genesis, Some(home_dir));
+
     let epoch_manager =
         EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config);
     let shard_tracker =
@@ -293,9 +303,9 @@ pub fn start_with_config_and_synchronization(
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
-        view_epoch_manager,
+        view_epoch_manager.clone(),
         view_shard_tracker,
-        view_runtime,
+        view_runtime.clone(),
         network_adapter.clone().into(),
         config.client_config.clone(),
         adv.clone(),
@@ -363,6 +373,8 @@ pub fn start_with_config_and_synchronization(
         credentials_file.map(|filename| home_dir.join(filename)),
     )?;
 
+    let hot_store = storage.get_hot_store();
+
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
     let network_actor = PeerManagerActor::spawn(
@@ -378,12 +390,18 @@ pub fn start_with_config_and_synchronization(
 
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
+        let entity_debug_handler = EntityDebugHandlerImpl {
+            epoch_manager: view_epoch_manager,
+            runtime: view_runtime,
+            store: hot_store,
+        };
         rpc_servers.extend(near_jsonrpc::start_http(
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone(),
             view_client.clone(),
             Some(network_actor),
+            Arc::new(entity_debug_handler),
         ));
     }
 

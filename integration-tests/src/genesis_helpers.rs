@@ -1,5 +1,6 @@
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManager;
+use near_store::genesis::initialize_genesis_state;
 use tempfile::tempdir;
 
 use near_chain::types::ChainConfig;
@@ -19,10 +20,12 @@ pub fn genesis_hash(genesis: &Genesis) -> CryptoHash {
 pub fn genesis_header(genesis: &Genesis) -> BlockHeader {
     let dir = tempdir().unwrap();
     let store = create_test_store();
+    initialize_genesis_state(store.clone(), genesis, None);
     let chain_genesis = ChainGenesis::new(genesis);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = NightshadeRuntime::test(dir.path(), store, genesis, epoch_manager.clone());
+    let runtime =
+        NightshadeRuntime::test(dir.path(), store, &genesis.config, epoch_manager.clone());
     let chain = Chain::new(
         epoch_manager,
         shard_tracker,
@@ -40,10 +43,12 @@ pub fn genesis_header(genesis: &Genesis) -> BlockHeader {
 pub fn genesis_block(genesis: &Genesis) -> Block {
     let dir = tempdir().unwrap();
     let store = create_test_store();
+    initialize_genesis_state(store.clone(), genesis, None);
     let chain_genesis = ChainGenesis::new(genesis);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = NightshadeRuntime::test(dir.path(), store, genesis, epoch_manager.clone());
+    let runtime =
+        NightshadeRuntime::test(dir.path(), store, &genesis.config, epoch_manager.clone());
     let chain = Chain::new(
         epoch_manager,
         shard_tracker,

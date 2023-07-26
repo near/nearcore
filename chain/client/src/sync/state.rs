@@ -28,13 +28,13 @@ use actix_rt::ArbiterHandle;
 use chrono::{DateTime, Duration, Utc};
 use futures::{future, FutureExt};
 use near_async::messaging::CanSendAsync;
-use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
+use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::near_chain_primitives;
+use near_chain::resharding::StateSplitRequest;
 use near_chain::Chain;
 use near_chain_configs::{ExternalStorageConfig, ExternalStorageLocation, SyncConfig};
 use near_client_primitives::types::{
     format_shard_sync_phase, DownloadStatus, ShardSyncDownload, ShardSyncStatus,
-    StateSplitApplyingStatus,
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::AccountOrPeerIdOrHash;
@@ -189,6 +189,11 @@ impl StateSync {
                     ExternalStorageLocation::Filesystem { root_dir } => {
                         ExternalConnection::Filesystem { root_dir: root_dir.clone() }
                     }
+                    ExternalStorageLocation::GCS { bucket } => ExternalConnection::GCS {
+                        gcs_client: Arc::new(cloud_storage::Client::default()),
+                        reqwest_client: Arc::new(reqwest::Client::default()),
+                        bucket: bucket.clone(),
+                    },
                 };
                 let num_permits = if catchup {
                     *num_concurrent_requests_during_catchup
@@ -356,7 +361,7 @@ impl StateSync {
                         me,
                     )?;
                 }
-                ShardSyncStatus::StateSplitApplying(_status) => {
+                ShardSyncStatus::StateSplitApplying => {
                     debug_assert!(split_states);
                     shard_sync_done = self.sync_shards_state_split_applying_status(
                         shard_id,
@@ -1118,18 +1123,14 @@ impl StateSync {
         state_split_scheduler: &dyn Fn(StateSplitRequest),
         me: &Option<AccountId>,
     ) -> Result<(), near_chain::Error> {
-        let status = Arc::new(StateSplitApplyingStatus::default());
         chain.build_state_for_split_shards_preprocessing(
             &sync_hash,
             shard_id,
             state_split_scheduler,
-            status.clone(),
         )?;
         tracing::debug!(target: "sync", %shard_id, %sync_hash, ?me, "State sync split scheduled");
-        *shard_sync_download = ShardSyncDownload {
-            downloads: vec![],
-            status: ShardSyncStatus::StateSplitApplying(status),
-        };
+        *shard_sync_download =
+            ShardSyncDownload { downloads: vec![], status: ShardSyncStatus::StateSplitApplying };
         Ok(())
     }
 

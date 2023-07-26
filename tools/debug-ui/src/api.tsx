@@ -1,3 +1,5 @@
+import { EntityQuery } from './entity_debug/types';
+
 export interface StatusResponse {
     chain_id: string;
     latest_protocol_version: number;
@@ -293,6 +295,41 @@ export interface RecentOutboundConnectionsResponse {
     };
 }
 
+export interface EdgeView {
+    peer0: string;
+    peer1: string;
+    nonce: number;
+};
+
+export interface LabeledEdgeView {
+    peer0: number;
+    peer1: number;
+    nonce: number;
+};
+
+export interface EdgeCacheView {
+    peer_labels: { [peer_id: string]: number };
+    spanning_trees: { [peer_label: number]: LabeledEdgeView[] };
+}
+
+export interface PeerRoutesView {
+    distance: number[];
+    min_nonce: number;
+}
+
+export interface RoutingTableView {
+    edge_cache: EdgeCacheView;
+    local_edges: { [peer_id: string]: EdgeView };
+    peer_distances: { [peer_id: string]: PeerRoutesView };
+    my_distances: { [peer_id: string]:  number };
+}
+
+export interface RoutingTableResponse {
+    status_response: {
+        Routes: RoutingTableView;
+    };
+}
+
 export type DroppedReason = 'HeightProcessed' | 'TooManyProcessingBlocks';
 
 export type BlockProcessingStatus =
@@ -397,9 +434,37 @@ export async function fetchRecentOutboundConnections(
     return await response.json();
 }
 
+export async function fetchRoutingTable(
+    addr: string
+): Promise<RoutingTableResponse> {
+    const response = await fetch(`http://${addr}/debug/api/network_routes`);
+    return await response.json();
+}
+
 export async function fetchChainProcessingStatus(
     addr: string
 ): Promise<ChainProcessingStatusResponse> {
     const response = await fetch(`http://${addr}/debug/api/chain_processing_status`);
     return await response.json();
+}
+
+export type ApiEntityDataEntryValue = string | ApiEntityData;
+export type ApiEntityData = { entries: ApiEntityDataEntry[] };
+export type ApiEntityDataEntry = { name: string; value: ApiEntityDataEntryValue };
+
+export async function fetchEntity(
+    addr: string,
+    request: EntityQuery
+): Promise<ApiEntityDataEntryValue> {
+    const response = await fetch(`http://${addr}/debug/api/entity`, {
+        body: JSON.stringify(request),
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        method: 'POST',
+    });
+    if (response.status !== 200) {
+        throw await response.text();
+    }
+    return response.json();
 }
