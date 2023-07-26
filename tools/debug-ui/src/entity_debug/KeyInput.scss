@@ -1,0 +1,15 @@
+.key-editor {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+
+    .key-value {
+        width: 500px;
+        border: 1px solid gray;
+
+        &.key-value-invalid {
+            border: 1px solid red;
+            background-color: #ffe6e6;
+        }
+    }
+}

@@ -83,6 +83,19 @@ pub(super) struct RoutingTableUpdate {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub struct AdvertisedPeerDistance {
+    pub destination: PeerId,
+    pub distance: u32,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub(super) struct DistanceVector {
+    pub root: PeerId,
+    pub distances: Vec<AdvertisedPeerDistance>,
+    pub edges: Vec<Edge>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum HandshakeFailureReason {
     ProtocolVersionMismatch { version: u32, oldest_supported_version: u32 },
     GenesisMismatch(GenesisId),
@@ -139,6 +152,8 @@ pub(super) enum PeerMessage {
     _EpochSyncFinalizationRequest,
     _EpochSyncFinalizationResponse,
     _RoutingTableSyncV2,
+
+    DistanceVector(DistanceVector),
 }
 #[cfg(target_arch = "x86_64")] // Non-x86_64 doesn't match this requirement yet but it's not bad as it's not production-ready
 const _: () = assert!(std::mem::size_of::<PeerMessage>() <= 1144, "PeerMessage > 1144 bytes");

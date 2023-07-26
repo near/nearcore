@@ -21,6 +21,7 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::QueryRequest;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus};
+use near_primitives_core::version::PROTOCOL_VERSION;
 use near_store::test_utils::{gen_account, gen_unique_accounts};
 use nearcore::config::GenesisExt;
 use nearcore::NEAR_BASE;
@@ -38,8 +39,44 @@ use super::utils::TestEnvNightshadeSetupExt;
 const SIMPLE_NIGHTSHADE_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshade.protocol_version();
 
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion =
+    ProtocolFeature::SimpleNightshadeV2.protocol_version();
+
+#[cfg(not(feature = "protocol_feature_simple_nightshade_v2"))]
+const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion = PROTOCOL_VERSION + 1;
+
 const P_CATCHUP: f64 = 0.2;
 
+// Return the expected number of shards.
+// The number of shards depends on height and whether shard layout V2 is enabled.
+fn get_expected_shards_num(epoch_length: u64, height: BlockHeight, testing_v2: bool) -> u64 {
+    if height < 2 * epoch_length {
+        return 1;
+    }
+    if height < 4 * epoch_length {
+        return 4;
+    }
+    if testing_v2 && PROTOCOL_VERSION >= SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION {
+        // V2 is enabled, there should be 5 shards.
+        return 5;
+    } else {
+        // V2 is not enabled we stay at 4 shards forever.
+        return 4;
+    }
+}
+
+/// Test environment prepared for testing the sharding upgrade.
+/// Epoch 0, blocks 1-5  : 1 shard
+/// Epoch 1, blocks 6-10 : 1 shard, state split happens
+/// Epoch 2: blocks 10-15: 4 shards, shard layout upgrades to simple_nightshade_layout,
+///
+/// If V2 is enabled the test continues:
+/// Epoch 3: blocks 16-20: 4 shards, state split happens
+/// Epoch 4: blocks 21-25: 5 shards, shard layout upgrades to simple_nightshade_layout_v2
+///
+/// Note: if the test is extended to more epochs, garbage collection will
+/// kick in and delete data that is checked at the end of the test.
 struct TestShardUpgradeEnv {
     env: TestEnv,
     initial_accounts: Vec<AccountId>,
@@ -50,11 +87,6 @@ struct TestShardUpgradeEnv {
     num_clients: usize,
 }
 
-/// Test shard layout upgrade. This function runs `env` to produce and process blocks
-/// from 1 to 3 * epoch_length + 1, ie, to the beginning of epoch 3.
-/// Epoch 0: 1 shard
-/// Epoch 1: 1 shard, state split happens
-/// Epoch 2: shard layout upgrades to simple_night_shade_shard,
 impl TestShardUpgradeEnv {
     fn new(
         epoch_length: u64,
@@ -94,8 +126,8 @@ impl TestShardUpgradeEnv {
         self.init_txs = init_txs;
     }
 
-    /// `txs_by_height` is a hashmap from block height to transactions to be included at block at
-    /// that height
+    /// `txs_by_height` is a hashmap from block height to transactions to be
+    /// included at block at that height
     fn set_tx_at_height(&mut self, height: u64, txs: Vec<SignedTransaction>) {
         debug!(target:"test", "adding txs at height {} txs: {:?}", height, txs.iter().map(|x|x.get_hash()).collect::<Vec<_>>());
         self.txs_by_height.insert(height, txs);
@@ -103,11 +135,29 @@ impl TestShardUpgradeEnv {
 
     /// produces and processes the next block
     /// also checks that all accounts in initial_accounts are intact
+    ///
+    /// please also see the step_impl for changing the protocol version
     fn step(&mut self, p_drop_chunk: f64) {
+        self.step_impl(p_drop_chunk, SIMPLE_NIGHTSHADE_PROTOCOL_VERSION, false);
+    }
+
+    /// produces and processes the next block also checks that all accounts in
+    /// initial_accounts are intact
+    ///
+    /// allows for changing the protocol version in the middle of the test the
+    /// testing_v2 argument means whether the test should expect the sharding
+    /// layout V2 to be used once the appropriate protocol version is reached
+    fn step_impl(
+        &mut self,
+        p_drop_chunk: f64,
+        protocol_version: ProtocolVersion,
+        testing_v2: bool,
+    ) {
         let env = &mut self.env;
         let mut rng = thread_rng();
         let head = env.clients[0].chain.head().unwrap();
         let height = head.height + 1;
+        let expected_num_shards = get_expected_shards_num(self.epoch_length, height, testing_v2);
 
         // add transactions for the next block
         if height == 1 {
@@ -146,13 +196,11 @@ impl TestShardUpgradeEnv {
         };
         let block_producer_client = env.client(&block_producer);
         let mut block = block_producer_client.produce_block(height).unwrap().unwrap();
-        set_block_protocol_version(
-            &mut block,
-            block_producer.clone(),
-            SIMPLE_NIGHTSHADE_PROTOCOL_VERSION,
-        );
-        // make sure that catchup is done before the end of each epoch, but when it is done is
+        set_block_protocol_version(&mut block, block_producer.clone(), protocol_version);
+        // Make sure that catchup is done before the end of each epoch, but when it is done is
         // by chance. This simulates when catchup takes a long time to be done
+        // Note: if the catchup happens only at the last block of an epoch then
+        // client will fail to produce the chunks in the first block of the next epoch.
         let should_catchup = rng.gen_bool(P_CATCHUP) || height % self.epoch_length == 0;
         // process block, this also triggers chunk producers for the next block to produce chunks
         for j in 0..self.num_clients {
@@ -180,15 +228,14 @@ impl TestShardUpgradeEnv {
             }
         }
 
-        let expected_num_shards = if height < 2 * self.epoch_length { 1 } else { 4 };
-        assert_eq!(
-            env.clients[0]
+        {
+            let num_shards = env.clients[0]
                 .epoch_manager
                 .get_shard_layout_from_prev_block(block.hash())
                 .unwrap()
-                .num_shards(),
-            expected_num_shards
-        );
+                .num_shards();
+            assert_eq!(num_shards, expected_num_shards);
+        }
 
         env.process_partial_encoded_chunks();
         for j in 0..self.num_clients {
@@ -497,6 +544,8 @@ fn test_shard_layout_upgrade_simple() {
         };
 
     // add transactions until after sharding upgrade finishes
+    // TODO(resharding) fix handling transactions in V1->V2 and add transactions
+    // for heights 3 * epoch_length to 6 * epoch_length
     for height in 2..3 * epoch_length {
         test_env.set_tx_at_height(
             height,
@@ -504,8 +553,25 @@ fn test_shard_layout_upgrade_simple() {
         );
     }
 
-    for _ in 1..5 * epoch_length {
-        test_env.step(0.);
+    let mut protocol_version = SIMPLE_NIGHTSHADE_PROTOCOL_VERSION;
+    for height in 1..2 * epoch_length {
+        debug!(target:"test", height, "step");
+        test_env.step_impl(0., protocol_version, true);
+        test_env.check_receipt_id_to_shard_id();
+    }
+
+    // If V2 is enabled then test resharding from V1 to V2 as well.
+    // This condition will be true:
+    // - in nightly build - always - V2 is enabled
+    // - in default build - once V2 is stabilized and rolled out
+    if SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION <= PROTOCOL_VERSION {
+        protocol_version = SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION;
+    }
+
+    for height in 2 * epoch_length..5 * epoch_length + 1 {
+        debug!(target:"test", height, "step");
+        test_env.step_impl(0., protocol_version, true);
+        test_env.check_receipt_id_to_shard_id();
     }
 
     // transactions added for height = 2 * epoch_length + 1 will not be processed, that's a known
