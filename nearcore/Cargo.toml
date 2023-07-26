@@ -20,6 +20,7 @@ cloud-storage.workspace = true
 dirs.workspace = true
 easy-ext.workspace = true
 futures.workspace = true
+hex.workspace = true
 hyper-tls.workspace = true
 hyper.workspace = true
 indicatif.workspace = true
@@ -52,6 +53,7 @@ near-crypto.workspace = true
 near-dyn-configs.workspace = true
 near-epoch-manager.workspace = true
 near-jsonrpc = { workspace = true, optional = true }
+near-jsonrpc-primitives = { workspace = true, optional = true }
 near-mainnet-res.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
@@ -105,7 +107,7 @@ no_cache = [
 ]
 delay_detector = ["near-client/delay_detector", "delay-detector/delay_detector"]
 rosetta_rpc = ["near-rosetta-rpc"]
-json_rpc = ["near-jsonrpc"]
+json_rpc = ["near-jsonrpc", "near-jsonrpc-primitives"]
 protocol_feature_fix_staking_threshold = [
   "near-primitives/protocol_feature_fix_staking_threshold",
   "near-epoch-manager/protocol_feature_fix_staking_threshold",
@@ -132,6 +134,7 @@ nightly = [
   "near-client/nightly",
   "near-dyn-configs/nightly",
   "near-epoch-manager/nightly",
+  "near-jsonrpc-primitives/nightly",
   "near-jsonrpc/nightly",
   "near-mainnet-res/nightly",
   "near-network/nightly",
@@ -153,6 +156,7 @@ nightly_protocol = [
   "near-client/nightly_protocol",
   "near-dyn-configs/nightly_protocol",
   "near-epoch-manager/nightly_protocol",
+  "near-jsonrpc-primitives/nightly_protocol",
   "near-jsonrpc/nightly_protocol",
   "near-mainnet-res/nightly_protocol",
   "near-network/nightly_protocol",
