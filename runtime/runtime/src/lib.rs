@@ -311,6 +311,9 @@ impl Runtime {
         let account_id = &receipt.receiver_id;
         let is_the_only_action = actions.len() == 1;
         let is_refund = AccountId::is_system(&receipt.predecessor_id);
+
+        let receipt_starts_with_create_account =
+            matches!(actions.get(0), Some(Action::CreateAccount(_)));
         // Account validation
         if let Err(e) = check_account_existence(
             action,
@@ -319,6 +322,7 @@ impl Runtime {
             apply_state.current_protocol_version,
             is_the_only_action,
             is_refund,
+            receipt_starts_with_create_account,
         ) {
             result.result = Err(e);
             return Ok(result);

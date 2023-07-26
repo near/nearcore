@@ -359,6 +359,7 @@ pub(crate) fn validate_actions(
     let mut found_delegate_action = false;
     let mut iter = actions.iter().peekable();
     while let Some(action) = iter.next() {
+        // TODO(jakmeier): make sure TransferV2 gets rejected in older protocol versions
         if let Action::DeleteAccount(_) = action {
             if iter.peek().is_some() {
                 return Err(ActionsValidationError::DeleteActionMustBeFinal);

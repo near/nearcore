@@ -914,6 +914,7 @@ pub(crate) fn check_account_existence(
     current_protocol_version: ProtocolVersion,
     is_the_only_action: bool,
     is_refund: bool,
+    receipt_starts_with_create_account: bool,
 ) -> Result<(), ActionError> {
     match action {
         Action::CreateAccount(_) => {
@@ -942,7 +943,7 @@ pub(crate) fn check_account_existence(
                 }
             }
         }
-        Action::Transfer(_) | Action::TransferV2(_) => {
+        Action::Transfer(_) => {
             if account.is_none() {
                 return if checked_feature!(
                     "stable",
@@ -965,6 +966,46 @@ pub(crate) fn check_account_existence(
                     Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }
                         .into())
                 };
+            }
+        }
+        Action::TransferV2(transfer) => {
+            // TODO(jakmeier): consider refactoring the code duplication
+            if account.is_none() {
+                return if checked_feature!(
+                    "stable",
+                    ImplicitAccountCreation,
+                    current_protocol_version
+                ) && is_the_only_action
+                    && account_id.is_implicit()
+                    && !is_refund
+                {
+                    // OK. It's implicit account creation.
+                    // Notes:
+                    // - The transfer action has to be the only action in the transaction to avoid
+                    // abuse by hijacking this account with other public keys or contracts.
+                    // - Refunds don't automatically create accounts, because refunds are free and
+                    // we don't want some type of abuse.
+                    // - Account deletion with beneficiary creates a refund, so it'll not create a
+                    // new account.
+                    Ok(())
+                } else {
+                    Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }
+                        .into())
+                };
+            } else if transfer.nonrefundable && !receipt_starts_with_create_account {
+                // If the account already existed before the current receipt,
+                // non-refundable transfer is not allowed. But for named
+                // accounts, it could be that the account was created in this
+                // receipt which is allowed. Checking for the first action of
+                // the receipt being a `CreateAccount` action serves this
+                // purpose.
+                // For implicit accounts, it is impossible that the account was
+                // created by a prior action in the receipt because they must be
+                // created with a singleton receipt.
+                return Err(ActionErrorKind::NonRefundableBalanceToExistingAccount {
+                    account_id: account_id.clone(),
+                }
+                .into());
             }
         }
         Action::DeployContract(_)
