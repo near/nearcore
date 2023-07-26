@@ -20,6 +20,9 @@ use near_store::{ShardTries, ShardUId, Trie};
 
 use crate::Chain;
 
+// StateSplitRequest has all the information needed to start a resharding job. This message is sent from ClientActor to SyncJobsActor.
+// We do not want to stall the ClientActor with a long running resharding job. The SyncJobsActor is helpful for handling such long
+// running jobs.
 #[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct StateSplitRequest {
@@ -30,6 +33,7 @@ pub struct StateSplitRequest {
     pub next_epoch_shard_layout: ShardLayout,
 }
 
+// StateSplitResponse is the response sent from SyncJobsActor to ClientActor once resharding is completed.
 #[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct StateSplitResponse {
@@ -38,9 +42,14 @@ pub struct StateSplitResponse {
     pub new_state_roots: Result<HashMap<ShardUId, StateRoot>, Error>,
 }
 
+// Format of the trie key, value pair that is used in tries.add_values_to_split_states() function
+type TrieEntry = (Vec<u8>, Option<Vec<u8>>);
+
+// Function to return batches of trie key, value pairs from flat storage iter. We return None at the end of iter.
+// The batch size is roughly STATE_PART_MEMORY_LIMIT (30 MB)
 fn get_trie_update_batch(
     iter: &mut impl Iterator<Item = (Vec<u8>, Vec<u8>)>,
-) -> Option<Vec<(Vec<u8>, Option<Vec<u8>>)>> {
+) -> Option<Vec<TrieEntry>> {
     let mut size: u64 = 0;
     let mut entries = Vec::new();
     while let Some((key, value)) = iter.next() {
@@ -50,7 +59,11 @@ fn get_trie_update_batch(
             break;
         }
     }
-    (!entries.is_empty()).then_some(entries)
+    if entries.is_empty() {
+        None
+    } else {
+        Some(entries)
+    }
 }
 
 fn apply_delayed_receipts<'a>(
@@ -163,7 +176,7 @@ impl Chain {
         };
 
         while let Some(batch) = get_trie_update_batch(&mut iter) {
-            // TODO(shreyan): This is highly inefficient as for each key in the batch, we are parsing the account_id
+            // TODO(resharding): This is highly inefficient as for each key in the batch, we are parsing the account_id
             // A better way would be to use the boundary account to construct the from and to key range for flat storage iterator
             let (store_update, new_state_roots) = tries.add_values_to_split_states(
                 &state_roots,
@@ -196,7 +209,7 @@ impl Chain {
             // here we store the state roots in chunk_extra in the database for later use
             let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
             chain_store_update.save_chunk_extra(&prev_hash, &shard_uid, chunk_extra);
-            debug!(target:"chain", "Finish building split state for shard {:?} {:?} {:?} ", shard_uid, prev_hash, state_root);
+            debug!(target:"resharding", "Finish building split state for shard {:?} {:?} {:?} ", shard_uid, prev_hash, state_root);
         }
         chain_store_update.commit()
     }
