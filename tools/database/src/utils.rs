@@ -1,6 +1,6 @@
 use std::path::Path;
 
-pub(crate) fn open_rocksdb(home: &Path) -> anyhow::Result<near_store::db::RocksDB> {
+pub(crate) fn open_rocksdb(home: &Path, mode: near_store::Mode) -> anyhow::Result<near_store::db::RocksDB> {
     let config = nearcore::config::Config::from_file_skip_validation(
         &home.join(nearcore::config::CONFIG_FILENAME),
     )?;
@@ -9,7 +9,7 @@ pub(crate) fn open_rocksdb(home: &Path) -> anyhow::Result<near_store::db::RocksD
     let rocksdb = near_store::db::RocksDB::open(
         &db_path,
         store_config,
-        near_store::Mode::ReadOnly,
+        mode,
         near_store::Temperature::Hot,
     )?;
     Ok(rocksdb)

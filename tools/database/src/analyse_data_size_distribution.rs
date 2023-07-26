@@ -197,7 +197,7 @@ fn get_column_families(input_col: &Option<String>) -> Vec<DBCol> {
 
 impl AnalyseDataSizeDistributionCommand {
     pub(crate) fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
-        let db = open_rocksdb(home)?;
+        let db = open_rocksdb(home, near_store::Mode::ReadOnly)?;
         let column_families = get_column_families(&self.column);
         let results = read_all_pairs(&db, &column_families);
         results.print_results(self.top_k);

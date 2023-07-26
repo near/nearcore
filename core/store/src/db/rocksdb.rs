@@ -5,6 +5,7 @@ use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
 };
 use once_cell::sync::Lazy;
+use tracing::log::info;
 use std::io;
 use std::ops::Deref;
 use std::path::Path;
@@ -377,6 +378,7 @@ impl Database for RocksDB {
     fn compact(&self) -> io::Result<()> {
         let none = Option::<&[u8]>::None;
         for col in DBCol::iter() {
+            info!(target: "db", column = col.to_string(); "Compacted column");
             self.db.compact_range_cf(self.cf_handle(col)?, none, none);
         }
         Ok(())
