@@ -238,7 +238,7 @@ impl EntityDebugHandlerImpl {
                             .copied()
                             .chain(extension_nibbles.0.iter())
                             .collect::<Vec<_>>();
-                        let data = trie.debug_get_value(&value)?;
+                        let data = trie.retrieve_value(&value.hash)?;
                         entity_data.entries.push(EntityDataEntry {
                             name: "leaf_path".to_owned(),
                             value: EntityDataValue::String(TriePath::nibbles_to_hex(&leaf_nibbles)),
@@ -264,7 +264,7 @@ impl EntityDebugHandlerImpl {
                         }
                     }
                     near_store::RawTrieNode::BranchWithValue(value, children) => {
-                        let data = trie.debug_get_value(&value)?;
+                        let data = trie.retrieve_value(&value.hash)?;
                         entity_data.entries.push(EntityDataEntry {
                             name: "leaf_path".to_owned(),
                             value: EntityDataValue::String(TriePath::nibbles_to_hex(

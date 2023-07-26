@@ -110,7 +110,7 @@ impl FlatStorageShardCreator {
             trie_iter.visit_nodes_interval(&path_begin, &path_end).unwrap()
         {
             if let Some(key) = key {
-                let value = trie.storage.retrieve_raw_bytes(&hash).unwrap();
+                let value = trie.retrieve_value(&hash).unwrap();
                 store_helper::set_flat_state_value(
                     &mut store_update,
                     shard_uid,

@@ -35,26 +35,24 @@ impl IncompletePartialStorage {
 
 impl TrieStorage for IncompletePartialStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let result = self.recorded_storage.get(hash).cloned().ok_or(StorageError::MissingTrieValue);
+        let result = self
+            .recorded_storage
+            .get(hash)
+            .cloned()
+            .expect("Recorded storage is missing the given hash");
 
-        if result.is_ok() {
-            self.visited_nodes.borrow_mut().insert(*hash);
-        }
+        self.visited_nodes.borrow_mut().insert(*hash);
 
         if self.visited_nodes.borrow().len() > self.node_count_to_fail_after {
             Err(StorageError::MissingTrieValue)
         } else {
-            result
+            Ok(result)
         }
     }
 
     fn as_partial_storage(&self) -> Option<&TrieMemoryPartialStorage> {
         // Make sure it's not called - it pretends to be PartialStorage but is not
         unimplemented!()
-    }
-
-    fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        unimplemented!();
     }
 }
 
@@ -75,14 +73,10 @@ where
 {
     let (storage, trie, expected) = setup_storage(trie, &mut test);
     let size = storage.nodes.len();
-    print!("Test touches {} nodes, expected result {:?}...", size, expected);
+    println!("Test touches {} nodes, expected result {:?}...", size, expected);
     for i in 0..(size + 1) {
         let storage = IncompletePartialStorage::new(storage.clone(), i);
-        let new_trie = Trie {
-            storage: Rc::new(storage),
-            root: *trie.get_root(),
-            flat_storage_chunk_view: None,
-        };
+        let new_trie = Trie::new(Rc::new(storage), *trie.get_root(), None);
         let expected_result =
             if i < size { Err(&StorageError::MissingTrieValue) } else { Ok(&expected) };
         assert_eq!(test(new_trie).map(|v| v.1).as_ref(), expected_result);
@@ -199,12 +193,12 @@ mod nodes_counter_tests {
 mod trie_storage_tests {
     use super::*;
     use crate::test_utils::{create_test_store, create_tries};
+    use crate::trie::chunk_cache::TrieChunkCache;
     use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage};
     use crate::trie::TrieRefcountChange;
     use crate::{Store, TrieChanges, TrieConfig};
     use assert_matches::assert_matches;
     use near_primitives::hash::hash;
-    use near_primitives::types::TrieCacheMode;
 
     fn create_store_with_values(values: &[Vec<u8>], shard_uid: ShardUId) -> Store {
         let tries = create_tries();
@@ -247,14 +241,15 @@ mod trie_storage_tests {
         let trie_cache = TrieCache::new(&TrieConfig::default(), shard_uid, false);
         let trie_caching_storage =
             TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false, None);
+        let mut chunk_cache = TrieChunkCache::new(None);
         let key = hash(&value);
         assert_eq!(trie_cache.get(&key), None);
 
         for _ in 0..2 {
-            let count_before = trie_caching_storage.get_trie_nodes_count();
-            let result = trie_caching_storage.retrieve_raw_bytes(&key);
+            let count_before = chunk_cache.get_trie_nodes_count();
+            let result = chunk_cache.retrieve_trie_node_with_cache(&key, &trie_caching_storage);
             let count_delta =
-                trie_caching_storage.get_trie_nodes_count().checked_sub(&count_before).unwrap();
+                chunk_cache.get_trie_nodes_count().checked_sub(&count_before).unwrap();
             assert_eq!(result.unwrap().as_ref(), value);
             assert_eq!(count_delta.db_reads, 1);
             assert_eq!(count_delta.mem_reads, 0);
@@ -291,15 +286,15 @@ mod trie_storage_tests {
         let trie_cache = TrieCache::new(&TrieConfig::default(), shard_uid, false);
         let trie_caching_storage =
             TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false, None);
+        let mut chunk_cache = TrieChunkCache::new(None);
         let key = hash(&value);
 
-        trie_caching_storage.set_mode(TrieCacheMode::CachingChunk);
-        let _ = trie_caching_storage.retrieve_raw_bytes(&key);
+        chunk_cache.set_enabled(true);
+        let _ = chunk_cache.retrieve_trie_node_with_cache(&key, &trie_caching_storage);
 
-        let count_before = trie_caching_storage.get_trie_nodes_count();
-        let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        let count_delta =
-            trie_caching_storage.get_trie_nodes_count().checked_sub(&count_before).unwrap();
+        let count_before: TrieNodesCount = chunk_cache.get_trie_nodes_count();
+        let result = chunk_cache.retrieve_trie_node_with_cache(&key, &trie_caching_storage);
+        let count_delta = chunk_cache.get_trie_nodes_count().checked_sub(&count_before).unwrap();
         assert_eq!(trie_cache.get(&key), None);
         assert_eq!(result.unwrap().as_ref(), value);
         assert_eq!(count_delta.db_reads, 0);
@@ -315,6 +310,7 @@ mod trie_storage_tests {
         let trie_cache = TrieCache::new(&TrieConfig::default(), shard_uid, false);
         let trie_caching_storage =
             TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false, None);
+        let mut chunk_cache = TrieChunkCache::new(None);
         let value = &values[0];
         let key = hash(&value);
 
@@ -327,31 +323,28 @@ mod trie_storage_tests {
 
         // Move to CachingChunk mode. Retrieval should increment the counter, because it is the first time we accessed
         // item while caching chunk.
-        trie_caching_storage.set_mode(TrieCacheMode::CachingChunk);
-        let count_before = trie_caching_storage.get_trie_nodes_count();
-        let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        let count_delta =
-            trie_caching_storage.get_trie_nodes_count().checked_sub(&count_before).unwrap();
+        chunk_cache.set_enabled(true);
+        let count_before = chunk_cache.get_trie_nodes_count();
+        let result = chunk_cache.retrieve_trie_node_with_cache(&key, &trie_caching_storage);
+        let count_delta = chunk_cache.get_trie_nodes_count().checked_sub(&count_before).unwrap();
         assert_eq!(result.unwrap().as_ref(), value);
         assert_eq!(count_delta.db_reads, 1);
         assert_eq!(count_delta.mem_reads, 0);
 
         // After previous retrieval, item must be copied to chunk cache. Retrieval shouldn't increment the counter.
-        let count_before = trie_caching_storage.get_trie_nodes_count();
-        let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        let count_delta =
-            trie_caching_storage.get_trie_nodes_count().checked_sub(&count_before).unwrap();
+        let count_before = chunk_cache.get_trie_nodes_count();
+        let result = chunk_cache.retrieve_trie_node_with_cache(&key, &trie_caching_storage);
+        let count_delta = chunk_cache.get_trie_nodes_count().checked_sub(&count_before).unwrap();
         assert_eq!(result.unwrap().as_ref(), value);
         assert_eq!(count_delta.db_reads, 0);
         assert_eq!(count_delta.mem_reads, 1);
 
         // Even if we switch to caching shard, retrieval shouldn't increment the counter. Chunk cache only grows and is
         // dropped only when trie caching storage is dropped.
-        trie_caching_storage.set_mode(TrieCacheMode::CachingShard);
-        let count_before = trie_caching_storage.get_trie_nodes_count();
-        let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        let count_delta =
-            trie_caching_storage.get_trie_nodes_count().checked_sub(&count_before).unwrap();
+        chunk_cache.set_enabled(true);
+        let count_before = chunk_cache.get_trie_nodes_count();
+        let result = chunk_cache.retrieve_trie_node_with_cache(&key, &trie_caching_storage);
+        let count_delta = chunk_cache.get_trie_nodes_count().checked_sub(&count_before).unwrap();
         assert_eq!(result.unwrap().as_ref(), value);
         assert_eq!(count_delta.db_reads, 0);
         assert_eq!(count_delta.mem_reads, 1);
@@ -369,26 +362,27 @@ mod trie_storage_tests {
         let trie_cache = TrieCache::new(&trie_config, shard_uid, false);
         let trie_caching_storage =
             TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false, None);
+        let mut chunk_cache = TrieChunkCache::new(None);
 
         let value = &values[0];
         let key = hash(&value);
 
-        trie_caching_storage.set_mode(TrieCacheMode::CachingChunk);
-        let result = trie_caching_storage.retrieve_raw_bytes(&key);
+        chunk_cache.set_enabled(true);
+        let result = chunk_cache.retrieve_trie_node_with_cache(&key, &trie_caching_storage);
         assert_eq!(result.unwrap().as_ref(), value);
 
-        trie_caching_storage.set_mode(TrieCacheMode::CachingShard);
+        chunk_cache.set_enabled(true);
         for value in values[1..].iter() {
-            let result = trie_caching_storage.retrieve_raw_bytes(&hash(value));
+            let result =
+                chunk_cache.retrieve_trie_node_with_cache(&hash(value), &trie_caching_storage);
             assert_eq!(result.unwrap().as_ref(), value);
         }
 
         // Check that the first element gets evicted, but the counter is not incremented.
         assert_eq!(trie_cache.get(&key), None);
-        let count_before = trie_caching_storage.get_trie_nodes_count();
-        let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        let count_delta =
-            trie_caching_storage.get_trie_nodes_count().checked_sub(&count_before).unwrap();
+        let count_before = chunk_cache.get_trie_nodes_count();
+        let result = chunk_cache.retrieve_trie_node_with_cache(&key, &trie_caching_storage);
+        let count_delta = chunk_cache.get_trie_nodes_count().checked_sub(&count_before).unwrap();
         assert_eq!(result.unwrap().as_ref(), value);
         assert_eq!(count_delta.db_reads, 0);
         assert_eq!(count_delta.mem_reads, 1);
