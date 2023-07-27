@@ -2871,8 +2871,8 @@ fn test_delayed_receipt_count_limit() {
     genesis.config.min_gas_price = min_gas_price;
     // Set gas limit to be small enough to produce some delayed receipts, but large enough for
     // transactions to get through.
-    let transaction_costs = RuntimeConfig::test().fees;
     // This will result in delayed receipt count limit of 20.
+    let transaction_costs = RuntimeConfig::test().fees;
     let chunk_gas_limit = 10 * transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee();
     genesis.config.gas_limit = chunk_gas_limit;
     let chain_genesis = ChainGenesis::new(&genesis);
