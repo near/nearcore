@@ -15,4 +15,3 @@ impl RunCompactionCommand {
         Ok(())
     }
 }
-

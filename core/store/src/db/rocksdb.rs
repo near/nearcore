@@ -5,11 +5,11 @@ use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
 };
 use once_cell::sync::Lazy;
-use tracing::log::info;
 use std::io;
 use std::ops::Deref;
 use std::path::Path;
 use strum::IntoEnumIterator;
+use tracing::log::info;
 use tracing::warn;
 
 mod instance_tracker;
