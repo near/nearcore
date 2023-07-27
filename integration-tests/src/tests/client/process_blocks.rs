@@ -61,7 +61,7 @@ use near_primitives::sharding::{
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::{get_num_state_parts, StatePartKey};
 use near_primitives::test_utils::TestBlockBuilder;
-use near_primitives::test_utils::{create_test_signer, encode};
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{
     Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
     Transaction,
@@ -2863,7 +2863,7 @@ fn test_delayed_receipt_count_limit() {
     let epoch_length = 5;
     let min_gas_price = 10000;
     let mut genesis = Genesis::test_sharded_new_version(
-        vec!["test0".parse().unwrap(), "test1".parse().unwrap()],
+        vec!["test0".parse().unwrap()],
         1,
         vec![1],
     );
@@ -2872,9 +2872,8 @@ fn test_delayed_receipt_count_limit() {
     // Set gas limit to be small enough to produce some delayed receipts, but large enough for
     // transactions to get through.
     let transaction_costs = RuntimeConfig::test().fees;
-    // This will result in delayed receipt count limit of 8 and up to 2 transactions included in
-    // each chunk.
-    let chunk_gas_limit = 4 * transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee();
+    // This will result in delayed receipt count limit of 20.
+    let chunk_gas_limit = 10 * transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee();
     genesis.config.gas_limit = chunk_gas_limit;
     let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
@@ -2882,90 +2881,41 @@ fn test_delayed_receipt_count_limit() {
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-
-    let deploy_tx = SignedTransaction::from_actions(
-        1,
-        "test0".parse().unwrap(),
-        "test0".parse().unwrap(),
-        &signer,
-        vec![Action::DeployContract(DeployContractAction {
-            code: near_test_contracts::rs_contract().to_vec(),
-        })],
-        *genesis_block.hash(),
-    );
-    let deploy_tx_hash = deploy_tx.get_hash();
-    assert_eq!(env.clients[0].process_tx(deploy_tx, false, false), ProcessTxResponse::ValidTx);
-    for i in 1..3 {
-        env.produce_block(0, i);
-    }
-    assert_matches!(
-        env.clients[0]
-            .chain
-            .get_execution_outcome(&deploy_tx_hash)
-            .unwrap()
-            .outcome_with_id
-            .outcome
-            .status,
-        ExecutionStatus::SuccessReceiptId(_)
-    );
-
-    let mut tx_hashes = vec![];
-    for i in 1..3 {
-        // This transaction will run out of gas (and consume all attached gas).
+    // Send enough transactions to saturate delayed receipts capacity.
+    let total_tx_count = 200usize;
+    for i in 0..total_tx_count {
         let tx = SignedTransaction::from_actions(
-            i + 1,
+            (i + 1) as u64,
             "test0".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer,
-            vec![Action::FunctionCall(FunctionCallAction {
-                method_name: "sum_n".to_string(),
-                args: encode(&[10000u64]),
-                gas: chunk_gas_limit,
-                deposit: 0,
-            })],
+            vec![Action::DeployContract(DeployContractAction { code: vec![92; 10000] })],
             *genesis_block.hash(),
         );
-        tx_hashes.push(tx.get_hash());
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
 
-    // Make sure all transactions are processed.
-    for i in 4..16 {
-        env.produce_block(0, i);
-    }
+    let mut included_tx_count = 0;
+    let mut height = 1;
+    while included_tx_count < total_tx_count {
+        env.produce_block(0, height);
+        let block = env.clients[0].chain.get_block_by_height(height).unwrap();
+        let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap();
+        // These checks are useful to ensure that we didn't mess up the test setup.
+        assert!(chunk.receipts().len() <= 1);
+        assert!(chunk.transactions().len() <= 5);
 
-    let test_shard_uid = ShardUId { version: 1, shard_id: 0 };
-    for tx_hash in tx_hashes {
-        let tx_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
-        assert_eq!(tx_outcome.outcome_with_id.outcome.receipt_ids.len(), 1);
-        if let ExecutionStatus::SuccessReceiptId(id) = tx_outcome.outcome_with_id.outcome.status {
-            let receipt_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
-            assert_matches!(
-                receipt_outcome.outcome_with_id.outcome.status,
-                ExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
-                    kind: ActionErrorKind::FunctionCallError { .. },
-                    ..
-                }))
-            );
-            let execution_outcomes_from_block = env.clients[0]
-                .chain
-                .store()
-                .get_block_execution_outcomes(&receipt_outcome.block_hash)
-                .unwrap()
-                .remove(&0)
-                .unwrap();
-            assert!(execution_outcomes_from_block.len() <= 8);
-            let chunk_extra = env.clients[0]
-                .chain
-                .get_chunk_extra(&receipt_outcome.block_hash, &test_shard_uid)
-                .unwrap()
-                .clone();
-            assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
-        } else {
-            unreachable!("Transaction must succeed");
+        // Because all transactions are in the transactions pool, this means we have not included
+        // some transactions due to the delayed receipt count limit.
+        if included_tx_count > 0 && chunk.transactions().is_empty() {
+            break;
         }
+        included_tx_count += chunk.transactions().len();
+        height += 1;
     }
+    assert!(included_tx_count < total_tx_count);
 }
 
 #[test]
