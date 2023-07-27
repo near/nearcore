@@ -42,7 +42,7 @@ mod trie_recording_tests {
     /// Verifies that when operating on a trie, the results are completely consistent
     /// regardless of whether we're operating on the real storage (with or without chunk
     /// cache), while recording reads, or when operating on recorded partial storage.
-    fn test_trie_recording_consistency(enable_chunk_cache: bool, use_missing_keys: bool) {
+    fn test_trie_recording_consistency(enable_accounting_cache: bool, use_missing_keys: bool) {
         let mut rng = rand::thread_rng();
         for _ in 0..NUM_ITERATIONS_PER_TEST {
             let tries = create_tries_complex(1, 2);
@@ -73,7 +73,7 @@ mod trie_recording_tests {
             // Let's capture the baseline node counts - this is what will happen
             // in production.
             let trie = tries.get_trie_for_shard(shard_uid, state_root);
-            trie.chunk_cache.borrow_mut().set_enabled(enable_chunk_cache);
+            trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
             for key in &keys_to_test_with {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -83,7 +83,7 @@ mod trie_recording_tests {
             // Now let's do this again while recording, and make sure that the counters
             // we get are exactly the same.
             let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads();
-            trie.chunk_cache.borrow_mut().set_enabled(enable_chunk_cache);
+            trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
             for key in &keys_to_test_with {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -98,7 +98,7 @@ mod trie_recording_tests {
                 trie_changes.len()
             );
             let trie = Trie::from_recorded_storage(partial_storage, state_root, false);
-            trie.chunk_cache.borrow_mut().set_enabled(enable_chunk_cache);
+            trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
             for key in &keys_to_test_with {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -107,22 +107,22 @@ mod trie_recording_tests {
     }
 
     #[test]
-    fn test_trie_recording_consistency_no_chunk_cache() {
+    fn test_trie_recording_consistency_no_accounting_cache() {
         test_trie_recording_consistency(false, false);
     }
 
     #[test]
-    fn test_trie_recording_consistency_with_chunk_cache() {
+    fn test_trie_recording_consistency_with_accounting_cache() {
         test_trie_recording_consistency(true, false);
     }
 
     #[test]
-    fn test_trie_recording_consistency_no_chunk_cache_with_missing_keys() {
+    fn test_trie_recording_consistency_no_accounting_cache_with_missing_keys() {
         test_trie_recording_consistency(false, true);
     }
 
     #[test]
-    fn test_trie_recording_consistency_with_chunk_cache_and_missing_keys() {
+    fn test_trie_recording_consistency_with_accounting_cache_and_missing_keys() {
         test_trie_recording_consistency(true, true);
     }
 
@@ -131,7 +131,7 @@ mod trie_recording_tests {
     /// cache), while recording reads, or when operating on recorded partial storage.
     /// This test additionally verifies this when flat storage is used.
     fn test_trie_recording_consistency_with_flat_storage(
-        enable_chunk_cache: bool,
+        enable_accounting_cache: bool,
         use_missing_keys: bool,
     ) {
         let mut rng = rand::thread_rng();
@@ -191,7 +191,7 @@ mod trie_recording_tests {
                 &CryptoHash::default(),
                 false,
             );
-            trie.chunk_cache.borrow_mut().set_enabled(enable_chunk_cache);
+            trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
             for key in &keys_to_test_with {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -208,7 +208,7 @@ mod trie_recording_tests {
                     false,
                 )
                 .recording_reads();
-            trie.chunk_cache.borrow_mut().set_enabled(enable_chunk_cache);
+            trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
             for key in &keys_to_test_with {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -223,7 +223,7 @@ mod trie_recording_tests {
                 trie_changes.len()
             );
             let trie = Trie::from_recorded_storage(partial_storage, state_root, true);
-            trie.chunk_cache.borrow_mut().set_enabled(enable_chunk_cache);
+            trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
             for key in &keys_to_test_with {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
             }
@@ -232,22 +232,22 @@ mod trie_recording_tests {
     }
 
     #[test]
-    fn test_trie_recording_consistency_with_flat_storage_no_chunk_cache() {
+    fn test_trie_recording_consistency_with_flat_storage_no_accounting_cache() {
         test_trie_recording_consistency_with_flat_storage(false, false);
     }
 
     #[test]
-    fn test_trie_recording_consistency_with_flat_storage_with_chunk_cache() {
+    fn test_trie_recording_consistency_with_flat_storage_with_accounting_cache() {
         test_trie_recording_consistency_with_flat_storage(true, false);
     }
 
     #[test]
-    fn test_trie_recording_consistency_with_flat_storage_no_chunk_cache_with_missing_keys() {
+    fn test_trie_recording_consistency_with_flat_storage_no_accounting_cache_with_missing_keys() {
         test_trie_recording_consistency_with_flat_storage(false, true);
     }
 
     #[test]
-    fn test_trie_recording_consistency_with_flat_storage_with_chunk_cache_and_missing_keys() {
+    fn test_trie_recording_consistency_with_flat_storage_with_accounting_cache_and_missing_keys() {
         test_trie_recording_consistency_with_flat_storage(true, true);
     }
 }

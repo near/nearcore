@@ -2,7 +2,7 @@ use crate::estimator_context::{EstimatorContext, Testbed};
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::utils::{aggregate_per_block_measurements, overhead_per_measured_block, percentiles};
 use near_primitives::hash::hash;
-use near_store::trie::chunk_cache::TrieChunkCache;
+use near_store::trie::accounting_cache::TrieAccountingCache;
 use near_store::TrieCachingStorage;
 use near_vm_runner::logic::ExtCosts;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -68,7 +68,7 @@ pub(crate) fn write_node(
     cost
 }
 
-pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
+pub(crate) fn read_node_from_accounting_cache(testbed: &mut Testbed) -> GasCost {
     let debug = testbed.config.debug;
     let iters = 200;
     let percentiles_of_interest = &[0.5, 0.9, 0.99, 0.999];
@@ -89,7 +89,7 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
                           num_warmup_values: usize,
                           data_spread_factor: usize,
                           spoil_l3: bool| {
-        let results = read_node_from_chunk_cache_ext(
+        let results = read_node_from_accounting_cache_ext(
             testbed,
             iters,
             num_values,
@@ -189,7 +189,7 @@ pub(crate) fn read_node_from_chunk_cache(testbed: &mut Testbed) -> GasCost {
     base_case
 }
 
-fn read_node_from_chunk_cache_ext(
+fn read_node_from_accounting_cache_ext(
     testbed: &mut Testbed,
     iters: usize,
     // How many values are read after each other. The higher the number, the
@@ -248,10 +248,13 @@ fn read_node_from_chunk_cache_ext(
 
             // Create a new cache and load nodes into it as preparation.
             let caching_storage = testbed.trie_caching_storage();
-            let mut chunk_cache = TrieChunkCache::new(None);
-            chunk_cache.set_enabled(true);
-            let _dummy_sum =
-                read_raw_nodes_from_storage(&caching_storage, &mut chunk_cache, &all_value_hashes);
+            let mut accounting_cache = TrieAccountingCache::new(None);
+            accounting_cache.set_enabled(true);
+            let _dummy_sum = read_raw_nodes_from_storage(
+                &caching_storage,
+                &mut accounting_cache,
+                &all_value_hashes,
+            );
 
             // Remove trie nodes from CPU caches by filling the caches with useless data.
             // (To measure latency from main memory, not CPU caches)
@@ -265,7 +268,7 @@ fn read_node_from_chunk_cache_ext(
             // around that are expected to always be in cache)
             let dummy_sum = read_raw_nodes_from_storage(
                 &caching_storage,
-                &mut chunk_cache,
+                &mut accounting_cache,
                 unmeasured_value_hashes,
             );
             SINK.fetch_add(dummy_sum, Ordering::SeqCst);
@@ -273,7 +276,7 @@ fn read_node_from_chunk_cache_ext(
             let start = GasCost::measure(testbed.config.metric);
             let dummy_sum = read_raw_nodes_from_storage(
                 &caching_storage,
-                &mut chunk_cache,
+                &mut accounting_cache,
                 &measured_value_hashes,
             );
             let cost = start.elapsed();
@@ -290,12 +293,13 @@ fn read_node_from_chunk_cache_ext(
 /// compiler.
 fn read_raw_nodes_from_storage(
     caching_storage: &TrieCachingStorage,
-    chunk_cache: &mut TrieChunkCache,
+    accounting_cache: &mut TrieAccountingCache,
     keys: &[near_primitives::hash::CryptoHash],
 ) -> usize {
     keys.iter()
         .map(|key| {
-            let bytes = chunk_cache.retrieve_trie_node_with_cache(key, caching_storage).unwrap();
+            let bytes =
+                accounting_cache.retrieve_raw_bytes_with_accounting(key, caching_storage).unwrap();
             near_store::estimator::decode_extension_node(&bytes).len()
         })
         .sum()

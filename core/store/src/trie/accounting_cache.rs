@@ -10,17 +10,19 @@ use std::sync::Arc;
 use crate::{metrics, TrieStorage};
 
 /// Deterministic cache to store trie nodes that have been accessed so far
-/// during the processing of a single chunk.
+/// during the cache's lifetime. It is used for deterministic gas accounting
+/// so that previously accessed trie nodes and values are charged at a
+/// cheaper gas cost.
 ///
 /// This cache's correctness is critical as it contributes to the gas
 /// accounting of storage operations during contract execution. For that
-/// reason, a new TrieChunkCache must be created at the beginning of a chunk's
-/// execution, and the db_read_nodes and mem_read_nodes must be taken into
-/// account whenever a storage operation is performed to calculate what kind
-/// of operation it was.
+/// reason, a new TrieAccountingCache must be created at the beginning of a
+/// chunk's execution, and the db_read_nodes and mem_read_nodes must be taken
+/// into account whenever a storage operation is performed to calculate what
+/// kind of operation it was.
 ///
-/// Note that we don't have a size limit for values in the chunk cache. There
-/// are two reasons:
+/// Note that we don't have a size limit for values in the accounting cache.
+/// There are two reasons:
 ///   - for nodes, value size is an implementation detail. If we change
 ///     internal representation of a node (e.g. change `memory_usage` field
 ///     from `RawTrieNodeWithSize`), this would have to be a protocol upgrade.
@@ -32,12 +34,12 @@ use crate::{metrics, TrieStorage};
 ///         lowest per byte fee (`storage_read_value_byte`) ~=
 ///         (500 * 10**12 / 5611005) / 2**20 ~= 85 MB.
 /// All values are given as of 16/03/2022. We may consider more precise limit
-/// for the chunk cache as well.
+/// for the accounting cache as well.
 ///
 /// Note that in general, it is NOT true that all storage access is either a
 /// db read or mem read. It can also be a flat storage read, which is not
-/// tracked via TrieChunkCache.
-pub struct TrieChunkCache {
+/// tracked via TrieAccountingCache.
+pub struct TrieAccountingCache {
     /// Whether the cache is enabled. By default it is not, but it can be
     /// turned on or off on the fly.
     enable: bool,
@@ -52,17 +54,17 @@ pub struct TrieChunkCache {
     /// already cached during the processing of this chunk.
     mem_read_nodes: u64,
     /// Prometheus metrics. It's optional - in testing it can be None.
-    metrics: Option<TrieChunkCacheMetrics>,
+    metrics: Option<TrieAccountingCacheMetrics>,
 }
 
-struct TrieChunkCacheMetrics {
-    chunk_cache_hits: GenericCounter<prometheus::core::AtomicU64>,
-    chunk_cache_misses: GenericCounter<prometheus::core::AtomicU64>,
-    chunk_cache_size: GenericGauge<prometheus::core::AtomicI64>,
+struct TrieAccountingCacheMetrics {
+    accounting_cache_hits: GenericCounter<prometheus::core::AtomicU64>,
+    accounting_cache_misses: GenericCounter<prometheus::core::AtomicU64>,
+    accounting_cache_size: GenericGauge<prometheus::core::AtomicI64>,
 }
 
-impl TrieChunkCache {
-    /// Constructs a new cache. By default it is not enabled.
+impl TrieAccountingCache {
+    /// Constructs a new accounting cache. By default it is not enabled.
     /// The optional parameter is passed in if prometheus metrics are desired.
     pub fn new(shard_uid_and_is_view: Option<(ShardUId, bool)>) -> Self {
         let metrics = shard_uid_and_is_view.map(|(shard_uid, is_view)| {
@@ -70,10 +72,11 @@ impl TrieChunkCache {
             let shard_id = buffer.format(shard_uid.shard_id);
 
             let metrics_labels: [&str; 2] = [&shard_id, if is_view { "1" } else { "0" }];
-            TrieChunkCacheMetrics {
-                chunk_cache_hits: metrics::CHUNK_CACHE_HITS.with_label_values(&metrics_labels),
-                chunk_cache_misses: metrics::CHUNK_CACHE_MISSES.with_label_values(&metrics_labels),
-                chunk_cache_size: metrics::CHUNK_CACHE_SIZE.with_label_values(&metrics_labels),
+            TrieAccountingCacheMetrics {
+                accounting_cache_hits: metrics::CHUNK_CACHE_HITS.with_label_values(&metrics_labels),
+                accounting_cache_misses: metrics::CHUNK_CACHE_MISSES
+                    .with_label_values(&metrics_labels),
+                accounting_cache_size: metrics::CHUNK_CACHE_SIZE.with_label_values(&metrics_labels),
             }
         });
         Self { enable: false, cache: HashMap::new(), db_read_nodes: 0, mem_read_nodes: 0, metrics }
@@ -83,7 +86,9 @@ impl TrieChunkCache {
         self.enable = enabled;
     }
 
-    pub fn retrieve_trie_node_with_cache(
+    /// Retrieve raw bytes from the cache if it exists, otherwise retrieve it
+    /// from the given storage, and count it as a db access.
+    pub fn retrieve_raw_bytes_with_accounting(
         &mut self,
         hash: &CryptoHash,
         storage: &dyn TrieStorage,
@@ -91,20 +96,20 @@ impl TrieChunkCache {
         if let Some(node) = self.cache.get(hash) {
             self.mem_read_nodes += 1;
             if let Some(metrics) = &self.metrics {
-                metrics.chunk_cache_hits.inc();
+                metrics.accounting_cache_hits.inc();
             }
             Ok(node.clone())
         } else {
             self.db_read_nodes += 1;
             if let Some(metrics) = &self.metrics {
-                metrics.chunk_cache_misses.inc();
+                metrics.accounting_cache_misses.inc();
             }
             let node = storage.retrieve_raw_bytes(hash)?;
 
             if self.enable {
                 self.cache.insert(*hash, node.clone());
                 if let Some(metrics) = &self.metrics {
-                    metrics.chunk_cache_size.set(self.cache.len() as i64);
+                    metrics.accounting_cache_size.set(self.cache.len() as i64);
                 }
             }
             Ok(node)

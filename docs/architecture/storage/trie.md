@@ -22,19 +22,19 @@ communicates with database using `TrieStorage`. On the database level, data is
 stored in key-value format in `DBCol::State` column. There are two kinds of
 records:
 
-- trie nodes, for the which key is constructed from shard id and
+* trie nodes, for the which key is constructed from shard id and
   `RawTrieNodeWithSize` hash, and value is a `RawTrieNodeWithSize` serialized by
   a custom algorithm;
-- values (encoded contract codes, postponed receipts, etc.), for which the key is
+* values (encoded contract codes, postponed receipts, etc.), for which the key is
   constructed from shard id and the hash of value, which maps to the encoded value.
 
 So, value can be obtained from `TrieKey` as follows:
 
-- start from the hash of `RawTrieNodeWithSize` corresponding to the root;
-- descend to the needed node using nibbles from `TrieKey`;
-- extract underlying `RawTrieNode`;
-- if it is a `Leaf` or `Branch`, it should contain the hash of the value;
-- get value from storage by its hash and shard id.
+* start from the hash of `RawTrieNodeWithSize` corresponding to the root;
+* descend to the needed node using nibbles from `TrieKey`;
+* extract underlying `RawTrieNode`;
+* if it is a `Leaf` or `Branch`, it should contain the hash of the value;
+* get value from storage by its hash and shard id.
 
 Note that `Trie` is almost never called directly from `Runtime`, modifications
 are made using `TrieUpdate`.
@@ -44,10 +44,10 @@ are made using `TrieUpdate`.
 Provides a way to access storage and record changes to commit in the future.
 Update is prepared as follows:
 
-- changes are made using `set` and `remove` methods, which are added to
+* changes are made using `set` and `remove` methods, which are added to
   `prospective` field,
-- call `commit` method which moves `prospective` changes to `committed`,
-- call `finalize` method which prepares `TrieChanges` and state changes based on
+* call `commit` method which moves `prospective` changes to `committed`,
+* call `finalize` method which prepares `TrieChanges` and state changes based on
   `committed` field.
 
 Note that `finalize`, `Trie::insert` and `Trie::update` do not update the
@@ -61,10 +61,10 @@ when `ShardTries::apply_insertions` is called, which puts new values to
 Stores all `Trie` nodes and allows to get serialized nodes by `TrieKey` hash
 using the `retrieve_raw_bytes` method.
 
-There are two implementations of `TrieStorage`:
+There are two major implementations of `TrieStorage`:
 
-- `TrieCachingStorage` - applies the shard cache to values read by `retrieve_raw_bytes`.
-- `TrieMemoryPartialStorage` - used for validating recorded partial storage.
+* `TrieCachingStorage` - caches all big values ever read by `retrieve_raw_bytes`.
+* `TrieMemoryPartialStorage` - used for validating recorded partial storage.
 
 Note that these storages use database keys, which are retrieved using hashes of
 trie nodes using the `get_key_from_shard_id_and_hash` method.
@@ -79,16 +79,16 @@ Contains stores and caches and allows to get `Trie` object for any shard.
 
 Describes all keys which may be inserted to `Trie`:
 
-- `Account`
-- `ContractCode`
-- `AccessKey`
-- `ReceivedData`
-- `PostponedReceiptId`
-- `PendingDataCount`
-- `PostponedReceipt`
-- `DelayedReceiptIndices`
-- `DelayedReceipt`
-- `ContractData`
+* `Account`
+* `ContractCode`
+* `AccessKey`
+* `ReceivedData`
+* `PostponedReceiptId`
+* `PendingDataCount`
+* `PostponedReceipt`
+* `DelayedReceiptIndices`
+* `DelayedReceipt`
+* `ContractData`
 
 Each key is uniquely converted to `Vec<u8>`. Internally, each such vector is
 converted to `NibbleSlice` (nibble is a half of a byte), and each its item
@@ -98,10 +98,10 @@ corresponds to one step down in `Trie`.
 
 Stores result of updating `Trie`.
 
-- `old_root`: root before updating `Trie`, i.e. inserting new nodes and deleting
+* `old_root`: root before updating `Trie`, i.e. inserting new nodes and deleting
   old ones,
-- `new_root`: root after updating `Trie`,
-- `insertions`, `deletions`: vectors of `TrieRefcountChange`, describing all
+* `new_root`: root after updating `Trie`,
+* `insertions`, `deletions`: vectors of `TrieRefcountChange`, describing all
   inserted and deleted nodes.
 
 ### TrieRefcountChange
@@ -113,10 +113,10 @@ binary in storage and track its count.
 
 This structure is used to update `rc` in the database:
 
-- `trie_node_or_value_hash` - hash of the trie node or value, used for uniting
+* `trie_node_or_value_hash` - hash of the trie node or value, used for uniting
   with shard id to get DB key,
-- `trie_node_or_value` - serialized trie node or value,
-- `rc` - change of reference count.
+* `trie_node_or_value` - serialized trie node or value,
+* `rc` - change of reference count.
 
 Note that for all reference-counted records, the actual value stored in DB is
 the concatenation of `trie_node_or_value` and `rc`. The reference count is

@@ -345,9 +345,9 @@ impl TrieMemoryPartialStorage {
 /// Storage for reading State nodes and values from DB which caches reads.
 ///
 /// Important: The TrieCachingStorage contains the shard cache, which is
-/// different from the chunk cache. The former is a best-effort optimization
-/// to speed up execution, whereas the latter is a deterministic cache used
-/// for gas accounting during contract execution.
+/// different from the accounting cache. The former is a best-effort
+/// optimization to speed up execution, whereas the latter is a deterministic
+/// cache used for gas accounting during contract execution.
 pub struct TrieCachingStorage {
     pub(crate) store: Store,
     pub(crate) shard_uid: ShardUId,
@@ -495,9 +495,9 @@ impl TrieStorage for TrieCachingStorage {
                 }
 
                 // Insert value to shard cache, if its size is small enough.
-                // It is fine to have a size limit for shard cache and **not** have a limit for chunk cache, because key
+                // It is fine to have a size limit for shard cache and **not** have a limit for accounting cache, because key
                 // is always a value hash, so for each key there could be only one value, and it is impossible to have
-                // **different** values for the given key in shard and chunk caches.
+                // **different** values for the given key in shard and accounting caches.
                 if val.len() < TrieConfig::max_cached_value_size() {
                     let mut guard = self.shard_cache.lock();
                     guard.put(*hash, val.clone());

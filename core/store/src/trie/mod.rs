@@ -31,7 +31,7 @@ use std::rc::Rc;
 use std::str;
 use std::sync::Arc;
 
-pub mod chunk_cache;
+pub mod accounting_cache;
 mod config;
 mod from_flat;
 mod insert_delete;
@@ -48,7 +48,7 @@ mod trie_storage;
 mod trie_tests;
 pub mod update;
 
-use self::chunk_cache::TrieChunkCache;
+use self::accounting_cache::TrieAccountingCache;
 use self::trie_recording::TrieRecorder;
 use self::trie_storage::TrieMemoryPartialStorage;
 pub use from_flat::construct_trie_from_flat;
@@ -331,12 +331,12 @@ pub struct Trie {
     /// If present, flat storage is used to look up keys (if asked for).
     /// Otherwise, we would crawl through the trie.
     flat_storage_chunk_view: Option<FlatStorageChunkView>,
-    /// This is the deterministic chunk cache, meaning that for the lifetime
-    /// of this Trie struct, whenever the chunk cache is enabled (which can be
-    /// toggled on the fly), trie nodes that have been looked up once will be
-    /// guaranteed to be cached, and further reads to these nodes will
-    /// encounter less gas cost.
-    chunk_cache: RefCell<TrieChunkCache>,
+    /// This is the deterministic accounting cache, meaning that for the
+    /// lifetime of this Trie struct, whenever the accounting cache is enabled
+    /// (which can be toggled on the fly), trie nodes that have been looked up
+    /// once will be guaranteed to be cached, and further reads to these nodes
+    /// will encounter less gas cost.
+    accounting_cache: RefCell<TrieAccountingCache>,
     /// If present, we're capturing all trie nodes that have been accessed
     /// during the lifetime of this Trie struct. This is used to produce a
     /// state proof so that the same access pattern can be replayed using only
@@ -345,12 +345,12 @@ pub struct Trie {
     /// This can only be true if the storage is based on a recorded partial
     /// trie, i.e. replaying lookups on a state proof, where flat storage may
     /// not be available so we always have to go through the trie. If this
-    /// flag is true, trie lookups (from key to ValueRef) will not affect
-    /// the return value of get_trie_nodes_count(), i.e. it's free from the
-    /// trie's perspective, just like flat storage. (Note that dereferencing
-    /// ValueRef still has the same cost no matter what.) This allows us to
-    /// accurately calculate storage gas costs even with only a state proof.
-    force_use_flat_storage_accounting: bool,
+    /// flag is true, trie node lookups will not go through the accounting
+    /// cache, i.e. the access is free from the trie's perspective, just like
+    /// flat storage. (Note that dereferencing ValueRef still has the same cost
+    /// no matter what.) This allows us to accurately calculate storage gas
+    /// costs even with only a state proof.
+    skip_accounting_cache_for_trie_nodes: bool,
 }
 
 /// Trait for reading data from a trie.
@@ -454,27 +454,27 @@ impl Trie {
     pub const EMPTY_ROOT: StateRoot = StateRoot::new();
 
     /// Starts accessing a trie with the given storage.
-    /// By default, the chunk cache is not enabled. To enable or disable it
-    /// (only in this crate), call self.chunk_cache.borrow_mut().set_enabled().
+    /// By default, the accounting cache is not enabled. To enable or disable it
+    /// (only in this crate), call self.accounting_cache.borrow_mut().set_enabled().
     pub fn new(
         storage: Rc<dyn TrieStorage>,
         root: StateRoot,
         flat_storage_chunk_view: Option<FlatStorageChunkView>,
     ) -> Self {
-        let chunk_cache = match storage.as_caching_storage() {
-            Some(caching_storage) => RefCell::new(TrieChunkCache::new(Some((
+        let accounting_cache = match storage.as_caching_storage() {
+            Some(caching_storage) => RefCell::new(TrieAccountingCache::new(Some((
                 caching_storage.shard_uid,
                 caching_storage.is_view,
             )))),
-            None => RefCell::new(TrieChunkCache::new(None)),
+            None => RefCell::new(TrieAccountingCache::new(None)),
         };
         Trie {
             storage,
             root,
             flat_storage_chunk_view,
-            chunk_cache,
+            accounting_cache: accounting_cache,
             recorder: None,
-            force_use_flat_storage_accounting: false,
+            skip_accounting_cache_for_trie_nodes: false,
         }
     }
 
@@ -509,7 +509,7 @@ impl Trie {
         let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
         let storage = Rc::new(TrieMemoryPartialStorage::new(recorded_storage));
         let mut trie = Self::new(storage, root, None);
-        trie.force_use_flat_storage_accounting = flat_storage_used;
+        trie.skip_accounting_cache_for_trie_nodes = flat_storage_used;
         trie
     }
 
@@ -534,10 +534,12 @@ impl Trie {
     fn internal_retrieve_trie_node(
         &self,
         hash: &CryptoHash,
-        count_cost: bool,
+        use_accounting_cache: bool,
     ) -> Result<Arc<[u8]>, StorageError> {
-        let result = if count_cost {
-            self.chunk_cache.borrow_mut().retrieve_trie_node_with_cache(hash, &*self.storage)?
+        let result = if use_accounting_cache {
+            self.accounting_cache
+                .borrow_mut()
+                .retrieve_raw_bytes_with_accounting(hash, &*self.storage)?
         } else {
             self.storage.retrieve_raw_bytes(hash)?
         };
@@ -768,12 +770,12 @@ impl Trie {
     fn retrieve_raw_node(
         &self,
         hash: &CryptoHash,
-        count_cost: bool,
+        use_accounting_cache: bool,
     ) -> Result<Option<(std::sync::Arc<[u8]>, RawTrieNodeWithSize)>, StorageError> {
         if hash == &Self::EMPTY_ROOT {
             return Ok(None);
         }
-        let bytes = self.internal_retrieve_trie_node(hash, count_cost)?;
+        let bytes = self.internal_retrieve_trie_node(hash, use_accounting_cache)?;
         let node = RawTrieNodeWithSize::try_from_slice(&bytes).map_err(|err| {
             StorageError::StorageInconsistentState(format!("Failed to decode node {hash}: {err}"))
         })?;
@@ -837,11 +839,11 @@ impl Trie {
     fn lookup(
         &self,
         mut key: NibbleSlice<'_>,
-        count_cost: bool,
+        use_accounting_cache: bool,
     ) -> Result<Option<ValueRef>, StorageError> {
         let mut hash = self.root;
         loop {
-            let node = match self.retrieve_raw_node(&hash, count_cost)? {
+            let node = match self.retrieve_raw_node(&hash, use_accounting_cache)? {
                 None => return Ok(None),
                 Some((_bytes, node)) => node.node,
             };
@@ -979,21 +981,25 @@ impl Trie {
             matches!(mode, KeyLookupMode::FlatStorage) && self.flat_storage_chunk_view.is_some();
 
         if use_flat_storage {
-            let flat_state_value =
-                self.flat_storage_chunk_view.as_ref().unwrap().get_value(&key)?;
+            let value_from_flat_storage = self
+                .flat_storage_chunk_view
+                .as_ref()
+                .unwrap()
+                .get_value(&key)?
+                .map(|value| value.to_value_ref());
             if self.recorder.is_some() {
                 // If recording, we need to look up in the trie as well to record the trie nodes,
                 // as they are needed to prove the value. Also, it's important that this lookup
                 // is done even if the key was not found, because intermediate trie nodes may be
                 // needed to prove the non-existence of the key.
                 let key_nibbles = NibbleSlice::new(key);
-                let trie_value = self.lookup(key_nibbles, false)?;
-                assert_eq!(flat_state_value.is_some(), trie_value.is_some());
+                let value_from_trie = self.lookup(key_nibbles, false)?;
+                assert_eq!(&value_from_flat_storage, &value_from_trie);
             }
-            Ok(flat_state_value.map(|value| value.to_value_ref()))
+            Ok(value_from_flat_storage)
         } else {
             let key_nibbles = NibbleSlice::new(key);
-            self.lookup(key_nibbles, !self.force_use_flat_storage_accounting)
+            self.lookup(key_nibbles, !self.skip_accounting_cache_for_trie_nodes)
         }
     }
 
@@ -1075,7 +1081,7 @@ impl Trie {
     }
 
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        self.chunk_cache.borrow().get_trie_nodes_count()
+        self.accounting_cache.borrow().get_trie_nodes_count()
     }
 }
 

@@ -157,7 +157,7 @@ impl TrieUpdate {
     }
 
     pub fn set_trie_cache_mode(&self, state: TrieCacheMode) {
-        self.trie.chunk_cache.borrow_mut().set_enabled(state == TrieCacheMode::CachingChunk);
+        self.trie.accounting_cache.borrow_mut().set_enabled(state == TrieCacheMode::CachingChunk);
     }
 }
 
