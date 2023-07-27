@@ -19,15 +19,17 @@ mod lightclient;
 mod metrics;
 pub mod migrations;
 pub mod missing_chunks;
+pub mod resharding;
 mod state_request_tracker;
 pub mod state_snapshot_actor;
 mod store;
 pub mod store_validator;
 pub mod test_utils;
-#[cfg(test)]
-mod tests;
 pub mod types;
 pub mod validate;
+
+#[cfg(test)]
+mod tests;
 
 #[cfg(feature = "byzantine_asserts")]
 #[macro_export]

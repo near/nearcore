@@ -2,8 +2,10 @@ use crate::ClientActor;
 use borsh::BorshSerialize;
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
+    BlockCatchUpResponse,
 };
+use near_chain::resharding::StateSplitRequest;
+use near_chain::Chain;
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::StatePartKey;
@@ -135,20 +137,7 @@ impl actix::Handler<WithSpanContext<StateSplitRequest>> for SyncJobsActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
-        let results = msg.runtime_adapter.build_state_for_split_shards(
-            msg.shard_uid,
-            &msg.state_root,
-            &msg.next_epoch_shard_layout,
-            msg.state_split_status,
-        );
-
-        self.client_addr.do_send(
-            StateSplitResponse {
-                sync_hash: msg.sync_hash,
-                shard_id: msg.shard_id,
-                new_state_roots: results,
-            }
-            .with_span_context(),
-        );
+        let response = Chain::build_state_for_split_shards(msg);
+        self.client_addr.do_send(response.with_span_context());
     }
 }

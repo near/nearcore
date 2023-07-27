@@ -27,17 +27,17 @@ use delay_detector::DelayDetector;
 use itertools::Itertools;
 use lru::LruCache;
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
-use near_client_primitives::types::StateSplitApplyingStatus;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::log_assert;
-use near_primitives::block::{genesis_chunks, Tip};
+use near_primitives::block::{genesis_chunks, BlockValidityError, Tip};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
     MaybeEncodedShardChunk, PartialState, SlashedValidator,
 };
 use near_primitives::checked_feature;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{
     combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem, PartialMerkleTree,
@@ -75,7 +75,7 @@ use near_store::flat::{
     store_helper, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageError,
     FlatStorageReadyStatus, FlatStorageStatus,
 };
-use near_store::StorageError;
+use near_store::{get_genesis_state_roots, StorageError};
 use near_store::{DBCol, ShardTries, WrappedTrieChanges};
 use once_cell::sync::OnceCell;
 use rand::seq::SliceRandom;
@@ -449,7 +449,8 @@ pub struct Chain {
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
     /// Time when head was updated most recently.
     last_time_head_updated: Instant,
-
+    /// Prevents re-application of known-to-be-invalid blocks, so that in case of a
+    /// protocol issue we can recover faster by focusing on correct blocks.
     invalid_blocks: LruCache<CryptoHash, ()>,
 
     /// Support for sandbox's patch_state requests.
@@ -498,13 +499,22 @@ type PreprocessBlockResult = (
     BlockPreprocessInfo,
 );
 
+// Used only for verify_block_hash_and_signature. See that method.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum VerifyBlockHashAndSignatureResult {
+    Correct,
+    Incorrect,
+    CannotVerifyBecauseBlockIsOrphan,
+}
+
 impl Chain {
     pub fn make_genesis_block(
         epoch_manager: &dyn EpochManagerAdapter,
         runtime_adapter: &dyn RuntimeAdapter,
         chain_genesis: &ChainGenesis,
     ) -> Result<Block, Error> {
-        let (_, state_roots) = runtime_adapter.genesis_state();
+        let state_roots = get_genesis_state_roots(runtime_adapter.store())?
+            .expect("genesis should be initialized.");
         let genesis_chunks = genesis_chunks(
             state_roots,
             epoch_manager.num_shards(&EpochId::default())?,
@@ -578,9 +588,13 @@ impl Chain {
         make_snapshot_callback: Option<MakeSnapshotCallback>,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
-        let (store, state_roots) = runtime_adapter.genesis_state();
-        let mut store =
-            ChainStore::new(store, chain_genesis.height, chain_config.save_trie_changes);
+        let state_roots = get_genesis_state_roots(runtime_adapter.store())?
+            .expect("genesis should be initialized.");
+        let mut store = ChainStore::new(
+            runtime_adapter.store().clone(),
+            chain_genesis.height,
+            chain_config.save_trie_changes,
+        );
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
             epoch_manager.num_shards(&EpochId::default())?,
@@ -1076,6 +1090,18 @@ impl Chain {
         Ok(())
     }
 
+    fn maybe_mark_block_invalid(&mut self, block_hash: CryptoHash, error: &Error) {
+        metrics::NUM_INVALID_BLOCKS.inc();
+        // We only mark the block as invalid if the block has bad data (not for other errors that would
+        // not be the fault of the block itself), except when the block has a bad signature which means
+        // the block might not have been what the block producer originally produced. Either way, it's
+        // OK if we miss some cases here because this is just an optimization to avoid reprocessing
+        // known invalid blocks so the network recovers faster in case of any issues.
+        if error.is_bad_data() && !matches!(error, Error::InvalidSignature) {
+            self.invalid_blocks.put(block_hash, ());
+        }
+    }
+
     /// Return a StateSyncInfo that includes the information needed for syncing state for shards needed
     /// in the next epoch.
     fn get_state_sync_info(
@@ -1171,7 +1197,8 @@ impl Chain {
                 }
             }
         }
-        block.check_validity().map_err(|e| e.into())
+        block.check_validity().map_err(|e| <BlockValidityError as Into<Error>>::into(e))?;
+        Ok(())
     }
 
     /// Verify header signature when the epoch is known, but not the whole chain.
@@ -1237,7 +1264,7 @@ impl Chain {
             return Err(Error::InvalidBlockFutureTime(header.timestamp()));
         }
 
-        // First I/O cost, delay as much as possible.
+        // Check the signature.
         if !self.epoch_manager.verify_header_signature(header)? {
             return Err(Error::InvalidSignature);
         }
@@ -1413,6 +1440,56 @@ impl Chain {
         check_known(self, header.hash())?.map_err(|e| Error::BlockKnown(e))?;
         self.validate_header(header, &Provenance::NONE, challenges)?;
         Ok(())
+    }
+
+    /// Verify that the block signature and block body hash matches. It makes sure that the block
+    /// content is not tampered by a middle man.
+    /// Returns Correct if the both check succeeds. Returns Incorrect if either check fails.
+    /// Returns CannotVerifyBecauseBlockIsOrphan, if we could not verify the signature because
+    /// the parent block is not yet available.
+    pub fn verify_block_hash_and_signature(
+        &self,
+        block: &Block,
+    ) -> Result<VerifyBlockHashAndSignatureResult, Error> {
+        // skip the verification if we are processing the genesis block
+        if block.hash() == self.genesis.hash() {
+            return Ok(VerifyBlockHashAndSignatureResult::Correct);
+        }
+        let epoch_id = match self.epoch_manager.get_epoch_id(block.header().prev_hash()) {
+            Ok(epoch_id) => epoch_id,
+            Err(EpochError::MissingBlock(missing_block))
+                if &missing_block == block.header().prev_hash() =>
+            {
+                return Ok(VerifyBlockHashAndSignatureResult::CannotVerifyBecauseBlockIsOrphan);
+            }
+            Err(err) => return Err(err.into()),
+        };
+        let epoch_protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        // Check that block body hash matches the block body. This makes sure that the block body
+        // content is not tampered
+        if checked_feature!(
+            "protocol_feature_block_header_v4",
+            BlockHeaderV4,
+            epoch_protocol_version
+        ) {
+            let block_body_hash = block.compute_block_body_hash();
+            if block_body_hash.is_none() {
+                tracing::warn!("Block version too old for block: {:?}", block.hash());
+                return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
+            }
+            if block.header().block_body_hash() != block_body_hash {
+                tracing::warn!("Invalid block body hash for block: {:?}", block.hash());
+                return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
+            }
+        }
+
+        // Verify the signature. Since the signature is signed on the hash of block header, this check
+        // makes sure the block header content is not tampered
+        if !self.epoch_manager.verify_header_signature(block.header())? {
+            tracing::error!("wrong signature");
+            return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
+        }
+        Ok(VerifyBlockHashAndSignatureResult::Correct)
     }
 
     /// Verify that `challenges` are valid
@@ -2001,6 +2078,20 @@ impl Chain {
             "start_process_block_impl",
             height = block_height)
         .entered();
+        // 0) Before we proceed with any further processing, we first check that the block
+        // hash and signature matches to make sure the block is indeed produced by the assigned
+        // block producer. If not, we drop the block immediately
+        // Note that it may appear that we call verify_block_hash_signature twice, once in
+        // receive_block_impl, once here. The redundancy is because if a block is received as an orphan,
+        // the check in receive_block_impl will not be complete and the block will be stored in
+        // the orphan pool. When the orphaned block is ready to be processed, we must perform this check.
+        // Also note that we purposely separates the check from the rest of the block verification check in
+        // preprocess_block.
+        if self.verify_block_hash_and_signature(&block)?
+            == VerifyBlockHashAndSignatureResult::Incorrect
+        {
+            return Err(Error::InvalidSignature);
+        }
 
         // 1) preprocess the block where we verify that the block is valid and ready to be processed
         //    No chain updates are applied at this step.
@@ -2021,10 +2112,7 @@ impl Chain {
                 preprocess_res
             }
             Err(e) => {
-                if e.is_bad_data() {
-                    metrics::NUM_INVALID_BLOCKS.inc();
-                    self.invalid_blocks.put(*block.hash(), ());
-                }
+                self.maybe_mark_block_invalid(*block.hash(), &e);
                 preprocess_timer.stop_and_discard();
                 match &e {
                     Error::Orphan => {
@@ -2260,10 +2348,7 @@ impl Chain {
         let new_head =
             match self.postprocess_block_only(me, &block, block_preprocess_info, apply_results) {
                 Err(err) => {
-                    if err.is_bad_data() {
-                        self.invalid_blocks.put(*block.hash(), ());
-                        metrics::NUM_INVALID_BLOCKS.inc();
-                    }
+                    self.maybe_mark_block_invalid(*block.hash(), &err);
                     self.blocks_delay_tracker.mark_block_errored(&block_hash, err.to_string());
                     return Err(err);
                 }
@@ -3341,53 +3426,6 @@ impl Chain {
         }
 
         Ok(())
-    }
-
-    pub fn build_state_for_split_shards_preprocessing(
-        &self,
-        sync_hash: &CryptoHash,
-        shard_id: ShardId,
-        state_split_scheduler: &dyn Fn(StateSplitRequest),
-        state_split_status: Arc<StateSplitApplyingStatus>,
-    ) -> Result<(), Error> {
-        let (epoch_id, next_epoch_id) = {
-            let block_header = self.get_block_header(sync_hash)?;
-            (block_header.epoch_id().clone(), block_header.next_epoch_id().clone())
-        };
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-        let next_epoch_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let prev_hash = *self.get_block_header(sync_hash)?.prev_hash();
-        let state_root = *self.get_chunk_extra(&prev_hash, &shard_uid)?.state_root();
-        assert_ne!(shard_layout, next_epoch_shard_layout);
-
-        state_split_scheduler(StateSplitRequest {
-            runtime_adapter: self.runtime_adapter.clone(),
-            sync_hash: *sync_hash,
-            shard_id,
-            shard_uid,
-            state_root,
-            next_epoch_shard_layout,
-            state_split_status,
-        });
-
-        Ok(())
-    }
-
-    pub fn build_state_for_split_shards_postprocessing(
-        &mut self,
-        sync_hash: &CryptoHash,
-        state_roots: Result<HashMap<ShardUId, StateRoot>, Error>,
-    ) -> Result<(), Error> {
-        let prev_hash = *self.get_block_header(sync_hash)?.prev_hash();
-        let mut chain_update = self.chain_update();
-        for (shard_uid, state_root) in state_roots? {
-            // here we store the state roots in chunk_extra in the database for later use
-            let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
-            chain_update.chain_store_update.save_chunk_extra(&prev_hash, &shard_uid, chunk_extra);
-            debug!(target:"chain", "Finish building split state for shard {:?} {:?} {:?} ", shard_uid, prev_hash, state_root);
-        }
-        chain_update.commit()
     }
 
     pub fn clear_downloaded_parts(
@@ -5479,12 +5517,10 @@ impl<'a> ChainUpdate<'a> {
 
         let chunk_header = chunk.cloned_header();
         let gas_limit = chunk_header.gas_limit();
-        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
-            &mut self.chain_store_update,
-            self.epoch_manager.as_ref(),
-            &chunk_header.prev_block_hash(),
-            shard_id,
-        )?;
+        // This is set to false because the value is only relevant
+        // during protocol version RestoreReceiptsAfterFixApplyChunks.
+        // TODO(nikurt): Determine the value correctly.
+        let is_first_block_with_chunk_of_version = false;
 
         let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
@@ -5680,26 +5716,6 @@ pub struct BlockCatchUpResponse {
     pub sync_hash: CryptoHash,
     pub block_hash: CryptoHash,
     pub results: Vec<Result<ApplyChunkResult, Error>>,
-}
-
-#[derive(actix::Message)]
-#[rtype(result = "()")]
-pub struct StateSplitRequest {
-    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
-    pub sync_hash: CryptoHash,
-    pub shard_id: ShardId,
-    pub shard_uid: ShardUId,
-    pub state_root: StateRoot,
-    pub next_epoch_shard_layout: ShardLayout,
-    pub state_split_status: Arc<StateSplitApplyingStatus>,
-}
-
-#[derive(actix::Message)]
-#[rtype(result = "()")]
-pub struct StateSplitResponse {
-    pub sync_hash: CryptoHash,
-    pub shard_id: ShardId,
-    pub new_state_roots: Result<HashMap<ShardUId, StateRoot>, Error>,
 }
 
 /// Helper to track blocks catch up
