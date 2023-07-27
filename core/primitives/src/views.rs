@@ -9,10 +9,8 @@ use crate::block_header::{
     BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderInnerRestV3,
     BlockHeaderV1, BlockHeaderV2, BlockHeaderV3,
 };
-#[cfg(feature = "protocol_feature_block_header_v4")]
 use crate::block_header::{BlockHeaderInnerRestV4, BlockHeaderV4};
 use crate::challenge::{Challenge, ChallengesResult};
-#[cfg(feature = "protocol_feature_block_header_v4")]
 use crate::checked_feature;
 use crate::contract::ContractCode;
 use crate::delegate_action::{DelegateAction, SignedDelegateAction};
@@ -728,7 +726,6 @@ pub struct BlockHeaderView {
     pub hash: CryptoHash,
     pub prev_hash: CryptoHash,
     pub prev_state_root: CryptoHash,
-    #[cfg(feature = "protocol_feature_block_header_v4")]
     pub block_body_hash: Option<CryptoHash>,
     pub chunk_receipts_root: CryptoHash,
     pub chunk_headers_root: CryptoHash,
@@ -775,7 +772,6 @@ impl From<BlockHeader> for BlockHeaderView {
             hash: *header.hash(),
             prev_hash: *header.prev_hash(),
             prev_state_root: *header.prev_state_root(),
-            #[cfg(feature = "protocol_feature_block_header_v4")]
             block_body_hash: header.block_body_hash(),
             chunk_receipts_root: *header.chunk_receipts_root(),
             chunk_headers_root: *header.chunk_headers_root(),
@@ -885,46 +881,7 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV2(Arc::new(header))
-        } else {
-            #[cfg(feature = "protocol_feature_block_header_v4")]
-            if checked_feature!(
-                "protocol_feature_block_header_v4",
-                BlockHeaderV4,
-                view.latest_protocol_version
-            ) {
-                let mut header = BlockHeaderV4 {
-                    prev_hash: view.prev_hash,
-                    inner_lite,
-                    inner_rest: BlockHeaderInnerRestV4 {
-                        block_body_hash: view.block_body_hash.unwrap_or_default(),
-                        chunk_receipts_root: view.chunk_receipts_root,
-                        chunk_headers_root: view.chunk_headers_root,
-                        chunk_tx_root: view.chunk_tx_root,
-                        challenges_root: view.challenges_root,
-                        random_value: view.random_value,
-                        validator_proposals: view
-                            .validator_proposals
-                            .into_iter()
-                            .map(Into::into)
-                            .collect(),
-                        chunk_mask: view.chunk_mask,
-                        gas_price: view.gas_price,
-                        block_ordinal: view.block_ordinal.unwrap_or(0),
-                        total_supply: view.total_supply,
-                        challenges_result: view.challenges_result,
-                        last_final_block: view.last_final_block,
-                        last_ds_final_block: view.last_ds_final_block,
-                        prev_height: view.prev_height.unwrap_or_default(),
-                        epoch_sync_data_hash: view.epoch_sync_data_hash,
-                        approvals: view.approvals.clone(),
-                        latest_protocol_version: view.latest_protocol_version,
-                    },
-                    signature: view.signature,
-                    hash: CryptoHash::default(),
-                };
-                header.init();
-                return BlockHeader::BlockHeaderV4(Arc::new(header));
-            }
+        } else if !checked_feature!("stable", BlockHeaderV4, view.latest_protocol_version) {
             let mut header = BlockHeaderV3 {
                 prev_hash: view.prev_hash,
                 inner_lite,
@@ -956,6 +913,39 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV3(Arc::new(header))
+        } else {
+            let mut header = BlockHeaderV4 {
+                prev_hash: view.prev_hash,
+                inner_lite,
+                inner_rest: BlockHeaderInnerRestV4 {
+                    block_body_hash: view.block_body_hash.unwrap_or_default(),
+                    chunk_receipts_root: view.chunk_receipts_root,
+                    chunk_headers_root: view.chunk_headers_root,
+                    chunk_tx_root: view.chunk_tx_root,
+                    challenges_root: view.challenges_root,
+                    random_value: view.random_value,
+                    validator_proposals: view
+                        .validator_proposals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                    chunk_mask: view.chunk_mask,
+                    gas_price: view.gas_price,
+                    block_ordinal: view.block_ordinal.unwrap_or(0),
+                    total_supply: view.total_supply,
+                    challenges_result: view.challenges_result,
+                    last_final_block: view.last_final_block,
+                    last_ds_final_block: view.last_ds_final_block,
+                    prev_height: view.prev_height.unwrap_or_default(),
+                    epoch_sync_data_hash: view.epoch_sync_data_hash,
+                    approvals: view.approvals.clone(),
+                    latest_protocol_version: view.latest_protocol_version,
+                },
+                signature: view.signature,
+                hash: CryptoHash::default(),
+            };
+            header.init();
+            BlockHeader::BlockHeaderV4(Arc::new(header))
         }
     }
 }

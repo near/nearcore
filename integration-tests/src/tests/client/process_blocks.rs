@@ -1290,10 +1290,7 @@ fn test_bad_orphan() {
         {
             let block = block.get_mut();
             // Change the chunk in any way, chunk_headers_root won't match
-            #[cfg(feature = "protocol_feature_block_header_v4")]
             let chunk = &mut block.body.chunks[0].get_mut();
-            #[cfg(not(feature = "protocol_feature_block_header_v4"))]
-            let chunk = &mut block.chunks[0].get_mut();
 
             match &mut chunk.inner {
                 ShardChunkHeaderInner::V1(inner) => inner.outcome_root = CryptoHash([1; 32]),
@@ -1323,10 +1320,7 @@ fn test_bad_orphan() {
         let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
         {
             // Change the chunk in any way, chunk_headers_root won't match
-            #[cfg(feature = "protocol_feature_block_header_v4")]
             let chunk = block.get_mut().body.chunks[0].get_mut();
-            #[cfg(not(feature = "protocol_feature_block_header_v4"))]
-            let chunk = block.get_mut().chunks[0].get_mut();
             chunk.signature = some_signature;
             chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }
@@ -2485,11 +2479,8 @@ fn test_validate_chunk_extra() {
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
         block.mut_header().get_mut().inner_lite.outcome_root =
             Block::compute_outcome_root(block.chunks().iter());
-        #[cfg(feature = "protocol_feature_block_header_v4")]
-        {
-            block.mut_header().get_mut().inner_rest.block_body_hash =
-                block.compute_block_body_hash().unwrap();
-        }
+        block.mut_header().get_mut().inner_rest.block_body_hash =
+            block.compute_block_body_hash().unwrap();
         block.mut_header().resign(&validator_signer);
         let res = env.clients[0].process_block_test(block.clone().into(), Provenance::NONE);
         assert_matches!(res.unwrap_err(), near_chain::Error::ChunksMissing(_));
@@ -3360,7 +3351,6 @@ fn test_not_broadcast_block_on_accept() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "protocol_feature_block_header_v4"), should_panic)]
 fn test_header_version_downgrade() {
     init_test_logger();
     use borsh::ser::BorshSerialize;
