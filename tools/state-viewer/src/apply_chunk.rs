@@ -20,7 +20,6 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::warn;
 
 // like ChainStoreUpdate::get_incoming_receipts_for_shard(), but for the case when we don't
 // know of a block containing the target chunk
@@ -48,12 +47,15 @@ fn get_incoming_receipts(
     chunks.sort_by_key(|chunk| chunk.shard_id());
 
     for chunk in chunks {
-        let partial_encoded_chunk = chain_store.get_partial_chunk(&chunk.chunk_hash()).unwrap();
-        for receipt in partial_encoded_chunk.receipts().iter() {
-            let ReceiptProof(_, shard_proof) = receipt;
-            if shard_proof.to_shard_id == shard_id {
-                receipt_proofs.push(receipt.clone());
+        if let Ok(partial_encoded_chunk) = chain_store.get_partial_chunk(&chunk.chunk_hash()) {
+            for receipt in partial_encoded_chunk.receipts().iter() {
+                let ReceiptProof(_, shard_proof) = receipt;
+                if shard_proof.to_shard_id == shard_id {
+                    receipt_proofs.push(receipt.clone());
+                }
             }
+        } else {
+            tracing::error!(target: "state-viewer", chunk_hash = ?chunk.chunk_hash(), "Failed to get a partial chunk");
         }
     }
 
@@ -243,7 +245,7 @@ fn apply_tx_in_chunk(
                 let chunk = match chain_store.get_chunk(&chunk_hash) {
                     Ok(c) => c,
                     Err(_) => {
-                        warn!(target: "state-viewer", "chunk hash {:?} appears in DBCol::ChunkHashesByHeight but the chunk is not saved", &chunk_hash);
+                        tracing::warn!(target: "state-viewer", "chunk hash {:?} appears in DBCol::ChunkHashesByHeight but the chunk is not saved", &chunk_hash);
                         continue;
                     }
                 };
@@ -377,7 +379,7 @@ fn apply_receipt_in_chunk(
                 let chunk = match chain_store.get_chunk(&chunk_hash) {
                     Ok(c) => c,
                     Err(_) => {
-                        warn!(target: "state-viewer", "chunk hash {:?} appears in DBCol::ChunkHashesByHeight but the chunk is not saved", &chunk_hash);
+                        tracing::warn!(target: "state-viewer", "chunk hash {:?} appears in DBCol::ChunkHashesByHeight but the chunk is not saved", &chunk_hash);
                         continue;
                     }
                 };
