@@ -17,7 +17,7 @@ pub struct FlatStateDelta {
 }
 
 /// Information about a block.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy, serde::Serialize)]
 pub struct PrevBlockWithChanges {
     pub height: BlockHeight,
     pub hash: CryptoHash,
