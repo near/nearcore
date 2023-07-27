@@ -126,7 +126,7 @@ impl ShardTries {
         let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
         metrics::HAS_STATE_SNAPSHOT.set(0);
         ShardTries(Arc::new(ShardTriesInner {
-            store: store.clone(),
+            store,
             trie_config,
             caches: RwLock::new(caches),
             view_caches: RwLock::new(view_caches),
