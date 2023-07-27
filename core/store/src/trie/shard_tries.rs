@@ -126,7 +126,7 @@ impl ShardTries {
         let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
         metrics::HAS_STATE_SNAPSHOT.set(0);
         ShardTries(Arc::new(ShardTriesInner {
-            store,
+            store: store.clone(),
             trie_config,
             caches: RwLock::new(caches),
             view_caches: RwLock::new(view_caches),
@@ -480,8 +480,14 @@ impl ShardTries {
                 let mut state_snapshot_lock = self.0.state_snapshot.write().map_err(|_| {
                     anyhow::Error::msg("error accessing write lock of state_snapshot")
                 })?;
+                let db_snapshot_hash = self.get_state_snapshot_hash();
+
                 if let Some(state_snapshot) = &*state_snapshot_lock {
-                    if &state_snapshot.prev_block_hash == prev_block_hash {
+                    // only return Ok() when the hash stored in STATE_SNAPSHOT_KEY and in state_snapshot_lock and prev_block_hash are the same
+                    if db_snapshot_hash.is_ok()
+                        && db_snapshot_hash.unwrap() == *prev_block_hash
+                        && state_snapshot.prev_block_hash == *prev_block_hash
+                    {
                         tracing::warn!(target: "state_snapshot", ?prev_block_hash, "Requested a state snapshot but that is already available");
                         return Ok(());
                     } else {
