@@ -45,7 +45,7 @@ impl KeyForFlatStateDelta {
 /// Delta of the state for some shard and block, stores mapping from keys to values
 /// or None, if key was removed in this block.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Default, PartialEq, Eq)]
-pub struct FlatStateChanges(pub(crate) HashMap<Vec<u8>, Option<FlatStateValue>>);
+pub struct FlatStateChanges(pub HashMap<Vec<u8>, Option<FlatStateValue>>);
 
 impl<T> From<T> for FlatStateChanges
 where

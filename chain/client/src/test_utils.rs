@@ -1763,9 +1763,9 @@ impl TestEnvBuilder {
                     Some(seed) => *seed,
                     None => TEST_SEED,
                 };
-                let make_state_snapshot_callback : Option<MakeSnapshotCallback> = if self.add_state_snapshots {
+                let make_state_snapshot_callback = if self.add_state_snapshots {
                     let runtime = runtime.clone();
-                    let snapshot : MakeSnapshotCallback = Arc::new(move |prev_block_hash, shard_uids, block| {
+                    let snapshot = Arc::new(move |prev_block_hash, shard_uids, block| {
                         tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
                         runtime.get_tries().make_state_snapshot(&prev_block_hash, &shard_uids, &block).unwrap();
                     });
