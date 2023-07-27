@@ -252,8 +252,8 @@ class NearNodeProxy:
                 submit_response = submit_raw_response.json()
                 # extract transaction ID from response, it should be "{ "result": "id...." }"
                 if not "result" in submit_response:
-                    meta["exception"] = RpcError(details=submit_response,
-                                                 message="Didn't get a TX ID")
+                    meta["exception"] = RpcError(message="Didn't get a TX ID",
+                                                 details=submit_response)
                     meta["response"] = submit_response.content
                 else:
                     tx.transaction_id = submit_response["result"]
