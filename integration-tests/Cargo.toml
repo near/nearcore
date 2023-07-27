@@ -82,6 +82,9 @@ protocol_feature_reject_blocks_with_outdated_protocol_version = [
 protocol_feature_simple_nightshade_v2 = [
   "near-primitives/protocol_feature_simple_nightshade_v2",
 ]
+protocol_feature_ethereum_address = [
+  "nearcore/protocol_feature_ethereum_address",
+]
 
 nightly = [
   "nightly_protocol",

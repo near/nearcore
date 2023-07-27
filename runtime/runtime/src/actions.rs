@@ -382,6 +382,7 @@ pub(crate) fn action_create_account(
     account_id: &AccountId,
     predecessor_id: &AccountId,
     result: &mut ActionResult,
+    current_protocol_version: ProtocolVersion,
 ) {
     if account_id.is_top_level() {
         if account_id.len() < account_creation_config.min_allowed_top_level_account_length as usize
@@ -395,6 +396,23 @@ pub(crate) fn action_create_account(
             }
             .into());
             return;
+        } else if checked_feature!(
+            "protocol_feature_ethereum_address",
+            EthereumAddress,
+            current_protocol_version
+        ) {
+            if account_id.is_ethereum_address()
+                && predecessor_id != &account_creation_config.registrar_account_id
+            {
+                // An Ethereum address can only be created by the registrar account
+                result.result = Err(ActionErrorKind::CreateAccountOnlyByRegistrar {
+                    account_id: account_id.clone(),
+                    registrar_account_id: account_creation_config.registrar_account_id.clone(),
+                    predecessor_id: predecessor_id.clone(),
+                }
+                .into());
+                return;
+            }
         } else {
             // OK: Valid top-level Account ID
         }
@@ -967,6 +985,7 @@ mod tests {
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{EpochId, StateChangeCause};
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::set_account;
     use near_store::test_utils::create_tries;
     use std::sync::Arc;
@@ -990,6 +1009,7 @@ mod tests {
             &account_id,
             &predecessor_id,
             &mut action_result,
+            PROTOCOL_VERSION,
         );
         if action_result.result.is_ok() {
             assert!(account.is_some());
@@ -1066,6 +1086,28 @@ mod tests {
         let account_id = "bob".parse().unwrap();
         let predecessor_id = "near".parse().unwrap();
         let action_result = test_action_create_account(account_id, predecessor_id, 0);
+        assert!(action_result.result.is_ok());
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_ethereum_address")]
+    fn test_create_ethereum_address() {
+        let account_id: AccountId = "0x32400084c286cf3e17e7b677ea9583e60a000324".parse().unwrap();
+        let predecessor_id: AccountId = "near".parse().unwrap();
+        let action_result = test_action_create_account(account_id.clone(), predecessor_id.clone(), 32);
+        assert_eq!(
+            action_result.result,
+            Err(ActionError {
+                index: None,
+                kind: ActionErrorKind::CreateAccountOnlyByRegistrar {
+                    account_id: account_id.clone(),
+                    registrar_account_id: "registrar".parse().unwrap(),
+                    predecessor_id: predecessor_id,
+                },
+            })
+        );
+        let registrar_account_id: AccountId = "registrar".parse().unwrap();
+        let action_result = test_action_create_account(account_id, registrar_account_id, 32);
         assert!(action_result.result.is_ok());
     }
 

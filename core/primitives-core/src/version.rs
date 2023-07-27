@@ -124,6 +124,8 @@ pub enum ProtocolFeature {
     SimpleNightshadeV2,
     #[cfg(feature = "protocol_feature_block_header_v4")]
     BlockHeaderV4,
+    #[cfg(feature = "protocol_feature_ethereum_address")]
+    EthereumAddress,
 }
 
 impl ProtocolFeature {
@@ -178,6 +180,8 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV2 => 135,
             #[cfg(feature = "protocol_feature_block_header_v4")]
             ProtocolFeature::BlockHeaderV4 => 138,
+            #[cfg(feature = "protocol_feature_ethereum_address")]
+            ProtocolFeature::EthereumAddress => 139,
         }
     }
 }
@@ -190,7 +194,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 62;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    138
+    139
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION

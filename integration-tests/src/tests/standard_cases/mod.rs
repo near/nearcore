@@ -665,6 +665,36 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
     );
 }
 
+pub fn test_create_ethereum_address(node: impl Node) {
+    let account_id = &node.account_id().unwrap();
+    let node_user = node.user();
+    let valid_ethereum_addresses = [
+        "0x06012c8cf97bead5deae237070f9587f8e7a266d",
+        "0x5e97870f263700f46aa00d967821199b9bc5a120",
+        "0x0000000000000000000000000000000000000000",
+    ];
+    for (_, address) in valid_ethereum_addresses.iter().enumerate() {
+        let new_account_id = address.parse::<AccountId>().unwrap();
+        let transaction_result = node_user
+            .create_account(account_id.clone(), new_account_id.clone(), node.signer().public_key(), 0)
+            .unwrap();
+        assert_eq!(
+            transaction_result.status,
+            FinalExecutionStatus::Failure(
+                ActionError {
+                    index: Some(0),
+                    kind: ActionErrorKind::CreateAccountOnlyByRegistrar {
+                        account_id: new_account_id,
+                        registrar_account_id: "registrar".parse().unwrap(),
+                        predecessor_id: account_id.clone()
+                    }
+                }
+                .into()
+            )
+        );
+    }
+}
+
 pub fn test_swap_key(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);

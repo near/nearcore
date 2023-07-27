@@ -104,6 +104,24 @@ impl AccountId {
         !self.is_system() && !self.contains('.')
     }
 
+    /// Returns `true` if the account id can be viewed as an Ethereum address directly
+    ///
+    /// See [Ethereum account](https://ethereum.org/en/developers/docs/accounts/) for more details.
+    ///
+    /// ## Examples
+    /// ```
+    /// use near_account_id::AccountId;
+    ///
+    /// let eth_addr: AccountId = "0x06012c8cf97bead5deae237070f9587f8e7a266d".parse().unwrap();
+    /// assert!(eth_addr.is_ethereum_address());
+    ///
+    /// let non_eth_addr: AccountId = "0x".parse().unwrap();
+    /// assert!(!non_eth_addr.is_ethereum_address());
+    /// ```
+    pub fn is_ethereum_address(&self) -> bool {
+        self.starts_with("0x") && self.len() == 42
+    }
+
     /// Returns `true` if the `AccountId` is a direct sub-account of the provided parent account.
     ///
     /// See [Subaccounts](https://docs.near.org/docs/concepts/account#subaccounts).
@@ -717,6 +735,28 @@ mod tests {
                 "Account ID {} is not an implicit account",
                 invalid_account_id
             );
+        }
+    }
+
+    #[test]
+    fn test_is_ethereum_address() {
+        let valid_ethereum_addresses = &[
+            "0x06012c8cf97bead5deae237070f9587f8e7a266d",
+            "0x5e97870f263700f46aa00d967821199b9bc5a120",
+            "0x0000000000000000000000000000000000000000",
+        ];
+        for account_id in valid_ethereum_addresses {
+            assert!(account_id.parse::<AccountId>().unwrap().is_ethereum_address());
+        }
+
+        let non_ethereum_addresses = &[
+            "alice.near",
+            "near",
+            "0x",
+            "20782e20662e64666420482123494b6b6c677573646b6c66676a646b6c736667",
+        ];
+        for account_id in non_ethereum_addresses {
+            assert!(!account_id.parse::<AccountId>().unwrap().is_ethereum_address());
         }
     }
 
