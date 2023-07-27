@@ -60,8 +60,8 @@ use near_primitives::sharding::{
 };
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::{get_num_state_parts, StatePartKey};
-use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::test_utils::create_test_signer;
+use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::{
     Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
     Transaction,
@@ -2862,11 +2862,7 @@ fn test_delayed_receipt_count_limit() {
 
     let epoch_length = 5;
     let min_gas_price = 10000;
-    let mut genesis = Genesis::test_sharded_new_version(
-        vec!["test0".parse().unwrap()],
-        1,
-        vec![1],
-    );
+    let mut genesis = Genesis::test_sharded_new_version(vec!["test0".parse().unwrap()], 1, vec![1]);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
     // Set gas limit to be small enough to produce some delayed receipts, but large enough for
