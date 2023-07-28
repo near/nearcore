@@ -5,9 +5,10 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
+use near_primitives::types::BlockHeight;
 use tracing::{debug, warn};
 
-use crate::flat::delta::CachedFlatStateChanges;
+use crate::flat::delta::{BlockWithChangesInfo, CachedFlatStateChanges};
 use crate::flat::BlockInfo;
 use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use crate::{Store, StoreUpdate};
@@ -60,6 +61,8 @@ impl FlatStorageInner {
     /// Limit for total size of cached changes. We allocate 600 MiB for cached deltas, which
     /// means 150 MiB per shards.
     const CACHED_CHANGES_SIZE_LIMIT: bytesize::ByteSize = bytesize::ByteSize(150 * bytesize::MIB);
+
+    const BLOCKS_WITH_CHANGES_FLAT_HEAD_GAP: BlockHeight = 2;
 
     /// Creates `BlockNotSupported` error for the given block.
     fn create_block_not_supported_error(&self, block_hash: &CryptoHash) -> FlatStorageError {
@@ -147,6 +150,63 @@ impl FlatStorageInner {
             let flat_head_height = self.flat_head.height;
             warn!(target: "chain", %shard_id, %flat_head_height, %cached_deltas, %cached_changes_size_bytes, "Flat storage cached deltas exceeded expected limits");
         }
+    }
+
+    // Determine a block to make the new flat head.
+    // If `strict`, uses `block_hash` as the new flat head.
+    // If not `strict`, uses the second most recent block with flat state
+    // changes from `block_hash`, if it exists.
+    fn get_new_flat_head(
+        &self,
+        block_hash: CryptoHash,
+        strict: bool,
+    ) -> Result<CryptoHash, FlatStorageError> {
+        if strict {
+            return Ok(block_hash);
+        }
+
+        let current_flat_head_hash = self.flat_head.hash;
+        let current_flat_head_height = self.flat_head.height;
+
+        let mut new_head = block_hash;
+        let mut blocks_with_changes = 0;
+        // Delays updating flat head, keeps this many blocks with non-empty flat
+        // state changes between the requested flat head and the chosen head to
+        // make flat state snapshots function properly.
+        while blocks_with_changes < Self::BLOCKS_WITH_CHANGES_FLAT_HEAD_GAP {
+            if new_head == current_flat_head_hash {
+                return Ok(current_flat_head_hash);
+            }
+            let metadata =
+                self.deltas.get(&new_head).ok_or(missing_delta_error(&new_head))?.metadata;
+            new_head = match metadata.prev_block_with_changes {
+                None => {
+                    // The block has flat state changes.
+                    blocks_with_changes += 1;
+                    if blocks_with_changes == Self::BLOCKS_WITH_CHANGES_FLAT_HEAD_GAP {
+                        break;
+                    }
+                    metadata.block.prev_hash
+                }
+                Some(BlockWithChangesInfo { hash, height, .. }) => {
+                    // The block has no flat state changes.
+                    if height <= current_flat_head_height {
+                        return Ok(current_flat_head_hash);
+                    }
+                    hash
+                }
+            };
+        }
+        Ok(new_head)
+    }
+
+    #[cfg(test)]
+    pub fn test_get_new_flat_head(
+        &self,
+        block_hash: CryptoHash,
+        strict: bool,
+    ) -> Result<CryptoHash, FlatStorageError> {
+        self.get_new_flat_head(block_hash, strict)
     }
 }
 
@@ -239,10 +299,25 @@ impl FlatStorage {
     /// at the new head. If updating to given head is not possible, returns an
     /// error.
     /// If `strict`, then unconditionally sets flat head to the given block.
-    /// If not `strict`, then it updates the flat head to the **oldest** block X,
-    /// such that [X, block_hash] contains at most 2 blocks with flat state changes.
+    /// If not `strict`, then it updates the flat head to the latest block X,
+    /// such that [X, block_hash] contains 2 blocks with flat state changes. If possible.
+    ///
     /// The function respects the current flat head and will never try to
     /// set flat head to a block older than the current flat head.
+    ///
+    /// Example.
+    /// Let's denote blocks with flat state changes as X, and blocks without
+    /// flat state changes as O.
+    ///
+    ///                        block_hash
+    ///                             |
+    ///                             v
+    /// ...-O-O-X-O-O-O-X-O-O-O-X-O-O-O-X-....
+    ///                 ^
+    ///                 |
+    ///              new_head
+    ///
+    /// The segment [new_head, block_hash] contains two blocks with flat state changes.
     pub fn update_flat_head(
         &self,
         block_hash: &CryptoHash,
@@ -253,7 +328,7 @@ impl FlatStorage {
             return Ok(());
         }
 
-        let new_head = get_new_flat_head(&*guard, *block_hash, strict)?;
+        let new_head = guard.get_new_flat_head(*block_hash, strict)?;
         if new_head == guard.flat_head.hash {
             return Ok(());
         }
@@ -386,59 +461,13 @@ fn missing_delta_error(block_hash: &CryptoHash) -> FlatStorageError {
     FlatStorageError::StorageInternalError(format!("delta does not exist for block {block_hash}"))
 }
 
-// Determine a block to make the new flat head.
-// If `strict`, uses `block_hash` as the new flat head.
-// If not `strict`, uses the second most recent block with flat state changes from `block_hash`.
-// FlatStorageInner must be already locked.
-fn get_new_flat_head(
-    flat_storage: &FlatStorageInner,
-    block_hash: CryptoHash,
-    strict: bool,
-) -> Result<CryptoHash, FlatStorageError> {
-    if strict {
-        return Ok(block_hash);
-    }
-
-    let current_flat_head_hash = flat_storage.flat_head.hash;
-    let current_flat_head_height = flat_storage.flat_head.height;
-
-    // Keep 2 blocks with flat state changes between flat head and the final block.
-    // This is enough to make flat state snapshots function properly for state sync.
-    let mut new_head = block_hash;
-    let mut blocks_with_changes = 0;
-    const NEED_BLOCKS_WITH_CHANGES: i32 = 2;
-    while blocks_with_changes < NEED_BLOCKS_WITH_CHANGES {
-        if new_head == current_flat_head_hash {
-            return Ok(current_flat_head_hash);
-        }
-        let metadata =
-            flat_storage.deltas.get(&new_head).ok_or(missing_delta_error(&new_head))?.metadata;
-        new_head = match metadata.prev_block_with_changes {
-            None => {
-                // The block has flat state changes.
-                blocks_with_changes += 1;
-                if blocks_with_changes == NEED_BLOCKS_WITH_CHANGES {
-                    break;
-                }
-                metadata.block.prev_hash
-            }
-            Some(BlockInfo { hash, height, .. }) => {
-                // The block has no flat state changes.
-                if height <= current_flat_head_height {
-                    return Ok(current_flat_head_hash);
-                }
-                hash
-            }
-        };
-    }
-    Ok(new_head)
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::flat::delta::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
+    use crate::flat::delta::{
+        BlockWithChangesInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata,
+    };
     use crate::flat::manager::FlatStorageManager;
-    use crate::flat::storage::get_new_flat_head;
+    use crate::flat::storage::FlatStorageInner;
     use crate::flat::types::{BlockInfo, FlatStorageError};
     use crate::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
     use crate::test_utils::create_test_store;
@@ -861,8 +890,9 @@ mod tests {
             }
         }
 
-        // 3. Simulate moving head according to finalization of blocks.
-        // Finality lag is at least 2.
+        // 3. Simulate moving head forward with a delay of two from the tip.
+        // flat head is chosen to keep 2 blocks between the suggested head and the chosen head,
+        // resulting in <=4 blocks on the way from the tip to the chosen head.
         for i in 2..num_blocks as BlockHeight {
             let final_block_hash = chain.get_block_hash(i - 2);
             flat_storage.update_flat_head(&final_block_hash, false).unwrap();
@@ -870,7 +900,9 @@ mod tests {
             let block_hash = chain.get_block_hash(i);
             let blocks = flat_storage.get_blocks_to_head(&block_hash).unwrap();
 
-            assert!(blocks.len() <= 4);
+            assert!(
+                blocks.len() <= 2 + FlatStorageInner::BLOCKS_WITH_CHANGES_FLAT_HEAD_GAP as usize
+            );
         }
     }
 
@@ -939,8 +971,7 @@ mod tests {
             .map(|height| (chain.get_block_hash(height), height))
             .collect::<HashMap<CryptoHash, BlockHeight>>();
 
-        // 2. Simulate moving head according to finalization of blocks.
-        // Finality lag is at least 2.
+        // 2. Simulate moving head, with the suggested head lagging by 2 blocks behind the tip.
         let mut max_lag = None;
         for i in 2..num_blocks as BlockHeight {
             let final_block_hash = chain.get_block_hash(i - 2);
@@ -948,7 +979,9 @@ mod tests {
 
             let block_hash = chain.get_block_hash(i);
             let blocks = flat_storage.get_blocks_to_head(&block_hash).unwrap();
-            assert!(blocks.len() <= 4);
+            assert!(
+                blocks.len() <= 2 + FlatStorageInner::BLOCKS_WITH_CHANGES_FLAT_HEAD_GAP as usize
+            );
             for block_hash in blocks {
                 let delta = store_helper::get_delta_changes(&store.clone(), shard_uid, block_hash)
                     .unwrap()
@@ -1025,7 +1058,7 @@ mod tests {
 
             for i in 0..num_blocks as BlockHeight {
                 let block_hash = chain.get_block_hash(i);
-                let new_head = get_new_flat_head(&*guard, block_hash, false).unwrap();
+                let new_head = guard.test_get_new_flat_head(block_hash, false).unwrap();
                 tracing::info!(i, ?block_hash, ?new_head);
                 if i == 0 {
                     assert_eq!(new_head, chain.get_block_hash(0));
@@ -1070,7 +1103,10 @@ mod tests {
                     // No changes.
                     (
                         FlatStateChanges::default(),
-                        Some(BlockInfo::prev_block_info(chain.get_block_hash(i - 1), i - 1)),
+                        Some(BlockWithChangesInfo {
+                            hash: chain.get_block_hash(i - 1),
+                            height: i - 1,
+                        }),
                     )
                 };
 
@@ -1091,11 +1127,33 @@ mod tests {
             let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
             let guard = flat_storage.0.write().expect(crate::flat::POISONED_LOCK_ERR);
 
+            // A chain looks like this:
+            // X-O-X-O-X-O-...
+            // where X is a block with flat state changes and O is a block without flat state changes.
             for i in 0..num_blocks as BlockHeight {
-                let new_head = get_new_flat_head(&*guard, chain.get_block_hash(i), false).unwrap();
+                let new_head = guard.get_new_flat_head(chain.get_block_hash(i), false).unwrap();
                 if i <= 3 {
                     assert_eq!(new_head, chain.get_block_hash(0));
                 } else {
+                    // if i is odd, then it's pointing at an O, and the head is expected to be 3 blocks ago.
+                    //               i
+                    //               |
+                    //               v
+                    // X-O-X-O-X-O-X-O
+                    //         ^
+                    //         |
+                    //        new_head
+                    //
+                    // if i is even, then it's pointing at an X, and the head is expected to be the previous X:
+                    //             i
+                    //             |
+                    //             v
+                    // X-O-X-O-X-O-X-O
+                    //         ^
+                    //         |
+                    //        new_head
+
+                    // Both of these cases can be computed as rounding (i-2) down to a multiple of 2.
                     assert_eq!(new_head, chain.get_block_hash(((i - 2) / 2) * 2));
                 }
             }
@@ -1127,7 +1185,10 @@ mod tests {
                     // No changes.
                     (
                         FlatStateChanges::default(),
-                        Some(BlockInfo::prev_block_info(chain.get_block_hash(i - 1), i - 1)),
+                        Some(BlockWithChangesInfo {
+                            hash: chain.get_block_hash(i - 1),
+                            height: i - 1,
+                        }),
                     )
                 } else {
                     // Add a change.
@@ -1158,7 +1219,33 @@ mod tests {
             let guard = flat_storage.0.write().expect(crate::flat::POISONED_LOCK_ERR);
 
             for i in 0..num_blocks as BlockHeight {
-                let new_head = get_new_flat_head(&*guard, chain.get_block_hash(i), false).unwrap();
+                let new_head = guard.get_new_flat_head(chain.get_block_hash(i), false).unwrap();
+                // if i%3 == 0
+                //             i
+                //             |
+                //             v
+                // X-O-X-X-O-X-X-O-X
+                //           ^
+                //           |
+                //        new_head
+                //
+                // if i%3 == 1
+                //               i
+                //               |
+                //               v
+                // X-O-X-X-O-X-X-O-X
+                //           ^
+                //           |
+                //        new_head
+                //
+                // if i%3 == 2
+                //                 i
+                //                 |
+                //                 v
+                // X-O-X-X-O-X-X-O-X
+                //             ^
+                //             |
+                //          new_head
                 if i <= 2 {
                     assert_eq!(new_head, chain.get_block_hash(0));
                 } else if i % 3 == 0 {

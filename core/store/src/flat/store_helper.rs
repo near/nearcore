@@ -6,9 +6,8 @@ use super::types::{
     FlatStateIterator, FlatStateValuesInliningMigrationStatus, FlatStorageResult, FlatStorageStatus,
 };
 use crate::db::FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY;
-use crate::flat::delta::{FlatStateChanges, KeyForFlatStateDelta};
+use crate::flat::delta::{BlockWithChangesInfo, FlatStateChanges, KeyForFlatStateDelta};
 use crate::flat::types::FlatStorageError;
-use crate::flat::BlockInfo;
 use crate::flat::FlatStorageReadyStatus;
 use crate::{DBCol, Store, StoreUpdate};
 use borsh::BorshDeserialize;
@@ -65,7 +64,7 @@ pub fn get_prev_block_with_changes(
     shard_uid: ShardUId,
     block_hash: CryptoHash,
     prev_hash: CryptoHash,
-) -> FlatStorageResult<Option<BlockInfo>> {
+) -> FlatStorageResult<Option<BlockWithChangesInfo>> {
     let prev_delta_metadata = get_delta_metadata(store, shard_uid, prev_hash)?;
     let prev_block_with_changes = match prev_delta_metadata {
         None => {
@@ -74,7 +73,7 @@ pub fn get_prev_block_with_changes(
             match flat_storage_status {
                 FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }) => {
                     if flat_head.hash == prev_hash {
-                        Some(BlockInfo::prev_block_info(prev_hash, flat_head.height))
+                        Some(BlockWithChangesInfo { hash: prev_hash, height: flat_head.height })
                     } else {
                         tracing::error!(target: "store", ?block_hash, ?prev_hash, "Missing delta metadata");
                         None
@@ -87,12 +86,10 @@ pub fn get_prev_block_with_changes(
         Some(metadata) => {
             // If the prev block contains `prev_block_with_changes`, then use that value.
             // Otherwise reference the prev block.
-            Some(
-                metadata.prev_block_with_changes.unwrap_or(BlockInfo::prev_block_info(
-                    metadata.block.hash,
-                    metadata.block.height,
-                )),
-            )
+            Some(metadata.prev_block_with_changes.unwrap_or(BlockWithChangesInfo {
+                hash: metadata.block.hash,
+                height: metadata.block.height,
+            }))
         }
     };
     Ok(prev_block_with_changes)

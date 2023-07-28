@@ -15,10 +15,6 @@ impl BlockInfo {
     pub fn genesis(hash: CryptoHash, height: BlockHeight) -> Self {
         Self { hash, height, prev_hash: CryptoHash::default() }
     }
-
-    pub fn prev_block_info(hash: CryptoHash, height: BlockHeight) -> Self {
-        Self { hash, height, prev_hash: CryptoHash::default() }
-    }
 }
 
 #[derive(strum::AsRefStr, Debug, PartialEq, Eq)]
