@@ -304,20 +304,19 @@ impl FlatStorage {
     ///
     /// The function respects the current flat head and will never try to
     /// set flat head to a block older than the current flat head.
-    ///
-    /// Example.
-    /// Let's denote blocks with flat state changes as X, and blocks without
-    /// flat state changes as O.
-    ///
-    ///                        block_hash
-    ///                             |
-    ///                             v
-    /// ...-O-O-X-O-O-O-X-O-O-O-X-O-O-O-X-....
-    ///                 ^
-    ///                 |
-    ///              new_head
-    ///
-    /// The segment [new_head, block_hash] contains two blocks with flat state changes.
+    //
+    // Let's denote blocks with flat state changes as X, and blocks without
+    // flat state changes as O.
+    //
+    //                        block_hash
+    //                             |
+    //                             v
+    // ...-O-O-X-O-O-O-X-O-O-O-X-O-O-O-X-....->future
+    //                 ^
+    //                 |
+    //              new_head
+    //
+    // The segment [new_head, block_hash] contains two blocks with flat state changes.
     pub fn update_flat_head(
         &self,
         block_hash: &CryptoHash,
