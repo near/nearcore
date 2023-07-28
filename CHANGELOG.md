@@ -11,6 +11,7 @@
 * New option `transaction_pool_size_limit` in `config.json` allows to limit the size of the node's transaction pool.
   By default the limit is set to 100 MB. [#3284](https://github.com/near/nearcore/issues/3284)
 * Database snapshots at the end of an epoch. This lets a node obtain state parts using flat storage. [#9090](https://github.com/near/nearcore/pull/9090)
+* Number of transactions included in a chunk will be lowered if there is a congestion of more than 20000 delayed receipts in a shard. [#9222](https://github.com/near/nearcore/pull/9222)
 
 ## 1.35.0
 
