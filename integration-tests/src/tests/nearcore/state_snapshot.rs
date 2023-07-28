@@ -48,7 +48,7 @@ impl StateSnaptshotTestEnv {
             sweat_prefetch_senders: Vec::new(),
         };
         let flat_storage_manager = FlatStorageManager::new(store.clone());
-        let shard_uids = [ShardUId { shard_id: 0, version: 0 }];
+        let shard_uids = [ShardUId::single_shard()];
         let state_snapshot_config = StateSnapshotConfig::Enabled {
             home_dir: home_dir.clone(),
             hot_store_path: hot_store_path.clone(),
@@ -82,7 +82,7 @@ fn test_maybe_open_state_snapshot_no_state_snapshot_key_entry() {
     let test_env = set_up_test_env_for_state_snapshots(&store);
     let result = test_env
         .shard_tries
-        .maybe_open_state_snapshot(|_| Ok(vec![ShardUId { shard_id: 0, version: 0 }]));
+        .maybe_open_state_snapshot(|_| Ok(vec![ShardUId::single_shard()]));
     assert!(result.is_err());
 }
 
@@ -96,7 +96,7 @@ fn test_maybe_open_state_snapshot_file_not_exist() {
     test_env.shard_tries.set_state_snapshot_hash(Some(snapshot_hash)).unwrap();
     let result = test_env
         .shard_tries
-        .maybe_open_state_snapshot(|_| Ok(vec![ShardUId { shard_id: 0, version: 0 }]));
+        .maybe_open_state_snapshot(|_| Ok(vec![ShardUId::single_shard()]));
     assert!(result.is_err());
 }
 
@@ -127,7 +127,7 @@ fn test_maybe_open_state_snapshot_garbage_snapshot() {
 
     let result = test_env
         .shard_tries
-        .maybe_open_state_snapshot(|_| Ok(vec![ShardUId { shard_id: 0, version: 0 }]));
+        .maybe_open_state_snapshot(|_| Ok(vec![ShardUId::single_shard()]));
     assert!(result.is_err());
 }
 
@@ -137,7 +137,7 @@ fn verify_make_snapshot(
 ) -> Result<(), anyhow::Error> {
     let res = state_snapshot_test_env
         .shard_tries
-        .make_state_snapshot(&block_hash, &vec![ShardUId { shard_id: 0, version: 0 }])?;
+        .make_state_snapshot(&block_hash, &vec![ShardUId::single_shard()])?;
     // check that make_state_snapshot does not panic or err out
     // assert!(res.is_ok());
     let snapshot_path = ShardTries::get_state_snapshot_base_dir(
@@ -149,7 +149,7 @@ fn verify_make_snapshot(
     // check that the snapshot just made can be opened
     state_snapshot_test_env
         .shard_tries
-        .maybe_open_state_snapshot(|_| Ok(vec![ShardUId { shard_id: 0, version: 0 }]))?;
+        .maybe_open_state_snapshot(|_| Ok(vec![ShardUId::single_shard()]))?;
     // check that the entry of STATE_SNAPSHOT_KEY is the latest block hash
     let db_state_snapshot_hash = state_snapshot_test_env.shard_tries.get_state_snapshot_hash()?;
     if db_state_snapshot_hash != block_hash.clone() {

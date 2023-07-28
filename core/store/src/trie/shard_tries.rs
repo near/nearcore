@@ -496,18 +496,21 @@ impl ShardTries {
 
                         // This will delete all existing snapshots from file system. If failed, will retry until success
                         let mut delete_state_snapshots_from_file_system = false;
-                        while !delete_state_snapshots_from_file_system {
+                        let mut file_system_delete_retries = 0;
+                        while !delete_state_snapshots_from_file_system && file_system_delete_retries < 3 {
                             delete_state_snapshots_from_file_system = self
                                 .delete_all_state_snapshots(
                                     home_dir,
                                     hot_store_path,
                                     state_snapshot_subdir,
                                 );
+                            file_system_delete_retries += 1;
                         }
 
                         // this will delete the STATE_SNAPSHOT_KEY-value pair from db. If failed, will retry until success
                         let mut delete_state_snapshot_from_db = false;
-                        while !delete_state_snapshot_from_db {
+                        let mut db_delete_retries = 0;
+                        while !delete_state_snapshot_from_db && db_delete_retries < 3 {
                             delete_state_snapshot_from_db = match self.set_state_snapshot_hash(None)
                             {
                                 Ok(_) => true,
@@ -516,7 +519,8 @@ impl ShardTries {
                                     tracing::debug!(target: "state_snapshot", ?err, "Failed to delete the old state snapshot for BlockMisc::STATE_SNAPSHOT_KEY in rocksdb");
                                     false
                                 }
-                            }
+                            };
+                            db_delete_retries += 1;
                         }
 
                         metrics::HAS_STATE_SNAPSHOT.set(0);
