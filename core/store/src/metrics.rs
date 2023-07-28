@@ -18,6 +18,7 @@ pub(crate) static DATABASE_OP_LATENCY_HIST: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
+// TODO(#9054): Rename the metric to be consistent with "accounting cache".
 pub static CHUNK_CACHE_HITS: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_chunk_cache_hits",
@@ -27,6 +28,7 @@ pub static CHUNK_CACHE_HITS: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
+// TODO(#9054): Rename the metric to be consistent with "accounting cache".
 pub static CHUNK_CACHE_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_chunk_cache_misses",
@@ -68,6 +70,7 @@ pub static SHARD_CACHE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
         .unwrap()
 });
 
+// TODO(#9054): Rename the metric to be consistent with "accounting cache".
 pub static CHUNK_CACHE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec("near_chunk_cache_size", "Chunk cache size", &["shard_id", "is_view"])
         .unwrap()
