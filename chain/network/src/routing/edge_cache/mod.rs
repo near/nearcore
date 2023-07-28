@@ -358,4 +358,27 @@ impl EdgeCache {
             None
         }
     }
+
+    pub(crate) fn get_debug_view(&self) -> EdgeCacheView {
+        EdgeCacheView {
+            peer_labels: self.p2id.clone(),
+            spanning_trees: self
+                .active_trees
+                .iter()
+                .map(|(peer_id, edge_keys)| {
+                    (
+                        self.get_id(&peer_id),
+                        edge_keys
+                            .iter()
+                            .map(|key| LabeledEdgeView {
+                                peer0: self.get_id(&key.peer0),
+                                peer1: self.get_id(&key.peer1),
+                                nonce: *self.verified_nonces.get(&key).unwrap(),
+                            })
+                            .collect(),
+                    )
+                })
+                .collect(),
+        }
+    }
 }

@@ -3,6 +3,7 @@ use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
+use crate::Mode;
 use crate::{checkpoint_hot_storage_and_cleanup_columns, metrics, DBCol, NodeStorage, PrefetchApi};
 use crate::{Store, StoreConfig, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
@@ -78,6 +79,8 @@ impl StateSnapshot {
                     .with_label_values(&[&shard_uid.shard_id.to_string()])
                     .start_timer();
                 if let Some(chunk) = block.chunks().get(shard_uid.shard_id as usize) {
+                    // Flat state snapshot needs to be at a height that lets it
+                    // replay the last chunk of the shard.
                     let desired_flat_head = chunk.prev_block_hash();
                     match flat_storage.update_flat_head(desired_flat_head, true) {
                         Ok(_) => {
@@ -646,7 +649,7 @@ impl ShardTries {
                     let store_config = StoreConfig::default();
 
                     let opener = NodeStorage::opener(&snapshot_dir, false, &store_config, None);
-                    let storage = opener.open()?;
+                    let storage = opener.open_in_mode(Mode::ReadOnly)?;
                     let store = storage.get_hot_store();
                     let flat_storage_manager = FlatStorageManager::new(store.clone());
 

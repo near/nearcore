@@ -407,7 +407,7 @@ impl BlockHeader {
         next_epoch_protocol_version: ProtocolVersion,
         height: BlockHeight,
         prev_hash: CryptoHash,
-        #[cfg(feature = "protocol_feature_block_header_v4")] block_body_hash: CryptoHash,
+        block_body_hash: CryptoHash,
         prev_state_root: MerkleHash,
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
@@ -510,46 +510,7 @@ impl BlockHeader {
                 signature,
                 hash,
             }))
-        } else {
-            #[cfg(feature = "protocol_feature_block_header_v4")]
-            if crate::checked_feature!(
-                "protocol_feature_block_header_v4",
-                BlockHeaderV4,
-                this_epoch_protocol_version
-            ) {
-                let inner_rest = BlockHeaderInnerRestV4 {
-                    block_body_hash,
-                    chunk_receipts_root,
-                    chunk_headers_root,
-                    chunk_tx_root,
-                    challenges_root,
-                    random_value,
-                    validator_proposals,
-                    chunk_mask,
-                    gas_price,
-                    block_ordinal,
-                    total_supply,
-                    challenges_result,
-                    last_final_block,
-                    last_ds_final_block,
-                    prev_height,
-                    epoch_sync_data_hash,
-                    approvals,
-                    latest_protocol_version: get_protocol_version(next_epoch_protocol_version),
-                };
-                let (hash, signature) = signer.sign_block_header_parts(
-                    prev_hash,
-                    &inner_lite.try_to_vec().expect("Failed to serialize"),
-                    &inner_rest.try_to_vec().expect("Failed to serialize"),
-                );
-                return Self::BlockHeaderV4(Arc::new(BlockHeaderV4 {
-                    prev_hash,
-                    inner_lite,
-                    inner_rest,
-                    signature,
-                    hash,
-                }));
-            }
+        } else if !crate::checked_feature!("stable", BlockHeaderV4, this_epoch_protocol_version) {
             let inner_rest = BlockHeaderInnerRestV3 {
                 chunk_receipts_root,
                 chunk_headers_root,
@@ -581,6 +542,39 @@ impl BlockHeader {
                 signature,
                 hash,
             }))
+        } else {
+            let inner_rest = BlockHeaderInnerRestV4 {
+                block_body_hash,
+                chunk_receipts_root,
+                chunk_headers_root,
+                chunk_tx_root,
+                challenges_root,
+                random_value,
+                validator_proposals,
+                chunk_mask,
+                gas_price,
+                block_ordinal,
+                total_supply,
+                challenges_result,
+                last_final_block,
+                last_ds_final_block,
+                prev_height,
+                epoch_sync_data_hash,
+                approvals,
+                latest_protocol_version: get_protocol_version(next_epoch_protocol_version),
+            };
+            let (hash, signature) = signer.sign_block_header_parts(
+                prev_hash,
+                &inner_lite.try_to_vec().expect("Failed to serialize"),
+                &inner_rest.try_to_vec().expect("Failed to serialize"),
+            );
+            Self::BlockHeaderV4(Arc::new(BlockHeaderV4 {
+                prev_hash,
+                inner_lite,
+                inner_rest,
+                signature,
+                hash,
+            }))
         }
     }
 
@@ -588,7 +582,7 @@ impl BlockHeader {
         genesis_protocol_version: ProtocolVersion,
         height: BlockHeight,
         state_root: MerkleHash,
-        #[cfg(feature = "protocol_feature_block_header_v4")] block_body_hash: CryptoHash,
+        block_body_hash: CryptoHash,
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
@@ -671,46 +665,7 @@ impl BlockHeader {
                 signature: Signature::empty(KeyType::ED25519),
                 hash,
             }))
-        } else {
-            #[cfg(feature = "protocol_feature_block_header_v4")]
-            if crate::checked_feature!(
-                "protocol_feature_block_header_v4",
-                BlockHeaderV4,
-                genesis_protocol_version
-            ) {
-                let inner_rest = BlockHeaderInnerRestV4 {
-                    chunk_receipts_root,
-                    chunk_headers_root,
-                    chunk_tx_root,
-                    challenges_root,
-                    block_body_hash,
-                    random_value: CryptoHash::default(),
-                    validator_proposals: vec![],
-                    chunk_mask: vec![true; chunks_included as usize],
-                    block_ordinal: 1, // It is guaranteed that Chain has the only Block which is Genesis
-                    gas_price: initial_gas_price,
-                    total_supply: initial_total_supply,
-                    challenges_result: vec![],
-                    last_final_block: CryptoHash::default(),
-                    last_ds_final_block: CryptoHash::default(),
-                    prev_height: 0,
-                    epoch_sync_data_hash: None, // Epoch Sync cannot be executed up to Genesis
-                    approvals: vec![],
-                    latest_protocol_version: genesis_protocol_version,
-                };
-                let hash = BlockHeader::compute_hash(
-                    CryptoHash::default(),
-                    &inner_lite.try_to_vec().expect("Failed to serialize"),
-                    &inner_rest.try_to_vec().expect("Failed to serialize"),
-                );
-                return Self::BlockHeaderV4(Arc::new(BlockHeaderV4 {
-                    prev_hash: CryptoHash::default(),
-                    inner_lite,
-                    inner_rest,
-                    signature: Signature::empty(KeyType::ED25519),
-                    hash,
-                }));
-            }
+        } else if !crate::checked_feature!("stable", BlockHeaderV4, genesis_protocol_version) {
             let inner_rest = BlockHeaderInnerRestV3 {
                 chunk_receipts_root,
                 chunk_headers_root,
@@ -736,6 +691,39 @@ impl BlockHeader {
                 &inner_rest.try_to_vec().expect("Failed to serialize"),
             );
             Self::BlockHeaderV3(Arc::new(BlockHeaderV3 {
+                prev_hash: CryptoHash::default(),
+                inner_lite,
+                inner_rest,
+                signature: Signature::empty(KeyType::ED25519),
+                hash,
+            }))
+        } else {
+            let inner_rest = BlockHeaderInnerRestV4 {
+                chunk_receipts_root,
+                chunk_headers_root,
+                chunk_tx_root,
+                challenges_root,
+                block_body_hash,
+                random_value: CryptoHash::default(),
+                validator_proposals: vec![],
+                chunk_mask: vec![true; chunks_included as usize],
+                block_ordinal: 1, // It is guaranteed that Chain has the only Block which is Genesis
+                gas_price: initial_gas_price,
+                total_supply: initial_total_supply,
+                challenges_result: vec![],
+                last_final_block: CryptoHash::default(),
+                last_ds_final_block: CryptoHash::default(),
+                prev_height: 0,
+                epoch_sync_data_hash: None, // Epoch Sync cannot be executed up to Genesis
+                approvals: vec![],
+                latest_protocol_version: genesis_protocol_version,
+            };
+            let hash = BlockHeader::compute_hash(
+                CryptoHash::default(),
+                &inner_lite.try_to_vec().expect("Failed to serialize"),
+                &inner_rest.try_to_vec().expect("Failed to serialize"),
+            );
+            Self::BlockHeaderV4(Arc::new(BlockHeaderV4 {
                 prev_hash: CryptoHash::default(),
                 inner_lite,
                 inner_rest,

@@ -178,7 +178,7 @@ impl<'c> EstimatorContext<'c> {
             flat_storage
                 .add_delta(FlatStateDelta {
                     changes: FlatStateChanges::from(random_data),
-                    metadata: FlatStateDeltaMetadata { block, compression_info: None },
+                    metadata: FlatStateDeltaMetadata { block, prev_block_with_changes: None },
                 })
                 .unwrap();
         }

@@ -7,14 +7,15 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use tracing::{debug, warn};
 
-use crate::flat::delta::{CachedFlatStateChanges, PrevBlockWithChanges};
+use crate::flat::delta::CachedFlatStateChanges;
+use crate::flat::BlockInfo;
 use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use crate::{Store, StoreUpdate};
 
 use super::delta::{CachedFlatStateDelta, FlatStateDelta};
 use super::metrics::FlatStorageMetrics;
+use super::store_helper;
 use super::types::FlatStorageError;
-use super::{store_helper, BlockInfo};
 
 /// FlatStorage stores information on which blocks flat storage current supports key lookups on.
 /// Note that this struct is shared by multiple threads, the chain thread, threads that apply chunks,
@@ -421,7 +422,7 @@ fn get_new_flat_head(
                 }
                 metadata.block.prev_hash
             }
-            Some(PrevBlockWithChanges { height, hash }) => {
+            Some(BlockInfo { hash, height, .. }) => {
                 // The block has no flat state changes.
                 if height <= current_flat_head_height {
                     return Ok(current_flat_head_hash);
@@ -435,9 +436,7 @@ fn get_new_flat_head(
 
 #[cfg(test)]
 mod tests {
-    use crate::flat::delta::{
-        FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, PrevBlockWithChanges,
-    };
+    use crate::flat::delta::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
     use crate::flat::manager::FlatStorageManager;
     use crate::flat::storage::get_new_flat_head;
     use crate::flat::types::{BlockInfo, FlatStorageError};
@@ -1019,7 +1018,7 @@ mod tests {
                 store_update.commit().unwrap();
             }
 
-            let flat_storage_manager = FlatStorageManager::new(store.clone());
+            let flat_storage_manager = FlatStorageManager::new(store);
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
             let guard = flat_storage.0.write().expect(crate::flat::POISONED_LOCK_ERR);
@@ -1071,10 +1070,7 @@ mod tests {
                     // No changes.
                     (
                         FlatStateChanges::default(),
-                        Some(PrevBlockWithChanges {
-                            height: i - 1,
-                            hash: chain.get_block_hash(i - 1),
-                        }),
+                        Some(BlockInfo::prev_block_info(chain.get_block_hash(i - 1), i - 1)),
                     )
                 };
 
@@ -1090,7 +1086,7 @@ mod tests {
                 store_update.commit().unwrap();
             }
 
-            let flat_storage_manager = FlatStorageManager::new(store.clone());
+            let flat_storage_manager = FlatStorageManager::new(store);
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
             let guard = flat_storage.0.write().expect(crate::flat::POISONED_LOCK_ERR);
@@ -1131,10 +1127,7 @@ mod tests {
                     // No changes.
                     (
                         FlatStateChanges::default(),
-                        Some(PrevBlockWithChanges {
-                            height: i - 1,
-                            hash: chain.get_block_hash(i - 1),
-                        }),
+                        Some(BlockInfo::prev_block_info(chain.get_block_hash(i - 1), i - 1)),
                     )
                 } else {
                     // Add a change.
@@ -1159,7 +1152,7 @@ mod tests {
                 store_update.commit().unwrap();
             }
 
-            let flat_storage_manager = FlatStorageManager::new(store.clone());
+            let flat_storage_manager = FlatStorageManager::new(store);
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
             let guard = flat_storage.0.write().expect(crate::flat::POISONED_LOCK_ERR);
