@@ -192,12 +192,9 @@ when <code>ShardTries::apply_insertions</code> is called, which puts new values 
 <h3 id="triestorage"><a class="header" href="#triestorage">TrieStorage</a></h3>
 <p>Stores all <code>Trie</code> nodes and allows to get serialized nodes by <code>TrieKey</code> hash
 using the <code>retrieve_raw_bytes</code> method.</p>
-<p>There are three implementations of <code>TrieStorage</code>:</p>
+<p>There are two major implementations of <code>TrieStorage</code>:</p>
 <ul>
 <li><code>TrieCachingStorage</code> - caches all big values ever read by <code>retrieve_raw_bytes</code>.</li>
-<li><code>TrieRecordingStorage</code> - records all key-value pairs ever read by
-<code>retrieve_raw_bytes</code>. Used for obtaining state parts (and challenges in the
-future).</li>
 <li><code>TrieMemoryPartialStorage</code> - used for validating recorded partial storage.</li>
 </ul>
 <p>Note that these storages use database keys, which are retrieved using hashes of
