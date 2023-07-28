@@ -1,5 +1,4 @@
-use std::collections::btree_map::{Entry, Keys};
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 
 use crate::types::{PoolIterator, PoolKey, TransactionGroup};
 use borsh::BorshSerialize;
@@ -71,7 +70,7 @@ impl TransactionPool {
         }
     }
 
-    fn key(&self, account_id: &AccountId, public_key: &PublicKey) -> PoolKey {
+    pub fn key(&self, account_id: &AccountId, public_key: &PublicKey) -> PoolKey {
         let mut v = public_key.try_to_vec().unwrap();
         v.extend_from_slice(&self.key_seed);
         v.extend_from_slice(account_id.as_ref().as_bytes());
@@ -123,8 +122,8 @@ impl TransactionPool {
         PoolIteratorWrapper::new(self)
     }
 
-    pub fn new_pool_iterator(&mut self) -> NewPoolIterator<'_> {
-        NewPoolIterator::new(self)
+    pub fn new_pool_iterator(&mut self, key_lower_bound: Bound<PoolKey>) -> NewPoolIterator<'_> {
+        NewPoolIterator::new(self, key_lower_bound)
     }
 
     /// Removes given transactions from the pool.
@@ -185,19 +184,19 @@ impl<'a> PoolIteratorWrapper<'a> {
 pub struct NewPoolIterator<'a> {
     pool: &'a TransactionPool,
     key_progress: BTreeMap<PoolKey, Bound<Nonce>>,
-    key_bound: Bound<PoolKey>,
+    key_lower_bound: Bound<PoolKey>,
 }
 
 impl<'a> NewPoolIterator<'a> {
-    pub fn new(pool: &'a TransactionPool) -> Self {
+    pub fn new(pool: &'a TransactionPool, key_lower_bound: Bound<PoolKey>) -> Self {
         Self {
             pool,
             key_progress: pool
                 .transactions
                 .iter()
-                .map(|(key, value)| (*key, Bound::Unbounded))
+                .map(|(key, _)| (*key, Bound::Unbounded))
                 .collect(),
-            key_bound: Bound::Unbounded,
+            key_lower_bound,
         }
     }
 }
@@ -208,9 +207,9 @@ impl<'a> Iterator for NewPoolIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         while !self.key_progress.is_empty() {
             while let Some((&key, &nonce_bound)) =
-                self.key_progress.range((self.key_bound, Bound::Unbounded)).next()
+                self.key_progress.range((self.key_lower_bound, Bound::Unbounded)).next()
             {
-                self.key_bound = Bound::Excluded(key);
+                self.key_lower_bound = Bound::Excluded(key);
 
                 let key_transactions =
                     self.pool.transactions.get(&key).expect("Empty transaction list");
@@ -223,7 +222,7 @@ impl<'a> Iterator for NewPoolIterator<'a> {
                     self.key_progress.remove(&key);
                 }
             }
-            self.key_bound = Bound::Unbounded;
+            self.key_lower_bound = Bound::Unbounded;
         }
         None
     }
@@ -381,7 +380,7 @@ mod tests {
         for tx in transactions {
             assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
         }
-        let txs = prepare_transactions(&mut pool, expected_weight as usize);
+        let txs = prepare_transactions(&mut pool, expected_weight as usize, Bound::Unbounded);
         pool.remove_transactions(&txs);
         (txs.iter().map(|tx| tx.transaction.nonce).collect(), pool)
     }
@@ -397,8 +396,9 @@ mod tests {
     fn prepare_transactions(
         pool: &mut TransactionPool,
         max_number_of_transactions: usize,
+        key_lower_bound: Bound<PoolKey>,
     ) -> Vec<SignedTransaction> {
-        pool.new_pool_iterator().take(max_number_of_transactions).cloned().collect()
+        pool.new_pool_iterator(key_lower_bound).take(max_number_of_transactions).cloned().collect()
     }
 
     /// Add transactions of nonce from 1..10 in random order. Check that mempool
@@ -444,7 +444,7 @@ mod tests {
         sort_pairs(&mut nonces[..6]);
         assert_eq!(nonces, vec![1, 21, 2, 22, 3, 23, 24, 25, 26, 27]);
         let nonces: Vec<u64> =
-            prepare_transactions(&mut pool, 10).iter().map(|tx| tx.transaction.nonce).collect();
+            prepare_transactions(&mut pool, 10, Bound::Unbounded).iter().map(|tx| tx.transaction.nonce).collect();
         assert_eq!(nonces, vec![28, 29, 30, 31]);
     }
 
@@ -486,7 +486,7 @@ mod tests {
 
         assert_eq!(pool.len(), txs_to_check.len());
 
-        let mut pool_txs = prepare_transactions(&mut pool, txs_to_check.len());
+        let mut pool_txs = prepare_transactions(&mut pool, txs_to_check.len(), Bound::Unbounded);
         pool_txs.sort_by_key(|tx| tx.transaction.nonce);
         let mut expected_txs = txs_to_check.to_vec();
         expected_txs.sort_by_key(|tx| tx.transaction.nonce);
@@ -537,52 +537,50 @@ mod tests {
             ));
         }
         assert_eq!(pool.len(), 10);
-        let txs = prepare_transactions(&mut pool, 10);
+        let txs = prepare_transactions(&mut pool, 10, Bound::Unbounded);
         pool.remove_transactions(&txs);
         assert_eq!(txs.len(), 10);
         assert_eq!(pool.len(), 0);
         assert_eq!(pool.transaction_size(), 0);
     }
 
-    /// Test pool iterator remembers the last key.
+    /// Tests creating pool iterator that starts from a given key.
     #[test]
-    fn test_pool_iterator_remembers_the_last_key() {
-        let transactions = (1..=10)
-            .map(|i| {
-                let signer_id = AccountId::try_from(format!("user_{}", i)).unwrap();
-                let signer_seed = signer_id.as_ref();
-                let signer = Arc::new(InMemorySigner::from_seed(
-                    signer_id.clone(),
-                    KeyType::ED25519,
-                    signer_seed,
-                ));
-                SignedTransaction::send_money(
-                    i,
-                    signer_id,
-                    "bob.near".parse().unwrap(),
-                    &*signer,
-                    i as Balance,
-                    CryptoHash::default(),
-                )
-            })
-            .collect::<Vec<_>>();
-        let (mut nonces, mut pool) = process_txs_to_nonces(transactions.clone(), 5);
-        assert_eq!(nonces.len(), 5);
-        assert_eq!(pool.len(), 5);
-
-        for tx in transactions {
-            assert!(matches!(
-                pool.insert_transaction(tx),
-                InsertTransactionResult::Success | InsertTransactionResult::Duplicate
+    fn test_pool_iterator_starting_from_key() {
+        let mut pool = TransactionPool::new(TEST_SEED, None, "");
+        for i in 1..=10 {
+            let signer_id = AccountId::try_from(format!("user_{}", i)).unwrap();
+            let signer_seed = signer_id.as_ref();
+            let signer = Arc::new(InMemorySigner::from_seed(
+                signer_id.clone(),
+                KeyType::ED25519,
+                signer_seed,
             ));
+            let tx = SignedTransaction::send_money(
+                i,
+                signer_id,
+                "bob.near".parse().unwrap(),
+                &*signer,
+                i as Balance,
+                CryptoHash::default(),
+            );
+            assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
         }
-        assert_eq!(pool.len(), 10);
-        let txs = prepare_transactions(&mut pool, 5);
+        let txs = prepare_transactions(&mut pool, 5, Bound::Unbounded);
         assert_eq!(txs.len(), 5);
-        nonces.sort();
-        let mut new_nonces = txs.iter().map(|tx| tx.transaction.nonce).collect::<Vec<_>>();
-        new_nonces.sort();
-        assert_ne!(nonces, new_nonces);
+
+        // TODO(akashin): Stop leaking key implementation.
+        let tx = txs.last().unwrap();
+        let last_key = pool.key(
+            &tx.transaction.signer_id,
+            &tx.transaction.public_key,
+        );
+        let new_txs = prepare_transactions(&mut pool, 5, Bound::Excluded(last_key));
+        assert_eq!(new_txs.len(), 5);
+
+        for tx in new_txs {
+            assert!(!txs.contains(&tx));
+        }
     }
 
     #[test]
