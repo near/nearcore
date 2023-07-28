@@ -15,6 +15,7 @@ use near_store::flat::{
 };
 use near_store::test_utils::create_test_store;
 use near_store::{KeyLookupMode, Store, TrieTraversalItem};
+use near_vm_runner::logic::TrieNodesCount;
 use nearcore::config::GenesisExt;
 use std::str::FromStr;
 use std::thread;
@@ -360,12 +361,12 @@ fn test_flat_storage_creation_start_from_state_part() {
             .runtime_adapter
             .get_trie_for_shard(0, &block_hash, state_root, true)
             .unwrap();
-        let chunk_view = trie.flat_storage_chunk_view.unwrap();
         for part_trie_keys in trie_keys.iter() {
             for trie_key in part_trie_keys.iter() {
-                assert_matches!(chunk_view.get_value(trie_key), Ok(Some(_)));
+                assert_matches!(trie.get_ref(&trie_key, KeyLookupMode::FlatStorage), Ok(Some(_)));
             }
         }
+        assert_eq!(trie.get_trie_nodes_count(), TrieNodesCount { db_reads: 0, mem_reads: 0 });
     }
 }
 

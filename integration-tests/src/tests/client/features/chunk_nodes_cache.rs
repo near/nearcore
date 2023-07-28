@@ -66,7 +66,8 @@ fn process_transaction(
 
 /// Compare charged node accesses before and after protocol upgrade to the protocol version of `ChunkNodesCache`.
 /// This upgrade during chunk processing saves each node for which we charge touching trie node cost to a special
-/// chunk cache, and such cost is charged only once on the first access. This effect doesn't persist across chunks.
+/// accounting cache (used to be called "chunk cache"), and such cost is charged only once on the first access.
+/// This effect doesn't persist across chunks.
 ///
 /// We run the same transaction 4 times and compare resulting costs. This transaction writes two different key-value
 /// pairs to the contract storage.
@@ -78,8 +79,8 @@ fn process_transaction(
 ///
 /// 2nd run should count 12 regular db reads - for 6 nodes per each value, because protocol is not upgraded yet.
 /// 3nd run follows the upgraded protocol and it should count 8 db and 4 memory reads, which comes from 6 db reads
-/// for `Value 1` and only 2 db reads for `Value 2`, because first 4 nodes were already put into the chunk cache.
-/// 4nd run should give the same results, because caching must not affect different chunks.
+/// for `Value 1` and only 2 db reads for `Value 2`, because first 4 nodes were already put into the accounting
+/// cache. 4nd run should give the same results, because caching must not affect different chunks.
 #[test]
 fn compare_node_counts() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
