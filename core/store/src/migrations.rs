@@ -207,6 +207,10 @@ pub fn migrate_36_to_37(store: &Store) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Migrates the database from version 37 to 38.
+///
+/// Rewrites FlatStateDeltaMetadata to add a bit to Metadata, `prev_block_with_changes`.
+/// That bit is initialized with a `None` regardless of the corresponding flat state changes.
 pub fn migrate_37_to_38(store: &Store) -> anyhow::Result<()> {
     #[derive(borsh::BorshDeserialize)]
     struct LegacyFlatStateDeltaMetadata {
@@ -219,7 +223,8 @@ pub fn migrate_37_to_38(store: &Store) -> anyhow::Result<()> {
         let (key, old_value) = result?;
         let LegacyFlatStateDeltaMetadata { block } =
             LegacyFlatStateDeltaMetadata::try_from_slice(&old_value)?;
-        let new_value = crate::flat::FlatStateDeltaMetadata { block, compression_info: None };
+        let new_value =
+            crate::flat::FlatStateDeltaMetadata { block, prev_block_with_changes: None };
         update.set(DBCol::FlatStateDeltaMetadata, &key, &new_value.try_to_vec()?);
     }
     update.commit()?;

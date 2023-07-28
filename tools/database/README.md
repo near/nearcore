@@ -80,6 +80,7 @@ This command can be helpful before attempting activities that can potentially
 corrupt the database.
 
 ### Run DB Migrations
+
 Opens the DB and runs migrations to bring it to the actual version expected by `neard`
 Example usage:
 ```bash
