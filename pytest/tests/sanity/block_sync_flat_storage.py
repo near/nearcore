@@ -44,10 +44,23 @@ result = boot_node.send_tx_and_wait(deploy_contract_tx, 10)
 assert 'result' in result and 'error' not in result, (
     'Expected "result" and no "error" in response, got: {}'.format(result))
 
+def random_workload_until(target, nonce, keys):
+    while True:
+        nonce += 1
+        height = boot_node.get_latest_block().height
+        if height > target:
+            break
+        if (len(keys) > 100 and random.random() < 0.2) or len(keys) > 1000:
+            key = keys[random.randint(0, len(keys) - 1)]
+            call_function(boot_node, 'read', key, nonce)
+        else:
+            key = random_u64()
+            keys.append(key)
+            call_function(boot_node, 'write', key, nonce)
+    return (nonce, keys)
 
 def random_u64():
     return bytes(random.randint(0, 255) for _ in range(8))
-
 
 def call_function(node, op, key, nonce):
     last_block_hash = node.get_latest_block().hash_bytes
@@ -65,41 +78,21 @@ def call_function(node, op, key, nonce):
     return node.send_tx(tx).get('result')
 
 
-keys = []
-nonce = 1
-while True:
-    nonce += 1
-    height = boot_node.get_latest_block().height
-    if height >= EPOCH_LENGTH + 5:
-        break
-    if (len(keys) > 100 and random.random() < 0.2) or len(keys) > 1000:
-        key = keys[random.randint(0, len(keys) - 1)]
-        result = call_function(boot_node, 'read', key, nonce)
-    else:
-        key = random_u64()
-        keys.append(key)
-        result = call_function(boot_node, 'write', key, nonce)
+nonce, keys = random_workload_until(EPOCH_LENGTH + 5, 1, [])
 
 node1.kill()
+# Reduce the set of tracked shards and make it variable in time.
+# The node is stopped in epoch_height = 1.
+# Change the config of tracked shards such that after restart the node cares
+# only about shard 0, and in the next epoch it will care about shards [1, 2, 3].
 apply_config_changes(node_dirs[1], {
     "tracked_shards": [],
     "tracked_shard_schedule": [[0], [0], [1, 2, 3]]
 })
 
 # Run node0 more to trigger block sync in node1.
-while True:
-    nonce += 1
-    height = boot_node.get_latest_block().height
-    if height > EPOCH_LENGTH * 2:
-        break
-    if (len(keys) > 100 and random.random() < 0.2) or len(keys) > 1000:
-        key = keys[random.randint(0, len(keys) - 1)]
-        result = call_function(boot_node, 'read', key, nonce)
-    else:
-        key = random_u64()
-        keys.append(key)
-        result = call_function(boot_node, 'write', key, nonce)
+nonce, keys = random_workload_until(EPOCH_LENGTH * 2 + 1, nonce, keys)
 
 # Node1 is now behind and needs to do header sync and block sync.
 node1.start(boot_node=boot_node)
-utils.wait_for_blocks(node1, target=EPOCH_LENGTH * 2 + 5)
+utils.wait_for_blocks(node1, target=EPOCH_LENGTH * 2 + 10)
