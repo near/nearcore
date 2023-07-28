@@ -149,8 +149,8 @@ fn test_flat_storage_creation_sanity() {
         }
 
         // If chain was initialized from scratch, flat storage state should be created. During block processing, flat
-        // storage head should be moved to block `START_HEIGHT - 5`.
-        let flat_head_height = START_HEIGHT - 5;
+        // storage head should be moved to block `START_HEIGHT - 4`.
+        let flat_head_height = START_HEIGHT - 4;
         let expected_flat_storage_head =
             env.clients[0].chain.get_block_hash_by_height(flat_head_height).unwrap();
         let status = store_helper::get_flat_storage_status(&store, shard_uid);
@@ -517,7 +517,7 @@ fn test_not_supported_block() {
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
 
-    let flat_head_height = START_HEIGHT - 5;
+    let flat_head_height = START_HEIGHT - 4;
     // Trie key which must exist in the storage.
     let trie_key_bytes =
         near_primitives::trie_key::TrieKey::Account { account_id: "test0".parse().unwrap() }
