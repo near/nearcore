@@ -446,7 +446,15 @@ impl FlatStorageCreator {
             return Ok(None);
         };
         for shard_id in 0..num_shards {
-            if shard_tracker.care_about_shard(me, &chain_head.prev_block_hash, shard_id, true) {
+            // The node applies transactions from the shards it cares about this and the next epoch.
+            if shard_tracker.care_about_shard(me, &chain_head.prev_block_hash, shard_id, true)
+                || shard_tracker.will_care_about_shard(
+                    me,
+                    &chain_head.prev_block_hash,
+                    shard_id,
+                    true,
+                )
+            {
                 let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &chain_head.epoch_id)?;
                 let status = flat_storage_manager.get_flat_storage_status(shard_uid);
 
