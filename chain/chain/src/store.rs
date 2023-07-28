@@ -590,6 +590,12 @@ impl ChainStore {
     ///
     /// This method does it based on the "receipt receiver" approach where the
     /// receipt is assigned to the shard of the receiver.
+    ///
+    /// This approach worked well for the 1->4 shards resharding but it doesn't
+    /// work for following reshardings. The reason is that it's only the child
+    /// shards that look at parents shard's outgoing receipts. If the receipt
+    /// receiver happens to not fall within one of the children shards then the
+    /// receipt is lost.
     fn reassign_outgoing_receipts_for_resharding_v1(
         receipts: &mut Vec<Receipt>,
         shard_layout: &ShardLayout,
