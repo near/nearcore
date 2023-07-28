@@ -2,6 +2,7 @@ use crate::test_helpers::heavy_test;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
+use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
@@ -14,12 +15,14 @@ use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout, WaitOrTimeoutActor};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::get_num_state_parts;
+use near_primitives::syncing::{get_num_state_parts, StatePartKey};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::MaybeValidated;
+use near_primitives_core::types::ShardId;
 use near_store::genesis::initialize_genesis_state;
-use near_store::{NodeStorage, Store};
+use near_store::{DBCol, NodeStorage, Store};
 use nearcore::{config::GenesisExt, load_test_config, start_with_config, NightshadeRuntime};
 use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
@@ -544,7 +547,6 @@ fn sync_state_dump() {
 }
 
 #[test]
-#[ignore]
 // Test that state sync behaves well when the chunks are absent at the end of the epoch.
 // The test actually fails and the code needs fixing.
 fn test_dump_epoch_missing_chunk_in_last_block() {
@@ -552,7 +554,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
         init_test_logger();
         let epoch_length = 10;
 
-        for num_last_chunks_missing in 0..5 {
+        for num_last_chunks_missing in 0..6 {
             assert!(num_last_chunks_missing < epoch_length);
             let mut genesis =
                 Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -659,7 +661,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
             let state_root_node = state_sync_header.state_root_node();
             let num_parts = get_num_state_parts(state_root_node.memory_usage);
             // Check that state parts can be obtained.
-            let state_parts: Vec<_> = (0..num_parts)
+            let state_sync_parts: Vec<_> = (0..num_parts)
                 .map(|i| {
                     // This should obviously not fail, aka succeed.
                     env.clients[0].chain.get_state_response_part(0, i, sync_hash).unwrap()
@@ -675,10 +677,68 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                         0,
                         &state_root,
                         PartId::new(i, num_parts),
-                        &state_parts[i as usize],
+                        &state_sync_parts[i as usize],
                         &epoch_id,
                     )
                     .unwrap();
+            }
+
+            env.clients[1].chain.set_state_header(0, sync_hash, state_sync_header).unwrap();
+            for i in 0..num_parts {
+                env.clients[1]
+                    .chain
+                    .set_state_part(
+                        0,
+                        sync_hash,
+                        PartId::new(i, num_parts),
+                        &state_sync_parts[i as usize],
+                    )
+                    .unwrap();
+            }
+            let rt = Arc::clone(&env.clients[1].runtime_adapter);
+            let f = move |msg: ApplyStatePartsRequest| {
+                use borsh::BorshSerialize;
+                let store = rt.store();
+
+                let shard_id = msg.shard_uid.shard_id as ShardId;
+                for part_id in 0..msg.num_parts {
+                    let key = StatePartKey(msg.sync_hash, shard_id, part_id).try_to_vec().unwrap();
+                    let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
+
+                    rt.apply_state_part(
+                        shard_id,
+                        &msg.state_root,
+                        PartId::new(part_id, msg.num_parts),
+                        &part,
+                        &msg.epoch_id,
+                    )
+                    .unwrap();
+                }
+            };
+            env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
+            env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
+            let last_chunk_height = epoch_length - num_last_chunks_missing;
+            for height in 1..epoch_length {
+                if height < last_chunk_height {
+                    assert!(env.clients[1]
+                        .chain
+                        .get_chunk_extra(blocks[height as usize].hash(), &ShardUId::single_shard())
+                        .is_err());
+                } else {
+                    let chunk_extra = env.clients[1]
+                        .chain
+                        .get_chunk_extra(blocks[height as usize].hash(), &ShardUId::single_shard())
+                        .unwrap();
+                    let expected_chunk_extra = env.clients[0]
+                        .chain
+                        .get_chunk_extra(
+                            blocks[last_chunk_height as usize].hash(),
+                            &ShardUId::single_shard(),
+                        )
+                        .unwrap();
+                    // The chunk extra of the prev block of sync block should be the same as the node that it is syncing from
+                    assert_eq!(chunk_extra, expected_chunk_extra);
+                }
             }
         }
     });

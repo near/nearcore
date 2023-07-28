@@ -464,7 +464,15 @@ pub mod flat_state_metrics {
     pub static FLAT_STORAGE_DISTANCE_TO_HEAD: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
             "flat_storage_distance_to_head",
-            "Distance between processed block and flat storage head",
+            "Height distance between processed block and flat storage head",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+    pub static FLAT_STORAGE_HOPS_TO_HEAD: Lazy<IntGaugeVec> = Lazy::new(|| {
+        try_create_int_gauge_vec(
+            "flat_storage_hops_to_head",
+            "Number of blocks visited to flat storage head",
             &["shard_id"],
         )
         .unwrap()

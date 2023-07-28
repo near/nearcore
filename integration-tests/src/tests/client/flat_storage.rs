@@ -3,9 +3,12 @@ use assert_matches::assert_matches;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_client::ProcessTxResponse;
+use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::errors::StorageError;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
 use near_primitives_core::types::BlockHeight;
@@ -24,7 +27,7 @@ use std::time::Duration;
 use super::utils::TestEnvNightshadeSetupExt;
 
 /// Height on which we start flat storage background creation.
-const START_HEIGHT: BlockHeight = 4;
+const START_HEIGHT: BlockHeight = 7;
 
 /// Number of steps which should be enough to create flat storage.
 const CREATION_TIMEOUT: BlockHeight = 30;
@@ -130,13 +133,25 @@ fn test_flat_storage_creation_sanity() {
     // Process some blocks with flat storage. Then remove flat storage data from disk.
     {
         let mut env = setup_env(&genesis, store.clone());
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+        let genesis_hash = *env.clients[0].chain.genesis().hash();
         for height in 1..START_HEIGHT {
             env.produce_block(0, height);
+
+            let tx = SignedTransaction::send_money(
+                height,
+                "test0".parse().unwrap(),
+                "test0".parse().unwrap(),
+                &signer,
+                1,
+                genesis_hash,
+            );
+            assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         }
 
         // If chain was initialized from scratch, flat storage state should be created. During block processing, flat
-        // storage head should be moved to block `START_HEIGHT - 3`.
-        let flat_head_height = START_HEIGHT - 3;
+        // storage head should be moved to block `START_HEIGHT - 4`.
+        let flat_head_height = START_HEIGHT - 4;
         let expected_flat_storage_head =
             env.clients[0].chain.get_block_hash_by_height(flat_head_height).unwrap();
         let status = store_helper::get_flat_storage_status(&store, shard_uid);
@@ -147,18 +162,19 @@ fn test_flat_storage_creation_sanity() {
             panic!("expected FlatStorageStatus::Ready status, got {status:?}");
         }
 
-        // Deltas for blocks until `START_HEIGHT - 2` should not exist.
-        for height in 0..START_HEIGHT - 2 {
+        // Deltas for blocks until `flat_head_height` should not exist.
+        for height in 0..=flat_head_height {
             let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
             assert_eq!(store_helper::get_delta_changes(&store, shard_uid, block_hash), Ok(None));
         }
         // Deltas for blocks until `START_HEIGHT` should still exist,
         // because they come after flat storage head.
-        for height in START_HEIGHT - 2..START_HEIGHT {
+        for height in flat_head_height + 1..START_HEIGHT {
             let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
             assert_matches!(
                 store_helper::get_delta_changes(&store, shard_uid, block_hash),
-                Ok(Some(_))
+                Ok(Some(_)),
+                "height: {height}"
             );
         }
 
@@ -236,8 +252,20 @@ fn test_flat_storage_creation_two_shards() {
     // Process some blocks with flat storages for two shards. Then remove flat storage data from disk for shard 0.
     {
         let mut env = setup_env(&genesis, store.clone());
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+        let genesis_hash = *env.clients[0].chain.genesis().hash();
         for height in 1..START_HEIGHT {
             env.produce_block(0, height);
+
+            let tx = SignedTransaction::send_money(
+                height,
+                "test0".parse().unwrap(),
+                "test0".parse().unwrap(),
+                &signer,
+                1,
+                genesis_hash,
+            );
+            assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         }
 
         for &shard_uid in &shard_uids {
@@ -461,6 +489,10 @@ fn test_flat_storage_iter() {
 }
 
 #[test]
+/// Initializes flat storage, then creates a Trie to read the flat storage
+/// exactly at the flat head block.
+/// Add another block to the flat state, which moves flat head and makes the
+/// state of the previous flat head inaccessible.
 fn test_not_supported_block() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
@@ -469,11 +501,24 @@ fn test_not_supported_block() {
     let store = create_test_store();
 
     let mut env = setup_env(&genesis, store);
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let genesis_hash = *env.clients[0].chain.genesis().hash();
+
     // Produce blocks up to `START_HEIGHT`.
     for height in 1..START_HEIGHT {
         env.produce_block(0, height);
+        let tx = SignedTransaction::send_money(
+            height,
+            "test0".parse().unwrap(),
+            "test0".parse().unwrap(),
+            &signer,
+            1,
+            genesis_hash,
+        );
+        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
 
+    let flat_head_height = START_HEIGHT - 4;
     // Trie key which must exist in the storage.
     let trie_key_bytes =
         near_primitives::trie_key::TrieKey::Account { account_id: "test0".parse().unwrap() }
@@ -483,7 +528,7 @@ fn test_not_supported_block() {
     // After creating the first trie, produce block `START_HEIGHT` which moves flat storage
     // head 1 block further and invalidates it.
     let mut get_ref_results = vec![];
-    for height in START_HEIGHT - 3..START_HEIGHT - 1 {
+    for height in flat_head_height..START_HEIGHT - 1 {
         let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
         let state_root = *env.clients[0]
             .chain
@@ -495,7 +540,7 @@ fn test_not_supported_block() {
             .runtime_adapter
             .get_trie_for_shard(shard_uid.shard_id(), &block_hash, state_root, true)
             .unwrap();
-        if height == START_HEIGHT - 3 {
+        if height == flat_head_height {
             env.produce_block(0, START_HEIGHT);
         }
         get_ref_results.push(trie.get_ref(&trie_key_bytes, KeyLookupMode::FlatStorage));
