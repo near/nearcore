@@ -792,6 +792,80 @@ impl Trie {
         }
     }
 
+    /// For debugging only. Returns the raw node at the given path starting from the root.
+    /// The format of the nibbles parameter is that each element represents 4 bits of the
+    /// path. (Even though we use a u8 for each element, we only use the lower 4 bits.)
+    pub fn debug_get_node(&self, nibbles: &[u8]) -> Result<Option<RawTrieNode>, StorageError> {
+        // We need to construct an equivalent NibbleSlice so we can easily use it
+        // to traverse the trie. The tricky part is that the NibbleSlice implementation
+        // only allows *starting* from the middle of a byte, and always requires ending at
+        // the end of the internal array - this is sufficient because for production purposes
+        // we always have a complete leaf path to use. But for our debugging purposes we
+        // specify an incomplete trie path that may *end* at the middle of a byte, so to get
+        // around that, if the provided path length is odd, we prepend a 0 and then start in
+        // the middle of the first byte.
+        let odd = nibbles.len() % 2 == 1;
+        let mut nibble_array = Vec::new();
+        if odd {
+            nibble_array.push(0);
+        }
+        for nibble in nibbles {
+            nibble_array.push(*nibble);
+        }
+        let mut nibble_data = Vec::new();
+        for i in 0..nibble_array.len() / 2 {
+            let first = nibble_array[i * 2];
+            let second = nibble_array[i * 2 + 1];
+            nibble_data.push((first << 4) + second);
+        }
+        let mut key = NibbleSlice::new_offset(&nibble_data, if odd { 1 } else { 0 });
+
+        // The rest of the logic is very similar to the standard lookup() function, except
+        // we return the raw node and don't expect to hit a leaf.
+        let mut node = self.retrieve_raw_node(&self.root)?;
+        while !key.is_empty() {
+            match node {
+                Some((_, raw_node)) => match raw_node.node {
+                    RawTrieNode::Leaf(_, _) => {
+                        return Ok(None);
+                    }
+                    RawTrieNode::BranchNoValue(children)
+                    | RawTrieNode::BranchWithValue(_, children) => {
+                        let child = children[key.at(0)];
+                        match child {
+                            Some(child) => {
+                                node = self.retrieve_raw_node(&child)?;
+                                key = key.mid(1);
+                            }
+                            None => return Ok(None),
+                        }
+                    }
+                    RawTrieNode::Extension(existing_key, child) => {
+                        let existing_key = NibbleSlice::from_encoded(&existing_key).0;
+                        if key.starts_with(&existing_key) {
+                            node = self.retrieve_raw_node(&child)?;
+                            key = key.mid(existing_key.len());
+                        } else {
+                            return Ok(None);
+                        }
+                    }
+                },
+                None => return Ok(None),
+            }
+        }
+        match node {
+            Some((_, raw_node)) => Ok(Some(raw_node.node)),
+            None => Ok(None),
+        }
+    }
+
+    /// For debugging only. Returns the raw bytes corresponding to a ValueRef that came
+    /// from a node with value (either Leaf or BranchWithValue).
+    pub fn debug_get_value(&self, value_ref: &ValueRef) -> Result<Vec<u8>, StorageError> {
+        let bytes = self.storage.retrieve_raw_bytes(&value_ref.hash)?;
+        Ok(bytes.to_vec())
+    }
+
     /// Return the value reference to the `key`
     /// `mode`: whether we will try to perform the lookup through flat storage or trie.
     ///         Note that even if `mode == KeyLookupMode::FlatStorage`, we still may not use

@@ -110,6 +110,8 @@ pub enum ProtocolFeature {
     /// as it hardcodes preparation v2 code into the generated assembly.
     NearVmRuntime,
 
+    BlockHeaderV4,
+
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
@@ -122,8 +124,6 @@ pub enum ProtocolFeature {
     RejectBlocksWithOutdatedProtocolVersions,
     #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
     SimpleNightshadeV2,
-    #[cfg(feature = "protocol_feature_block_header_v4")]
-    BlockHeaderV4,
 }
 
 impl ProtocolFeature {
@@ -166,6 +166,7 @@ impl ProtocolFeature {
             | ProtocolFeature::DelegateAction => 59,
             ProtocolFeature::ComputeCosts | ProtocolFeature::FlatStorageReads => 61,
             ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
+            ProtocolFeature::BlockHeaderV4 => 63,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -176,8 +177,6 @@ impl ProtocolFeature {
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
             ProtocolFeature::SimpleNightshadeV2 => 135,
-            #[cfg(feature = "protocol_feature_block_header_v4")]
-            ProtocolFeature::BlockHeaderV4 => 138,
         }
     }
 }
@@ -185,7 +184,7 @@ impl ProtocolFeature {
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 62;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 63;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {

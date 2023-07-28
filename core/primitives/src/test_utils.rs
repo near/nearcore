@@ -6,9 +6,6 @@ use near_primitives_core::types::ProtocolVersion;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
-#[cfg(not(feature = "protocol_feature_block_header_v4"))]
-use crate::block::BlockV2;
-#[cfg(feature = "protocol_feature_block_header_v4")]
 use crate::block::BlockV3;
 use crate::block_header::BlockHeader;
 use crate::errors::EpochError;
@@ -259,17 +256,6 @@ impl SignedTransaction {
 }
 
 impl Block {
-    #[cfg(not(feature = "protocol_feature_block_header_v4"))]
-    pub fn get_mut(&mut self) -> &mut BlockV2 {
-        match self {
-            Block::BlockV1(_) | Block::BlockV3(_) => {
-                panic!("older block version should not appear in tests")
-            }
-            Block::BlockV2(block) => Arc::make_mut(block),
-        }
-    }
-
-    #[cfg(feature = "protocol_feature_block_header_v4")]
     pub fn get_mut(&mut self) -> &mut BlockV3 {
         match self {
             Block::BlockV1(_) | Block::BlockV2(_) => {
@@ -281,19 +267,6 @@ impl Block {
 }
 
 impl BlockHeader {
-    #[cfg(not(feature = "protocol_feature_block_header_v4"))]
-    pub fn get_mut(&mut self) -> &mut crate::block_header::BlockHeaderV3 {
-        match self {
-            BlockHeader::BlockHeaderV1(_)
-            | BlockHeader::BlockHeaderV2(_)
-            | BlockHeader::BlockHeaderV4(_) => {
-                panic!("old header should not appear in tests")
-            }
-            BlockHeader::BlockHeaderV3(header) => Arc::make_mut(header),
-        }
-    }
-
-    #[cfg(feature = "protocol_feature_block_header_v4")]
     pub fn get_mut(&mut self) -> &mut crate::block_header::BlockHeaderV4 {
         match self {
             BlockHeader::BlockHeaderV1(_)
