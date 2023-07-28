@@ -23,14 +23,14 @@ pub(super) struct CacheStats {
     /// Sum of all storage writes sizes. (can only be from inside guest program)
     total_size_write: u64,
 
-    /// Hits in the chunk cache. (can only be from inside guest program)
-    num_tn_chunk_cache_hit: u64,
+    /// Hits in the accounting cache. (can only be from inside guest program)
+    num_tn_accounting_cache_hit: u64,
     /// Hits in the shard cache, from inside guest program.
     num_tn_shard_cache_hit_guest: u64,
     /// Misses in the shard cache, from inside guest program.
     num_tn_shard_cache_miss_guest: u64,
     /// All trie node accesses that the user pays for as being fetched from DB.
-    /// Includes shard cache misses and hits, but no chunk cache hits.
+    /// Includes shard cache misses and hits, but no accounting cache hits.
     num_tn_db_paid: u64,
 
     /// Hits in the shard cache, requested by host.
@@ -110,7 +110,7 @@ impl CacheStats {
             _ => {}
         }
 
-        self.num_tn_chunk_cache_hit += tn_mem_reads;
+        self.num_tn_accounting_cache_hit += tn_mem_reads;
         self.num_tn_shard_cache_hit_guest += tn_shard_cache_hits;
         self.num_tn_db_paid += tn_db_reads;
         self.num_tn_shard_cache_too_large += tn_shard_cache_too_large;
@@ -132,7 +132,7 @@ impl CacheStats {
         let tn_shard_cache_too_large =
             dict.get("shard_cache_too_large").map(|s| s.parse().unwrap()).unwrap_or(0);
 
-        // there is no chunk cache update here, as we are not in a smart contract execution
+        // there is no accounting cache update here, as we are not in a smart contract execution
         self.num_tn_shard_cache_hit_host += tn_shard_cache_hits;
         self.num_tn_shard_cache_too_large += tn_shard_cache_too_large;
         self.num_tn_shard_cache_miss_host += tn_shard_cache_misses;
@@ -163,7 +163,7 @@ impl CacheStats {
             out,
             "{:indent$}TRIE NODES (guest) {:>4} /{:>4} /{:>4}  (chunk-cache/shard-cache/DB)",
             "",
-            self.num_tn_chunk_cache_hit,
+            self.num_tn_accounting_cache_hit,
             self.num_tn_shard_cache_hit_guest,
             self.num_tn_shard_cache_miss_guest
         )?;
@@ -180,11 +180,12 @@ impl CacheStats {
             self.num_tn_shard_cache_miss_guest + self.num_tn_shard_cache_miss_host,
             Some((self.num_tn_shard_cache_too_large, "too large nodes")),
         )?;
+        // TODO(#9054): Rename this to ACCOUNTING CACHE.
         Self::print_cache_rate(
             out,
             indent,
             "CHUNK CACHE",
-            self.num_tn_chunk_cache_hit,
+            self.num_tn_accounting_cache_hit,
             self.num_tn_db_paid,
             None,
         )?;

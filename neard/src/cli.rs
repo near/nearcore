@@ -121,7 +121,7 @@ impl NeardCmd {
                 cmd.run()?;
             }
             NeardSubCommand::FlatStorage(cmd) => {
-                cmd.run(&home_dir)?;
+                cmd.run(&home_dir, genesis_validation)?;
             }
             NeardSubCommand::ValidateConfig(cmd) => {
                 cmd.run(&home_dir)?;
