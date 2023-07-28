@@ -70,7 +70,7 @@ impl TransactionPool {
         }
     }
 
-    pub fn key(&self, account_id: &AccountId, public_key: &PublicKey) -> PoolKey {
+    fn key(&self, account_id: &AccountId, public_key: &PublicKey) -> PoolKey {
         let mut v = public_key.try_to_vec().unwrap();
         v.extend_from_slice(&self.key_seed);
         v.extend_from_slice(account_id.as_ref().as_bytes());
@@ -198,6 +198,10 @@ impl<'a> NewPoolIterator<'a> {
                 .collect(),
             key_lower_bound,
         }
+    }
+
+    pub fn key_lower_bound(self) -> Bound<PoolKey> {
+        self.key_lower_bound
     }
 }
 
@@ -380,7 +384,7 @@ mod tests {
         for tx in transactions {
             assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
         }
-        let txs = prepare_transactions(&mut pool, expected_weight as usize, Bound::Unbounded);
+        let txs = prepare_transactions(&mut pool, expected_weight as usize);
         pool.remove_transactions(&txs);
         (txs.iter().map(|tx| tx.transaction.nonce).collect(), pool)
     }
@@ -393,12 +397,28 @@ mod tests {
         }
     }
 
-    fn prepare_transactions(
+    fn prepare_transactions_with_lower_bound(
         pool: &mut TransactionPool,
         max_number_of_transactions: usize,
         key_lower_bound: Bound<PoolKey>,
+    ) -> (Vec<SignedTransaction>, Bound<PoolKey>) {
+        let mut iter = pool.new_pool_iterator(key_lower_bound);
+        let mut txs = Vec::new();
+        for _ in 0..max_number_of_transactions {
+            if let Some(tx) = iter.next() {
+                txs.push(tx.clone());
+            } else {
+                break;
+            }
+        }
+        (txs, iter.key_lower_bound())
+    }
+
+    fn prepare_transactions(
+        pool: &mut TransactionPool,
+        max_number_of_transactions: usize,
     ) -> Vec<SignedTransaction> {
-        pool.new_pool_iterator(key_lower_bound).take(max_number_of_transactions).cloned().collect()
+        prepare_transactions_with_lower_bound(pool, max_number_of_transactions, Bound::Unbounded).0
     }
 
     /// Add transactions of nonce from 1..10 in random order. Check that mempool
@@ -444,7 +464,7 @@ mod tests {
         sort_pairs(&mut nonces[..6]);
         assert_eq!(nonces, vec![1, 21, 2, 22, 3, 23, 24, 25, 26, 27]);
         let nonces: Vec<u64> =
-            prepare_transactions(&mut pool, 10, Bound::Unbounded).iter().map(|tx| tx.transaction.nonce).collect();
+            prepare_transactions(&mut pool, 10).iter().map(|tx| tx.transaction.nonce).collect();
         assert_eq!(nonces, vec![28, 29, 30, 31]);
     }
 
@@ -486,7 +506,7 @@ mod tests {
 
         assert_eq!(pool.len(), txs_to_check.len());
 
-        let mut pool_txs = prepare_transactions(&mut pool, txs_to_check.len(), Bound::Unbounded);
+        let mut pool_txs = prepare_transactions(&mut pool, txs_to_check.len());
         pool_txs.sort_by_key(|tx| tx.transaction.nonce);
         let mut expected_txs = txs_to_check.to_vec();
         expected_txs.sort_by_key(|tx| tx.transaction.nonce);
@@ -503,20 +523,12 @@ mod tests {
 
         let (nonces, mut pool) = process_txs_to_nonces(transactions, 0);
         assert!(nonces.is_empty());
-        let mut res = vec![];
-        let mut pool_iter = pool.pool_iterator();
-        while let Some(iter) = pool_iter.next() {
-            while let Some(tx) = iter.next() {
-                if tx.transaction.nonce & 1 == 1 {
-                    res.push(tx);
-                    break;
-                }
-            }
-        }
-        drop(pool_iter);
-        assert_eq!(pool.len(), 0);
-        assert_eq!(pool.transaction_size(), 0);
-        let mut nonces: Vec<_> = res.into_iter().map(|tx| tx.transaction.nonce).collect();
+        let filtered_txs: Vec<_> = pool
+            .new_pool_iterator(Bound::Unbounded)
+            .filter(|tx| tx.transaction.nonce & 1 == 1)
+            .cloned()
+            .collect();
+        let mut nonces: Vec<_> = filtered_txs.into_iter().map(|tx| tx.transaction.nonce).collect();
         sort_pairs(&mut nonces[..4]);
         assert_eq!(nonces, vec![1, 21, 3, 23, 25, 27, 29, 31]);
     }
@@ -537,7 +549,7 @@ mod tests {
             ));
         }
         assert_eq!(pool.len(), 10);
-        let txs = prepare_transactions(&mut pool, 10, Bound::Unbounded);
+        let txs = prepare_transactions(&mut pool, 10);
         pool.remove_transactions(&txs);
         assert_eq!(txs.len(), 10);
         assert_eq!(pool.len(), 0);
@@ -566,16 +578,11 @@ mod tests {
             );
             assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
         }
-        let txs = prepare_transactions(&mut pool, 5, Bound::Unbounded);
+        let (txs, key_lower_bound) =
+            prepare_transactions_with_lower_bound(&mut pool, 5, Bound::Unbounded);
         assert_eq!(txs.len(), 5);
 
-        // TODO(akashin): Stop leaking key implementation.
-        let tx = txs.last().unwrap();
-        let last_key = pool.key(
-            &tx.transaction.signer_id,
-            &tx.transaction.public_key,
-        );
-        let new_txs = prepare_transactions(&mut pool, 5, Bound::Excluded(last_key));
+        let (new_txs, _) = prepare_transactions_with_lower_bound(&mut pool, 5, key_lower_bound);
         assert_eq!(new_txs.len(), 5);
 
         for tx in new_txs {
