@@ -1,7 +1,6 @@
 use crate::test_utils::TestEnv;
 use assert_matches::assert_matches;
 use near_chain::{test_utils, ChainGenesis, Provenance};
-#[cfg(feature = "protocol_feature_block_header_v4")]
 use near_crypto::vrf::Value;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::block::Block;
@@ -80,11 +79,8 @@ fn test_bad_shard_id() {
     block.mut_header().get_mut().inner_rest.chunk_receipts_root =
         Block::compute_chunk_receipts_root(&chunks);
     block.set_chunks(chunks);
-    #[cfg(feature = "protocol_feature_block_header_v4")]
-    {
-        block.mut_header().get_mut().inner_rest.block_body_hash =
-            block.compute_block_body_hash().unwrap();
-    }
+    block.mut_header().get_mut().inner_rest.block_body_hash =
+        block.compute_block_body_hash().unwrap();
     block.mut_header().resign(&validator_signer);
 
     let err = env.clients[0]
@@ -95,7 +91,6 @@ fn test_bad_shard_id() {
 
 /// Test that if a block's content (vrf_value) is corrupted, the invalid block will not affect the node's block processing
 #[test]
-#[cfg(feature = "protocol_feature_block_header_v4")]
 fn test_bad_block_content_vrf() {
     let mut env = TestEnv::builder(ChainGenesis::test()).num_shards(4).build();
     let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();

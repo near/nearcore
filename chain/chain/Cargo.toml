@@ -54,14 +54,15 @@ protocol_feature_reject_blocks_with_outdated_protocol_version = [
 protocol_feature_block_header_v4 = [
   "near-primitives/protocol_feature_block_header_v4",
 ]
+protocol_feature_reject_blocks_with_outdated_protocol_version = [
+  "near-primitives/protocol_feature_reject_blocks_with_outdated_protocol_version"
+]
 protocol_feature_simple_nightshade_v2 = [
   "near-primitives/protocol_feature_simple_nightshade_v2",
 ]
 
-
 nightly = [
   "nightly_protocol",
-  "protocol_feature_block_header_v4",
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
   "protocol_feature_simple_nightshade_v2",
   "near-chain-configs/nightly",
