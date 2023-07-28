@@ -26,13 +26,11 @@ config1 = {
 }
 
 config = load_config()
-near_root, node_dirs = init_cluster(
-    1, 1, 4, config,
-    [["epoch_length", EPOCH_LENGTH]],
-     {
-         0: config0,
-         1: config1
-     })
+near_root, node_dirs = init_cluster(1, 1, 4, config,
+                                    [["epoch_length", EPOCH_LENGTH]], {
+                                        0: config0,
+                                        1: config1
+                                    })
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0)
 node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node=boot_node)
@@ -40,13 +38,16 @@ node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node=boot_node)
 contract_key = boot_node.signer_key
 contract = utils.load_test_contract()
 latest_block_hash = boot_node.get_latest_block().hash_bytes
-deploy_contract_tx = transaction.sign_deploy_contract_tx(contract_key, contract, 10, latest_block_hash)
+deploy_contract_tx = transaction.sign_deploy_contract_tx(
+    contract_key, contract, 10, latest_block_hash)
 result = boot_node.send_tx_and_wait(deploy_contract_tx, 10)
 assert 'result' in result and 'error' not in result, (
     'Expected "result" and no "error" in response, got: {}'.format(result))
 
+
 def random_u64():
     return bytes(random.randint(0, 255) for _ in range(8))
+
 
 def call_function(node, op, key, nonce):
     last_block_hash = node.get_latest_block().hash_bytes
@@ -57,8 +58,12 @@ def call_function(node, op, key, nonce):
         args = key + random_u64()
         fn = 'write_key_value'
 
-    tx = transaction.sign_function_call_tx(node.signer_key, node.signer_key.account_id, fn, args, 300 * account.TGAS, 0, nonce, last_block_hash)
+    tx = transaction.sign_function_call_tx(node.signer_key,
+                                           node.signer_key.account_id, fn, args,
+                                           300 * account.TGAS, 0, nonce,
+                                           last_block_hash)
     return node.send_tx(tx).get('result')
+
 
 keys = []
 nonce = 1
@@ -68,7 +73,7 @@ while True:
     if height >= EPOCH_LENGTH + 5:
         break
     if (len(keys) > 100 and random.random() < 0.2) or len(keys) > 1000:
-        key = keys[random.randint(0, len(keys)-1)]
+        key = keys[random.randint(0, len(keys) - 1)]
         result = call_function(boot_node, 'read', key, nonce)
     else:
         key = random_u64()
@@ -76,7 +81,10 @@ while True:
         result = call_function(boot_node, 'write', key, nonce)
 
 node1.kill()
-apply_config_changes(node_dirs[1], {"tracked_shards":[],"tracked_shard_schedule":[[0],[0],[1,2,3]]})
+apply_config_changes(node_dirs[1], {
+    "tracked_shards": [],
+    "tracked_shard_schedule": [[0], [0], [1, 2, 3]]
+})
 
 # Run node0 more to trigger block sync in node1.
 while True:
@@ -85,13 +93,12 @@ while True:
     if height > EPOCH_LENGTH * 2:
         break
     if (len(keys) > 100 and random.random() < 0.2) or len(keys) > 1000:
-        key = keys[random.randint(0, len(keys)-1)]
+        key = keys[random.randint(0, len(keys) - 1)]
         result = call_function(boot_node, 'read', key, nonce)
     else:
         key = random_u64()
         keys.append(key)
         result = call_function(boot_node, 'write', key, nonce)
-
 
 # Node1 is now behind and needs to do header sync and block sync.
 node1.start(boot_node=boot_node)
