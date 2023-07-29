@@ -11,6 +11,7 @@ use near_chain_configs::{
 };
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
+use near_pool::NewPoolIterator;
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
@@ -673,7 +674,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         state_root: StateRoot,
         next_block_height: BlockHeight,
-        pool_iterator: &mut PoolIterator,
+        pool_iterator: &mut NewPoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error> {
@@ -747,7 +748,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             state_update.commit(StateChangeCause::NotWritableToDisk);
                             total_gas_burnt += verification_result.gas_burnt;
                             total_size += tx.get_size();
-                            transactions.push(tx);
+                            transactions.push(tx.clone());
                         }
                         Err(RuntimeError::InvalidTxError(_err)) => {
                             state_update.rollback();
