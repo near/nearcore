@@ -46,6 +46,7 @@ use near_network::types::{
 };
 use near_o11y::log_assert;
 use near_pool::InsertTransactionResult;
+use near_pool::types::PoolKey;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::challenge::{Challenge, ChallengeBody};
@@ -72,6 +73,7 @@ use near_primitives::views::{CatchupStatusView, DroppedReason};
 use near_store::metadata::DbKind;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
+use std::ops::Bound;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, trace, warn};
@@ -116,6 +118,7 @@ pub struct Client {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     pub sharded_tx_pool: ShardedTransactionPool,
+    pub key_lower_bound: Bound<PoolKey>,
     prev_block_to_chunk_headers_ready_for_inclusion: LruCache<
         CryptoHash,
         HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)>,
@@ -308,6 +311,7 @@ impl Client {
             runtime_adapter,
             shards_manager_adapter,
             sharded_tx_pool,
+            key_lower_bound: Bound::Unbounded,
             prev_block_to_chunk_headers_ready_for_inclusion: LruCache::new(
                 CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE,
             ),
@@ -901,14 +905,14 @@ impl Client {
         chunk_extra: &ChunkExtra,
         prev_block_header: &BlockHeader,
     ) -> Result<Vec<SignedTransaction>, Error> {
-        let Self { chain, sharded_tx_pool, epoch_manager, runtime_adapter: runtime, .. } = self;
+        let Self { chain, sharded_tx_pool, epoch_manager, runtime_adapter: runtime, key_lower_bound, .. } = self;
 
         let next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let transactions = if let Some(mut iter) = sharded_tx_pool.get_pool_iterator(shard_id) {
+        let transactions = if let Some(mut iter) = sharded_tx_pool.get_pool_iterator(shard_id, key_lower_bound.clone()) {
             let transaction_validity_period = chain.transaction_validity_period;
-            runtime.prepare_transactions(
+            let result = runtime.prepare_transactions(
                 prev_block_header.gas_price(),
                 chunk_extra.gas_limit(),
                 &next_epoch_id,
@@ -930,7 +934,9 @@ impl Client {
                         .is_ok()
                 },
                 protocol_version,
-            )?
+            )?;
+            self.key_lower_bound = iter.key_lower_bound();
+            result
         } else {
             vec![]
         };

@@ -13,7 +13,7 @@ pub type PoolIterator<'a> = dyn Iterator<Item = &'a SignedTransaction>;
 
 /// A hash of (an AccountId, a PublicKey and a seed).
 /// Used to randomize the order of the keys.
-pub(crate) type PoolKey = CryptoHash;
+pub type PoolKey = CryptoHash;
 
 // Represents a group of transactions with the same key.
 // pub struct TransactionGroup {
