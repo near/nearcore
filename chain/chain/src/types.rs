@@ -11,7 +11,6 @@ use num_rational::Rational32;
 use crate::metrics;
 use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
-use near_pool::types::PoolIterator;
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::checked_feature;
 use near_primitives::errors::InvalidTxError;

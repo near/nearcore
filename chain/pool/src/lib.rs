@@ -1,6 +1,6 @@
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashSet};
 
-use crate::types::{PoolIterator, PoolKey, TransactionGroup};
+use crate::types::PoolKey;
 use borsh::BorshSerialize;
 use near_crypto::PublicKey;
 use near_o11y::metrics::prometheus::core::{AtomicI64, GenericGauge};
@@ -34,7 +34,7 @@ pub struct TransactionPool {
     /// A uniquely generated key seed to randomize PoolKey order.
     key_seed: RngSeed,
     /// The key after which the pool iterator starts. Doesn't have to be present in the pool.
-    last_used_key: PoolKey,
+    /// TODO(akashin): Move comment.
     /// If set, new transactions that bring the size of the pool over this limit will be rejected.
     total_transaction_size_limit: Option<u64>,
     /// Total size of transactions in the pool measured in bytes.
@@ -62,7 +62,6 @@ impl TransactionPool {
             key_seed,
             transactions: BTreeMap::new(),
             unique_transactions: HashSet::new(),
-            last_used_key: CryptoHash::default(),
             total_transaction_size_limit,
             total_transaction_size: 0,
             transaction_pool_count_metric,
