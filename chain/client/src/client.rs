@@ -934,13 +934,14 @@ impl Client {
         } else {
             vec![]
         };
+        // TODO(akashin): Remove pruned transactions.
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
-        let reintroduced_count = sharded_tx_pool.reintroduce_transactions(shard_id, &transactions);
-        if reintroduced_count < transactions.len() {
-            debug!(target: "client", "Reintroduced {} transactions out of {}",
-                   reintroduced_count, transactions.len());
-        }
+        // let reintroduced_count = sharded_tx_pool.reintroduce_transactions(shard_id, &transactions);
+        // if reintroduced_count < transactions.len() {
+        //     debug!(target: "client", "Reintroduced {} transactions out of {}",
+        //            reintroduced_count, transactions.len());
+        // }
         Ok(transactions)
     }
 

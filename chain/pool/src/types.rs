@@ -5,9 +5,11 @@ use near_primitives::transaction::SignedTransaction;
 /// references to them. Each transaction group implements a draining iterator to pull transactions.
 /// The order of the transaction groups is round robin scheduling.
 /// When this iterator is dropped the remaining transactions are returned back to the pool.
-pub trait PoolIterator {
-    fn next(&mut self) -> Option<&mut TransactionGroup>;
-}
+// pub trait PoolIterator {
+//     fn next(&mut self) -> Option<&mut TransactionGroup>;
+// }
+
+pub type PoolIterator<'a> = dyn Iterator<Item = &'a SignedTransaction>;
 
 /// A hash of (an AccountId, a PublicKey and a seed).
 /// Used to randomize the order of the keys.

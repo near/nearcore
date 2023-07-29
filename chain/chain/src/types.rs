@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use chrono::Utc;
+use near_pool::NewPoolIterator;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_store::flat::FlatStorageManager;
 use num_rational::Rational32;
@@ -296,7 +297,8 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         state_root: StateRoot,
         next_block_height: BlockHeight,
-        pool_iterator: &mut dyn PoolIterator,
+        // pool_iterator: PoolIterator,
+        pool_iterator: &mut NewPoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error>;

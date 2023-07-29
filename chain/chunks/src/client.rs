@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Bound};
 
 use actix::Message;
 
-use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
+use near_pool::{InsertTransactionResult, TransactionPool, NewPoolIterator};
 use near_primitives::{
     epoch_manager::RngSeed,
     sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader},
@@ -47,8 +47,8 @@ impl ShardedTransactionPool {
         Self { tx_pools: HashMap::new(), rng_seed, pool_size_limit }
     }
 
-    pub fn get_pool_iterator(&mut self, shard_id: ShardId) -> Option<PoolIteratorWrapper<'_>> {
-        self.tx_pools.get_mut(&shard_id).map(|pool| pool.pool_iterator())
+    pub fn get_pool_iterator(&mut self, shard_id: ShardId) -> Option<NewPoolIterator> {
+        self.tx_pools.get_mut(&shard_id).map(|pool| pool.new_pool_iterator(Bound::Unbounded))
     }
 
     /// Tries to insert the transaction into the pool for a given shard.

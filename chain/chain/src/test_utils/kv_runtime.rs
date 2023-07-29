@@ -6,6 +6,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
+use near_pool::NewPoolIterator;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_part::PartId;
 use num_rational::Ratio;
@@ -1001,15 +1002,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_id: ShardId,
         _state_root: StateRoot,
         _next_block_height: BlockHeight,
-        transactions: &mut dyn PoolIterator,
+        pool_iterator: &mut NewPoolIterator,
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         _current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error> {
-        let mut res = vec![];
-        while let Some(iter) = transactions.next() {
-            res.push(iter.next().unwrap());
-        }
-        Ok(res)
+        Ok(pool_iterator.cloned().collect())
     }
 
     fn apply_transactions_with_optional_storage_proof(
