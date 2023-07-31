@@ -45,8 +45,8 @@ use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
 use near_o11y::log_assert;
-use near_pool::InsertTransactionResult;
 use near_pool::types::PoolKey;
+use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::challenge::{Challenge, ChallengeBody};
@@ -905,12 +905,21 @@ impl Client {
         chunk_extra: &ChunkExtra,
         prev_block_header: &BlockHeader,
     ) -> Result<Vec<SignedTransaction>, Error> {
-        let Self { chain, sharded_tx_pool, epoch_manager, runtime_adapter: runtime, key_lower_bound, .. } = self;
+        let Self {
+            chain,
+            sharded_tx_pool,
+            epoch_manager,
+            runtime_adapter: runtime,
+            key_lower_bound,
+            ..
+        } = self;
 
         let next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let transactions = if let Some(mut iter) = sharded_tx_pool.get_pool_iterator(shard_id, key_lower_bound.clone()) {
+        let transactions = if let Some(mut iter) =
+            sharded_tx_pool.get_pool_iterator(shard_id, key_lower_bound.clone())
+        {
             let transaction_validity_period = chain.transaction_validity_period;
             let result = runtime.prepare_transactions(
                 prev_block_header.gas_price(),
