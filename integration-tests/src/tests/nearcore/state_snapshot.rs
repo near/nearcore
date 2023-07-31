@@ -242,9 +242,7 @@ fn test_make_state_snapshot() {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         blocks.push(block.clone());
         env.process_block(0, block.clone(), Provenance::PRODUCED);
-        assert!(
-            verify_make_snapshot(&state_snapshot_test_env, *block.hash(), &block).is_ok()
-        );
+        assert!(verify_make_snapshot(&state_snapshot_test_env, *block.hash(), &block).is_ok());
     }
 
     // check that if the entry in DBCol::STATE_SNAPSHOT_KEY was missing while snapshot file exists, an overwrite of snapshot can succeed
