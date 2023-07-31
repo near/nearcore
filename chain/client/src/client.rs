@@ -917,11 +917,11 @@ impl Client {
         let next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let transactions = if let Some(mut iter) =
+        let (included, invalid) = if let Some(mut iter) =
             sharded_tx_pool.get_pool_iterator(shard_id, key_lower_bound.clone())
         {
             let transaction_validity_period = chain.transaction_validity_period;
-            let result = runtime.prepare_transactions(
+            let (included, invalid) = runtime.prepare_transactions(
                 prev_block_header.gas_price(),
                 chunk_extra.gas_limit(),
                 &next_epoch_id,
@@ -945,19 +945,17 @@ impl Client {
                 protocol_version,
             )?;
             self.key_lower_bound = iter.key_lower_bound();
-            result
+            (included, invalid)
         } else {
-            vec![]
+            (vec![], vec![])
         };
+
+        self.sharded_tx_pool.remove_transactions(shard_id, &invalid);
+
         // TODO(akashin): Remove pruned transactions.
-        // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
-        // included into the block.
-        // let reintroduced_count = sharded_tx_pool.reintroduce_transactions(shard_id, &transactions);
-        // if reintroduced_count < transactions.len() {
-        //     debug!(target: "client", "Reintroduced {} transactions out of {}",
-        //            reintroduced_count, transactions.len());
-        // }
-        Ok(transactions)
+        // NB: We don't remove valid transactions back to the pool. They will be removed when the
+        // chunk is included into the block.
+        Ok(included)
     }
 
     pub fn send_challenges(&mut self, challenges: Vec<ChallengeBody>) {

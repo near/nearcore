@@ -1004,8 +1004,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         pool_iterator: &mut NewPoolIterator,
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         _current_protocol_version: ProtocolVersion,
-    ) -> Result<Vec<SignedTransaction>, Error> {
-        Ok(pool_iterator.cloned().collect())
+    ) -> Result<(Vec<SignedTransaction>, Vec<SignedTransaction>), Error> {
+        Ok((pool_iterator.cloned().collect(), vec![]))
     }
 
     fn apply_transactions_with_optional_storage_proof(

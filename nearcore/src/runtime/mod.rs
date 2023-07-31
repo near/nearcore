@@ -676,7 +676,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         pool_iterator: &mut NewPoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
-    ) -> Result<Vec<SignedTransaction>, Error> {
+    ) -> Result<(Vec<SignedTransaction>, Vec<SignedTransaction>), Error> {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let mut state_update = self.tries.new_trie_update(shard_uid, state_root);
 
@@ -685,7 +685,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut total_size = 0u64;
         // TODO: Update gas limit for transactions
         let transactions_gas_limit = gas_limit / 2;
-        let mut transactions = vec![];
+        let mut included_transactions = vec![];
+        let mut invalid_transactions = vec![];
         let mut num_checked_transactions = 0;
 
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
@@ -727,7 +728,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         while total_gas_burnt < transactions_gas_limit
             && total_size < size_limit
-            && transactions.len() < new_receipt_count_limit
+            && included_transactions.len() < new_receipt_count_limit
         {
             while let Some(tx) = pool_iterator.next() {
                 num_checked_transactions += 1;
@@ -747,10 +748,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                             state_update.commit(StateChangeCause::NotWritableToDisk);
                             total_gas_burnt += verification_result.gas_burnt;
                             total_size += tx.get_size();
-                            transactions.push(tx.clone());
+                            included_transactions.push(tx.clone());
                         }
                         Err(RuntimeError::InvalidTxError(_err)) => {
                             state_update.rollback();
+                            invalid_transactions.push(tx.clone());
                         }
                         Err(RuntimeError::StorageError(err)) => {
                             return Err(Error::StorageError(err))
@@ -758,15 +760,15 @@ impl RuntimeAdapter for NightshadeRuntime {
                         Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
                     }
                 } else {
-                    // TODO(akashin): Remove the invalid transaction.
+                    invalid_transactions.push(tx.clone());
                 }
             }
         }
-        debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", transactions.len(), num_checked_transactions);
+        debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", included_transactions.len(), num_checked_transactions);
         metrics::PREPARE_TX_SIZE
             .with_label_values(&[&shard_id.to_string()])
             .observe(total_size as f64);
-        Ok(transactions)
+        Ok((included_transactions, invalid_transactions))
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {

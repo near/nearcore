@@ -300,7 +300,7 @@ pub trait RuntimeAdapter: Send + Sync {
         pool_iterator: &mut NewPoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
-    ) -> Result<Vec<SignedTransaction>, Error>;
+    ) -> Result<(Vec<SignedTransaction>, Vec<SignedTransaction>), Error>;
 
     /// Returns true if the shard layout will change in the next epoch
     /// Current epoch is the epoch of the block after `parent_hash`
