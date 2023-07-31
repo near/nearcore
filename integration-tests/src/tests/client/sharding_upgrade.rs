@@ -1,5 +1,5 @@
 use borsh::BorshSerialize;
-use near_client::ProcessTxResponse;
+use near_client::{Client, ProcessTxResponse};
 
 use crate::tests::client::process_blocks::set_block_protocol_version;
 use near_chain::near_chain_primitives::Error;
@@ -451,6 +451,67 @@ impl TestShardUpgradeEnv {
             }
         }
     }
+
+    fn check_outgoing_receipts_reassigned(&self) {
+        let env = &self.env;
+
+        // last height before resharding took place
+        for last_height_included in vec![10, 20] {
+            for client in &env.clients {
+                let num_shards = match last_height_included {
+                    10 => 4,
+                    20 => 5,
+                    _ => {
+                        panic!("unexpected height provided for checking outgoing receipts");
+                    }
+                };
+                for shard_id in 0..num_shards {
+                    check_outgoing_receipts_reassigned_impl(client, shard_id, last_height_included);
+                }
+            }
+        }
+    }
+}
+
+fn check_outgoing_receipts_reassigned_impl(
+    client: &Client,
+    shard_id: u64,
+    last_height_included: u64,
+) {
+    let chain = &client.chain;
+    let prev_block = chain.get_block_by_height(last_height_included).unwrap();
+    let prev_block_hash = *prev_block.hash();
+
+    let outgoing_receipts = chain
+        .get_outgoing_receipts_for_shard(prev_block_hash, shard_id, last_height_included)
+        .unwrap();
+    let shard_layout =
+        client.epoch_manager.get_shard_layout_from_prev_block(&prev_block_hash).unwrap();
+
+    match last_height_included {
+        10 => {
+            // In V0->V1 resharding the outgoing receipts should be reassigned
+            // to the receipt receiver's shard id.
+            for receipt in outgoing_receipts {
+                let receiver = receipt.receiver_id;
+                let receiver_shard_id = account_id_to_shard_id(&receiver, &shard_layout);
+                assert_eq!(receiver_shard_id, shard_id);
+            }
+        }
+        20 => {
+            // In V1->V2 resharding the outgoing receipts should be reassigned
+            // to the lowest index child of the parent shard.
+            // We can't directly check that here but we can check that the
+            // non-lowest-index shards are not assigned any receipts.
+            // We check elsewhere that no receipts are lost so this should be sufficient.
+            if shard_id == 4 {
+                assert!(outgoing_receipts.is_empty());
+            }
+        }
+        _ => {
+            panic!("unexpected height provided for checking outgoing receipts");
+        }
+    }
 }
 
 /// Checks that account exists in the state after `block` is processed
@@ -591,8 +652,8 @@ fn test_shard_layout_upgrade_simple() {
 
     test_env.check_tx_outcomes(false, skip_heights);
     test_env.check_accounts(accounts_to_check.iter().collect());
-
     test_env.check_split_states_artifacts();
+    test_env.check_outgoing_receipts_reassigned();
 }
 
 fn generate_create_accounts_txs(

@@ -408,6 +408,7 @@ impl TestBlockBuilder {
     }
 
     pub fn build(self) -> Block {
+        tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
         Block::produce(
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,

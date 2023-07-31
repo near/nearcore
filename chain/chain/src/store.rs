@@ -40,8 +40,7 @@ use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
     to_timestamp,
 };
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::LightClientBlockView;
 use near_store::{
     DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate, WrappedTrieChanges, CHUNK_TAIL_KEY,
@@ -504,10 +503,12 @@ impl ChainStore {
                 .unwrap_or_default();
 
             if shard_layout != receipts_shard_layout {
-                // the shard layout has changed so we need to reassign the
-                // outgoing receipts
+                // the shard layout has changed so we need to reassign the outgoing receipts
+                let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+                let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
                 Self::reassign_outgoing_receipts_for_resharding(
                     &mut receipts,
+                    protocol_version,
                     &shard_layout,
                     shard_id,
                     receipts_shard_id,
@@ -520,18 +521,20 @@ impl ChainStore {
 
     fn reassign_outgoing_receipts_for_resharding(
         receipts: &mut Vec<Receipt>,
+        protocol_version: ProtocolVersion,
         shard_layout: &ShardLayout,
         shard_id: u64,
-        _receipts_shard_id: u64,
+        receipts_shard_id: u64,
     ) -> Result<(), Error> {
+        tracing::trace!(target: "resharding", ?protocol_version, shard_id, receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
         // If simple nightshade v2 is enabled and stable use that.
         #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
-        if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        if checked_feature!("stable", SimpleNightshadeV2, protocol_version) {
             Self::reassign_outgoing_receipts_for_resharding_v2(
                 receipts,
                 shard_layout,
                 shard_id,
-                _receipts_shard_id,
+                receipts_shard_id,
             )?;
             return Ok(());
         }
@@ -564,16 +567,16 @@ impl ChainStore {
         receipts: &mut Vec<Receipt>,
         shard_layout: &ShardLayout,
         shard_id: ShardId,
-        parent_shard_id: ShardId,
+        receipts_shard_id: ShardId,
     ) -> Result<(), Error> {
-        let split_shard_ids = shard_layout.get_split_shard_ids(parent_shard_id);
+        let split_shard_ids = shard_layout.get_split_shard_ids(receipts_shard_id);
         let split_shard_ids =
-            split_shard_ids.ok_or(Error::InvalidSplitShardsIds(shard_id, parent_shard_id))?;
+            split_shard_ids.ok_or(Error::InvalidSplitShardsIds(shard_id, receipts_shard_id))?;
 
         // The target shard id is the split shard with the lowest shard id.
         let target_shard_id = split_shard_ids.iter().min();
         let target_shard_id =
-            *target_shard_id.ok_or(Error::InvalidSplitShardsIds(shard_id, parent_shard_id))?;
+            *target_shard_id.ok_or(Error::InvalidSplitShardsIds(shard_id, receipts_shard_id))?;
 
         if shard_id == target_shard_id {
             // This shard_id is the lowest index child, it gets all the receipts.
