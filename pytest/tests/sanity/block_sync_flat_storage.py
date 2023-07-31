@@ -44,6 +44,7 @@ result = boot_node.send_tx_and_wait(deploy_contract_tx, 10)
 assert 'result' in result and 'error' not in result, (
     'Expected "result" and no "error" in response, got: {}'.format(result))
 
+
 def random_workload_until(target, nonce, keys):
     while True:
         nonce += 1
@@ -59,8 +60,10 @@ def random_workload_until(target, nonce, keys):
             call_function(boot_node, 'write', key, nonce)
     return (nonce, keys)
 
+
 def random_u64():
     return bytes(random.randint(0, 255) for _ in range(8))
+
 
 def call_function(node, op, key, nonce):
     last_block_hash = node.get_latest_block().hash_bytes
