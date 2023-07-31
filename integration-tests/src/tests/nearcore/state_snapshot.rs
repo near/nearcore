@@ -122,7 +122,7 @@ fn test_maybe_open_state_snapshot_garbage_snapshot() {
     let mut file = File::create(snapshot_path).unwrap();
     // write some garbage
     let data: Vec<u8> = vec![1, 2, 3, 4];
-    file.write(&data).unwrap();
+    file.write_all(&data).unwrap();
 
     let result =
         test_env.shard_tries.maybe_open_state_snapshot(|_| Ok(vec![ShardUId::single_shard()]));
@@ -153,7 +153,7 @@ fn verify_make_snapshot(
         .maybe_open_state_snapshot(|_| Ok(vec![ShardUId::single_shard()]))?;
     // check that the entry of STATE_SNAPSHOT_KEY is the latest block hash
     let db_state_snapshot_hash = state_snapshot_test_env.shard_tries.get_state_snapshot_hash()?;
-    if db_state_snapshot_hash != block_hash.clone() {
+    if db_state_snapshot_hash != block_hash {
         return Err(anyhow::Error::msg(
             "the entry of STATE_SNAPSHOT_KEY does not equal to the prev block hash",
         ));
@@ -213,7 +213,7 @@ fn test_make_state_snapshot() {
     let mut env = TestEnv::builder(ChainGenesis::test())
         .clients_count(env_objects.len())
         .stores(stores.clone())
-        .epoch_managers(epoch_managers.clone())
+        .epoch_managers(epoch_managers)
         .runtimes(runtimes.clone())
         .use_state_snapshots()
         .build();
@@ -243,7 +243,7 @@ fn test_make_state_snapshot() {
         blocks.push(block.clone());
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         assert!(
-            verify_make_snapshot(&state_snapshot_test_env, block.hash().clone(), &block).is_ok()
+            verify_make_snapshot(&state_snapshot_test_env, *block.hash(), &block).is_ok()
         );
     }
 
