@@ -4,6 +4,7 @@ use clap::Parser;
 use near_chain::flat_storage_creator::FlatStorageShardCreator;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_store::flat::{
     inline_flat_state_values, store_helper, FlatStateDelta, FlatStateDeltaMetadata,
@@ -142,9 +143,18 @@ impl FlatStorageCommand {
         (node_storage, epoch_manager, hot_runtime, chain_store, hot_store)
     }
 
-    pub fn run(&self, home_dir: &PathBuf) -> anyhow::Result<()> {
-        let near_config = load_config(home_dir, near_chain_configs::GenesisValidationMode::Full)?;
-        let opener = NodeStorage::opener(home_dir, false, &near_config.config.store, None);
+    pub fn run(
+        &self,
+        home_dir: &PathBuf,
+        genesis_validation: GenesisValidationMode,
+    ) -> anyhow::Result<()> {
+        let near_config = load_config(home_dir, genesis_validation)?;
+        let opener = NodeStorage::opener(
+            home_dir,
+            near_config.config.archive,
+            &near_config.config.store,
+            None,
+        );
 
         match &self.subcmd {
             SubCommand::View => {
