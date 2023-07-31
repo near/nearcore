@@ -80,20 +80,18 @@ impl ReceiptManager {
     /// * `receiver_id` - account id of the receiver of the receipt created
     pub(super) fn create_receipt(
         &mut self,
-        ext: &mut dyn External,
+        input_data_ids: Vec<CryptoHash>,
         receipt_indices: Vec<ReceiptIndex>,
         receiver_id: AccountId,
     ) -> Result<ReceiptIndex, VMLogicError> {
-        let mut input_data_ids = vec![];
-        for receipt_index in receipt_indices {
-            let data_id = ext.generate_data_id();
+        assert_eq!(input_data_ids.len(), receipt_indices.len());
+        for (data_id, receipt_index) in input_data_ids.iter().zip(receipt_indices.into_iter()) {
             self.action_receipts
                 .get_mut(receipt_index as usize)
                 .ok_or_else(|| HostError::InvalidReceiptIndex { receipt_index })?
                 .1
                 .output_data_receivers
-                .push(DataReceiver { data_id, receiver_id: receiver_id.clone() });
-            input_data_ids.push(data_id);
+                .push(DataReceiver { data_id: *data_id, receiver_id: receiver_id.clone() });
         }
 
         let new_receipt =

@@ -261,23 +261,6 @@ impl External for MockedExternal {
         Ok(())
     }
 
-    fn unused_gas_recipients(&mut self, callback: &mut dyn FnMut(&mut Gas, &mut GasWeight, bool)) {
-        let mut iter = self
-            .action_log
-            .iter_mut()
-            .filter_map(|action| {
-                let MockAction::FunctionCallWeight {
-                    prepaid_gas, gas_weight, ..
-                } = action else { return None };
-                Some((prepaid_gas, gas_weight))
-            })
-            .peekable();
-        loop {
-            let Some((gas, weight)) = iter.next() else { break };
-            callback(gas, weight, iter.peek().is_none());
-        }
-    }
-
     fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {
         match &self.action_log[receipt_index as usize] {
             MockAction::CreateReceipt { receiver_id, .. } => receiver_id,

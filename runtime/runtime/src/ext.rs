@@ -17,7 +17,7 @@ use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
-    receipt_manager: Option<&'a mut ReceiptManager>,
+    pub(crate) receipt_manager: &'a mut ReceiptManager,
     account_id: &'a AccountId,
     action_hash: &'a CryptoHash,
     data_count: u64,
@@ -70,7 +70,7 @@ impl<'a> RuntimeExt<'a> {
     ) -> Self {
         RuntimeExt {
             trie_update,
-            receipt_manager: Some(receipt_manager),
+            receipt_manager,
             account_id,
             action_hash,
             data_count: 0,
@@ -102,31 +102,6 @@ impl<'a> RuntimeExt<'a> {
     #[inline]
     pub fn protocol_version(&self) -> ProtocolVersion {
         self.current_protocol_version
-    }
-
-    /// Provide concurrent mutable access to both the `Self` and the `ReceiptManager` contained
-    /// therein.
-    ///
-    /// During the duration of the closure the `Self::receipt_manager` field is not available (two
-    /// separate mutable references to both `Self` and `ReceiptManager` are provided), which means
-    /// that nested calls to this function are a programming error and will cause a panic.
-    ///
-    /// In general it would be prudent to not deal with `Self` within the callback at all, if you
-    /// can avoid it.
-    pub fn with_receipt_manager<R>(
-        &mut self,
-        cb: impl FnOnce(&mut Self, &mut ReceiptManager) -> R,
-    ) -> R {
-        /// Reset the `Self::receipt_manager` back when dropped (either as a result of unwinding,
-        /// or a return.)
-        struct Guard<'rm, 'rext>(Option<&'rm mut ReceiptManager>, &'rext mut RuntimeExt<'rm>);
-        impl<'rm, 'rext> Drop for Guard<'rm, 'rext> {
-            fn drop(&mut self) {
-                std::mem::swap(&mut self.1.receipt_manager, &mut self.0);
-            }
-        }
-        let mut guard = Guard(self.receipt_manager.take(), self);
-        cb(guard.1, guard.0.as_mut().expect("do not nest with_receipt_manager!"))
     }
 }
 
@@ -233,16 +208,17 @@ impl<'a> External for RuntimeExt<'a> {
         receipt_indices: Vec<ReceiptIndex>,
         receiver_id: AccountId,
     ) -> Result<ReceiptIndex, VMLogicError> {
-        self.with_receipt_manager(move |this, rm| {
-            rm.create_receipt(this, receipt_indices, receiver_id)
-        })
+        let data_ids = std::iter::from_fn(|| Some(self.generate_data_id()))
+            .take(receipt_indices.len())
+            .collect();
+        self.receipt_manager.create_receipt(data_ids, receipt_indices, receiver_id)
     }
 
     fn append_action_create_account(
         &mut self,
         receipt_index: ReceiptIndex,
     ) -> Result<(), VMLogicError> {
-        self.with_receipt_manager(move |_, rm| rm.append_action_create_account(receipt_index))
+        self.receipt_manager.append_action_create_account(receipt_index)
     }
 
     fn append_action_deploy_contract(
@@ -250,9 +226,7 @@ impl<'a> External for RuntimeExt<'a> {
         receipt_index: ReceiptIndex,
         code: Vec<u8>,
     ) -> Result<(), VMLogicError> {
-        self.with_receipt_manager(move |_, rm| {
-            rm.append_action_deploy_contract(receipt_index, code)
-        })
+        self.receipt_manager.append_action_deploy_contract(receipt_index, code)
     }
 
     fn append_action_function_call_weight(
@@ -264,16 +238,14 @@ impl<'a> External for RuntimeExt<'a> {
         prepaid_gas: Gas,
         gas_weight: near_primitives::types::GasWeight,
     ) -> Result<(), VMLogicError> {
-        self.with_receipt_manager(move |_, rm| {
-            rm.append_action_function_call_weight(
-                receipt_index,
-                method_name,
-                args,
-                attached_deposit,
-                prepaid_gas,
-                gas_weight,
-            )
-        })
+        self.receipt_manager.append_action_function_call_weight(
+            receipt_index,
+            method_name,
+            args,
+            attached_deposit,
+            prepaid_gas,
+            gas_weight,
+        )
     }
 
     fn append_action_transfer(
@@ -281,7 +253,7 @@ impl<'a> External for RuntimeExt<'a> {
         receipt_index: ReceiptIndex,
         deposit: Balance,
     ) -> Result<(), VMLogicError> {
-        self.with_receipt_manager(move |_, rm| rm.append_action_transfer(receipt_index, deposit))
+        self.receipt_manager.append_action_transfer(receipt_index, deposit)
     }
 
     fn append_action_stake(
@@ -290,9 +262,7 @@ impl<'a> External for RuntimeExt<'a> {
         stake: Balance,
         public_key: near_crypto::PublicKey,
     ) {
-        self.with_receipt_manager(move |_, rm| {
-            rm.append_action_stake(receipt_index, stake, public_key)
-        })
+        self.receipt_manager.append_action_stake(receipt_index, stake, public_key)
     }
 
     fn append_action_add_key_with_full_access(
@@ -301,9 +271,11 @@ impl<'a> External for RuntimeExt<'a> {
         public_key: near_crypto::PublicKey,
         nonce: near_primitives::types::Nonce,
     ) {
-        self.with_receipt_manager(move |_, rm| {
-            rm.append_action_add_key_with_full_access(receipt_index, public_key, nonce)
-        })
+        self.receipt_manager.append_action_add_key_with_full_access(
+            receipt_index,
+            public_key,
+            nonce,
+        )
     }
 
     fn append_action_add_key_with_function_call(
@@ -315,16 +287,14 @@ impl<'a> External for RuntimeExt<'a> {
         receiver_id: AccountId,
         method_names: Vec<Vec<u8>>,
     ) -> Result<(), VMLogicError> {
-        self.with_receipt_manager(move |_, rm| {
-            rm.append_action_add_key_with_function_call(
-                receipt_index,
-                public_key,
-                nonce,
-                allowance,
-                receiver_id,
-                method_names,
-            )
-        })
+        self.receipt_manager.append_action_add_key_with_function_call(
+            receipt_index,
+            public_key,
+            nonce,
+            allowance,
+            receiver_id,
+            method_names,
+        )
     }
 
     fn append_action_delete_key(
@@ -332,9 +302,7 @@ impl<'a> External for RuntimeExt<'a> {
         receipt_index: ReceiptIndex,
         public_key: near_crypto::PublicKey,
     ) {
-        self.with_receipt_manager(move |_, rm| {
-            rm.append_action_delete_key(receipt_index, public_key)
-        })
+        self.receipt_manager.append_action_delete_key(receipt_index, public_key)
     }
 
     fn append_action_delete_account(
@@ -342,36 +310,10 @@ impl<'a> External for RuntimeExt<'a> {
         receipt_index: ReceiptIndex,
         beneficiary_id: AccountId,
     ) -> Result<(), VMLogicError> {
-        self.with_receipt_manager(move |_, rm| {
-            rm.append_action_delete_account(receipt_index, beneficiary_id)
-        })
+        self.receipt_manager.append_action_delete_account(receipt_index, beneficiary_id)
     }
 
     fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {
-        self.receipt_manager
-            .as_ref()
-            .unwrap_or_else(|| panic!("do not nest with_receipt_manager calls!"))
-            .get_receipt_receiver(receipt_index)
-    }
-
-    fn unused_gas_recipients(&mut self, callback: &mut dyn FnMut(&mut Gas, &mut GasWeight, bool)) {
-        let Some(ReceiptManager { gas_weights, action_receipts, .. }) = self.receipt_manager
-            else { panic!("do not nest with_receipt_manager calls!") };
-        let mut weights_iter = gas_weights.iter_mut().peekable();
-        loop {
-            let Some((index, weight)) = weights_iter.next() else { break };
-            let FunctionCallActionIndex { receipt_index, action_index } = *index;
-            let Some(Action::FunctionCall(action)) =
-                action_receipts
-                .get_mut(receipt_index)
-                .and_then(|(_, receipt)| receipt.actions.get_mut(action_index))
-            else {
-                panic!(
-                    "Invalid function call index (promise_index={receipt_index}, action_index={action_index})",
-                );
-            };
-            let FunctionCallAction { gas, .. } = action;
-            callback(gas, weight, weights_iter.peek().is_none())
-        }
+        self.receipt_manager.get_receipt_receiver(receipt_index)
     }
 }

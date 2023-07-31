@@ -2767,30 +2767,7 @@ impl<'a> VMLogic<'a> {
     /// If `FunctionCallWeight` protocol feature (127) is enabled, unused gas will be
     /// distributed to functions that specify a gas weight. If there are no functions with
     /// a gas weight, the outcome will contain unused gas as usual.
-    pub fn compute_outcome_and_distribute_gas(mut self) -> VMOutcome {
-        'distribute_gas: {
-            if self.context.is_view() {
-                break 'distribute_gas;
-            }
-            let mut gas_weight_sum: u128 = 0;
-            self.ext
-                .unused_gas_recipients(&mut |_, weight, _| gas_weight_sum += u128::from(weight.0));
-            let unused_gas = self.gas_counter.unused_gas();
-            if gas_weight_sum == 0 || unused_gas == 0 {
-                break 'distribute_gas;
-            }
-            let mut distributed = 0;
-            self.ext.unused_gas_recipients(&mut |gas, weight, is_last| {
-                let assign = (unused_gas as u128 * weight.0 as u128 / gas_weight_sum) as u64;
-                *gas += assign;
-                distributed += assign;
-                if is_last {
-                    *gas += unused_gas - distributed;
-                }
-            });
-            self.gas_counter.prepay_gas(unused_gas).unwrap();
-        }
-
+    pub fn compute_outcome(self) -> VMOutcome {
         let burnt_gas = self.gas_counter.burnt_gas();
         let used_gas = self.gas_counter.used_gas();
 
@@ -2932,7 +2909,7 @@ impl VMOutcome {
     /// Consumes the `VMLogic` object and computes the final outcome with the
     /// given error that stopped execution from finishing successfully.
     pub fn abort(logic: VMLogic, error: FunctionCallError) -> VMOutcome {
-        let mut outcome = logic.compute_outcome_and_distribute_gas();
+        let mut outcome = logic.compute_outcome();
         outcome.aborted = Some(error);
         outcome
     }
@@ -2940,7 +2917,7 @@ impl VMOutcome {
     /// Consumes the `VMLogic` object and computes the final outcome for a
     /// successful execution.
     pub fn ok(logic: VMLogic) -> VMOutcome {
-        logic.compute_outcome_and_distribute_gas()
+        logic.compute_outcome()
     }
 
     /// Creates an outcome with a no-op outcome.

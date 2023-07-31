@@ -21,7 +21,7 @@ fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     promise_batch_action_function_call(&mut logic, index, 0, gas_limit * 2)
         .expect_err("should fail with gas limit");
-    let outcome = logic.compute_outcome_and_distribute_gas();
+    let outcome = logic.compute_outcome();
 
     // Just avoid hard-coding super-precise amount of gas burnt.
     assert!(outcome.burnt_gas < gas_limit / 2);
@@ -42,7 +42,7 @@ fn test_limit_wasm_gas_after_attaching_gas() {
     promise_batch_action_function_call(&mut logic, index, 0, gas_limit / 2)
         .expect("should add action to receipt");
     logic.gas_opcodes((op_limit / 2) as u32).expect_err("should fail with gas limit");
-    let outcome = logic.compute_outcome_and_distribute_gas();
+    let outcome = logic.compute_outcome();
 
     assert_eq!(outcome.used_gas, gas_limit);
     assert!(gas_limit / 2 < outcome.burnt_gas);
@@ -60,7 +60,7 @@ fn test_cant_burn_more_than_max_gas_burnt_gas() {
     let mut logic = logic_builder.build();
 
     logic.gas_opcodes(op_limit * 3).expect_err("should fail with gas limit");
-    let outcome = logic.compute_outcome_and_distribute_gas();
+    let outcome = logic.compute_outcome();
 
     assert_eq!(outcome.burnt_gas, gas_limit);
     assert_eq!(outcome.used_gas, gas_limit * 2);
@@ -77,7 +77,7 @@ fn test_cant_burn_more_than_prepaid_gas() {
     let mut logic = logic_builder.build();
 
     logic.gas_opcodes(op_limit * 3).expect_err("should fail with gas limit");
-    let outcome = logic.compute_outcome_and_distribute_gas();
+    let outcome = logic.compute_outcome();
 
     assert_eq!(outcome.burnt_gas, gas_limit);
     assert_eq!(outcome.used_gas, gas_limit);
@@ -95,7 +95,7 @@ fn test_hit_max_gas_burnt_limit() {
 
     promise_create(&mut logic, b"rick.test", 0, gas_limit / 2).expect("should create a promise");
     logic.gas_opcodes(op_limit * 2).expect_err("should fail with gas limit");
-    let outcome = logic.compute_outcome_and_distribute_gas();
+    let outcome = logic.compute_outcome();
 
     assert_eq!(outcome.burnt_gas, gas_limit);
     assert!(outcome.used_gas > gas_limit * 2);
@@ -113,7 +113,7 @@ fn test_hit_prepaid_gas_limit() {
 
     promise_create(&mut logic, b"rick.test", 0, gas_limit / 2).expect("should create a promise");
     logic.gas_opcodes(op_limit * 2).expect_err("should fail with gas limit");
-    let outcome = logic.compute_outcome_and_distribute_gas();
+    let outcome = logic.compute_outcome();
 
     assert_eq!(outcome.burnt_gas, gas_limit);
     assert_eq!(outcome.used_gas, gas_limit);
@@ -134,7 +134,7 @@ fn function_call_weight_verify(function_calls: &[(Gas, u64, Gas)], after_distrib
             .expect("batch action function call should succeed");
     }
     let (outcome, accessor): (_, fn(&(Gas, u64, Gas)) -> Gas) = if after_distribute {
-        (Some(logic.compute_outcome_and_distribute_gas()), |(_, _, expected)| *expected)
+        (Some(logic.compute_outcome()), |(_, _, expected)| *expected)
     } else {
         (None, |(static_gas, _, _)| *static_gas)
     };
@@ -219,7 +219,7 @@ fn function_call_no_weight_refund() {
     promise_batch_action_function_call_weight(&mut logic, index, 0, 1000, 0)
         .expect("batch action function call should succeed");
 
-    let outcome = logic.compute_outcome_and_distribute_gas();
+    let outcome = logic.compute_outcome();
 
     // Verify that unused gas was not allocated to function call
     assert!(outcome.used_gas < gas_limit);

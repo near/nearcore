@@ -439,30 +439,6 @@ pub trait External {
         beneficiary_id: AccountId,
     ) -> Result<(), VMLogicError>;
 
-    /// Distribute the gas among the scheduled function calls that specify a gas weight.
-    ///
-    /// Distributes the gas passed in by splitting it among weights defined in `gas_weights`.
-    /// This will sum all weights, retrieve the gas per weight, then update each function
-    /// to add the respective amount of gas. Once all gas is distributed, the remainder of
-    /// the gas not assigned due to precision loss is added to the last function with a weight.
-    ///
-    /// # Arguments
-    ///
-    /// * `gas` - amount of unused gas to distribute
-    ///
-    /// # Returns
-    ///
-    /// Function returns a [GasDistribution] that indicates how the gas was distributed.
-    // fn distribute_unused_gas(&mut self, unused_gas: Gas) -> GasDistribution;
-
-    /// Call a callback function for each of the unused gas recipients.
-    ///
-    /// This function returns references to the weights and the current prepaid gas for the actions
-    /// that can have unused gas distributed to them (according to the weights returned.)
-    ///
-    /// The last callback argument indicates that this element is the last one.
-    fn unused_gas_recipients(&mut self, callback: &mut dyn FnMut(&mut Gas, &mut GasWeight, bool));
-
     /// # Panic
     ///
     /// Panics if `ReceiptIndex` is invalid.
