@@ -224,12 +224,13 @@ pub struct ClientConfig {
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Garbage collection configuration.
     pub gc: GCConfig,
-    /// Accounts that this client tracks
+    /// Accounts that this client tracks.
     pub tracked_accounts: Vec<AccountId>,
-    /// Shards that this client tracks
+    /// Shards that this client tracks.
     pub tracked_shards: Vec<ShardId>,
     /// Rotate between these sets of tracked shards.
     /// Used to simulate the behavior of chunk only producers without staking tokens.
+    /// This field is only used if `tracked_shards` is empty.
     pub tracked_shard_schedule: Vec<Vec<ShardId>>,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
