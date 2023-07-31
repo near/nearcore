@@ -277,7 +277,7 @@ GET State "'stateKey10'" size=500
     }
 
     #[test]
-    fn test_chunk_cache_stats() {
+    fn test_accounting_cache_stats() {
         check_replay_mode(ReplayMode::ChunkCacheStats);
     }
 
