@@ -385,9 +385,21 @@ pub(crate) fn action_create_account(
     current_protocol_version: ProtocolVersion,
 ) {
     if account_id.is_top_level() {
-        if account_id.len() < account_creation_config.min_allowed_top_level_account_length as usize
-            && predecessor_id != &account_creation_config.registrar_account_id
-        {
+        let old_condition_for_error = account_id.len()
+            < account_creation_config.min_allowed_top_level_account_length as usize
+            && predecessor_id != &account_creation_config.registrar_account_id;
+        let new_condition_for_error = !account_id.is_implicit()
+            && predecessor_id != &account_creation_config.registrar_account_id;
+        let is_error = if checked_feature!(
+            "protocol_feature_restrict_tla",
+            RestrictTLA,
+            current_protocol_version
+        ) {
+            new_condition_for_error
+        } else {
+            old_condition_for_error
+        };
+        if is_error {
             // A short top-level account ID can only be created registrar account.
             result.result = Err(ActionErrorKind::CreateAccountOnlyByRegistrar {
                 account_id: account_id.clone(),
@@ -396,25 +408,6 @@ pub(crate) fn action_create_account(
             }
             .into());
             return;
-        } else if checked_feature!(
-            "protocol_feature_ethereum_address",
-            EthereumAddress,
-            current_protocol_version
-        ) {
-            if account_id.is_ethereum_address()
-                && predecessor_id != &account_creation_config.registrar_account_id
-            {
-                // An Ethereum address can only be created by the registrar account
-                result.result = Err(ActionErrorKind::CreateAccountOnlyByRegistrar {
-                    account_id: account_id.clone(),
-                    registrar_account_id: account_creation_config.registrar_account_id.clone(),
-                    predecessor_id: predecessor_id.clone(),
-                }
-                .into());
-                return;
-            }
-        } else {
-            // OK: Valid top-level Account ID
         }
     } else if !account_id.is_sub_account_of(predecessor_id) {
         // The sub-account can only be created by its root account. E.g. `alice.near` only by `near`
@@ -1021,6 +1014,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "protocol_feature_restrict_tla"))]
     fn test_create_account_valid_top_level_long() {
         let account_id = "bob_near_long_name".parse().unwrap();
         let predecessor_id = "alice.near".parse().unwrap();
@@ -1063,6 +1057,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "protocol_feature_restrict_tla"))]
     fn test_create_account_invalid_short_top_level() {
         let account_id = "bob".parse::<AccountId>().unwrap();
         let predecessor_id = "near".parse::<AccountId>().unwrap();
@@ -1082,6 +1077,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "protocol_feature_restrict_tla"))]
     fn test_create_account_valid_short_top_level_len_allowed() {
         let account_id = "bob".parse().unwrap();
         let predecessor_id = "near".parse().unwrap();
@@ -1090,25 +1086,34 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_ethereum_address")]
-    fn test_create_ethereum_address() {
-        let account_id: AccountId = "0x32400084c286cf3e17e7b677ea9583e60a000324".parse().unwrap();
-        let predecessor_id: AccountId = "near".parse().unwrap();
-        let action_result = test_action_create_account(account_id.clone(), predecessor_id.clone(), 32);
-        assert_eq!(
-            action_result.result,
-            Err(ActionError {
-                index: None,
-                kind: ActionErrorKind::CreateAccountOnlyByRegistrar {
-                    account_id: account_id.clone(),
-                    registrar_account_id: "registrar".parse().unwrap(),
-                    predecessor_id: predecessor_id,
-                },
-            })
-        );
-        let registrar_account_id: AccountId = "registrar".parse().unwrap();
-        let action_result = test_action_create_account(account_id, registrar_account_id, 32);
-        assert!(action_result.result.is_ok());
+    #[cfg(feature = "protocol_feature_restrict_tla")]
+    fn test_create_top_level_account_restriction() {
+        let account_ids = [
+            "0x32400084c286cf3e17e7b677ea9583e60a000324",
+            "thisisaveryverylongtoplevelaccount",
+            "32400084c286cf3e17e7b677ea9583e60a000324",
+            "000000000000000000000000000000000000000000000000000000000000000"
+        ];
+        for id in &account_ids {
+            let account_id: AccountId = id.parse().unwrap();
+            let predecessor_id: AccountId = "near".parse().unwrap();
+            let action_result =
+                test_action_create_account(account_id.clone(), predecessor_id.clone(), 32);
+            assert_eq!(
+                action_result.result,
+                Err(ActionError {
+                    index: None,
+                    kind: ActionErrorKind::CreateAccountOnlyByRegistrar {
+                        account_id: account_id.clone(),
+                        registrar_account_id: "registrar".parse().unwrap(),
+                        predecessor_id: predecessor_id,
+                    },
+                })
+            );
+            let registrar_account_id: AccountId = "registrar".parse().unwrap();
+            let action_result = test_action_create_account(account_id, registrar_account_id, 32);
+            assert!(action_result.result.is_ok());
+        }
     }
 
     fn test_delete_large_account(

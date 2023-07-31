@@ -31,7 +31,9 @@ near-store.workspace = true
 near-vm-runner.workspace = true
 
 [features]
-protocol_feature_ethereum_address = ["near-primitives/protocol_feature_ethereum_address"]
+protocol_feature_restrict_tla = [
+  "near-primitives/protocol_feature_restrict_tla",
+]
 nightly = [
   "nightly_protocol",
   "near-chain-configs/nightly",
@@ -39,7 +41,7 @@ nightly = [
   "near-primitives/nightly",
   "near-store/nightly",
   "near-vm-runner/nightly",
-  "protocol_feature_ethereum_address",
+  "protocol_feature_restrict_tla",
 ]
 default = []
 nightly_protocol = [
@@ -48,7 +50,7 @@ nightly_protocol = [
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
   "near-vm-runner/nightly_protocol",
-  "protocol_feature_ethereum_address",
+  "protocol_feature_restrict_tla",
 ]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 

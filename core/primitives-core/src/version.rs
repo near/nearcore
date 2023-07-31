@@ -124,8 +124,8 @@ pub enum ProtocolFeature {
     SimpleNightshadeV2,
     #[cfg(feature = "protocol_feature_block_header_v4")]
     BlockHeaderV4,
-    #[cfg(feature = "protocol_feature_ethereum_address")]
-    EthereumAddress,
+    #[cfg(feature = "protocol_feature_restrict_tla")]
+    RestrictTLA,
 }
 
 impl ProtocolFeature {
@@ -180,8 +180,8 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV2 => 135,
             #[cfg(feature = "protocol_feature_block_header_v4")]
             ProtocolFeature::BlockHeaderV4 => 138,
-            #[cfg(feature = "protocol_feature_ethereum_address")]
-            ProtocolFeature::EthereumAddress => 139,
+            #[cfg(feature = "protocol_feature_restrict_tla")]
+            ProtocolFeature::RestrictTLA => 139,
         }
     }
 }

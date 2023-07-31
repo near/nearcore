@@ -346,9 +346,8 @@ fn test_storage_read_write_costs_runtime() {
 }
 
 #[test]
-#[cfg(feature = "protocol_feature_ethereum_address")]
-fn test_create_ethereum_address_runtime() {
+#[cfg(feature = "protocol_feature_restrict_tla")]
+fn test_create_top_level_account_runtime() {
     let node = create_runtime_node();
-    let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
-    test_create_ethereum_address(node);
+    test_create_top_level_account(node);
 }
