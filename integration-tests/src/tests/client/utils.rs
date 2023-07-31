@@ -2,6 +2,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnvBuilder;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_store::genesis::initialize_genesis_state;
 use nearcore::NightshadeRuntime;
 use std::{path::Path, sync::Arc};
 
@@ -22,7 +23,12 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
             .into_iter()
             .zip(epoch_managers)
             .map(|(store, epoch_manager)| {
-                NightshadeRuntime::test(Path::new("../../../.."), store, genesis, epoch_manager)
+                // TODO: It's not ideal to initialize genesis state with the nightshade runtime here for tests
+                // Tests that don't use nightshade runtime have genesis initialized in kv_runtime.
+                // We should instead try to do this while configuring store.
+                let home_dir = Path::new("../../../..");
+                initialize_genesis_state(store.clone(), genesis, Some(home_dir));
+                NightshadeRuntime::test(home_dir, store, &genesis.config, epoch_manager)
                     as Arc<dyn RuntimeAdapter>
             })
             .collect();
@@ -42,10 +48,15 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
             .zip(epoch_managers)
             .zip(runtime_configs)
             .map(|((store, epoch_manager), runtime_config)| {
+                // TODO: It's not ideal to initialize genesis state with the nightshade runtime here for tests
+                // Tests that don't use nightshade runtime have genesis initialized in kv_runtime.
+                // We should instead try to do this while configuring store.
+                let home_dir = Path::new("../../../..");
+                initialize_genesis_state(store.clone(), genesis, Some(home_dir));
                 NightshadeRuntime::test_with_runtime_config_store(
-                    Path::new("../../../.."),
+                    home_dir,
                     store,
-                    genesis,
+                    &genesis.config,
                     epoch_manager,
                     runtime_config,
                 ) as Arc<dyn RuntimeAdapter>

@@ -1,5 +1,6 @@
 use actix::AsyncContext;
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_store::flat::FlatStorageManager;
@@ -29,6 +30,8 @@ struct MakeSnapshotRequest {
     prev_block_hash: CryptoHash,
     /// Shards that need to be present in the snapshot.
     shard_uids: Vec<ShardUId>,
+    /// Last block of the prev epoch.
+    block: Block,
     /// Whether to perform compaction.
     compaction_enabled: bool,
 }
@@ -47,9 +50,9 @@ impl actix::Handler<WithSpanContext<MakeSnapshotRequest>> for StateSnapshotActor
         _ctx: &mut actix::Context<Self>,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
-        let MakeSnapshotRequest { prev_block_hash, shard_uids, compaction_enabled } = msg;
+        let MakeSnapshotRequest { prev_block_hash, shard_uids, block, compaction_enabled } = msg;
 
-        let res = self.tries.make_state_snapshot(&prev_block_hash, &shard_uids);
+        let res = self.tries.make_state_snapshot(&prev_block_hash, &shard_uids, &block);
         if !self.flat_storage_manager.set_flat_state_updates_mode(true) {
             tracing::error!(target: "state_snapshot", ?prev_block_hash, ?shard_uids, "Failed to unlock flat state updates");
         }
@@ -88,7 +91,7 @@ impl actix::Handler<WithSpanContext<CompactSnapshotRequest>> for StateSnapshotAc
 }
 
 pub type MakeSnapshotCallback =
-    Arc<dyn Fn(CryptoHash, Vec<ShardUId>) -> () + Send + Sync + 'static>;
+    Arc<dyn Fn(CryptoHash, Vec<ShardUId>, Block) -> () + Send + Sync + 'static>;
 
 /// Sends a request to make a state snapshot.
 pub fn get_make_snapshot_callback(
@@ -96,11 +99,15 @@ pub fn get_make_snapshot_callback(
     flat_storage_manager: FlatStorageManager,
     compaction_enabled: bool,
 ) -> MakeSnapshotCallback {
-    Arc::new(move |prev_block_hash, shard_uids| {
-        tracing::info!(target: "state_snapshot", ?prev_block_hash, ?shard_uids, "start_snapshot_callback sends `MakeSnapshotCallback` to state_snapshot_addr");
+    Arc::new(move |prev_block_hash, shard_uids, block| {
+        tracing::info!(
+            target: "state_snapshot",
+            ?prev_block_hash,
+            ?shard_uids,
+            "start_snapshot_callback sends `MakeSnapshotCallback` to state_snapshot_addr");
         if flat_storage_manager.set_flat_state_updates_mode(false) {
             state_snapshot_addr.do_send(
-                MakeSnapshotRequest { prev_block_hash, shard_uids, compaction_enabled }
+                MakeSnapshotRequest { prev_block_hash, shard_uids, block, compaction_enabled }
                     .with_span_context(),
             );
         }

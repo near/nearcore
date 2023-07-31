@@ -90,6 +90,42 @@ impl From<mem::RoutingTableUpdate> for net::RoutingTableUpdate {
 
 //////////////////////////////////////////
 
+impl From<net::AdvertisedPeerDistance> for mem::AdvertisedPeerDistance {
+    fn from(x: net::AdvertisedPeerDistance) -> Self {
+        Self { destination: x.destination, distance: x.distance }
+    }
+}
+
+impl From<mem::AdvertisedPeerDistance> for net::AdvertisedPeerDistance {
+    fn from(x: mem::AdvertisedPeerDistance) -> Self {
+        Self { destination: x.destination, distance: x.distance }
+    }
+}
+
+//////////////////////////////////////////
+
+impl From<net::DistanceVector> for mem::DistanceVector {
+    fn from(x: net::DistanceVector) -> Self {
+        Self {
+            root: x.root,
+            distances: x.distances.into_iter().map(|y| y.into()).collect(),
+            edges: x.edges,
+        }
+    }
+}
+
+impl From<mem::DistanceVector> for net::DistanceVector {
+    fn from(x: mem::DistanceVector) -> Self {
+        Self {
+            root: x.root,
+            distances: x.distances.into_iter().map(|y| y.into()).collect(),
+            edges: x.edges,
+        }
+    }
+}
+
+//////////////////////////////////////////
+
 #[derive(thiserror::Error, Debug)]
 pub enum ParsePeerMessageError {
     #[error("HandshakeV2 is deprecated")]
@@ -156,6 +192,7 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
             net::PeerMessage::_RoutingTableSyncV2 => {
                 return Err(Self::Error::DeprecatedRoutingTableSyncV2)
             }
+            net::PeerMessage::DistanceVector(dv) => mem::PeerMessage::DistanceVector(dv.into()),
         })
     }
 }
@@ -177,9 +214,7 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
                 net::PeerMessage::SyncRoutingTable(rtu.into())
             }
             mem::PeerMessage::RequestUpdateNonce(e) => net::PeerMessage::RequestUpdateNonce(e),
-            mem::PeerMessage::DistanceVector(_) => {
-                panic!("DistanceVector is not supported in Borsh encoding")
-            }
+            mem::PeerMessage::DistanceVector(dv) => net::PeerMessage::DistanceVector(dv.into()),
 
             // This message is not supported, we translate it to an empty RoutingTableUpdate.
             mem::PeerMessage::SyncAccountsData(_) => {

@@ -20,7 +20,6 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::warn;
 
 // like ChainStoreUpdate::get_incoming_receipts_for_shard(), but for the case when we don't
 // know of a block containing the target chunk
@@ -48,12 +47,15 @@ fn get_incoming_receipts(
     chunks.sort_by_key(|chunk| chunk.shard_id());
 
     for chunk in chunks {
-        let partial_encoded_chunk = chain_store.get_partial_chunk(&chunk.chunk_hash()).unwrap();
-        for receipt in partial_encoded_chunk.receipts().iter() {
-            let ReceiptProof(_, shard_proof) = receipt;
-            if shard_proof.to_shard_id == shard_id {
-                receipt_proofs.push(receipt.clone());
+        if let Ok(partial_encoded_chunk) = chain_store.get_partial_chunk(&chunk.chunk_hash()) {
+            for receipt in partial_encoded_chunk.receipts().iter() {
+                let ReceiptProof(_, shard_proof) = receipt;
+                if shard_proof.to_shard_id == shard_id {
+                    receipt_proofs.push(receipt.clone());
+                }
             }
+        } else {
+            tracing::error!(target: "state-viewer", chunk_hash = ?chunk.chunk_hash(), "Failed to get a partial chunk");
         }
     }
 
@@ -243,7 +245,7 @@ fn apply_tx_in_chunk(
                 let chunk = match chain_store.get_chunk(&chunk_hash) {
                     Ok(c) => c,
                     Err(_) => {
-                        warn!(target: "state-viewer", "chunk hash {:?} appears in DBCol::ChunkHashesByHeight but the chunk is not saved", &chunk_hash);
+                        tracing::warn!(target: "state-viewer", "chunk hash {:?} appears in DBCol::ChunkHashesByHeight but the chunk is not saved", &chunk_hash);
                         continue;
                     }
                 };
@@ -377,7 +379,7 @@ fn apply_receipt_in_chunk(
                 let chunk = match chain_store.get_chunk(&chunk_hash) {
                     Ok(c) => c,
                     Err(_) => {
-                        warn!(target: "state-viewer", "chunk hash {:?} appears in DBCol::ChunkHashesByHeight but the chunk is not saved", &chunk_hash);
+                        tracing::warn!(target: "state-viewer", "chunk hash {:?} appears in DBCol::ChunkHashesByHeight but the chunk is not saved", &chunk_hash);
                         continue;
                     }
                 };
@@ -483,6 +485,7 @@ mod test {
     use near_primitives::shard_layout;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::utils::get_num_seats_per_shard;
+    use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use nearcore::config::GenesisExt;
     use nearcore::NightshadeRuntime;
@@ -521,9 +524,15 @@ mod test {
 
         let store = create_test_store();
         let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
+
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-        let runtime =
-            NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
+        let runtime = NightshadeRuntime::test(
+            Path::new("."),
+            store.clone(),
+            &genesis.config,
+            epoch_manager.clone(),
+        );
         let chain_genesis = ChainGenesis::test();
 
         let signers = (0..4)
@@ -600,9 +609,15 @@ mod test {
 
         let store = create_test_store();
         let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
+
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-        let runtime =
-            NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
+        let runtime = NightshadeRuntime::test(
+            Path::new("."),
+            store.clone(),
+            &genesis.config,
+            epoch_manager.clone(),
+        );
         let mut chain_genesis = ChainGenesis::test();
         // receipts get delayed with the small ChainGenesis::test() limit
         chain_genesis.gas_limit = genesis.config.gas_limit;

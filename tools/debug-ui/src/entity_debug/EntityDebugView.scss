@@ -1,0 +1,41 @@
+.entity-debug-view {
+    display: flex;
+    height: calc(100vh - 66px);
+    align-items: stretch;
+
+    .left-panel {
+        border-right: 1px solid gray;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .right-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .left-panel-query-list {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    .right-panel-entity-tree {
+        flex: 1;
+        overflow: hidden;
+        overflow-y: auto;
+        display: flex;
+        align-items: stretch;
+
+        > * {
+            flex: 1;
+        }
+    }
+
+    .right-panel-pinned-keys {
+        background-color: #eee;
+        padding: 2px 10px;
+    }
+}

@@ -46,7 +46,7 @@ impl<'a> TrieUpdateValuePtr<'a> {
         match self {
             TrieUpdateValuePtr::MemoryRef(value) => Ok(value.to_vec()),
             TrieUpdateValuePtr::HashAndSize(trie, _, hash) => {
-                trie.storage.retrieve_raw_bytes(hash).map(|bytes| bytes.to_vec())
+                trie.internal_retrieve_trie_node(hash, true).map(|bytes| bytes.to_vec())
             }
         }
     }
@@ -157,9 +157,7 @@ impl TrieUpdate {
     }
 
     pub fn set_trie_cache_mode(&self, state: TrieCacheMode) {
-        if let Some(storage) = self.trie.storage.as_caching_storage() {
-            storage.set_mode(state);
-        }
+        self.trie.accounting_cache.borrow_mut().set_enabled(state == TrieCacheMode::CachingChunk);
     }
 }
 

@@ -7,6 +7,7 @@ use crate::stats::metrics;
 use arc_swap::ArcSwap;
 use near_async::time;
 use near_primitives::network::PeerId;
+use near_primitives::views::{EdgeView, NetworkRoutesView, PeerDistancesView};
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
@@ -670,5 +671,34 @@ impl GraphV2 {
             })
             .await
             .unwrap()
+    }
+
+    pub(crate) fn get_debug_view(&self) -> NetworkRoutesView {
+        let inner = self.inner.lock();
+        NetworkRoutesView {
+            edge_cache: inner.edge_cache.get_debug_view(),
+            local_edges: inner
+                .local_edges
+                .iter()
+                .map(|(peer_id, edge)| {
+                    let (peer0, peer1) = edge.key().clone();
+                    (peer_id.clone(), EdgeView { peer0, peer1, nonce: edge.nonce() })
+                })
+                .collect(),
+            peer_distances: inner
+                .peer_distances
+                .iter()
+                .map(|(peer_id, routes)| {
+                    (
+                        peer_id.clone(),
+                        PeerDistancesView {
+                            distance: routes.distance.clone(),
+                            min_nonce: routes.min_nonce,
+                        },
+                    )
+                })
+                .collect(),
+            my_distances: inner.my_distances.clone(),
+        }
     }
 }

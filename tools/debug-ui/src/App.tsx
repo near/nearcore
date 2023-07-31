@@ -7,6 +7,7 @@ import { EpochInfoView } from './EpochInfoView';
 import { HeaderBar } from './HeaderBar';
 import { LatestBlocksView } from './LatestBlocksView';
 import { NetworkInfoView } from './NetworkInfoView';
+import { EntityDebugView } from './entity_debug/EntityDebugView';
 
 function useNodeAddr(): string {
     const params = useParams<{ addr: string }>();
@@ -41,6 +42,9 @@ export const App = () => {
                 <NavLink to="cluster" className={navLinkClassName}>
                     Cluster View
                 </NavLink>
+                <NavLink to="entity_debug" className={navLinkClassName}>
+                    Entity Debug
+                </NavLink>
             </div>
             <Routes>
                 <Route path="" element={<Navigate to="cluster" />} />
@@ -54,6 +58,7 @@ export const App = () => {
                 <Route path="sync_info" element={<div>TODO</div>} />
                 <Route path="validator_info" element={<div>TODO</div>} />
                 <Route path="cluster" element={<ClusterView initialAddr={addr} />} />
+                <Route path="entity_debug" element={<EntityDebugView addr={addr} />} />
             </Routes>
         </div>
     );
