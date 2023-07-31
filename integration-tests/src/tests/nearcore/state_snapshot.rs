@@ -6,6 +6,7 @@ use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_o11y::testonly::init_test_logger;
+use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::SignedTransaction;
@@ -80,9 +81,8 @@ fn test_maybe_open_state_snapshot_no_state_snapshot_key_entry() {
     init_test_logger();
     let store = create_test_store();
     let test_env = set_up_test_env_for_state_snapshots(&store);
-    let result = test_env
-        .shard_tries
-        .maybe_open_state_snapshot(|_| Ok(vec![ShardUId::single_shard()]));
+    let result =
+        test_env.shard_tries.maybe_open_state_snapshot(|_| Ok(vec![ShardUId::single_shard()]));
     assert!(result.is_err());
 }
 
@@ -94,9 +94,8 @@ fn test_maybe_open_state_snapshot_file_not_exist() {
     let test_env = set_up_test_env_for_state_snapshots(&store);
     let snapshot_hash = CryptoHash::new();
     test_env.shard_tries.set_state_snapshot_hash(Some(snapshot_hash)).unwrap();
-    let result = test_env
-        .shard_tries
-        .maybe_open_state_snapshot(|_| Ok(vec![ShardUId::single_shard()]));
+    let result =
+        test_env.shard_tries.maybe_open_state_snapshot(|_| Ok(vec![ShardUId::single_shard()]));
     assert!(result.is_err());
 }
 
@@ -125,19 +124,21 @@ fn test_maybe_open_state_snapshot_garbage_snapshot() {
     let data: Vec<u8> = vec![1, 2, 3, 4];
     file.write(&data).unwrap();
 
-    let result = test_env
-        .shard_tries
-        .maybe_open_state_snapshot(|_| Ok(vec![ShardUId::single_shard()]));
+    let result =
+        test_env.shard_tries.maybe_open_state_snapshot(|_| Ok(vec![ShardUId::single_shard()]));
     assert!(result.is_err());
 }
 
 fn verify_make_snapshot(
     state_snapshot_test_env: &StateSnaptshotTestEnv,
     block_hash: CryptoHash,
+    block: &Block,
 ) -> Result<(), anyhow::Error> {
-    let res = state_snapshot_test_env
-        .shard_tries
-        .make_state_snapshot(&block_hash, &vec![ShardUId::single_shard()])?;
+    state_snapshot_test_env.shard_tries.make_state_snapshot(
+        &block_hash,
+        &vec![ShardUId::single_shard()],
+        block,
+    )?;
     // check that make_state_snapshot does not panic or err out
     // assert!(res.is_ok());
     let snapshot_path = ShardTries::get_state_snapshot_base_dir(
@@ -160,7 +161,7 @@ fn verify_make_snapshot(
     // check that the stored snapshot in file system is an actual snapshot
     let store_config = StoreConfig::default();
     let opener = NodeStorage::opener(&snapshot_path, false, &store_config, None);
-    let storage = opener.open_in_mode(Mode::ReadOnly)?;
+    let _storage = opener.open_in_mode(Mode::ReadOnly)?;
     // check that there's only one snapshot at the parent directory of snapshot path
     let parent_path = snapshot_path
         .parent()
@@ -241,16 +242,19 @@ fn test_make_state_snapshot() {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         blocks.push(block.clone());
         env.process_block(0, block.clone(), Provenance::PRODUCED);
-        assert!(verify_make_snapshot(&state_snapshot_test_env, block.hash().clone()).is_ok());
+        assert!(
+            verify_make_snapshot(&state_snapshot_test_env, block.hash().clone(), &block).is_ok()
+        );
     }
 
     // check that if the entry in DBCol::STATE_SNAPSHOT_KEY was missing while snapshot file exists, an overwrite of snapshot can succeed
     state_snapshot_test_env.shard_tries.set_state_snapshot_hash(None).unwrap();
-    let head = &env.clients[0].chain.head().unwrap();
-    assert!(verify_make_snapshot(&state_snapshot_test_env, head.last_block_hash).is_ok());
+    let head = env.clients[0].chain.head().unwrap();
+    let head_block_hash = head.last_block_hash;
+    let head_block = env.clients[0].chain.get_block(&head_block_hash).unwrap();
+    assert!(verify_make_snapshot(&state_snapshot_test_env, head_block_hash, &head_block).is_ok());
 
     // check that if the snapshot is deleted from file system while there's entry in DBCol::STATE_SNAPSHOT_KEY and write lock is nonempty, making a snpashot of the same hash will not write to the file system
-    let head = &env.clients[0].chain.head().unwrap();
     let snapshot_hash = head.last_block_hash;
     let snapshot_path = ShardTries::get_state_snapshot_base_dir(
         &snapshot_hash,
@@ -259,7 +263,9 @@ fn test_make_state_snapshot() {
         &state_snapshot_test_env.state_snapshot_subdir,
     );
     delete_content_at_path(snapshot_path.to_str().unwrap()).unwrap();
-    assert!(verify_make_snapshot(&state_snapshot_test_env, head.last_block_hash).is_err());
+    assert!(
+        verify_make_snapshot(&state_snapshot_test_env, head.last_block_hash, &head_block).is_err()
+    );
     if let Ok(entries) = std::fs::read_dir(snapshot_path) {
         assert_eq!(entries.count(), 0);
     }

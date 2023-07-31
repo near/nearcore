@@ -497,7 +497,9 @@ impl ShardTries {
                         // This will delete all existing snapshots from file system. If failed, will retry until success
                         let mut delete_state_snapshots_from_file_system = false;
                         let mut file_system_delete_retries = 0;
-                        while !delete_state_snapshots_from_file_system && file_system_delete_retries < 3 {
+                        while !delete_state_snapshots_from_file_system
+                            && file_system_delete_retries < 3
+                        {
                             delete_state_snapshots_from_file_system = self
                                 .delete_all_state_snapshots(
                                     home_dir,
