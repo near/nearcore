@@ -118,6 +118,7 @@ pub struct Client {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     pub sharded_tx_pool: ShardedTransactionPool,
+    /// The key after which the pool iterator starts. Doesn't have to be present in the pool.
     pub key_lower_bound: Bound<PoolKey>,
     prev_block_to_chunk_headers_ready_for_inclusion: LruCache<
         CryptoHash,
@@ -917,44 +918,41 @@ impl Client {
         let next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let (included, invalid) = if let Some(mut iter) =
-            sharded_tx_pool.get_pool_iterator(shard_id, key_lower_bound.clone())
-        {
-            let transaction_validity_period = chain.transaction_validity_period;
-            let (included, invalid) = runtime.prepare_transactions(
-                prev_block_header.gas_price(),
-                chunk_extra.gas_limit(),
-                &next_epoch_id,
-                shard_id,
-                *chunk_extra.state_root(),
-                // while the height of the next block that includes the chunk might not be prev_height + 1,
-                // passing it will result in a more conservative check and will not accidentally allow
-                // invalid transactions to be included.
-                prev_block_header.height() + 1,
-                &mut iter,
-                &mut |tx: &SignedTransaction| -> bool {
-                    chain
-                        .store()
-                        .check_transaction_validity_period(
-                            prev_block_header,
-                            &tx.transaction.block_hash,
-                            transaction_validity_period,
-                        )
-                        .is_ok()
-                },
-                protocol_version,
-            )?;
-            self.key_lower_bound = iter.key_lower_bound();
-            (included, invalid)
-        } else {
-            (vec![], vec![])
-        };
+        let (included, invalid) =
+            if let Some(mut iter) = sharded_tx_pool.get_pool_iterator(shard_id, *key_lower_bound) {
+                let transaction_validity_period = chain.transaction_validity_period;
+                let (included, invalid) = runtime.prepare_transactions(
+                    prev_block_header.gas_price(),
+                    chunk_extra.gas_limit(),
+                    &next_epoch_id,
+                    shard_id,
+                    *chunk_extra.state_root(),
+                    // while the height of the next block that includes the chunk might not be prev_height + 1,
+                    // passing it will result in a more conservative check and will not accidentally allow
+                    // invalid transactions to be included.
+                    prev_block_header.height() + 1,
+                    &mut iter,
+                    &mut |tx: &SignedTransaction| -> bool {
+                        chain
+                            .store()
+                            .check_transaction_validity_period(
+                                prev_block_header,
+                                &tx.transaction.block_hash,
+                                transaction_validity_period,
+                            )
+                            .is_ok()
+                    },
+                    protocol_version,
+                )?;
+                self.key_lower_bound = iter.key_lower_bound();
+                (included, invalid)
+            } else {
+                (vec![], vec![])
+            };
 
-        self.sharded_tx_pool.remove_transactions(shard_id, &invalid);
-
-        // TODO(akashin): Remove pruned transactions.
-        // NB: We don't remove valid transactions back to the pool. They will be removed when the
+        // NB: We don't remove valid transactions from the pool as they will be removed when the
         // chunk is included into the block.
+        self.sharded_tx_pool.remove_transactions(shard_id, &invalid);
         Ok(included)
     }
 

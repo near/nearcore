@@ -33,8 +33,6 @@ pub struct TransactionPool {
     unique_transactions: HashSet<CryptoHash>,
     /// A uniquely generated key seed to randomize PoolKey order.
     key_seed: RngSeed,
-    /// The key after which the pool iterator starts. Doesn't have to be present in the pool.
-    /// TODO(akashin): Move comment.
     /// If set, new transactions that bring the size of the pool over this limit will be rejected.
     total_transaction_size_limit: Option<u64>,
     /// Total size of transactions in the pool measured in bytes.
@@ -114,15 +112,11 @@ impl TransactionPool {
         InsertTransactionResult::Success
     }
 
-    // pub fn pool_iterator(&mut self) -> PoolIteratorWrapper<'_> {
-    //     PoolIteratorWrapper::new(self)
-    // }
-
     /// Returns a pool iterator wrapper that implements an iterator-like trait to iterate over
     /// transaction groups in the proper order defined by the protocol.
     /// When the iterator is dropped, all remaining groups are inserted back into the pool.
-    pub fn new_pool_iterator(&mut self, key_lower_bound: Bound<PoolKey>) -> NewPoolIterator<'_> {
-        NewPoolIterator::new(self, key_lower_bound)
+    pub fn pool_iterator(&mut self, key_lower_bound: Bound<PoolKey>) -> PoolIterator<'_> {
+        PoolIterator::new(self, key_lower_bound)
     }
 
     /// Removes given transactions from the pool.
@@ -163,30 +157,14 @@ impl TransactionPool {
     }
 }
 
-/// PoolIterator is a structure to pull transactions from the pool.
-/// It implements `PoolIterator` trait that iterates over transaction groups one by one.
-/// When the wrapper is dropped the remaining transactions are returned back to the pool.
-// pub struct PoolIteratorWrapper<'a> {
-//     /// Mutable reference to the pool, to avoid exposing it while the iterator exists.
-//     pool: &'a mut TransactionPool,
-//
-//     /// Queue of transaction groups. Each group there is sorted by nonce.
-//     sorted_groups: VecDeque<TransactionGroup>,
-// }
-//
-// impl<'a> PoolIteratorWrapper<'a> {
-//     pub fn new(pool: &'a mut TransactionPool) -> Self {
-//         Self { pool, sorted_groups: Default::default() }
-//     }
-// }
-
-pub struct NewPoolIterator<'a> {
+/// PoolIterator is a structure to iterate over transactions in the pool.
+pub struct PoolIterator<'a> {
     pool: &'a TransactionPool,
     key_progress: BTreeMap<PoolKey, Bound<Nonce>>,
     key_lower_bound: Bound<PoolKey>,
 }
 
-impl<'a> NewPoolIterator<'a> {
+impl<'a> PoolIterator<'a> {
     pub fn new(pool: &'a TransactionPool, key_lower_bound: Bound<PoolKey>) -> Self {
         Self {
             pool,
@@ -204,7 +182,7 @@ impl<'a> NewPoolIterator<'a> {
     }
 }
 
-impl<'a> Iterator for NewPoolIterator<'a> {
+impl<'a> Iterator for PoolIterator<'a> {
     type Item = &'a SignedTransaction;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -230,110 +208,6 @@ impl<'a> Iterator for NewPoolIterator<'a> {
         None
     }
 }
-
-/// The iterator works with the following algorithm:
-/// On next(), the iterator tries to get a transaction group from the pool, sorts transactions in
-/// it, and add it to the back of the sorted groups queue.
-/// Remembers the last used key, so it can continue from the next key.
-///
-/// If the pool is empty, the iterator gets the group from the front of the sorted groups queue.
-///
-/// If this group is empty (no transactions left inside), then the iterator discards it and
-/// updates `unique_transactions` in the pool. Then gets the next one.
-///
-/// Once a non-empty group is found, this group is pushed to the back of the sorted groups queue
-/// and the iterator returns a mutable reference to this group.
-///
-/// If the sorted groups queue is empty, the iterator returns None.
-///
-/// When the iterator is dropped, `unique_transactions` in the pool is updated for every group.
-/// And all non-empty group from the sorted groups queue are inserted back into the pool.
-// impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
-//     fn next(&mut self) -> Option<&mut TransactionGroup> {
-//         if !self.pool.transactions.is_empty() {
-//             let key = *self
-//                 .pool
-//                 .transactions
-//                 .range((Bound::Excluded(self.pool.last_used_key), Bound::Unbounded))
-//                 .next()
-//                 .map(|(k, _v)| k)
-//                 .unwrap_or_else(|| {
-//                     self.pool
-//                         .transactions
-//                         .keys()
-//                         .next()
-//                         .expect("we've just checked that the map is not empty")
-//                 });
-//             self.pool.last_used_key = key;
-//             let transactions = self.pool.transactions.remove(&key).expect("just checked existence");
-//             self.sorted_groups.push_back(TransactionGroup {
-//                 key,
-//                 transactions: transactions.values().rev().cloned().collect(),
-//                 removed_transaction_hashes: vec![],
-//                 removed_transaction_size: 0,
-//             });
-//             Some(self.sorted_groups.back_mut().expect("just pushed"))
-//         } else {
-//             while let Some(sorted_group) = self.sorted_groups.pop_front() {
-//                 if sorted_group.transactions.is_empty() {
-//                     for hash in sorted_group.removed_transaction_hashes {
-//                         self.pool.unique_transactions.remove(&hash);
-//                     }
-//                     // See the comment in `insert_transaction` where we increase the size for reasoning
-//                     // why panicing here catches a logic error.
-//                     self.pool.total_transaction_size = self
-//                         .pool
-//                         .total_transaction_size
-//                         .checked_sub(sorted_group.removed_transaction_size)
-//                         .expect("Total transaction size dropped below zero");
-//
-//                     self.pool
-//                         .transaction_pool_count_metric
-//                         .set(self.pool.unique_transactions.len() as i64);
-//                     self.pool.transaction_pool_size_metric.set(self.pool.transaction_size() as i64);
-//                 } else {
-//                     self.sorted_groups.push_back(sorted_group);
-//                     return Some(self.sorted_groups.back_mut().expect("just pushed"));
-//                 }
-//             }
-//             None
-//         }
-//     }
-// }
-
-/// When a pool iterator is dropped, all remaining non empty transaction groups from the sorted
-/// groups queue are inserted back into the pool. And removed transactions hashes from groups are
-/// removed from the pool's unique_transactions.
-// impl<'a> Drop for PoolIteratorWrapper<'a> {
-//     fn drop(&mut self) {
-//         for group in self.sorted_groups.drain(..) {
-//             for hash in group.removed_transaction_hashes {
-//                 self.pool.unique_transactions.remove(&hash);
-//             }
-//             // See the comment in `insert_transaction` where we increase the size for reasoning
-//             // why panicing here catches a logic error.
-//             self.pool.total_transaction_size = self
-//                 .pool
-//                 .total_transaction_size
-//                 .checked_sub(group.removed_transaction_size)
-//                 .expect("Total transaction size dropped below zero");
-//
-//             if !group.transactions.is_empty() {
-//                 self.pool.transactions.insert(
-//                     group.key,
-//                     group
-//                         .transactions
-//                         .iter()
-//                         .map(|tx| (tx.transaction.nonce, tx.clone()))
-//                         .collect(),
-//                 );
-//             }
-//         }
-//         // We can update metrics only once for the whole batch of transactions.
-//         self.pool.transaction_pool_count_metric.set(self.pool.unique_transactions.len() as i64);
-//         self.pool.transaction_pool_size_metric.set(self.pool.transaction_size() as i64);
-//     }
-// }
 
 #[cfg(test)]
 mod tests {
@@ -401,7 +275,7 @@ mod tests {
         max_number_of_transactions: usize,
         key_lower_bound: Bound<PoolKey>,
     ) -> (Vec<SignedTransaction>, Bound<PoolKey>) {
-        let mut iter = pool.new_pool_iterator(key_lower_bound);
+        let mut iter = pool.pool_iterator(key_lower_bound);
         let mut txs = Vec::new();
         for _ in 0..max_number_of_transactions {
             if let Some(tx) = iter.next() {
@@ -523,7 +397,7 @@ mod tests {
         let (nonces, mut pool) = process_txs_to_nonces(transactions, 0);
         assert!(nonces.is_empty());
         let filtered_txs: Vec<_> = pool
-            .new_pool_iterator(Bound::Unbounded)
+            .pool_iterator(Bound::Unbounded)
             .filter(|tx| tx.transaction.nonce & 1 == 1)
             .cloned()
             .collect();

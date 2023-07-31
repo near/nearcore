@@ -11,7 +11,7 @@ use near_chain_configs::{
 };
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
-use near_pool::NewPoolIterator;
+use near_pool::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::config::ExtCosts;
@@ -673,7 +673,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         state_root: StateRoot,
         next_block_height: BlockHeight,
-        pool_iterator: &mut NewPoolIterator,
+        pool_iterator: &mut PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
     ) -> Result<(Vec<SignedTransaction>, Vec<SignedTransaction>), Error> {
