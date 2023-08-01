@@ -205,7 +205,6 @@ pub(crate) fn apply_range(
     shard_id: ShardId,
     verbose_output: bool,
     csv_file: Option<PathBuf>,
-    home_dir: &Path,
     near_config: NearConfig,
     store: Store,
     only_contracts: bool,
