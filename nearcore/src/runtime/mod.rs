@@ -107,16 +107,14 @@ impl NightshadeRuntime {
     }
 
     pub fn from_config_tmp(
-        home_dir: &Path,
         store: Store,
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         runtime_config_store: Option<RuntimeConfigStore>,
     ) -> Arc<Self> {
         Self::new(
-            home_dir,
             store,
-            &config.genesis,
+            &config.genesis.config,
             epoch_manager,
             config.client_config.trie_viewer_state_size_limit,
             config.client_config.max_gas_burnt_view,

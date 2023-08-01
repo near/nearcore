@@ -237,7 +237,6 @@ pub(crate) fn apply_range(
         None
     };
     let runtime = NightshadeRuntime::from_config_tmp(
-        home_dir,
         store.clone(),
         &near_config,
         epoch_manager.clone(),
