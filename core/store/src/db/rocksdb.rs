@@ -492,14 +492,13 @@ fn rocksdb_block_based_options_default(
     block_opts
 }
 
-fn rocksdb_block_based_options(
-    store_config: &StoreConfig,
-    db_col: DBCol
-) -> BlockBasedOptions {
+fn rocksdb_block_based_options(store_config: &StoreConfig, db_col: DBCol) -> BlockBasedOptions {
     let cache_size = store_config.col_cache_size(db_col);
     match db_col {
-        DBCol::State => rocksdb_block_based_options_no_index_cache(store_config.block_size, cache_size),
-        _ => rocksdb_block_based_options_default(store_config.block_size, cache_size)
+        DBCol::State => {
+            rocksdb_block_based_options_no_index_cache(store_config.block_size, cache_size)
+        }
+        _ => rocksdb_block_based_options_default(store_config.block_size, cache_size),
     }
 }
 
@@ -507,11 +506,7 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     let mut opts = Options::default();
     set_compression_options(&mut opts);
     opts.set_level_compaction_dynamic_level_bytes(true);
-    let cache_size = store_config.col_cache_size(col);
-    opts.set_block_based_table_factory(&rocksdb_block_based_options(
-        store_config.block_size,
-        cache_size,
-    ));
+    opts.set_block_based_table_factory(&rocksdb_block_based_options(store_config, col));
 
     // Note that this function changes a lot of rustdb parameters including:
     //      write_buffer_size = memtable_memory_budget / 4
