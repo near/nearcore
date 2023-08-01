@@ -11,8 +11,11 @@ use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::ShardId;
 use std::fmt;
 use std::fmt::Formatter;
+
+use super::StateResponseInfo;
 
 #[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
 /// Structure representing handshake between peers.
@@ -154,6 +157,10 @@ pub(super) enum PeerMessage {
     _RoutingTableSyncV2,
 
     DistanceVector(DistanceVector),
+
+    StateRequestHeader(ShardId, CryptoHash),
+    StateRequestPart(ShardId, CryptoHash, u64),
+    VersionedStateResponse(StateResponseInfo),
 }
 #[cfg(target_arch = "x86_64")] // Non-x86_64 doesn't match this requirement yet but it's not bad as it's not production-ready
 const _: () = assert!(std::mem::size_of::<PeerMessage>() <= 1144, "PeerMessage > 1144 bytes");

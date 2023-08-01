@@ -407,6 +407,10 @@ pub enum PeerMessage {
     /// Gracefully disconnect from other peer.
     Disconnect(Disconnect),
     Challenge(Challenge),
+
+    StateRequestHeader(ShardId, CryptoHash),
+    StateRequestPart(ShardId, CryptoHash, u64),
+    VersionedStateResponse(StateResponseInfo),
 }
 
 impl fmt::Display for PeerMessage {
@@ -504,8 +508,6 @@ pub enum RoutedMessageBody {
     /// Not used, but needed to borsh backward compatibility.
     _UnusedReceiptOutcomeResponse,
 
-    StateRequestHeader(ShardId, CryptoHash),
-    StateRequestPart(ShardId, CryptoHash, u64),
     /// StateResponse in not produced since protocol version 58.
     /// We can remove the support for it in protocol version 60.
     /// It has been obsoleted by VersionedStateResponse which
@@ -518,7 +520,6 @@ pub enum RoutedMessageBody {
     Ping(Ping),
     Pong(Pong),
     VersionedPartialEncodedChunk(PartialEncodedChunk),
-    VersionedStateResponse(StateResponseInfo),
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
 }
 
@@ -557,12 +558,6 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::_UnusedQueryResponse => write!(f, "QueryResponse"),
             RoutedMessageBody::ReceiptOutcomeRequest(hash) => write!(f, "ReceiptRequest({})", hash),
             RoutedMessageBody::_UnusedReceiptOutcomeResponse => write!(f, "ReceiptResponse"),
-            RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
-                write!(f, "StateRequestHeader({}, {})", shard_id, sync_hash)
-            }
-            RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) => {
-                write!(f, "StateRequestPart({}, {}, {})", shard_id, sync_hash, part_id)
-            }
             RoutedMessageBody::StateResponse(response) => {
                 write!(f, "StateResponse({}, {})", response.shard_id, response.sync_hash)
             }
@@ -579,12 +574,6 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::VersionedPartialEncodedChunk(_) => {
                 write!(f, "VersionedPartialEncodedChunk(?)")
             }
-            RoutedMessageBody::VersionedStateResponse(response) => write!(
-                f,
-                "VersionedStateResponse({}, {})",
-                response.shard_id(),
-                response.sync_hash()
-            ),
             RoutedMessageBody::PartialEncodedChunkForward(forward) => write!(
                 f,
                 "PartialChunkForward({:?}, {:?})",
@@ -675,8 +664,6 @@ impl RoutedMessage {
             self.body,
             RoutedMessageBody::Ping(_)
                 | RoutedMessageBody::TxStatusRequest(_, _)
-                | RoutedMessageBody::StateRequestHeader(_, _)
-                | RoutedMessageBody::StateRequestPart(_, _, _)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
                 | RoutedMessageBody::ReceiptOutcomeRequest(_)
         )
