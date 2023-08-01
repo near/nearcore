@@ -9,7 +9,6 @@ use std::io;
 use std::ops::Deref;
 use std::path::Path;
 use strum::IntoEnumIterator;
-use tracing::log::info;
 use tracing::warn;
 
 mod instance_tracker;
@@ -378,7 +377,7 @@ impl Database for RocksDB {
     fn compact(&self) -> io::Result<()> {
         let none = Option::<&[u8]>::None;
         for col in DBCol::iter() {
-            info!(target: "db", column = col.to_string(); "Compacted column");
+            tracing::info!(target: "db", column = col.to_string(), "Compacted column");
             self.db.compact_range_cf(self.cf_handle(col)?, none, none);
         }
         Ok(())
