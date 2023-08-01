@@ -4887,13 +4887,14 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.commit()
     }
 
-    /// For all the outgoing receipts generated in block `hash` at the shards we are tracking
-    /// in this epoch,
-    /// save a mapping from receipt ids to the destination shard ids that the receipt will be sent
-    /// to in the next block.
-    /// Note that this function should be called after `save_block` is called on this block because
-    /// it requires that the block info is available in EpochManager, otherwise it will return an
-    /// error.
+    /// For all the outgoing receipts generated in block `hash` at the shards we
+    /// are tracking in this epoch, save a mapping from receipt ids to the
+    /// destination shard ids that the receipt will be sent to in the next
+    /// block.
+    ///
+    /// Note that this function should be called after `save_block` is called on
+    /// this block because it requires that the block info is available in
+    /// EpochManager, otherwise it will return an error.
     pub fn save_receipt_id_to_shard_id_for_block(
         &mut self,
         me: &Option<AccountId>,
@@ -4902,39 +4903,44 @@ impl<'a> ChainUpdate<'a> {
         num_shards: NumShards,
     ) -> Result<(), Error> {
         for shard_id in 0..num_shards {
-            if self.shard_tracker.care_about_shard(
+            let care_about_shard = self.shard_tracker.care_about_shard(
                 me.as_ref(),
                 &prev_hash,
                 shard_id as ShardId,
                 true,
-            ) {
-                let receipt_id_to_shard_id: HashMap<_, _> = {
-                    // it can be empty if there is no new chunk for this shard
-                    if let Ok(outgoing_receipts) =
-                        self.chain_store_update.get_outgoing_receipts(hash, shard_id)
-                    {
-                        let shard_layout =
-                            self.epoch_manager.get_shard_layout_from_prev_block(hash)?;
-                        outgoing_receipts
-                            .iter()
-                            .map(|receipt| {
-                                (
-                                    receipt.receipt_id,
-                                    account_id_to_shard_id(&receipt.receiver_id, &shard_layout),
-                                )
-                            })
-                            .collect()
-                    } else {
-                        HashMap::new()
-                    }
-                };
-                for (receipt_id, shard_id) in receipt_id_to_shard_id {
-                    self.chain_store_update.save_receipt_id_to_shard_id(receipt_id, shard_id);
-                }
+            );
+            if !care_about_shard {
+                continue;
+            }
+            let receipt_id_to_shard_id = self.get_receipt_id_to_shard_id(hash, shard_id)?;
+            for (receipt_id, shard_id) in receipt_id_to_shard_id {
+                self.chain_store_update.save_receipt_id_to_shard_id(receipt_id, shard_id);
             }
         }
 
         Ok(())
+    }
+
+    /// Returns a mapping from the receipt id to the destination shard id.
+    fn get_receipt_id_to_shard_id(
+        &mut self,
+        hash: &CryptoHash,
+        shard_id: u64,
+    ) -> Result<HashMap<CryptoHash, u64>, Error> {
+        let outgoing_receipts = self.chain_store_update.get_outgoing_receipts(hash, shard_id);
+        let outgoing_receipts = if let Ok(outgoing_receipts) = outgoing_receipts {
+            outgoing_receipts
+        } else {
+            return Ok(HashMap::new());
+        };
+        let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(hash)?;
+        let outgoing_receipts = outgoing_receipts
+            .iter()
+            .map(|receipt| {
+                (receipt.receipt_id, account_id_to_shard_id(&receipt.receiver_id, &shard_layout))
+            })
+            .collect();
+        Ok(outgoing_receipts)
     }
 
     fn apply_chunk_postprocessing(
