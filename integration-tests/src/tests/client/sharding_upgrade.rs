@@ -3,7 +3,9 @@ use near_client::{Client, ProcessTxResponse};
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 
 use crate::tests::client::process_blocks::set_block_protocol_version;
+use assert_matches::assert_matches;
 use near_chain::near_chain_primitives::Error;
+use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::{run_catchup, TestEnv};
@@ -20,19 +22,17 @@ use near_primitives::transaction::{
 use near_primitives::types::{BlockHeight, NumShards, ProtocolVersion, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolFeature;
-use near_primitives::views::QueryRequest;
-use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus};
+#[cfg(not(feature = "protocol_feature_simple_nightshade_v2"))]
+use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryRequest};
 use near_store::test_utils::{gen_account, gen_unique_accounts};
 use nearcore::config::GenesisExt;
 use nearcore::NEAR_BASE;
-use tracing::debug;
-
-use assert_matches::assert_matches;
-use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
+use tracing::debug;
 
 use super::utils::TestEnvNightshadeSetupExt;
 
@@ -52,6 +52,7 @@ enum ReshardingType {
     // In the V0->V1 resharding outgoing receipts are reassigned to receiver.
     V1,
     // In the V1->V2 resharding outgoing receipts are reassigned to lowest index child.
+    #[allow(unused)]
     V2,
 }
 
@@ -751,76 +752,6 @@ fn test_shard_layout_upgrade_simple_v1() {
 fn test_shard_layout_upgrade_simple_v2() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V2);
 }
-
-// // test some shard layout upgrade with some simple transactions to create accounts
-// #[test]
-// fn test_shard_layout_upgrade_simple() {
-//     init_test_logger();
-
-//     let mut rng = thread_rng();
-
-//     // setup
-//     let epoch_length = 5;
-//     let mut test_env = TestShardUpgradeEnv::new(epoch_length, 2, 2, 100, None);
-//     test_env.set_init_tx(vec![]);
-
-//     let mut nonce = 100;
-//     let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
-//     let mut all_accounts: HashSet<_> = test_env.initial_accounts.clone().into_iter().collect();
-//     let mut accounts_to_check: Vec<_> = vec![];
-//     let initial_accounts = test_env.initial_accounts.clone();
-//     let generate_create_accounts_txs: &mut dyn FnMut(usize, bool) -> Vec<SignedTransaction> =
-//         &mut |max_size: usize, check_accounts: bool| -> Vec<SignedTransaction> {
-//             generate_create_accounts_txs(
-//                 &mut rng,
-//                 genesis_hash,
-//                 &initial_accounts,
-//                 &mut accounts_to_check,
-//                 &mut all_accounts,
-//                 &mut nonce,
-//                 max_size,
-//                 check_accounts,
-//             )
-//         };
-
-//     // Transactions added for the first block with new shard layout will not be
-//     // processed, that's a known issue for the shard upgrade implementation. It
-//     // is because transaction pools are stored by shard id and we do not migrate
-//     // transactions that are still in the pool at the end of the sharding
-//     // upgrade.
-//     let skip_heights = vec![2 * epoch_length + 1, 4 * epoch_length + 1];
-
-//     // add transactions until after sharding upgrade finishes
-//     for height in 2..5 * epoch_length - 1 {
-//         let check_accounts = !skip_heights.contains(&height);
-//         let txs = generate_create_accounts_txs(10, check_accounts);
-//         test_env.set_tx_at_height(height, txs);
-//     }
-
-//     let mut protocol_version = SIMPLE_NIGHTSHADE_PROTOCOL_VERSION;
-//     for _ in 1..2 * epoch_length {
-//         test_env.step_impl(0., protocol_version, true);
-//         test_env.check_receipt_id_to_shard_id();
-//     }
-
-//     // If V2 is enabled then test resharding from V1 to V2 as well.
-//     // This condition will be true:
-//     // - in nightly build - always - V2 is enabled
-//     // - in default build - once V2 is stabilized and rolled out
-//     if SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION <= PROTOCOL_VERSION {
-//         protocol_version = SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION;
-//     }
-
-//     for _ in 2 * epoch_length..5 * epoch_length + 1 {
-//         test_env.step_impl(0., protocol_version, true);
-//         test_env.check_receipt_id_to_shard_id();
-//     }
-
-//     test_env.check_tx_outcomes(false, skip_heights);
-//     test_env.check_accounts(accounts_to_check.iter().collect());
-//     test_env.check_split_states_artifacts();
-//     test_env.check_outgoing_receipts_reassigned();
-// }
 
 fn generate_create_accounts_txs(
     mut rng: &mut rand::rngs::ThreadRng,
