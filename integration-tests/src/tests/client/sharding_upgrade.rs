@@ -56,7 +56,6 @@ enum ReshardingType {
 }
 
 // Return the expected number of shards.
-// The number of shards depends on height and whether shard layout V2 is enabled.
 fn get_expected_shards_num(
     epoch_length: u64,
     height: BlockHeight,
@@ -81,13 +80,10 @@ fn get_expected_shards_num(
 }
 
 /// Test environment prepared for testing the sharding upgrade.
-/// Epoch 0, blocks 1-5  : 1 shard
-/// Epoch 1, blocks 6-10 : 1 shard, state split happens
-/// Epoch 2: blocks 10-15: 4 shards, shard layout upgrades to simple_nightshade_layout,
-///
-/// If V2 is enabled the test continues:
-/// Epoch 3: blocks 16-20: 4 shards, state split happens
-/// Epoch 4: blocks 21-25: 5 shards, shard layout upgrades to simple_nightshade_layout_v2
+/// Epoch 0, blocks 1-5  : genesis shard layout
+/// Epoch 1, blocks 6-10 : genesis shard layout, state split happens
+/// Epoch 2: blocks 10-15: target shard layout, shard layout is upgraded
+/// Epoch 3: blocks 16-20: target shard layout,
 ///
 /// Note: if the test is extended to more epochs, garbage collection will
 /// kick in and delete data that is checked at the end of the test.
@@ -216,14 +212,21 @@ impl TestShardUpgradeEnv {
         // it when we are producing the block at `height`
         if let Some(txs) = self.txs_by_height.get(&(height + 1)) {
             for tx in txs {
+                let mut response_valid_count = 0;
+                let mut response_routed_count = 0;
                 for j in 0..self.num_validators {
-                    let result = env.clients[j].process_tx(tx.clone(), false, false);
-                    tracing::debug!(target: "test", client=j, tx=?tx.get_hash(), ?result, "process tx");
-                    // assert_eq!(
-                    //     env.clients[j].process_tx(tx.clone(), false, false),
-                    //     ProcessTxResponse::ValidTx
-                    // );
+                    let response = env.clients[j].process_tx(tx.clone(), false, false);
+                    tracing::debug!(target: "test", client=j, tx=?tx.get_hash(), ?response, "process tx");
+                    match response {
+                        ProcessTxResponse::ValidTx => response_valid_count += 1,
+                        ProcessTxResponse::RequestRouted => response_routed_count += 1,
+                        response => {
+                            panic!("invalid tx response {response:?}");
+                        }
+                    }
                 }
+                assert_ne!(response_valid_count, 0);
+                assert_eq!(response_valid_count + response_routed_count, self.num_validators);
             }
         }
 
@@ -446,19 +449,34 @@ impl TestShardUpgradeEnv {
             .get_shard_layout_from_prev_block(&head.last_block_hash)
             .unwrap();
         let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
-            if chunk_header.height_included() == block.header().height() {
-                let outgoing_receipts = env.clients[0]
+            if chunk_header.height_included() != block.header().height() {
+                continue;
+            }
+            let shard_id = shard_id as ShardId;
+
+            for (i, me) in env.validators.iter().enumerate() {
+                let client = &mut env.clients[i];
+                let care_about_shard = client.shard_tracker.care_about_shard(
+                    Some(me),
+                    &head.prev_block_hash,
+                    shard_id,
+                    true,
+                );
+                if !care_about_shard {
+                    continue;
+                }
+
+                let outgoing_receipts = client
                     .chain
                     .mut_store()
-                    .get_outgoing_receipts(&head.last_block_hash, shard_id as ShardId)
+                    .get_outgoing_receipts(&head.last_block_hash, shard_id)
                     .unwrap()
                     .clone();
                 for receipt in outgoing_receipts.iter() {
-                    let target_shard_id = env.clients[0]
-                        .chain
-                        .get_shard_id_for_receipt_id(&receipt.receipt_id)
-                        .unwrap();
+                    let target_shard_id =
+                        client.chain.get_shard_id_for_receipt_id(&receipt.receipt_id).unwrap();
                     assert_eq!(
                         target_shard_id,
                         account_id_to_shard_id(&receipt.receiver_id, &shard_layout)
@@ -615,13 +633,11 @@ fn setup_genesis(
     // No kickout, since we are going to test missing chunks
     genesis.config.chunk_producer_kickout_threshold = 0;
     genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = SIMPLE_NIGHTSHADE_PROTOCOL_VERSION - 1;
+    genesis.config.protocol_version = genesis_protocol_version;
     genesis.config.use_production_config = true;
     if let Some(gas_limit) = gas_limit {
         genesis.config.gas_limit = gas_limit;
     }
-
-    genesis.config.protocol_version = genesis_protocol_version;
 
     let default_epoch_config = EpochConfig::from(&genesis.config);
     let all_epoch_config = AllEpochConfig::new(true, default_epoch_config);
@@ -632,6 +648,15 @@ fn setup_genesis(
         epoch_config.num_block_producer_seats_per_shard;
     genesis.config.avg_hidden_validator_seats_per_shard =
         epoch_config.avg_hidden_validator_seats_per_shard;
+
+    // TODO(resharding)
+    // In the current simple test setup each validator may track different
+    // shards. Unfortunately something is broken in how state sync is triggered
+    // from this test. The config below forces both validators to track all
+    // shards so that we can avoid that problem for now. It would be nice to
+    // set it up properly and test both state sync and resharding - once the
+    // integration is fully supported.
+    genesis.config.minimum_validators_per_shard = 2;
 
     genesis
 }
