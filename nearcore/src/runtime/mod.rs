@@ -74,6 +74,7 @@ pub struct NightshadeRuntime {
     epoch_manager: Arc<EpochManagerHandle>,
     migration_data: Arc<MigrationData>,
     gc_num_epochs_to_keep: u64,
+    background_fetching_enabled: bool,
 }
 
 impl NightshadeRuntime {
@@ -103,6 +104,7 @@ impl NightshadeRuntime {
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,
+            config.config.background_fetching_enabled,
         )
     }
 
@@ -122,6 +124,7 @@ impl NightshadeRuntime {
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
             StateSnapshotConfig::Disabled,
+            config.config.background_fetching_enabled,
         )
     }
 
@@ -135,6 +138,7 @@ impl NightshadeRuntime {
         gc_num_epochs_to_keep: u64,
         trie_config: TrieConfig,
         state_snapshot_config: StateSnapshotConfig,
+        background_fetching_enabled: bool,
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
@@ -172,6 +176,7 @@ impl NightshadeRuntime {
             flat_storage_manager,
             migration_data,
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
+            background_fetching_enabled,
         })
     }
 
@@ -197,6 +202,7 @@ impl NightshadeRuntime {
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
                 compaction_enabled: false,
             },
+            false,
         )
     }
 
@@ -851,7 +857,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             is_new_chunk,
             is_first_block_with_chunk_of_version,
             state_patch,
-            new_feature,
+            new_feature || self.background_fetching_enabled,
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e {
@@ -1496,6 +1502,7 @@ mod test {
                     state_snapshot_subdir: PathBuf::from("state_snapshot"),
                     compaction_enabled: false,
                 },
+                false,
             );
             let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
             let genesis_hash = hash(&[0]);

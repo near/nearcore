@@ -352,6 +352,7 @@ pub struct Config {
     pub transaction_pool_size_limit: Option<u64>,
     /// If a node needs to upload state parts to S3
     pub s3_credentials_file: Option<String>,
+    pub background_fetching_enabled: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -392,6 +393,7 @@ impl Default for Config {
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
             s3_credentials_file: None,
             enable_multiline_logging: None,
+            background_fetching_enabled: false,
         }
     }
 }
