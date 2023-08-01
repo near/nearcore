@@ -21,9 +21,8 @@ use near_primitives::views::{
     SyncStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// Combines errors coming from chain, tx pool and block producer.
@@ -105,7 +104,7 @@ pub enum ShardSyncStatus {
     StateDownloadApplying,
     StateDownloadComplete,
     StateSplitScheduling,
-    StateSplitApplying(Arc<StateSplitApplyingStatus>),
+    StateSplitApplying,
     StateSyncDone,
 }
 
@@ -118,7 +117,7 @@ impl ShardSyncStatus {
             ShardSyncStatus::StateDownloadApplying => 3,
             ShardSyncStatus::StateDownloadComplete => 4,
             ShardSyncStatus::StateSplitScheduling => 5,
-            ShardSyncStatus::StateSplitApplying(_) => 6,
+            ShardSyncStatus::StateSplitApplying => 6,
             ShardSyncStatus::StateSyncDone => 7,
         }
     }
@@ -142,18 +141,7 @@ impl ToString for ShardSyncStatus {
             ShardSyncStatus::StateDownloadApplying => "applying".to_string(),
             ShardSyncStatus::StateDownloadComplete => "download complete".to_string(),
             ShardSyncStatus::StateSplitScheduling => "split scheduling".to_string(),
-            ShardSyncStatus::StateSplitApplying(state_split_status) => {
-                let str = if let Some(total_parts) = state_split_status.total_parts.get() {
-                    format!(
-                        "total parts {} done {}",
-                        total_parts,
-                        state_split_status.done_parts.load(Ordering::Relaxed)
-                    )
-                } else {
-                    "not started".to_string()
-                };
-                format!("split applying {}", str)
-            }
+            ShardSyncStatus::StateSplitApplying => "split applying".to_string(),
             ShardSyncStatus::StateSyncDone => "done".to_string(),
         }
     }
@@ -172,14 +160,6 @@ impl From<ShardSyncDownload> for ShardSyncDownloadView {
             status: download.status.to_string(),
         }
     }
-}
-
-#[derive(Debug, Default)]
-pub struct StateSplitApplyingStatus {
-    /// total number of parts to be applied
-    pub total_parts: OnceCell<u64>,
-    /// number of parts that are done
-    pub done_parts: AtomicU64,
 }
 
 /// Stores status of shard sync and statuses of downloading shards.

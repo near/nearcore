@@ -99,6 +99,22 @@ impl RuntimeConfigStore {
         Self { store }
     }
 
+    /// Create store of runtime configs for the given chain id.
+    ///
+    /// For mainnet and other chains except testnet we don't need to override runtime config for
+    /// first protocol versions.
+    /// For testnet, runtime config for genesis block was (incorrectly) different, that's why we
+    /// need to override it specifically to preserve compatibility.
+    pub fn for_chain_id(chain_id: &str) -> Self {
+        match chain_id {
+            "testnet" => {
+                let genesis_runtime_config = RuntimeConfig::initial_testnet_config();
+                Self::new(Some(&genesis_runtime_config))
+            }
+            _ => Self::new(None),
+        }
+    }
+
     /// Constructs test store.
     pub fn with_one_config(runtime_config: RuntimeConfig) -> Self {
         Self { store: BTreeMap::from_iter([(0, Arc::new(runtime_config))].iter().cloned()) }

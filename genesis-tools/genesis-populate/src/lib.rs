@@ -18,8 +18,10 @@ use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
-use near_store::genesis_state_applier::compute_storage_usage;
-use near_store::{get_account, set_access_key, set_account, set_code, Store, TrieUpdate};
+use near_store::genesis::{compute_storage_usage, initialize_genesis_state};
+use near_store::{
+    get_account, get_genesis_state_roots, set_access_key, set_account, set_code, Store, TrieUpdate,
+};
 use nearcore::{NearConfig, NightshadeRuntime};
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
@@ -77,6 +79,7 @@ pub struct GenesisBuilder {
 impl GenesisBuilder {
     pub fn from_config_and_store(home_dir: &Path, config: NearConfig, store: Store) -> Self {
         let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
+        initialize_genesis_state(store.clone(), &config.genesis, Some(tmpdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
         let runtime = NightshadeRuntime::from_config(
             tmpdir.path(),
@@ -119,7 +122,8 @@ impl GenesisBuilder {
 
     pub fn build(mut self) -> Result<Self> {
         // First, apply whatever is defined by the genesis config.
-        let (_store, roots) = self.runtime.genesis_state();
+        let roots = get_genesis_state_roots(self.runtime.store())?
+            .expect("genesis state roots not initialized.");
         let genesis_shard_version = self.genesis.config.shard_layout.version();
         self.roots = roots.into_iter().enumerate().map(|(k, v)| (k as u64, v)).collect();
         self.state_updates = self

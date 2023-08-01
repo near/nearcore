@@ -1080,6 +1080,7 @@ mod tests {
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::AccountId;
+    use near_store::genesis::initialize_genesis_state;
     use nearcore::config::Config;
     use nearcore::config::GenesisExt;
     use nearcore::{NearConfig, NightshadeRuntime};
@@ -1099,10 +1100,14 @@ mod tests {
         let home_dir = tmp_dir.path();
 
         let store = near_store::test_utils::create_test_store();
+        initialize_genesis_state(store.clone(), &genesis, Some(home_dir));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-        let runtime =
-            NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
-                as Arc<dyn RuntimeAdapter>;
+        let runtime = NightshadeRuntime::test(
+            home_dir,
+            store.clone(),
+            &genesis.config,
+            epoch_manager.clone(),
+        ) as Arc<dyn RuntimeAdapter>;
 
         let stores = vec![store.clone()];
         let epoch_managers = vec![epoch_manager];

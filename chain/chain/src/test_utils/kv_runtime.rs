@@ -12,7 +12,6 @@ use num_rational::Ratio;
 
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
-use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -43,7 +42,8 @@ use near_primitives::views::{
     QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
 };
 use near_store::{
-    DBCol, PartialStorage, ShardTries, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
+    set_genesis_state_roots, DBCol, PartialStorage, ShardTries, Store, StoreUpdate, Trie,
+    TrieChanges, WrappedTrieChanges,
 };
 
 use crate::types::{ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter};
@@ -356,6 +356,11 @@ impl KeyValueRuntime {
         // We cannot do any reasonable validations of it in test_utils.
         let state = HashMap::from([(Trie::EMPTY_ROOT, kv_state)]);
         let state_size = HashMap::from([(Trie::EMPTY_ROOT, data_len)]);
+
+        let mut store_update = store.store_update();
+        let genesis_roots: Vec<CryptoHash> = (0..num_shards).map(|_| Trie::EMPTY_ROOT).collect();
+        set_genesis_state_roots(&mut store_update, &genesis_roots);
+        store_update.commit().expect("Store failed on genesis intialization");
 
         Arc::new(KeyValueRuntime {
             store,
@@ -940,10 +945,6 @@ impl EpochManagerAdapter for MockEpochManager {
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self) -> (Store, Vec<StateRoot>) {
-        (self.store.clone(), ((0..self.num_shards).map(|_| Trie::EMPTY_ROOT).collect()))
-    }
-
     fn store(&self) -> &Store {
         &self.store
     }
@@ -1396,15 +1397,5 @@ impl RuntimeAdapter for KeyValueRuntime {
         _state_changes: StateChangesForSplitStates,
     ) -> Result<Vec<ApplySplitStateResult>, Error> {
         Ok(vec![])
-    }
-
-    fn build_state_for_split_shards(
-        &self,
-        _shard_uid: ShardUId,
-        _state_root: &StateRoot,
-        _next_epoch_shard_layout: &ShardLayout,
-        _state_split_status: Arc<StateSplitApplyingStatus>,
-    ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-        Ok(HashMap::new())
     }
 }

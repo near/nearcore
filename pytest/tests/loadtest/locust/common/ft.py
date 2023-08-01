@@ -1,6 +1,7 @@
 import random
 import sys
 import pathlib
+import typing
 from locust import events
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
@@ -46,7 +47,7 @@ class FTContract:
     def random_receiver(self, sender: str) -> str:
         return self.random_receivers(sender, 1)[0]
 
-    def random_receivers(self, sender: str, num) -> list[str]:
+    def random_receivers(self, sender: str, num) -> typing.List[str]:
         rng = random.Random()
         receivers = rng.sample(self.registered_users, num)
         # Sender must be != receiver but maybe there is no other registered user

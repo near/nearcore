@@ -9,11 +9,14 @@ use near_cache::CellLruCache;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+use near_primitives::checked_feature;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::{account_id_to_shard_id, get_block_shard_uid, ShardUId};
+use near_primitives::shard_layout::account_id_to_shard_id;
+use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
     StateSyncInfo,
@@ -37,6 +40,7 @@ use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
     to_timestamp,
 };
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::LightClientBlockView;
 use near_store::{
     DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate, WrappedTrieChanges, CHUNK_TAIL_KEY,
@@ -480,33 +484,130 @@ impl ChainStore {
         loop {
             let block_header = self.get_block_header(&receipts_block_hash)?;
 
-            if block_header.height() == last_included_height {
-                let receipts_shard_layout =
-                    epoch_manager.get_shard_layout(block_header.epoch_id())?;
-
-                // get the shard from which the outgoing receipt were generated
-                let receipts_shard_id = if shard_layout != receipts_shard_layout {
-                    shard_layout.get_parent_shard_id(shard_id)?
-                } else {
-                    shard_id
-                };
-                let mut receipts = self
-                    .get_outgoing_receipts(&receipts_block_hash, receipts_shard_id)
-                    .map(|v| v.to_vec())
-                    .unwrap_or_default();
-
-                // filter to receipts that belong to `shard_id` in the current shard layout
-                if shard_layout != receipts_shard_layout {
-                    receipts.retain(|receipt| {
-                        account_id_to_shard_id(&receipt.receiver_id, &shard_layout) == shard_id
-                    });
-                }
-
-                return Ok(receipts);
-            } else {
+            if block_header.height() != last_included_height {
                 receipts_block_hash = *block_header.prev_hash();
+                continue;
             }
+            let receipts_shard_layout = epoch_manager.get_shard_layout(block_header.epoch_id())?;
+
+            // get the shard from which the outgoing receipt were generated
+            let receipts_shard_id = if shard_layout != receipts_shard_layout {
+                shard_layout.get_parent_shard_id(shard_id)?
+            } else {
+                shard_id
+            };
+
+            let mut receipts = self
+                .get_outgoing_receipts(&receipts_block_hash, receipts_shard_id)
+                .map(|v| v.to_vec())
+                .unwrap_or_default();
+
+            if shard_layout != receipts_shard_layout {
+                // the shard layout has changed so we need to reassign the outgoing receipts
+                let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+                let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+                Self::reassign_outgoing_receipts_for_resharding(
+                    &mut receipts,
+                    protocol_version,
+                    &shard_layout,
+                    shard_id,
+                    receipts_shard_id,
+                )?;
+            }
+
+            return Ok(receipts);
         }
+    }
+
+    fn reassign_outgoing_receipts_for_resharding(
+        receipts: &mut Vec<Receipt>,
+        protocol_version: ProtocolVersion,
+        shard_layout: &ShardLayout,
+        shard_id: u64,
+        receipts_shard_id: u64,
+    ) -> Result<(), Error> {
+        tracing::trace!(target: "resharding", ?protocol_version, shard_id, receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
+        // If simple nightshade v2 is enabled and stable use that.
+        #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+        if checked_feature!("stable", SimpleNightshadeV2, protocol_version) {
+            Self::reassign_outgoing_receipts_for_resharding_v2(
+                receipts,
+                shard_layout,
+                shard_id,
+                receipts_shard_id,
+            )?;
+            return Ok(());
+        }
+
+        // Otherwise use the old reassignment. Keep in mind it only works for
+        // 1 shard -> n shards reshardings, otherwise receipts get lost.
+        Self::reassign_outgoing_receipts_for_resharding_v1(receipts, shard_layout, shard_id)?;
+        Ok(())
+    }
+
+    /// Reassign the outgoing receipts from the parent shard to the children
+    /// shards.
+    ///
+    /// This method does it based on the "lowest child index" approach where it
+    /// assigns all the receipts from parent to the child shard with the lowest
+    /// index. It's meant to be used for the resharding from simple nightshade
+    /// with 4 shards to simple nightshade v2 with 5 shards and subsequent
+    /// reshardings.
+    ///
+    /// e.g. in the following resharding
+    /// 0->0', 1->1', 2->2', 3->3',4'
+    /// 0' will get all outgoing receipts from its parent 0
+    /// 1' will get all outgoing receipts from its parent 1
+    /// 2' will get all outgoing receipts from its parent 2
+    /// 3' will get all outgoing receipts from its parent 3
+    /// 4' will get no outgoing receipts from its parent 3
+    /// All receipts are distributed to children, each exactly once.
+    #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+    fn reassign_outgoing_receipts_for_resharding_v2(
+        receipts: &mut Vec<Receipt>,
+        shard_layout: &ShardLayout,
+        shard_id: ShardId,
+        receipts_shard_id: ShardId,
+    ) -> Result<(), Error> {
+        let split_shard_ids = shard_layout.get_split_shard_ids(receipts_shard_id);
+        let split_shard_ids =
+            split_shard_ids.ok_or(Error::InvalidSplitShardsIds(shard_id, receipts_shard_id))?;
+
+        // The target shard id is the split shard with the lowest shard id.
+        let target_shard_id = split_shard_ids.iter().min();
+        let target_shard_id =
+            *target_shard_id.ok_or(Error::InvalidSplitShardsIds(shard_id, receipts_shard_id))?;
+
+        if shard_id == target_shard_id {
+            // This shard_id is the lowest index child, it gets all the receipts.
+            Ok(())
+        } else {
+            // This shard_id is not the lowest index child, it gets no receipts.
+            receipts.clear();
+            Ok(())
+        }
+    }
+
+    /// Reassign the outgoing receipts from the parent shard to the children
+    /// shards.
+    ///
+    /// This method does it based on the "receipt receiver" approach where the
+    /// receipt is assigned to the shard of the receiver.
+    ///
+    /// This approach worked well for the 1->4 shards resharding but it doesn't
+    /// work for following reshardings. The reason is that it's only the child
+    /// shards that look at parents shard's outgoing receipts. If the receipt
+    /// receiver happens to not fall within one of the children shards then the
+    /// receipt is lost.
+    fn reassign_outgoing_receipts_for_resharding_v1(
+        receipts: &mut Vec<Receipt>,
+        shard_layout: &ShardLayout,
+        shard_id: ShardId,
+    ) -> Result<(), Error> {
+        receipts.retain(|receipt| {
+            account_id_to_shard_id(&receipt.receiver_id, &shard_layout) == shard_id
+        });
+        Ok(())
     }
 
     /// For a given transaction, it expires if the block that the chunk points to is more than `validity_period`

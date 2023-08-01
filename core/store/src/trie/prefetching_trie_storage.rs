@@ -9,7 +9,7 @@ use near_o11y::metrics::prometheus::core::GenericGauge;
 use near_o11y::tracing::error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::{AccountId, ShardId, StateRoot, TrieNodesCount};
+use near_primitives::types::{AccountId, ShardId, StateRoot};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -289,10 +289,6 @@ impl TrieStorage for TriePrefetchingStorage {
                 format!("Prefetcher failed due to memory limit hash {hash}"),
             )),
         }
-    }
-
-    fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        unimplemented!()
     }
 }
 

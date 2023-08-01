@@ -1,12 +1,13 @@
 use crate::metrics::flat_state_metrics;
 use near_o11y::metrics::{IntCounter, IntGauge};
-use near_primitives::types::ShardId;
+use near_primitives::types::{BlockHeight, ShardId};
 
 use super::FlatStorageStatus;
 
 pub(crate) struct FlatStorageMetrics {
     flat_head_height: IntGauge,
     distance_to_head: IntGauge,
+    hops_to_head: IntGauge,
     cached_deltas: IntGauge,
     cached_changes_num_items: IntGauge,
     cached_changes_size: IntGauge,
@@ -20,6 +21,8 @@ impl FlatStorageMetrics {
                 .with_label_values(&[&shard_id_label]),
             distance_to_head: flat_state_metrics::FLAT_STORAGE_DISTANCE_TO_HEAD
                 .with_label_values(&[&shard_id_label]),
+            hops_to_head: flat_state_metrics::FLAT_STORAGE_HOPS_TO_HEAD
+                .with_label_values(&[&shard_id_label]),
             cached_deltas: flat_state_metrics::FLAT_STORAGE_CACHED_DELTAS
                 .with_label_values(&[&shard_id_label]),
             cached_changes_num_items: flat_state_metrics::FLAT_STORAGE_CACHED_CHANGES_NUM_ITEMS
@@ -29,8 +32,9 @@ impl FlatStorageMetrics {
         }
     }
 
-    pub(crate) fn set_distance_to_head(&self, distance: usize) {
-        self.distance_to_head.set(distance as i64);
+    pub(crate) fn set_distance_to_head(&self, distance: usize, height: Option<BlockHeight>) {
+        self.distance_to_head.set(height.unwrap_or(0) as i64);
+        self.hops_to_head.set(distance as i64);
     }
 
     pub(crate) fn set_flat_head_height(&self, height: u64) {
