@@ -243,7 +243,6 @@ mod tests {
     use near_primitives::account::Account;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
-    use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_part::PartId;
     use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
     use near_primitives::trie_key::TrieKey;
