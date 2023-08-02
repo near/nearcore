@@ -1192,7 +1192,7 @@ fn read_cached_trie_node(ctx: &mut EstimatorContext) -> GasCost {
     let mut testbed = ctx.testbed();
 
     let results = (0..(warmup_iters + iters))
-        .map(|_| trie::read_node_from_chunk_cache(&mut testbed))
+        .map(|_| trie::read_node_from_accounting_cache(&mut testbed))
         .skip(warmup_iters)
         .collect::<Vec<_>>();
     average_cost(results)

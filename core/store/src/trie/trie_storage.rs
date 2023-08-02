@@ -9,10 +9,9 @@ use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::{ShardId, TrieCacheMode, TrieNodesCount};
-use std::cell::{Cell, RefCell};
+use near_primitives::types::ShardId;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 pub(crate) struct BoundedQueue<T> {
@@ -292,41 +291,8 @@ pub trait TrieStorage {
         None
     }
 
-    fn as_recording_storage(&self) -> Option<&TrieRecordingStorage> {
-        None
-    }
-
     fn as_partial_storage(&self) -> Option<&TrieMemoryPartialStorage> {
         None
-    }
-
-    fn get_trie_nodes_count(&self) -> TrieNodesCount;
-}
-
-/// Records every value read by retrieve_raw_bytes.
-/// Used for obtaining state parts (and challenges in the future).
-/// TODO (#6316): implement proper nodes counting logic as in TrieCachingStorage
-pub struct TrieRecordingStorage {
-    pub(crate) storage: Rc<dyn TrieStorage>,
-    pub(crate) recorded: RefCell<HashMap<CryptoHash, Arc<[u8]>>>,
-}
-
-impl TrieStorage for TrieRecordingStorage {
-    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        if let Some(val) = self.recorded.borrow().get(hash).cloned() {
-            return Ok(val);
-        }
-        let val = self.storage.retrieve_raw_bytes(hash)?;
-        self.recorded.borrow_mut().insert(*hash, Arc::clone(&val));
-        Ok(val)
-    }
-
-    fn as_recording_storage(&self) -> Option<&TrieRecordingStorage> {
-        Some(self)
-    }
-
-    fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        unimplemented!();
     }
 }
 
@@ -349,10 +315,6 @@ impl TrieStorage for TrieMemoryPartialStorage {
 
     fn as_partial_storage(&self) -> Option<&TrieMemoryPartialStorage> {
         Some(self)
-    }
-
-    fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        unimplemented!();
     }
 }
 
@@ -381,43 +343,33 @@ impl TrieMemoryPartialStorage {
 }
 
 /// Storage for reading State nodes and values from DB which caches reads.
+///
+/// Important: The TrieCachingStorage contains the shard cache, which is
+/// different from the accounting cache. The former is a best-effort
+/// optimization to speed up execution, whereas the latter is a deterministic
+/// cache used for gas accounting during contract execution.
 pub struct TrieCachingStorage {
     pub(crate) store: Store,
     pub(crate) shard_uid: ShardUId,
+    pub(crate) is_view: bool,
 
     /// Caches ever requested items for the shard `shard_uid`. Used to speed up DB operations, presence of any item is
     /// not guaranteed.
     pub(crate) shard_cache: TrieCache,
-    /// Caches all items requested in the mode `TrieCacheMode::CachingChunk`. It is created in
-    /// `apply_transactions_with_optional_storage_proof` by calling `get_trie_for_shard`. Before we start to apply
-    /// txs and receipts in the chunk, it must be empty, and all items placed here must remain until applying
-    /// txs/receipts ends. Then cache is removed automatically in `apply_transactions_with_optional_storage_proof` when
-    /// `TrieCachingStorage` is removed.
-    /// Note that for both caches key is the hash of value, so for the fixed key the value is unique.
-    pub(crate) chunk_cache: RefCell<HashMap<CryptoHash, Arc<[u8]>>>,
-    pub(crate) cache_mode: Cell<TrieCacheMode>,
 
     /// The entry point for the runtime to submit prefetch requests.
     pub(crate) prefetch_api: Option<PrefetchApi>,
 
-    /// Counts potentially expensive trie node reads which are served from disk in the worst case. Here we count reads
-    /// from DB or shard cache.
-    pub(crate) db_read_nodes: Cell<u64>,
-    /// Counts trie nodes retrieved from the chunk cache.
-    pub(crate) mem_read_nodes: Cell<u64>,
     // Counters tracking operations happening inside the shard cache.
     // Stored here to avoid overhead of looking them up on hot paths.
     metrics: TrieCacheInnerMetrics,
 }
 
 struct TrieCacheInnerMetrics {
-    chunk_cache_hits: GenericCounter<prometheus::core::AtomicU64>,
-    chunk_cache_misses: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_hits: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_misses: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_too_large: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_size: GenericGauge<prometheus::core::AtomicI64>,
-    chunk_cache_size: GenericGauge<prometheus::core::AtomicI64>,
     shard_cache_current_total_size: GenericGauge<prometheus::core::AtomicI64>,
     prefetch_hits: GenericCounter<prometheus::core::AtomicU64>,
     prefetch_pending: GenericCounter<prometheus::core::AtomicU64>,
@@ -441,14 +393,11 @@ impl TrieCachingStorage {
 
         let metrics_labels: [&str; 2] = [&shard_id, if is_view { "1" } else { "0" }];
         let metrics = TrieCacheInnerMetrics {
-            chunk_cache_hits: metrics::CHUNK_CACHE_HITS.with_label_values(&metrics_labels),
-            chunk_cache_misses: metrics::CHUNK_CACHE_MISSES.with_label_values(&metrics_labels),
             shard_cache_hits: metrics::SHARD_CACHE_HITS.with_label_values(&metrics_labels),
             shard_cache_misses: metrics::SHARD_CACHE_MISSES.with_label_values(&metrics_labels),
             shard_cache_too_large: metrics::SHARD_CACHE_TOO_LARGE
                 .with_label_values(&metrics_labels),
             shard_cache_size: metrics::SHARD_CACHE_SIZE.with_label_values(&metrics_labels),
-            chunk_cache_size: metrics::CHUNK_CACHE_SIZE.with_label_values(&metrics_labels),
             shard_cache_current_total_size: metrics::SHARD_CACHE_CURRENT_TOTAL_SIZE
                 .with_label_values(&metrics_labels),
             prefetch_hits: metrics::PREFETCH_HITS.with_label_values(&metrics_labels[..1]),
@@ -460,17 +409,7 @@ impl TrieCachingStorage {
             prefetch_retry: metrics::PREFETCH_RETRY.with_label_values(&metrics_labels[..1]),
             prefetch_conflict: metrics::PREFETCH_CONFLICT.with_label_values(&metrics_labels[..1]),
         };
-        TrieCachingStorage {
-            store,
-            shard_uid,
-            shard_cache,
-            cache_mode: Cell::new(TrieCacheMode::CachingShard),
-            prefetch_api,
-            chunk_cache: RefCell::new(Default::default()),
-            db_read_nodes: Cell::new(0),
-            mem_read_nodes: Cell::new(0),
-            metrics,
-        }
+        TrieCachingStorage { store, shard_uid, is_view, shard_cache, prefetch_api, metrics }
     }
 
     pub fn get_key_from_shard_uid_and_hash(shard_uid: ShardUId, hash: &CryptoHash) -> [u8; 40] {
@@ -479,33 +418,10 @@ impl TrieCachingStorage {
         key[8..].copy_from_slice(hash.as_ref());
         key
     }
-
-    fn inc_db_read_nodes(&self) {
-        self.db_read_nodes.set(self.db_read_nodes.get() + 1);
-    }
-
-    fn inc_mem_read_nodes(&self) {
-        self.mem_read_nodes.set(self.mem_read_nodes.get() + 1);
-    }
-
-    /// Set cache mode.
-    pub fn set_mode(&self, state: TrieCacheMode) {
-        self.cache_mode.set(state);
-    }
 }
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        self.metrics.chunk_cache_size.set(self.chunk_cache.borrow().len() as i64);
-        // Try to get value from chunk cache containing nodes with cheaper access. We can do it for any `TrieCacheMode`,
-        // because we charge for reading nodes only when `CachingChunk` mode is enabled anyway.
-        if let Some(val) = self.chunk_cache.borrow_mut().get(hash) {
-            self.metrics.chunk_cache_hits.inc();
-            self.inc_mem_read_nodes();
-            return Ok(val.clone());
-        }
-        self.metrics.chunk_cache_misses.inc();
-
         // Try to get value from shard cache containing most recently touched nodes.
         let mut guard = self.shard_cache.lock();
         self.metrics.shard_cache_size.set(guard.len() as i64);
@@ -579,9 +495,9 @@ impl TrieStorage for TrieCachingStorage {
                 }
 
                 // Insert value to shard cache, if its size is small enough.
-                // It is fine to have a size limit for shard cache and **not** have a limit for chunk cache, because key
+                // It is fine to have a size limit for shard cache and **not** have a limit for accounting cache, because key
                 // is always a value hash, so for each key there could be only one value, and it is impossible to have
-                // **different** values for the given key in shard and chunk caches.
+                // **different** values for the given key in shard and accounting caches.
                 if val.len() < TrieConfig::max_cached_value_size() {
                     let mut guard = self.shard_cache.lock();
                     guard.put(*hash, val.clone());
@@ -599,30 +515,11 @@ impl TrieStorage for TrieCachingStorage {
             }
         };
 
-        // Because node is not present in chunk cache, increment the nodes counter and optionally insert it into the
-        // chunk cache.
-        // Note that we don't have a size limit for values in the chunk cache. There are two reasons:
-        // - for nodes, value size is an implementation detail. If we change internal representation of a node (e.g.
-        // change `memory_usage` field from `RawTrieNodeWithSize`), this would have to be a protocol upgrade.
-        // - total size of all values is limited by the runtime fees. More thoroughly:
-        // - - number of nodes is limited by receipt gas limit / touching trie node fee ~= 500 Tgas / 16 Ggas = 31_250;
-        // - - size of trie keys and values is limited by receipt gas limit / lowest per byte fee
-        // (`storage_read_value_byte`) ~= (500 * 10**12 / 5611005) / 2**20 ~= 85 MB.
-        // All values are given as of 16/03/2022. We may consider more precise limit for the chunk cache as well.
-        self.inc_db_read_nodes();
-        if let TrieCacheMode::CachingChunk = self.cache_mode.get() {
-            self.chunk_cache.borrow_mut().insert(*hash, val.clone());
-        };
-
         Ok(val)
     }
 
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
         Some(self)
-    }
-
-    fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        TrieNodesCount { db_reads: self.db_read_nodes.get(), mem_reads: self.mem_read_nodes.get() }
     }
 }
 
@@ -668,10 +565,6 @@ impl TrieDBStorage {
 impl TrieStorage for TrieDBStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         read_node_from_db(&self.store, self.shard_uid, hash)
-    }
-
-    fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        unimplemented!();
     }
 }
 

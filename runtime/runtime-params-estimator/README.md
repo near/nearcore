@@ -52,7 +52,7 @@ cargo run -p runtime-params-estimator -- replay my_trace.log cache-stats
   STORAGE WRITE 151412 requests for a total of  2512012 B
   TRIE NODES    8878276 /375708 /27383  (chunk-cache/shard-cache/DB)
   SHARD CACHE         93.21% hit rate,  93.21% if removing 15 too large nodes from total
-  CHUNK CACHE         95.66% hit rate,  99.69% if removing 375708 shard cache hits from total
+  ACCOUNTING CACHE         95.66% hit rate,  99.69% if removing 375708 shard cache hits from total
 ```
 
 For a list of all options, run `cargo run -p runtime-params-estimator -- replay --help`.
