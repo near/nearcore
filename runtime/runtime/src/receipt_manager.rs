@@ -3,12 +3,15 @@ use near_primitives::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
+use near_primitives::errors::RuntimeError;
 use near_primitives::receipt::DataReceiver;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
+use near_vm_runner::logic::HostError;
 use near_vm_runner::logic::VMLogicError;
-use near_vm_runner::logic::{External, HostError};
+
+use crate::config::safe_add_gas;
 
 /// near_vm_runner::types is not public.
 type ReceiptIndex = u64;
@@ -339,5 +342,145 @@ impl ReceiptManager {
             Action::DeleteAccount(DeleteAccountAction { beneficiary_id }),
         );
         Ok(())
+    }
+
+    /// Distribute the provided `gas` between receipts managed by this `ReceiptManager` according
+    /// to their assigned weights.
+    pub(super) fn distribute_gas(&mut self, unused_gas: Gas) -> Result<(), RuntimeError> {
+        let ReceiptManager { action_receipts, gas_weights } = self;
+        let gas_weight_sum: u128 = gas_weights.iter().map(|(_, gv)| u128::from(gv.0)).sum();
+        if gas_weight_sum == 0 || unused_gas == 0 {
+            return Ok(());
+        }
+        let mut distributed = 0u64;
+        let mut gas_weight_iterator = gas_weights.iter().peekable();
+        loop {
+            let Some((index, weight)) = gas_weight_iterator.next() else { break };
+            let FunctionCallActionIndex { receipt_index, action_index } = *index;
+            let Some(Action::FunctionCall(action)) =
+                action_receipts
+                    .get_mut(receipt_index)
+                    .and_then(|(_, receipt)| receipt.actions.get_mut(action_index))
+                else {
+                    panic!(
+                        "Invalid function call index (promise_index={receipt_index}, action_index={action_index})",
+                    );
+                };
+            let to_assign = (unused_gas as u128 * weight.0 as u128 / gas_weight_sum) as u64;
+            action.gas = safe_add_gas(action.gas, to_assign)?;
+            distributed = distributed
+                .checked_add(to_assign)
+                .unwrap_or_else(|| panic!("gas computation overflowed"));
+            if gas_weight_iterator.peek().is_none() {
+                action.gas = safe_add_gas(action.gas, unused_gas.wrapping_sub(distributed))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use near_primitives::transaction::{Action, FunctionCallAction};
+    use near_primitives_core::types::{Gas, GasWeight};
+
+    #[track_caller]
+    fn function_call_weight_verify(function_calls: &[(Gas, u64, Gas)], after_distribute: bool) {
+        let mut gas_limit = 10_000_000_000u64;
+
+        // Schedule all function calls
+        let mut receipt_manager = super::ReceiptManager::default();
+        for &(static_gas, gas_weight, _) in function_calls {
+            let index = receipt_manager
+                .create_receipt(vec![], vec![], "rick.test".parse().unwrap())
+                .unwrap();
+            gas_limit = gas_limit.saturating_sub(static_gas);
+            receipt_manager
+                .append_action_function_call_weight(
+                    index,
+                    vec![],
+                    vec![],
+                    0,
+                    static_gas,
+                    GasWeight(gas_weight),
+                )
+                .unwrap();
+        }
+        let accessor: fn(&(Gas, u64, Gas)) -> Gas = if after_distribute {
+            receipt_manager.distribute_gas(gas_limit).unwrap();
+            |(_, _, expected)| *expected
+        } else {
+            |(static_gas, _, _)| *static_gas
+        };
+
+        // Assert expected amount of gas was associated with the action
+        let mut function_call_gas = 0;
+        let mut function_calls_iter = function_calls.iter();
+        for (_, receipt) in receipt_manager.action_receipts {
+            for action in receipt.actions {
+                if let Action::FunctionCall(FunctionCallAction { gas, .. }) = action {
+                    let reference = function_calls_iter.next().unwrap();
+                    assert_eq!(gas, accessor(reference));
+                    function_call_gas += gas;
+                }
+            }
+        }
+
+        if after_distribute {
+            // Verify that all gas was consumed (assumes at least one ratio is provided)
+            assert_eq!(function_call_gas, 10_000_000_000u64);
+        }
+    }
+
+    #[track_caller]
+    fn function_call_weight_check(function_calls: &[(Gas, u64, Gas)]) {
+        function_call_weight_verify(function_calls, false);
+        function_call_weight_verify(function_calls, true);
+    }
+
+    #[test]
+    fn function_call_weight_basic_cases_test() {
+        // Following tests input are in the format (static gas, gas weight, expected gas)
+        // and the gas limit is `10_000_000_000`
+
+        // Single function call
+        function_call_weight_check(&[(0, 1, 10_000_000_000)]);
+
+        // Single function with static gas
+        function_call_weight_check(&[(888, 1, 10_000_000_000)]);
+
+        // Large weight
+        function_call_weight_check(&[(0, 88888, 10_000_000_000)]);
+
+        // Weight larger than gas limit
+        function_call_weight_check(&[(0, 11u64.pow(14), 10_000_000_000)]);
+
+        // Split two
+        function_call_weight_check(&[(0, 3, 6_000_000_000), (0, 2, 4_000_000_000)]);
+
+        // Split two with static gas
+        function_call_weight_check(&[(1_000_000, 3, 5_998_600_000), (3_000_000, 2, 4_001_400_000)]);
+
+        // Many different gas weights
+        function_call_weight_check(&[
+            (1_000_000, 3, 2_699_800_000),
+            (3_000_000, 2, 1_802_200_000),
+            (0, 1, 899_600_000),
+            (1_000_000_000, 0, 1_000_000_000),
+            (0, 4, 3_598_400_000),
+        ]);
+
+        // Weight over u64 bounds
+        function_call_weight_check(&[(0, u64::MAX, 9_999_999_999), (0, 1000, 1)]);
+
+        // Weight over gas limit with three function calls
+        function_call_weight_check(&[
+            (0, 10_000_000_000, 4_999_999_999),
+            (0, 1, 0),
+            (0, 10_000_000_000, 5_000_000_001),
+        ]);
+
+        // Weights with one zero and one non-zero
+        function_call_weight_check(&[(0, 0, 0), (0, 1, 10_000_000_000)])
     }
 }

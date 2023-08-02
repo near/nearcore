@@ -1,4 +1,3 @@
-use crate::logic::mocks::mock_external::MockAction;
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
 use crate::logic::types::Gas;
@@ -117,93 +116,6 @@ fn test_hit_prepaid_gas_limit() {
 
     assert_eq!(outcome.burnt_gas, gas_limit);
     assert_eq!(outcome.used_gas, gas_limit);
-}
-
-#[track_caller]
-fn function_call_weight_verify(function_calls: &[(Gas, u64, Gas)], after_distribute: bool) {
-    let gas_limit = 10_000_000_000;
-    let mut logic_builder = VMLogicBuilder::free();
-    logic_builder.config.limit_config.max_gas_burnt = gas_limit;
-    logic_builder.context.prepaid_gas = gas_limit;
-    let mut logic = logic_builder.build();
-
-    // Schedule all function calls
-    for &(static_gas, gas_weight, _) in function_calls {
-        let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
-        promise_batch_action_function_call_weight(&mut logic, index, 0, static_gas, gas_weight)
-            .expect("batch action function call should succeed");
-    }
-    let (outcome, accessor): (_, fn(&(Gas, u64, Gas)) -> Gas) = if after_distribute {
-        (Some(logic.compute_outcome()), |(_, _, expected)| *expected)
-    } else {
-        (None, |(static_gas, _, _)| *static_gas)
-    };
-
-    // Assert expected amount of gas was associated with the action
-    let function_call_gas = logic_builder.ext.action_log.iter().filter_map(|a| {
-        let MockAction::FunctionCallWeight { prepaid_gas, .. } = a else { return None };
-        Some(prepaid_gas)
-    });
-    for (prepaid_gas, fc) in function_call_gas.zip(function_calls) {
-        assert_eq!(*prepaid_gas, accessor(fc));
-    }
-
-    if let Some(outcome) = outcome {
-        // Verify that all gas was consumed (assumes at least one ratio is provided)
-        assert_eq!(outcome.used_gas, gas_limit);
-    }
-}
-
-#[track_caller]
-fn function_call_weight_check(function_calls: &[(Gas, u64, Gas)]) {
-    function_call_weight_verify(function_calls, false);
-    function_call_weight_verify(function_calls, true);
-}
-
-#[test]
-fn function_call_weight_basic_cases_test() {
-    // Following tests input are in the format (static gas, gas weight, expected gas)
-    // and the gas limit is `10_000_000_000`
-
-    // Single function call
-    function_call_weight_check(&[(0, 1, 10_000_000_000)]);
-
-    // Single function with static gas
-    function_call_weight_check(&[(888, 1, 10_000_000_000)]);
-
-    // Large weight
-    function_call_weight_check(&[(0, 88888, 10_000_000_000)]);
-
-    // Weight larger than gas limit
-    function_call_weight_check(&[(0, 11u64.pow(14), 10_000_000_000)]);
-
-    // Split two
-    function_call_weight_check(&[(0, 3, 6_000_000_000), (0, 2, 4_000_000_000)]);
-
-    // Split two with static gas
-    function_call_weight_check(&[(1_000_000, 3, 5_998_600_000), (3_000_000, 2, 4_001_400_000)]);
-
-    // Many different gas weights
-    function_call_weight_check(&[
-        (1_000_000, 3, 2_699_800_000),
-        (3_000_000, 2, 1_802_200_000),
-        (0, 1, 899_600_000),
-        (1_000_000_000, 0, 1_000_000_000),
-        (0, 4, 3_598_400_000),
-    ]);
-
-    // Weight over u64 bounds
-    function_call_weight_check(&[(0, u64::MAX, 9_999_999_999), (0, 1000, 1)]);
-
-    // Weight over gas limit with three function calls
-    function_call_weight_check(&[
-        (0, 10_000_000_000, 4_999_999_999),
-        (0, 1, 0),
-        (0, 10_000_000_000, 5_000_000_001),
-    ]);
-
-    // Weights with one zero and one non-zero
-    function_call_weight_check(&[(0, 0, 0), (0, 1, 10_000_000_000)])
 }
 
 #[test]

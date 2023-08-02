@@ -3,7 +3,7 @@ use crate::config::{
     total_prepaid_send_fees, RuntimeConfig,
 };
 use crate::ext::{ExternalError, RuntimeExt};
-use crate::receipt_manager::{self, FunctionCallActionIndex, ReceiptManager};
+use crate::receipt_manager::ReceiptManager;
 use crate::{metrics, ActionResult, ApplyState};
 use borsh::BorshSerialize;
 use near_crypto::PublicKey;
@@ -156,48 +156,10 @@ pub(crate) fn execute_function_call(
         }
     })?;
 
-    'distribute_gas: {
-        if view_config.is_some() {
-            break 'distribute_gas;
-        }
-        let receipt_manager = &mut runtime_ext.receipt_manager;
-        let ReceiptManager { action_receipts, gas_weights } = receipt_manager;
-        let gas_weight_sum: u128 = gas_weights.iter().map(|(_, gv)| u128::from(gv.0)).sum();
+    if !view_config.is_some() {
         let unused_gas = function_call.gas.saturating_sub(outcome.used_gas);
-        if gas_weight_sum == 0 || unused_gas == 0 {
-            break 'distribute_gas;
-        }
-        let mut distributed = 0u64;
-        let mut gas_weight_iterator = gas_weights.iter().peekable();
-        loop {
-            let Some((index, weight)) = gas_weight_iterator.next() else { break };
-            let FunctionCallActionIndex { receipt_index, action_index } = *index;
-            let Some(Action::FunctionCall(action)) =
-                action_receipts
-                .get_mut(receipt_index)
-                .and_then(|(_, receipt)| receipt.actions.get_mut(action_index))
-            else {
-                panic!(
-                    "Invalid function call index (promise_index={receipt_index}, action_index={action_index})",
-                );
-            };
-            let to_assign = (unused_gas as u128 * weight.0 as u128 / gas_weight_sum) as u64;
-            action.gas = action
-                .gas
-                .checked_add(to_assign)
-                .unwrap_or_else(|| panic!("gas computation overflowed"));
-            distributed = distributed
-                .checked_add(to_assign)
-                .unwrap_or_else(|| panic!("gas computation overflowed"));
-            if gas_weight_iterator.peek().is_none() {
-                action.gas = action
-                    .gas
-                    .checked_add(unused_gas.wrapping_sub(distributed))
-                    .unwrap_or_else(|| panic!("gas computation overflowed"));
-            }
-        }
+        runtime_ext.receipt_manager.distribute_gas(unused_gas)?;
     }
-
     Ok(outcome)
 }
 

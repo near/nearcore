@@ -260,46 +260,6 @@ fn function_call_weight_contract() -> ContractCode {
 }
 
 #[test]
-fn attach_unspent_gas_but_burn_all_gas() {
-    let prepaid_gas = 100 * 10u64.pow(12);
-
-    let mut context = create_context(vec![]);
-    context.prepaid_gas = prepaid_gas;
-
-    let mut config = VMConfig::test();
-    config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
-
-    with_vm_variants(&config, |vm_kind: VMKind| {
-        let code = function_call_weight_contract();
-        let mut external = MockedExternal::new();
-        let fees = RuntimeFeesConfig::test();
-        let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-
-        let outcome = runtime
-            .run(
-                &code,
-                "attach_unspent_gas_but_burn_all_gas",
-                &mut external,
-                context.clone(),
-                &fees,
-                &[],
-                LATEST_PROTOCOL_VERSION,
-                None,
-            )
-            .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
-
-        let err = outcome.aborted.as_ref().unwrap();
-        assert!(matches!(err, FunctionCallError::HostError(HostError::GasLimitExceeded)));
-        match &external.action_log[..] {
-            [_, MockAction::FunctionCallWeight { prepaid_gas: gas, .. }] => {
-                assert!(*gas > prepaid_gas / 3)
-            }
-            other => panic!("unexpected actions: {other:?}"),
-        }
-    });
-}
-
-#[test]
 fn attach_unspent_gas_but_use_all_gas() {
     let mut context = create_context(vec![]);
     context.prepaid_gas = 100 * 10u64.pow(12);

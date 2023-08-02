@@ -1,15 +1,13 @@
-use crate::receipt_manager::{FunctionCallActionIndex, ReceiptManager};
+use crate::receipt_manager::ReceiptManager;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{
     AccountId, Balance, EpochId, EpochInfoProvider, Gas, TrieCacheMode, TrieNodesCount,
 };
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
-use near_primitives_core::types::GasWeight;
 use near_store::{get_code, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
