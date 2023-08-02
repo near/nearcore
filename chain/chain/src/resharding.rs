@@ -44,6 +44,7 @@ pub struct StateSplitResponse {
 }
 
 // Return iterate over flat storage to get key, value. Used later in the get_trie_update_batch function.
+#[allow(dead_code)]
 fn get_flat_storage_iter<'a>(
     store: &'a Store,
     shard_uid: ShardUId,
