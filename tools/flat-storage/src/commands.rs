@@ -425,6 +425,9 @@ impl FlatStorageCommand {
                 let epoch_id = epoch_manager.get_epoch_id(&cmd.new_flat_head_block_hash).unwrap();
                 let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &epoch_id).unwrap();
                 let block = chain.get_block(&cmd.new_flat_head_block_hash).unwrap();
+
+                tracing::info!(?epoch_id, ?shard_uid, header = ?block.header());
+
                 chain.update_flat_storage_for_block(&block, shard_uid).unwrap();
             }
         }
