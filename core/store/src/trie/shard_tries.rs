@@ -166,12 +166,7 @@ impl ShardTries {
             (0..num_shards as u32).map(|shard_id| ShardUId { shard_id, version }).collect();
         let trie_config = TrieConfig::default();
 
-        ShardTries::new(
-            store.clone(),
-            trie_config,
-            &shard_uids,
-            FlatStorageManager::test(store, &shard_uids, CryptoHash::default()),
-        )
+        ShardTries::new(store.clone(), trie_config, &shard_uids, FlatStorageManager::new(store))
     }
 
     /// Create caches for all shards according to the trie config.
@@ -1039,7 +1034,7 @@ mod test {
             store.clone(),
             trie_config,
             &shard_uids,
-            FlatStorageManager::test(store, &shard_uids, CryptoHash::default()),
+            FlatStorageManager::new(store),
         );
 
         let trie_caches = &trie.0.caches;
@@ -1088,7 +1083,7 @@ mod test {
             store.clone(),
             trie_config,
             &shard_uids,
-            FlatStorageManager::test(store, &shard_uids, CryptoHash::default()),
+            FlatStorageManager::new(store),
         );
 
         let trie_caches = &trie.0.caches;

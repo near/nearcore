@@ -74,8 +74,7 @@ impl<'c> EstimatorContext<'c> {
         let mut trie_config = near_store::TrieConfig::default();
         trie_config.enable_receipt_prefetching = true;
 
-        let flat_head = CryptoHash::hash_borsh(0usize);
-        let flat_storage_manager = FlatStorageManager::test(store.clone(), &shard_uids, flat_head);
+        let flat_storage_manager = FlatStorageManager::new(store.clone());
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uids[0]).unwrap();
         self.generate_deltas(&flat_storage);
 

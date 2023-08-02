@@ -335,8 +335,16 @@ mod tests {
         ];
         populate_flat_store(&store, shard_uid, &values);
 
-        let flat_storage_manager =
-            FlatStorageManager::test(store.clone(), &vec![shard_uid], CryptoHash::default());
+        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let mut store_update = store.store_update();
+        flat_storage_manager.set_flat_storage_for_genesis(
+            &mut store_update,
+            shard_uid,
+            &CryptoHash::default(),
+            0,
+        );
+        store_update.commit().unwrap();
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
         inline_flat_state_values(
             store.clone(),
             &flat_storage_manager,
@@ -378,8 +386,16 @@ mod tests {
         ];
         populate_flat_store(&store, shard_uid, &values);
 
-        let flat_storage_manager =
-            FlatStorageManager::test(store.clone(), &vec![shard_uid], CryptoHash::default());
+        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let mut store_update = store.store_update();
+        flat_storage_manager.set_flat_storage_for_genesis(
+            &mut store_update,
+            shard_uid,
+            &CryptoHash::default(),
+            0,
+        );
+        store_update.commit().unwrap();
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
         // Lock flat head.
         assert!(flat_storage_manager.set_flat_state_updates_mode(false));
         // Start a separate thread that should block waiting for the flat head.
@@ -419,8 +435,16 @@ mod tests {
         ];
         populate_flat_store(&store, shard_uid, &values);
 
-        let flat_storage_manager =
-            FlatStorageManager::test(store.clone(), &vec![shard_uid], CryptoHash::default());
+        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let mut store_update = store.store_update();
+        flat_storage_manager.set_flat_storage_for_genesis(
+            &mut store_update,
+            shard_uid,
+            &CryptoHash::default(),
+            0,
+        );
+        store_update.commit().unwrap();
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
         // Lock flat head.
         assert!(flat_storage_manager.set_flat_state_updates_mode(false));
         // Start a separate thread that should block waiting for the flat head.
