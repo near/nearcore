@@ -2306,7 +2306,7 @@ impl Chain {
                         // where during postprocessing (5) we call `update_flat_head(3)` and then for (6) we can
                         // call `update_flat_head(2)` because (2) will be last visible final block from it.
                         // In such case, just log an error.
-                        debug!(target: "chain", "Cannot update flat head to {:?}: {:?}", new_flat_head, err);
+                        debug!(target: "chain", ?new_flat_head, ?err, ?shard_uid, block_hash = ?block.header().hash(), "Cannot update flat head");
                     }
                     _ => {
                         // All other errors are unexpected, so we panic.
