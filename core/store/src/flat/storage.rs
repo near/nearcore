@@ -84,7 +84,7 @@ impl FlatStorageInner {
 
     /// Get sequence of blocks `target_block_hash` (inclusive) to flat head (exclusive)
     /// in backwards chain order. Returns an error if there is no path between them.
-    fn get_blocks_to_head(
+    pub fn get_blocks_to_head(
         &self,
         target_block_hash: &CryptoHash,
     ) -> Result<Vec<CryptoHash>, FlatStorageError> {
@@ -449,9 +449,14 @@ impl FlatStorage {
         Ok(())
     }
 
-    pub(crate) fn get_head_hash(&self) -> CryptoHash {
+    pub fn get_head_hash(&self) -> CryptoHash {
         let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
         guard.flat_head.hash
+    }
+
+    pub fn get_head_height(&self) -> BlockHeight {
+        let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
+        guard.flat_head.height
     }
 
     pub(crate) fn shard_uid(&self) -> ShardUId {

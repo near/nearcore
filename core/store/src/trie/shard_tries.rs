@@ -90,6 +90,11 @@ impl StateSnapshot {
                         }
                         Err(err) => {
                             tracing::error!(target: "state_snapshot", ?shard_uid, ?err, ?current_flat_head, ?desired_flat_head, "Failed to move FlatStorage head of the snapshot");
+                            if let Err(err) =
+                                flat_storage_manager.remove_flat_storage_for_shard(*shard_uid)
+                            {
+                                tracing::error!(target: "state_snapshot", ?shard_uid, ?err, "But failed to reset FlatStorage too");
+                            }
                         }
                     }
                 } else {

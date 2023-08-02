@@ -2274,6 +2274,22 @@ impl Chain {
             if new_flat_head == CryptoHash::default() {
                 new_flat_head = *self.genesis.hash();
             }
+
+            // Compare heights of the current and the new flat head.
+            // The new flat head must not be in the past of the current flat head.
+            let new_flat_head_header = self
+                .get_block_header(&new_flat_head)
+                .expect("Missing block that needs to be flat head");
+            let new_flat_head_height = new_flat_head_header.height();
+            let current_flat_head = flat_storage.get_head_hash();
+            let current_flat_head_header =
+                self.get_block_header(&current_flat_head).expect("Missing block that is flat head");
+            let current_flat_head_height = current_flat_head_header.height();
+            assert_eq!(current_flat_head_height, flat_storage.get_head_height());
+            if new_flat_head_height < current_flat_head_height {
+                panic!("Cannot update flat head to a block in the past. Shard {shard_uid:?}, new_flat_head: {new_flat_head:?} @ {new_flat_head_height}, current_flat_head: {current_flat_head:?} @ {current_flat_head_height}, block_hash: {:?}", block.header().hash());
+            }
+
             // Try to update flat head.
             let res = flat_storage.update_flat_head(&new_flat_head, false);
             tracing::debug!(target: "storage", ?res);
