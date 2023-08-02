@@ -2259,11 +2259,12 @@ impl Chain {
     /// - merge deltas from current flat storage head to new one;
     /// - update flat storage head to the hash of final block visible from given one;
     /// - remove info about unreachable blocks from memory.
-    fn update_flat_storage_for_block(
+    pub fn update_flat_storage_for_block(
         &mut self,
         block: &Block,
         shard_uid: ShardUId,
     ) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "storage", "update_flat_storage_for_block", block_hash = ?block.header().hash(), ?shard_uid).entered();
         if let Some(flat_storage) = self
             .runtime_adapter
             .get_flat_storage_manager()

@@ -161,7 +161,11 @@ impl FlatStorageInner {
         block_hash: CryptoHash,
         strict: bool,
     ) -> Result<CryptoHash, FlatStorageError> {
+        let _span =
+            tracing::debug_span!(target: "storage", "get_new_flat_head", ?block_hash, strict)
+                .entered();
         if strict {
+            tracing::debug!(target: "storage", strict_result = ?block_hash);
             return Ok(block_hash);
         }
 
@@ -174,11 +178,13 @@ impl FlatStorageInner {
         // state changes between the requested flat head and the chosen head to
         // make flat state snapshots function properly.
         while blocks_with_changes < Self::BLOCKS_WITH_CHANGES_FLAT_HEAD_GAP {
+            tracing::debug!(target: "storage", blocks_with_changes, ?new_head, ?current_flat_head_hash);
             if new_head == current_flat_head_hash {
                 return Ok(current_flat_head_hash);
             }
             let metadata =
                 self.deltas.get(&new_head).ok_or(missing_delta_error(&new_head))?.metadata;
+            tracing::debug!(target: "storage", ?metadata);
             new_head = match metadata.prev_block_with_changes {
                 None => {
                     // The block has flat state changes.
@@ -197,6 +203,7 @@ impl FlatStorageInner {
                 }
             };
         }
+        tracing::debug!(target: "storage", non_strict_result = ?new_head);
         Ok(new_head)
     }
 
@@ -323,27 +330,34 @@ impl FlatStorage {
         strict: bool,
     ) -> Result<(), FlatStorageError> {
         let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
+
+        let shard_uid = guard.shard_uid;
+        let shard_id = shard_uid.shard_id();
+        let _span = tracing::debug_span!(target: "storage", "update_flat_head", strict, ?block_hash, ?shard_uid).entered();
+
         if !guard.move_head_enabled {
+            tracing::debug!(target: "store", "Disabled moving flat head");
             return Ok(());
         }
 
         let new_head = guard.get_new_flat_head(*block_hash, strict)?;
+        tracing::debug!(target: "store", ?new_head);
         if new_head == guard.flat_head.hash {
             return Ok(());
         }
 
-        let shard_uid = guard.shard_uid;
-        let shard_id = shard_uid.shard_id();
-
         tracing::debug!(target: "store", flat_head = ?guard.flat_head.hash, ?new_head, shard_id, "Moving flat head");
         let blocks = guard.get_blocks_to_head(&new_head)?;
+        tracing::debug!(target: "store", flat_head = ?guard.flat_head.hash, ?new_head, shard_id, ?blocks, "Moving flat head: blocks");
 
         for block_hash in blocks.into_iter().rev() {
+            tracing::debug!(target: "store", ?block_hash);
             let mut store_update = StoreUpdate::new(guard.store.storage.clone());
             // Delta must exist because flat storage is locked and we could retrieve
             // path from old to new head. Otherwise we return internal error.
             let changes = store_helper::get_delta_changes(&guard.store, shard_uid, block_hash)?
                 .ok_or_else(|| missing_delta_error(&block_hash))?;
+            tracing::debug!(target: "store", ?block_hash, ?changes);
             changes.apply_to_flat_state(&mut store_update, guard.shard_uid);
             let metadata = guard
                 .deltas
@@ -352,6 +366,7 @@ impl FlatStorage {
                 .metadata;
             let block = metadata.block;
             let block_height = block.height;
+            tracing::debug!(target: "store", ?block_hash, block_height, ?metadata);
             store_helper::set_flat_storage_status(
                 &mut store_update,
                 shard_uid,
@@ -374,13 +389,13 @@ impl FlatStorage {
                 .map(|(block_hash, _)| block_hash)
                 .cloned()
                 .collect();
-            for hash in hashes_to_remove {
-                store_helper::remove_delta(&mut store_update, shard_uid, hash);
+            for hash in &hashes_to_remove {
+                store_helper::remove_delta(&mut store_update, shard_uid, *hash);
                 guard.deltas.remove(&hash);
             }
 
             store_update.commit().unwrap();
-            debug!(target: "store", %shard_id, %block_hash, %block_height, "Moved flat storage head");
+            tracing::debug!(target: "store", shard_id, ?block_hash, block_height, deltas_removed = hashes_to_remove.len(), "Moved flat storage head");
         }
         guard.update_delta_metrics();
 
