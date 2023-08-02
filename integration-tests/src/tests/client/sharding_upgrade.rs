@@ -1,8 +1,11 @@
 use borsh::BorshSerialize;
 use near_client::{Client, ProcessTxResponse};
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 
 use crate::tests::client::process_blocks::set_block_protocol_version;
+use assert_matches::assert_matches;
 use near_chain::near_chain_primitives::Error;
+use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::{run_catchup, TestEnv};
@@ -19,20 +22,17 @@ use near_primitives::transaction::{
 use near_primitives::types::{BlockHeight, NumShards, ProtocolVersion, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolFeature;
-use near_primitives::views::QueryRequest;
-use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus};
-use near_primitives_core::version::PROTOCOL_VERSION;
+#[cfg(not(feature = "protocol_feature_simple_nightshade_v2"))]
+use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryRequest};
 use near_store::test_utils::{gen_account, gen_unique_accounts};
 use nearcore::config::GenesisExt;
 use nearcore::NEAR_BASE;
-use tracing::debug;
-
-use assert_matches::assert_matches;
-use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
+use tracing::debug;
 
 use super::utils::TestEnvNightshadeSetupExt;
 
@@ -48,32 +48,43 @@ const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion = PROTOCOL_VERSION 
 
 const P_CATCHUP: f64 = 0.2;
 
+enum ReshardingType {
+    // In the V0->V1 resharding outgoing receipts are reassigned to receiver.
+    V1,
+    // In the V1->V2 resharding outgoing receipts are reassigned to lowest index child.
+    #[allow(unused)]
+    V2,
+}
+
 // Return the expected number of shards.
-// The number of shards depends on height and whether shard layout V2 is enabled.
-fn get_expected_shards_num(epoch_length: u64, height: BlockHeight, testing_v2: bool) -> u64 {
-    if height < 2 * epoch_length {
-        return 1;
-    }
-    if height < 4 * epoch_length {
-        return 4;
-    }
-    if testing_v2 && PROTOCOL_VERSION >= SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION {
-        // V2 is enabled, there should be 5 shards.
-        return 5;
-    } else {
-        // V2 is not enabled we stay at 4 shards forever.
-        return 4;
-    }
+fn get_expected_shards_num(
+    epoch_length: u64,
+    height: BlockHeight,
+    resharding_type: &ReshardingType,
+) -> u64 {
+    match resharding_type {
+        ReshardingType::V1 => {
+            if height < 2 * epoch_length {
+                return 1;
+            } else {
+                return 4;
+            }
+        }
+        ReshardingType::V2 => {
+            if height < 2 * epoch_length {
+                return 4;
+            } else {
+                return 5;
+            }
+        }
+    };
 }
 
 /// Test environment prepared for testing the sharding upgrade.
-/// Epoch 0, blocks 1-5  : 1 shard
-/// Epoch 1, blocks 6-10 : 1 shard, state split happens
-/// Epoch 2: blocks 10-15: 4 shards, shard layout upgrades to simple_nightshade_layout,
-///
-/// If V2 is enabled the test continues:
-/// Epoch 3: blocks 16-20: 4 shards, state split happens
-/// Epoch 4: blocks 21-25: 5 shards, shard layout upgrades to simple_nightshade_layout_v2
+/// Epoch 0, blocks 1-5  : genesis shard layout
+/// Epoch 1, blocks 6-10 : genesis shard layout, state split happens
+/// Epoch 2: blocks 10-15: target shard layout, shard layout is upgraded
+/// Epoch 3: blocks 16-20: target shard layout,
 ///
 /// Note: if the test is extended to more epochs, garbage collection will
 /// kick in and delete data that is checked at the end of the test.
@@ -88,21 +99,26 @@ struct TestShardUpgradeEnv {
 }
 
 impl TestShardUpgradeEnv {
-    fn new(
+    fn new_with_protocol_version(
         epoch_length: u64,
         num_validators: usize,
         num_clients: usize,
         num_init_accounts: usize,
         gas_limit: Option<u64>,
+        genesis_protocol_version: ProtocolVersion,
     ) -> Self {
         let mut rng = thread_rng();
         let validators: Vec<AccountId> =
             (0..num_validators).map(|i| format!("test{}", i).parse().unwrap()).collect();
-        let initial_accounts =
-            [validators, gen_unique_accounts(&mut rng, num_init_accounts, num_init_accounts)]
-                .concat();
-        let genesis =
-            setup_genesis(epoch_length, num_validators as u64, initial_accounts.clone(), gas_limit);
+        let other_accounts = gen_unique_accounts(&mut rng, num_init_accounts, num_init_accounts);
+        let initial_accounts = [validators, other_accounts].concat();
+        let genesis = setup_genesis(
+            epoch_length,
+            num_validators as u64,
+            initial_accounts.clone(),
+            gas_limit,
+            genesis_protocol_version,
+        );
         let chain_genesis = ChainGenesis::new(&genesis);
         let env = TestEnv::builder(chain_genesis)
             .clients_count(num_clients)
@@ -119,6 +135,23 @@ impl TestShardUpgradeEnv {
             init_txs: vec![],
             txs_by_height: BTreeMap::new(),
         }
+    }
+
+    fn new(
+        epoch_length: u64,
+        num_validators: usize,
+        num_clients: usize,
+        num_init_accounts: usize,
+        gas_limit: Option<u64>,
+    ) -> Self {
+        Self::new_with_protocol_version(
+            epoch_length,
+            num_validators,
+            num_clients,
+            num_init_accounts,
+            gas_limit,
+            SIMPLE_NIGHTSHADE_PROTOCOL_VERSION - 1,
+        )
     }
 
     /// `init_txs` are added before any block is produced
@@ -138,7 +171,7 @@ impl TestShardUpgradeEnv {
     ///
     /// please also see the step_impl for changing the protocol version
     fn step(&mut self, p_drop_chunk: f64) {
-        self.step_impl(p_drop_chunk, SIMPLE_NIGHTSHADE_PROTOCOL_VERSION, false);
+        self.step_impl(p_drop_chunk, SIMPLE_NIGHTSHADE_PROTOCOL_VERSION, &ReshardingType::V1);
     }
 
     /// produces and processes the next block also checks that all accounts in
@@ -151,13 +184,14 @@ impl TestShardUpgradeEnv {
         &mut self,
         p_drop_chunk: f64,
         protocol_version: ProtocolVersion,
-        testing_v2: bool,
+        resharding_type: &ReshardingType,
     ) {
         let env = &mut self.env;
         let mut rng = thread_rng();
         let head = env.clients[0].chain.head().unwrap();
         let height = head.height + 1;
-        let expected_num_shards = get_expected_shards_num(self.epoch_length, height, testing_v2);
+        let expected_num_shards =
+            get_expected_shards_num(self.epoch_length, height, resharding_type);
 
         tracing::debug!(target: "test", height, expected_num_shards, "step");
 
@@ -179,12 +213,21 @@ impl TestShardUpgradeEnv {
         // it when we are producing the block at `height`
         if let Some(txs) = self.txs_by_height.get(&(height + 1)) {
             for tx in txs {
+                let mut response_valid_count = 0;
+                let mut response_routed_count = 0;
                 for j in 0..self.num_validators {
-                    assert_eq!(
-                        env.clients[j].process_tx(tx.clone(), false, false),
-                        ProcessTxResponse::ValidTx
-                    );
+                    let response = env.clients[j].process_tx(tx.clone(), false, false);
+                    tracing::debug!(target: "test", client=j, tx=?tx.get_hash(), ?response, "process tx");
+                    match response {
+                        ProcessTxResponse::ValidTx => response_valid_count += 1,
+                        ProcessTxResponse::RequestRouted => response_routed_count += 1,
+                        response => {
+                            panic!("invalid tx response {response:?}");
+                        }
+                    }
                 }
+                assert_ne!(response_valid_count, 0);
+                assert_eq!(response_valid_count + response_routed_count, self.num_validators);
             }
         }
 
@@ -407,19 +450,34 @@ impl TestShardUpgradeEnv {
             .get_shard_layout_from_prev_block(&head.last_block_hash)
             .unwrap();
         let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
-            if chunk_header.height_included() == block.header().height() {
-                let outgoing_receipts = env.clients[0]
+            if chunk_header.height_included() != block.header().height() {
+                continue;
+            }
+            let shard_id = shard_id as ShardId;
+
+            for (i, me) in env.validators.iter().enumerate() {
+                let client = &mut env.clients[i];
+                let care_about_shard = client.shard_tracker.care_about_shard(
+                    Some(me),
+                    &head.prev_block_hash,
+                    shard_id,
+                    true,
+                );
+                if !care_about_shard {
+                    continue;
+                }
+
+                let outgoing_receipts = client
                     .chain
                     .mut_store()
-                    .get_outgoing_receipts(&head.last_block_hash, shard_id as ShardId)
+                    .get_outgoing_receipts(&head.last_block_hash, shard_id)
                     .unwrap()
                     .clone();
                 for receipt in outgoing_receipts.iter() {
-                    let target_shard_id = env.clients[0]
-                        .chain
-                        .get_shard_id_for_receipt_id(&receipt.receipt_id)
-                        .unwrap();
+                    let target_shard_id =
+                        client.chain.get_shard_id_for_receipt_id(&receipt.receipt_id).unwrap();
                     assert_eq!(
                         target_shard_id,
                         account_id_to_shard_id(&receipt.receiver_id, &shard_layout)
@@ -452,22 +510,23 @@ impl TestShardUpgradeEnv {
         }
     }
 
-    fn check_outgoing_receipts_reassigned(&self) {
+    fn check_outgoing_receipts_reassigned(&self, resharding_type: &ReshardingType) {
+        tracing::debug!(target: "test", "checking outgoing receipts reassigned");
         let env = &self.env;
 
+        // height 20 is after the resharding is finished
+        let num_shards = get_expected_shards_num(self.epoch_length, 20, resharding_type);
+
         // last height before resharding took place
-        for last_height_included in vec![10, 20] {
-            for client in &env.clients {
-                let num_shards = match last_height_included {
-                    10 => 4,
-                    20 => 5,
-                    _ => {
-                        panic!("unexpected height provided for checking outgoing receipts");
-                    }
-                };
-                for shard_id in 0..num_shards {
-                    check_outgoing_receipts_reassigned_impl(client, shard_id, last_height_included);
-                }
+        let last_height_included = 10;
+        for client in &env.clients {
+            for shard_id in 0..num_shards {
+                check_outgoing_receipts_reassigned_impl(
+                    client,
+                    shard_id,
+                    last_height_included,
+                    resharding_type,
+                );
             }
         }
     }
@@ -477,6 +536,7 @@ fn check_outgoing_receipts_reassigned_impl(
     client: &Client,
     shard_id: u64,
     last_height_included: u64,
+    resharding_type: &ReshardingType,
 ) {
     let chain = &client.chain;
     let prev_block = chain.get_block_by_height(last_height_included).unwrap();
@@ -488,8 +548,8 @@ fn check_outgoing_receipts_reassigned_impl(
     let shard_layout =
         client.epoch_manager.get_shard_layout_from_prev_block(&prev_block_hash).unwrap();
 
-    match last_height_included {
-        10 => {
+    match resharding_type {
+        ReshardingType::V1 => {
             // In V0->V1 resharding the outgoing receipts should be reassigned
             // to the receipt receiver's shard id.
             for receipt in outgoing_receipts {
@@ -498,7 +558,7 @@ fn check_outgoing_receipts_reassigned_impl(
                 assert_eq!(receiver_shard_id, shard_id);
             }
         }
-        20 => {
+        ReshardingType::V2 => {
             // In V1->V2 resharding the outgoing receipts should be reassigned
             // to the lowest index child of the parent shard.
             // We can't directly check that here but we can check that the
@@ -507,9 +567,6 @@ fn check_outgoing_receipts_reassigned_impl(
             if shard_id == 4 {
                 assert!(outgoing_receipts.is_empty());
             }
-        }
-        _ => {
-            panic!("unexpected height provided for checking outgoing receipts");
         }
     }
 }
@@ -571,31 +628,59 @@ fn setup_genesis(
     num_validators: u64,
     initial_accounts: Vec<AccountId>,
     gas_limit: Option<u64>,
+    genesis_protocol_version: ProtocolVersion,
 ) -> Genesis {
     let mut genesis = Genesis::test(initial_accounts, num_validators);
     // No kickout, since we are going to test missing chunks
     genesis.config.chunk_producer_kickout_threshold = 0;
     genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = SIMPLE_NIGHTSHADE_PROTOCOL_VERSION - 1;
+    genesis.config.protocol_version = genesis_protocol_version;
     genesis.config.use_production_config = true;
-
     if let Some(gas_limit) = gas_limit {
         genesis.config.gas_limit = gas_limit;
     }
 
+    let default_epoch_config = EpochConfig::from(&genesis.config);
+    let all_epoch_config = AllEpochConfig::new(true, default_epoch_config);
+    let epoch_config = all_epoch_config.for_protocol_version(genesis_protocol_version);
+
+    genesis.config.shard_layout = epoch_config.shard_layout;
+    genesis.config.num_block_producer_seats_per_shard =
+        epoch_config.num_block_producer_seats_per_shard;
+    genesis.config.avg_hidden_validator_seats_per_shard =
+        epoch_config.avg_hidden_validator_seats_per_shard;
+
+    // TODO(resharding)
+    // In the current simple test setup each validator may track different
+    // shards. Unfortunately something is broken in how state sync is triggered
+    // from this test. The config below forces both validators to track all
+    // shards so that we can avoid that problem for now. It would be nice to
+    // set it up properly and test both state sync and resharding - once the
+    // integration is fully supported.
+    genesis.config.minimum_validators_per_shard = 2;
+
     genesis
 }
 
-// test some shard layout upgrade with some simple transactions to create accounts
-#[test]
-fn test_shard_layout_upgrade_simple() {
+fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType) {
     init_test_logger();
+    tracing::info!(target: "test", "test_shard_layout_upgrade_simple_impl starting");
+
+    let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
+    let target_protocol_version = get_target_protocol_version(&resharding_type);
 
     let mut rng = thread_rng();
 
     // setup
     let epoch_length = 5;
-    let mut test_env = TestShardUpgradeEnv::new(epoch_length, 2, 2, 100, None);
+    let mut test_env = TestShardUpgradeEnv::new_with_protocol_version(
+        epoch_length,
+        2,
+        2,
+        100,
+        None,
+        genesis_protocol_version,
+    );
     test_env.set_init_tx(vec![]);
 
     let mut nonce = 100;
@@ -622,38 +707,50 @@ fn test_shard_layout_upgrade_simple() {
     // is because transaction pools are stored by shard id and we do not migrate
     // transactions that are still in the pool at the end of the sharding
     // upgrade.
-    let skip_heights = vec![2 * epoch_length + 1, 4 * epoch_length + 1];
+    let skip_heights = vec![2 * epoch_length + 1];
 
     // add transactions until after sharding upgrade finishes
-    for height in 2..5 * epoch_length - 1 {
+    for height in 2..3 * epoch_length {
         let check_accounts = !skip_heights.contains(&height);
         let txs = generate_create_accounts_txs(10, check_accounts);
         test_env.set_tx_at_height(height, txs);
     }
 
-    let mut protocol_version = SIMPLE_NIGHTSHADE_PROTOCOL_VERSION;
-    for _ in 1..2 * epoch_length {
-        test_env.step_impl(0., protocol_version, true);
-        test_env.check_receipt_id_to_shard_id();
-    }
-
-    // If V2 is enabled then test resharding from V1 to V2 as well.
-    // This condition will be true:
-    // - in nightly build - always - V2 is enabled
-    // - in default build - once V2 is stabilized and rolled out
-    if SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION <= PROTOCOL_VERSION {
-        protocol_version = SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION;
-    }
-
-    for _ in 2 * epoch_length..5 * epoch_length + 1 {
-        test_env.step_impl(0., protocol_version, true);
+    for _ in 1..4 * epoch_length {
+        test_env.step_impl(0., target_protocol_version, &resharding_type);
         test_env.check_receipt_id_to_shard_id();
     }
 
     test_env.check_tx_outcomes(false, skip_heights);
     test_env.check_accounts(accounts_to_check.iter().collect());
     test_env.check_split_states_artifacts();
-    test_env.check_outgoing_receipts_reassigned();
+    test_env.check_outgoing_receipts_reassigned(&resharding_type);
+    tracing::info!(target: "test", "test_shard_layout_upgrade_simple_impl finished");
+}
+
+fn get_target_protocol_version(resharding_type: &ReshardingType) -> u32 {
+    match resharding_type {
+        ReshardingType::V1 => SIMPLE_NIGHTSHADE_PROTOCOL_VERSION,
+        ReshardingType::V2 => SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION,
+    }
+}
+
+fn get_genesis_protocol_version(resharding_type: &ReshardingType) -> u32 {
+    match resharding_type {
+        ReshardingType::V1 => SIMPLE_NIGHTSHADE_PROTOCOL_VERSION - 1,
+        ReshardingType::V2 => SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION - 1,
+    }
+}
+
+#[test]
+fn test_shard_layout_upgrade_simple_v1() {
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V1);
+}
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_simple_v2() {
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V2);
 }
 
 fn generate_create_accounts_txs(
