@@ -681,21 +681,19 @@ impl Chain {
                 // Set the root block of flat state to be the genesis block. Later, when we
                 // init FlatStorages, we will read the from this column in storage, so it
                 // must be set here.
-                if let Some(flat_storage_manager) = runtime_adapter.get_flat_storage_manager() {
-                    let genesis_epoch_id = genesis.header().epoch_id();
-                    let mut tmp_store_update = store_update.store().store_update();
-                    for shard_uid in
-                        epoch_manager.get_shard_layout(genesis_epoch_id)?.get_shard_uids()
-                    {
-                        flat_storage_manager.set_flat_storage_for_genesis(
-                            &mut tmp_store_update,
-                            shard_uid,
-                            genesis.hash(),
-                            genesis.header().height(),
-                        )
-                    }
-                    store_update.merge(tmp_store_update);
+                let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
+                let genesis_epoch_id = genesis.header().epoch_id();
+                let mut tmp_store_update = store_update.store().store_update();
+                for shard_uid in epoch_manager.get_shard_layout(genesis_epoch_id)?.get_shard_uids()
+                {
+                    flat_storage_manager.set_flat_storage_for_genesis(
+                        &mut tmp_store_update,
+                        shard_uid,
+                        genesis.hash(),
+                        genesis.header().height(),
+                    )
                 }
+                store_update.merge(tmp_store_update);
 
                 info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
 
@@ -2264,10 +2262,8 @@ impl Chain {
         block: &Block,
         shard_uid: ShardUId,
     ) -> Result<(), Error> {
-        if let Some(flat_storage) = self
-            .runtime_adapter
-            .get_flat_storage_manager()
-            .and_then(|manager| manager.get_flat_storage_for_shard(shard_uid))
+        if let Some(flat_storage) =
+            self.runtime_adapter.get_flat_storage_manager().get_flat_storage_for_shard(shard_uid)
         {
             let mut new_flat_head = *block.header().last_final_block();
             if new_flat_head == CryptoHash::default() {
@@ -2275,26 +2271,26 @@ impl Chain {
             }
             // Try to update flat head.
             flat_storage.update_flat_head(&new_flat_head, false).unwrap_or_else(|err| {
-                match &err {
-                    FlatStorageError::BlockNotSupported(_) => {
-                        // It's possible that new head is not a child of current flat head, e.g. when we have a
-                        // fork:
-                        //
-                        //      (flat head)        /-------> 6
-                        // 1 ->      2     -> 3 -> 4
-                        //                         \---> 5
-                        //
-                        // where during postprocessing (5) we call `update_flat_head(3)` and then for (6) we can
-                        // call `update_flat_head(2)` because (2) will be last visible final block from it.
-                        // In such case, just log an error.
-                        debug!(target: "chain", "Cannot update flat head to {:?}: {:?}", new_flat_head, err);
-                    }
-                    _ => {
-                        // All other errors are unexpected, so we panic.
-                        panic!("Cannot update flat head to {:?}: {:?}", new_flat_head, err);
-                    }
-                }
-            });
+                        match &err {
+                            FlatStorageError::BlockNotSupported(_) => {
+                                // It's possible that new head is not a child of current flat head, e.g. when we have a
+                                // fork:
+                                //
+                                //      (flat head)        /-------> 6
+                                // 1 ->      2     -> 3 -> 4
+                                //                         \---> 5
+                                //
+                                // where during postprocessing (5) we call `update_flat_head(3)` and then for (6) we can
+                                // call `update_flat_head(2)` because (2) will be last visible final block from it.
+                                // In such case, just log an error.
+                                debug!(target: "chain", "Cannot update flat head to {:?}: {:?}", new_flat_head, err);
+                            }
+                            _ => {
+                                // All other errors are unexpected, so we panic.
+                                panic!("Cannot update flat head to {:?}: {:?}", new_flat_head, err);
+                            }
+                        }
+                    });
         } else {
             // TODO (#8250): come up with correct assertion. Currently it doesn't work because runtime may be
             // implemented by KeyValueRuntime which doesn't support flat storage, and flat storage background
@@ -3381,32 +3377,31 @@ impl Chain {
             let epoch_id = block_header.epoch_id();
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
 
-            if let Some(flat_storage_manager) = self.runtime_adapter.get_flat_storage_manager() {
-                // Flat storage must not exist at this point because leftover keys corrupt its state.
-                assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
+            let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+            // Flat storage must not exist at this point because leftover keys corrupt its state.
+            assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
 
-                let flat_head_hash = *chunk.prev_block();
-                let flat_head_header = self.get_block_header(&flat_head_hash)?;
-                let flat_head_prev_hash = *flat_head_header.prev_hash();
-                let flat_head_height = flat_head_header.height();
+            let flat_head_hash = *chunk.prev_block();
+            let flat_head_header = self.get_block_header(&flat_head_hash)?;
+            let flat_head_prev_hash = *flat_head_header.prev_hash();
+            let flat_head_height = flat_head_header.height();
 
-                tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
+            tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
 
-                let mut store_update = self.runtime_adapter.store().store_update();
-                store_helper::set_flat_storage_status(
-                    &mut store_update,
-                    shard_uid,
-                    FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                        flat_head: near_store::flat::BlockInfo {
-                            hash: flat_head_hash,
-                            prev_hash: flat_head_prev_hash,
-                            height: flat_head_height,
-                        },
-                    }),
-                );
-                store_update.commit()?;
-                flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
-            }
+            let mut store_update = self.runtime_adapter.store().store_update();
+            store_helper::set_flat_storage_status(
+                &mut store_update,
+                shard_uid,
+                FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                    flat_head: near_store::flat::BlockInfo {
+                        hash: flat_head_hash,
+                        prev_hash: flat_head_prev_hash,
+                        height: flat_head_height,
+                    },
+                }),
+            );
+            store_update.commit()?;
+            flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
         }
 
         let mut height = shard_state_header.chunk_height_included();
@@ -5119,10 +5114,8 @@ impl<'a> ChainUpdate<'a> {
             },
         };
 
-        if let Some(chain_flat_storage) = self
-            .runtime_adapter
-            .get_flat_storage_manager()
-            .and_then(|manager| manager.get_flat_storage_for_shard(shard_uid))
+        if let Some(chain_flat_storage) =
+            self.runtime_adapter.get_flat_storage_manager().get_flat_storage_for_shard(shard_uid)
         {
             // If flat storage exists, we add a block to it.
             let store_update =

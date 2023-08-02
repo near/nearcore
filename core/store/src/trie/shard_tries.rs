@@ -330,6 +330,10 @@ impl ShardTries {
         &self.0.store.storage
     }
 
+    pub fn get_flat_storage_manager(&self) -> FlatStorageManager {
+        self.0.flat_storage_manager.clone()
+    }
+
     pub fn update_cache(&self, ops: Vec<(&CryptoHash, Option<&[u8]>)>, shard_uid: ShardUId) {
         let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
         let cache = caches

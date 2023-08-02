@@ -69,7 +69,6 @@ pub struct NightshadeRuntime {
     store: Store,
     tries: ShardTries,
     trie_viewer: TrieViewer,
-    flat_storage_manager: FlatStorageManager,
     pub runtime: Runtime,
     epoch_manager: Arc<EpochManagerHandle>,
     migration_data: Arc<MigrationData>,
@@ -150,7 +149,6 @@ impl NightshadeRuntime {
             runtime,
             trie_viewer,
             epoch_manager,
-            flat_storage_manager,
             migration_data,
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
         })
@@ -606,8 +604,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(self.tries.get_view_trie_for_shard(shard_uid, state_root))
     }
 
-    fn get_flat_storage_manager(&self) -> Option<FlatStorageManager> {
-        Some(self.flat_storage_manager.clone())
+    fn get_flat_storage_manager(&self) -> FlatStorageManager {
+        self.tries.get_flat_storage_manager()
     }
 
     fn validate_tx(
@@ -1377,9 +1375,8 @@ mod test {
 
             let shard_uid =
                 self.epoch_manager.shard_id_to_uid(shard_id, &EpochId::default()).unwrap();
-            if let Some(flat_storage) = self
-                .get_flat_storage_manager()
-                .and_then(|manager| manager.get_flat_storage_for_shard(shard_uid))
+            if let Some(flat_storage) =
+                self.get_flat_storage_manager().get_flat_storage_for_shard(shard_uid)
             {
                 let delta = FlatStateDelta {
                     changes: flat_state_changes,
@@ -1477,24 +1474,23 @@ mod test {
 
             // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
             // and use a mock chain, so we need to initialize flat storage manually.
-            if let Some(flat_storage_manager) = runtime.get_flat_storage_manager() {
-                for shard_uid in
-                    epoch_manager.get_shard_layout(&EpochId::default()).unwrap().get_shard_uids()
-                {
-                    let mut store_update = store.store_update();
-                    flat_storage_manager.set_flat_storage_for_genesis(
-                        &mut store_update,
-                        shard_uid,
-                        &genesis_hash,
-                        0,
-                    );
-                    store_update.commit().unwrap();
-                    assert!(matches!(
-                        flat_storage_manager.get_flat_storage_status(shard_uid),
-                        near_store::flat::FlatStorageStatus::Ready(_)
-                    ));
-                    flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
-                }
+            let flat_storage_manager = runtime.get_flat_storage_manager();
+            for shard_uid in
+                epoch_manager.get_shard_layout(&EpochId::default()).unwrap().get_shard_uids()
+            {
+                let mut store_update = store.store_update();
+                flat_storage_manager.set_flat_storage_for_genesis(
+                    &mut store_update,
+                    shard_uid,
+                    &genesis_hash,
+                    0,
+                );
+                store_update.commit().unwrap();
+                assert!(matches!(
+                    flat_storage_manager.get_flat_storage_status(shard_uid),
+                    near_store::flat::FlatStorageStatus::Ready(_)
+                ));
+                flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             }
 
             epoch_manager
