@@ -83,6 +83,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 use tracing::{debug, error, info, warn, Span};
@@ -4819,6 +4820,7 @@ pub struct ChainUpdate<'a> {
     transaction_validity_period: BlockHeightDelta,
 }
 
+#[derive(Debug)]
 pub struct SameHeightResult {
     shard_uid: ShardUId,
     gas_limit: Gas,
@@ -4826,18 +4828,21 @@ pub struct SameHeightResult {
     apply_split_result_or_state_changes: Option<ApplySplitStateResultOrStateChanges>,
 }
 
+#[derive(Debug)]
 pub struct DifferentHeightResult {
     shard_uid: ShardUId,
     apply_result: ApplyTransactionResult,
     apply_split_result_or_state_changes: Option<ApplySplitStateResultOrStateChanges>,
 }
 
+#[derive(Debug)]
 pub struct SplitStateResult {
     // parent shard of the split states
     shard_uid: ShardUId,
     results: Vec<ApplySplitStateResult>,
 }
 
+#[derive(Debug)]
 pub enum ApplyChunkResult {
     SameHeight(SameHeightResult),
     DifferentHeight(DifferentHeightResult),
@@ -5724,7 +5729,20 @@ pub struct ApplyStatePartsRequest {
     pub sync_hash: CryptoHash,
 }
 
-#[derive(actix::Message)]
+// Partial implementation that skips `runtime_adapter`.
+impl Debug for ApplyStatePartsRequest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ApplyStatePartsRequest")
+            .field("shard_uid", &self.shard_uid)
+            .field("state_root", &self.state_root)
+            .field("num_parts", &self.num_parts)
+            .field("epoch_id", &self.epoch_id)
+            .field("sync_hash", &self.sync_hash)
+            .finish()
+    }
+}
+
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct ApplyStatePartsResponse {
     pub apply_result: Result<(), near_chain_primitives::error::Error>,
@@ -5741,7 +5759,20 @@ pub struct BlockCatchUpRequest {
     pub work: Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send>>,
 }
 
-#[derive(actix::Message)]
+// Partial implementation that skips `work` because formatting closures is not
+// possible.
+impl Debug for BlockCatchUpRequest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BlockCatchUpRequest")
+            .field("sync_hash", &self.sync_hash)
+            .field("block_hash", &self.block_hash)
+            .field("block_height", &self.block_height)
+            .field("work_len", &self.work.len())
+            .finish()
+    }
+}
+
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct BlockCatchUpResponse {
     pub sync_hash: CryptoHash,
