@@ -2291,7 +2291,7 @@ impl Chain {
                     }
                     _ => {
                         // All other errors are unexpected, so we panic.
-                        panic!("Cannot update flat head to {:?}: {:?}", new_flat_head, err);
+                        panic!("Cannot update flat head of shard {shard_uid:?} to {new_flat_head:?}: {err:?}");
                     }
                 }
             });
