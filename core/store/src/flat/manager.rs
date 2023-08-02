@@ -35,6 +35,7 @@ pub struct FlatStorageManagerInner {
 
 impl FlatStorageManager {
     pub fn new(store: Store) -> Self {
+        tracing::debug!(target: "store", "FlatStorageManager::new()");
         Self(Arc::new(FlatStorageManagerInner { store, flat_storages: Default::default() }))
     }
 
@@ -67,6 +68,7 @@ impl FlatStorageManager {
         genesis_block: &CryptoHash,
         genesis_height: BlockHeight,
     ) {
+        tracing::debug!(target: "store", ?shard_uid, genesis_height, "set_flat_storage_for_genesis");
         let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
         assert!(!flat_storages.contains_key(&shard_uid));
         store_helper::set_flat_storage_status(
@@ -83,6 +85,7 @@ impl FlatStorageManager {
     /// TODO (#7327): this behavior may change when we implement support for state sync
     /// and resharding.
     pub fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
+        tracing::debug!(target: "store", ?shard_uid, "create_flat_storage_for_shard");
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
         let original_value =
             flat_storages.insert(shard_uid, FlatStorage::new(self.0.store.clone(), shard_uid)?);

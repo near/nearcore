@@ -223,7 +223,9 @@ impl FlatStorage {
     /// including those on forks into the returned FlatStorage.
     pub fn new(store: Store, shard_uid: ShardUId) -> Result<Self, StorageError> {
         let shard_id = shard_uid.shard_id();
-        let flat_head = match store_helper::get_flat_storage_status(&store, shard_uid) {
+        let flat_storage_status = store_helper::get_flat_storage_status(&store, shard_uid);
+        tracing::debug!(target: "store", ?shard_id, ?flat_storage_status, "FlatStorage::new()");
+        let flat_head = match flat_storage_status {
             Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
             status => {
                 return Err(StorageError::StorageInconsistentState(format!(
