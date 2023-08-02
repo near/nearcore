@@ -390,13 +390,12 @@ impl FlatStorageCommand {
             }
             SubCommand::UpdateFlatHead(cmd) => {
                 let node_storage = opener.open_in_mode(Mode::ReadWriteExisting).unwrap();
-                let epoch_manager = EpochManager::new_arc_handle(
-                    node_storage.get_hot_store(),
-                    &near_config.genesis.config,
-                );
+                let store = node_storage.get_hot_store();
+                let epoch_manager =
+                    EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
                 let runtime = NightshadeRuntime::from_config(
                     home_dir,
-                    node_storage.get_hot_store(),
+                    store,
                     &near_config,
                     epoch_manager.clone(),
                 );
@@ -414,7 +413,7 @@ impl FlatStorageCommand {
                 let mut chain = Chain::new(
                     epoch_manager.clone(),
                     shard_tracker,
-                    runtime,
+                    runtime.clone(),
                     &chain_genesis,
                     DoomslugThresholdMode::TwoThirds,
                     chain_config,
@@ -424,6 +423,11 @@ impl FlatStorageCommand {
 
                 let epoch_id = epoch_manager.get_epoch_id(&cmd.new_flat_head_block_hash).unwrap();
                 let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &epoch_id).unwrap();
+                runtime
+                    .get_flat_storage_manager()
+                    .unwrap()
+                    .create_flat_storage_for_shard(shard_uid)
+                    .unwrap();
                 let block = chain.get_block(&cmd.new_flat_head_block_hash).unwrap();
 
                 tracing::info!(?epoch_id, ?shard_uid, header = ?block.header());

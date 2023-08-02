@@ -2275,7 +2275,9 @@ impl Chain {
                 new_flat_head = *self.genesis.hash();
             }
             // Try to update flat head.
-            flat_storage.update_flat_head(&new_flat_head, false).unwrap_or_else(|err| {
+            let res = flat_storage.update_flat_head(&new_flat_head, false);
+            tracing::debug!(target: "storage", ?res);
+            res.unwrap_or_else(|err| {
                 match &err {
                     FlatStorageError::BlockNotSupported(_) => {
                         // It's possible that new head is not a child of current flat head, e.g. when we have a
@@ -2297,6 +2299,7 @@ impl Chain {
                 }
             });
         } else {
+            tracing::debug!(target: "storage", "No flat storage");
             // TODO (#8250): come up with correct assertion. Currently it doesn't work because runtime may be
             // implemented by KeyValueRuntime which doesn't support flat storage, and flat storage background
             // creation may happen.

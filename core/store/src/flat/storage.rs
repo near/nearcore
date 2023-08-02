@@ -332,7 +332,6 @@ impl FlatStorage {
         let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
 
         let shard_uid = guard.shard_uid;
-        let shard_id = shard_uid.shard_id();
         let _span = tracing::debug_span!(target: "storage", "update_flat_head", strict, ?block_hash, ?shard_uid).entered();
 
         if !guard.move_head_enabled {
@@ -346,6 +345,7 @@ impl FlatStorage {
             return Ok(());
         }
 
+        let shard_id = shard_uid.shard_id();
         tracing::debug!(target: "store", flat_head = ?guard.flat_head.hash, ?new_head, shard_id, "Moving flat head");
         let blocks = guard.get_blocks_to_head(&new_head)?;
         tracing::debug!(target: "store", flat_head = ?guard.flat_head.hash, ?new_head, shard_id, ?blocks, "Moving flat head: blocks");
