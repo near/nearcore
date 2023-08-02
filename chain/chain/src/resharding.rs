@@ -16,7 +16,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, StateRoot};
 use near_store::flat::store_helper;
 use near_store::split_state::get_delayed_receipts;
-use near_store::{ShardTries, ShardUId, Trie};
+use near_store::{ShardTries, ShardUId, Store, Trie, TrieDBStorage, TrieStorage};
 
 use crate::Chain;
 
@@ -40,6 +40,47 @@ pub struct StateSplitResponse {
     pub sync_hash: CryptoHash,
     pub shard_id: ShardId,
     pub new_state_roots: Result<HashMap<ShardUId, StateRoot>, Error>,
+}
+
+fn get_checked_account_id_to_shard_uid_fn(
+    shard_uid: ShardUId,
+    new_shards: Vec<ShardUId>,
+    next_epoch_shard_layout: ShardLayout,
+) -> impl Fn(&AccountId) -> ShardUId {
+    let split_shard_ids: HashSet<_> = new_shards.into_iter().collect();
+    move |account_id: &AccountId| {
+        let new_shard_uid = account_id_to_shard_uid(account_id, &next_epoch_shard_layout);
+        // check that all accounts in the shard are mapped the shards that this shard will split
+        // to according to shard layout
+        assert!(
+            split_shard_ids.contains(&new_shard_uid),
+            "Inconsistent shard_layout specs. Account {:?} in shard {:?} and in shard {:?}, but the former is not parent shard for the latter",
+            account_id,
+            shard_uid,
+            new_shard_uid,
+        );
+        new_shard_uid
+    }
+}
+
+// Return iterate over flat storage to get key, value. Used later in the get_trie_update_batch function.
+fn get_flat_storage_iter<'a>(
+    store: &'a Store,
+    shard_uid: ShardUId,
+) -> impl Iterator<Item = (Vec<u8>, Vec<u8>)> + 'a {
+    let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
+    store_helper::iter_flat_state_entries(shard_uid, &store, None, None).map(
+        move |entry| -> (Vec<u8>, Vec<u8>) {
+            let (key, value) = entry.unwrap();
+            let value = match value {
+                FlatStateValue::Ref(ref_value) => {
+                    trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()
+                }
+                FlatStateValue::Inlined(inline_value) => inline_value,
+            };
+            (key, value)
+        },
+    )
 }
 
 // Format of the trie key, value pair that is used in tries.add_values_to_split_states() function
@@ -136,21 +177,7 @@ impl Chain {
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         let StateSplitRequest { tries, shard_uid, state_root, next_epoch_shard_layout, .. } =
             state_split_request;
-
         let store = tries.get_store();
-        let trie = tries.get_view_trie_for_shard(shard_uid, state_root);
-        let mut iter = store_helper::iter_flat_state_entries(shard_uid, &store, None, None).map(
-            |entry| -> (Vec<u8>, Vec<u8>) {
-                let (key, value) = entry.unwrap();
-                let value = match value {
-                    FlatStateValue::Ref(ref_value) => {
-                        trie.storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()
-                    }
-                    FlatStateValue::Inlined(inline_value) => inline_value,
-                };
-                (key, value)
-            },
-        );
 
         let shard_id = shard_uid.shard_id();
         let new_shards = next_epoch_shard_layout
@@ -160,21 +187,10 @@ impl Chain {
             new_shards.iter().map(|shard_uid| (*shard_uid, Trie::EMPTY_ROOT)).collect();
 
         // function to map account id to shard uid in range of child shards
-        let split_shard_ids: HashSet<_> = new_shards.into_iter().collect();
-        let checked_account_id_to_shard_uid = |account_id: &AccountId| {
-            let new_shard_uid = account_id_to_shard_uid(account_id, &next_epoch_shard_layout);
-            // check that all accounts in the shard are mapped the shards that this shard will split
-            // to according to shard layout
-            assert!(
-                split_shard_ids.contains(&new_shard_uid),
-                "Inconsistent shard_layout specs. Account {:?} in shard {:?} and in shard {:?}, but the former is not parent shard for the latter",
-                account_id,
-                shard_uid,
-                new_shard_uid,
-            );
-            new_shard_uid
-        };
+        let checked_account_id_to_shard_uid =
+            get_checked_account_id_to_shard_uid_fn(shard_uid, new_shards, next_epoch_shard_layout);
 
+        let mut iter = get_flat_storage_iter(&store, shard_uid);
         while let Some(batch) = get_trie_update_batch(&mut iter) {
             // TODO(resharding): This is highly inefficient as for each key in the batch, we are parsing the account_id
             // A better way would be to use the boundary account to construct the from and to key range for flat storage iterator
