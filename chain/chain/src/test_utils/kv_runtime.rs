@@ -1032,7 +1032,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _is_first_block_with_chunk_of_version: bool,
         _state_patch: SandboxStatePatch,
         _use_flat_storage: bool,
-        _new_feature: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];

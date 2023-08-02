@@ -150,7 +150,6 @@ pub(crate) fn apply_chunk(
             is_first_block_with_chunk_of_version,
             Default::default(),
             use_flat_storage,
-            false,
         )?,
         chunk_header.gas_limit(),
     ))

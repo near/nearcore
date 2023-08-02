@@ -150,7 +150,7 @@ fn apply_block_from_range(
     csv_file_mutex: &Mutex<Option<&mut File>>,
     only_contracts: bool,
     use_flat_storage: bool,
-    new_feature: bool,
+    _new_feature: bool,
 ) {
     // normally save_trie_changes depends on whether the node is
     // archival, but here we don't care, and can just set it to false
@@ -278,7 +278,6 @@ fn apply_block_from_range(
                 is_first_block_with_chunk_of_version,
                 Default::default(),
                 use_flat_storage,
-                new_feature,
             )
             .unwrap()
     } else {
@@ -308,7 +307,6 @@ fn apply_block_from_range(
                 false,
                 Default::default(),
                 use_flat_storage,
-                new_feature,
             )
             .unwrap()
     };

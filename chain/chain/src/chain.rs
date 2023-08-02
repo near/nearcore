@@ -4030,7 +4030,6 @@ impl Chain {
                             is_first_block_with_chunk_of_version,
                             state_patch,
                             true,
-                            true,
                         ) {
                             Ok(apply_result) => {
                                 let apply_split_result_or_state_changes =
@@ -4091,7 +4090,6 @@ impl Chain {
                             false,
                             false,
                             state_patch,
-                            true,
                             true,
                         ) {
                             Ok(apply_result) => {
@@ -5573,7 +5571,6 @@ impl<'a> ChainUpdate<'a> {
             is_first_block_with_chunk_of_version,
             Default::default(),
             true,
-            true,
         )?;
 
         let (outcome_root, outcome_proofs) =
@@ -5665,7 +5662,6 @@ impl<'a> ChainUpdate<'a> {
             false,
             false,
             Default::default(),
-            true,
             true,
         )?;
         self.save_flat_state_changes(

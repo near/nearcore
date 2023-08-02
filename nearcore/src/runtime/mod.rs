@@ -830,7 +830,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         is_first_block_with_chunk_of_version: bool,
         state_patch: SandboxStatePatch,
         use_flat_storage: bool,
-        new_feature: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie =
             self.get_trie_for_shard(shard_id, prev_block_hash, *state_root, use_flat_storage)?;
@@ -857,7 +856,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             is_new_chunk,
             is_first_block_with_chunk_of_version,
             state_patch,
-            new_feature || self.background_fetching_enabled,
+            self.background_fetching_enabled,
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e {
@@ -1397,7 +1396,6 @@ mod test {
                     false,
                     Default::default(),
                     true,
-                    false,
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
