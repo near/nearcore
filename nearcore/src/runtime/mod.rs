@@ -128,7 +128,7 @@ impl NightshadeRuntime {
             store.clone(),
             trie_config,
             &genesis_config.shard_layout.get_shard_uids(),
-            flat_storage_manager.clone(),
+            flat_storage_manager,
             state_snapshot_config,
         );
         if let Err(err) = tries.maybe_open_state_snapshot(|prev_block_hash: CryptoHash| {
