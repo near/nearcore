@@ -345,11 +345,8 @@ impl StateSync {
                 ShardSyncStatus::StateDownloadComplete => {
                     shard_sync_done = self.sync_shards_download_complete_status(
                         split_states,
-                        shard_id,
                         shard_sync_download,
-                        sync_hash,
-                        chain,
-                    )?;
+                    );
                 }
                 ShardSyncStatus::StateSplitScheduling => {
                     debug_assert!(split_states);
@@ -374,6 +371,11 @@ impl StateSync {
                 ShardSyncStatus::StateSyncDone => {
                     shard_sync_done = true;
                 }
+            }
+            if shard_sync_done {
+                metrics::STATE_SYNC_STAGE
+                    .with_label_values(&[&shard_id.to_string()])
+                    .set(ShardSyncStatus::StateSyncDone.repr() as i64);
             }
             all_done &= shard_sync_done;
 
@@ -1093,30 +1095,21 @@ impl StateSync {
     fn sync_shards_download_complete_status(
         &mut self,
         split_states: bool,
-        shard_id: ShardId,
         shard_sync_download: &mut ShardSyncDownload,
-        sync_hash: CryptoHash,
-        chain: &mut Chain,
-    ) -> Result<bool, near_chain::Error> {
-        let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
-        let state_num_parts =
-            get_num_state_parts(shard_state_header.state_root_node().memory_usage);
-        chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
-
-        let mut shard_sync_done = false;
+    ) -> bool {
         // If the shard layout is changing in this epoch - we have to apply it right now.
         if split_states {
             *shard_sync_download = ShardSyncDownload {
                 downloads: vec![],
                 status: ShardSyncStatus::StateSplitScheduling,
-            }
+            };
+            false
         } else {
             // If there is no layout change - we're done.
             *shard_sync_download =
                 ShardSyncDownload { downloads: vec![], status: ShardSyncStatus::StateSyncDone };
-            shard_sync_done = true;
+            true
         }
-        Ok(shard_sync_done)
     }
 
     fn sync_shards_state_split_scheduling_status(
