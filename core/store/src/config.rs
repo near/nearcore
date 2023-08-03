@@ -35,7 +35,10 @@ pub struct StoreConfig {
     /// Increasing DBCol::State cache size helps making storage more efficient. On the other hand we
     /// don't want to increase hugely requirements for running a node so currently we use a small
     /// default value for it.
+    // TODO(jbajic) Update comments
     pub col_state_cache_size: bytesize::ByteSize,
+
+    pub col_flat_state_cache_size: bytesize::ByteSize,
 
     /// Block size used internally in RocksDB.
     /// Default value: 16KiB.
@@ -167,7 +170,7 @@ impl StoreConfig {
     pub const fn col_cache_size(&self, col: crate::DBCol) -> bytesize::ByteSize {
         match col {
             crate::DBCol::State => self.col_state_cache_size,
-            crate::DBCol::FlatState => self.col_state_cache_size,
+            crate::DBCol::FlatState => self.col_flat_state_cache_size,
             _ => bytesize::ByteSize::mib(32),
         }
     }
@@ -195,7 +198,9 @@ impl Default for StoreConfig {
             // that increase to 25 GiB (we've used this big value to estimate
             // performance improvement headroom) having `max_open_files` at 10k
             // improved performance of state viewer by 60%.
-            col_state_cache_size: bytesize::ByteSize::mib(512),
+            col_state_cache_size: bytesize::ByteSize::mib(32),
+
+            col_flat_state_cache_size: bytesize::ByteSize::mib(512),
 
             // This value was taken from the Openethereum default parameter and
             // we use it since then.
