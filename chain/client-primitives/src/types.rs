@@ -238,11 +238,7 @@ pub fn format_shard_sync_phase(
                     num_parts_not_done += 1;
                 }
             }
-            format!(
-                "{} [{}: is_done, requests sent, last target] num_parts_done={num_parts_done} num_parts_not_done={num_parts_not_done}",
-                paint("PARTS", Purple.bold(), use_colour),
-                paint("part_id", Yellow.bold(), use_colour),
-            )
+            format!("num_parts_done={num_parts_done} num_parts_not_done={num_parts_not_done}")
         }
         status => format!("{status:?}"),
     }
