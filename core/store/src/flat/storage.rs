@@ -177,8 +177,11 @@ impl FlatStorageInner {
             if new_head == current_flat_head_hash {
                 return Ok(current_flat_head_hash);
             }
-            let metadata =
-                self.deltas.get(&new_head).ok_or(missing_delta_error(&new_head))?.metadata;
+            let metadata = self
+                .deltas
+                .get(&new_head)
+                .ok_or(self.create_block_not_supported_error(&new_head))?
+                .metadata;
             new_head = match metadata.prev_block_with_changes {
                 None => {
                     // The block has flat state changes.
@@ -583,7 +586,8 @@ mod tests {
     #[test]
     fn flat_storage_errors() {
         // Create a chain with two forks. Set flat head to be at block 0.
-        let chain = MockChain::chain_with_two_forks(5);
+        let num_blocks = 5;
+        let chain = MockChain::chain_with_two_forks(num_blocks);
         let shard_uid = ShardUId::single_shard();
         let store = create_test_store();
         let mut store_update = store.store_update();
@@ -592,7 +596,7 @@ mod tests {
             shard_uid,
             FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: chain.get_block(0) }),
         );
-        for i in 1..5 {
+        for i in 1..num_blocks as BlockHeight {
             let delta = FlatStateDelta {
                 changes: FlatStateChanges::default(),
                 metadata: FlatStateDeltaMetadata {
@@ -638,6 +642,60 @@ mod tests {
         assert_matches!(
             flat_storage.update_flat_head(&chain.get_block_hash(3), true),
             Err(FlatStorageError::StorageInternalError(_))
+        );
+    }
+
+    #[test]
+    fn flat_storage_fork() {
+        init_test_logger();
+        // Create a chain with two forks. Set flat head to be at block 0.
+        let num_blocks = 10 as BlockHeight;
+
+        let chain = MockChain::build((0..num_blocks).collect(), |i| {
+            if i == 0 {
+                None
+            } else if i % 3 == 0 {
+                Some(i - 2)
+            } else {
+                Some(i - 1)
+            }
+        });
+        let shard_uid = ShardUId::single_shard();
+        let store = create_test_store();
+        let mut store_update = store.store_update();
+        store_helper::set_flat_storage_status(
+            &mut store_update,
+            shard_uid,
+            FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: chain.get_block(0) }),
+        );
+        for i in 1..num_blocks {
+            let delta = FlatStateDelta {
+                changes: FlatStateChanges::default(),
+                metadata: FlatStateDeltaMetadata {
+                    block: chain.get_block(i),
+                    prev_block_with_changes: None,
+                },
+            };
+            store_helper::set_delta(&mut store_update, shard_uid, &delta);
+        }
+        store_update.commit().unwrap();
+
+        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
+
+        // Simulates an actual sequence of calls to `update_flat_head()` in the
+        // presence of forks.
+        assert_eq!(flat_storage.update_flat_head(&chain.get_block_hash(0), false), Ok(()));
+        assert_eq!(flat_storage.update_flat_head(&chain.get_block_hash(3), false), Ok(()));
+        assert_matches!(
+            flat_storage.update_flat_head(&chain.get_block_hash(0), false),
+            Err(FlatStorageError::BlockNotSupported(_))
+        );
+        assert_eq!(flat_storage.update_flat_head(&chain.get_block_hash(6), false), Ok(()));
+        assert_matches!(
+            flat_storage.update_flat_head(&chain.get_block_hash(0), false),
+            Err(FlatStorageError::BlockNotSupported(_))
         );
     }
 
