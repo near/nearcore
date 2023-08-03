@@ -137,23 +137,6 @@ impl TestShardUpgradeEnv {
         }
     }
 
-    fn new(
-        epoch_length: u64,
-        num_validators: usize,
-        num_clients: usize,
-        num_init_accounts: usize,
-        gas_limit: Option<u64>,
-    ) -> Self {
-        Self::new_with_protocol_version(
-            epoch_length,
-            num_validators,
-            num_clients,
-            num_init_accounts,
-            gas_limit,
-            SIMPLE_NIGHTSHADE_PROTOCOL_VERSION - 1,
-        )
-    }
-
     /// `init_txs` are added before any block is produced
     fn set_init_tx(&mut self, init_txs: Vec<SignedTransaction>) {
         self.init_txs = init_txs;
@@ -868,8 +851,17 @@ fn gen_cross_contract_transaction(
 /// Return test_env and a map from tx hash to the new account that will be added by this transaction
 fn setup_test_env_with_cross_contract_txs(
     epoch_length: u64,
+    genesis_protocol_version: ProtocolVersion,
 ) -> (TestShardUpgradeEnv, HashMap<CryptoHash, AccountId>) {
-    let mut test_env = TestShardUpgradeEnv::new(epoch_length, 4, 4, 100, Some(100_000_000_000_000));
+    // let mut test_env = TestShardUpgradeEnv::new(epoch_length, 4, 4, 100, Some(100_000_000_000_000));
+    let mut test_env = TestShardUpgradeEnv::new_with_protocol_version(
+        epoch_length,
+        4,
+        4,
+        100,
+        Some(100_000_000_000_000),
+        genesis_protocol_version,
+    );
     let mut rng = thread_rng();
 
     let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
@@ -963,26 +955,43 @@ fn setup_test_env_with_cross_contract_txs(
 
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
-#[test]
-fn test_shard_layout_upgrade_cross_contract_calls() {
+fn test_shard_layout_upgrade_cross_contract_calls_impl(resharding_type: ReshardingType) {
     init_test_logger();
 
     // setup
     let epoch_length = 5;
+    let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
+    let target_protocol_version = get_target_protocol_version(&resharding_type);
 
-    let (mut test_env, new_accounts) = setup_test_env_with_cross_contract_txs(epoch_length);
+    let (mut test_env, new_accounts) =
+        setup_test_env_with_cross_contract_txs(epoch_length, genesis_protocol_version);
 
     for _ in 1..5 * epoch_length {
-        test_env.step(0.);
+        test_env.step_impl(0., target_protocol_version, &resharding_type);
         test_env.check_receipt_id_to_shard_id();
     }
 
     let successful_txs = test_env.check_tx_outcomes(false, vec![2 * epoch_length + 1]);
-    let new_accounts: Vec<_> =
+    let new_accounts =
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
+
     test_env.check_accounts(new_accounts);
 
     test_env.check_split_states_artifacts();
+}
+
+// Test cross contract calls
+// This test case tests postponed receipts and delayed receipts
+#[test]
+fn test_shard_layout_upgrade_cross_contract_calls_v1() {
+    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V1);
+}
+
+// Test cross contract calls
+// This test case tests postponed receipts and delayed receipts
+#[test]
+fn test_shard_layout_upgrade_cross_contract_calls_v2() {
+    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2);
 }
 
 // Test cross contract calls
@@ -991,9 +1000,13 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
 fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
     init_test_logger();
 
+    let resharding_type = ReshardingType::V1;
+    let genesis_protocol_versino = get_genesis_protocol_version(&resharding_type);
+
     // setup
     let epoch_length = 10;
-    let (mut test_env, new_accounts) = setup_test_env_with_cross_contract_txs(epoch_length);
+    let (mut test_env, new_accounts) =
+        setup_test_env_with_cross_contract_txs(epoch_length, genesis_protocol_versino);
 
     // randomly dropping chunks at the first few epochs when sharding splits happens
     // make sure initial txs (deploy smart contracts) are processed succesfully
