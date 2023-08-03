@@ -64,8 +64,8 @@ Notice that even though in your mind this db is cold, in your config this db hot
 
 ## Compact database
 
-Run compaction on the SST files. After running this the performance of database will increase significantly.
-This is good use case when changing block_size and wishing to perfom test on how the RocksDB performance has
+Run compaction on the SST files. this command might increase database read performance.
+This is good use case when changing block_size and wishing to perform test on how the RocksDB performance has
 changed.
 
 Example usage:
