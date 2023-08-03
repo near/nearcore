@@ -1,5 +1,5 @@
 use actix::Message;
-use ansi_term::Color::{Purple, Yellow};
+use ansi_term::Color::Purple;
 use ansi_term::Style;
 use chrono::DateTime;
 use chrono::Utc;

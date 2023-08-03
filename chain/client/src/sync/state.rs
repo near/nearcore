@@ -293,6 +293,7 @@ impl StateSync {
             let shard_sync_download = new_shard_sync.entry(shard_id).or_insert_with(|| {
                 run_shard_state_download = true;
                 update_sync_status = true;
+                tracing::debug!(target: "sync", ?shard_id, "inserted -> update_sync_status");
                 ShardSyncDownload::new_download_state_header(now)
             });
 
@@ -318,6 +319,9 @@ impl StateSync {
                     download_timeout = res.0;
                     run_shard_state_download = res.1;
                     update_sync_status |= res.2;
+                    if res.2 {
+                        tracing::debug!(target: "sync", ?shard_id, "StateDownloadParts -> update_sync_status");
+                    }
                 }
                 ShardSyncStatus::StateDownloadScheduling => {
                     self.sync_shards_download_scheduling_status(
@@ -391,6 +395,7 @@ impl StateSync {
             // Execute syncing for shard `shard_id`
             if run_shard_state_download {
                 update_sync_status = true;
+                tracing::debug!(target: "sync", ?shard_id, "run_shard_state_download -> update_sync_status");
                 self.request_shard(
                     me,
                     shard_id,
@@ -403,6 +408,9 @@ impl StateSync {
                 )?;
             }
             update_sync_status |= shard_sync_download.status != old_status;
+            if shard_sync_download.status != old_status {
+                tracing::debug!(target: "sync", ?shard_id, "shard_sync_download.status != old_status -> update_sync_status");
+            }
         }
         if update_sync_status {
             tracing::debug!(target: "sync", progress_per_shard = ?format_shard_sync_phase_per_shard(new_shard_sync, false));
