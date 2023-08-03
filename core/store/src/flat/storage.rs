@@ -55,9 +55,9 @@ impl FlatStorageInner {
     /// Expected limits for in-memory stored changes, under which flat storage must keep working.
     /// If they are exceeded, warnings are displayed. Flat storage still will work, but its
     /// performance will slow down, and eventually it can cause OOM error.
-    /// Limit for number of changes. When over 100, introduces 89 us overhead:
+    /// Limit for number of blocks needed to read. When over 100, introduces significant overhead.
     /// https://github.com/near/nearcore/issues/8006#issuecomment-1473621334
-    const CACHED_CHANGES_LIMIT: usize = 100;
+    const HOPS_LIMIT: usize = 100;
     /// Limit for total size of cached changes. We allocate 600 MiB for cached deltas, which
     /// means 150 MiB per shards.
     const CACHED_CHANGES_SIZE_LIMIT: bytesize::ByteSize = bytesize::ByteSize(150 * bytesize::MIB);
@@ -122,6 +122,12 @@ impl FlatStorageInner {
             blocks.len(),
             first_height.map(|height| height - flat_head.height),
         );
+        if blocks.len() >= Self::HOPS_LIMIT {
+            let shard_id = self.shard_uid.shard_id();
+            let flat_head_height = flat_head.height;
+            let cached_deltas = self.deltas.len();
+            warn!(target: "chain", shard_id, flat_head_height, cached_deltas, "Flat storage cached deltas exceeded expected limits");
+        }
 
         Ok(blocks)
     }
@@ -143,12 +149,10 @@ impl FlatStorageInner {
         );
 
         let cached_changes_size_bytes = bytesize::ByteSize(cached_changes_size);
-        if cached_deltas >= Self::CACHED_CHANGES_LIMIT
-            || cached_changes_size_bytes >= Self::CACHED_CHANGES_SIZE_LIMIT
-        {
+        if cached_changes_size_bytes >= Self::CACHED_CHANGES_SIZE_LIMIT {
             let shard_id = self.shard_uid.shard_id();
             let flat_head_height = self.flat_head.height;
-            warn!(target: "chain", %shard_id, %flat_head_height, %cached_deltas, %cached_changes_size_bytes, "Flat storage cached deltas exceeded expected limits");
+            warn!(target: "chain", shard_id, flat_head_height, cached_deltas, %cached_changes_size_bytes, "Flat storage cached deltas exceeded expected limits");
         }
     }
 
@@ -680,7 +684,7 @@ mod tests {
         }
         store_update.commit().unwrap();
 
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let flat_storage_manager = FlatStorageManager::new(store);
         flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
 
