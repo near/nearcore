@@ -128,15 +128,12 @@ class SweatMintBatch(MultiFunctionCall):
     def args(self) -> typing.List[dict]:
         # above a threshold, we hit the log output limit of 16kB
         # this depends a bit on the exact account id names
-        max_chunk_len = 150
-        remaining = len(self.recipient_step_pairs)
-        chunks = []
-        while remaining > max_chunk_len:
-            chunks.append(self.recipient_step_pairs[remaining -
-                                                    max_chunk_len:remaining])
-            remaining -= max_chunk_len
-        if remaining > 0:
-            chunks.append(self.recipient_step_pairs[0:remaining])
+        chunk_len = 150
+        chunks = [
+            self.recipient_step_pairs[s:s + chunk_len]
+            for s in range(0, len(self.recipient_step_pairs), chunk_len)
+        ]
+
         return [{"steps_batch": chunk} for chunk in chunks]
 
 

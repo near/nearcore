@@ -151,14 +151,15 @@ class MultiFunctionCall(FunctionCall):
         super().__init__(sender, receiver_id, method, balance=balance)
 
     def sign_and_serialize(self, block_hash) -> bytes:
-        actions = []
         all_args = self.args()
         gas = 300 * TGAS // len(all_args)
-        for arg in all_args:
-            action = transaction.create_function_call_action(
+
+        def create_action(args):
+            return transaction.create_function_call_action(
                 self.method,
-                json.dumps(arg).encode('utf-8'), gas, int(self.balance))
-            actions.append(action)
+                json.dumps(args).encode('utf-8'), gas, int(self.balance))
+
+        actions = [create_action(args) for args in all_args]
         return transaction.sign_and_serialize_transaction(
             self.receiver_id, self.sender.use_nonce(), actions, block_hash,
             self.sender.key.account_id, self.sender.key.decoded_pk(),
