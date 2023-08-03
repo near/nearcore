@@ -343,10 +343,8 @@ impl StateSync {
                     )?;
                 }
                 ShardSyncStatus::StateDownloadComplete => {
-                    shard_sync_done = self.sync_shards_download_complete_status(
-                        split_states,
-                        shard_sync_download,
-                    );
+                    shard_sync_done = self
+                        .sync_shards_download_complete_status(split_states, shard_sync_download);
                 }
                 ShardSyncStatus::StateSplitScheduling => {
                     debug_assert!(split_states);

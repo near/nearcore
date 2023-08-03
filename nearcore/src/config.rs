@@ -181,6 +181,10 @@ fn default_view_client_threads() -> usize {
     4
 }
 
+fn default_log_summary_period() -> Duration {
+    Duration::from_secs(10)
+}
+
 fn default_doomslug_step_period() -> Duration {
     Duration::from_millis(100)
 }
@@ -308,6 +312,8 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_trie_changes: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
+    #[serde(default = "default_log_summary_period")]
+    pub log_summary_period: Duration,
     // Allows more detailed logging, for example a list of orphaned blocks.
     pub enable_multiline_logging: Option<bool>,
     /// Garbage collection configuration.
@@ -377,6 +383,7 @@ impl Default for Config {
             archive: false,
             save_trie_changes: None,
             log_summary_style: LogSummaryStyle::Colored,
+            log_summary_period: default_log_summary_period(),
             gc: GCConfig::default(),
             epoch_sync_enabled: true,
             view_client_threads: default_view_client_threads(),
@@ -658,7 +665,7 @@ impl NearConfig {
                     .header_sync_expected_height_per_second,
                 state_sync_timeout: config.consensus.state_sync_timeout,
                 min_num_peers: config.consensus.min_num_peers,
-                log_summary_period: Duration::from_secs(10),
+                log_summary_period: config.log_summary_period,
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
                 epoch_length: genesis.config.epoch_length,
                 num_block_producer_seats: genesis.config.num_block_producer_seats,

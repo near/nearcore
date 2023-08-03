@@ -5274,11 +5274,12 @@ impl<'a> ChainUpdate<'a> {
         block_preprocess_info: BlockPreprocessInfo,
         apply_chunks_results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<Option<Tip>, Error> {
+        let _span = tracing::debug_span!(target: "chain", "postprocess_block", block_hash = ?block.header().hash(), block_height = ?block.header().height()).entered();
         let prev_hash = block.header().prev_hash();
         let prev_block = self.chain_store_update.get_block(prev_hash)?;
         let results = apply_chunks_results.into_iter().map(|x| {
             if let Err(err) = &x {
-                warn!(target:"chain", hash = %block.hash(), error = %err, "Error in applying chunks for block");
+                warn!(target: "chain", hash = %block.hash(), error = %err, "Error in applying chunks for block");
             }
             x
         }).collect::<Result<Vec<_>, Error>>()?;
@@ -5294,7 +5295,7 @@ impl<'a> ChainUpdate<'a> {
         } = block_preprocess_info;
 
         if !is_caught_up {
-            debug!(target: "chain", %prev_hash, hash = %*block.hash(), "Add block to catch up");
+            debug!(target: "chain", %prev_hash, hash = %*block.hash(), height = block.header().height(), "Add block to catch up");
             self.chain_store_update.add_block_to_catchup(*prev_hash, *block.hash());
         }
 

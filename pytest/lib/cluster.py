@@ -812,10 +812,12 @@ def apply_config_changes(node_dir, client_config_change):
     # when None.
     allowed_missing_configs = (
         'archive',
+        'log_summary_period',
         'max_gas_burnt_view',
         'rosetta_rpc',
         'save_trie_changes',
         'split_storage',
+        'state_sync',
         'state_sync_enabled',
         'store.state_snapshot_enabled',
         'tracked_shard_schedule',
