@@ -33,6 +33,7 @@ use near_chain::near_chain_primitives;
 use near_chain::resharding::StateSplitRequest;
 use near_chain::Chain;
 use near_chain_configs::{ExternalStorageConfig, ExternalStorageLocation, SyncConfig};
+use near_client_primitives::types::format_shard_sync_phase_per_shard;
 use near_client_primitives::types::{
     format_shard_sync_phase, DownloadStatus, ShardSyncDownload, ShardSyncStatus,
 };
@@ -312,12 +313,8 @@ impl StateSync {
                         )?;
                 }
                 ShardSyncStatus::StateDownloadParts => {
-                    let res = self.sync_shards_download_parts_status(
-                        shard_id,
-                        shard_sync_download,
-                        sync_hash,
-                        now,
-                    );
+                    let res =
+                        self.sync_shards_download_parts_status(shard_id, shard_sync_download, now);
                     download_timeout = res.0;
                     run_shard_state_download = res.1;
                     update_sync_status |= res.2;
@@ -406,6 +403,9 @@ impl StateSync {
                 )?;
             }
             update_sync_status |= shard_sync_download.status != old_status;
+        }
+        if update_sync_status {
+            tracing::debug!(target: "sync", progress_per_shard = ?format_shard_sync_phase_per_shard(new_shard_sync, false));
         }
 
         Ok((update_sync_status, all_done))
@@ -951,7 +951,6 @@ impl StateSync {
         &mut self,
         shard_id: ShardId,
         shard_sync_download: &mut ShardSyncDownload,
-        sync_hash: CryptoHash,
         now: DateTime<Utc>,
     ) -> (bool, bool, bool) {
         // Step 2 - download all the parts (each part is usually around 1MB).
@@ -991,7 +990,6 @@ impl StateSync {
                 num_parts_done += 1;
             }
         }
-        tracing::debug!(target: "sync", %shard_id, %sync_hash, num_parts_done, parts_done);
         metrics::STATE_SYNC_PARTS_DONE
             .with_label_values(&[&shard_id.to_string()])
             .set(num_parts_done);
