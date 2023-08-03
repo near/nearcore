@@ -115,6 +115,8 @@ class NeardRunner:
         with open(self.home_path('config.json'), 'r') as f:
             self.config = json.load(f)
         self.neard = None
+        self.num_restarts = 0
+        self.last_start = time.time()
         # self.data will contain data that we want to persist so we can
         # start where we left off if this process is killed and restarted
         # for now we save info on the neard binaries (their paths and epoch
@@ -561,23 +563,41 @@ class NeardRunner:
                 cmd,
                 out_file=out,
             )
+            self.last_start = time.time()
+
+    # returns a bool that tells whether we should attempt a restart
+    def on_neard_died(self):
+        if self.is_traffic_generator():
+            # TODO: This is just a lazy way to deal with the fact
+            # that the mirror command is expected to exit after it finishes sending all the traffic.
+            # For now just don't restart neard on the traffic generator. Here we should be smart
+            # about restarting only if it makes sense, and we also shouldn't restart over and over.
+            # Right now we can't just check the exit_code because there's a bug that makes the
+            # neard mirror run command not exit cleanly when it's finished
+            return False
+
+        now = time.time()
+        if now - self.last_start > 600:
+            self.num_restarts = 1
+            return True
+        if self.num_restarts >= 5:
+            self.set_state(TestState.STOPPED)
+            self.save_data()
+            return False
+        else:
+            self.num_restarts += 1
+            return True
 
     def check_upgrade_neard(self):
         neard_path = self.wanted_neard_path()
 
         path, running, exit_code = self.poll_neard()
         if path is None:
-            # TODO: This (and below under elif not running) is just a lazy way to deal with the fact
-            # that the mirror command is expected to exit after it finishes sending all the traffic.
-            # For now just don't restart neard on the traffic generator. Here we should be smart
-            # about restarting only if it makes sense, and we also shouldn't restart over and over.
-            # Right now we can't just check the exit_code because there's a bug that makes the
-            # neard mirror run command not exit cleanly when it's finished
-            start_neard = not self.is_traffic_generator()
+            start_neard = self.on_neard_died()
         elif not running:
             if exit_code is not None:
                 logging.info(f'neard exited with code {exit_code}.')
-            start_neard = not self.is_traffic_generator()
+            start_neard = self.on_neard_died()
         else:
             if path == neard_path:
                 start_neard = False

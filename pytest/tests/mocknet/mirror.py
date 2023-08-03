@@ -113,6 +113,7 @@ def upload_neard_runner(node):
 
 
 def init_neard_runner(node, config, remove_home_dir=False):
+    stop_neard_runner(node)
     rm_cmd = 'rm -rf /home/ubuntu/neard-runner && ' if remove_home_dir else ''
     run_cmd(
         node,
@@ -123,7 +124,6 @@ def init_neard_runner(node, config, remove_home_dir=False):
     cmd = 'cd /home/ubuntu/neard-runner && python3 -m virtualenv venv -p $(which python3)' \
     ' && ./venv/bin/pip install -r requirements.txt'
     run_cmd(node, cmd)
-    stop_neard_runner(node)
     start_neard_runner(node)
 
 
