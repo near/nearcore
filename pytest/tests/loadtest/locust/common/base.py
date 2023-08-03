@@ -219,7 +219,8 @@ class NearNodeProxy:
         """
         Send a transaction and return the result, no retry attempted.
         """
-        block_hash = base58.b58decode(self.node.get_latest_block().hash)
+        block_hash = base58.b58decode(
+            self.node.get_final_block()['result']['header']['hash'])
         signed_tx = tx.sign_and_serialize(block_hash)
 
         meta = {
