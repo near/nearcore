@@ -1064,8 +1064,7 @@ impl StateSync {
     ) -> Result<(), near_chain::Error> {
         // Keep waiting until our shard is on the list of results
         // (these are set via callback from ClientActor - both for sync and catchup).
-        let result = self.state_parts_apply_results.remove(&shard_id);
-        if let Some(result) = result {
+        if let Some(result) = self.state_parts_apply_results.remove(&shard_id) {
             match chain.set_state_finalize(shard_id, sync_hash, result) {
                 Ok(()) => {
                     *shard_sync_download = ShardSyncDownload {

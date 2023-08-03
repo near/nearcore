@@ -56,7 +56,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{debug, error};
 
 pub mod errors;
 
@@ -256,7 +255,7 @@ impl NightshadeRuntime {
         let validator_accounts_update = {
             let epoch_manager = self.epoch_manager.read();
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-            debug!(target: "runtime",
+            tracing::debug!(target: "runtime",
                    "is next_block_epoch_start {}",
                    epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
             );
@@ -336,7 +335,7 @@ impl NightshadeRuntime {
             self.epoch_manager.get_epoch_protocol_version(&prev_block_epoch_id)?;
         let is_first_block_of_version = current_protocol_version != prev_block_protocol_version;
 
-        debug!(target: "runtime", ?epoch_height, ?epoch_id, ?current_protocol_version, ?is_first_block_of_version);
+        tracing::debug!(target: "runtime", ?epoch_height, ?epoch_id, ?current_protocol_version, ?is_first_block_of_version);
 
         let apply_state = ApplyState {
             block_height,
@@ -540,7 +539,7 @@ impl NightshadeRuntime {
         {
             Ok(res) => res,
             Err(err) => {
-                error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part boundaries");
+                tracing::error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part boundaries");
                 return Err(err.into());
             }
         };
@@ -553,7 +552,7 @@ impl NightshadeRuntime {
         let state_part = match snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, partial_state, nibbles_begin, nibbles_end, &trie_with_state) {
             Ok(partial_state) => partial_state,
             Err(err) => {
-                error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part");
+                tracing::error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part");
                 return Err(err.into());
             }
         }
@@ -639,7 +638,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             ) {
                 Ok(_) => Ok(None),
                 Err(RuntimeError::InvalidTxError(err)) => {
-                    debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
+                    tracing::debug!(target: "runtime", ?transaction, ?err, "Tx validation failed");
                     Ok(Some(err))
                 }
                 Err(RuntimeError::StorageError(err)) => Err(Error::StorageError(err)),
@@ -656,7 +655,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             ) {
                 Ok(_) => Ok(None),
                 Err(RuntimeError::InvalidTxError(err)) => {
-                    debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
+                    tracing::debug!(target: "runtime", ?transaction, ?err, "Tx validation failed");
                     Ok(Some(err))
                 }
                 Err(RuntimeError::StorageError(err)) => Err(Error::StorageError(err)),
@@ -765,7 +764,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 break;
             }
         }
-        debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", transactions.len(), num_checked_transactions);
+        tracing::debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", transactions.len(), num_checked_transactions);
         metrics::PREPARE_TX_SIZE
             .with_label_values(&[&shard_id.to_string()])
             .observe(total_size as f64);
@@ -777,7 +776,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         match result {
             Ok(gc_stop_height) => gc_stop_height,
             Err(error) => {
-                error!(target: "runtime", "Error when getting the gc stop height. This error may naturally occur after the gc_num_epochs_to_keep config is increased. It should disappear as soon as the node builds up all epochs it wants. Error: {}", error);
+                tracing::warn!(target: "runtime", ?error, "Error when getting the gc stop height. This error may naturally occur after the gc_num_epochs_to_keep config is increased. It should disappear as soon as the node builds up all epochs it wants.");
                 self.genesis_config.genesis_height
             }
         }
@@ -1111,6 +1110,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let _timer = metrics::STATE_SYNC_APPLY_PART_DELAY
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
+        let _span = tracing::debug_span!(target: "chain", "apply_state_part", ?shard_id, ?state_root, ?part_id, ?epoch_id).entered();
 
         let part = BorshDeserialize::try_from_slice(data)
             .expect("Part was already validated earlier, so could never fail here");
@@ -1120,7 +1120,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let mut store_update = tries.store_update();
         tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
+        tracing::debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
         // TODO: `apply_to_flat_state` inserts values with random writes, which can be time consuming.
         //       Optimize taking into account that flat state values always correspond to a consecutive range of keys.
         flat_state_delta.apply_to_flat_state(&mut store_update, shard_uid);
