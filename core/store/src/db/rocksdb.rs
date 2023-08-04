@@ -416,6 +416,10 @@ impl Database for RocksDB {
         cp.create_checkpoint(path)?;
         Ok(())
     }
+
+    fn db_for_updates(&self) -> Option<std::sync::Arc<dyn Database>> {
+        None
+    }
 }
 
 /// DB level options

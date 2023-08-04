@@ -223,6 +223,10 @@ pub fn start_with_config_and_synchronization(
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
     let storage = open_storage(home_dir, &mut config)?;
+    // Get the split store. If split store is some then create a new set of structures for
+    // the view client. Otherwise just re-use the existing ones.
+    let split_store = get_split_store(&config, &storage)?;
+
     let db_metrics_arbiter = if config.client_config.enable_statistics_export {
         let period = config.client_config.log_summary_period;
         let db_metrics_arbiter_handle = spawn_db_metrics_loop(&storage, period)?;
@@ -242,8 +246,14 @@ pub fn start_with_config_and_synchronization(
     // This sets up genesis_state_roots and genesis_hash in store.
     initialize_genesis_state(storage.get_hot_store(), &config.genesis, Some(home_dir));
 
-    let epoch_manager =
-        EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config);
+    // If split_store is Some
+    // (so, node is in archival split storage mode and is configured to use both storages for requests)
+    // then use it for Epoch Manager.
+    // Otherwise, use hot storage.
+    let epoch_manager = EpochManager::new_arc_handle(
+        split_store.clone().unwrap_or(storage.get_hot_store()),
+        &config.genesis.config,
+    );
     let shard_tracker =
         ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
     let runtime = NightshadeRuntime::from_config(
@@ -253,9 +263,6 @@ pub fn start_with_config_and_synchronization(
         epoch_manager.clone(),
     );
 
-    // Get the split store. If split store is some then create a new set of structures for
-    // the view client. Otherwise just re-use the existing ones.
-    let split_store = get_split_store(&config, &storage)?;
     let (view_epoch_manager, view_shard_tracker, view_runtime) =
         if let Some(split_store) = &split_store {
             let view_epoch_manager =

@@ -230,6 +230,11 @@ pub trait Database: Sync + Send {
 
     /// Create checkpoint in provided path
     fn create_checkpoint(&self, path: &std::path::Path) -> anyhow::Result<()>;
+
+    /// Returns database to which updates should be written, if it is not `self`.
+    /// Only meaningful for split db and cold db.
+    /// Otherwise just returns None and should be interpreted as `Arc<self>`.
+    fn db_for_updates(&self) -> Option<std::sync::Arc<dyn Database>>;
 }
 
 fn assert_no_overwrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
