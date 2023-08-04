@@ -730,40 +730,42 @@ impl RuntimeAdapter for NightshadeRuntime {
             && total_size < size_limit
             && included_transactions.len() < new_receipt_count_limit
         {
-            if let Some(tx) = pool_iterator.next() {
-                num_checked_transactions += 1;
-                // Verifying the transaction is on the same chain and hasn't expired yet.
-                if chain_validate(&tx) {
-                    // Verifying the validity of the transaction based on the current state.
-                    match verify_and_charge_transaction(
-                        runtime_config,
-                        &mut state_update,
-                        gas_price,
-                        &tx,
-                        false,
-                        Some(next_block_height),
-                        current_protocol_version,
-                    ) {
-                        Ok(verification_result) => {
-                            state_update.commit(StateChangeCause::NotWritableToDisk);
-                            total_gas_burnt += verification_result.gas_burnt;
-                            total_size += tx.get_size();
-                            included_transactions.push(tx.clone());
-                        }
-                        Err(RuntimeError::InvalidTxError(_err)) => {
-                            state_update.rollback();
-                            invalid_transactions.push(tx.clone());
-                        }
-                        Err(RuntimeError::StorageError(err)) => {
-                            return Err(Error::StorageError(err))
-                        }
-                        Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
-                    }
-                } else {
+            let tx = match pool_iterator.next() {
+                Some(tx) => tx,
+                None => break,
+            };
+            num_checked_transactions += 1;
+
+            // Verifying the transaction is on the same chain and hasn't expired yet.
+            if !chain_validate(&tx) {
+                invalid_transactions.push(tx.clone());
+                continue;
+            }
+
+            // Verifying the validity of the transaction based on the current state.
+            match verify_and_charge_transaction(
+                runtime_config,
+                &mut state_update,
+                gas_price,
+                &tx,
+                false,
+                Some(next_block_height),
+                current_protocol_version,
+            ) {
+                Ok(verification_result) => {
+                    state_update.commit(StateChangeCause::NotWritableToDisk);
+                    total_gas_burnt += verification_result.gas_burnt;
+                    total_size += tx.get_size();
+                    included_transactions.push(tx.clone());
+                }
+                Err(RuntimeError::InvalidTxError(_err)) => {
+                    state_update.rollback();
                     invalid_transactions.push(tx.clone());
                 }
-            } else {
-                break;
+                Err(RuntimeError::StorageError(err)) => {
+                    return Err(Error::StorageError(err))
+                }
+                Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
             }
         }
         debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", included_transactions.len(), num_checked_transactions);
