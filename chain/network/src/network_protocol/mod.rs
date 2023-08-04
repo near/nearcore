@@ -508,6 +508,8 @@ pub enum RoutedMessageBody {
     /// Not used, but needed to borsh backward compatibility.
     _UnusedReceiptOutcomeResponse,
 
+    _UnusedStateRequestHeader,
+    _UnusedStateRequestPart,
     /// StateResponse in not produced since protocol version 58.
     /// We can remove the support for it in protocol version 60.
     /// It has been obsoleted by VersionedStateResponse which
@@ -520,6 +522,7 @@ pub enum RoutedMessageBody {
     Ping(Ping),
     Pong(Pong),
     VersionedPartialEncodedChunk(PartialEncodedChunk),
+    _UnusedVersionedStateResponse,
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
 }
 
@@ -558,6 +561,8 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::_UnusedQueryResponse => write!(f, "QueryResponse"),
             RoutedMessageBody::ReceiptOutcomeRequest(hash) => write!(f, "ReceiptRequest({})", hash),
             RoutedMessageBody::_UnusedReceiptOutcomeResponse => write!(f, "ReceiptResponse"),
+            RoutedMessageBody::_UnusedStateRequestHeader => write!(f, "StateRequestHeader"),
+            RoutedMessageBody::_UnusedStateRequestPart => write!(f, "StateRequestPart"),
             RoutedMessageBody::StateResponse(response) => {
                 write!(f, "StateResponse({}, {})", response.shard_id, response.sync_hash)
             }
@@ -582,6 +587,7 @@ impl fmt::Debug for RoutedMessageBody {
             ),
             RoutedMessageBody::Ping(_) => write!(f, "Ping"),
             RoutedMessageBody::Pong(_) => write!(f, "Pong"),
+            RoutedMessageBody::_UnusedVersionedStateResponse => write!(f, "VersionedStateResponse"),
         }
     }
 }
