@@ -730,7 +730,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             && total_size < size_limit
             && included_transactions.len() < new_receipt_count_limit
         {
-            while let Some(tx) = pool_iterator.next() {
+            if let Some(tx) = pool_iterator.next() {
                 num_checked_transactions += 1;
                 // Verifying the transaction is on the same chain and hasn't expired yet.
                 if chain_validate(&tx) {
@@ -762,6 +762,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 } else {
                     invalid_transactions.push(tx.clone());
                 }
+            } else {
+                break;
             }
         }
         debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", included_transactions.len(), num_checked_transactions);

@@ -11,6 +11,7 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::{create_chunk_on_height, TestEnv};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType};
+use near_o11y::testonly::init_test_logger;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use nearcore::config::GenesisExt;
 
@@ -21,9 +22,11 @@ use nearcore::config::GenesisExt;
 /// computing merkle proof and erasure-codes for this. This is still pretty
 /// computationally intensive.
 ///
-/// In ths benchmark, we construct a large with a bunch of deploy_code txes
+/// In the benchmark, we construct a large with a bunch of deploy_code txes
 #[test]
 fn benchmark_large_chunk_production_time() {
+    init_test_logger();
+
     let mb = 1024usize.pow(2);
 
     let n_txes = 20;
