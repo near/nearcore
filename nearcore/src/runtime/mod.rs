@@ -762,9 +762,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     state_update.rollback();
                     invalid_transactions.push(tx.clone());
                 }
-                Err(RuntimeError::StorageError(err)) => {
-                    return Err(Error::StorageError(err))
-                }
+                Err(RuntimeError::StorageError(err)) => return Err(Error::StorageError(err)),
                 Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
             }
         }
