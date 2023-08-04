@@ -51,11 +51,10 @@ class SweatUser(NearUser):
         batch_size = min(rng.randint(100, 150),
                          len(self.sweat.registered_users))
         receivers = self.sweat.random_receivers(self.account_id, batch_size)
-        tx = SweatMintBatch(
-            self.sweat.account.key.account_id, self.oracle, [
-                RecipientSteps(account_id, steps=rng.randint(1000, 3000))
-                for account_id in receivers
-            ])
+        tx = SweatMintBatch(self.sweat.account.key.account_id, self.oracle, [
+            RecipientSteps(account_id, steps=rng.randint(1000, 3000))
+            for account_id in receivers
+        ])
         self.send_tx(tx, locust_name="Sweat record batch")
 
     @tag("storage-stress-test")
