@@ -122,9 +122,10 @@ class FunctionCall(Transaction):
         self.balance = int(balance)
 
     @abc.abstractmethod
-    def args(self) -> dict:
+    def args(self) -> typing.Union[dict, typing.List[dict]]:
         """
         Function call arguments to be serialized and sent with the call.
+        Return a single dict for `FunctionCall` but a list of dict for `MultiFunctionCall`.
         """
 
     def sign_and_serialize(self, block_hash) -> bytes:
@@ -135,6 +136,34 @@ class FunctionCall(Transaction):
 
     def sender_account(self) -> Account:
         return self.sender
+
+
+class MultiFunctionCall(FunctionCall):
+    """
+    Batches multiple function calls into a single transaction.
+    """
+
+    def __init__(self,
+                 sender: Account,
+                 receiver_id: str,
+                 method: str,
+                 balance: int = 0):
+        super().__init__(sender, receiver_id, method, balance=balance)
+
+    def sign_and_serialize(self, block_hash) -> bytes:
+        all_args = self.args()
+        gas = 300 * TGAS // len(all_args)
+
+        def create_action(args):
+            return transaction.create_function_call_action(
+                self.method,
+                json.dumps(args).encode('utf-8'), gas, int(self.balance))
+
+        actions = [create_action(args) for args in all_args]
+        return transaction.sign_and_serialize_transaction(
+            self.receiver_id, self.sender.use_nonce(), actions, block_hash,
+            self.sender.key.account_id, self.sender.key.decoded_pk(),
+            self.sender.key.decoded_sk())
 
 
 class Deploy(Transaction):
@@ -172,6 +201,25 @@ class CreateSubAccount(Transaction):
         return transaction.sign_create_account_with_full_access_key_and_balance_tx(
             sender.key, sub.account_id, sub, int(self.balance * 1E24),
             sender.use_nonce(), block_hash)
+
+    def sender_account(self) -> Account:
+        return self.sender
+
+
+class AddFullAccessKey(Transaction):
+
+    def __init__(self, parent: Account, new_key: key.Key):
+        super().__init__()
+        self.sender = parent
+        self.new_key = new_key
+
+    def sign_and_serialize(self, block_hash) -> bytes:
+        action = transaction.create_full_access_key_action(
+            self.new_key.decoded_pk())
+        return transaction.sign_and_serialize_transaction(
+            self.sender.key.account_id, self.sender.use_nonce(),
+            [action], block_hash, self.sender.key.account_id,
+            self.sender.key.decoded_pk(), self.sender.key.decoded_sk())
 
     def sender_account(self) -> Account:
         return self.sender
