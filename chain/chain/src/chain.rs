@@ -2274,7 +2274,7 @@ impl Chain {
                 new_flat_head = *self.genesis.hash();
             }
             // Try to update flat head.
-            flat_storage.update_flat_head(&new_flat_head).unwrap_or_else(|err| {
+            flat_storage.update_flat_head(&new_flat_head, false).unwrap_or_else(|err| {
                 match &err {
                     FlatStorageError::BlockNotSupported(_) => {
                         // It's possible that new head is not a child of current flat head, e.g. when we have a
@@ -3385,15 +3385,22 @@ impl Chain {
                 // Flat storage must not exist at this point because leftover keys corrupt its state.
                 assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
 
+                let flat_head_hash = *chunk.prev_block();
+                let flat_head_header = self.get_block_header(&flat_head_hash)?;
+                let flat_head_prev_hash = *flat_head_header.prev_hash();
+                let flat_head_height = flat_head_header.height();
+
+                tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
+
                 let mut store_update = self.runtime_adapter.store().store_update();
                 store_helper::set_flat_storage_status(
                     &mut store_update,
                     shard_uid,
                     FlatStorageStatus::Ready(FlatStorageReadyStatus {
                         flat_head: near_store::flat::BlockInfo {
-                            hash: *block_hash,
-                            prev_hash: *block_header.prev_hash(),
-                            height: block_header.height(),
+                            hash: flat_head_hash,
+                            prev_hash: flat_head_prev_hash,
+                            height: flat_head_height,
                         },
                     }),
                 );
@@ -4188,7 +4195,12 @@ impl Chain {
                 let head = self.head()?;
                 let epoch_id = self.epoch_manager.get_epoch_id(&head.prev_block_hash)?;
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-                (helper.make_snapshot_callback)(head.prev_block_hash, shard_layout.get_shard_uids())
+                let last_block = self.get_block(&head.last_block_hash)?;
+                (helper.make_snapshot_callback)(
+                    head.prev_block_hash,
+                    shard_layout.get_shard_uids(),
+                    last_block,
+                )
             }
         }
         Ok(())
@@ -4875,13 +4887,14 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.commit()
     }
 
-    /// For all the outgoing receipts generated in block `hash` at the shards we are tracking
-    /// in this epoch,
-    /// save a mapping from receipt ids to the destination shard ids that the receipt will be sent
-    /// to in the next block.
-    /// Note that this function should be called after `save_block` is called on this block because
-    /// it requires that the block info is available in EpochManager, otherwise it will return an
-    /// error.
+    /// For all the outgoing receipts generated in block `hash` at the shards we
+    /// are tracking in this epoch, save a mapping from receipt ids to the
+    /// destination shard ids that the receipt will be sent to in the next
+    /// block.
+    ///
+    /// Note that this function should be called after `save_block` is called on
+    /// this block because it requires that the block info is available in
+    /// EpochManager, otherwise it will return an error.
     pub fn save_receipt_id_to_shard_id_for_block(
         &mut self,
         me: &Option<AccountId>,
@@ -4890,39 +4903,44 @@ impl<'a> ChainUpdate<'a> {
         num_shards: NumShards,
     ) -> Result<(), Error> {
         for shard_id in 0..num_shards {
-            if self.shard_tracker.care_about_shard(
+            let care_about_shard = self.shard_tracker.care_about_shard(
                 me.as_ref(),
                 &prev_hash,
                 shard_id as ShardId,
                 true,
-            ) {
-                let receipt_id_to_shard_id: HashMap<_, _> = {
-                    // it can be empty if there is no new chunk for this shard
-                    if let Ok(outgoing_receipts) =
-                        self.chain_store_update.get_outgoing_receipts(hash, shard_id)
-                    {
-                        let shard_layout =
-                            self.epoch_manager.get_shard_layout_from_prev_block(hash)?;
-                        outgoing_receipts
-                            .iter()
-                            .map(|receipt| {
-                                (
-                                    receipt.receipt_id,
-                                    account_id_to_shard_id(&receipt.receiver_id, &shard_layout),
-                                )
-                            })
-                            .collect()
-                    } else {
-                        HashMap::new()
-                    }
-                };
-                for (receipt_id, shard_id) in receipt_id_to_shard_id {
-                    self.chain_store_update.save_receipt_id_to_shard_id(receipt_id, shard_id);
-                }
+            );
+            if !care_about_shard {
+                continue;
+            }
+            let receipt_id_to_shard_id = self.get_receipt_id_to_shard_id(hash, shard_id)?;
+            for (receipt_id, shard_id) in receipt_id_to_shard_id {
+                self.chain_store_update.save_receipt_id_to_shard_id(receipt_id, shard_id);
             }
         }
 
         Ok(())
+    }
+
+    /// Returns a mapping from the receipt id to the destination shard id.
+    fn get_receipt_id_to_shard_id(
+        &mut self,
+        hash: &CryptoHash,
+        shard_id: u64,
+    ) -> Result<HashMap<CryptoHash, u64>, Error> {
+        let outgoing_receipts = self.chain_store_update.get_outgoing_receipts(hash, shard_id);
+        let outgoing_receipts = if let Ok(outgoing_receipts) = outgoing_receipts {
+            outgoing_receipts
+        } else {
+            return Ok(HashMap::new());
+        };
+        let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(hash)?;
+        let outgoing_receipts = outgoing_receipts
+            .iter()
+            .map(|receipt| {
+                (receipt.receipt_id, account_id_to_shard_id(&receipt.receiver_id, &shard_layout))
+            })
+            .collect();
+        Ok(outgoing_receipts)
     }
 
     fn apply_chunk_postprocessing(
@@ -5077,10 +5095,27 @@ impl<'a> ChainUpdate<'a> {
         shard_uid: ShardUId,
         trie_changes: &WrappedTrieChanges,
     ) -> Result<(), Error> {
+        let prev_block_with_changes = if trie_changes.state_changes().is_empty() {
+            // The current block has no flat state changes.
+            // Find the last block with flat state changes by looking it up in
+            // the prev block.
+            store_helper::get_prev_block_with_changes(
+                self.chain_store_update.store(),
+                shard_uid,
+                block_hash,
+                prev_hash,
+            )
+            .map_err(|e| StorageError::from(e))?
+        } else {
+            // The current block has flat state changes.
+            None
+        };
+
         let delta = FlatStateDelta {
             changes: FlatStateChanges::from_state_changes(&trie_changes.state_changes()),
             metadata: FlatStateDeltaMetadata {
                 block: near_store::flat::BlockInfo { hash: block_hash, height, prev_hash },
+                prev_block_with_changes,
             },
         };
 

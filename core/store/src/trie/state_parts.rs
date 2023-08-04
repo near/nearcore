@@ -23,7 +23,7 @@ use crate::trie::trie_storage::TrieMemoryPartialStorage;
 use crate::trie::{
     ApplyStatePartResult, NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize,
 };
-use crate::{metrics, PartialStorage, StorageError, Trie, TrieChanges, TrieStorage};
+use crate::{metrics, PartialStorage, StorageError, Trie, TrieChanges};
 use borsh::BorshDeserialize;
 use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
@@ -173,14 +173,14 @@ impl Trie {
     /// * part_id - number of the state part, mainly for metrics.
     /// * partial_state - nodes needed to generate and proof state part boundaries.
     /// * nibbles_begin and nibbles_end specify the range of flat storage to be read.
-    /// * state_storage - provides access to State for random lookups of values by hash.
+    /// * state_trie - provides access to State for random lookups of values by hash.
     pub fn get_trie_nodes_for_part_with_flat_storage(
         &self,
         part_id: PartId,
         partial_state: PartialState,
         nibbles_begin: Vec<u8>,
         nibbles_end: Vec<u8>,
-        state_storage: Rc<dyn TrieStorage>,
+        state_trie: &Trie,
     ) -> Result<PartialState, StorageError> {
         let shard_id: ShardId = self.flat_storage_chunk_view.as_ref().map_or(
             ShardId::MAX, // Fake value for metrics.
@@ -230,9 +230,7 @@ impl Trie {
             .start_timer();
         let looked_up_value_refs: Vec<_> = value_refs
             .iter()
-            .map(|(k, hash)| {
-                Ok((k.clone(), Some(state_storage.retrieve_raw_bytes(hash)?.to_vec())))
-            })
+            .map(|(k, hash)| Ok((k.clone(), Some(state_trie.retrieve_value(hash)?.to_vec()))))
             .collect::<Result<_, StorageError>>()
             .unwrap();
         all_state_part_items.extend(looked_up_value_refs.iter().cloned());
@@ -425,8 +423,11 @@ impl Trie {
     ) -> Result<(), StorageError> {
         let PartialState::TrieValues(nodes) = &partial_state;
         let num_nodes = nodes.len();
-        let trie =
-            Trie::from_recorded_storage(PartialStorage { nodes: partial_state }, *state_root);
+        let trie = Trie::from_recorded_storage(
+            PartialStorage { nodes: partial_state },
+            *state_root,
+            false,
+        );
 
         trie.visit_nodes_for_state_part(part_id)?;
         let storage = trie.storage.as_partial_storage().unwrap();
@@ -451,7 +452,7 @@ impl Trie {
                 contract_codes: vec![],
             });
         }
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes: part }, *state_root);
+        let trie = Trie::from_recorded_storage(PartialStorage { nodes: part }, *state_root, false);
         let path_begin = trie.find_state_part_boundary(part_id.idx, part_id.total)?;
         let path_end = trie.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
         let mut iterator = trie.iter()?;
@@ -460,7 +461,7 @@ impl Trie {
         let mut flat_state_delta = FlatStateChanges::default();
         let mut contract_codes = Vec::new();
         for TrieTraversalItem { hash, key } in trie_traversal_items {
-            let value = trie.storage.retrieve_raw_bytes(&hash)?;
+            let value = trie.retrieve_value(&hash)?;
             map.entry(hash).or_insert_with(|| (value.to_vec(), 0)).1 += 1;
             if let Some(trie_key) = key {
                 let flat_state_value = FlatStateValue::on_disk(&value);
@@ -617,13 +618,13 @@ mod tests {
                     .cloned()
                     .collect(),
             );
-            let trie = Trie::from_recorded_storage(PartialStorage { nodes }, *state_root);
+            let trie = Trie::from_recorded_storage(PartialStorage { nodes }, *state_root, false);
             let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
             trie.traverse_all_nodes(|hash| {
                 if let Some((_bytes, rc)) = insertions.get_mut(hash) {
                     *rc += 1;
                 } else {
-                    let bytes = trie.storage.retrieve_raw_bytes(hash)?;
+                    let bytes = trie.retrieve_value(hash)?;
                     insertions.insert(*hash, (bytes.to_vec(), 1));
                 }
                 Ok(())
@@ -1190,7 +1191,7 @@ mod tests {
                 partial_state,
                 nibbles_begin,
                 nibbles_end,
-                trie_without_flat.storage.clone(),
+                &trie_without_flat,
             ),
             Err(StorageError::MissingTrieValue)
         );
@@ -1213,7 +1214,7 @@ mod tests {
             partial_state.clone(),
             nibbles_begin.clone(),
             nibbles_end.clone(),
-            trie_without_flat.storage.clone(),
+            &trie_without_flat,
         );
         assert_eq!(state_part_with_flat, Ok(state_part.clone()));
 
@@ -1237,7 +1238,7 @@ mod tests {
                 partial_state.clone(),
                 nibbles_begin.clone(),
                 nibbles_end.clone(),
-                trie_without_flat.storage.clone(),
+                &trie_without_flat,
             ),
             Ok(state_part)
         );
@@ -1256,7 +1257,7 @@ mod tests {
                 partial_state,
                 nibbles_begin,
                 nibbles_end,
-                trie_without_flat.storage.clone(),
+                &trie_without_flat,
             ),
             Err(StorageError::MissingTrieValue)
         );

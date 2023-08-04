@@ -960,7 +960,7 @@ pub trait EpochInfoProvider {
 }
 
 /// Mode of the trie cache.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TrieCacheMode {
     /// In this mode we put each visited node to LRU cache to optimize performance.
     /// Presence of any exact node is not guaranteed.
