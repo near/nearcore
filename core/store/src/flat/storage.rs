@@ -65,6 +65,7 @@ impl FlatStorageInner {
     const BLOCKS_WITH_CHANGES_FLAT_HEAD_GAP: BlockHeight = 2;
 
     /// Creates `BlockNotSupported` error for the given block.
+    /// In the context of updating the flat head, the error is handled gracefully.
     fn create_block_not_supported_error(&self, block_hash: &CryptoHash) -> FlatStorageError {
         FlatStorageError::BlockNotSupported((self.flat_head.hash, *block_hash))
     }
@@ -123,10 +124,12 @@ impl FlatStorageInner {
             first_height.map(|height| height - flat_head.height),
         );
         if blocks.len() >= Self::HOPS_LIMIT {
-            let shard_id = self.shard_uid.shard_id();
-            let flat_head_height = flat_head.height;
-            let cached_deltas = self.deltas.len();
-            warn!(target: "chain", shard_id, flat_head_height, cached_deltas, "Flat storage cached deltas exceeded expected limits");
+            warn!(
+                target: "chain",
+                shard_id = self.shard_uid.shard_id(),
+                flat_head_height = flat_head.height,
+                cached_deltas = self.deltas.len(),
+                "Flat storage needs too many hops to access a block");
         }
 
         Ok(blocks)
@@ -150,9 +153,13 @@ impl FlatStorageInner {
 
         let cached_changes_size_bytes = bytesize::ByteSize(cached_changes_size);
         if cached_changes_size_bytes >= Self::CACHED_CHANGES_SIZE_LIMIT {
-            let shard_id = self.shard_uid.shard_id();
-            let flat_head_height = self.flat_head.height;
-            warn!(target: "chain", shard_id, flat_head_height, cached_deltas, %cached_changes_size_bytes, "Flat storage cached deltas exceeded expected limits");
+            warn!(
+                target: "chain",
+                shard_id = self.shard_uid.shard_id(),
+                flat_head_height = self.flat_head.height,
+                cached_deltas,
+                %cached_changes_size_bytes,
+                "Flat storage total size of cached deltas exceeded expected limits");
         }
     }
 
@@ -184,6 +191,7 @@ impl FlatStorageInner {
             let metadata = self
                 .deltas
                 .get(&new_head)
+                // BlockNotSupported error kind will be handled gracefully.
                 .ok_or(self.create_block_not_supported_error(&new_head))?
                 .metadata;
             new_head = match metadata.prev_block_with_changes {
@@ -590,8 +598,7 @@ mod tests {
     #[test]
     fn flat_storage_errors() {
         // Create a chain with two forks. Set flat head to be at block 0.
-        let num_blocks = 5;
-        let chain = MockChain::chain_with_two_forks(num_blocks);
+        let chain = MockChain::chain_with_two_forks(5);
         let shard_uid = ShardUId::single_shard();
         let store = create_test_store();
         let mut store_update = store.store_update();
@@ -600,7 +607,7 @@ mod tests {
             shard_uid,
             FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: chain.get_block(0) }),
         );
-        for i in 1..num_blocks as BlockHeight {
+        for i in 1..5 {
             let delta = FlatStateDelta {
                 changes: FlatStateChanges::default(),
                 metadata: FlatStateDeltaMetadata {
@@ -650,11 +657,18 @@ mod tests {
     }
 
     #[test]
+    /// Builds a chain with occasional forks.
+    /// Checks that request to update flat head fail and are handled gracefully.
     fn flat_storage_fork() {
         init_test_logger();
         // Create a chain with two forks. Set flat head to be at block 0.
         let num_blocks = 10 as BlockHeight;
 
+        // Build a chain that looks lke this:
+        //     2     5     8
+        //    /     /     /
+        // 0-1---3-4---6-7---9
+        // Note that forks [0,1,2], [3,4,5] and [6,7,8] form triples of consecutive blocks.
         let chain = MockChain::build((0..num_blocks).collect(), |i| {
             if i == 0 {
                 None
