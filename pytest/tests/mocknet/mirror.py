@@ -321,7 +321,7 @@ def stop_traffic_cmd(args, traffic_generator, nodes):
 
 def neard_runner_jsonrpc(node, method, params=[]):
     j = {'method': method, 'params': params, 'id': 'dontcare', 'jsonrpc': '2.0'}
-    r = requests.post(f'http://{node.machine.ip}:3000', json=j, timeout=5)
+    r = requests.post(f'http://{node.machine.ip}:3000', json=j, timeout=30)
     if r.status_code != 200:
         logger.warning(
             f'bad response {r.status_code} trying to send {method} JSON RPC to neard runner on {node.instance_name}:\n{r.content}'

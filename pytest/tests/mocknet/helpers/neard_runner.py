@@ -556,7 +556,7 @@ class NeardRunner:
                 ]
             else:
                 cmd = [
-                    self.data['current_neard_path'], '--home', self.neard_home,
+                    self.data['current_neard_path'], '--log-span-events', '--home', self.neard_home,
                     '--unsafe-fast-startup', 'run'
                 ]
             self.run_neard(
