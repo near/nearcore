@@ -1642,6 +1642,7 @@ impl Chain {
                 let chunk_hash = chunk_header.chunk_hash();
 
                 if let Err(_) = self.store.get_partial_chunk(&chunk_header.chunk_hash()) {
+                    tracing::debug!(target: "waclaw", "get partial chunk failed");
                     missing.push(chunk_header.clone());
                 } else if self.shard_tracker.care_about_shard(
                     me.as_ref(),
@@ -1655,6 +1656,7 @@ impl Chain {
                     true,
                 ) {
                     if let Err(_) = self.store.get_chunk(&chunk_hash) {
+                        tracing::debug!(target: "waclaw", "get chunk failed");
                         missing.push(chunk_header.clone());
                     }
                 }
@@ -2105,6 +2107,7 @@ impl Chain {
             block_received_time,
             state_patch,
         );
+        tracing::debug!(target: "waclaw", preprocess_res=preprocess_res.is_ok(), preprocess_res_err=?preprocess_res.as_ref().err(), "preprocess_res");
         let preprocess_res = match preprocess_res {
             Ok(preprocess_res) => {
                 preprocess_timer.observe_duration();
@@ -2482,6 +2485,7 @@ impl Chain {
         debug!(target: "chain", block_hash = ?header.hash(), me=?me, is_caught_up=is_caught_up, "Process block");
 
         // Check the header is valid before we proceed with the full block.
+        tracing::debug!(target: "waclaw", "validate header");
         self.validate_header(header, provenance, challenges)?;
 
         self.epoch_manager.verify_block_vrf(
@@ -2496,6 +2500,7 @@ impl Chain {
             return Err(Error::InvalidRandomnessBeaconOutput);
         }
 
+        tracing::debug!(target: "waclaw", "validate with");
         let res = block.validate_with(|block| {
             Chain::validate_block_impl(self.epoch_manager.as_ref(), &self.genesis, block)
                 .map(|_| true)
@@ -2531,9 +2536,13 @@ impl Chain {
 
         let prev_block = self.get_block(&prev_hash)?;
 
+        tracing::debug!(target: "waclaw", "validate chunk headers");
         self.validate_chunk_headers(&block, &prev_block)?;
 
+        tracing::debug!(target: "waclaw", "ping missing chunks");
         self.ping_missing_chunks(me, prev_hash, block)?;
+
+        tracing::debug!(target: "waclaw", "collect incoming receipts from block");
         let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
 
         // Check if block can be finalized and drop it otherwise.

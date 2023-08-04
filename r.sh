@@ -6,13 +6,13 @@ rm stdout-*
      OUT=stdout-$i
 
      # RUST_LOG=info \
-     #RUST_BACKTRACE=all \
      #RUST_LOG=info,catchup=trace,store=trace,client=debug,store=debug,test=debug,resharding=trace \
+     RUST_BACKTRACE=all \
      RUST_LOG=debug,resharding=trace \
      cargo nextest run -p integration-tests \
          --no-capture \
          --features nightly \
-		test_shard_layout_upgrade_cross_contract_calls \
+		test_shard_layout_upgrade_cross_contract_calls_v2 \
          > $OUT
          # | tee $OUT
          # | egrep -v -i "FlatStorage is not ready|Add delta for flat storage creation|epoch_manager: all proposals" \

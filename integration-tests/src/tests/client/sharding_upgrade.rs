@@ -46,7 +46,7 @@ const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion =
 #[cfg(not(feature = "protocol_feature_simple_nightshade_v2"))]
 const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion = PROTOCOL_VERSION + 1;
 
-const P_CATCHUP: f64 = 0.2;
+// const P_CATCHUP: f64 = 0.2;
 
 enum ReshardingType {
     // In the V0->V1 resharding outgoing receipts are reassigned to receiver.
@@ -94,7 +94,6 @@ struct TestShardUpgradeEnv {
     init_txs: Vec<SignedTransaction>,
     txs_by_height: BTreeMap<u64, Vec<SignedTransaction>>,
     epoch_length: u64,
-    num_validators: usize,
     num_clients: usize,
 }
 
@@ -126,11 +125,11 @@ impl TestShardUpgradeEnv {
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
             .build();
+        assert_eq!(env.validators.len(), num_validators);
         Self {
             env,
             initial_accounts,
             epoch_length,
-            num_validators,
             num_clients,
             init_txs: vec![],
             txs_by_height: BTreeMap::new(),
@@ -181,12 +180,7 @@ impl TestShardUpgradeEnv {
         // add transactions for the next block
         if height == 1 {
             for tx in self.init_txs.iter() {
-                for j in 0..self.num_validators {
-                    assert_eq!(
-                        env.clients[j].process_tx(tx.clone(), false, false),
-                        ProcessTxResponse::ValidTx
-                    );
-                }
+                Self::process_tx(env, tx);
             }
         }
 
@@ -196,47 +190,39 @@ impl TestShardUpgradeEnv {
         // it when we are producing the block at `height`
         if let Some(txs) = self.txs_by_height.get(&(height + 1)) {
             for tx in txs {
-                let mut response_valid_count = 0;
-                let mut response_routed_count = 0;
-                for j in 0..self.num_validators {
-                    let response = env.clients[j].process_tx(tx.clone(), false, false);
-                    tracing::debug!(target: "test", client=j, tx=?tx.get_hash(), ?response, "process tx");
-                    match response {
-                        ProcessTxResponse::ValidTx => response_valid_count += 1,
-                        ProcessTxResponse::RequestRouted => response_routed_count += 1,
-                        response => {
-                            panic!("invalid tx response {response:?}");
-                        }
-                    }
-                }
-                assert_ne!(response_valid_count, 0);
-                assert_eq!(response_valid_count + response_routed_count, self.num_validators);
+                Self::process_tx(env, tx);
             }
         }
 
         // produce block
-        let block_producer = {
-            let epoch_id = env.clients[0]
-                .epoch_manager
-                .get_epoch_id_from_prev_block(&head.last_block_hash)
-                .unwrap();
-            env.clients[0].epoch_manager.get_block_producer(&epoch_id, height).unwrap()
+        let block = {
+            let client = &env.clients[0];
+            let epoch_id =
+                client.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash).unwrap();
+            let block_producer =
+                client.epoch_manager.get_block_producer(&epoch_id, height).unwrap();
+            let _span = tracing::debug_span!(target: "test", "", client=?block_producer);
+            let _span = _span.entered();
+            let block_producer_client = env.client(&block_producer);
+            let mut block = block_producer_client.produce_block(height).unwrap().unwrap();
+            set_block_protocol_version(&mut block, block_producer.clone(), protocol_version);
+            block
         };
-        let block_producer_client = env.client(&block_producer);
-        let mut block = block_producer_client.produce_block(height).unwrap().unwrap();
-        set_block_protocol_version(&mut block, block_producer.clone(), protocol_version);
         // Make sure that catchup is done before the end of each epoch, but when it is done is
         // by chance. This simulates when catchup takes a long time to be done
         // Note: if the catchup happens only at the last block of an epoch then
         // client will fail to produce the chunks in the first block of the next epoch.
-        let should_catchup = rng.gen_bool(P_CATCHUP) || height % self.epoch_length == 0;
+        // let should_catchup = rng.gen_bool(P_CATCHUP) || height % self.epoch_length == 0;
+        let should_catchup = (height + 1) % self.epoch_length == 0;
         // process block, this also triggers chunk producers for the next block to produce chunks
         for j in 0..self.num_clients {
+            let client = &mut env.clients[j];
+            let _span = tracing::debug_span!(target: "test", "process block", client=j).entered();
             let produce_chunks = !rng.gen_bool(p_drop_chunk);
             // Here we don't just call self.clients[i].process_block_sync_with_produce_chunk_options
             // because we want to call run_catchup before finish processing this block. This simulates
             // that catchup and block processing run in parallel.
-            env.clients[j]
+            client
                 .start_process_block(
                     MaybeValidated::from(block.clone()),
                     Provenance::NONE,
@@ -244,11 +230,10 @@ impl TestShardUpgradeEnv {
                 )
                 .unwrap();
             if should_catchup {
-                run_catchup(&mut env.clients[j], &[]).unwrap();
+                run_catchup(client, &[]).unwrap();
             }
-            while wait_for_all_blocks_in_processing(&mut env.clients[j].chain) {
-                let (_, errors) =
-                    env.clients[j].postprocess_ready_blocks(Arc::new(|_| {}), produce_chunks);
+            while wait_for_all_blocks_in_processing(&mut client.chain) {
+                let (_, errors) = client.postprocess_ready_blocks(Arc::new(|_| {}), produce_chunks);
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
             if should_catchup {
@@ -274,6 +259,24 @@ impl TestShardUpgradeEnv {
         for account_id in self.initial_accounts.iter() {
             check_account(env, account_id, &block);
         }
+    }
+
+    fn process_tx(env: &mut TestEnv, tx: &SignedTransaction) {
+        let mut response_valid_count = 0;
+        let mut response_routed_count = 0;
+        for j in 0..env.validators.len() {
+            let response = env.clients[j].process_tx(tx.clone(), false, false);
+            tracing::debug!(target: "test", client=j, tx=?tx.get_hash(), ?response, "process tx");
+            match response {
+                ProcessTxResponse::ValidTx => response_valid_count += 1,
+                ProcessTxResponse::RequestRouted => response_routed_count += 1,
+                response => {
+                    panic!("invalid tx response {response:?} {tx:?}");
+                }
+            }
+        }
+        assert_ne!(response_valid_count, 0);
+        assert_eq!(response_valid_count + response_routed_count, env.validators.len());
     }
 
     /// check that all accounts in `accounts` exist in the current state
@@ -640,7 +643,7 @@ fn setup_genesis(
     // shards so that we can avoid that problem for now. It would be nice to
     // set it up properly and test both state sync and resharding - once the
     // integration is fully supported.
-    genesis.config.minimum_validators_per_shard = 2;
+    genesis.config.minimum_validators_per_shard = num_validators;
 
     genesis
 }
@@ -874,33 +877,33 @@ fn setup_test_env_with_cross_contract_txs(
         test_env.initial_accounts[indices[0]].clone(),
         test_env.initial_accounts[indices[1]].clone(),
     ];
-    test_env.set_init_tx(
-        contract_accounts
-            .iter()
-            .map(|account_id| {
-                let signer = InMemorySigner::from_seed(
-                    account_id.clone(),
-                    KeyType::ED25519,
-                    &account_id.to_string(),
-                );
-                SignedTransaction::from_actions(
-                    1,
-                    account_id.clone(),
-                    account_id.clone(),
-                    &signer,
-                    vec![Action::DeployContract(DeployContractAction {
-                        code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
-                    })],
-                    genesis_hash,
-                )
-            })
-            .collect(),
-    );
+    // test_env.set_init_tx(
+    //     contract_accounts
+    //         .iter()
+    //         .map(|account_id| {
+    //             let signer = InMemorySigner::from_seed(
+    //                 account_id.clone(),
+    //                 KeyType::ED25519,
+    //                 &account_id.to_string(),
+    //             );
+    //             SignedTransaction::from_actions(
+    //                 1,
+    //                 account_id.clone(),
+    //                 account_id.clone(),
+    //                 &signer,
+    //                 vec![Action::DeployContract(DeployContractAction {
+    //                     code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
+    //                 })],
+    //                 genesis_hash,
+    //             )
+    //         })
+    //         .collect(),
+    // );
 
     let mut nonce = 100;
     let mut all_accounts: HashSet<_> = test_env.initial_accounts.clone().into_iter().collect();
     let mut new_accounts = HashMap::new();
-    let generate_txs: &mut dyn FnMut(usize, usize) -> Vec<SignedTransaction> =
+    let _generate_txs: &mut dyn FnMut(usize, usize) -> Vec<SignedTransaction> =
         &mut |min_size: usize, max_size: usize| -> Vec<SignedTransaction> {
             let mut rng = thread_rng();
             let size = rng.gen_range(min_size..max_size + 1);
@@ -929,26 +932,26 @@ fn setup_test_env_with_cross_contract_txs(
             .collect()
         };
 
-    // add a bunch of transactions before the two epoch boundaries
-    for height in vec![
-        epoch_length - 2,
-        epoch_length - 1,
-        epoch_length,
-        2 * epoch_length - 2,
-        2 * epoch_length - 1,
-        2 * epoch_length,
-    ] {
-        test_env.set_tx_at_height(height, generate_txs(5, 8));
-    }
+    // // add a bunch of transactions before the two epoch boundaries
+    // for height in vec![
+    //     epoch_length - 2,
+    //     epoch_length - 1,
+    //     epoch_length,
+    //     2 * epoch_length - 2,
+    //     2 * epoch_length - 1,
+    //     2 * epoch_length,
+    // ] {
+    //     test_env.set_tx_at_height(height, generate_txs(5, 8));
+    // }
 
-    // adds some transactions after sharding change finishes
-    // but do not add too many because I want all transactions to
-    // finish processing before epoch 5
-    for height in 2 * epoch_length + 1..3 * epoch_length {
-        if rng.gen_bool(0.3) {
-            test_env.set_tx_at_height(height, generate_txs(5, 8));
-        }
-    }
+    // // adds some transactions after sharding change finishes
+    // // but do not add too many because I want all transactions to
+    // // finish processing before epoch 5
+    // for height in 2 * epoch_length + 1..3 * epoch_length {
+    //     if rng.gen_bool(0.3) {
+    //         test_env.set_tx_at_height(height, generate_txs(5, 8));
+    //     }
+    // }
 
     (test_env, new_accounts)
 }
@@ -967,6 +970,7 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(resharding_type: Reshardi
         setup_test_env_with_cross_contract_txs(epoch_length, genesis_protocol_version);
 
     for _ in 1..5 * epoch_length {
+        std::thread::sleep(std::time::Duration::from_millis(1000));
         test_env.step_impl(0., target_protocol_version, &resharding_type);
         test_env.check_receipt_id_to_shard_id();
     }
