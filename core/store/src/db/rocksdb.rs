@@ -377,6 +377,7 @@ impl Database for RocksDB {
     fn compact(&self) -> io::Result<()> {
         let none = Option::<&[u8]>::None;
         for col in DBCol::iter() {
+            tracing::info!(target: "db", column = %col, "Compacted column");
             self.db.compact_range_cf(self.cf_handle(col)?, none, none);
         }
         Ok(())
