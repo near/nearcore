@@ -52,7 +52,7 @@ class SweatUser(NearUser):
                          len(self.sweat.registered_users))
         receivers = self.sweat.random_receivers(self.account_id, batch_size)
         tx = SweatMintBatch(
-            self.sweat.account.key.account_id, self.sweat.oracle, [
+            self.sweat.account.key.account_id, self.oracle, [
                 RecipientSteps(account_id, steps=rng.randint(1000, 3000))
                 for account_id in receivers
             ])
@@ -70,7 +70,7 @@ class SweatUser(NearUser):
         batch_size = rng.randint(700, 750)
         receivers = self.sweat.random_receivers(self.account_id, batch_size)
         tx = SweatMintBatch(
-            self.sweat.account.key.account_id, self.sweat.oracle,
+            self.sweat.account.key.account_id, self.oracle,
             [[account_id, rng.randint(1000, 3000)] for account_id in receivers])
         self.send_tx(tx, locust_name="Sweat record batch (stress test)")
 
@@ -85,11 +85,8 @@ class SweatUser(NearUser):
         self.send_tx_retry(AddFullAccessKey(oracle, user_oracle_key),
                            "add user key to oracle")
 
-        # Shallow copy to share all state of the sweat contract, like registered
-        # users, but then overwrite the oracle to use a different access key.
-        self.sweat = copy.copy(self.environment.sweat)
-        self.sweat.oracle = Account(user_oracle_key)
-        self.sweat.oracle.refresh_nonce(self.node.node)
+        self.oracle = Account(user_oracle_key)
+        self.oracle.refresh_nonce(self.node.node)
 
         self.sweat.register_user(self)
         logger.debug(
