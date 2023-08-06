@@ -349,9 +349,9 @@ impl<'a> FuncGen<'a> {
     }
 
     fn emit_gas_const(&mut self, cost: u64) {
-        if self.config.disable_fixed_gas {
+        if self.config.disable_9393_fix {
             if let Ok(cost) = u32::try_from(cost) {
-                return self.emit_gas(Location::Imm32(cost as u32));
+                return self.emit_gas(Location::Imm32(cost));
             }
         } else {
             if let Ok(cost) = i32::try_from(cost) {

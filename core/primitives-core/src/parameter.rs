@@ -145,6 +145,8 @@ pub enum Parameter {
     Wasmer2StackLimit,
     MaxLocalsPerContract,
     AccountIdValidityRulesVersion,
+
+    Disable9393Fix,
 }
 
 #[derive(
