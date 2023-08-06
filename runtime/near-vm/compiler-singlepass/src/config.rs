@@ -24,6 +24,7 @@ pub(crate) struct Intrinsic {
 pub struct Singlepass {
     pub(crate) enable_nan_canonicalization: bool,
     pub(crate) enable_stack_check: bool,
+    pub(crate) disable_fixed_gas: bool,
     /// Compiler intrinsics.
     pub(crate) intrinsics: Vec<Intrinsic>,
 }
