@@ -346,11 +346,13 @@ impl ReceiptManager {
 
     /// Distribute the provided `gas` between receipts managed by this `ReceiptManager` according
     /// to their assigned weights.
-    pub(super) fn distribute_gas(&mut self, unused_gas: Gas) -> Result<(), RuntimeError> {
+    ///
+    /// Returns the amount of gas distributed (either `0` or `unused_gas`.)
+    pub(super) fn distribute_gas(&mut self, unused_gas: Gas) -> Result<Gas, RuntimeError> {
         let ReceiptManager { action_receipts, gas_weights } = self;
         let gas_weight_sum: u128 = gas_weights.iter().map(|(_, gv)| u128::from(gv.0)).sum();
         if gas_weight_sum == 0 || unused_gas == 0 {
-            return Ok(());
+            return Ok(0);
         }
         let mut distributed = 0u64;
         let mut gas_weight_iterator = gas_weights.iter().peekable();
@@ -375,7 +377,8 @@ impl ReceiptManager {
                 action.gas = safe_add_gas(action.gas, unused_gas.wrapping_sub(distributed))?;
             }
         }
-        Ok(())
+        assert_eq!(unused_gas, distributed);
+        Ok(distributed)
     }
 }
 

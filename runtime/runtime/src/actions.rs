@@ -129,7 +129,7 @@ pub(crate) fn execute_function_call(
     // than leaking the exact details further up.
     // Note that this does not include errors caused by user code / input, those are
     // stored in outcome.aborted.
-    let outcome = result.map_err(|e| match e {
+    let mut outcome = result.map_err(|e| match e {
         VMRunnerError::ExternalError(any_err) => {
             let err: ExternalError =
                 any_err.downcast().expect("Downcasting AnyError should not fail");
@@ -158,7 +158,8 @@ pub(crate) fn execute_function_call(
 
     if !view_config.is_some() {
         let unused_gas = function_call.gas.saturating_sub(outcome.used_gas);
-        runtime_ext.receipt_manager.distribute_gas(unused_gas)?;
+        let distributed = runtime_ext.receipt_manager.distribute_gas(unused_gas)?;
+        outcome.used_gas = safe_add_gas(outcome.used_gas, distributed)?;
     }
     Ok(outcome)
 }
