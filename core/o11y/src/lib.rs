@@ -134,7 +134,7 @@ pub struct Options {
     /// Enable logging of spans. For instance, this prints timestamps of entering and exiting a span,
     /// together with the span duration and used/idle CPU time.
     #[clap(long)]
-    pub log_span_events: bool,
+    log_span_events: bool,
 
     /// Enable JSON output of IO events, written to a file.
     #[clap(long)]

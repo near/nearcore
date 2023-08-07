@@ -2,12 +2,10 @@
 use borsh::BorshDeserialize;
 use clap::Parser;
 use near_chain::flat_storage_creator::FlatStorageShardCreator;
-use near_chain::types::{ChainConfig, RuntimeAdapter};
-use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode};
+use near_chain::types::RuntimeAdapter;
+use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-use near_primitives::hash::CryptoHash;
 use near_store::flat::{
     inline_flat_state_values, store_helper, FlatStateDelta, FlatStateDeltaMetadata,
     FlatStorageManager, FlatStorageStatus,
@@ -50,16 +48,6 @@ enum SubCommand {
     /// Construct and store trie in a separate directory from flat storage state for a given shard.
     /// The trie is constructed for the block height equal to flat_head
     ConstructTrieFromFlat(ConstructTriedFromFlatCmd),
-
-    UpdateFlatHead(UpdateFlatHeadCmd),
-}
-
-#[derive(Parser)]
-pub struct UpdateFlatHeadCmd {
-    #[clap(long)]
-    shard_id: u64,
-    #[clap(long)]
-    new_flat_head_block_hash: CryptoHash,
 }
 
 #[derive(Parser)]
@@ -83,6 +71,7 @@ pub struct ResetCmd {
 }
 
 #[derive(Parser)]
+
 pub struct InitCmd {
     shard_id: u64,
 
@@ -387,52 +376,6 @@ impl FlatStorageCommand {
                 let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &tip.epoch_id)?;
 
                 construct_trie_from_flat(store, write_store, shard_uid);
-            }
-            SubCommand::UpdateFlatHead(cmd) => {
-                let node_storage = opener.open_in_mode(Mode::ReadWriteExisting).unwrap();
-                let store = node_storage.get_hot_store();
-                let epoch_manager =
-                    EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
-                let runtime = NightshadeRuntime::from_config(
-                    home_dir,
-                    store,
-                    &near_config,
-                    epoch_manager.clone(),
-                );
-                let shard_tracker = ShardTracker::new(
-                    TrackedConfig::from_config(&near_config.client_config),
-                    epoch_manager.clone(),
-                );
-                let chain_genesis = ChainGenesis::new(&near_config.genesis);
-
-                let chain_config = ChainConfig {
-                    save_trie_changes: near_config.config.save_trie_changes.unwrap_or_default(),
-                    background_migration_threads: 0,
-                    state_snapshot_every_n_blocks: None,
-                };
-                let mut chain = Chain::new(
-                    epoch_manager.clone(),
-                    shard_tracker,
-                    runtime.clone(),
-                    &chain_genesis,
-                    DoomslugThresholdMode::TwoThirds,
-                    chain_config,
-                    None,
-                )
-                .unwrap();
-
-                let epoch_id = epoch_manager.get_epoch_id(&cmd.new_flat_head_block_hash).unwrap();
-                let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &epoch_id).unwrap();
-                runtime
-                    .get_flat_storage_manager()
-                    .unwrap()
-                    .create_flat_storage_for_shard(shard_uid)
-                    .unwrap();
-                let block = chain.get_block(&cmd.new_flat_head_block_hash).unwrap();
-
-                tracing::info!(?epoch_id, ?shard_uid, header = ?block.header());
-
-                chain.update_flat_storage_for_block(&block, shard_uid).unwrap();
             }
         }
 

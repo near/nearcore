@@ -69,9 +69,6 @@ pub const MAX_BLOCK_WAIT_DELAY: u64 = 6_000;
 /// Horizon at which instead of fetching block, fetch full state.
 const BLOCK_FETCH_HORIZON: BlockHeightDelta = 50;
 
-/// Horizon to step from the latest block when fetching state.
-const STATE_FETCH_HORIZON: NumBlocks = 5;
-
 /// Behind this horizon header fetch kicks in.
 const BLOCK_HEADER_FETCH_HORIZON: BlockHeightDelta = 50;
 
@@ -217,8 +214,6 @@ pub struct Consensus {
     pub produce_empty_blocks: bool,
     /// Horizon at which instead of fetching block, fetch full state.
     pub block_fetch_horizon: BlockHeightDelta,
-    /// Horizon to step from the latest block when fetching state.
-    pub state_fetch_horizon: NumBlocks,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Time between check to perform catchup.
@@ -263,7 +258,6 @@ impl Default for Consensus {
             max_block_wait_delay: Duration::from_millis(MAX_BLOCK_WAIT_DELAY),
             produce_empty_blocks: true,
             block_fetch_horizon: BLOCK_FETCH_HORIZON,
-            state_fetch_horizon: STATE_FETCH_HORIZON,
             block_header_fetch_horizon: BLOCK_HEADER_FETCH_HORIZON,
             catchup_step_period: Duration::from_millis(CATCHUP_STEP_PERIOD),
             chunk_request_retry_period: Duration::from_millis(CHUNK_REQUEST_RETRY_PERIOD),
@@ -672,7 +666,6 @@ impl NearConfig {
                 ttl_account_id_router: config.network.ttl_account_id_router,
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
                 block_fetch_horizon: config.consensus.block_fetch_horizon,
-                state_fetch_horizon: config.consensus.state_fetch_horizon,
                 block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
                 catchup_step_period: config.consensus.catchup_step_period,
                 chunk_request_retry_period: config.consensus.chunk_request_retry_period,

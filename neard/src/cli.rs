@@ -48,8 +48,7 @@ pub(super) struct NeardCmd {
 
 impl NeardCmd {
     pub(super) fn parse_and_run() -> anyhow::Result<()> {
-        let mut neard_cmd: Self = clap::Parser::parse();
-        neard_cmd.opts.o11y.log_span_events = true;
+        let neard_cmd: Self = clap::Parser::parse();
 
         // Enable logging of the current thread.
         let _subscriber_guard = default_subscriber(

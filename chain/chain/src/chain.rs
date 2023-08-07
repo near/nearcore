@@ -2259,12 +2259,11 @@ impl Chain {
     /// - merge deltas from current flat storage head to new one;
     /// - update flat storage head to the hash of final block visible from given one;
     /// - remove info about unreachable blocks from memory.
-    pub fn update_flat_storage_for_block(
+    fn update_flat_storage_for_block(
         &mut self,
         block: &Block,
         shard_uid: ShardUId,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "storage", "update_flat_storage_for_block", block_hash = ?block.header().hash(), ?shard_uid).entered();
         if let Some(flat_storage) = self
             .runtime_adapter
             .get_flat_storage_manager()
@@ -2274,26 +2273,8 @@ impl Chain {
             if new_flat_head == CryptoHash::default() {
                 new_flat_head = *self.genesis.hash();
             }
-
-            // Compare heights of the current and the new flat head.
-            // The new flat head must not be in the past of the current flat head.
-            let new_flat_head_header = self
-                .get_block_header(&new_flat_head)
-                .expect("Missing block that needs to be flat head");
-            let new_flat_head_height = new_flat_head_header.height();
-            let current_flat_head = flat_storage.get_head_hash();
-            let current_flat_head_header =
-                self.get_block_header(&current_flat_head).expect("Missing block that is flat head");
-            let current_flat_head_height = current_flat_head_header.height();
-            assert_eq!(current_flat_head_height, flat_storage.get_head_height());
-            if new_flat_head_height < current_flat_head_height {
-                panic!("Cannot update flat head to a block in the past. Shard {shard_uid:?}, new_flat_head: {new_flat_head:?} @ {new_flat_head_height}, current_flat_head: {current_flat_head:?} @ {current_flat_head_height}, block_hash: {:?}", block.header().hash());
-            }
-
             // Try to update flat head.
-            let res = flat_storage.update_flat_head(&new_flat_head, false);
-            tracing::debug!(target: "storage", ?res);
-            res.unwrap_or_else(|err| {
+            flat_storage.update_flat_head(&new_flat_head, false).unwrap_or_else(|err| {
                 match &err {
                     FlatStorageError::BlockNotSupported(_) => {
                         // It's possible that new head is not a child of current flat head, e.g. when we have a
@@ -2306,16 +2287,15 @@ impl Chain {
                         // where during postprocessing (5) we call `update_flat_head(3)` and then for (6) we can
                         // call `update_flat_head(2)` because (2) will be last visible final block from it.
                         // In such case, just log an error.
-                        debug!(target: "chain", ?new_flat_head, ?err, ?shard_uid, block_hash = ?block.header().hash(), "Cannot update flat head");
+                        debug!(target: "chain", "Cannot update flat head to {:?}: {:?}", new_flat_head, err);
                     }
                     _ => {
                         // All other errors are unexpected, so we panic.
-                        panic!("Cannot update flat head of shard {shard_uid:?} to {new_flat_head:?}: {err:?}");
+                        panic!("Cannot update flat head to {:?}: {:?}", new_flat_head, err);
                     }
                 }
             });
         } else {
-            tracing::debug!(target: "storage", "No flat storage");
             // TODO (#8250): come up with correct assertion. Currently it doesn't work because runtime may be
             // implemented by KeyValueRuntime which doesn't support flat storage, and flat storage background
             // creation may happen.
@@ -4029,8 +4009,7 @@ impl Chain {
                             target: "chain",
                             parent: parent_span,
                             "new_chunk",
-                            shard_id,
-                            chunk_hash = ?chunk.chunk_hash())
+                            shard_id)
                         .entered();
                         let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
                         match runtime.apply_transactions(
@@ -5275,12 +5254,11 @@ impl<'a> ChainUpdate<'a> {
         block_preprocess_info: BlockPreprocessInfo,
         apply_chunks_results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<Option<Tip>, Error> {
-        let _span = tracing::debug_span!(target: "chain", "postprocess_block", block_hash = ?block.header().hash(), block_height = ?block.header().height()).entered();
         let prev_hash = block.header().prev_hash();
         let prev_block = self.chain_store_update.get_block(prev_hash)?;
         let results = apply_chunks_results.into_iter().map(|x| {
             if let Err(err) = &x {
-                warn!(target: "chain", hash = %block.hash(), error = %err, "Error in applying chunks for block");
+                warn!(target:"chain", hash = %block.hash(), error = %err, "Error in applying chunks for block");
             }
             x
         }).collect::<Result<Vec<_>, Error>>()?;
@@ -5296,7 +5274,7 @@ impl<'a> ChainUpdate<'a> {
         } = block_preprocess_info;
 
         if !is_caught_up {
-            debug!(target: "chain", %prev_hash, hash = %*block.hash(), height = block.header().height(), "Add block to catch up");
+            debug!(target: "chain", %prev_hash, hash = %*block.hash(), "Add block to catch up");
             self.chain_store_update.add_block_to_catchup(*prev_hash, *block.hash());
         }
 
@@ -5711,8 +5689,7 @@ pub fn do_apply_chunks(
     let parent_span =
         tracing::debug_span!(target: "chain", "do_apply_chunks", block_height, %block_hash)
             .entered();
-    // work.into_par_iter()
-    work.into_iter()
+    work.into_par_iter()
         .map(|task| {
             // As chunks can be processed in parallel, make sure they are all tracked as children of
             // a single span.

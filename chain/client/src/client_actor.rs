@@ -1465,17 +1465,19 @@ impl ClientActor {
     ///
     /// The selected block will always be the first block on a new epoch:
     /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
-    ///
-    /// To prevent syncing from a fork, we move `state_fetch_horizon` steps backwards and use that epoch.
-    /// Usually `state_fetch_horizon` is much less than the expected number of produced blocks on an epoch,
-    /// so this is only relevant on epoch boundaries.
     fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
-        let _span = tracing::debug_span!(target: "sync", "find_sync_hash").entered();
         let header_head = self.client.chain.header_head()?;
-        let mut sync_hash = header_head.last_block_hash;
-        let mut epoch_start_sync_hash =
+        let sync_hash = header_head.last_block_hash;
+        let epoch_start_sync_hash =
             StateSync::get_epoch_start_sync_hash(&mut self.client.chain, &sync_hash)?;
 
+        tracing::debug!(
+            target: "sync",
+            ?header_head,
+            ?sync_hash,
+            ?epoch_start_sync_hash,
+            genesis_hash = ?self.client.chain.genesis().hash(),
+            "find_sync_hash");
         assert_ne!(&epoch_start_sync_hash, self.client.chain.genesis().hash());
         Ok(epoch_start_sync_hash)
     }
@@ -1601,16 +1603,12 @@ impl ClientActor {
                         >= highest_height
                             .saturating_sub(self.client.config.block_header_fetch_horizon) =>
                     {
-                        let res = unwrap_and_report!(self.client.block_sync.run(
+                        unwrap_and_report!(self.client.block_sync.run(
                             &mut self.client.sync_status,
                             &self.client.chain,
                             highest_height,
                             &self.network_info.highest_height_peers
-                        ));
-                        if res {
-                            tracing::debug!(target: "sync", sync_status = ?self.client.sync_status, "BlockSync -> StateSync");
-                        }
-                        res
+                        ))
                     }
                     _ => false,
                 };

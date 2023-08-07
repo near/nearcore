@@ -349,8 +349,7 @@ impl Runtime {
                     deploy_contract,
                     apply_state,
                     apply_state.current_protocol_version,
-                )
-                .unwrap();
+                )?;
             }
             Action::FunctionCall(function_call) => {
                 action_function_call(
@@ -367,12 +366,11 @@ impl Runtime {
                     &apply_state.config,
                     action_index + 1 == actions.len(),
                     epoch_info_provider,
-                )
-                .unwrap();
+                )?;
             }
             Action::Transfer(transfer) => {
                 if let Some(account) = account.as_mut() {
-                    action_transfer(account, transfer).unwrap();
+                    action_transfer(account, transfer)?;
                     // Check if this is a gas refund, then try to refund the access key allowance.
                     if is_refund && action_receipt.signer_id == receipt.receiver_id {
                         try_refund_allowance(
@@ -380,8 +378,7 @@ impl Runtime {
                             &receipt.receiver_id,
                             &action_receipt.signer_public_key,
                             transfer,
-                        )
-                        .unwrap();
+                        )?;
                     }
                 } else {
                     // Implicit account creation
@@ -411,8 +408,7 @@ impl Runtime {
                     stake,
                     &apply_state.prev_block_hash,
                     epoch_info_provider,
-                )
-                .unwrap();
+                )?;
             }
             Action::AddKey(add_key) => {
                 action_add_key(
@@ -422,8 +418,7 @@ impl Runtime {
                     &mut result,
                     account_id,
                     add_key,
-                )
-                .unwrap();
+                )?;
             }
             Action::DeleteKey(delete_key) => {
                 action_delete_key(
@@ -434,8 +429,7 @@ impl Runtime {
                     account_id,
                     delete_key,
                     apply_state.current_protocol_version,
-                )
-                .unwrap();
+                )?;
             }
             Action::DeleteAccount(delete_account) => {
                 action_delete_account(
@@ -447,8 +441,7 @@ impl Runtime {
                     account_id,
                     delete_account,
                     apply_state.current_protocol_version,
-                )
-                .unwrap();
+                )?;
             }
             Action::Delegate(signed_delegate_action) => {
                 apply_delegate_action(
@@ -458,8 +451,7 @@ impl Runtime {
                     account_id,
                     signed_delegate_action,
                     &mut result,
-                )
-                .unwrap();
+                )?;
             }
         };
         Ok(result)
@@ -486,14 +478,12 @@ impl Runtime {
             .input_data_ids
             .iter()
             .map(|data_id| {
-                let ReceivedData { data } = get_received_data(state_update, account_id, *data_id)
-                    .unwrap()
+                let ReceivedData { data } = get_received_data(state_update, account_id, *data_id)?
                     .ok_or_else(|| {
                         StorageError::StorageInconsistentState(
                             "received data should be in the state".to_string(),
                         )
-                    })
-                    .unwrap();
+                    })?;
                 state_update.remove(TrieKey::ReceivedData {
                     receiver_id: account_id.clone(),
                     data_id: *data_id,
@@ -503,8 +493,7 @@ impl Runtime {
                     None => Ok(PromiseResult::Failed),
                 }
             })
-            .collect::<Result<Vec<PromiseResult>, RuntimeError>>()
-            .unwrap();
+            .collect::<Result<Vec<PromiseResult>, RuntimeError>>()?;
 
         // state_update might already have some updates so we need to make sure we commit it before
         // executing the actual receipt
@@ -512,7 +501,7 @@ impl Runtime {
             receipt_hash: receipt.get_hash(),
         });
 
-        let mut account = get_account(state_update, account_id).unwrap();
+        let mut account = get_account(state_update, account_id)?;
         let mut actor_id = receipt.predecessor_id.clone();
         let mut result = ActionResult::default();
         let exec_fees = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
@@ -529,22 +518,20 @@ impl Runtime {
                 &apply_state.block_hash,
                 action_index,
             );
-            let mut new_result = self
-                .apply_action(
-                    action,
-                    state_update,
-                    apply_state,
-                    &mut account,
-                    &mut actor_id,
-                    receipt,
-                    action_receipt,
-                    &promise_results,
-                    &action_hash,
-                    action_index,
-                    &action_receipt.actions,
-                    epoch_info_provider,
-                )
-                .unwrap();
+            let mut new_result = self.apply_action(
+                action,
+                state_update,
+                apply_state,
+                &mut account,
+                &mut actor_id,
+                receipt,
+                action_receipt,
+                &promise_results,
+                &action_hash,
+                action_index,
+                &action_receipt.actions,
+                epoch_info_provider,
+            )?;
             if new_result.result.is_ok() {
                 if let Err(e) = new_result.new_receipts.iter().try_for_each(|receipt| {
                     validate_receipt(
@@ -556,7 +543,7 @@ impl Runtime {
                     new_result.result = Err(ActionErrorKind::NewReceiptValidationError(e).into());
                 }
             }
-            result.merge(new_result).unwrap();
+            result.merge(new_result)?;
             // TODO storage error
             if let Err(ref mut res) = result.result {
                 res.index = Some(action_index as u64);
@@ -576,18 +563,16 @@ impl Runtime {
                         set_account(state_update, account_id.clone(), account);
                     }
                     Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
-                        result
-                            .merge(ActionResult {
-                                result: Err(ActionError {
-                                    index: None,
-                                    kind: ActionErrorKind::LackBalanceForState {
-                                        account_id: account_id.clone(),
-                                        amount,
-                                    },
-                                }),
-                                ..Default::default()
-                            })
-                            .unwrap();
+                        result.merge(ActionResult {
+                            result: Err(ActionError {
+                                index: None,
+                                kind: ActionErrorKind::LackBalanceForState {
+                                    account_id: account_id.clone(),
+                                    amount,
+                                },
+                            }),
+                            ..Default::default()
+                        })?;
                     }
                     Err(StorageStakingError::StorageError(err)) => {
                         return Err(RuntimeError::StorageError(
@@ -616,9 +601,8 @@ impl Runtime {
             if result.result.is_err() {
                 stats.other_burnt_amount = safe_add_balance(
                     stats.other_burnt_amount,
-                    total_deposit(&action_receipt.actions).unwrap(),
-                )
-                .unwrap()
+                    total_deposit(&action_receipt.actions)?,
+                )?
             }
             0
         } else {
@@ -630,11 +614,9 @@ impl Runtime {
                 &mut result,
                 apply_state.current_protocol_version,
                 &apply_state.config.fees,
-            )
-            .unwrap()
+            )?
         };
-        stats.gas_deficit_amount =
-            safe_add_balance(stats.gas_deficit_amount, gas_deficit_amount).unwrap();
+        stats.gas_deficit_amount = safe_add_balance(stats.gas_deficit_amount, gas_deficit_amount)?;
 
         // Moving validator proposals
         validator_proposals.append(&mut result.validator_proposals);
@@ -656,7 +638,7 @@ impl Runtime {
             if AccountId::is_system(&receipt.predecessor_id) { 0 } else { result.gas_burnt };
         // `gas_deficit_amount` is strictly less than `gas_price * gas_burnt`.
         let mut tx_burnt_amount =
-            safe_gas_to_balance(apply_state.gas_price, gas_burnt).unwrap() - gas_deficit_amount;
+            safe_gas_to_balance(apply_state.gas_price, gas_burnt)? - gas_deficit_amount;
         // The amount of tokens burnt for the execution of this receipt. It's used in the execution
         // outcome.
         let tokens_burnt = tx_burnt_amount;
@@ -667,17 +649,16 @@ impl Runtime {
             / *apply_state.config.fees.burnt_gas_reward.denom() as u64;
         // The balance that the current account should receive as a reward for function call
         // execution.
-        let receiver_reward = safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)
-            .unwrap()
+        let receiver_reward = safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)?
             .saturating_sub(gas_deficit_amount);
         if receiver_reward > 0 {
-            let mut account = get_account(state_update, account_id).unwrap();
+            let mut account = get_account(state_update, account_id)?;
             if let Some(ref mut account) = account {
                 // Validators receive the remaining execution reward that was not given to the
                 // account holder. If the account doesn't exist by the end of the execution, the
                 // validators receive the full reward.
                 tx_burnt_amount -= receiver_reward;
-                account.set_amount(safe_add_balance(account.amount(), receiver_reward).unwrap());
+                account.set_amount(safe_add_balance(account.amount(), receiver_reward)?);
                 set_account(state_update, account_id.clone(), account);
                 state_update.commit(StateChangeCause::ActionReceiptGasReward {
                     receipt_hash: receipt.get_hash(),
@@ -685,7 +666,7 @@ impl Runtime {
             }
         }
 
-        stats.tx_burnt_amount = safe_add_balance(stats.tx_burnt_amount, tx_burnt_amount).unwrap();
+        stats.tx_burnt_amount = safe_add_balance(stats.tx_burnt_amount, tx_burnt_amount)?;
 
         // Generating outgoing data
         // A {
@@ -874,7 +855,6 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
-        let _span = tracing::debug_span!(target: "runtime", "process_receipt", ?receipt);
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
             ReceiptEnum::Data(ref data_receipt) => {
@@ -895,9 +875,7 @@ impl Runtime {
                         receiver_id: account_id.clone(),
                         data_id: data_receipt.data_id,
                     },
-                )
-                .unwrap()
-                {
+                )? {
                     // There is already a receipt that is awaiting for the just received data.
                     // Removing this pending data_id for the receipt from the state.
                     state_update.remove(TrieKey::PostponedReceiptId {
@@ -908,14 +886,12 @@ impl Runtime {
                     let pending_data_count: u32 = get(
                         state_update,
                         &TrieKey::PendingDataCount { receiver_id: account_id.clone(), receipt_id },
-                    )
-                    .unwrap()
+                    )?
                     .ok_or_else(|| {
                         StorageError::StorageInconsistentState(
                             "pending data count should be in the state".to_string(),
                         )
-                    })
-                    .unwrap();
+                    })?;
                     if pending_data_count == 1 {
                         // It was the last input data pending for this receipt. We'll cleanup
                         // some receipt related fields from the state and execute the receipt.
@@ -927,14 +903,12 @@ impl Runtime {
                         });
                         // Fetching the receipt itself.
                         let ready_receipt =
-                            get_postponed_receipt(state_update, account_id, receipt_id)
-                                .unwrap()
+                            get_postponed_receipt(state_update, account_id, receipt_id)?
                                 .ok_or_else(|| {
                                     StorageError::StorageInconsistentState(
                                         "pending receipt should be in the state".to_string(),
                                     )
-                                })
-                                .unwrap();
+                                })?;
                         // Removing the receipt from the state.
                         remove_postponed_receipt(state_update, account_id, receipt_id);
                         // Executing the receipt. It will read all the input data and clean it up
@@ -959,15 +933,12 @@ impl Runtime {
                                 receiver_id: account_id.clone(),
                                 receipt_id,
                             },
-                            &(pending_data_count
-                                .checked_sub(1)
-                                .ok_or_else(|| {
-                                    StorageError::StorageInconsistentState(
-                                        "pending data count is 0, but there is a new DataReceipt"
-                                            .to_string(),
-                                    )
-                                })
-                                .unwrap()),
+                            &(pending_data_count.checked_sub(1).ok_or_else(|| {
+                                StorageError::StorageInconsistentState(
+                                    "pending data count is 0, but there is a new DataReceipt"
+                                        .to_string(),
+                                )
+                            })?),
                         );
                     }
                 }
@@ -979,7 +950,7 @@ impl Runtime {
                 // If not, then we will postpone this receipt for later.
                 let mut pending_data_count: u32 = 0;
                 for data_id in &action_receipt.input_data_ids {
-                    if get_received_data(state_update, account_id, *data_id).unwrap().is_none() {
+                    if get_received_data(state_update, account_id, *data_id)?.is_none() {
                         pending_data_count += 1;
                         // The data for a given data_id is not available, so we save a link to this
                         // receipt_id for the pending data_id into the state.
@@ -996,7 +967,7 @@ impl Runtime {
                 if pending_data_count == 0 {
                     // All input data is available. Executing the receipt. It will cleanup
                     // input data from the state.
-                    return Ok(self
+                    return self
                         .apply_action_receipt(
                             state_update,
                             apply_state,
@@ -1006,8 +977,7 @@ impl Runtime {
                             stats,
                             epoch_info_provider,
                         )
-                        .map(Some)
-                        .unwrap());
+                        .map(Some);
                 } else {
                     // Not all input data is available now.
                     // Save the counter for the number of pending input data items into the state.
@@ -1245,8 +1215,7 @@ impl Runtime {
                 &mut state_update,
                 validator_accounts_update,
                 &mut stats,
-            )
-            .unwrap();
+            )?;
         }
 
         let (gas_used_for_migrations, mut receipts_to_restore) = self
@@ -1256,8 +1225,7 @@ impl Runtime {
                 &apply_state.migration_flags,
                 apply_state.current_protocol_version,
             )
-            .map_err(RuntimeError::StorageError)
-            .unwrap();
+            .map_err(RuntimeError::StorageError)?;
         // If we have receipts that need to be restored, prepend them to the list of incoming receipts
         let incoming_receipts = if receipts_to_restore.is_empty() {
             incoming_receipts
@@ -1274,7 +1242,7 @@ impl Runtime {
             && apply_state.current_protocol_version
                 >= ProtocolFeature::FixApplyChunks.protocol_version()
         {
-            let (trie, trie_changes, state_changes) = state_update.finalize().unwrap();
+            let (trie, trie_changes, state_changes) = state_update.finalize()?;
             let proof = trie.recorded_storage();
             return Ok(ApplyResult {
                 state_root: trie_changes.new_root,
@@ -1304,25 +1272,26 @@ impl Runtime {
         let mut metrics = metrics::ApplyMetrics::default();
 
         for signed_transaction in transactions {
-            let (receipt, outcome_with_id) = self
-                .process_transaction(&mut state_update, apply_state, signed_transaction, &mut stats)
-                .unwrap();
+            let (receipt, outcome_with_id) = self.process_transaction(
+                &mut state_update,
+                apply_state,
+                signed_transaction,
+                &mut stats,
+            )?;
             if receipt.receiver_id == signed_transaction.transaction.signer_id {
                 local_receipts.push(receipt);
             } else {
                 outgoing_receipts.push(receipt);
             }
 
-            total_gas_burnt =
-                safe_add_gas(total_gas_burnt, outcome_with_id.outcome.gas_burnt).unwrap();
+            total_gas_burnt = safe_add_gas(total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
             total_compute_usage = safe_add_compute(
                 total_compute_usage,
                 outcome_with_id
                     .outcome
                     .compute_usage
                     .expect("`process_transaction` must populate compute usage"),
-            )
-            .unwrap();
+            )?;
 
             if !checked_feature!("stable", ComputeCosts, apply_state.current_protocol_version) {
                 assert_eq!(
@@ -1362,17 +1331,16 @@ impl Runtime {
             let node_counter_after = state_update.trie().get_trie_nodes_count();
             tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
 
-            if let Some(outcome_with_id) = result.unwrap() {
+            if let Some(outcome_with_id) = result? {
                 *total_gas_burnt =
-                    safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt).unwrap();
+                    safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
                 *total_compute_usage = safe_add_compute(
                     *total_compute_usage,
                     outcome_with_id
                         .outcome
                         .compute_usage
                         .expect("`process_receipt` must populate compute usage"),
-                )
-                .unwrap();
+                )?;
 
                 if !checked_feature!("stable", ComputeCosts, apply_state.current_protocol_version) {
                     assert_eq!(
@@ -1404,8 +1372,7 @@ impl Runtime {
                     &mut state_update,
                     &mut total_gas_burnt,
                     &mut total_compute_usage,
-                )
-                .unwrap();
+                )?;
             } else {
                 set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             }
@@ -1418,15 +1385,12 @@ impl Runtime {
                 break;
             }
             let key = TrieKey::DelayedReceipt { index: delayed_receipts_indices.first_index };
-            let receipt: Receipt = get(&state_update, &key)
-                .unwrap()
-                .ok_or_else(|| {
-                    StorageError::StorageInconsistentState(format!(
-                        "Delayed receipt #{} should be in the state",
-                        delayed_receipts_indices.first_index
-                    ))
-                })
-                .unwrap();
+            let receipt: Receipt = get(&state_update, &key)?.ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "Delayed receipt #{} should be in the state",
+                    delayed_receipts_indices.first_index
+                ))
+            })?;
 
             if let Some(prefetcher) = &mut prefetcher {
                 prefetcher.clear();
@@ -1445,8 +1409,7 @@ impl Runtime {
                     "Delayed receipt #{} in the state is invalid: {}",
                     delayed_receipts_indices.first_index, e
                 ))
-            })
-            .unwrap();
+            })?;
 
             state_update.remove(key);
             // Math checked above: first_index is less than next_available_index
@@ -1456,8 +1419,7 @@ impl Runtime {
                 &mut state_update,
                 &mut total_gas_burnt,
                 &mut total_compute_usage,
-            )
-            .unwrap();
+            )?;
             processed_delayed_receipts.push(receipt);
         }
         metrics.delayed_receipts_done(total_gas_burnt, total_compute_usage);
@@ -1476,16 +1438,14 @@ impl Runtime {
                 receipt,
                 apply_state.current_protocol_version,
             )
-            .map_err(RuntimeError::ReceiptValidationError)
-            .unwrap();
+            .map_err(RuntimeError::ReceiptValidationError)?;
             if total_compute_usage < compute_limit {
                 process_receipt(
                     receipt,
                     &mut state_update,
                     &mut total_gas_burnt,
                     &mut total_compute_usage,
-                )
-                .unwrap();
+                )?;
             } else {
                 set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             }
@@ -1510,12 +1470,11 @@ impl Runtime {
             &outgoing_receipts,
             &stats,
             apply_state.current_protocol_version,
-        )
-        .unwrap();
+        )?;
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         self.apply_state_patch(&mut state_update, state_patch);
-        let (trie, trie_changes, state_changes) = state_update.finalize().unwrap();
+        let (trie, trie_changes, state_changes) = state_update.finalize()?;
 
         // Dedup proposals from the same account.
         // The order is deterministically changed.
