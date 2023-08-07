@@ -21,6 +21,7 @@ rand.workspace = true
 reed-solomon-erasure.workspace = true
 time.workspace = true
 tracing.workspace = true
+itertools.workspace = true
 
 near-async.workspace = true
 near-chain-configs.workspace = true

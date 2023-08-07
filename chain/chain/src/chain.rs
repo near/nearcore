@@ -1120,6 +1120,7 @@ impl Chain {
             &prev_hash,
         )?;
         let prev_block = self.get_block(&prev_hash)?;
+        tracing::trace!(target: "waclaw", ?shards_to_state_sync, "get_state_sync_info");
 
         if prev_block.chunks().len() != block.chunks().len() && !shards_to_state_sync.is_empty() {
             // Currently, the state sync algorithm assumes that the number of chunks do not change
@@ -2720,8 +2721,14 @@ impl Chain {
         parent_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> bool {
-        let will_shard_layout_change =
-            epoch_manager.will_shard_layout_change(parent_hash).unwrap_or(false);
+        let result = epoch_manager.will_shard_layout_change(parent_hash);
+        let will_shard_layout_change = match result {
+            Ok(will_shard_layout_change) => will_shard_layout_change,
+            Err(err) => {
+                tracing::error!(target: "waclaw", ?err, "failed to check if shard layout will change");
+                return false;
+            }
+        };
         // if shard layout will change the next epoch, we should catch up the shard regardless
         // whether we already have the shard's state this epoch, because we need to generate
         // new states for shards split from the current shard for the next epoch

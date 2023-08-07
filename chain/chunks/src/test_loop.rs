@@ -347,7 +347,7 @@ impl TestChunkEncoder {
     }
 
     pub fn part_ords(&self) -> Vec<u64> {
-        self.full_partial_chunk.parts().iter().map(|part| part.part_ord).collect()
+        self.full_partial_chunk.parts().iter().take(3).map(|part| part.part_ord).collect()
     }
 
     pub fn make_partial_encoded_chunk(

@@ -241,6 +241,7 @@ impl CanSendAsync<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, 
         &self,
         message: PeerManagerMessageRequest,
     ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, ()>> {
+        tracing::trace!(target: "waclaw", "send async");
         self.requests.write().unwrap().push_back(message);
         self.notify.notify_one();
         async { Ok(PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)) }
@@ -250,6 +251,7 @@ impl CanSendAsync<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, 
 
 impl CanSend<PeerManagerMessageRequest> for MockPeerManagerAdapter {
     fn send(&self, msg: PeerManagerMessageRequest) {
+        tracing::trace!(target: "waclaw", "send sync");
         self.requests.write().unwrap().push_back(msg);
         self.notify.notify_one();
     }

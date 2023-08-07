@@ -9,6 +9,7 @@ use actix::{Actor, Addr, AsyncContext, Context};
 use actix_rt::{Arbiter, System};
 use chrono::DateTime;
 use futures::{future, FutureExt};
+use itertools::Itertools;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{CanSend, IntoSender, LateBoundSender, Sender};
 use near_async::time;
@@ -832,6 +833,7 @@ pub fn setup_mock_all_validators(
                             );
                         }
                         NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
+                            tracing::debug!(target: "test", "just checking, is this called?");
                             send_chunks(
                                 connectors1,
                                 validators_clone2.iter().cloned().enumerate(),
@@ -1874,21 +1876,49 @@ impl TestEnv {
 
     pub fn process_partial_encoded_chunks(&mut self) {
         let network_adapters = self.network_adapters.clone();
-        for network_adapter in network_adapters {
-            // process partial encoded chunks
-            while let Some(request) = network_adapter.pop() {
-                if let PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::PartialEncodedChunkMessage {
-                        account_id,
-                        partial_encoded_chunk,
-                    },
-                ) = request
-                {
-                    self.shards_manager(&account_id).send(
-                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
-                            PartialEncodedChunk::from(partial_encoded_chunk),
-                        ),
-                    );
+
+        let mut keep_going = true;
+        while keep_going {
+            for (i, network_adapter) in network_adapters.iter().enumerate() {
+                keep_going = false;
+                // process partial encoded chunks
+                while let Some(request) = network_adapter.pop() {
+                    // if there are any requests in any of the adapters reset
+                    // keep going to true as processing of any message may
+                    // trigger more messages to be processed in other clients
+                    // it's a bit sad and it would be much nicer if all messages
+                    // were forwarded to a single queue
+                    keep_going = true;
+                    match request {
+                        PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::PartialEncodedChunkMessage {
+                                account_id,
+                                partial_encoded_chunk,
+                            },
+                        ) => {
+                            tracing::debug!(target: "test", client=i, ?account_id, shard_id=partial_encoded_chunk.header.shard_id(), parts=?partial_encoded_chunk.parts.iter().take(3).map(|part| part.part_ord).collect_vec(), "handling partial encoded chunk");
+                            let partial_encoded_chunk =
+                                PartialEncodedChunk::from(partial_encoded_chunk);
+                            let message =
+                                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
+                                    partial_encoded_chunk,
+                                );
+                            self.shards_manager(&account_id).send(message);
+                        }
+                        PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::PartialEncodedChunkForward { account_id, forward },
+                        ) => {
+                            tracing::debug!(target: "test", client=i, ?account_id, shard_id=forward.shard_id, parts=?forward.parts.iter().take(3).map(|part| part.part_ord).collect_vec(), "handling forward");
+                            let message =
+                                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
+                                    forward,
+                                );
+                            self.shards_manager(&account_id).send(message);
+                        }
+                        _ => {
+                            tracing::debug!(target: "test", ?request, "skipping unsupported request type");
+                        }
+                    }
                 }
             }
         }
@@ -2375,6 +2405,7 @@ pub fn run_catchup(
     client: &mut Client,
     highest_height_peers: &[HighestHeightPeerInfo],
 ) -> Result<(), Error> {
+    tracing::trace!(target: "waclaw", "run_catchup");
     let f = |_| {};
     let block_messages = Arc::new(RwLock::new(vec![]));
     let block_inside_messages = block_messages.clone();

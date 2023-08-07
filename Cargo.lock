@@ -3542,6 +3542,7 @@ dependencies = [
  "derive-enum-from-into",
  "derive_more",
  "futures",
+ "itertools",
  "lru",
  "near-async",
  "near-chain",
