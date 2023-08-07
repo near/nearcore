@@ -966,95 +966,6 @@ mod fix_contract_loading_cost_protocol_upgrade {
             ]);
     }
 
-    #[test]
-    fn test_regression_9393() {
-        let builder = test_builder().protocol_features(&[
-            ProtocolFeature::FixContractLoadingCost,
-            ProtocolFeature::PreparationV2,
-        ]);
-        let (min_cost, max_cost) =
-            builder.configs().fold((u32::MAX as u64, 0u64), |(min, max), v| {
-                let insn_cost = u64::from(v.wasm_config.regular_op_cost);
-                (min.min(insn_cost), max.max(insn_cost))
-            });
-        let test_cases = [
-            (
-                i32::MAX as u64,
-                min_cost,
-                [
-                    expect![[r#"
-                        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 2763981177 used gas 2763981177
-                    "#]],
-                    expect![[r#"
-                        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 2757399129 used gas 2757399129
-                    "#]],
-                    expect![[r#"
-                        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 2763981177 used gas 2763981177
-                    "#]],
-                ],
-            ),
-            (
-                i32::MAX as u64,
-                max_cost,
-                [
-                    expect![[r#"
-                        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 2763981177 used gas 2763981177
-                    "#]],
-                    expect![[r#"
-                        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 2757399129 used gas 2757399129
-                    "#]],
-                    expect![[r#"
-                        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 2763981177 used gas 2763981177
-                    "#]],
-                ],
-            ),
-            (
-                u32::MAX as u64,
-                min_cost,
-                [
-                    expect![[r#"
-                        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 5477091837 used gas 5477091837
-                    "#]],
-                    expect![[r#"
-                        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 5470509789 used gas 5470509789
-                    "#]],
-                    expect![[r#"
-                        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 5477091837 used gas 5477091837
-                    "#]],
-                ],
-            ),
-            (
-                u32::MAX as u64,
-                max_cost,
-                [
-                    expect![[r#"
-                        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 5477091837 used gas 5477091837
-                    "#]],
-                    expect![[r#"
-                        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 5470509789 used gas 5470509789
-                    "#]],
-                    expect![[r#"
-                        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 5477091837 used gas 5477091837
-                    "#]],
-                ],
-            ),
-        ];
-
-        for (desired_gas_use, cost, expects) in test_cases {
-            let instructions = usize::try_from((desired_gas_use + cost - 1) / cost)
-                .expect("this test might not work on 32-bit targets...");
-            let contract = near_test_contracts::function_with_a_lot_of_nop(instructions);
-            std::fs::write("/tmp/test.wasm", &contract);
-            test_builder()
-                .protocol_features(&[
-                    ProtocolFeature::FixContractLoadingCost,
-                    ProtocolFeature::PreparationV2,
-                ])
-                .wasm(&contract)
-                .expects(&expects);
-        }
-    }
-
     /// Failure during preparation must remain free of gas charges for old versions
     /// but new versions must charge the loading gas.
     #[test]
@@ -1147,4 +1058,31 @@ mod fix_contract_loading_cost_protocol_upgrade {
                 "#]],
             ]);
     }
+}
+
+#[test]
+fn test_regression_9393() {
+    let before_builder = test_builder().protocol_versions(vec![63]);
+    let after_builder = test_builder().protocol_versions(vec![64]);
+    let before_cost = before_builder.configs().next().unwrap().wasm_config.regular_op_cost;
+    let after_cost = after_builder.configs().next().unwrap().wasm_config.regular_op_cost;
+    assert_eq!(
+        before_cost, after_cost,
+        "this test is not set up to test with different insn costs"
+    );
+    let cost = u64::from(before_cost);
+
+    let nops = (i32::MAX as u64 + cost - 1) / cost;
+    let contract = near_test_contracts::function_with_a_lot_of_nop(nops);
+    before_builder.wasm(&contract).only_near_vm().expects(&[
+        expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100000000000000 used gas 100000000000000
+            Err: Exceeded the maximum amount of gas allowed to burn per contract.
+        "#]],
+    ]);
+    after_builder.wasm(&contract).expects(&[
+        expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 2763981177 used gas 2763981177
+        "#]],
+    ]);
 }

@@ -350,6 +350,11 @@ impl<'a> FuncGen<'a> {
 
     fn emit_gas_const(&mut self, cost: u64) {
         if self.config.disable_9393_fix {
+            // emit_gas only supports Imm32 with an argument up-to i32::MAX, but we made *this*
+            // single-letter oversight at some point & the bug made its way into mainnet. Now that
+            // we need to maintain backwards compatibility and replayability of the old
+            // transactions, we end up with this wonderful and slightly horrifying monument to our
+            // former selves :)
             if let Ok(cost) = u32::try_from(cost) {
                 return self.emit_gas(Location::Imm32(cost));
             }
@@ -372,10 +377,12 @@ impl<'a> FuncGen<'a> {
         if cost_location == Location::Imm32(0) {
             return; // skip, which we must do because emit_add optimizes out the add 0 which leaves CF clobbered otherwise
         }
-        assert!(
-            matches!(cost_location, Location::Imm32(_) | Location::GPR(_)),
-            "emit_gas can take only an imm32 or a gpr argument"
-        );
+
+        match cost_location {
+            Location::Imm32(v) if v <= i32::MAX as u32 => {},
+            Location::GPR(_) => {},
+            _ => panic!("emit_gas can take only a imm32 < 0xFFF_FFFF or a gpr argument"),
+        }
 
         let counter_offset = offset_of!(FastGasCounter, burnt_gas) as i32;
         let gas_limit_offset = offset_of!(FastGasCounter, gas_limit) as i32;

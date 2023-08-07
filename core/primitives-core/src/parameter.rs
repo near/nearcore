@@ -146,6 +146,7 @@ pub enum Parameter {
     MaxLocalsPerContract,
     AccountIdValidityRulesVersion,
 
+    #[strum(serialize = "disable_9393_fix")]
     Disable9393Fix,
 }
 

@@ -223,7 +223,7 @@ impl LargeContract {
 /// Generate contracts with function bodies of large continuous sequences of `nop` instruction.
 ///
 /// This is particularly useful for testing how gas instrumentation works and its corner cases.
-pub fn function_with_a_lot_of_nop(nops: usize) -> Vec<u8> {
+pub fn function_with_a_lot_of_nop(nops: u64) -> Vec<u8> {
     use wasm_encoder::{
         CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction, Module,
         TypeSection,
