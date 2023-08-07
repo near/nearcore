@@ -198,7 +198,7 @@ impl Default for StoreConfig {
             // that increase to 25 GiB (we've used this big value to estimate
             // performance improvement headroom) having `max_open_files` at 10k
             // improved performance of state viewer by 60%.
-            col_state_cache_size: bytesize::ByteSize::mib(64),
+            col_state_cache_size: bytesize::ByteSize::mib(128),
 
             col_flat_state_cache_size: bytesize::ByteSize::mib(512),
 
