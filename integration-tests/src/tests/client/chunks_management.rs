@@ -138,6 +138,9 @@ impl Test {
 
                         if h > 1 {
                             // Make sure doomslug finality is computed correctly.
+                            assert!(
+                                height_to_hash.get(&(h-1)).is_some(),
+                                "h: {h}, last_ds_final_block: {:?}, height_to_hash: {height_to_hash:?}", block.header().last_ds_final_block());
                             assert_eq!(
                                 block.header().last_ds_final_block(),
                                 height_to_hash.get(&(h - 1)).unwrap(),
