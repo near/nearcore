@@ -1,3 +1,4 @@
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashSet};
 
 use crate::types::PoolKey;
@@ -17,8 +18,8 @@ pub mod types;
 pub enum InsertTransactionResult {
     /// Transaction was successfully inserted.
     Success,
-    /// Transaction is already in the pool.
-    Duplicate,
+    /// Transaction with same key is already in the pool.
+    Conflict,
     /// Not enough space to fit the transaction.
     NoSpaceLeft,
 }
@@ -29,14 +30,14 @@ pub struct TransactionPool {
     /// NOTE: It's more efficient on average to keep transactions unsorted and with potentially
     /// conflicting nonce than to create a BTreeMap for every transaction.
     transactions: BTreeMap<PoolKey, BTreeMap<Nonce, SignedTransaction>>,
-    /// Set of all hashes to quickly check if the given transaction is in the pool.
-    unique_transactions: HashSet<CryptoHash>,
     /// A uniquely generated key seed to randomize PoolKey order.
     key_seed: RngSeed,
-    /// If set, new transactions that bring the size of the pool over this limit will be rejected.
-    total_transaction_size_limit: Option<u64>,
+    /// Total number of transactions in the pool.
+    transaction_count: usize,
     /// Total size of transactions in the pool measured in bytes.
     total_transaction_size: u64,
+    /// If set, new transactions that bring the size of the pool over this limit will be rejected.
+    total_transaction_size_limit: Option<u64>,
     /// Metrics tracked for transaction pool.
     transaction_pool_count_metric: GenericGauge<AtomicI64>,
     transaction_pool_size_metric: GenericGauge<AtomicI64>,
@@ -59,9 +60,9 @@ impl TransactionPool {
         Self {
             key_seed,
             transactions: BTreeMap::new(),
-            unique_transactions: HashSet::new(),
-            total_transaction_size_limit,
+            transaction_count: 0,
             total_transaction_size: 0,
+            total_transaction_size_limit,
             transaction_pool_count_metric,
             transaction_pool_size_metric,
         }
@@ -80,10 +81,6 @@ impl TransactionPool {
         &mut self,
         signed_transaction: SignedTransaction,
     ) -> InsertTransactionResult {
-        if !self.unique_transactions.insert(signed_transaction.get_hash()) {
-            // The hash of this transaction was already seen, skip it.
-            return InsertTransactionResult::Duplicate;
-        }
         // We never expect the total size to go over `u64` during real operation as that would
         // be more than 10^9 GiB of RAM consumed for transaction pool, so panicing here is intended
         // to catch a logic error in estimation of transaction size.
@@ -97,17 +94,21 @@ impl TransactionPool {
             }
         }
 
-        // At this point transaction is accepted to the pool.
-        self.total_transaction_size = new_total_transaction_size;
         let signer_id = &signed_transaction.transaction.signer_id;
         let signer_public_key = &signed_transaction.transaction.public_key;
-        // TODO(akashin): Check that there was no new value inserted.
-        self.transactions
+        let group = self
+            .transactions
             .entry(self.key(signer_id, signer_public_key))
-            .or_insert_with(BTreeMap::new)
-            .insert(signed_transaction.transaction.nonce, signed_transaction);
+            .or_insert_with(BTreeMap::new);
+        match group.entry(signed_transaction.transaction.nonce) {
+            Entry::Vacant(v) => v.insert(signed_transaction),
+            Entry::Occupied(_) => return InsertTransactionResult::Conflict,
+        };
 
-        self.transaction_pool_count_metric.inc();
+        // At this point transaction is accepted to the pool.
+        self.transaction_count += 1;
+        self.total_transaction_size = new_total_transaction_size;
+        self.transaction_pool_count_metric.set(self.transaction_count as i64);
         self.transaction_pool_size_metric.set(self.total_transaction_size as i64);
         InsertTransactionResult::Success
     }
@@ -125,11 +126,7 @@ impl TransactionPool {
     /// became invalid.
     pub fn remove_transactions(&mut self, transactions: &[SignedTransaction]) {
         for tx in transactions {
-            // If transaction is not present in the pool, skip it.
-            // TODO(akashin): We don't really need this.
-            if !self.unique_transactions.remove(&tx.get_hash()) {
-                continue;
-            }
+            self.transaction_count -= 1;
             self.total_transaction_size -= tx.get_size();
 
             let key = self.key(&tx.transaction.signer_id, &tx.transaction.public_key);
@@ -142,13 +139,13 @@ impl TransactionPool {
         self.transactions.retain(|_key, group| !group.is_empty());
 
         // We can update metrics only once for the whole batch of transactions.
-        self.transaction_pool_count_metric.set(self.unique_transactions.len() as i64);
+        self.transaction_pool_count_metric.set(self.transaction_count as i64);
         self.transaction_pool_size_metric.set(self.total_transaction_size as i64);
     }
 
     /// Returns the number of unique transactions in the pool.
     pub fn len(&self) -> usize {
-        self.unique_transactions.len()
+        self.transaction_count
     }
 
     /// Returns the total size of transactions in the pool in bytes.
@@ -418,7 +415,7 @@ mod tests {
         for tx in transactions {
             assert!(matches!(
                 pool.insert_transaction(tx),
-                InsertTransactionResult::Success | InsertTransactionResult::Duplicate
+                InsertTransactionResult::Success | InsertTransactionResult::Conflict
             ));
         }
         assert_eq!(pool.len(), 10);

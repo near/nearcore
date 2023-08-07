@@ -2063,8 +2063,8 @@ impl Client {
                         InsertTransactionResult::Success => {
                             trace!(target: "client", shard_id, "Recorded a transaction.");
                         }
-                        InsertTransactionResult::Duplicate => {
-                            trace!(target: "client", shard_id, "Duplicate transaction, not forwarding it.");
+                        InsertTransactionResult::Conflict => {
+                            trace!(target: "client", shard_id, "Conflicting transaction, not forwarding it.");
                             return Ok(ProcessTxResponse::ValidTx);
                         }
                         InsertTransactionResult::NoSpaceLeft => {
