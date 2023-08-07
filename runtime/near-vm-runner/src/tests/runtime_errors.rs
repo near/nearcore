@@ -1062,8 +1062,8 @@ mod fix_contract_loading_cost_protocol_upgrade {
 
 #[test]
 fn test_regression_9393() {
-    let before_builder = test_builder().protocol_versions(vec![63]);
-    let after_builder = test_builder().protocol_versions(vec![64]);
+    let before_builder = test_builder().protocol_versions(vec![62]);
+    let after_builder = test_builder().protocol_versions(vec![63]);
     let before_cost = before_builder.configs().next().unwrap().wasm_config.regular_op_cost;
     let after_cost = after_builder.configs().next().unwrap().wasm_config.regular_op_cost;
     assert_eq!(
