@@ -379,9 +379,12 @@ impl<'a> FuncGen<'a> {
         }
 
         match cost_location {
-            Location::Imm32(v) if v <= i32::MAX as u32 => {}
+            Location::Imm32(v) if self.config.disable_9393_fix || v <= (i32::MAX as u32) => {}
+            Location::Imm32(v) => {
+                panic!("emit_gas can take only an imm32 <= 0xFFF_FFFF, got 0x{v:X}")
+            }
             Location::GPR(_) => {}
-            _ => panic!("emit_gas can take only a imm32 < 0xFFF_FFFF or a gpr argument"),
+            _ => panic!("emit_gas can take only an imm32 or a gpr argument"),
         }
 
         let counter_offset = offset_of!(FastGasCounter, burnt_gas) as i32;
