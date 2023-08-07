@@ -83,6 +83,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 use tracing::{debug, error, info, warn, Span};
@@ -2287,11 +2288,17 @@ impl Chain {
                         // where during postprocessing (5) we call `update_flat_head(3)` and then for (6) we can
                         // call `update_flat_head(2)` because (2) will be last visible final block from it.
                         // In such case, just log an error.
-                        debug!(target: "chain", "Cannot update flat head to {:?}: {:?}", new_flat_head, err);
+                        debug!(
+                            target: "chain",
+                            ?new_flat_head,
+                            ?err,
+                            ?shard_uid,
+                            block_hash = ?block.header().hash(),
+                            "Cannot update flat head");
                     }
                     _ => {
                         // All other errors are unexpected, so we panic.
-                        panic!("Cannot update flat head to {:?}: {:?}", new_flat_head, err);
+                        panic!("Cannot update flat head of shard {shard_uid:?} to {new_flat_head:?}: {err:?}");
                     }
                 }
             });
@@ -4819,6 +4826,7 @@ pub struct ChainUpdate<'a> {
     transaction_validity_period: BlockHeightDelta,
 }
 
+#[derive(Debug)]
 pub struct SameHeightResult {
     shard_uid: ShardUId,
     gas_limit: Gas,
@@ -4826,18 +4834,21 @@ pub struct SameHeightResult {
     apply_split_result_or_state_changes: Option<ApplySplitStateResultOrStateChanges>,
 }
 
+#[derive(Debug)]
 pub struct DifferentHeightResult {
     shard_uid: ShardUId,
     apply_result: ApplyTransactionResult,
     apply_split_result_or_state_changes: Option<ApplySplitStateResultOrStateChanges>,
 }
 
+#[derive(Debug)]
 pub struct SplitStateResult {
     // parent shard of the split states
     shard_uid: ShardUId,
     results: Vec<ApplySplitStateResult>,
 }
 
+#[derive(Debug)]
 pub enum ApplyChunkResult {
     SameHeight(SameHeightResult),
     DifferentHeight(DifferentHeightResult),
@@ -4887,13 +4898,14 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.commit()
     }
 
-    /// For all the outgoing receipts generated in block `hash` at the shards we are tracking
-    /// in this epoch,
-    /// save a mapping from receipt ids to the destination shard ids that the receipt will be sent
-    /// to in the next block.
-    /// Note that this function should be called after `save_block` is called on this block because
-    /// it requires that the block info is available in EpochManager, otherwise it will return an
-    /// error.
+    /// For all the outgoing receipts generated in block `hash` at the shards we
+    /// are tracking in this epoch, save a mapping from receipt ids to the
+    /// destination shard ids that the receipt will be sent to in the next
+    /// block.
+    ///
+    /// Note that this function should be called after `save_block` is called on
+    /// this block because it requires that the block info is available in
+    /// EpochManager, otherwise it will return an error.
     pub fn save_receipt_id_to_shard_id_for_block(
         &mut self,
         me: &Option<AccountId>,
@@ -4902,39 +4914,44 @@ impl<'a> ChainUpdate<'a> {
         num_shards: NumShards,
     ) -> Result<(), Error> {
         for shard_id in 0..num_shards {
-            if self.shard_tracker.care_about_shard(
+            let care_about_shard = self.shard_tracker.care_about_shard(
                 me.as_ref(),
                 &prev_hash,
                 shard_id as ShardId,
                 true,
-            ) {
-                let receipt_id_to_shard_id: HashMap<_, _> = {
-                    // it can be empty if there is no new chunk for this shard
-                    if let Ok(outgoing_receipts) =
-                        self.chain_store_update.get_outgoing_receipts(hash, shard_id)
-                    {
-                        let shard_layout =
-                            self.epoch_manager.get_shard_layout_from_prev_block(hash)?;
-                        outgoing_receipts
-                            .iter()
-                            .map(|receipt| {
-                                (
-                                    receipt.receipt_id,
-                                    account_id_to_shard_id(&receipt.receiver_id, &shard_layout),
-                                )
-                            })
-                            .collect()
-                    } else {
-                        HashMap::new()
-                    }
-                };
-                for (receipt_id, shard_id) in receipt_id_to_shard_id {
-                    self.chain_store_update.save_receipt_id_to_shard_id(receipt_id, shard_id);
-                }
+            );
+            if !care_about_shard {
+                continue;
+            }
+            let receipt_id_to_shard_id = self.get_receipt_id_to_shard_id(hash, shard_id)?;
+            for (receipt_id, shard_id) in receipt_id_to_shard_id {
+                self.chain_store_update.save_receipt_id_to_shard_id(receipt_id, shard_id);
             }
         }
 
         Ok(())
+    }
+
+    /// Returns a mapping from the receipt id to the destination shard id.
+    fn get_receipt_id_to_shard_id(
+        &mut self,
+        hash: &CryptoHash,
+        shard_id: u64,
+    ) -> Result<HashMap<CryptoHash, u64>, Error> {
+        let outgoing_receipts = self.chain_store_update.get_outgoing_receipts(hash, shard_id);
+        let outgoing_receipts = if let Ok(outgoing_receipts) = outgoing_receipts {
+            outgoing_receipts
+        } else {
+            return Ok(HashMap::new());
+        };
+        let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(hash)?;
+        let outgoing_receipts = outgoing_receipts
+            .iter()
+            .map(|receipt| {
+                (receipt.receipt_id, account_id_to_shard_id(&receipt.receiver_id, &shard_layout))
+            })
+            .collect();
+        Ok(outgoing_receipts)
     }
 
     fn apply_chunk_postprocessing(
@@ -5718,7 +5735,22 @@ pub struct ApplyStatePartsRequest {
     pub sync_hash: CryptoHash,
 }
 
-#[derive(actix::Message)]
+// Skip `runtime_adapter`, because it's a complex object that has complex logic
+// and many fields.
+impl Debug for ApplyStatePartsRequest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ApplyStatePartsRequest")
+            .field("runtime_adapter", &"<not shown>")
+            .field("shard_uid", &self.shard_uid)
+            .field("state_root", &self.state_root)
+            .field("num_parts", &self.num_parts)
+            .field("epoch_id", &self.epoch_id)
+            .field("sync_hash", &self.sync_hash)
+            .finish()
+    }
+}
+
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct ApplyStatePartsResponse {
     pub apply_result: Result<(), near_chain_primitives::error::Error>,
@@ -5735,7 +5767,19 @@ pub struct BlockCatchUpRequest {
     pub work: Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send>>,
 }
 
-#[derive(actix::Message)]
+// Skip `work`, because displaying functions is not possible.
+impl Debug for BlockCatchUpRequest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BlockCatchUpRequest")
+            .field("sync_hash", &self.sync_hash)
+            .field("block_hash", &self.block_hash)
+            .field("block_height", &self.block_height)
+            .field("work", &format!("<vector of length {}>", self.work.len()))
+            .finish()
+    }
+}
+
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct BlockCatchUpResponse {
     pub sync_hash: CryptoHash,

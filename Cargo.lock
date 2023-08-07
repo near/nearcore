@@ -2796,6 +2796,7 @@ dependencies = [
  "futures",
  "hex",
  "insta",
+ "itertools",
  "near-actix-test-utils",
  "near-async",
  "near-chain",
