@@ -140,8 +140,8 @@ impl Test {
                             // Make sure doomslug finality is computed correctly.
                             assert_eq!(
                                 block.header().last_ds_final_block(),
-                                height_to_hash.get(&(h - 1)).unwrap()
-                            );
+                                height_to_hash.get(&(h - 1)).unwrap(),
+                                "h: {h}, last_ds_final_block: {:?}, height_to_hash: {height_to_hash:?}", block.header().last_ds_final_block());
 
                             // Make sure epoch length actually corresponds to the desired epoch length
                             // The switches are expected at 0->1, 5->6 and 10->11
