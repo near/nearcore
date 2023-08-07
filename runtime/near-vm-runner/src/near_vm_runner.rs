@@ -720,7 +720,7 @@ impl crate::runner::VM for NearVM {
                 current_protocol_version,
             ));
         }
-        match self.run_method(&artifact, import, method_name)? {
+        match self.run_method(&artifact, import, method_name).unwrap() {
             Ok(()) => Ok(VMOutcome::ok(logic)),
             Err(err) => Ok(VMOutcome::abort(logic, err)),
         }

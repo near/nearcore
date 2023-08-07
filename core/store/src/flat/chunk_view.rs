@@ -43,7 +43,7 @@ impl FlatStorageChunkView {
     /// could charge users for the value length before loading the value.
     // TODO (#7327): consider inlining small values, so we could use only one db access.
     pub fn get_value(&self, key: &[u8]) -> Result<Option<FlatStateValue>, crate::StorageError> {
-        self.flat_storage.get_value(&self.block_hash, key)
+        Ok(self.flat_storage.get_value(&self.block_hash, key).unwrap())
     }
 
     pub fn iter_flat_state_entries<'a>(

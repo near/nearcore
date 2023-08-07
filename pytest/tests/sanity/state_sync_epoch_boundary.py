@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # Spins up one validating node.
-# Spins a non-validating node that tracks all shards.
-# In the middle of an epoch, the node gets stopped, and the set of tracked shards gets reduced.
-# Test that the node correctly handles chunks for the shards that it will care about in the next epoch.
-# Spam transactions that require the node to use flat storage to process them correctly.
+# Spins a non-validating node that tracks some shards and the set of tracked shards changes regularly.
+# The node gets stopped, and gets restarted close to an epoch boundary but in a way to trigger epoch sync.
+#
+# This test is a regression test to ensure that the node doesn't panic during
+# function execution during block sync after a state sync.
 
 import pathlib
 import random
@@ -36,7 +37,11 @@ config0 = {
                 'Filesystem': {
                     'root_dir': state_parts_dir
                 }
-            }
+            },
+            'iteration_delay': {
+                'secs': 1,
+                'nanos': 0
+            },
         }
     },
     'store.state_snapshot_enabled': True,
@@ -61,8 +66,11 @@ config1 = {
         }
     },
     'state_sync_enabled': True,
-    'tracked_shard_schedule': [[0, 2, 3], [0, 2, 3], [0, 2, 3], [0, 1], [0, 1],
-                               [0, 1], [0, 1]],
+    'state_sync_timeout': {
+        'secs': 0,
+        'nanos': 500000000
+    },
+    'tracked_shard_schedule': [[0, 2, 3], [0, 2, 3], [0, 1], [0, 1]],
     'tracked_shards': [],
 }
 logger.info(f'state_parts_dir: {state_parts_dir}')
@@ -107,6 +115,8 @@ def epoch_height(block_height):
     return int((block_height - 1) / EPOCH_LENGTH)
 
 
+# Generates traffic for all possible shards.
+# Assumes that `test0`, `test1`, `near` all belong to different shards.
 def random_workload_until(target, nonce, keys, target_node):
     last_height = -1
     while True:

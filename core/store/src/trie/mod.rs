@@ -74,6 +74,7 @@ pub struct TrieCosts {
 }
 
 /// Whether a key lookup will be performed through flat storage or through iterating the trie
+#[derive(Debug)]
 pub enum KeyLookupMode {
     FlatStorage,
     Trie,
@@ -979,6 +980,7 @@ impl Trie {
     ) -> Result<Option<ValueRef>, StorageError> {
         let use_flat_storage =
             matches!(mode, KeyLookupMode::FlatStorage) && self.flat_storage_chunk_view.is_some();
+        tracing::debug!(target: "trie", ?key, ?mode, ?use_flat_storage, "get_ref");
 
         if use_flat_storage {
             let value_from_flat_storage = self
@@ -993,7 +995,7 @@ impl Trie {
                 // is done even if the key was not found, because intermediate trie nodes may be
                 // needed to prove the non-existence of the key.
                 let key_nibbles = NibbleSlice::new(key);
-                let value_from_trie = self.lookup(key_nibbles, false)?;
+                let value_from_trie = self.lookup(key_nibbles, false).unwrap();
                 assert_eq!(&value_from_flat_storage, &value_from_trie);
             }
             Ok(value_from_flat_storage)
@@ -1004,7 +1006,7 @@ impl Trie {
     }
 
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
-        match self.get_ref(key, KeyLookupMode::FlatStorage)? {
+        match self.get_ref(key, KeyLookupMode::FlatStorage).unwrap() {
             Some(ValueRef { hash, .. }) => {
                 self.internal_retrieve_trie_node(&hash, true).map(|bytes| Some(bytes.to_vec()))
             }

@@ -53,18 +53,7 @@ pub(crate) fn execute_function_call(
 ) -> Result<VMOutcome, RuntimeError> {
     let account_id = runtime_ext.account_id();
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
-    let code = match runtime_ext.get_code(account.code_hash()) {
-        Ok(Some(code)) => code,
-        Ok(None) => {
-            let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
-                account_id: account_id.as_str().into(),
-            });
-            return Ok(VMOutcome::nop_outcome(error));
-        }
-        Err(e) => {
-            return Err(RuntimeError::StorageError(e));
-        }
-    };
+    let code = runtime_ext.get_code(account.code_hash()).unwrap().unwrap();
     // Output data receipts are ignored if the function call is not the last action in the batch.
     let output_data_receivers: Vec<_> = if is_last_action {
         action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect()
@@ -120,39 +109,7 @@ pub(crate) fn execute_function_call(
     if checked_feature!("stable", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
     }
-
-    // There are many specific errors that the runtime can encounter.
-    // Some can be translated to the more general `RuntimeError`, which allows to pass
-    // the error up to the caller. For all other cases, panicking here is better
-    // than leaking the exact details further up.
-    // Note that this does not include errors caused by user code / input, those are
-    // stored in outcome.aborted.
-    result.map_err(|e| match e {
-        VMRunnerError::ExternalError(any_err) => {
-            let err: ExternalError =
-                any_err.downcast().expect("Downcasting AnyError should not fail");
-            match err {
-                ExternalError::StorageError(err) => err.into(),
-                ExternalError::ValidatorError(err) => RuntimeError::ValidatorError(err),
-            }
-        }
-        VMRunnerError::InconsistentStateError(err @ InconsistentStateError::IntegerOverflow) => {
-            StorageError::StorageInconsistentState(err.to_string()).into()
-        }
-        VMRunnerError::CacheError(err) => {
-            metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS.with_label_values(&[(&err).into()]).inc();
-            StorageError::StorageInconsistentState(err.to_string()).into()
-        }
-        VMRunnerError::LoadingError(msg) => {
-            panic!("Contract runtime failed to load a contrct: {msg}")
-        }
-        VMRunnerError::Nondeterministic(msg) => {
-            panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
-        }
-        VMRunnerError::WasmUnknownError { debug_message } => {
-            panic!("Wasmer returned unknown message: {}", debug_message)
-        }
-    })
+    Ok(result.unwrap())
 }
 
 pub(crate) fn action_function_call(
@@ -170,6 +127,7 @@ pub(crate) fn action_function_call(
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
+    tracing::debug!(target: "runtime", ?account, ?receipt, ?action_receipt, ?account_id, ?function_call, ?config, is_last_action, "action_function_call");
     if account.amount().checked_add(function_call.deposit).is_none() {
         return Err(StorageError::StorageInconsistentState(
             "Account balance integer overflow during function call deposit".to_string(),
@@ -198,7 +156,8 @@ pub(crate) fn action_function_call(
         config,
         is_last_action,
         None,
-    )?;
+    )
+    .unwrap();
 
     match &outcome.aborted {
         None => {
@@ -243,15 +202,15 @@ pub(crate) fn action_function_call(
         let action_err: ActionError = ActionErrorKind::FunctionCallError(err.into()).into();
         result.result = Err(action_err);
     }
-    result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
+    result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas).unwrap();
     result.gas_burnt_for_function_call =
-        safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
+        safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas).unwrap();
     // Runtime in `generate_refund_receipts` takes care of using proper value for refunds.
     // It uses `gas_used` for success and `gas_burnt` for failures. So it's not an issue to
     // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` even for
     // `FunctionCall`s error.
-    result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
-    result.compute_usage = safe_add_compute(result.compute_usage, outcome.compute_usage)?;
+    result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas).unwrap();
+    result.compute_usage = safe_add_compute(result.compute_usage, outcome.compute_usage).unwrap();
     result.logs.extend(outcome.logs);
     result.profile.merge(&outcome.profile);
     if execution_succeeded {

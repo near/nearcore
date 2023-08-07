@@ -4029,7 +4029,8 @@ impl Chain {
                             target: "chain",
                             parent: parent_span,
                             "new_chunk",
-                            shard_id)
+                            shard_id,
+                            chunk_hash = ?chunk.chunk_hash())
                         .entered();
                         let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
                         match runtime.apply_transactions(
@@ -5710,7 +5711,8 @@ pub fn do_apply_chunks(
     let parent_span =
         tracing::debug_span!(target: "chain", "do_apply_chunks", block_height, %block_hash)
             .entered();
-    work.into_par_iter()
+    // work.into_par_iter()
+    work.into_iter()
         .map(|task| {
             // As chunks can be processed in parallel, make sure they are all tracked as children of
             // a single span.

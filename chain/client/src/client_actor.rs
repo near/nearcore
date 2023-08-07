@@ -1470,25 +1470,13 @@ impl ClientActor {
     /// Usually `state_fetch_horizon` is much less than the expected number of produced blocks on an epoch,
     /// so this is only relevant on epoch boundaries.
     fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
+        let _span = tracing::debug_span!(target: "sync", "find_sync_hash").entered();
         let header_head = self.client.chain.header_head()?;
-        let mut sync_hash = header_head.prev_block_hash;
-        for _ in 0..self.client.config.state_fetch_horizon {
-            sync_hash = *self.client.chain.get_block_header(&sync_hash)?.prev_hash();
-        }
+        let mut sync_hash = header_head.last_block_hash;
         let mut epoch_start_sync_hash =
             StateSync::get_epoch_start_sync_hash(&mut self.client.chain, &sync_hash)?;
 
-        if &epoch_start_sync_hash == self.client.chain.genesis().hash() {
-            // If we are within `state_fetch_horizon` blocks of the second epoch, the sync hash will
-            // be the first block of the first epoch (or, the genesis block). Due to implementation
-            // details of the state sync, we can't state sync to the genesis block, so redo the
-            // search without going back `state_fetch_horizon` blocks.
-            epoch_start_sync_hash = StateSync::get_epoch_start_sync_hash(
-                &mut self.client.chain,
-                &header_head.last_block_hash,
-            )?;
-            assert_ne!(&epoch_start_sync_hash, self.client.chain.genesis().hash());
-        }
+        assert_ne!(&epoch_start_sync_hash, self.client.chain.genesis().hash());
         Ok(epoch_start_sync_hash)
     }
 
@@ -1613,12 +1601,16 @@ impl ClientActor {
                         >= highest_height
                             .saturating_sub(self.client.config.block_header_fetch_horizon) =>
                     {
-                        unwrap_and_report!(self.client.block_sync.run(
+                        let res = unwrap_and_report!(self.client.block_sync.run(
                             &mut self.client.sync_status,
                             &self.client.chain,
                             highest_height,
                             &self.network_info.highest_height_peers
-                        ))
+                        ));
+                        if res {
+                            tracing::debug!(target: "sync", sync_status = ?self.client.sync_status, "BlockSync -> StateSync");
+                        }
+                        res
                     }
                     _ => false,
                 };
