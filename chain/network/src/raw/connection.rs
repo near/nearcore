@@ -495,6 +495,12 @@ impl Connection {
                 PeerMessage::BlockHeaders(headers) => {
                     return Ok((Message::Direct(DirectMessage::BlockHeaders(headers)), timestamp));
                 }
+                PeerMessage::VersionedStateResponse(state_response) => {
+                    return Ok((
+                        Message::Direct(DirectMessage::VersionedStateResponse(state_response)),
+                        timestamp,
+                    ));
+                }
                 _ => {}
             }
         }
