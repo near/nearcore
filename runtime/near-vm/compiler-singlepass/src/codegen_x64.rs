@@ -379,8 +379,8 @@ impl<'a> FuncGen<'a> {
         }
 
         match cost_location {
-            Location::Imm32(v) if v <= i32::MAX as u32 => {},
-            Location::GPR(_) => {},
+            Location::Imm32(v) if v <= i32::MAX as u32 => {}
+            Location::GPR(_) => {}
             _ => panic!("emit_gas can take only a imm32 < 0xFFF_FFFF or a gpr argument"),
         }
 
