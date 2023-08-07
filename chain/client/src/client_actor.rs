@@ -48,7 +48,10 @@ use near_network::types::ReasonForBan;
 use near_network::types::{
     NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_o11y::{
+    handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext,
+    WithSpanContextExt,
+};
 use near_performance_metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
@@ -262,6 +265,28 @@ impl ClientActor {
         f: impl FnOnce(&mut Self, Req) -> Res,
     ) -> Res {
         let (_span, msg) = handler_debug_span!(target: "client", msg, msg_type);
+        self.wrap_impl(msg, ctx, msg_type, f)
+    }
+
+    // Same as `wrap()`, because creates a span at the `trace` verbosity.
+    fn wrap_trace<Req: std::fmt::Debug + actix::Message, Res>(
+        &mut self,
+        msg: WithSpanContext<Req>,
+        ctx: &mut Context<Self>,
+        msg_type: &str,
+        f: impl FnOnce(&mut Self, Req) -> Res,
+    ) -> Res {
+        let (_span, msg) = handler_trace_span!(target: "client", msg, msg_type);
+        self.wrap_impl(msg, ctx, msg_type, f)
+    }
+
+    fn wrap_impl<Req: std::fmt::Debug + actix::Message, Res>(
+        &mut self,
+        msg: Req,
+        ctx: &mut Context<Self>,
+        msg_type: &str,
+        f: impl FnOnce(&mut Self, Req) -> Res,
+    ) -> Res {
         self.check_triggers(ctx);
         let _d =
             delay_detector::DelayDetector::new(|| format!("NetworkClientMessage {:?}", msg).into());
@@ -557,7 +582,8 @@ impl Handler<WithSpanContext<SetNetworkInfo>> for ClientActor {
     type Result = ();
 
     fn handle(&mut self, msg: WithSpanContext<SetNetworkInfo>, ctx: &mut Context<Self>) {
-        self.wrap(msg, ctx, "SetNetworkInfo", |this, msg| {
+        // SetNetworkInfo is a large message. Avoid printing it at the `debug` verbosity.
+        self.wrap_trace(msg, ctx, "SetNetworkInfo", |this, msg| {
             let SetNetworkInfo(network_info) = msg;
             this.network_info = network_info;
         })
@@ -787,7 +813,7 @@ impl Handler<WithSpanContext<GetNetworkInfo>> for ClientActor {
 /// `ApplyChunksDoneMessage` is a message that signals the finishing of applying chunks of a block.
 /// Upon receiving this message, ClientActors knows that it's time to finish processing the blocks that
 /// just finished applying chunks.
-#[derive(actix::Message)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct ApplyChunksDoneMessage;
 
@@ -1465,30 +1491,21 @@ impl ClientActor {
     ///
     /// The selected block will always be the first block on a new epoch:
     /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
-    ///
-    /// To prevent syncing from a fork, we move `state_fetch_horizon` steps backwards and use that epoch.
-    /// Usually `state_fetch_horizon` is much less than the expected number of produced blocks on an epoch,
-    /// so this is only relevant on epoch boundaries.
     fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
         let header_head = self.client.chain.header_head()?;
-        let mut sync_hash = header_head.prev_block_hash;
-        for _ in 0..self.client.config.state_fetch_horizon {
-            sync_hash = *self.client.chain.get_block_header(&sync_hash)?.prev_hash();
-        }
-        let mut epoch_start_sync_hash =
+        let sync_hash = header_head.last_block_hash;
+        let epoch_start_sync_hash =
             StateSync::get_epoch_start_sync_hash(&mut self.client.chain, &sync_hash)?;
 
-        if &epoch_start_sync_hash == self.client.chain.genesis().hash() {
-            // If we are within `state_fetch_horizon` blocks of the second epoch, the sync hash will
-            // be the first block of the first epoch (or, the genesis block). Due to implementation
-            // details of the state sync, we can't state sync to the genesis block, so redo the
-            // search without going back `state_fetch_horizon` blocks.
-            epoch_start_sync_hash = StateSync::get_epoch_start_sync_hash(
-                &mut self.client.chain,
-                &header_head.last_block_hash,
-            )?;
-            assert_ne!(&epoch_start_sync_hash, self.client.chain.genesis().hash());
-        }
+        let genesis_hash = self.client.chain.genesis().hash();
+        tracing::debug!(
+            target: "sync",
+            ?header_head,
+            ?sync_hash,
+            ?epoch_start_sync_hash,
+            ?genesis_hash,
+            "find_sync_hash");
+        assert_ne!(&epoch_start_sync_hash, genesis_hash);
         Ok(epoch_start_sync_hash)
     }
 

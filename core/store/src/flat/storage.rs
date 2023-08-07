@@ -55,9 +55,9 @@ impl FlatStorageInner {
     /// Expected limits for in-memory stored changes, under which flat storage must keep working.
     /// If they are exceeded, warnings are displayed. Flat storage still will work, but its
     /// performance will slow down, and eventually it can cause OOM error.
-    /// Limit for number of changes. When over 100, introduces 89 us overhead:
+    /// Limit for number of blocks needed to read. When over 100, introduces significant overhead.
     /// https://github.com/near/nearcore/issues/8006#issuecomment-1473621334
-    const CACHED_CHANGES_LIMIT: usize = 100;
+    const HOPS_LIMIT: usize = 100;
     /// Limit for total size of cached changes. We allocate 600 MiB for cached deltas, which
     /// means 150 MiB per shards.
     const CACHED_CHANGES_SIZE_LIMIT: bytesize::ByteSize = bytesize::ByteSize(150 * bytesize::MIB);
@@ -65,6 +65,7 @@ impl FlatStorageInner {
     const BLOCKS_WITH_CHANGES_FLAT_HEAD_GAP: BlockHeight = 2;
 
     /// Creates `BlockNotSupported` error for the given block.
+    /// In the context of updating the flat head, the error is handled gracefully.
     fn create_block_not_supported_error(&self, block_hash: &CryptoHash) -> FlatStorageError {
         FlatStorageError::BlockNotSupported((self.flat_head.hash, *block_hash))
     }
@@ -122,6 +123,14 @@ impl FlatStorageInner {
             blocks.len(),
             first_height.map(|height| height - flat_head.height),
         );
+        if blocks.len() >= Self::HOPS_LIMIT {
+            warn!(
+                target: "chain",
+                shard_id = self.shard_uid.shard_id(),
+                flat_head_height = flat_head.height,
+                cached_deltas = self.deltas.len(),
+                "Flat storage needs too many hops to access a block");
+        }
 
         Ok(blocks)
     }
@@ -143,12 +152,14 @@ impl FlatStorageInner {
         );
 
         let cached_changes_size_bytes = bytesize::ByteSize(cached_changes_size);
-        if cached_deltas >= Self::CACHED_CHANGES_LIMIT
-            || cached_changes_size_bytes >= Self::CACHED_CHANGES_SIZE_LIMIT
-        {
-            let shard_id = self.shard_uid.shard_id();
-            let flat_head_height = self.flat_head.height;
-            warn!(target: "chain", %shard_id, %flat_head_height, %cached_deltas, %cached_changes_size_bytes, "Flat storage cached deltas exceeded expected limits");
+        if cached_changes_size_bytes >= Self::CACHED_CHANGES_SIZE_LIMIT {
+            warn!(
+                target: "chain",
+                shard_id = self.shard_uid.shard_id(),
+                flat_head_height = self.flat_head.height,
+                cached_deltas,
+                %cached_changes_size_bytes,
+                "Flat storage total size of cached deltas exceeded expected limits");
         }
     }
 
@@ -177,8 +188,12 @@ impl FlatStorageInner {
             if new_head == current_flat_head_hash {
                 return Ok(current_flat_head_hash);
             }
-            let metadata =
-                self.deltas.get(&new_head).ok_or(missing_delta_error(&new_head))?.metadata;
+            let metadata = self
+                .deltas
+                .get(&new_head)
+                // BlockNotSupported error kind will be handled gracefully.
+                .ok_or(self.create_block_not_supported_error(&new_head))?
+                .metadata;
             new_head = match metadata.prev_block_with_changes {
                 None => {
                     // The block has flat state changes.
@@ -638,6 +653,67 @@ mod tests {
         assert_matches!(
             flat_storage.update_flat_head(&chain.get_block_hash(3), true),
             Err(FlatStorageError::StorageInternalError(_))
+        );
+    }
+
+    #[test]
+    /// Builds a chain with occasional forks.
+    /// Checks that request to update flat head fail and are handled gracefully.
+    fn flat_storage_fork() {
+        init_test_logger();
+        // Create a chain with two forks. Set flat head to be at block 0.
+        let num_blocks = 10 as BlockHeight;
+
+        // Build a chain that looks lke this:
+        //     2     5     8
+        //    /     /     /
+        // 0-1---3-4---6-7---9
+        // Note that forks [0,1,2], [3,4,5] and [6,7,8] form triples of consecutive blocks.
+        let chain = MockChain::build((0..num_blocks).collect(), |i| {
+            if i == 0 {
+                None
+            } else if i % 3 == 0 {
+                Some(i - 2)
+            } else {
+                Some(i - 1)
+            }
+        });
+        let shard_uid = ShardUId::single_shard();
+        let store = create_test_store();
+        let mut store_update = store.store_update();
+        store_helper::set_flat_storage_status(
+            &mut store_update,
+            shard_uid,
+            FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: chain.get_block(0) }),
+        );
+        for i in 1..num_blocks {
+            let delta = FlatStateDelta {
+                changes: FlatStateChanges::default(),
+                metadata: FlatStateDeltaMetadata {
+                    block: chain.get_block(i),
+                    prev_block_with_changes: None,
+                },
+            };
+            store_helper::set_delta(&mut store_update, shard_uid, &delta);
+        }
+        store_update.commit().unwrap();
+
+        let flat_storage_manager = FlatStorageManager::new(store);
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
+
+        // Simulates an actual sequence of calls to `update_flat_head()` in the
+        // presence of forks.
+        assert_eq!(flat_storage.update_flat_head(&chain.get_block_hash(0), false), Ok(()));
+        assert_eq!(flat_storage.update_flat_head(&chain.get_block_hash(3), false), Ok(()));
+        assert_matches!(
+            flat_storage.update_flat_head(&chain.get_block_hash(0), false),
+            Err(FlatStorageError::BlockNotSupported(_))
+        );
+        assert_eq!(flat_storage.update_flat_head(&chain.get_block_hash(6), false), Ok(()));
+        assert_matches!(
+            flat_storage.update_flat_head(&chain.get_block_hash(0), false),
+            Err(FlatStorageError::BlockNotSupported(_))
         );
     }
 
