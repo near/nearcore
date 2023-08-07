@@ -1,5 +1,5 @@
 use actix::Message;
-use ansi_term::Color::{Purple, Yellow};
+use ansi_term::Color::Purple;
 use ansi_term::Style;
 use chrono::DateTime;
 use chrono::Utc;
@@ -231,31 +231,16 @@ pub fn format_shard_sync_phase(
         ShardSyncStatus::StateDownloadParts => {
             let mut num_parts_done = 0;
             let mut num_parts_not_done = 0;
-            let mut text = "".to_string();
-            for (i, download) in shard_sync_download.downloads.iter().enumerate() {
+            for download in shard_sync_download.downloads.iter() {
                 if download.done {
                     num_parts_done += 1;
-                    continue;
+                } else {
+                    num_parts_not_done += 1;
                 }
-                num_parts_not_done += 1;
-                text.push_str(&format!(
-                    "[{}: {}, {}, {:?}] ",
-                    paint(&i.to_string(), Yellow.bold(), use_colour),
-                    download.done,
-                    download.state_requests_count,
-                    download.last_target
-                ));
             }
-            format!(
-                "{} [{}: is_done, requests sent, last target] {} num_parts_done={} num_parts_not_done={}",
-                paint("PARTS", Purple.bold(), use_colour),
-                paint("part_id", Yellow.bold(), use_colour),
-                text,
-                num_parts_done,
-                num_parts_not_done
-            )
+            format!("num_parts_done={num_parts_done} num_parts_not_done={num_parts_not_done}")
         }
-        status => format!("{:?}", status),
+        status => format!("{status:?}"),
     }
 }
 

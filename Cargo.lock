@@ -3748,6 +3748,7 @@ dependencies = [
  "nearcore",
  "rayon",
  "tqdm",
+ "tracing",
 ]
 
 [[package]]

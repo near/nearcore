@@ -349,8 +349,6 @@ fn sync_empty_state() {
                                             Duration::from_millis(200);
                                         near2.client_config.max_block_production_delay =
                                             Duration::from_millis(400);
-                                        near2.client_config.state_fetch_horizon =
-                                            state_sync_horizon;
                                         near2.client_config.block_header_fetch_horizon =
                                             block_header_fetch_horizon;
                                         near2.client_config.block_fetch_horizon =
@@ -482,7 +480,6 @@ fn sync_state_dump() {
                                     Duration::from_millis(300);
                                 near2.client_config.max_block_production_delay =
                                     Duration::from_millis(600);
-                                near2.client_config.state_fetch_horizon = state_sync_horizon;
                                 near2.client_config.block_header_fetch_horizon =
                                     block_header_fetch_horizon;
                                 near2.client_config.block_fetch_horizon = block_fetch_horizon;

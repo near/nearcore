@@ -69,9 +69,6 @@ pub const MAX_BLOCK_WAIT_DELAY: u64 = 6_000;
 /// Horizon at which instead of fetching block, fetch full state.
 const BLOCK_FETCH_HORIZON: BlockHeightDelta = 50;
 
-/// Horizon to step from the latest block when fetching state.
-const STATE_FETCH_HORIZON: NumBlocks = 5;
-
 /// Behind this horizon header fetch kicks in.
 const BLOCK_HEADER_FETCH_HORIZON: BlockHeightDelta = 50;
 
@@ -181,6 +178,10 @@ fn default_view_client_threads() -> usize {
     4
 }
 
+fn default_log_summary_period() -> Duration {
+    Duration::from_secs(10)
+}
+
 fn default_doomslug_step_period() -> Duration {
     Duration::from_millis(100)
 }
@@ -213,8 +214,6 @@ pub struct Consensus {
     pub produce_empty_blocks: bool,
     /// Horizon at which instead of fetching block, fetch full state.
     pub block_fetch_horizon: BlockHeightDelta,
-    /// Horizon to step from the latest block when fetching state.
-    pub state_fetch_horizon: NumBlocks,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Time between check to perform catchup.
@@ -259,7 +258,6 @@ impl Default for Consensus {
             max_block_wait_delay: Duration::from_millis(MAX_BLOCK_WAIT_DELAY),
             produce_empty_blocks: true,
             block_fetch_horizon: BLOCK_FETCH_HORIZON,
-            state_fetch_horizon: STATE_FETCH_HORIZON,
             block_header_fetch_horizon: BLOCK_HEADER_FETCH_HORIZON,
             catchup_step_period: Duration::from_millis(CATCHUP_STEP_PERIOD),
             chunk_request_retry_period: Duration::from_millis(CHUNK_REQUEST_RETRY_PERIOD),
@@ -308,6 +306,8 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_trie_changes: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
+    #[serde(default = "default_log_summary_period")]
+    pub log_summary_period: Duration,
     // Allows more detailed logging, for example a list of orphaned blocks.
     pub enable_multiline_logging: Option<bool>,
     /// Garbage collection configuration.
@@ -377,6 +377,7 @@ impl Default for Config {
             archive: false,
             save_trie_changes: None,
             log_summary_style: LogSummaryStyle::Colored,
+            log_summary_period: default_log_summary_period(),
             gc: GCConfig::default(),
             epoch_sync_enabled: true,
             view_client_threads: default_view_client_threads(),
@@ -658,14 +659,13 @@ impl NearConfig {
                     .header_sync_expected_height_per_second,
                 state_sync_timeout: config.consensus.state_sync_timeout,
                 min_num_peers: config.consensus.min_num_peers,
-                log_summary_period: Duration::from_secs(10),
+                log_summary_period: config.log_summary_period,
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
                 epoch_length: genesis.config.epoch_length,
                 num_block_producer_seats: genesis.config.num_block_producer_seats,
                 ttl_account_id_router: config.network.ttl_account_id_router,
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
                 block_fetch_horizon: config.consensus.block_fetch_horizon,
-                state_fetch_horizon: config.consensus.state_fetch_horizon,
                 block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
                 catchup_step_period: config.consensus.catchup_step_period,
                 chunk_request_retry_period: config.consensus.chunk_request_retry_period,
