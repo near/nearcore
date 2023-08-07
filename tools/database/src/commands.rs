@@ -1,5 +1,6 @@
 use crate::adjust_database::ChangeDbKindCommand;
 use crate::analyse_data_size_distribution::AnalyseDataSizeDistributionCommand;
+use crate::compact::RunCompactionCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
 use crate::run_migrations::RunMigrationsCommand;
 use crate::state_perf::StatePerfCommand;
@@ -21,6 +22,9 @@ enum SubCommand {
     /// Change DbKind of hot or cold db.
     ChangeDbKind(ChangeDbKindCommand),
 
+    /// Run SST file compaction on database
+    CompactDatabase(RunCompactionCommand),
+
     /// Make snapshot of the database
     MakeSnapshot(MakeSnapshotCommand),
 
@@ -37,6 +41,7 @@ impl DatabaseCommand {
         match &self.subcmd {
             SubCommand::AnalyseDataSizeDistribution(cmd) => cmd.run(home),
             SubCommand::ChangeDbKind(cmd) => cmd.run(home),
+            SubCommand::CompactDatabase(cmd) => cmd.run(home),
             SubCommand::MakeSnapshot(cmd) => {
                 let near_config = nearcore::config::load_config(
                     &home,
