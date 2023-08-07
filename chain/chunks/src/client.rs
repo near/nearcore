@@ -102,7 +102,7 @@ impl ShardedTransactionPool {
         let pool = self.pool_for_shard(shard_id);
         for tx in transactions {
             reintroduced_count += match pool.insert_transaction(tx.clone()) {
-                InsertTransactionResult::Success | InsertTransactionResult::Duplicate => 1,
+                InsertTransactionResult::Success | InsertTransactionResult::Conflict => 1,
                 InsertTransactionResult::NoSpaceLeft => 0,
             }
         }
