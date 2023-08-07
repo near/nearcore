@@ -39,8 +39,8 @@ config0 = {
                 }
             },
             'iteration_delay': {
-                'secs': 1,
-                'nanos': 0
+                'secs': 0,
+                'nanos': 100000000
             },
         }
     },
@@ -70,7 +70,7 @@ config1 = {
         'secs': 0,
         'nanos': 500000000
     },
-    'tracked_shard_schedule': [[0, 2, 3], [0, 2, 3], [0, 1], [0, 1]],
+    'tracked_shard_schedule': [[0, 2, 3], [0, 2, 3], [0, 1], [0, 1], [0, 1], [0, 1]],
     'tracked_shards': [],
 }
 logger.info(f'state_parts_dir: {state_parts_dir}')

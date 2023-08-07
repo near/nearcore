@@ -1471,14 +1471,15 @@ impl ClientActor {
         let epoch_start_sync_hash =
             StateSync::get_epoch_start_sync_hash(&mut self.client.chain, &sync_hash)?;
 
+        let genesis_hash = self.client.chain.genesis().hash();
         tracing::debug!(
             target: "sync",
             ?header_head,
             ?sync_hash,
             ?epoch_start_sync_hash,
-            genesis_hash = ?self.client.chain.genesis().hash(),
+            ?genesis_hash,
             "find_sync_hash");
-        assert_ne!(&epoch_start_sync_hash, self.client.chain.genesis().hash());
+        assert_ne!(&epoch_start_sync_hash, genesis_hash);
         Ok(epoch_start_sync_hash)
     }
 
