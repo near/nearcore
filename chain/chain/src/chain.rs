@@ -5729,10 +5729,13 @@ pub struct ApplyStatePartsRequest {
     pub sync_hash: CryptoHash,
 }
 
-// Partial implementation that skips `runtime_adapter`.
+// Partial implementation that skips `runtime_adapter`, because
+// `runtime_adapter` is a complex object that has complex logic and many
+// fields.
 impl Debug for ApplyStatePartsRequest {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ApplyStatePartsRequest")
+            .field("runtime_adapter", &"<not shown>")
             .field("shard_uid", &self.shard_uid)
             .field("state_root", &self.state_root)
             .field("num_parts", &self.num_parts)
@@ -5759,7 +5762,7 @@ pub struct BlockCatchUpRequest {
     pub work: Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send>>,
 }
 
-// Partial implementation that skips `work` because formatting closures is not
+// Partial implementation that skips `work`, because displaying functions is not
 // possible.
 impl Debug for BlockCatchUpRequest {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -5767,7 +5770,7 @@ impl Debug for BlockCatchUpRequest {
             .field("sync_hash", &self.sync_hash)
             .field("block_hash", &self.block_hash)
             .field("block_height", &self.block_height)
-            .field("work_len", &self.work.len())
+            .field("work", &format!("<vector of length {}>", self.work.len()))
             .finish()
     }
 }

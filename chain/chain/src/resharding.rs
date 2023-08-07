@@ -32,10 +32,13 @@ pub struct StateSplitRequest {
     pub next_epoch_shard_layout: ShardLayout,
 }
 
-// Partial implementation that skips `runtime_adapter`.
+// Partial implementation that skips `runtime_adapter`, because
+// `runtime_adapter` is a complex object that has complex logic and many
+// fields.
 impl Debug for StateSplitRequest {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StateSplitRequest")
+            .field("runtime_adapter", &"<not shown>")
             .field("sync_hash", &self.sync_hash)
             .field("shard_uid", &self.shard_uid)
             .field("state_root", &self.state_root)
