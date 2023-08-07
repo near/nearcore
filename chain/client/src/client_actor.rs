@@ -48,7 +48,10 @@ use near_network::types::ReasonForBan;
 use near_network::types::{
     NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_o11y::{
+    handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext,
+    WithSpanContextExt,
+};
 use near_performance_metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
@@ -262,17 +265,10 @@ impl ClientActor {
         f: impl FnOnce(&mut Self, Req) -> Res,
     ) -> Res {
         let (_span, msg) = handler_debug_span!(target: "client", msg, msg_type);
-        self.check_triggers(ctx);
-        let _d =
-            delay_detector::DelayDetector::new(|| format!("NetworkClientMessage {:?}", msg).into());
-        metrics::CLIENT_MESSAGES_COUNT.with_label_values(&[msg_type]).inc();
-        let timer =
-            metrics::CLIENT_MESSAGES_PROCESSING_TIME.with_label_values(&[msg_type]).start_timer();
-        let res = f(self, msg);
-        timer.observe_duration();
-        res
+        self.wrap_impl(msg, ctx, msg_type, f)
     }
 
+    // Same as `wrap()`, because creates a span at the `trace` verbosity.
     fn wrap_trace<Req: std::fmt::Debug + actix::Message, Res>(
         &mut self,
         msg: WithSpanContext<Req>,
@@ -281,6 +277,16 @@ impl ClientActor {
         f: impl FnOnce(&mut Self, Req) -> Res,
     ) -> Res {
         let (_span, msg) = handler_trace_span!(target: "client", msg, msg_type);
+        self.wrap_impl(msg, ctx, msg_type, f)
+    }
+
+    fn wrap_impl<Req: std::fmt::Debug + actix::Message, Res>(
+        &mut self,
+        msg: Req,
+        ctx: &mut Context<Self>,
+        msg_type: &str,
+        f: impl FnOnce(&mut Self, Req) -> Res,
+    ) -> Res {
         self.check_triggers(ctx);
         let _d =
             delay_detector::DelayDetector::new(|| format!("NetworkClientMessage {:?}", msg).into());
@@ -576,6 +582,7 @@ impl Handler<WithSpanContext<SetNetworkInfo>> for ClientActor {
     type Result = ();
 
     fn handle(&mut self, msg: WithSpanContext<SetNetworkInfo>, ctx: &mut Context<Self>) {
+        // SetNetworkInfo is a large message. Avoid printing it at the `debug` verbosity.
         self.wrap_trace(msg, ctx, "SetNetworkInfo", |this, msg| {
             let SetNetworkInfo(network_info) = msg;
             this.network_info = network_info;
