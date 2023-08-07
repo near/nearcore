@@ -819,6 +819,7 @@ def apply_config_changes(node_dir, client_config_change):
         'rosetta_rpc',
         'save_trie_changes',
         'split_storage',
+        'state_sync',
         'state_sync_enabled',
         'store.state_snapshot_enabled',
         'tracked_shard_schedule',
