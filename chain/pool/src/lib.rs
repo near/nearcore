@@ -1,12 +1,12 @@
 use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 use crate::types::PoolKey;
 use borsh::BorshSerialize;
 use near_crypto::PublicKey;
 use near_o11y::metrics::prometheus::core::{AtomicI64, GenericGauge};
 use near_primitives::epoch_manager::RngSeed;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::hash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
 use std::ops::Bound;
@@ -96,10 +96,7 @@ impl TransactionPool {
 
         let signer_id = &signed_transaction.transaction.signer_id;
         let signer_public_key = &signed_transaction.transaction.public_key;
-        let group = self
-            .transactions
-            .entry(self.key(signer_id, signer_public_key))
-            .or_insert_with(BTreeMap::new);
+        let group = self.transactions.entry(self.key(signer_id, signer_public_key)).or_default();
         match group.entry(signed_transaction.transaction.nonce) {
             Entry::Vacant(v) => v.insert(signed_transaction),
             Entry::Occupied(_) => return InsertTransactionResult::Conflict,
