@@ -192,3 +192,5 @@ max_length_storage_key: 4_194_304
 max_length_storage_value: 4_194_304
 max_promises_per_function_call_action: 1_024
 max_number_input_data_dependencies: 128
+
+disable_9393_fix: false
