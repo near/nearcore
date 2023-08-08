@@ -1491,30 +1491,21 @@ impl ClientActor {
     ///
     /// The selected block will always be the first block on a new epoch:
     /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
-    ///
-    /// To prevent syncing from a fork, we move `state_fetch_horizon` steps backwards and use that epoch.
-    /// Usually `state_fetch_horizon` is much less than the expected number of produced blocks on an epoch,
-    /// so this is only relevant on epoch boundaries.
     fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
         let header_head = self.client.chain.header_head()?;
-        let mut sync_hash = header_head.prev_block_hash;
-        for _ in 0..self.client.config.state_fetch_horizon {
-            sync_hash = *self.client.chain.get_block_header(&sync_hash)?.prev_hash();
-        }
-        let mut epoch_start_sync_hash =
+        let sync_hash = header_head.last_block_hash;
+        let epoch_start_sync_hash =
             StateSync::get_epoch_start_sync_hash(&mut self.client.chain, &sync_hash)?;
 
-        if &epoch_start_sync_hash == self.client.chain.genesis().hash() {
-            // If we are within `state_fetch_horizon` blocks of the second epoch, the sync hash will
-            // be the first block of the first epoch (or, the genesis block). Due to implementation
-            // details of the state sync, we can't state sync to the genesis block, so redo the
-            // search without going back `state_fetch_horizon` blocks.
-            epoch_start_sync_hash = StateSync::get_epoch_start_sync_hash(
-                &mut self.client.chain,
-                &header_head.last_block_hash,
-            )?;
-            assert_ne!(&epoch_start_sync_hash, self.client.chain.genesis().hash());
-        }
+        let genesis_hash = self.client.chain.genesis().hash();
+        tracing::debug!(
+            target: "sync",
+            ?header_head,
+            ?sync_hash,
+            ?epoch_start_sync_hash,
+            ?genesis_hash,
+            "find_sync_hash");
+        assert_ne!(&epoch_start_sync_hash, genesis_hash);
         Ok(epoch_start_sync_hash)
     }
 

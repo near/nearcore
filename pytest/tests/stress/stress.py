@@ -47,7 +47,7 @@ MAX_STAKE = int(1e32)
 # Is only applicable in the scenarios where we expect failures in tx sends.
 SEND_TX_ATTEMPTS = 10
 
-# Block_header_fetch_horizon + state_fetch_horizon (which is equalto 5) need to be shorter than the epoch length.
+# Block_header_fetch_horizon need to be shorter than the epoch length.
 # otherwise say epoch boundaries are H and H'. If the current height is H' + eps, and a node finished header sync at
 # H' + eps - block_header_fetch_horizon, and then rolled state_fetch_horizon back, it will end up before H, and will
 # try to state sync at the beginning of the epoch *two* epochs ago. No node will respond to such state requests.
