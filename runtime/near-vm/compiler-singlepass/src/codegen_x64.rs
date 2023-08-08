@@ -349,14 +349,26 @@ impl<'a> FuncGen<'a> {
     }
 
     fn emit_gas_const(&mut self, cost: u64) {
-        if let Ok(cost) = u32::try_from(cost) {
-            self.emit_gas(Location::Imm32(cost));
+        if self.config.disable_9393_fix {
+            // emit_gas only supports Imm32 with an argument up-to i32::MAX, but we made *this*
+            // single-letter oversight at some point & the bug made its way into mainnet. Now that
+            // we need to maintain backwards compatibility and replayability of the old
+            // transactions, we end up with this wonderful and slightly horrifying monument to our
+            // former selves :)
+            if let Ok(cost) = u32::try_from(cost) {
+                return self.emit_gas(Location::Imm32(cost));
+            }
         } else {
-            let cost_reg = self.machine.acquire_temp_gpr().unwrap();
-            self.assembler.emit_mov(Size::S64, Location::Imm64(cost), Location::GPR(cost_reg));
-            self.emit_gas(Location::GPR(cost_reg));
-            self.machine.release_temp_gpr(cost_reg);
+            if let Ok(cost) = i32::try_from(cost) {
+                // This as `u32` cast is valid, as fallible u64->i32 conversions can’t produce a
+                // negative integer.
+                return self.emit_gas(Location::Imm32(cost as u32));
+            }
         }
+        let cost_reg = self.machine.acquire_temp_gpr().unwrap();
+        self.assembler.emit_mov(Size::S64, Location::Imm64(cost), Location::GPR(cost_reg));
+        self.emit_gas(Location::GPR(cost_reg));
+        self.machine.release_temp_gpr(cost_reg);
     }
 
     /// Emit a gas charge operation. The gas amount is stored in `cost_location`, which must be either an imm32 or a GPR
@@ -365,10 +377,15 @@ impl<'a> FuncGen<'a> {
         if cost_location == Location::Imm32(0) {
             return; // skip, which we must do because emit_add optimizes out the add 0 which leaves CF clobbered otherwise
         }
-        assert!(
-            matches!(cost_location, Location::Imm32(_) | Location::GPR(_)),
-            "emit_gas can take only an imm32 or a gpr argument"
-        );
+
+        match cost_location {
+            Location::Imm32(v) if self.config.disable_9393_fix || v <= (i32::MAX as u32) => {}
+            Location::Imm32(v) => {
+                panic!("emit_gas can take only an imm32 <= 0xFFF_FFFF, got 0x{v:X}")
+            }
+            Location::GPR(_) => {}
+            _ => panic!("emit_gas can take only an imm32 or a gpr argument"),
+        }
 
         let counter_offset = offset_of!(FastGasCounter, burnt_gas) as i32;
         let gas_limit_offset = offset_of!(FastGasCounter, gas_limit) as i32;
