@@ -22,6 +22,9 @@ pub struct VMConfig {
     /// Gas cost of a regular operation.
     pub regular_op_cost: u32,
 
+    /// Disable the fix for the #9393 issue in near-vm-runner.
+    pub disable_9393_fix: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: VMLimitConfig,
 }
@@ -179,6 +182,7 @@ impl VMConfig {
             ext_costs: ExtCostsConfig::test(),
             grow_mem_cost: 1,
             regular_op_cost: (SAFETY_MULTIPLIER as u32) * 1285457,
+            disable_9393_fix: false,
             limit_config: VMLimitConfig::test(),
         }
     }
@@ -196,6 +200,7 @@ impl VMConfig {
             ext_costs: ExtCostsConfig::free(),
             grow_mem_cost: 0,
             regular_op_cost: 0,
+            disable_9393_fix: false,
             // We shouldn't have any costs in the limit config.
             limit_config: VMLimitConfig { max_gas_burnt: u64::MAX, ..VMLimitConfig::test() },
         }
