@@ -220,6 +220,35 @@ impl LargeContract {
     }
 }
 
+/// Generate contracts with function bodies of large continuous sequences of `nop` instruction.
+///
+/// This is particularly useful for testing how gas instrumentation works and its corner cases.
+pub fn function_with_a_lot_of_nop(nops: u64) -> Vec<u8> {
+    use wasm_encoder::{
+        CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction, Module,
+        TypeSection,
+    };
+    let mut module = Module::new();
+    let mut type_section = TypeSection::new();
+    type_section.function([], []);
+    module.section(&type_section);
+    let mut functions_section = FunctionSection::new();
+    functions_section.function(0);
+    module.section(&functions_section);
+    let mut exports_section = ExportSection::new();
+    exports_section.export("main", ExportKind::Func, 0);
+    module.section(&exports_section);
+    let mut code_section = CodeSection::new();
+    let mut f = Function::new([]);
+    for _ in 0..nops {
+        f.instruction(&Instruction::Nop);
+    }
+    f.instruction(&Instruction::End);
+    code_section.function(&f);
+    module.section(&code_section);
+    module.finish()
+}
+
 /// Generate an arbitrary valid contract.
 pub fn arbitrary_contract(seed: u64) -> Vec<u8> {
     let mut rng = rand::rngs::SmallRng::seed_from_u64(seed);
