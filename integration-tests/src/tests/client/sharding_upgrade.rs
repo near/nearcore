@@ -249,8 +249,7 @@ impl TestShardUpgradeEnv {
                 .get_shard_layout_from_prev_block(block.hash())
                 .unwrap()
                 .num_shards();
-            tracing::trace!(target: "waclaw", ?num_shards, ?expected_num_shards, "boom");
-            // assert_eq!(num_shards, expected_num_shards);
+            assert_eq!(num_shards, expected_num_shards);
         }
 
         env.process_partial_encoded_chunks();
