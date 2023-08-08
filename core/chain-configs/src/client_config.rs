@@ -138,11 +138,7 @@ pub enum SyncConfig {
 
 impl Default for SyncConfig {
     fn default() -> Self {
-        Self::ExternalStorage(ExternalStorageConfig {
-            location: ExternalStorageLocation::GCS { bucket: "state-parts".to_string() },
-            num_concurrent_requests: 4,
-            num_concurrent_requests_during_catchup: 4,
-        })
+        Self::Peers
     }
 }
 
@@ -152,7 +148,15 @@ pub struct StateSyncConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// `none` value disables state dump to external storage.
     pub dump: Option<DumpConfig>,
+    #[serde(skip_serializing_if = "SyncConfig::is_default", default = "SyncConfig::default")]
     pub sync: SyncConfig,
+}
+
+impl SyncConfig {
+    /// Checks whether the object equals its default value.
+    fn is_default(&self) -> bool {
+        matches!(self, Self::Peers)
+    }
 }
 
 /// ClientConfig where some fields can be updated at runtime.
@@ -336,7 +340,7 @@ impl ClientConfig {
             flat_storage_creation_enabled: true,
             flat_storage_creation_period: Duration::from_secs(1),
             state_sync_enabled,
-            state_sync: StateSyncConfig{ dump: None, sync: SyncConfig::Peers },
+            state_sync: StateSyncConfig::default(),
             state_snapshot_every_n_blocks: None,
             transaction_pool_size_limit: None,
             enable_multiline_logging: false,
