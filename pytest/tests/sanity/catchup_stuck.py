@@ -19,7 +19,7 @@ import account
 from transaction import sign_staking_tx, sign_create_account_with_full_access_key_and_balance_tx, sign_payment_tx, sign_function_call_tx
 from key import Key
 
-MAX_SYNC_WAIT = 650
+MAX_SYNC_WAIT = 350
 EPOCH_LENGTH = 300
 
 state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
@@ -188,7 +188,7 @@ logger.info("step 2")
 state_sync_done_time = None
 state_sync_done_height = None
 for node1_height, _ in utils.poll_blocks(node1,
-                                         timeout=MAX_SYNC_WAIT,
+                                         timeout=500,
                                          poll_interval=1):
     if node1_height > EPOCH_LENGTH * 5 :
         break

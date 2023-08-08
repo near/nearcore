@@ -205,6 +205,7 @@ impl Trie {
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
         let flat_state_iter = self.iter_flat_state_entries(nibbles_begin, nibbles_end)?;
+        tracing::debug!(target: "state-parts", shard_id = shard_id, part_id = part_id.idx, num_parts = part_id.total, "flat_state_iter done");
         let mut value_refs = vec![];
         let mut values_inlined = 0;
         let mut all_state_part_items: Vec<_> = flat_state_iter
@@ -233,6 +234,7 @@ impl Trie {
             .map(|(k, hash)| Ok((k.clone(), Some(state_trie.retrieve_value(hash)?.to_vec()))))
             .collect::<Result<_, StorageError>>()
             .unwrap();
+        tracing::debug!(target: "state-parts", shard_id = shard_id, part_id = part_id.idx, num_parts = part_id.total, "looked_up_value_refs done");
         all_state_part_items.extend(looked_up_value_refs.iter().cloned());
         let lookup_values_duration = lookup_values_timer.stop_and_record();
 
@@ -244,6 +246,7 @@ impl Trie {
             Trie::new(Rc::new(TrieMemoryPartialStorage::default()), StateRoot::new(), None);
         let local_state_part_nodes =
             local_state_part_trie.update(all_state_part_items.into_iter())?.insertions;
+        tracing::debug!(target: "state-parts", shard_id = shard_id, part_id = part_id.idx, num_parts = part_id.total, "local_state_part_nodes done");
         let local_trie_creation_duration = local_trie_creation_timer.stop_and_record();
 
         // 4. Unite all nodes in memory, traverse trie based on them, return set of visited nodes.
@@ -265,6 +268,7 @@ impl Trie {
             Trie::new(Rc::new(TrieMemoryPartialStorage::new(all_nodes)), self.root, None);
 
         final_trie.visit_nodes_for_state_part(part_id)?;
+        tracing::debug!(target: "state-parts", shard_id = shard_id, part_id = part_id.idx, num_parts = part_id.total, "visit_nodes_for_state_part done");
         let final_trie_storage = final_trie.storage.as_partial_storage().unwrap();
         let final_state_part_nodes = final_trie_storage.partial_state();
         let PartialState::TrieValues(trie_values) = &final_state_part_nodes;
