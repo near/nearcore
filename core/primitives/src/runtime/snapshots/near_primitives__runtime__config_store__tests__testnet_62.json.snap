@@ -172,6 +172,7 @@ expression: config_view
     },
     "grow_mem_cost": 1,
     "regular_op_cost": 822756,
+    "disable_9393_fix": true,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
       "max_stack_height": 262144,

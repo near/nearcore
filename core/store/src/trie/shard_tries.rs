@@ -726,6 +726,20 @@ pub struct WrappedTrieChanges {
     block_hash: CryptoHash,
 }
 
+// Partial implementation. Skips `tries` due to its complexity and
+// `trie_changes` and `state_changes` due to their large volume.
+impl std::fmt::Debug for WrappedTrieChanges {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WrappedTrieChanges")
+            .field("tries", &"<not shown>")
+            .field("shard_uid", &self.shard_uid)
+            .field("trie_changes", &"<not shown>")
+            .field("state_changes", &"<not shown>")
+            .field("block_hash", &self.block_hash)
+            .finish()
+    }
+}
+
 impl WrappedTrieChanges {
     pub fn new(
         tries: ShardTries,

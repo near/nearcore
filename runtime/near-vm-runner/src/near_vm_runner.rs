@@ -238,7 +238,8 @@ impl NearVM {
     pub(crate) fn new_for_target(config: VMConfig, target: near_vm_compiler::Target) -> Self {
         // We only support singlepass compiler at the moment.
         assert_eq!(VM_CONFIG.compiler, NearVmCompiler::Singlepass);
-        let compiler = Singlepass::new();
+        let mut compiler = Singlepass::new();
+        compiler.set_9393_fix(!config.disable_9393_fix);
         // We only support universal engine at the moment.
         assert_eq!(VM_CONFIG.engine, NearVmEngine::Universal);
 

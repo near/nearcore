@@ -75,6 +75,7 @@ pub struct AcceptedBlock {
     pub provenance: Provenance,
 }
 
+#[derive(Debug)]
 pub struct ApplySplitStateResult {
     pub shard_uid: ShardUId,
     pub trie_changes: WrappedTrieChanges,
@@ -86,11 +87,13 @@ pub struct ApplySplitStateResult {
 // if it's ready, apply transactions also apply updates to split states and this enum will be
 //    ApplySplitStateResults
 // otherwise, it simply returns the state changes needed to be applied to split states
+#[derive(Debug)]
 pub enum ApplySplitStateResultOrStateChanges {
     ApplySplitStateResults(Vec<ApplySplitStateResult>),
     StateChangesForSplitStates(StateChangesForSplitStates),
 }
 
+#[derive(Debug)]
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,

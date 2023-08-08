@@ -145,6 +145,9 @@ pub enum Parameter {
     Wasmer2StackLimit,
     MaxLocalsPerContract,
     AccountIdValidityRulesVersion,
+
+    #[strum(serialize = "disable_9393_fix")]
+    Disable9393Fix,
 }
 
 #[derive(
