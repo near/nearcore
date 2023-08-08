@@ -2476,6 +2476,8 @@ pub struct VMConfigView {
     /// Gas cost of a regular operation.
     pub regular_op_cost: u32,
 
+    pub disable_9393_fix: bool,
+
     /// Describes limits for VM and Runtime.
     ///
     /// TODO: Consider changing this to `VMLimitConfigView` to avoid dependency
@@ -2489,6 +2491,7 @@ impl From<VMConfig> for VMConfigView {
             ext_costs: ExtCostsConfigView::from(config.ext_costs),
             grow_mem_cost: config.grow_mem_cost,
             regular_op_cost: config.regular_op_cost,
+            disable_9393_fix: config.disable_9393_fix,
             limit_config: config.limit_config,
         }
     }
@@ -2500,6 +2503,7 @@ impl From<VMConfigView> for VMConfig {
             ext_costs: near_primitives_core::config::ExtCostsConfig::from(view.ext_costs),
             grow_mem_cost: view.grow_mem_cost,
             regular_op_cost: view.regular_op_cost,
+            disable_9393_fix: view.disable_9393_fix,
             limit_config: view.limit_config,
         }
     }
