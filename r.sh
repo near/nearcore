@@ -14,8 +14,9 @@ for i in {1..1}
 
      # RUST_LOG=info \
      #RUST_LOG=info,catchup=trace,store=trace,client=debug,store=debug,test=debug,resharding=trace \
+     # RUST_LOG=debug,resharding=trace,waclaw=trace,catchup=trace \
      RUST_BACKTRACE=all \
-     RUST_LOG=debug,resharding=trace,waclaw=trace,catchup=trace,resharding=trace \
+     RUST_LOG=debug,resharding=trace \
      cargo nextest run -p integration-tests \
          --no-capture \
          --features nightly \

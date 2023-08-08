@@ -2405,7 +2405,6 @@ pub fn run_catchup(
     client: &mut Client,
     highest_height_peers: &[HighestHeightPeerInfo],
 ) -> Result<(), Error> {
-    tracing::trace!(target: "waclaw", "run_catchup");
     let f = |_| {};
     let block_messages = Arc::new(RwLock::new(vec![]));
     let block_inside_messages = block_messages.clone();

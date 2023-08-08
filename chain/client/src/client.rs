@@ -2136,7 +2136,6 @@ impl Client {
         state_parts_arbiter_handle: &ArbiterHandle,
     ) -> Result<(), Error> {
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
-        tracing::trace!(target: "waclaw", client=?me, "run_catchup");
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos()? {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
             let network_adapter = self.network_adapter.clone();

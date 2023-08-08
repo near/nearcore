@@ -17,10 +17,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid};
 use near_primitives::transaction::{
-    Action,
-    FunctionCallAction,
-    SignedTransaction,
-    // Action, DeployContractAction, FunctionCallAction, SignedTransaction,
+    Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_primitives::types::{BlockHeight, NumShards, ProtocolVersion, ShardId};
 use near_primitives::utils::MaybeValidated;
@@ -867,8 +864,7 @@ fn setup_test_env_with_cross_contract_txs(
     genesis_protocol_version: ProtocolVersion,
 ) -> (TestShardUpgradeEnv, HashMap<CryptoHash, AccountId>) {
     let num = 4;
-    // let mut test_env = TestShardUpgradeEnv::new(epoch_length, 4, 4, 100, Some(100_000_000_000_000));
-    let test_env = TestShardUpgradeEnv::new_with_protocol_version(
+    let mut test_env = TestShardUpgradeEnv::new_with_protocol_version(
         epoch_length,
         num,
         num,
@@ -888,33 +884,33 @@ fn setup_test_env_with_cross_contract_txs(
         test_env.initial_accounts[indices[0]].clone(),
         test_env.initial_accounts[indices[1]].clone(),
     ];
-    // test_env.set_init_tx(
-    //     contract_accounts
-    //         .iter()
-    //         .map(|account_id| {
-    //             let signer = InMemorySigner::from_seed(
-    //                 account_id.clone(),
-    //                 KeyType::ED25519,
-    //                 &account_id.to_string(),
-    //             );
-    //             SignedTransaction::from_actions(
-    //                 1,
-    //                 account_id.clone(),
-    //                 account_id.clone(),
-    //                 &signer,
-    //                 vec![Action::DeployContract(DeployContractAction {
-    //                     code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
-    //                 })],
-    //                 genesis_hash,
-    //             )
-    //         })
-    //         .collect(),
-    // );
+    test_env.set_init_tx(
+        contract_accounts
+            .iter()
+            .map(|account_id| {
+                let signer = InMemorySigner::from_seed(
+                    account_id.clone(),
+                    KeyType::ED25519,
+                    &account_id.to_string(),
+                );
+                SignedTransaction::from_actions(
+                    1,
+                    account_id.clone(),
+                    account_id.clone(),
+                    &signer,
+                    vec![Action::DeployContract(DeployContractAction {
+                        code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
+                    })],
+                    genesis_hash,
+                )
+            })
+            .collect(),
+    );
 
     let mut nonce = 100;
     let mut all_accounts: HashSet<_> = test_env.initial_accounts.clone().into_iter().collect();
     let mut new_accounts = HashMap::new();
-    let _generate_txs: &mut dyn FnMut(usize, usize) -> Vec<SignedTransaction> =
+    let generate_txs: &mut dyn FnMut(usize, usize) -> Vec<SignedTransaction> =
         &mut |min_size: usize, max_size: usize| -> Vec<SignedTransaction> {
             let mut rng = thread_rng();
             let size = rng.gen_range(min_size..max_size + 1);
@@ -943,26 +939,26 @@ fn setup_test_env_with_cross_contract_txs(
             .collect()
         };
 
-    // // add a bunch of transactions before the two epoch boundaries
-    // for height in vec![
-    //     epoch_length - 2,
-    //     epoch_length - 1,
-    //     epoch_length,
-    //     2 * epoch_length - 2,
-    //     2 * epoch_length - 1,
-    //     2 * epoch_length,
-    // ] {
-    //     test_env.set_tx_at_height(height, generate_txs(5, 8));
-    // }
+    // add a bunch of transactions before the two epoch boundaries
+    for height in vec![
+        epoch_length - 2,
+        epoch_length - 1,
+        epoch_length,
+        2 * epoch_length - 2,
+        2 * epoch_length - 1,
+        2 * epoch_length,
+    ] {
+        test_env.set_tx_at_height(height, generate_txs(5, 8));
+    }
 
-    // // adds some transactions after sharding change finishes
-    // // but do not add too many because I want all transactions to
-    // // finish processing before epoch 5
-    // for height in 2 * epoch_length + 1..3 * epoch_length {
-    //     if rng.gen_bool(0.3) {
-    //         test_env.set_tx_at_height(height, generate_txs(5, 8));
-    //     }
-    // }
+    // adds some transactions after sharding change finishes
+    // but do not add too many because I want all transactions to
+    // finish processing before epoch 5
+    for height in 2 * epoch_length + 1..3 * epoch_length {
+        if rng.gen_bool(0.3) {
+            test_env.set_tx_at_height(height, generate_txs(5, 8));
+        }
+    }
 
     (test_env, new_accounts)
 }
@@ -1006,6 +1002,7 @@ fn test_shard_layout_upgrade_cross_contract_calls_v1() {
 
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls_v2() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2);

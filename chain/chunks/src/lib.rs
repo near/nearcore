@@ -1306,13 +1306,11 @@ impl ShardsManager {
         &mut self,
         header: &ShardChunkHeader,
     ) -> bool {
-        tracing::debug!(target: "waclaw", "insert_header_if_not_exists_and_process_cached_chunk_forwards");
         let header_known_before = self.encoded_chunks.get(&header.chunk_hash()).is_some();
         if self.encoded_chunks.get_or_insert_from_header(header).complete {
             return false;
         }
         if let Some(parts) = self.chunk_forwards_cache.pop(&header.chunk_hash()) {
-            tracing::debug!(target: "waclaw", parts_len=parts.len(), "insert_header_if_not_exists_and_process_cached_chunk_forwards");
             // Note that we don't need any further validation for the forwarded part.
             // The forwarded part was earlier validated via validate_partial_encoded_chunk_forward,
             // which checks the part against the merkle root in the forward message, and the merkle
@@ -1736,8 +1734,6 @@ impl ShardsManager {
                 continue;
             }
             next_chunk_producers.remove(&bp_account_id);
-
-            tracing::debug!(target: "waclaw", ?bp_account_id, shard_id=partial_encoded_chunk.header.shard_id(), parts=?forward.parts.iter().take(3).map(|part| part.part_ord).collect_vec(), "sending forward");
             // Technically, here we should check if the block producer actually cares about the shard.
             // We don't because with the current implementation, we force all validators to track all
             // shards by making their config tracking all shards.
@@ -1910,7 +1906,6 @@ impl ShardsManager {
                 );
 
             if Some(&to_whom) != self.me.as_ref() {
-                tracing::trace!(target: "waclaw", parts_len=partial_encoded_chunk.parts.len(), "sending partial encoded chunk");
                 self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::PartialEncodedChunkMessage {
                         account_id: to_whom.clone(),
