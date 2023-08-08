@@ -34,6 +34,7 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
             ext_costs: ext_costs_config(cost_table)?,
             grow_mem_cost: 1,
             regular_op_cost: u32::try_from(regular_op_cost).unwrap(),
+            disable_9393_fix: false,
             limit_config: vm_limit_config,
         },
         account_creation_config: AccountCreationConfig::default(),
