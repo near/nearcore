@@ -63,11 +63,16 @@ export const RoutingTableView = ({ addr }: RoutingTableViewProps) => {
                 <tbody>
                     {direct_peers.map((peer_id) => {
                         const peer_label = peerLabels[peer_id];
+
+                        const peer_distances = routingInfo.peer_distances[peer_id];
+                        const formatted_distances = peer_distances == null ? "null" :
+                            peer_distances.distance.map((x) => x || '_').join(', ');
+
                         return (
                             <tr key={peer_label}>
                                 <td>{peer_id.substring(8, 14)}...</td>
                                 <td>{peer_label}</td>
-                                <td>{routingInfo.peer_distances[peer_id].distance.join(', ')}</td>
+                                <td>{formatted_distances}</td>
                             </tr>
                         );
                     })}
