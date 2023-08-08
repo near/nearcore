@@ -198,6 +198,14 @@ fn default_transaction_pool_size_limit() -> Option<u64> {
     Some(100_000_000) // 100 MB.
 }
 
+fn default_state_sync_enabled() -> Option<bool> {
+    Some(true)
+}
+
+fn default_state_sync() -> Option<StateSyncConfig> {
+    Some(StateSyncConfig::default())
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -337,10 +345,10 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_shutdown: Option<BlockHeight>,
     /// Whether to use state sync (unreliable and corrupts the DB if fails) or do a block sync instead.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default = "default_state_sync_enabled")]
     pub state_sync_enabled: Option<bool>,
     /// Options for syncing state.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default = "default_state_sync")]
     pub state_sync: Option<StateSyncConfig>,
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.

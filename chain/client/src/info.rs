@@ -2,7 +2,7 @@ use crate::config_updater::ConfigUpdater;
 use crate::{metrics, SyncStatus};
 use actix::Addr;
 use itertools::Itertools;
-use near_chain_configs::{ClientConfig, LogSummaryStyle, SyncConfig};
+use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_client_primitives::types::StateSyncStatus;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
@@ -372,8 +372,7 @@ impl InfoHelper {
 
         let s = |num| if num == 1 { "" } else { "s" };
 
-        let sync_status_log =
-            Some(display_sync_status(sync_status, head, &client_config.state_sync.sync));
+        let sync_status_log = Some(display_sync_status(sync_status, head));
         let catchup_status_log = display_catchup_status(catchup_status);
         let validator_info_log = validator_info.as_ref().map(|info| {
             format!(
@@ -592,11 +591,7 @@ pub fn display_catchup_status(catchup_status: Vec<CatchupStatusView>) -> String 
         .join("\n")
 }
 
-pub fn display_sync_status(
-    sync_status: &SyncStatus,
-    head: &Tip,
-    state_sync_config: &SyncConfig,
-) -> String {
+pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
     metrics::SYNC_STATUS.set(sync_status.repr() as i64);
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
@@ -635,22 +630,11 @@ pub fn display_sync_status(
             )
         }
         SyncStatus::StateSync(StateSyncStatus { sync_hash, sync_status: shard_statuses }) => {
-            let mut res = format!("State {:?}", sync_hash);
+            let mut res = format!("State {sync_hash:?}");
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {
-                write!(res, "[{}: {}]", shard_id, shard_status.status.to_string(),).unwrap();
-            }
-            if matches!(state_sync_config, SyncConfig::Peers) {
-                // TODO #8719
-                tracing::warn!(
-                    target: "stats",
-                    "The node is syncing its State. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\
-                     Suggestions:\n\
-                     * Download a recent data snapshot and restart the node.\n\
-                     * Disable state sync in the config. Add `\"state_sync_enabled\": false` to `config.json`.\n\
-                     \n\
-                     A better implementation of State Sync is work in progress.");
+                write!(res, "[{shard_id}: {}]", shard_status.status.to_string()).unwrap();
             }
             res
         }
