@@ -2,7 +2,7 @@ use crate::config_updater::ConfigUpdater;
 use crate::{metrics, SyncStatus};
 use actix::Addr;
 use itertools::Itertools;
-use near_chain_configs::{ClientConfig, LogSummaryStyle};
+use near_chain_configs::{ClientConfig, LogSummaryStyle, SyncConfig};
 use near_client_primitives::types::StateSyncStatus;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
@@ -372,7 +372,8 @@ impl InfoHelper {
 
         let s = |num| if num == 1 { "" } else { "s" };
 
-        let sync_status_log = Some(display_sync_status(sync_status, head));
+        let sync_status_log =
+            Some(display_sync_status(sync_status, head, &client_config.state_sync.sync));
         let catchup_status_log = display_catchup_status(catchup_status);
         let validator_info_log = validator_info.as_ref().map(|info| {
             format!(
@@ -591,7 +592,11 @@ pub fn display_catchup_status(catchup_status: Vec<CatchupStatusView>) -> String 
         .join("\n")
 }
 
-pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
+pub fn display_sync_status(
+    sync_status: &SyncStatus,
+    head: &Tip,
+    state_sync_config: &SyncConfig,
+) -> String {
     metrics::SYNC_STATUS.set(sync_status.repr() as i64);
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
@@ -630,12 +635,29 @@ pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
             )
         }
         SyncStatus::StateSync(StateSyncStatus { sync_hash, sync_status: shard_statuses }) => {
-            let mut res = format!("State {sync_hash:?}");
+            let mut res = format!("State {:?}", sync_hash);
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {
-                write!(res, "[{shard_id}: {}]", shard_status.status.to_string()).unwrap();
+                write!(res, "[{}: {}]", shard_id, shard_status.status.to_string(),).unwrap();
             }
+            match state_sync_config {
+                SyncConfig::Peers => {
+                    tracing::warn!(
+                        target: "stats",
+                        "The node is trying to sync its State from its peers. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\
+                         Suggestions:\n\
+                         * Try to state sync from GCS. See `\"state_sync\"` and `\"state_sync_enabled\"` options in the reference `config.json` file.
+                         or
+                         * Disable state sync in the config. Add `\"state_sync_enabled\": false` to `config.json`, then download a recent data snapshot and restart the node.");
+                }
+                SyncConfig::ExternalStorage(_) => {
+                    tracing::info!(
+                        target: "stats",
+                        "The node is trying to sync its State from external storage. The current implementation is experimental. Use carefully. If it fails, consider disabling state sync and restarting from a recent snapshot:\n\
+                         - Add `\"state_sync_enabled\": false` to `config.json`, then download a recent data snapshot and restart the node.");
+                }
+            };
             res
         }
         SyncStatus::StateSyncDone => "State sync done".to_string(),
