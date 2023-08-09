@@ -1,3 +1,6 @@
+# TODO: reimplement this logic using standard tooling like systemd instead of relying on this
+# python script to handle neard process management.
+
 import argparse
 from enum import Enum
 import fcntl
