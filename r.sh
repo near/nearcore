@@ -18,8 +18,8 @@ for i in {1..1}
      RUST_BACKTRACE=all \
      RUST_LOG=debug,resharding=trace \
      cargo nextest run -p integration-tests \
-         --no-capture \
          --features nightly \
+         --no-capture \
 		 $TEST \
          | egrep -v prev_prev_stake_change \
          > $OUT
