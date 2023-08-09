@@ -751,7 +751,7 @@ impl WrappedTrieChanges {
         WrappedTrieChanges { tries, shard_uid, trie_changes, state_changes, block_hash }
     }
 
-    pub fn state_changes(&self) -> &[RawStateChangesWithTrieKey] {
+    pub fn state_changes(&self) -> &Vec<RawStateChangesWithTrieKey> {
         &self.state_changes
     }
 
