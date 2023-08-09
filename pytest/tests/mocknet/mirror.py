@@ -201,9 +201,12 @@ def init_cmd(args, traffic_generator, nodes):
 
 
 def hard_reset_cmd(args, traffic_generator, nodes):
-    print(
-        """This will stop neard on all nodes and remove the neard runner\'s state on each node \
-        , which will undo any current test progress. Continue? [yes/no]""")
+    print("""
+        WARNING!!!!
+        WARNING!!!!
+        This will undo all chain state, which will force a restart from the beginning,
+        icluding the genesis state computation which takes several hours.
+        Continue? [yes/no]""")
     if sys.stdin.readline().strip() != 'yes':
         return
     all_nodes = nodes + [traffic_generator]
