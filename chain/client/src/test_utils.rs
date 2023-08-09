@@ -9,7 +9,6 @@ use actix::{Actor, Addr, AsyncContext, Context};
 use actix_rt::{Arbiter, System};
 use chrono::DateTime;
 use futures::{future, FutureExt};
-use itertools::Itertools;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{CanSend, IntoSender, LateBoundSender, Sender};
 use near_async::time;
@@ -833,7 +832,6 @@ pub fn setup_mock_all_validators(
                             );
                         }
                         NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
-                            tracing::debug!(target: "test", "just checking, is this called?");
                             send_chunks(
                                 connectors1,
                                 validators_clone2.iter().cloned().enumerate(),
@@ -1879,7 +1877,7 @@ impl TestEnv {
 
         let mut keep_going = true;
         while keep_going {
-            for (i, network_adapter) in network_adapters.iter().enumerate() {
+            for network_adapter in network_adapters.iter() {
                 keep_going = false;
                 // process partial encoded chunks
                 while let Some(request) = network_adapter.pop() {
@@ -1888,6 +1886,7 @@ impl TestEnv {
                     // trigger more messages to be processed in other clients
                     // it's a bit sad and it would be much nicer if all messages
                     // were forwarded to a single queue
+                    // TODO would be nicer to first handle all PECs and then all PECFs
                     keep_going = true;
                     match request {
                         PeerManagerMessageRequest::NetworkRequests(
@@ -1896,7 +1895,6 @@ impl TestEnv {
                                 partial_encoded_chunk,
                             },
                         ) => {
-                            tracing::debug!(target: "test", client=i, ?account_id, shard_id=partial_encoded_chunk.header.shard_id(), parts=?partial_encoded_chunk.parts.iter().take(3).map(|part| part.part_ord).collect_vec(), "handling partial encoded chunk");
                             let partial_encoded_chunk =
                                 PartialEncodedChunk::from(partial_encoded_chunk);
                             let message =
@@ -1908,7 +1906,6 @@ impl TestEnv {
                         PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::PartialEncodedChunkForward { account_id, forward },
                         ) => {
-                            tracing::debug!(target: "test", client=i, ?account_id, shard_id=forward.shard_id, parts=?forward.parts.iter().take(3).map(|part| part.part_ord).collect_vec(), "handling forward");
                             let message =
                                 ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
                                     forward,
@@ -2013,6 +2010,9 @@ impl TestEnv {
     }
 
     pub fn process_shards_manager_responses_and_finish_processing_blocks(&mut self, idx: usize) {
+        let _span =
+            tracing::debug_span!(target: "test", "process_shards_manager", client=idx).entered();
+
         loop {
             self.process_shards_manager_responses(idx);
             if self.clients[idx].finish_blocks_in_processing().is_empty() {

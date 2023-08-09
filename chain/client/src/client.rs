@@ -607,8 +607,6 @@ impl Client {
             panic!("The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}", PROTOCOL_VERSION, protocol_version);
         }
 
-        tracing::debug!(target: "client", ?next_height, ?epoch_id, ?protocol_version, "producing block");
-
         let approvals = self
             .epoch_manager
             .get_epoch_block_approvers_ordered(&prev_hash)?

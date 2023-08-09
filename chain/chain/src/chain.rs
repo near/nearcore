@@ -1120,6 +1120,7 @@ impl Chain {
             &prev_hash,
         )?;
         let prev_block = self.get_block(&prev_hash)?;
+
         if prev_block.chunks().len() != block.chunks().len() && !shards_to_state_sync.is_empty() {
             // Currently, the state sync algorithm assumes that the number of chunks do not change
             // between the epoch being synced to and the last epoch.

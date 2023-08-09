@@ -1742,7 +1742,6 @@ impl EpochManager {
 
         let mut aggregator = EpochInfoAggregator::new(epoch_id.clone(), *block_hash);
         let mut cur_hash = *block_hash;
-
         Ok(Some(loop {
             #[cfg(test)]
             {

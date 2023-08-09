@@ -12,7 +12,7 @@ use near_primitives::{
     },
     types::{AccountId, ShardId},
 };
-use tracing::log::{debug, error};
+use tracing::log::error;
 
 pub fn need_receipt(
     prev_block_hash: &CryptoHash,
@@ -154,8 +154,6 @@ pub fn decode_encoded_chunk(
             Ok(shard_chunk)
         })
     {
-        debug!(target: "chunks", "Reconstructed and decoded chunk {}, shard id {}, encoded length was {}, num txs: {}, I'm {:?}", chunk_hash.0, encoded_chunk.shard_id(), encoded_chunk.encoded_length(), shard_chunk.transactions().len(), me);
-
         let partial_chunk = create_partial_chunk(
             encoded_chunk,
             merkle_paths,

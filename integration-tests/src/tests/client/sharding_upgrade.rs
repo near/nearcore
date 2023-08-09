@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use borsh::BorshSerialize;
 use near_client::{Client, ProcessTxResponse};
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
@@ -49,7 +47,7 @@ const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion =
 #[cfg(not(feature = "protocol_feature_simple_nightshade_v2"))]
 const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion = PROTOCOL_VERSION + 1;
 
-// const P_CATCHUP: f64 = 0.2;
+const P_CATCHUP: f64 = 0.2;
 
 enum ReshardingType {
     // In the V0->V1 resharding outgoing receipts are reassigned to receiver.
@@ -101,7 +99,7 @@ struct TestShardUpgradeEnv {
 }
 
 impl TestShardUpgradeEnv {
-    fn new_with_protocol_version(
+    fn new(
         epoch_length: u64,
         num_validators: usize,
         num_clients: usize,
@@ -218,8 +216,7 @@ impl TestShardUpgradeEnv {
         // by chance. This simulates when catchup takes a long time to be done
         // Note: if the catchup happens only at the last block of an epoch then
         // client will fail to produce the chunks in the first block of the next epoch.
-        // let should_catchup = rng.gen_bool(P_CATCHUP) || height % self.epoch_length == 0;
-        let should_catchup = (height + 1) % self.epoch_length == 0;
+        let should_catchup = rng.gen_bool(P_CATCHUP) || height % self.epoch_length == 0;
         // process block, this also triggers chunk producers for the next block to produce chunks
         for j in 0..self.num_clients {
             let client = &mut env.clients[j];
@@ -228,13 +225,13 @@ impl TestShardUpgradeEnv {
             // Here we don't just call self.clients[i].process_block_sync_with_produce_chunk_options
             // because we want to call run_catchup before finish processing this block. This simulates
             // that catchup and block processing run in parallel.
-            let result = client.start_process_block(
-                MaybeValidated::from(block.clone()),
-                Provenance::NONE,
-                Arc::new(|_| {}),
-            );
-            tracing::debug!(target: "test", start_process_block_result=?result);
-            result.unwrap();
+            client
+                .start_process_block(
+                    MaybeValidated::from(block.clone()),
+                    Provenance::NONE,
+                    Arc::new(|_| {}),
+                )
+                .unwrap();
             if should_catchup {
                 run_catchup(client, &[]).unwrap();
             }
@@ -253,16 +250,11 @@ impl TestShardUpgradeEnv {
                 .get_shard_layout_from_prev_block(block.hash())
                 .unwrap()
                 .num_shards();
-            tracing::info!(?num_shards, ?expected_num_shards, "checking num shards");
             assert_eq!(num_shards, expected_num_shards);
         }
 
         env.process_partial_encoded_chunks();
         for j in 0..self.num_clients {
-            let _span =
-                tracing::debug_span!(target: "test", "process shard manager things", client=j);
-            let _span = _span.entered();
-
             env.process_shards_manager_responses_and_finish_processing_blocks(j);
         }
 
@@ -272,12 +264,16 @@ impl TestShardUpgradeEnv {
         }
     }
 
+    // Submit the tx to all clients for processing and checks:
+    // Clients that track the relevant shard should return ValidTx
+    // Clients that do not track the relevenat shard should return RequestRouted
+    // At least one client should process it and return ValidTx.
     fn process_tx(env: &mut TestEnv, tx: &SignedTransaction) {
         let mut response_valid_count = 0;
         let mut response_routed_count = 0;
         for j in 0..env.validators.len() {
             let response = env.clients[j].process_tx(tx.clone(), false, false);
-            tracing::debug!(target: "test", client=j, tx=?tx.get_hash(), ?response, "process tx");
+            tracing::trace!(target: "test", client=j, tx=?tx.get_hash(), ?response, "process tx");
             match response {
                 ProcessTxResponse::ValidTx => response_valid_count += 1,
                 ProcessTxResponse::RequestRouted => response_routed_count += 1,
@@ -670,14 +666,8 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType) {
 
     // setup
     let epoch_length = 5;
-    let mut test_env = TestShardUpgradeEnv::new_with_protocol_version(
-        epoch_length,
-        2,
-        2,
-        100,
-        None,
-        genesis_protocol_version,
-    );
+    let mut test_env =
+        TestShardUpgradeEnv::new(epoch_length, 2, 2, 100, None, genesis_protocol_version);
     test_env.set_init_tx(vec![]);
 
     let mut nonce = 100;
@@ -867,11 +857,10 @@ fn setup_test_env_with_cross_contract_txs(
     epoch_length: u64,
     genesis_protocol_version: ProtocolVersion,
 ) -> (TestShardUpgradeEnv, HashMap<CryptoHash, AccountId>) {
-    let num = 4;
-    let mut test_env = TestShardUpgradeEnv::new_with_protocol_version(
+    let mut test_env = TestShardUpgradeEnv::new(
         epoch_length,
-        num,
-        num,
+        4,
+        4,
         100,
         Some(100_000_000_000_000),
         genesis_protocol_version,
@@ -981,7 +970,6 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(resharding_type: Reshardi
         setup_test_env_with_cross_contract_txs(epoch_length, genesis_protocol_version);
 
     for _ in 1..5 * epoch_length {
-        // std::thread::sleep(std::time::Duration::from_millis(2000));
         test_env.step_impl(0., target_protocol_version, &resharding_type);
         test_env.check_receipt_id_to_shard_id();
     }
