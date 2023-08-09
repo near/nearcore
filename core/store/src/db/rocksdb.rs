@@ -5,13 +5,18 @@ use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
 };
 use once_cell::sync::Lazy;
+use rocksdb::PerfStatsLevel;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::fmt::Display;
 use std::io;
 use std::ops::Deref;
 use std::path::Path;
+use std::time::{Duration, Instant};
 use strum::IntoEnumIterator;
 use tracing::warn;
 
-mod instance_tracker;
+pub(crate) mod instance_tracker;
 pub(crate) mod snapshot;
 
 /// List of integer RocskDB properties we’re reading when collecting statistics.
@@ -41,6 +46,78 @@ static CF_PROPERTY_NAMES: Lazy<Vec<std::ffi::CString>> = Lazy::new(|| {
     ret
 });
 
+pub struct PerfContext {
+    start: Instant,
+    measurements_per_block_reads: BTreeMap<usize, Measurements>,
+    measurements_overall: Measurements,
+}
+
+impl PerfContext {
+    pub fn new() -> Self {
+        Self {
+            start: Instant::now(),
+            measurements_per_block_reads: BTreeMap::new(),
+            measurements_overall: Measurements::default(),
+        }
+    }
+
+    fn reset(&mut self, rocksdb_context: &mut rocksdb::perf::PerfContext) {
+        rocksdb_context.reset();
+        self.start = Instant::now();
+    }
+}
+
+#[derive(Default)]
+struct Measurements {
+    pub samples: usize,
+    pub total_observed_latency: Duration,
+    pub total_read_block_latency: Duration,
+    pub samples_with_merge: usize,
+}
+
+impl Measurements {
+    pub fn record(
+        &mut self,
+        observed_latency: Duration,
+        read_block_latency: Duration,
+        has_merge: bool,
+    ) {
+        self.samples += 1;
+        self.total_observed_latency += observed_latency;
+        self.total_read_block_latency += read_block_latency;
+        if has_merge {
+            self.samples_with_merge += 1;
+        }
+    }
+
+    fn avg_observed_latency(&self) -> Duration {
+        self.total_observed_latency / (self.samples as u32)
+    }
+
+    fn avg_read_block_latency(&self) -> Duration {
+        self.total_read_block_latency / (self.samples as u32)
+    }
+}
+
+impl Display for Measurements {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "avg observed_latency: {:?}, block_read_time: {:?}, samples with merge: {}",
+            self.avg_observed_latency(),
+            self.avg_read_block_latency(),
+            format_samples(self.samples_with_merge, self.samples)
+        )
+    }
+}
+
+fn format_samples(positive: usize, total: usize) -> String {
+    format!(
+        "{positive} ({:.2}%)",
+        if total == 0 { 0.0 } else { 100.0 * positive as f64 / total as f64 }
+    )
+}
+
 pub struct RocksDB {
     db: DB,
     db_opt: Options,
@@ -55,6 +132,9 @@ pub struct RocksDB {
     // RAII-style of keeping track of the number of instances of RocksDB and
     // counting total sum of max_open_files.
     _instance_tracker: instance_tracker::InstanceTracker,
+
+    rocksdb_context: rocksdb::perf::PerfContext,
+    perf_context: RefCell<PerfContext>,
 }
 
 // DB was already Send+Sync. cf and read_options are const pointers using only functions in
@@ -117,7 +197,15 @@ impl RocksDB {
             .map_err(other_error)?;
         let (db, db_opt) = Self::open_db(path, store_config, mode, temp, columns)?;
         let cf_handles = Self::get_cf_handles(&db, columns);
-        Ok(Self { db, db_opt, cf_handles, _instance_tracker: counter })
+        rocksdb::perf::set_perf_stats(rocksdb::perf::PerfStatsLevel::EnableTime);
+        Ok(Self {
+            db,
+            db_opt,
+            cf_handles,
+            _instance_tracker: counter,
+            rocksdb_context: rocksdb::perf::PerfContext::default(),
+            perf_context: RefCell::new(PerfContext::new()),
+        })
     }
 
     /// Opens the database with given column families configured.
@@ -304,12 +392,35 @@ impl Database for RocksDB {
         let timer =
             metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
         let read_options = rocksdb_read_options();
+
+        let observed_latency = self.perf_context.borrow().start.elapsed();
+        let block_read_cnt =
+            self.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
+        let read_block_latency =
+            Duration::from_nanos(self.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadTime));
+        assert!(observed_latency > read_block_latency);
+
         let result = self
             .db
             .get_pinned_cf_opt(self.cf_handle(col)?, key, &read_options)
             .map_err(into_other)?
             .map(DBSlice::from_rocksdb_slice);
         timer.observe_duration();
+
+        let has_merge =
+            self.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
+        self.perf_context
+            .borrow_mut()
+            .measurements_per_block_reads
+            .entry(block_read_cnt)
+            .or_default()
+            .record(observed_latency, read_block_latency, has_merge);
+        self.perf_context.borrow_mut().measurements_overall.record(
+            observed_latency,
+            read_block_latency,
+            has_merge,
+        );
+
         Ok(result)
     }
 
