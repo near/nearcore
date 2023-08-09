@@ -121,8 +121,6 @@ impl TestShardUpgradeEnv {
             gas_limit,
             genesis_protocol_version,
         );
-        tracing::info!(genesis_validators=?genesis.config.validators, "genesis");
-        // tracing::info!(genesis_contents=?genesis.contents, "genesis");
         let chain_genesis = ChainGenesis::new(&genesis);
         let env = TestEnv::builder(chain_genesis)
             .clients_count(num_clients)
@@ -181,7 +179,7 @@ impl TestShardUpgradeEnv {
         let expected_num_shards =
             get_expected_shards_num(self.epoch_length, height, resharding_type);
 
-        // tracing::debug!(target: "test", height, expected_num_shards, "step");
+        tracing::debug!(target: "test", height, expected_num_shards, "step");
 
         // add transactions for the next block
         if height == 1 {
@@ -216,17 +214,6 @@ impl TestShardUpgradeEnv {
             block
         };
 
-        {
-            let header = block.header();
-
-            let client = &env.clients[0];
-            let epoch_manager = &client.epoch_manager;
-            let epoch_id = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
-            let epoch_info = &epoch_manager.get_epoch_info(&epoch_id).unwrap();
-            let epoch_protocol_version = epoch_info.protocol_version();
-
-            tracing::info!(latest_protocol_version=protocol_version, epoch_protocol_version, ?height, ?epoch_id, block = ?header.hash(), "step");
-        }
         // Make sure that catchup is done before the end of each epoch, but when it is done is
         // by chance. This simulates when catchup takes a long time to be done
         // Note: if the catchup happens only at the last block of an epoch then
@@ -267,7 +254,7 @@ impl TestShardUpgradeEnv {
                 .unwrap()
                 .num_shards();
             tracing::info!(?num_shards, ?expected_num_shards, "checking num shards");
-            // assert_eq!(num_shards, expected_num_shards);
+            assert_eq!(num_shards, expected_num_shards);
         }
 
         env.process_partial_encoded_chunks();
@@ -668,24 +655,6 @@ fn setup_genesis(
         epoch_config.num_block_producer_seats_per_shard;
     genesis.config.avg_hidden_validator_seats_per_shard =
         epoch_config.avg_hidden_validator_seats_per_shard;
-
-    tracing::info!(
-        num_block_producer_seats = ?genesis.config.num_block_producer_seats,
-        num_block_producer_seats_per_shard = ?genesis.config.num_block_producer_seats_per_shard,
-        num_chunk_only_producer_seats = ?genesis.config.num_chunk_only_producer_seats,
-        avg_hidden_validator_seats_per_shard = ?genesis.config.avg_hidden_validator_seats_per_shard,
-
-        "genesis"
-    );
-
-    // TODO(resharding)
-    // In the current simple test setup each validator may track different
-    // shards. Unfortunately something is broken in how state sync is triggered
-    // from this test. The config below forces all validators to track all
-    // shards so that we can avoid that problem for now. It would be nice to
-    // set it up properly and test both state sync and resharding - once the
-    // integration is fully supported.
-    // genesis.config.minimum_validators_per_shard = num_validators;
 
     genesis
 }

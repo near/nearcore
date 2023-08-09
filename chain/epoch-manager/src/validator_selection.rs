@@ -53,7 +53,6 @@ pub fn proposals_to_epoch_info(
         min_stake_ratio,
         last_version,
     );
-    tracing::info!(?block_producers, "select_block_producers");
     let (chunk_producer_proposals, chunk_producers, cp_stake_threshold) =
         if checked_feature!("stable", ChunkOnlyProducers, next_version) {
             let mut chunk_producer_proposals = order_proposals(proposals.into_values());
@@ -108,13 +107,6 @@ pub fn proposals_to_epoch_info(
         all_validators.push(bp);
     }
 
-    tracing::info!(
-        ?validator_to_index,
-        ?block_producers_settlement,
-        ?all_validators,
-        "select_block_producers"
-    );
-
     let chunk_producers_settlement = if checked_feature!("stable", ChunkOnlyProducers, next_version)
     {
         let minimum_validators_per_shard =
@@ -126,7 +118,6 @@ pub fn proposals_to_epoch_info(
                     num_shards,
                 },
             )?;
-        tracing::info!(?shard_assignment, "select_block_producers");
 
         let mut chunk_producers_settlement: Vec<Vec<ValidatorId>> =
             shard_assignment.iter().map(|vs| Vec::with_capacity(vs.len())).collect();
