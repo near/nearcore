@@ -878,14 +878,17 @@ pub mod epoch_info {
         pub fn sample_block_producer(&self, height: BlockHeight) -> ValidatorId {
             match &self {
                 Self::V1(v1) => {
+                    tracing::info!("sample_block_producer v1");
                     let bp_settlement = &v1.block_producers_settlement;
                     bp_settlement[(height % (bp_settlement.len() as u64)) as usize]
                 }
                 Self::V2(v2) => {
+                    tracing::info!("sample_block_producer v2");
                     let bp_settlement = &v2.block_producers_settlement;
                     bp_settlement[(height % (bp_settlement.len() as u64)) as usize]
                 }
                 Self::V3(v3) => {
+                    tracing::info!(block_producers_settlement=?v3.block_producers_settlement, "sample_block_producer v3");
                     let seed = Self::block_produce_seed(height, &v3.rng_seed);
                     v3.block_producers_settlement[v3.block_producers_sampler.sample(seed)]
                 }

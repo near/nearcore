@@ -2715,11 +2715,8 @@ impl Chain {
         let will_shard_layout_change = match result {
             Ok(will_shard_layout_change) => will_shard_layout_change,
             Err(err) => {
-                // This is a problem if happens continuously. If a node fails to
-                // reshard it will fall behind the network once it switches over
-                // to the new shard layout. Luckily this method is called
-                // periodically so the node has a chance to recover if it only
-                // happens a few times.
+                // TODO(resharding) This is a problem, if this happens the node
+                // will not perform resharding and fall behind the network.
                 tracing::error!(target: "chain", ?err, "failed to check if shard layout will change");
                 false
             }

@@ -18,6 +18,7 @@ rand_hc.workspace = true
 serde_json.workspace = true
 smart-default.workspace = true
 tracing.workspace = true
+itertools.workspace = true
 
 near-crypto.workspace = true
 near-primitives.workspace = true
@@ -28,7 +29,9 @@ near-cache.workspace = true
 
 [features]
 expensive_tests = []
-protocol_feature_fix_staking_threshold = ["near-primitives/protocol_feature_fix_staking_threshold"]
+protocol_feature_fix_staking_threshold = [
+  "near-primitives/protocol_feature_fix_staking_threshold",
+]
 nightly = [
   "nightly_protocol",
   "protocol_feature_fix_staking_threshold",

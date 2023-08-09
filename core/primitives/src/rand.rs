@@ -62,6 +62,7 @@ impl WeightedIndex {
         let uniform_index = usize::from_le_bytes(usize_seed) % self.aliases.len();
         let uniform_weight = Balance::from_le_bytes(balance_seed) % self.weight_sum;
 
+        tracing::info!(aliases=?self.aliases, "sample wac");
         if uniform_weight < self.no_alias_odds[uniform_index] {
             uniform_index
         } else {
@@ -166,6 +167,26 @@ mod test {
             counts[index] += 1;
             seed = hash(&seed);
         }
+
+        assert_relative_closeness(counts[0], 5 * counts[1]);
+        assert_relative_closeness(counts[1], counts[2]);
+    }
+
+    #[test]
+    fn test_sample_wac() {
+        let weights = vec![50e30 as u128; 4];
+        let weighted_index = WeightedIndex::new(weights);
+
+        let n_samples = 1_000_000;
+        let mut seed = hash(&[0; 32]);
+        let mut counts: [i32; 4] = [0, 0, 0, 0];
+        for _ in 0..n_samples {
+            let index = weighted_index.sample(seed);
+            counts[index] += 1;
+            seed = hash(&seed);
+        }
+
+        println!("counts: {counts:#?}");
 
         assert_relative_closeness(counts[0], 5 * counts[1]);
         assert_relative_closeness(counts[1], counts[2]);

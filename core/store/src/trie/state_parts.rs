@@ -314,7 +314,7 @@ impl Trie {
     ///
     /// Creating a StatePart takes all these nodes, validating a StatePart checks that it has the
     /// right set of nodes.
-    fn visit_nodes_for_state_part(&self, part_id: PartId) -> Result<(), StorageError> {
+    pub fn visit_nodes_for_state_part(&self, part_id: PartId) -> Result<(), StorageError> {
         let path_begin = self.find_state_part_boundary(part_id.idx, part_id.total)?;
         let path_end = self.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
 

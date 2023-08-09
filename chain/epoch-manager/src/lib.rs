@@ -46,6 +46,8 @@ mod tests;
 pub mod types;
 mod validator_selection;
 
+use itertools::Itertools;
+
 const EPOCH_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 1 } else { 50 };
 const BLOCK_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 5 } else { 1000 }; // TODO(#5080): fix this
 const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
@@ -215,6 +217,10 @@ impl EpochManager {
                 genesis_protocol_version,
                 genesis_protocol_version,
             )?;
+
+            tracing::info!(block_producers_settlement=?epoch_info.block_producers_settlement(), "epoch manager new");
+            tracing::info!(chunk_producers_settlement=?epoch_info.chunk_producers_settlement(), "epoch manager new");
+            tracing::info!(validators=?epoch_info.validators_iter().collect_vec(), "epoch manager new");
             // Dummy block info.
             // Artificial block we add to simplify implementation: dummy block is the
             // parent of genesis block that points to itself.
@@ -532,6 +538,12 @@ impl EpochManager {
         for (validator_id, version) in version_tracker {
             let stake = epoch_info.validator_stake(validator_id);
             *versions.entry(version).or_insert(0) += stake;
+            tracing::info!(
+                validator_id,
+                version,
+                stake,
+                "voting on the next next epoch protocol version"
+            );
         }
         let total_block_producer_stake: u128 = epoch_info
             .block_producers_settlement()
@@ -553,20 +565,34 @@ impl EpochManager {
         // Note: non-deterministic iteration is fine here, there can be only one
         // version with large enough stake.
         let next_version = if let Some((version, stake)) =
-            versions.into_iter().max_by_key(|&(_version, stake)| stake)
+            versions.clone().into_iter().max_by_key(|&(_version, stake)| stake)
         {
-            if stake
-                > (total_block_producer_stake
-                    * *config.protocol_upgrade_stake_threshold.numer() as u128)
-                    / *config.protocol_upgrade_stake_threshold.denom() as u128
-            {
+            let numer = *config.protocol_upgrade_stake_threshold.numer() as u128;
+            let denom = *config.protocol_upgrade_stake_threshold.denom() as u128;
+            let threshold = total_block_producer_stake * numer / denom;
+            tracing::info!(
+                stake,
+                threshold,
+                numer,
+                denom,
+                total_block_producer_stake,
+                "voting on the next next epoch protocol version"
+            );
+            if stake > threshold {
                 version
             } else {
                 protocol_version
             }
         } else {
+            tracing::info!("voting on the next next epoch protocol version winner - no max");
+
             protocol_version
         };
+        tracing::info!(
+            ?next_version,
+            ?versions,
+            "voting on the next next epoch protocol version winner"
+        );
 
         // Gather slashed validators and add them to kick out first.
         let slashed_validators = last_block_info.slashed();
@@ -631,6 +657,8 @@ impl EpochManager {
         let next_epoch_id = self.get_next_epoch_id_from_info(block_info)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
         self.save_epoch_validator_info(store_update, block_info.epoch_id(), &epoch_summary)?;
+
+        tracing::info!(?validator_stake, "finalize epoch");
 
         let EpochSummary {
             all_proposals,
@@ -1744,6 +1772,9 @@ impl EpochManager {
 
         let mut aggregator = EpochInfoAggregator::new(epoch_id.clone(), *block_hash);
         let mut cur_hash = *block_hash;
+
+        tracing::info!(?block_hash, "aggregate_epoch_info_upto");
+
         Ok(Some(loop {
             #[cfg(test)]
             {
@@ -1765,6 +1796,8 @@ impl EpochManager {
                 // belongs to different epoch or we’re on different fork (though
                 // the latter should never happen).  In either case, the
                 // aggregator contains full epoch information.
+                tracing::info!(?block_hash, version_tracker=?aggregator.version_tracker, "aggregate_epoch_info_upto break epoch or genesis");
+
                 break (aggregator, true);
             }
 
@@ -1779,6 +1812,7 @@ impl EpochManager {
                 // We’ve reached sync point of the old aggregator.  If old
                 // aggregator was for a different epoch, we have full info in
                 // our aggregator; otherwise we don’t.
+                tracing::info!(?block_hash, version_tracker=?aggregator.version_tracker, "aggregate_epoch_info_upto break last block hash");
                 break (aggregator, epoch_id != prev_epoch);
             }
 
