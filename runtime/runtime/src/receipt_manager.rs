@@ -374,7 +374,11 @@ impl ReceiptManager {
                 .checked_add(to_assign)
                 .unwrap_or_else(|| panic!("gas computation overflowed"));
             if gas_weight_iterator.peek().is_none() {
-                action.gas = safe_add_gas(action.gas, unused_gas.wrapping_sub(distributed))?;
+                let remainder = unused_gas.wrapping_sub(distributed);
+                distributed = distributed
+                    .checked_add(remainder)
+                    .unwrap_or_else(|| panic!("gas computation overflowed"));
+                action.gas = safe_add_gas(action.gas, remainder)?;
             }
         }
         assert_eq!(unused_gas, distributed);
