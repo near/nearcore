@@ -654,7 +654,7 @@ pub fn display_sync_status(
                 SyncConfig::ExternalStorage(_) => {
                     tracing::info!(
                         target: "stats",
-                        "The node is trying to sync its State from external storage. The current implementation is experimental. Use carefully. If it fails, consider disabling state sync and restarting from a recent snapshot:\n\
+                        "The node is trying to sync its State from external storage. The current implementation is experimental. If it fails, consider disabling state sync and restarting from a recent snapshot:\n\
                          - Add `\"state_sync_enabled\": false` to `config.json`, then download a recent data snapshot and restart the node.");
                 }
             };
