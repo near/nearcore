@@ -228,6 +228,7 @@ impl Drop for CodeMemory {
             unsafe {
                 if let Err(e) = mm::munmap(self.map.cast(), self.size) {
                     tracing::error!(
+                        target: "near_vm",
                         message="could not unmap mapping",
                         map=?self.map, size=self.size, error=%e
                     );
