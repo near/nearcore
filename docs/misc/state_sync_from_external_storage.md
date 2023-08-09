@@ -27,12 +27,12 @@ following command:
 neard init --chain-id <testnet or mainnet> --download-config --download-genesis
 ```
 
-To make use of your own external storage, see the corresponding [how-to](state_sync_dump.md).
+To create your own State dumps to external storage, see the corresponding [how-to](state_sync_dump.md).
 
 ### Google Cloud Storage
 
-To enable Google Cloud Storage as your external storage, add this to your
-`config.json` file:
+To enable Google Cloud Storage as your external storage, add the following to
+your `config.json` file:
 
 ```json
 "state_sync_enabled": true,
@@ -43,9 +43,15 @@ To enable Google Cloud Storage as your external storage, add this to your
         "GCS": {
           "bucket": "my-gcs-bucket",
         }
-      }
+      },
+      "num_concurrent_requests": 4,
+      "num_concurrent_requests_during_catchup": 4,
     }
   }
+},
+"state_sync_timeout": {
+  "secs": 30,
+  "nanos": 0
 }
 ```
 
@@ -54,10 +60,24 @@ Then run the `neard` binary and it will access GCS anonymously:
 ./neard run
 ```
 
+#### Extra Options
+
+The options suggested above will most likely work fine.
+
+* `num_concurrent_requests` determines the number of state parts across all
+shards that can be downloaded in parallel during state sync.
+* `num_concurrent_requests_during_catchup` determines the number of state parts 
+across all shards that can be downloaded in parallel during catchup. Generally,
+this number should not be higher than `num_concurrent_requests`. Keep it
+reasonably low to allow the node to process chunks of other shards.
+* `state_sync_timeout` determines the max duration of an attempt to download a
+state part. Setting it too low may cause too many unsuccessful attempts.
+
 ### Amazon S3
 
-To enable Amazon S3 as your external storage, add this to your `config.json`
-file:
+To enable Amazon S3 as your external storage, add the following to your
+`config.json` file.
+You may add the other mentioned options too.
 
 ```json
 "state_sync_enabled": true,
@@ -72,17 +92,18 @@ file:
       }
     }
   }
-}
+},
 ```
 
-Then run the `neard` binary and it will access S3 anonymously:
+Then run the `neard` binary and it will access Amazon S3 anonymously:
 ```shell
 ./neard run
 ```
 
 ## Sync from a local filesystem
 
-To enable, add this to your `config.json` file:
+To enable, add the following to your `config.json` file.
+You may add the other mentioned options too.
 
 ```json
 "state_sync_enabled": true,
