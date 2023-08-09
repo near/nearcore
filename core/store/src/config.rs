@@ -199,7 +199,7 @@ impl Default for StoreConfig {
             // improved performance of state viewer by 60%.
             col_state_cache_size: bytesize::ByteSize::mib(512),
 
-            col_flat_state_cache_size: bytesize::ByteSize::mib(256),
+            col_flat_state_cache_size: bytesize::ByteSize::mib(128),
 
             // This value was taken from the Openethereum default parameter and
             // we use it since then.
