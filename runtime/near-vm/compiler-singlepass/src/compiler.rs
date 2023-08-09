@@ -41,7 +41,7 @@ impl SinglepassCompiler {
 impl Compiler for SinglepassCompiler {
     /// Compile the module using Singlepass, producing a compilation result with
     /// associated relocations.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(target = "near_vm", skip_all)]
     fn compile_module(
         &self,
         target: &Target,
@@ -87,7 +87,7 @@ impl Compiler for SinglepassCompiler {
         };
         let import_idxs = 0..module.import_counts.functions as usize;
         let import_trampolines: PrimaryMap<SectionIndex, _> =
-            tracing::info_span!("import_trampolines", n_imports = import_idxs.len()).in_scope(
+            tracing::info_span!(target: "near_vm", "import_trampolines", n_imports = import_idxs.len()).in_scope(
                 || {
                     import_idxs
                         .into_par_iter()
@@ -111,7 +111,7 @@ impl Compiler for SinglepassCompiler {
             .collect::<Vec<(LocalFunctionIndex, &FunctionBodyData<'_>)>>()
             .into_par_iter()
             .map_init(make_assembler, |assembler, (i, input)| {
-                tracing::info_span!("function", i = i.index()).in_scope(|| {
+                tracing::info_span!(target: "near_vm", "function", i = i.index()).in_scope(|| {
                     let reader =
                         near_vm_compiler::FunctionReader::new(input.module_offset, input.data);
                     let stack_init_gas_cost = tunables
@@ -154,8 +154,9 @@ impl Compiler for SinglepassCompiler {
                     let mut operator_reader =
                         reader.get_operators_reader()?.into_iter_with_offsets();
                     while generator.has_control_frames() {
-                        let (op, pos) = tracing::info_span!("parsing-next-operator")
-                            .in_scope(|| operator_reader.next().unwrap())?;
+                        let (op, pos) =
+                            tracing::info_span!(target: "near_vm", "parsing-next-operator")
+                                .in_scope(|| operator_reader.next().unwrap())?;
                         generator.set_srcloc(pos as u32);
                         generator.feed_operator(op).map_err(to_compile_error)?;
                     }
@@ -168,7 +169,7 @@ impl Compiler for SinglepassCompiler {
             .collect::<PrimaryMap<LocalFunctionIndex, CompiledFunction>>();
 
         let function_call_trampolines =
-            tracing::info_span!("function_call_trampolines").in_scope(|| {
+            tracing::info_span!(target: "near_vm", "function_call_trampolines").in_scope(|| {
                 module
                     .signatures
                     .values()
@@ -182,8 +183,8 @@ impl Compiler for SinglepassCompiler {
                     .collect::<PrimaryMap<_, _>>()
             });
 
-        let dynamic_function_trampolines = tracing::info_span!("dynamic_function_trampolines")
-            .in_scope(|| {
+        let dynamic_function_trampolines =
+            tracing::info_span!(target: "near_vm", "dynamic_function_trampolines").in_scope(|| {
                 module
                     .imported_function_types()
                     .collect::<Vec<_>>()
