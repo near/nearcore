@@ -63,11 +63,11 @@ each epoch. For the ‘current’ epoch, we still need to get all the headers.
 
 ### Step 2: State sync [normal node]
 
-After header sync - if you notice that you’re too far behind (controlled by
-`block_fetch_horizon` config option) **AND** that the chain head is in a different
-epoch than your local head - the node will try to do the ‘state sync’.
+After header sync - if you notice that you’re too far behind, i.e. the chain
+head is at least two epochs ahead of your local head - the node will try to do
+the ‘state sync’.
 
-The idea of the state sync - is rather than trying to process all the blocks -
+The idea of the state sync is - rather than trying to process all the blocks -
 try to ‘jump’ ahead by downloading the freshest state instead - and continue
 processing blocks from that place in the chain. As a side effect, it is going to
 create a ‘gap’ in the chunks/state on this node (which is fine - as the data
@@ -80,6 +80,8 @@ history and cannot have any gaps.
 ![image](https://user-images.githubusercontent.com/1711539/195892354-cf2befed-98e9-40a2-9b81-b5cf738406e0.png)
 
 In this case, we can skip processing transactions that are in the blocks 124 - 128, and start from 129 (after sync state finishes)
+
+See [how-to](../../misc/state_sync_from_external_storage.md) to learn how to configure your node to state sync.
 
 ### Step 3: Block sync (a.k.a Body sync) [archival node, normal node] (“downloading blocks”)
 
