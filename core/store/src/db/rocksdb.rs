@@ -69,7 +69,7 @@ impl PerfContext {
 
 #[derive(Default)]
 struct Measurements {
-    pub samples: usize,
+    pub count: usize,
     pub total_observed_latency: Duration,
     pub total_read_block_latency: Duration,
     pub samples_with_merge: usize,
@@ -82,7 +82,7 @@ impl Measurements {
         read_block_latency: Duration,
         has_merge: bool,
     ) {
-        self.samples += 1;
+        self.count += 1;
         self.total_observed_latency += observed_latency;
         self.total_read_block_latency += read_block_latency;
         if has_merge {
@@ -91,11 +91,11 @@ impl Measurements {
     }
 
     fn avg_observed_latency(&self) -> Duration {
-        self.total_observed_latency / (self.samples as u32)
+        self.total_observed_latency / (self.count as u32)
     }
 
     fn avg_read_block_latency(&self) -> Duration {
-        self.total_read_block_latency / (self.samples as u32)
+        self.total_read_block_latency / (self.count as u32)
     }
 }
 
@@ -106,7 +106,7 @@ impl Display for Measurements {
             "avg observed_latency: {:?}, block_read_time: {:?}, samples with merge: {}",
             self.avg_observed_latency(),
             self.avg_read_block_latency(),
-            format_samples(self.samples_with_merge, self.samples)
+            format_samples(self.samples_with_merge, self.count)
         )
     }
 }
@@ -506,6 +506,7 @@ impl Database for RocksDB {
     /// Trying to get
     /// 1. RocksDB statistics
     /// 2. Selected RockdDB properties for column families
+    /// 3. RocksDB perf data
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
         let mut result = StoreStatistics { data: vec![] };
         if let Some(stats_str) = self.db_opt.get_statistics() {
@@ -514,6 +515,16 @@ impl Database for RocksDB {
             }
         }
         self.get_cf_statistics(&mut result);
+        
+        // Get all measurements from RocksDB perf
+        let perf_data = self.perf_context.borrow_mut();
+        result.data.push(("total_observed_latency_sum".to_string(), vec![StatsValue::Sum(
+            perf_data.measurements_overall.total_observed_latency.as_secs() as i64
+        )]));
+        result.data.push(("total_observed_latency_count".to_string(), vec![StatsValue::Sum(
+            perf_data.measurements_overall.count as i64
+        )]));
+        
         if result.data.is_empty() {
             None
         } else {
