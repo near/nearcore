@@ -194,24 +194,6 @@ impl FlatStorageManager {
             store_update
         };
 
-        // if let Some(chain_flat_storage) = self
-        //     .runtime_adapter
-        //     .get_flat_storage_manager()
-        //     .and_then(|manager| manager.get_flat_storage_for_shard(shard_uid))
-        // {
-        //     // If flat storage exists, we add a block to it.
-        //     let store_update =
-        //         chain_flat_storage.add_delta(delta).map_err(|e| StorageError::from(e))?;
-        //     self.chain_store_update.merge(store_update);
-        // } else {
-        //     let shard_id = shard_uid.shard_id();
-        //     // Otherwise, save delta to disk so it will be used for flat storage creation later.
-        //     debug!(target: "chain", %shard_id, "Add delta for flat storage creation");
-        //     let mut store_update = self.chain_store_update.store().store_update();
-        //     store_helper::set_delta(&mut store_update, shard_uid, &delta);
-        //     self.chain_store_update.merge(store_update);
-        // }
-
         Ok(store_update)
     }
 
