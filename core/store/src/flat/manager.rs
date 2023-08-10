@@ -128,7 +128,7 @@ impl FlatStorageManager {
                         // call `update_flat_head(2)` because (2) will be last visible final block from it.
                         // In such case, just log an error.
                         debug!(
-                            target: "chain",
+                            target: "store",
                             ?new_flat_head,
                             ?err,
                             ?shard_uid,
@@ -141,11 +141,6 @@ impl FlatStorageManager {
                     }
                 }
             });
-        } else {
-            // TODO (#8250): come up with correct assertion. Currently it doesn't work because runtime may be
-            // implemented by KeyValueRuntime which doesn't support flat storage, and flat storage background
-            // creation may happen.
-            // debug_assert!(false, "Flat storage state for shard {shard_id} does not exist and its creation was not initiated");
         }
         Ok(())
     }
@@ -156,7 +151,7 @@ impl FlatStorageManager {
         prev_hash: CryptoHash,
         height: BlockHeight,
         shard_uid: ShardUId,
-        state_changes: &Vec<RawStateChangesWithTrieKey>,
+        state_changes: &[RawStateChangesWithTrieKey],
     ) -> Result<StoreUpdate, StorageError> {
         let prev_block_with_changes = if state_changes.is_empty() {
             // The current block has no flat state changes.
@@ -188,7 +183,7 @@ impl FlatStorageManager {
         } else {
             let shard_id = shard_uid.shard_id();
             // Otherwise, save delta to disk so it will be used for flat storage creation later.
-            debug!(target: "chain", %shard_id, "Add delta for flat storage creation");
+            debug!(target: "store", %shard_id, "Add delta for flat storage creation");
             let mut store_update = self.0.store.store_update();
             store_helper::set_delta(&mut store_update, shard_uid, &delta);
             store_update
