@@ -1,6 +1,6 @@
 use anyhow::Context;
 use near_async::time;
-use near_network::raw::{ConnectError, Connection, Message, RoutedMessage};
+use near_network::raw::{ConnectError, Connection, DirectMessage, Message};
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -27,7 +27,7 @@ fn handle_message(
     received_at: time::Instant,
 ) -> anyhow::Result<()> {
     match &msg {
-        Message::Routed(RoutedMessage::VersionedStateResponse(response)) => {
+        Message::Direct(DirectMessage::VersionedStateResponse(response)) => {
             let shard_id = response.shard_id();
             let sync_hash = response.sync_hash();
             let state_response = response.clone().take_state_response();
@@ -129,9 +129,9 @@ async fn state_parts_from_node(
         tokio::select! {
             _ = &mut next_request => {
                 let target = &peer_id;
-                let msg = RoutedMessage::StateRequestPart(shard_id, block_hash, part_id);
+                let msg = DirectMessage::StateRequestPart(shard_id, block_hash, part_id);
                 tracing::info!(target: "state-parts", ?target, shard_id, ?block_hash, part_id, ttl, "Sending a request");
-                result = peer.send_routed_message(msg, peer_id.clone(), ttl).await.with_context(|| format!("Failed sending State Part Request to {:?}", target));
+                result = peer.send_message(msg).await.with_context(|| format!("Failed sending State Part Request to {:?}", target));
                 app_info.requests_sent.insert(part_id, time::Instant::now());
                 tracing::info!(target: "state-parts", ?result);
                 if result.is_err() {

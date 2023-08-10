@@ -919,20 +919,6 @@ impl PeerActor {
                 network_state.client.tx_status_response(tx_result).await;
                 None
             }
-            RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => network_state
-                .client
-                .state_request_header(shard_id, sync_hash)
-                .await?
-                .map(RoutedMessageBody::VersionedStateResponse),
-            RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) => network_state
-                .client
-                .state_request_part(shard_id, sync_hash, part_id)
-                .await?
-                .map(RoutedMessageBody::VersionedStateResponse),
-            RoutedMessageBody::VersionedStateResponse(info) => {
-                network_state.client.state_response(info).await;
-                None
-            }
             RoutedMessageBody::StateResponse(info) => {
                 network_state.client.state_response(StateResponseInfo::V1(info)).await;
                 None
@@ -1057,6 +1043,21 @@ impl PeerActor {
                 }
                 PeerMessage::Challenge(challenge) => {
                     network_state.client.challenge(challenge).await;
+                    None
+                }
+                PeerMessage::StateRequestHeader(shard_id, sync_hash) => network_state
+                    .client
+                    .state_request_header(shard_id, sync_hash)
+                    .await?
+                    .map(PeerMessage::VersionedStateResponse),
+                PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => network_state
+                    .client
+                    .state_request_part(shard_id, sync_hash, part_id)
+                    .await?
+                    .map(PeerMessage::VersionedStateResponse),
+                PeerMessage::VersionedStateResponse(info) => {
+                        //TODO: Route to state sync actor.
+                    network_state.client.state_response(info).await;
                     None
                 }
                 msg => {
