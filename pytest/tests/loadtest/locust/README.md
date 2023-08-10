@@ -110,6 +110,11 @@ master funding account for each worker instance spawned. So, if you run with 64
 workers with 1000 users, it will consume 64M Near. It's recommended to have a
 funding key with billions of Near.
 
+Also, the account name associated with this account should not bee too long.
+Keep it below 20 characters, and it should be fine. The reason is that we create
+sub accounts on this account, which become Sweat users. If the parent account
+name is too long, children names will breach the 64 bytes max length.
+
 # Available load types
 
 Different locust files can be passed as an argument to `locust` to run a specific load test.
@@ -158,7 +163,7 @@ The `--funding-key` provided must always have enough balance to fund many users.
 But this is even more extreme for this load, as we are creating many accounts
 per worker.
 
-Also, the account name associated with this account should not bee too long.
-Keep it below 20 characters, and it should be fine. The reason is that we create
-sub accounts on this account, which become Sweat users. If the account names are
-too long, we hit the log output limit too quickly.
+Also, the account name limits are even tighter for this load. Other loads
+probably work with lengths up to 40 character, here it really has to be below 20
+characters or else we hit the log output limit when writing all the JSON events
+for updated Sweat balances.
