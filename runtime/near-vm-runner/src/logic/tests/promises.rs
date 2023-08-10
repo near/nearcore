@@ -1,25 +1,13 @@
-use crate::logic::action::Action;
+use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::logic::types::PromiseResult;
-use crate::logic::VMLogic;
 use borsh::BorshSerialize;
 use near_crypto::PublicKey;
 use serde_json;
 
-fn vm_receipts<'a>(logic: &'a VMLogic) -> Vec<impl serde::Serialize + 'a> {
-    #[derive(serde::Serialize)]
-    struct ReceiptView<'a, T> {
-        receiver_id: T,
-        actions: &'a [Action],
-    }
-
-    logic
-        .receipt_manager()
-        .action_receipts
-        .iter()
-        .map(|(receiver_id, metadata)| ReceiptView { receiver_id, actions: &metadata.actions })
-        .collect()
+fn vm_receipts<'a>(ext: &'a MockedExternal) -> Vec<impl serde::Serialize + 'a> {
+    ext.action_log.clone()
 }
 
 #[test]
@@ -58,20 +46,103 @@ fn test_promise_batch_action_function_call() {
 
     promise_batch_action_function_call(&mut logic, index, 0, 0)
         .expect("should add an action to receipt");
-    let expected = serde_json::json!([
-    {
-        "receiver_id":"rick.test",
-        "actions":[
-            {
-                "FunctionCall":{
-                    "method_name":"promise_create","args":"YXJncw==","gas":0,"deposit":"0"}},
-            {
-                "FunctionCall":{
-                    "method_name":"promise_batch_action","args":"cHJvbWlzZV9iYXRjaF9hY3Rpb25fYXJncw==","gas":0,"deposit":"0"}
+    expect_test::expect![[r#"
+        [
+          {
+            "CreateReceipt": {
+              "receipt_indices": [],
+              "receiver_id": "rick.test"
             }
-        ]
-    }]);
-    assert_eq!(&serde_json::to_string(&vm_receipts(&logic)).unwrap(), &expected.to_string());
+          },
+          {
+            "FunctionCallWeight": {
+              "receipt_index": 0,
+              "method_name": [
+                112,
+                114,
+                111,
+                109,
+                105,
+                115,
+                101,
+                95,
+                99,
+                114,
+                101,
+                97,
+                116,
+                101
+              ],
+              "args": [
+                97,
+                114,
+                103,
+                115
+              ],
+              "attached_deposit": 0,
+              "prepaid_gas": 0,
+              "gas_weight": 0
+            }
+          },
+          {
+            "FunctionCallWeight": {
+              "receipt_index": 0,
+              "method_name": [
+                112,
+                114,
+                111,
+                109,
+                105,
+                115,
+                101,
+                95,
+                98,
+                97,
+                116,
+                99,
+                104,
+                95,
+                97,
+                99,
+                116,
+                105,
+                111,
+                110
+              ],
+              "args": [
+                112,
+                114,
+                111,
+                109,
+                105,
+                115,
+                101,
+                95,
+                98,
+                97,
+                116,
+                99,
+                104,
+                95,
+                97,
+                99,
+                116,
+                105,
+                111,
+                110,
+                95,
+                97,
+                114,
+                103,
+                115
+              ],
+              "attached_deposit": 0,
+              "prepaid_gas": 0,
+              "gas_weight": 0
+            }
+          }
+        ]"#]]
+    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
 }
 
 #[test]
@@ -93,23 +164,51 @@ fn test_promise_batch_action_create_account() {
         .promise_batch_action_create_account(index)
         .expect("should add an action to create account");
     assert_eq!(logic.used_gas().unwrap(), 12578263688564);
-    let expected = serde_json::json!([
-        {
-            "receiver_id": "rick.test",
-            "actions": [
-            {
-                "FunctionCall": {
-                "method_name": "promise_create",
-                "args": "YXJncw==",
-                "gas": 0,
-                "deposit": "0"
-                }
-            },
-            {"CreateAccount": {}}
-            ]
-        }
-    ]);
-    assert_eq!(&serde_json::to_string(&vm_receipts(&logic)).unwrap(), &expected.to_string());
+    expect_test::expect![[r#"
+        [
+          {
+            "CreateReceipt": {
+              "receipt_indices": [],
+              "receiver_id": "rick.test"
+            }
+          },
+          {
+            "FunctionCallWeight": {
+              "receipt_index": 0,
+              "method_name": [
+                112,
+                114,
+                111,
+                109,
+                105,
+                115,
+                101,
+                95,
+                99,
+                114,
+                101,
+                97,
+                116,
+                101
+              ],
+              "args": [
+                97,
+                114,
+                103,
+                115
+              ],
+              "attached_deposit": 0,
+              "prepaid_gas": 0,
+              "gas_weight": 0
+            }
+          },
+          {
+            "CreateAccount": {
+              "receipt_index": 0
+            }
+          }
+        ]"#]]
+    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
 }
 
 #[test]
@@ -134,29 +233,59 @@ fn test_promise_batch_action_deploy_contract() {
         .promise_batch_action_deploy_contract(index, code.len, code.ptr)
         .expect("should add an action to deploy contract");
     assert_eq!(logic.used_gas().unwrap(), 5255774958146);
-    let expected = serde_json::json!(
-      [
-        {
-
-        "receiver_id": "rick.test",
-        "actions": [
+    expect_test::expect![[r#"
+        [
           {
-            "FunctionCall": {
-              "method_name": "promise_create",
-              "args": "YXJncw==",
-              "gas": 0,
-              "deposit": "0"
+            "CreateReceipt": {
+              "receipt_indices": [],
+              "receiver_id": "rick.test"
+            }
+          },
+          {
+            "FunctionCallWeight": {
+              "receipt_index": 0,
+              "method_name": [
+                112,
+                114,
+                111,
+                109,
+                105,
+                115,
+                101,
+                95,
+                99,
+                114,
+                101,
+                97,
+                116,
+                101
+              ],
+              "args": [
+                97,
+                114,
+                103,
+                115
+              ],
+              "attached_deposit": 0,
+              "prepaid_gas": 0,
+              "gas_weight": 0
             }
           },
           {
             "DeployContract": {
-              "code": "c2FtcGxl"
+              "receipt_index": 0,
+              "code": [
+                115,
+                97,
+                109,
+                112,
+                108,
+                101
+              ]
             }
           }
-        ]
-      }
-    ]);
-    assert_eq!(&serde_json::to_string(&vm_receipts(&logic)).unwrap(), &expected.to_string());
+        ]"#]]
+    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
 }
 
 #[test]
@@ -183,29 +312,52 @@ fn test_promise_batch_action_transfer() {
         .expect("should add an action to transfer money");
     logic.promise_batch_action_transfer(index, num_1u128.ptr).expect_err("not enough money");
     assert_eq!(logic.used_gas().unwrap(), 5349703444787);
-    let expected = serde_json::json!(
-    [
-        {
-
-            "receiver_id": "rick.test",
-            "actions": [
-            {
-                "FunctionCall": {
-                "method_name": "promise_create",
-                "args": "YXJncw==",
-                "gas": 0,
-                "deposit": "0"
-                }
-            },
-            {
-                "Transfer": {
-                "deposit": "110"
-                }
+    expect_test::expect![[r#"
+        [
+          {
+            "CreateReceipt": {
+              "receipt_indices": [],
+              "receiver_id": "rick.test"
             }
-            ]
-        }
-    ]);
-    assert_eq!(&serde_json::to_string(&vm_receipts(&logic)).unwrap(), &expected.to_string());
+          },
+          {
+            "FunctionCallWeight": {
+              "receipt_index": 0,
+              "method_name": [
+                112,
+                114,
+                111,
+                109,
+                105,
+                115,
+                101,
+                95,
+                99,
+                114,
+                101,
+                97,
+                116,
+                101
+              ],
+              "args": [
+                97,
+                114,
+                103,
+                115
+              ],
+              "attached_deposit": 0,
+              "prepaid_gas": 0,
+              "gas_weight": 0
+            }
+          },
+          {
+            "Transfer": {
+              "receipt_index": 0,
+              "deposit": 110
+            }
+          }
+        ]"#]]
+    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
 }
 
 #[test]
@@ -236,29 +388,53 @@ fn test_promise_batch_action_stake() {
         .promise_batch_action_stake(index, num_110u128.ptr, key.len, key.ptr)
         .expect("should add an action to stake");
     assert_eq!(logic.used_gas().unwrap(), 5138414976215);
-    let expected = serde_json::json!([
-        {
-
-            "receiver_id": "rick.test",
-            "actions": [
-                {
-                    "FunctionCall": {
-                        "method_name": "promise_create",
-                        "args": "YXJncw==",
-                        "gas": 0,
-                        "deposit": "0"
-                    }
-                },
-                {
-                    "Stake": {
-                        "stake": "110",
-                        "public_key": "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf"
-                    }
-                }
-            ]
-        }
-    ]);
-    assert_eq!(&serde_json::to_string(&vm_receipts(&logic)).unwrap(), &expected.to_string());
+    expect_test::expect![[r#"
+        [
+          {
+            "CreateReceipt": {
+              "receipt_indices": [],
+              "receiver_id": "rick.test"
+            }
+          },
+          {
+            "FunctionCallWeight": {
+              "receipt_index": 0,
+              "method_name": [
+                112,
+                114,
+                111,
+                109,
+                105,
+                115,
+                101,
+                95,
+                99,
+                114,
+                101,
+                97,
+                116,
+                101
+              ],
+              "args": [
+                97,
+                114,
+                103,
+                115
+              ],
+              "attached_deposit": 0,
+              "prepaid_gas": 0,
+              "gas_weight": 0
+            }
+          },
+          {
+            "Stake": {
+              "receipt_index": 0,
+              "stake": 110,
+              "public_key": "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf"
+            }
+          }
+        ]"#]]
+    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
 }
 
 #[test]
@@ -311,41 +487,67 @@ fn test_promise_batch_action_add_key_with_function_call() {
     )
     .expect("should add allowance");
     assert_eq!(logic.used_gas().unwrap(), 5126680499695);
-    let expected = serde_json::json!(
-    [
-        {
-            "receiver_id": "rick.test",
-            "actions": [
-                {
-                    "FunctionCall": {
-                        "method_name": "promise_create",
-                        "args": "YXJncw==",
-                        "gas": 0,
-                        "deposit": "0"
-                    }
-                },
-                {
-                    "AddKey": {
-                        "public_key": "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf",
-                        "access_key": {
-                            "nonce": 1,
-                            "permission": {
-                                "FunctionCall": {
-                                    "allowance": "999",
-                                    "receiver_id": "sam",
-                                    "method_names": [
-                                        "foo",
-                                        "bar"
-                                    ]
-                                }
-                            }
-                        }
-                    }
-                }
-            ]
-        }
-    ]);
-    assert_eq!(&serde_json::to_string(&vm_receipts(&logic)).unwrap(), &expected.to_string());
+    expect_test::expect![[r#"
+        [
+          {
+            "CreateReceipt": {
+              "receipt_indices": [],
+              "receiver_id": "rick.test"
+            }
+          },
+          {
+            "FunctionCallWeight": {
+              "receipt_index": 0,
+              "method_name": [
+                112,
+                114,
+                111,
+                109,
+                105,
+                115,
+                101,
+                95,
+                99,
+                114,
+                101,
+                97,
+                116,
+                101
+              ],
+              "args": [
+                97,
+                114,
+                103,
+                115
+              ],
+              "attached_deposit": 0,
+              "prepaid_gas": 0,
+              "gas_weight": 0
+            }
+          },
+          {
+            "AddKeyWithFunctionCall": {
+              "receipt_index": 0,
+              "public_key": "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf",
+              "nonce": 1,
+              "allowance": 999,
+              "receiver_id": "sam",
+              "method_names": [
+                [
+                  102,
+                  111,
+                  111
+                ],
+                [
+                  98,
+                  97,
+                  114
+                ]
+              ]
+            }
+          }
+        ]"#]]
+    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
 }
 
 #[test]
@@ -372,28 +574,60 @@ fn test_promise_batch_then() {
         .promise_batch_then(index, account_id.len, account_id.ptr)
         .expect("promise batch should run ok");
     assert_eq!(logic.used_gas().unwrap(), 24124999601771);
-    let expected = serde_json::json!([
-        {
-            "receiver_id": "rick.test",
-            "actions": [
-                {
-                    "FunctionCall": {
-                        "method_name": "promise_create",
-                        "args": "YXJncw==",
-                        "gas": 0,
-                        "deposit": "0"
-                    }
-                }
-            ]
-        },
-        {
-            "receiver_id": "rick.test",
-            "actions": []
-        },
-        {
-            "receiver_id": "rick.test",
-            "actions": []
-        }
-    ]);
-    assert_eq!(&serde_json::to_string(&vm_receipts(&logic)).unwrap(), &expected.to_string());
+    expect_test::expect![[r#"
+        [
+          {
+            "CreateReceipt": {
+              "receipt_indices": [],
+              "receiver_id": "rick.test"
+            }
+          },
+          {
+            "FunctionCallWeight": {
+              "receipt_index": 0,
+              "method_name": [
+                112,
+                114,
+                111,
+                109,
+                105,
+                115,
+                101,
+                95,
+                99,
+                114,
+                101,
+                97,
+                116,
+                101
+              ],
+              "args": [
+                97,
+                114,
+                103,
+                115
+              ],
+              "attached_deposit": 0,
+              "prepaid_gas": 0,
+              "gas_weight": 0
+            }
+          },
+          {
+            "CreateReceipt": {
+              "receipt_indices": [
+                0
+              ],
+              "receiver_id": "rick.test"
+            }
+          },
+          {
+            "CreateReceipt": {
+              "receipt_indices": [
+                0
+              ],
+              "receiver_id": "rick.test"
+            }
+          }
+        ]"#]]
+    .assert_eq(&serde_json::to_string_pretty(&vm_receipts(&logic_builder.ext)).unwrap());
 }

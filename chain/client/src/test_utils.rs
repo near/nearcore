@@ -55,8 +55,8 @@ use near_network::types::{
 };
 use near_o11y::testonly::TracingCapture;
 use near_o11y::WithSpanContextExt;
+use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
-use near_primitives::delegate_action::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};

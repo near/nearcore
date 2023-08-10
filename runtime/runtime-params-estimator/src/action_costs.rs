@@ -757,7 +757,7 @@ pub(crate) fn empty_delegate_action(
     receiver_id: AccountId,
     sender_id: AccountId,
 ) -> Action {
-    use near_primitives::delegate_action::DelegateAction;
+    use near_primitives::action::delegate::DelegateAction;
     use near_primitives::signable_message::{SignableMessage, SignableMessageType};
     use near_primitives::test_utils::create_user_test_signer;
 
@@ -772,7 +772,7 @@ pub(crate) fn empty_delegate_action(
     };
     let signature =
         SignableMessage::new(&delegate_action, SignableMessageType::DelegateAction).sign(&signer);
-    Action::Delegate(near_primitives::delegate_action::SignedDelegateAction {
+    Action::Delegate(near_primitives::action::delegate::SignedDelegateAction {
         delegate_action,
         signature,
     })

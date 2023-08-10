@@ -27,7 +27,9 @@ use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as 
 use lru::LruCache;
 use near_async::time;
 use near_crypto::Signature;
-use near_o11y::{handler_debug_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
+use near_o11y::{
+    handler_debug_span, handler_trace_span, log_assert, OpenTelemetrySpanExt, WithSpanContext,
+};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -1625,7 +1627,7 @@ impl actix::Handler<WithSpanContext<SendMessage>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<SendMessage>, _: &mut Self::Context) {
-        let (_span, msg) = handler_debug_span!(target: "network", msg);
+        let (_span, msg) = handler_trace_span!(target: "network", msg);
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message_or_log(&msg.message);
     }

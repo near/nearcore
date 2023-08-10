@@ -11,6 +11,7 @@ publish = true
 
 [dependencies]
 arbitrary.workspace = true
+base64.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
 cfg-if.workspace = true

@@ -4121,6 +4121,7 @@ version = "0.0.0"
 dependencies = [
  "arbitrary",
  "assert_matches",
+ "base64 0.21.0",
  "bencher",
  "borsh 0.10.2",
  "bytesize",
@@ -4719,6 +4720,7 @@ dependencies = [
  "near-crypto",
  "near-o11y",
  "near-primitives",
+ "near-primitives-core",
  "near-store",
  "near-test-contracts",
  "near-vm-runner",
