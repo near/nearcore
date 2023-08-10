@@ -85,7 +85,6 @@ use near_telemetry::TelemetryActor;
 use crate::adapter::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
     BlockResponse, ProcessTxResponse, SetNetworkInfo, StateRequestHeader, StateRequestPart,
-    StateResponse,
 };
 
 pub struct PeerManagerMock {
@@ -972,16 +971,6 @@ pub fn setup_mock_all_validators(
                                                 }
                                                 future::ready(())
                                             }),
-                                    );
-                                }
-                            }
-                        }
-                        NetworkRequests::StateResponse { route_back, response } => {
-                            for (i, address) in addresses.iter().enumerate() {
-                                if route_back == address {
-                                    connectors1[i].client_actor.do_send(
-                                        StateResponse(Box::new(response.clone()))
-                                            .with_span_context(),
                                     );
                                 }
                             }
