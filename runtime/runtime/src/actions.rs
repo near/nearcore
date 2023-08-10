@@ -3,14 +3,15 @@ use crate::config::{
     total_prepaid_send_fees, RuntimeConfig,
 };
 use crate::ext::{ExternalError, RuntimeExt};
+use crate::receipt_manager::ReceiptManager;
 use crate::{metrics, ActionResult, ApplyState};
 use borsh::BorshSerialize;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
+use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::contract::ContractCode;
-use near_primitives::delegate_action::{DelegateAction, SignedDelegateAction};
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
@@ -94,7 +95,7 @@ pub(crate) fn execute_function_call(
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
         random_seed,
-        view_config,
+        view_config: view_config.clone(),
         output_data_receivers,
     };
 
@@ -117,6 +118,7 @@ pub(crate) fn execute_function_call(
         apply_state.current_protocol_version,
         apply_state.cache.as_deref(),
     );
+
     if checked_feature!("stable", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
     }
@@ -127,7 +129,7 @@ pub(crate) fn execute_function_call(
     // than leaking the exact details further up.
     // Note that this does not include errors caused by user code / input, those are
     // stored in outcome.aborted.
-    result.map_err(|e| match e {
+    let mut outcome = result.map_err(|e| match e {
         VMRunnerError::ExternalError(any_err) => {
             let err: ExternalError =
                 any_err.downcast().expect("Downcasting AnyError should not fail");
@@ -152,7 +154,14 @@ pub(crate) fn execute_function_call(
         VMRunnerError::WasmUnknownError { debug_message } => {
             panic!("Wasmer returned unknown message: {}", debug_message)
         }
-    })
+    })?;
+
+    if !view_config.is_some() {
+        let unused_gas = function_call.gas.saturating_sub(outcome.used_gas);
+        let distributed = runtime_ext.receipt_manager.distribute_gas(unused_gas)?;
+        outcome.used_gas = safe_add_gas(outcome.used_gas, distributed)?;
+    }
+    Ok(outcome)
 }
 
 pub(crate) fn action_function_call(
@@ -176,8 +185,10 @@ pub(crate) fn action_function_call(
         )
         .into());
     }
+    let mut receipt_manager = ReceiptManager::default();
     let mut runtime_ext = RuntimeExt::new(
         state_update,
+        &mut receipt_manager,
         account_id,
         action_hash,
         &apply_state.epoch_id,
@@ -255,7 +266,7 @@ pub(crate) fn action_function_call(
     result.logs.extend(outcome.logs);
     result.profile.merge(&outcome.profile);
     if execution_succeeded {
-        let new_receipts: Vec<_> = outcome
+        let new_receipts: Vec<_> = receipt_manager
             .action_receipts
             .into_iter()
             .map(|(receiver_id, receipt)| Receipt {
@@ -960,7 +971,7 @@ mod tests {
     use super::*;
     use crate::near_primitives::shard_layout::ShardUId;
     use near_primitives::account::FunctionCallPermission;
-    use near_primitives::delegate_action::NonDelegateAction;
+    use near_primitives::action::delegate::NonDelegateAction;
     use near_primitives::errors::InvalidAccessKeyError;
     use near_primitives::hash::hash;
     use near_primitives::runtime::migration_data::MigrationFlags;
