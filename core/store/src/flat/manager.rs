@@ -1,18 +1,21 @@
 use crate::flat::{
     store_helper, BlockInfo, FlatStorageReadyStatus, FlatStorageStatus, POISONED_LOCK_ERR,
 };
+use near_primitives::block::Block;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tracing::debug;
 
-use crate::{Store, StoreUpdate};
+use crate::{get_genesis_hash, Store, StoreUpdate};
 
 use super::chunk_view::FlatStorageChunkView;
-use super::FlatStorage;
+use super::{
+    FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage, FlatStorageError,
+};
 
 /// `FlatStorageManager` provides a way to construct new flat state to pass to new tries.
 /// It is owned by NightshadeRuntime, and thus can be owned by multiple threads, so the implementation
@@ -91,6 +94,102 @@ impl FlatStorageManager {
         // will need to be more careful when we want to implement flat storage for resharding
         assert!(original_value.is_none());
         Ok(())
+    }
+
+    /// Update flat storage for given processed or caught up block, which includes:
+    /// - merge deltas from current flat storage head to new one;
+    /// - update flat storage head to the hash of final block visible from given one;
+    /// - remove info about unreachable blocks from memory.
+    pub fn update_flat_storage_for_shard(
+        &self,
+        shard_uid: ShardUId,
+        block: &Block,
+    ) -> Result<(), StorageError> {
+        if let Some(flat_storage) = self.get_flat_storage_for_shard(shard_uid) {
+            let mut new_flat_head = *block.header().last_final_block();
+            if new_flat_head == CryptoHash::default() {
+                let genesis_hash = get_genesis_hash(&self.0.store)
+                    .map_err(|e| FlatStorageError::StorageInternalError(e.to_string()))?
+                    .expect("Genesis hash must exist. Consider initialization.");
+                new_flat_head = genesis_hash;
+            }
+            // Try to update flat head.
+            flat_storage.update_flat_head(&new_flat_head, false).unwrap_or_else(|err| {
+                match &err {
+                    FlatStorageError::BlockNotSupported(_) => {
+                        // It's possible that new head is not a child of current flat head, e.g. when we have a
+                        // fork:
+                        //
+                        //      (flat head)        /-------> 6
+                        // 1 ->      2     -> 3 -> 4
+                        //                         \---> 5
+                        //
+                        // where during postprocessing (5) we call `update_flat_head(3)` and then for (6) we can
+                        // call `update_flat_head(2)` because (2) will be last visible final block from it.
+                        // In such case, just log an error.
+                        debug!(
+                            target: "store",
+                            ?new_flat_head,
+                            ?err,
+                            ?shard_uid,
+                            block_hash = ?block.header().hash(),
+                            "Cannot update flat head");
+                    }
+                    _ => {
+                        // All other errors are unexpected, so we panic.
+                        panic!("Cannot update flat head of shard {shard_uid:?} to {new_flat_head:?}: {err:?}");
+                    }
+                }
+            });
+        }
+        Ok(())
+    }
+
+    pub fn save_flat_state_changes(
+        &self,
+        block_hash: CryptoHash,
+        prev_hash: CryptoHash,
+        height: BlockHeight,
+        shard_uid: ShardUId,
+        state_changes: &[RawStateChangesWithTrieKey],
+    ) -> Result<StoreUpdate, StorageError> {
+        let prev_block_with_changes = if state_changes.is_empty() {
+            // The current block has no flat state changes.
+            // Find the last block with flat state changes by looking it up in
+            // the prev block.
+            store_helper::get_prev_block_with_changes(
+                &self.0.store,
+                shard_uid,
+                block_hash,
+                prev_hash,
+            )
+            .map_err(|e| StorageError::from(e))?
+        } else {
+            // The current block has flat state changes.
+            None
+        };
+
+        let delta = FlatStateDelta {
+            changes: FlatStateChanges::from_state_changes(state_changes),
+            metadata: FlatStateDeltaMetadata {
+                block: BlockInfo { hash: block_hash, height, prev_hash },
+                prev_block_with_changes,
+            },
+        };
+
+        let store_update = if let Some(flat_storage) = self.get_flat_storage_for_shard(shard_uid) {
+            // If flat storage exists, we add a block to it.
+            flat_storage.add_delta(delta).map_err(|e| StorageError::from(e))?
+        } else {
+            let shard_id = shard_uid.shard_id();
+            // Otherwise, save delta to disk so it will be used for flat storage creation later.
+            debug!(target: "store", %shard_id, "Add delta for flat storage creation");
+            let mut store_update = self.0.store.store_update();
+            store_helper::set_delta(&mut store_update, shard_uid, &delta);
+            store_update
+        };
+
+        Ok(store_update)
     }
 
     pub fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus {
