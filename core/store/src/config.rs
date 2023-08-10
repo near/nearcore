@@ -1,7 +1,7 @@
 use near_primitives::shard_layout::ShardUId;
 use std::time::Duration;
 use std::{collections::HashMap, iter::FromIterator};
-
+use crate::DBCol;
 use crate::trie::{
     DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
 };
@@ -31,13 +31,15 @@ pub struct StoreConfig {
     pub max_open_files: u32,
 
     /// Cache size for DBCol::State column.
-    /// Default value: 512MiB.
-    /// Increasing DBCol::State cache size helps making storage more efficient. On the other hand we
-    /// don't want to increase hugely requirements for running a node so currently we use a small
-    /// default value for it.
-    // TODO(jbajic) Update comments
+    /// Default value: 32MiB.
+    /// Since #9389 change State in column block options filter and index block were caching
+    /// was removed from block size cache and moved to heap. After that minimal amount of block
+    /// cache was needed after 32MiB there is no significant performance improvement.
     pub col_state_cache_size: bytesize::ByteSize,
 
+    /// Cache size for DBCol::FlatState column
+    /// Default value: 32MiB
+    /// This will be handled in next PR.
     pub col_flat_state_cache_size: bytesize::ByteSize,
 
     /// Block size used internally in RocksDB.
@@ -167,10 +169,10 @@ impl StoreConfig {
     }
 
     /// Returns cache size for given column.
-    pub const fn col_cache_size(&self, col: crate::DBCol) -> bytesize::ByteSize {
+    pub const fn col_cache_size(&self, col: DBCol) -> bytesize::ByteSize {
         match col {
-            crate::DBCol::State => self.col_state_cache_size,
-            crate::DBCol::FlatState => self.col_flat_state_cache_size,
+            DBCol::State => self.col_state_cache_size,
+            DBCol::FlatState => self.col_flat_state_cache_size,
             _ => bytesize::ByteSize::mib(32),
         }
     }
