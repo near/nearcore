@@ -1,18 +1,21 @@
+use crate::receipt_manager::ReceiptManager;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{
-    AccountId, Balance, EpochId, EpochInfoProvider, TrieCacheMode, TrieNodesCount,
+    AccountId, Balance, EpochId, EpochInfoProvider, Gas, TrieCacheMode, TrieNodesCount,
 };
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
 use near_store::{get_code, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_runner::logic::errors::{AnyError, VMLogicError};
+use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
+    pub(crate) receipt_manager: &'a mut ReceiptManager,
     account_id: &'a AccountId,
     action_hash: &'a CryptoHash,
     data_count: u64,
@@ -54,6 +57,7 @@ impl<'a> ValuePtr for RuntimeExtValuePtr<'a> {
 impl<'a> RuntimeExt<'a> {
     pub fn new(
         trie_update: &'a mut TrieUpdate,
+        receipt_manager: &'a mut ReceiptManager,
         account_id: &'a AccountId,
         action_hash: &'a CryptoHash,
         epoch_id: &'a EpochId,
@@ -64,6 +68,7 @@ impl<'a> RuntimeExt<'a> {
     ) -> Self {
         RuntimeExt {
             trie_update,
+            receipt_manager,
             account_id,
             action_hash,
             data_count: 0,
@@ -194,5 +199,119 @@ impl<'a> External for RuntimeExt<'a> {
         self.epoch_info_provider
             .validator_total_stake(self.epoch_id, self.prev_block_hash)
             .map_err(|e| ExternalError::ValidatorError(e).into())
+    }
+
+    fn create_receipt(
+        &mut self,
+        receipt_indices: Vec<ReceiptIndex>,
+        receiver_id: AccountId,
+    ) -> Result<ReceiptIndex, VMLogicError> {
+        let data_ids = std::iter::from_fn(|| Some(self.generate_data_id()))
+            .take(receipt_indices.len())
+            .collect();
+        self.receipt_manager.create_receipt(data_ids, receipt_indices, receiver_id)
+    }
+
+    fn append_action_create_account(
+        &mut self,
+        receipt_index: ReceiptIndex,
+    ) -> Result<(), VMLogicError> {
+        self.receipt_manager.append_action_create_account(receipt_index)
+    }
+
+    fn append_action_deploy_contract(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        code: Vec<u8>,
+    ) -> Result<(), VMLogicError> {
+        self.receipt_manager.append_action_deploy_contract(receipt_index, code)
+    }
+
+    fn append_action_function_call_weight(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        method_name: Vec<u8>,
+        args: Vec<u8>,
+        attached_deposit: Balance,
+        prepaid_gas: Gas,
+        gas_weight: near_primitives::types::GasWeight,
+    ) -> Result<(), VMLogicError> {
+        self.receipt_manager.append_action_function_call_weight(
+            receipt_index,
+            method_name,
+            args,
+            attached_deposit,
+            prepaid_gas,
+            gas_weight,
+        )
+    }
+
+    fn append_action_transfer(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        deposit: Balance,
+    ) -> Result<(), VMLogicError> {
+        self.receipt_manager.append_action_transfer(receipt_index, deposit)
+    }
+
+    fn append_action_stake(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        stake: Balance,
+        public_key: near_crypto::PublicKey,
+    ) {
+        self.receipt_manager.append_action_stake(receipt_index, stake, public_key)
+    }
+
+    fn append_action_add_key_with_full_access(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+        nonce: near_primitives::types::Nonce,
+    ) {
+        self.receipt_manager.append_action_add_key_with_full_access(
+            receipt_index,
+            public_key,
+            nonce,
+        )
+    }
+
+    fn append_action_add_key_with_function_call(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+        nonce: near_primitives::types::Nonce,
+        allowance: Option<Balance>,
+        receiver_id: AccountId,
+        method_names: Vec<Vec<u8>>,
+    ) -> Result<(), VMLogicError> {
+        self.receipt_manager.append_action_add_key_with_function_call(
+            receipt_index,
+            public_key,
+            nonce,
+            allowance,
+            receiver_id,
+            method_names,
+        )
+    }
+
+    fn append_action_delete_key(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: near_crypto::PublicKey,
+    ) {
+        self.receipt_manager.append_action_delete_key(receipt_index, public_key)
+    }
+
+    fn append_action_delete_account(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        beneficiary_id: AccountId,
+    ) -> Result<(), VMLogicError> {
+        self.receipt_manager.append_action_delete_account(receipt_index, beneficiary_id)
+    }
+
+    fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {
+        self.receipt_manager.get_receipt_receiver(receipt_index)
     }
 }

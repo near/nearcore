@@ -1,18 +1,20 @@
-use super::action::{
+use near_crypto::PublicKey;
+use near_primitives::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
-use super::errors::HostError;
-use super::logic;
-use super::types::ReceiptIndex;
-use super::DataReceiver;
-use super::External;
-use near_crypto::PublicKey;
+use near_primitives::errors::RuntimeError;
+use near_primitives::receipt::DataReceiver;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{AccountId, Gas};
-use near_primitives_core::types::{Balance, Nonce};
-use near_primitives_core::types::{GasDistribution, GasWeight};
+use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
+use near_vm_runner::logic::HostError;
+use near_vm_runner::logic::VMLogicError;
+
+use crate::config::safe_add_gas;
+
+/// near_vm_runner::types is not public.
+type ReceiptIndex = u64;
 
 type ActionReceipts = Vec<(AccountId, ReceiptMetadata)>;
 
@@ -31,36 +33,18 @@ pub struct ReceiptMetadata {
 }
 
 #[derive(Default, Clone, PartialEq)]
-pub(super) struct ReceiptManager {
+pub struct ReceiptManager {
     pub(super) action_receipts: ActionReceipts,
-    gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
+    pub(super) gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
 }
 
 /// Indexes the [`ReceiptManager`]'s action receipts and actions.
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct FunctionCallActionIndex {
+pub(super) struct FunctionCallActionIndex {
     /// Index of [`ReceiptMetadata`] in the action receipts of [`ReceiptManager`].
-    receipt_index: usize,
+    pub(super) receipt_index: usize,
     /// Index of the [`Action`] within the [`ReceiptMetadata`].
-    action_index: usize,
-}
-
-fn get_fuction_call_action_mut(
-    action_receipts: &mut ActionReceipts,
-    index: FunctionCallActionIndex,
-) -> &mut FunctionCallAction {
-    let FunctionCallActionIndex { receipt_index, action_index } = index;
-    if let Some(Action::FunctionCall(action)) = action_receipts
-        .get_mut(receipt_index)
-        .and_then(|(_, receipt)| receipt.actions.get_mut(action_index))
-    {
-        action
-    } else {
-        panic!(
-            "Invalid function call index \
-             (promise_index={receipt_index}, action_index={action_index})",
-        );
-    }
+    pub(super) action_index: usize,
 }
 
 impl ReceiptManager {
@@ -99,20 +83,18 @@ impl ReceiptManager {
     /// * `receiver_id` - account id of the receiver of the receipt created
     pub(super) fn create_receipt(
         &mut self,
-        ext: &mut dyn External,
+        input_data_ids: Vec<CryptoHash>,
         receipt_indices: Vec<ReceiptIndex>,
         receiver_id: AccountId,
-    ) -> logic::Result<ReceiptIndex> {
-        let mut input_data_ids = vec![];
-        for receipt_index in receipt_indices {
-            let data_id = ext.generate_data_id();
+    ) -> Result<ReceiptIndex, VMLogicError> {
+        assert_eq!(input_data_ids.len(), receipt_indices.len());
+        for (data_id, receipt_index) in input_data_ids.iter().zip(receipt_indices.into_iter()) {
             self.action_receipts
                 .get_mut(receipt_index as usize)
                 .ok_or_else(|| HostError::InvalidReceiptIndex { receipt_index })?
                 .1
                 .output_data_receivers
-                .push(DataReceiver { data_id, receiver_id: receiver_id.clone() });
-            input_data_ids.push(data_id);
+                .push(DataReceiver { data_id: *data_id, receiver_id: receiver_id.clone() });
         }
 
         let new_receipt =
@@ -134,7 +116,7 @@ impl ReceiptManager {
     pub(super) fn append_action_create_account(
         &mut self,
         receipt_index: ReceiptIndex,
-    ) -> logic::Result<()> {
+    ) -> Result<(), VMLogicError> {
         self.append_action(receipt_index, Action::CreateAccount(CreateAccountAction {}));
         Ok(())
     }
@@ -153,7 +135,7 @@ impl ReceiptManager {
         &mut self,
         receipt_index: ReceiptIndex,
         code: Vec<u8>,
-    ) -> logic::Result<()> {
+    ) -> Result<(), VMLogicError> {
         self.append_action(receipt_index, Action::DeployContract(DeployContractAction { code }));
         Ok(())
     }
@@ -186,7 +168,7 @@ impl ReceiptManager {
         attached_deposit: Balance,
         prepaid_gas: Gas,
         gas_weight: GasWeight,
-    ) -> logic::Result<()> {
+    ) -> Result<(), VMLogicError> {
         let action_index = self.append_action(
             receipt_index,
             Action::FunctionCall(FunctionCallAction {
@@ -222,7 +204,7 @@ impl ReceiptManager {
         &mut self,
         receipt_index: ReceiptIndex,
         deposit: Balance,
-    ) -> logic::Result<()> {
+    ) -> Result<(), VMLogicError> {
         self.append_action(receipt_index, Action::Transfer(TransferAction { deposit }));
         Ok(())
     }
@@ -298,7 +280,7 @@ impl ReceiptManager {
         allowance: Option<Balance>,
         receiver_id: AccountId,
         method_names: Vec<Vec<u8>>,
-    ) -> logic::Result<()> {
+    ) -> Result<(), VMLogicError> {
         self.append_action(
             receipt_index,
             Action::AddKey(AddKeyAction {
@@ -354,7 +336,7 @@ impl ReceiptManager {
         &mut self,
         receipt_index: ReceiptIndex,
         beneficiary_id: AccountId,
-    ) -> logic::Result<()> {
+    ) -> Result<(), VMLogicError> {
         self.append_action(
             receipt_index,
             Action::DeleteAccount(DeleteAccountAction { beneficiary_id }),
@@ -362,53 +344,150 @@ impl ReceiptManager {
         Ok(())
     }
 
-    /// Distribute the gas among the scheduled function calls that specify a gas weight.
+    /// Distribute the provided `gas` between receipts managed by this `ReceiptManager` according
+    /// to their assigned weights.
     ///
-    /// Distributes the gas passed in by splitting it among weights defined in `gas_weights`.
-    /// This will sum all weights, retrieve the gas per weight, then update each function
-    /// to add the respective amount of gas. Once all gas is distributed, the remainder of
-    /// the gas not assigned due to precision loss is added to the last function with a weight.
-    ///
-    /// # Arguments
-    ///
-    /// * `gas` - amount of unused gas to distribute
-    ///
-    /// # Returns
-    ///
-    /// Function returns a [GasDistribution] that indicates how the gas was distributed.
-    pub(super) fn distribute_unused_gas(&mut self, unused_gas: Gas) -> GasDistribution {
-        let gas_weight_sum: u128 =
-            self.gas_weights.iter().map(|(_, GasWeight(weight))| *weight as u128).sum();
-
-        if gas_weight_sum == 0 {
-            return GasDistribution::NoRatios;
+    /// Returns the amount of gas distributed (either `0` or `unused_gas`.)
+    pub(super) fn distribute_gas(&mut self, unused_gas: Gas) -> Result<Gas, RuntimeError> {
+        let ReceiptManager { action_receipts, gas_weights } = self;
+        let gas_weight_sum: u128 = gas_weights.iter().map(|(_, gv)| u128::from(gv.0)).sum();
+        if gas_weight_sum == 0 || unused_gas == 0 {
+            return Ok(0);
         }
+        let mut distributed = 0u64;
+        let mut gas_weight_iterator = gas_weights.iter().peekable();
+        loop {
+            let Some((index, weight)) = gas_weight_iterator.next() else { break };
+            let FunctionCallActionIndex { receipt_index, action_index } = *index;
+            let Some(Action::FunctionCall(action)) =
+                action_receipts
+                    .get_mut(receipt_index)
+                    .and_then(|(_, receipt)| receipt.actions.get_mut(action_index))
+                else {
+                    panic!(
+                        "Invalid function call index (promise_index={receipt_index}, action_index={action_index})",
+                    );
+                };
+            let to_assign = (unused_gas as u128 * weight.0 as u128 / gas_weight_sum) as u64;
+            action.gas = safe_add_gas(action.gas, to_assign)?;
+            distributed = distributed
+                .checked_add(to_assign)
+                .unwrap_or_else(|| panic!("gas computation overflowed"));
+            if gas_weight_iterator.peek().is_none() {
+                let remainder = unused_gas.wrapping_sub(distributed);
+                distributed = distributed
+                    .checked_add(remainder)
+                    .unwrap_or_else(|| panic!("gas computation overflowed"));
+                action.gas = safe_add_gas(action.gas, remainder)?;
+            }
+        }
+        assert_eq!(unused_gas, distributed);
+        Ok(distributed)
+    }
+}
 
-        let mut distribute_gas = |index: &FunctionCallActionIndex, assigned_gas: Gas| {
-            let FunctionCallAction { gas, .. } =
-                get_fuction_call_action_mut(&mut self.action_receipts, *index);
+#[cfg(test)]
+mod tests {
+    use near_primitives::transaction::{Action, FunctionCallAction};
+    use near_primitives_core::types::{Gas, GasWeight};
 
-            // Operation cannot overflow because the amount of assigned gas is a fraction of
-            // the unused gas and is using floor division.
-            *gas += assigned_gas;
+    #[track_caller]
+    fn function_call_weight_verify(function_calls: &[(Gas, u64, Gas)], after_distribute: bool) {
+        let mut gas_limit = 10_000_000_000u64;
+
+        // Schedule all function calls
+        let mut receipt_manager = super::ReceiptManager::default();
+        for &(static_gas, gas_weight, _) in function_calls {
+            let index = receipt_manager
+                .create_receipt(vec![], vec![], "rick.test".parse().unwrap())
+                .unwrap();
+            gas_limit = gas_limit.saturating_sub(static_gas);
+            receipt_manager
+                .append_action_function_call_weight(
+                    index,
+                    vec![],
+                    vec![],
+                    0,
+                    static_gas,
+                    GasWeight(gas_weight),
+                )
+                .unwrap();
+        }
+        let accessor: fn(&(Gas, u64, Gas)) -> Gas = if after_distribute {
+            receipt_manager.distribute_gas(gas_limit).unwrap();
+            |(_, _, expected)| *expected
+        } else {
+            |(static_gas, _, _)| *static_gas
         };
 
-        let mut distributed = 0;
-        for (action_index, GasWeight(weight)) in &self.gas_weights {
-            // Multiplication is done in u128 with max values of u64::MAX so this cannot overflow.
-            // Division result can be truncated to 64 bits because gas_weight_sum >= weight.
-            let assigned_gas = (unused_gas as u128 * *weight as u128 / gas_weight_sum) as u64;
-
-            distribute_gas(action_index, assigned_gas as u64);
-
-            distributed += assigned_gas
+        // Assert expected amount of gas was associated with the action
+        let mut function_call_gas = 0;
+        let mut function_calls_iter = function_calls.iter();
+        for (_, receipt) in receipt_manager.action_receipts {
+            for action in receipt.actions {
+                if let Action::FunctionCall(FunctionCallAction { gas, .. }) = action {
+                    let reference = function_calls_iter.next().unwrap();
+                    assert_eq!(gas, accessor(reference));
+                    function_call_gas += gas;
+                }
+            }
         }
 
-        // Distribute remaining gas to final action.
-        if let Some((last_idx, _)) = self.gas_weights.last() {
-            distribute_gas(last_idx, unused_gas - distributed);
+        if after_distribute {
+            // Verify that all gas was consumed (assumes at least one ratio is provided)
+            assert_eq!(function_call_gas, 10_000_000_000u64);
         }
-        self.gas_weights.clear();
-        GasDistribution::All
+    }
+
+    #[track_caller]
+    fn function_call_weight_check(function_calls: &[(Gas, u64, Gas)]) {
+        function_call_weight_verify(function_calls, false);
+        function_call_weight_verify(function_calls, true);
+    }
+
+    #[test]
+    fn function_call_weight_basic_cases_test() {
+        // Following tests input are in the format (static gas, gas weight, expected gas)
+        // and the gas limit is `10_000_000_000`
+
+        // Single function call
+        function_call_weight_check(&[(0, 1, 10_000_000_000)]);
+
+        // Single function with static gas
+        function_call_weight_check(&[(888, 1, 10_000_000_000)]);
+
+        // Large weight
+        function_call_weight_check(&[(0, 88888, 10_000_000_000)]);
+
+        // Weight larger than gas limit
+        function_call_weight_check(&[(0, 11u64.pow(14), 10_000_000_000)]);
+
+        // Split two
+        function_call_weight_check(&[(0, 3, 6_000_000_000), (0, 2, 4_000_000_000)]);
+
+        // Split two with static gas
+        function_call_weight_check(&[(1_000_000, 3, 5_998_600_000), (3_000_000, 2, 4_001_400_000)]);
+
+        // Many different gas weights
+        function_call_weight_check(&[
+            (1_000_000, 3, 2_699_800_000),
+            (3_000_000, 2, 1_802_200_000),
+            (0, 1, 899_600_000),
+            (1_000_000_000, 0, 1_000_000_000),
+            (0, 4, 3_598_400_000),
+        ]);
+
+        // Weight over u64 bounds
+        function_call_weight_check(&[(0, u64::MAX, 9_999_999_999), (0, 1000, 1)]);
+
+        // Weight over gas limit with three function calls
+        function_call_weight_check(&[
+            (0, 10_000_000_000, 4_999_999_999),
+            (0, 1, 0),
+            (0, 10_000_000_000, 5_000_000_001),
+        ]);
+
+        // Weights with one zero and one non-zero
+        function_call_weight_check(&[(0, 0, 0), (0, 1, 10_000_000_000)])
     }
 }

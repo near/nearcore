@@ -1,8 +1,13 @@
 //! External dependencies of the near-vm-logic.
 
+use super::types::ReceiptIndex;
 use super::TrieNodesCount;
 use super::VMLogicError;
+use near_crypto::PublicKey;
 use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::types::Gas;
+use near_primitives_core::types::GasWeight;
+use near_primitives_core::types::Nonce;
 use near_primitives_core::types::{AccountId, Balance};
 
 use std::borrow::Cow;
@@ -249,4 +254,193 @@ pub trait External {
 
     /// Returns total stake of validators in the current epoch.
     fn validator_total_stake(&self) -> Result<Balance>;
+
+    /// Create a receipt which will be executed after all the receipts identified by
+    /// `receipt_indices` are complete.
+    ///
+    /// If any of the [`ReceiptIndex`]es do not refer to a known receipt, this function will fail
+    /// with an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `generate_data_id` - function to generate a data id to connect receipt output to
+    /// * `receipt_indices` - a list of receipt indices the new receipt is depend on
+    /// * `receiver_id` - account id of the receiver of the receipt created
+    fn create_receipt(
+        &mut self,
+        receipt_indices: Vec<ReceiptIndex>,
+        receiver_id: AccountId,
+    ) -> Result<ReceiptIndex, VMLogicError>;
+
+    /// Attach the [`CreateAccountAction`] action to an existing receipt.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_create_account(
+        &mut self,
+        receipt_index: ReceiptIndex,
+    ) -> Result<(), VMLogicError>;
+
+    /// Attach the [`DeployContractAction`] action to an existing receipt.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `code` - a Wasm code to attach
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_deploy_contract(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        code: Vec<u8>,
+    ) -> Result<(), VMLogicError>;
+
+    /// Attach the [`FunctionCallAction`] action to an existing receipt.
+    ///
+    /// `prepaid_gas` and `gas_weight` can either be specified or both. If a `gas_weight` is
+    /// specified, the action should be allocated gas in
+    /// [`distribute_unused_gas`](Self::distribute_unused_gas).
+    ///
+    /// For more information, see [super::VMLogic::promise_batch_action_function_call_weight].
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `method_name` - a name of the contract method to call
+    /// * `arguments` - a Wasm code to attach
+    /// * `attached_deposit` - amount of tokens to transfer with the call
+    /// * `prepaid_gas` - amount of prepaid gas to attach to the call
+    /// * `gas_weight` - relative weight of unused gas to distribute to the function call action
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_function_call_weight(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        method_name: Vec<u8>,
+        args: Vec<u8>,
+        attached_deposit: Balance,
+        prepaid_gas: Gas,
+        gas_weight: GasWeight,
+    ) -> Result<(), VMLogicError>;
+
+    /// Attach the [`TransferAction`] action to an existing receipt.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `amount` - amount of tokens to transfer
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_transfer(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        deposit: Balance,
+    ) -> Result<(), VMLogicError>;
+
+    /// Attach the [`StakeAction`] action to an existing receipt.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `stake` - amount of tokens to stake
+    /// * `public_key` - a validator public key
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_stake(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        stake: Balance,
+        public_key: PublicKey,
+    );
+
+    /// Attach the [`AddKeyAction`] action to an existing receipt.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `public_key` - a public key for an access key
+    /// * `nonce` - a nonce
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_add_key_with_full_access(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: PublicKey,
+        nonce: Nonce,
+    );
+
+    /// Attach the [`AddKeyAction`] action an existing receipt.
+    ///
+    /// The access key associated with the action will have the
+    /// [`AccessKeyPermission::FunctionCall`] permission scope.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `public_key` - a public key for an access key
+    /// * `nonce` - a nonce
+    /// * `allowance` - amount of tokens allowed to spend by this access key
+    /// * `receiver_id` - a contract witch will be allowed to call with this access key
+    /// * `method_names` - a list of method names is allowed to call with this access key (empty = any method)
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_add_key_with_function_call(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        public_key: PublicKey,
+        nonce: Nonce,
+        allowance: Option<Balance>,
+        receiver_id: AccountId,
+        method_names: Vec<Vec<u8>>,
+    ) -> Result<(), VMLogicError>;
+
+    /// Attach the [`DeleteKeyAction`] action to an existing receipt.
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `public_key` - a public key for an access key to delete
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_delete_key(&mut self, receipt_index: ReceiptIndex, public_key: PublicKey);
+
+    /// Attach the [`DeleteAccountAction`] action to an existing receipt
+    ///
+    /// # Arguments
+    ///
+    /// * `receipt_index` - an index of Receipt to append an action
+    /// * `beneficiary_id` - an account id to which the rest of the funds of the removed account will be transferred
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `receipt_index` does not refer to a known receipt.
+    fn append_action_delete_account(
+        &mut self,
+        receipt_index: ReceiptIndex,
+        beneficiary_id: AccountId,
+    ) -> Result<(), VMLogicError>;
+
+    /// # Panic
+    ///
+    /// Panics if `ReceiptIndex` is invalid.
+    fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId;
 }
