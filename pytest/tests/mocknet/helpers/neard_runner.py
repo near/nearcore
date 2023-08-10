@@ -333,7 +333,8 @@ class NeardRunner:
                         validators,
                         boot_nodes,
                         epoch_length=1000,
-                        num_seats=100):
+                        num_seats=100,
+                        protocol_version=None):
         if not isinstance(validators, list):
             raise jsonrpc.exceptions.JSONRPCDispatchException(
                 code=-32600, message='validators argument not a list')
@@ -369,7 +370,8 @@ class NeardRunner:
                     {
                         'boot_nodes': boot_nodes,
                         'epoch_length': epoch_length,
-                        'num_seats': num_seats
+                        'num_seats': num_seats,
+                        'protocol_version': protocol_version,
                     }, f)
 
     def do_start(self):
@@ -559,8 +561,8 @@ class NeardRunner:
                 ]
             else:
                 cmd = [
-                    self.data['current_neard_path'], '--log-span-events', '--home', self.neard_home,
-                    '--unsafe-fast-startup', 'run'
+                    self.data['current_neard_path'], '--log-span-events',
+                    '--home', self.neard_home, '--unsafe-fast-startup', 'run'
                 ]
             self.run_neard(
                 cmd,
@@ -661,6 +663,10 @@ class NeardRunner:
             '--num-seats',
             str(n['num_seats']),
         ]
+        if n['protocol_version'] is not None:
+            cmd.append('--protocol-version')
+            cmd.append(str(n['protocol_version']))
+
         self.run_neard(cmd)
         self.set_state(TestState.AMEND_GENESIS)
         self.save_data()

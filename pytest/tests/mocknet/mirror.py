@@ -96,6 +96,10 @@ def prompt_setup_flags(args):
         print('number of block producer seats?: ')
         args.num_seats = int(sys.stdin.readline().strip())
 
+    if args.genesis_protocol_version is None:
+        print('genesis protocol version?: ')
+        args.genesis_protocol_version = int(sys.stdin.readline().strip())
+
 
 def start_neard_runner(node):
     run_in_background(node, f'/home/ubuntu/neard-runner/venv/bin/python /home/ubuntu/neard-runner/neard_runner.py ' \
@@ -280,8 +284,8 @@ state roots. This will take a few hours. Run `status` to check if the nodes are 
 ready. After they're ready, you can run `start-traffic`""".format(validators))
     pmap(
         lambda node: neard_runner_network_init(
-            node, validators, boot_nodes, args.epoch_length, args.num_seats),
-        all_nodes)
+            node, validators, boot_nodes, args.epoch_length, args.num_seats,
+            args.genesis_protocol_version), all_nodes)
 
 
 def status_cmd(args, traffic_generator, nodes):
@@ -346,7 +350,7 @@ def neard_runner_new_test(node):
 
 
 def neard_runner_network_init(node, validators, boot_nodes, epoch_length,
-                              num_seats):
+                              num_seats, protocol_version):
     return neard_runner_jsonrpc(node,
                                 'network_init',
                                 params={
@@ -354,6 +358,7 @@ def neard_runner_network_init(node, validators, boot_nodes, epoch_length,
                                     'boot_nodes': boot_nodes,
                                     'epoch_length': epoch_length,
                                     'num_seats': num_seats,
+                                    'protocol_version': protocol_version,
                                 })
 
 
@@ -437,6 +442,7 @@ if __name__ == '__main__':
     new_test_parser.add_argument('--epoch-length', type=int)
     new_test_parser.add_argument('--num-validators', type=int)
     new_test_parser.add_argument('--num-seats', type=int)
+    new_test_parser.add_argument('--genesis-protocol-version', type=int)
     new_test_parser.set_defaults(func=new_test)
 
     status_parser = subparsers.add_parser('status',
