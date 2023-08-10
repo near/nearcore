@@ -724,8 +724,8 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                         .try_set(&intitiate_signed_delegate_action_operation.sender_account)?;
 
                     let delegate_action: near_primitives::transaction::Action =
-                        near_primitives::delegate_action::SignedDelegateAction {
-                            delegate_action: near_primitives::delegate_action::DelegateAction {
+                        near_primitives::action::delegate::SignedDelegateAction {
+                            delegate_action: near_primitives::action::delegate::DelegateAction {
                                 sender_id: initiate_delegate_action_operation
                                     .sender_account
                                     .address
@@ -826,7 +826,7 @@ mod tests {
     use near_actix_test_utils::run_actix;
     use near_client::test_utils::setup_no_network;
     use near_crypto::{KeyType, SecretKey};
-    use near_primitives::delegate_action::{DelegateAction, SignedDelegateAction};
+    use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
     use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::transaction::{Action, TransferAction};
     use near_primitives::views::RuntimeConfigView;

@@ -116,7 +116,7 @@ impl VMOffsets {
     }
 
     /// Add imports and locals from the provided ModuleInfo.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(target = "near_vm", skip_all)]
     pub fn with_module_info(mut self, module: &ModuleInfo) -> Self {
         self.num_imported_functions = module.import_counts.functions;
         self.num_imported_tables = module.import_counts.tables;

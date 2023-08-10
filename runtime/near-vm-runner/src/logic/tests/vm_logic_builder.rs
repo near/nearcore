@@ -154,7 +154,7 @@ impl TestVMLogic<'_> {
         assert_eq!(want, &got[..]);
     }
 
-    pub fn compute_outcome_and_distribute_gas(self) -> crate::logic::VMOutcome {
-        self.logic.compute_outcome_and_distribute_gas()
+    pub fn compute_outcome(self) -> crate::logic::VMOutcome {
+        self.logic.compute_outcome()
     }
 }
