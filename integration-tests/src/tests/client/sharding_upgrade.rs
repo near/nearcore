@@ -203,8 +203,7 @@ impl TestShardUpgradeEnv {
                 client.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash).unwrap();
             let block_producer =
                 client.epoch_manager.get_block_producer(&epoch_id, height).unwrap();
-            let _span = tracing::debug_span!(target: "test", "", client=?block_producer);
-            let _span = _span.entered();
+            let _span = tracing::debug_span!(target: "test", "", client=?block_producer).entered();
             let block_producer_client = env.client(&block_producer);
             let mut block = block_producer_client.produce_block(height).unwrap().unwrap();
             set_block_protocol_version(&mut block, block_producer.clone(), protocol_version);

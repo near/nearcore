@@ -2534,7 +2534,6 @@ impl Chain {
         self.validate_chunk_headers(&block, &prev_block)?;
 
         self.ping_missing_chunks(me, prev_hash, block)?;
-
         let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
 
         // Check if block can be finalized and drop it otherwise.
