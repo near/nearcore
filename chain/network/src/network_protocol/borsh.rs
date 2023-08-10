@@ -4,7 +4,7 @@
 //! WARNING WARNING WARNING
 //! We need to maintain backwards compatibility, all changes to this file needs to be reviews.
 use crate::network_protocol::edge::{Edge, PartialEdgeInfo};
-use crate::network_protocol::{PeerChainInfoV2, PeerInfo, RoutedMessage};
+use crate::network_protocol::{PeerChainInfoV2, PeerInfo, RoutedMessage, StateResponseInfo};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
@@ -14,8 +14,6 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::ShardId;
 use std::fmt;
 use std::fmt::Formatter;
-
-use super::StateResponseInfo;
 
 #[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
 /// Structure representing handshake between peers.
