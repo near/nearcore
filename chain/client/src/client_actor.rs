@@ -436,7 +436,7 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
     type Result = ();
 
     fn handle(&mut self, msg: WithSpanContext<BlockResponse>, ctx: &mut Context<Self>) {
-        self.wrap(msg,ctx,"BlockResponse",|this:&mut Self,msg|{
+        self.wrap(msg, ctx, "BlockResponse", |this: &mut Self, msg|{
             let BlockResponse{ block, peer_id, was_requested } = msg;
             let blocks_at_height = this
                 .client
@@ -524,7 +524,7 @@ impl Handler<WithSpanContext<StateResponse>> for ClientActor {
     type Result = ();
 
     fn handle(&mut self, msg: WithSpanContext<StateResponse>, ctx: &mut Context<Self>) {
-        self.wrap(msg,ctx,"StateResponse",|this,msg| {
+        self.wrap(msg, ctx, "StateResponse", |this, msg| {
             let StateResponse(state_response_info) = msg;
             let shard_id = state_response_info.shard_id();
             let hash = state_response_info.sync_hash();
