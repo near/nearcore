@@ -1,6 +1,6 @@
 use near_crypto::key_conversion::is_valid_staking_key;
+use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::checked_feature;
-use near_primitives::delegate_action::SignedDelegateAction;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::transaction::DeleteAccountAction;
 use near_primitives::types::{BlockHeight, StorageUsage};
@@ -562,7 +562,7 @@ mod tests {
     use crate::near_primitives::borsh::BorshSerialize;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, FunctionCallPermission};
-    use near_primitives::delegate_action::{DelegateAction, NonDelegateAction};
+    use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
