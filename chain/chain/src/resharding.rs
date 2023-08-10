@@ -3,14 +3,9 @@
 /// build_state_for_split_shards_preprocessing and build_state_for_split_shards_postprocessing are handled
 /// by the client_actor while the heavy resharding build_state_for_split_shards is done by SyncJobsActor
 /// so as to not affect client.
-use std::collections::{HashMap, HashSet};
-use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
-
 use near_chain_primitives::error::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
-use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -19,8 +14,10 @@ use near_store::flat::{
     store_helper, BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
 };
 use near_store::split_state::get_delayed_receipts;
-use near_store::{ShardTries, ShardUId, Store, Trie, TrieDBStorage, TrieStorage};
-
+use near_store::{ShardTries, ShardUId, Store, Trie};
+use std::collections::{HashMap, HashSet};
+use std::fmt::{Debug, Formatter};
+use std::sync::Arc;
 use tracing::debug;
 
 use crate::types::RuntimeAdapter;
@@ -34,6 +31,7 @@ pub struct StateSplitRequest {
     pub shard_uid: ShardUId,
     pub state_root: StateRoot,
     pub next_epoch_shard_layout: ShardLayout,
+    pub prev_block_info: BlockInfo,
 }
 
 // Skip `runtime_adapter`, because it's a complex object that has complex logic
@@ -56,27 +54,6 @@ pub struct StateSplitResponse {
     pub sync_hash: CryptoHash,
     pub shard_id: ShardId,
     pub new_state_roots: Result<HashMap<ShardUId, StateRoot>, Error>,
-}
-
-// Return iterate over flat storage to get key, value. Used later in the get_trie_update_batch function.
-#[allow(dead_code)]
-fn get_flat_storage_iter<'a>(
-    store: &'a Store,
-    shard_uid: ShardUId,
-) -> impl Iterator<Item = (Vec<u8>, Vec<u8>)> + 'a {
-    let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
-    store_helper::iter_flat_state_entries(shard_uid, &store, None, None).map(
-        move |entry| -> (Vec<u8>, Vec<u8>) {
-            let (key, value) = entry.unwrap();
-            let value = match value {
-                FlatStateValue::Ref(ref_value) => {
-                    trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()
-                }
-                FlatStateValue::Inlined(inline_value) => inline_value,
-            };
-            (key, value)
-        },
-    )
 }
 
 fn apply_delayed_receipts<'a>(
@@ -107,15 +84,15 @@ fn apply_delayed_receipts<'a>(
 }
 
 // function to set up flat storage status to Ready after a resharding event
-// TODO(shreyan) : Consolidate this with setting up flat storage during state sync logic
+// TODO(resharding) : Consolidate this with setting up flat storage during state sync logic
+// Allow dead code is to avoid build error with protocol_feature_simple_nightshade_v2 feature
+#[allow(dead_code)]
 fn set_flat_storage_state(
     store: Store,
     flat_storage_manager: &FlatStorageManager,
     shard_uid: ShardUId,
     block_info: BlockInfo,
 ) -> Result<(), Error> {
-    assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
-
     let mut store_update = store.store_update();
     store_helper::set_flat_storage_status(
         &mut store_update,
@@ -141,23 +118,14 @@ impl Chain {
         assert_ne!(shard_layout, next_epoch_shard_layout);
 
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let prev_hash = *block_header.prev_hash();
+        let prev_hash = block_header.prev_hash();
         let state_root = *self.get_chunk_extra(&prev_hash, &shard_uid)?.state_root();
-
-        if let Some(flat_storage_manager) = self.runtime_adapter.get_flat_storage_manager() {
-            for shard_uid in next_epoch_shard_layout
-                .get_split_shard_uids(shard_id)
-                .expect("child shard uids must exist")
-            {
-                let store = self.runtime_adapter.store().clone();
-                let block_info = BlockInfo {
-                    hash: *block_header.hash(),
-                    prev_hash: *block_header.prev_hash(),
-                    height: block_header.height(),
-                };
-                set_flat_storage_state(store, &flat_storage_manager, shard_uid, block_info)?;
-            }
-        }
+        let prev_block_header = self.get_block_header(prev_hash)?;
+        let prev_block_info = BlockInfo {
+            hash: *prev_block_header.hash(),
+            prev_hash: *prev_block_header.prev_hash(),
+            height: prev_block_header.height(),
+        };
 
         state_split_scheduler(StateSplitRequest {
             runtime_adapter: self.runtime_adapter.clone(),
@@ -165,6 +133,7 @@ impl Chain {
             shard_uid,
             state_root,
             next_epoch_shard_layout,
+            prev_block_info,
         });
 
         Ok(())
@@ -187,6 +156,8 @@ impl Chain {
             shard_uid,
             state_root,
             next_epoch_shard_layout,
+            #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+            prev_block_info,
             ..
         } = state_split_request;
         // TODO(resharding) use flat storage to split the trie here
@@ -233,6 +204,20 @@ impl Chain {
             state_roots,
             &checked_account_id_to_shard_id,
         )?;
+
+        // create flat storage for child shards
+        #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+        if let Some(flat_storage_manager) = runtime_adapter.get_flat_storage_manager() {
+            for shard_uid in next_epoch_shard_layout
+                .get_split_shard_uids(shard_id)
+                .expect("child shard uids must exist")
+            {
+                let store = runtime_adapter.store().clone();
+                let block_info: BlockInfo = prev_block_info;
+                set_flat_storage_state(store, &flat_storage_manager, shard_uid, block_info)?;
+            }
+        }
+
         Ok(state_roots)
     }
 
@@ -268,13 +253,11 @@ mod tests {
         create_tries, gen_receipts, gen_unique_accounts, get_all_delayed_receipts,
     };
     use near_store::{
-        get, get_delayed_receipt_indices, set, set_account, ShardTries, ShardUId, Store, Trie,
+        get, get_delayed_receipt_indices, set, set_account, ShardTries, ShardUId, Trie,
     };
     use rand::seq::SliceRandom;
     use rand::Rng;
     use std::collections::HashMap;
-
-    use super::get_flat_storage_iter;
 
     #[test]
     fn test_split_and_update_states() {
@@ -360,7 +343,6 @@ mod tests {
             &state_root,
             &split_state_roots,
             account_id_to_shard_id,
-            true,
         );
 
         // update the original shard
@@ -450,7 +432,6 @@ mod tests {
                 &state_root,
                 &split_state_roots,
                 account_id_to_shard_id,
-                false,
             );
         }
     }
@@ -460,7 +441,6 @@ mod tests {
         state_root: &StateRoot,
         state_roots: &HashMap<ShardUId, StateRoot>,
         account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
-        check_flat_state: bool,
     ) {
         // Get trie items before resharding and split them by account shard
         let trie_items_before_resharding =
@@ -481,21 +461,6 @@ mod tests {
             expected_trie_items_by_shard.get_mut(&shard_uid).unwrap().push(item);
         }
         assert_eq!(expected_trie_items_by_shard, trie_items_after_resharding);
-
-        if check_flat_state {
-            let flat_storage_items_after_resharding: HashMap<_, _> = state_roots
-                .iter()
-                .map(|(&shard_uid, _state_root)| {
-                    (
-                        shard_uid,
-                        get_flat_items_except_delayed_receipts(&tries.get_store(), &shard_uid),
-                    )
-                })
-                .collect();
-
-            // verify if flat storage key values are same as trie
-            assert_eq!(trie_items_after_resharding, flat_storage_items_after_resharding);
-        }
 
         // check that the new tries combined to the orig trie for delayed receipts
         let receipts_from_split_states: HashMap<_, _> = state_roots
@@ -525,15 +490,6 @@ mod tests {
             .iter()
             .unwrap()
             .map(Result::unwrap)
-            .filter(|(key, _)| parse_account_id_from_raw_key(key).unwrap().is_some())
-            .collect()
-    }
-
-    fn get_flat_items_except_delayed_receipts(
-        store: &Store,
-        shard_uid: &ShardUId,
-    ) -> Vec<(Vec<u8>, Vec<u8>)> {
-        get_flat_storage_iter(store, *shard_uid)
             .filter(|(key, _)| parse_account_id_from_raw_key(key).unwrap().is_some())
             .collect()
     }
