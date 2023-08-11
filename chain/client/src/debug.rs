@@ -519,7 +519,6 @@ impl ClientActor {
     /// produced and some detailed timing information.
     fn get_validator_status(&mut self) -> Result<ValidatorStatus, near_chain_primitives::Error> {
         let head = self.client.chain.head()?;
-        let epoch_id = head.epoch_id.clone();
         let mut productions = vec![];
 
         if let Some(signer) = &self.client.validator_signer {
@@ -538,7 +537,8 @@ impl ClientActor {
                 min(head.height + DEBUG_MAX_PRODUCTION_BLOCKS_TO_SHOW, estimated_epoch_end),
             );
 
-            let mut epoch_id = head.epoch_id;
+            #[allow(clippy::redundant_clone)]
+            let mut epoch_id = head.epoch_id.clone();
             for height in
                 head.height.saturating_sub(DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW)..=max_height
             {
@@ -620,7 +620,7 @@ impl ClientActor {
                 })
                 .ok(),
             head_height: head.height,
-            shards: self.client.epoch_manager.num_shards(&epoch_id).unwrap_or_default(),
+            shards: self.client.epoch_manager.num_shards(&head.epoch_id).unwrap_or_default(),
             approval_history: self.client.doomslug.get_approval_history(),
             production: productions,
             banned_chunk_producers: self
