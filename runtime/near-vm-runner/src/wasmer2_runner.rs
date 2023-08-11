@@ -186,6 +186,7 @@ fn translate_runtime_error(
 }
 
 #[derive(Hash, PartialEq, Debug)]
+#[allow(unused)]
 enum WasmerEngine {
     Universal = 1,
     StaticLib = 2,
@@ -193,6 +194,7 @@ enum WasmerEngine {
 }
 
 #[derive(Hash, PartialEq, Debug)]
+#[allow(unused)]
 enum WasmerCompiler {
     Singlepass = 1,
     Cranelift = 2,
