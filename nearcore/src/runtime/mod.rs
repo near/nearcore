@@ -1078,26 +1078,29 @@ impl RuntimeAdapter for NightshadeRuntime {
         next_epoch_shard_layout: &ShardLayout,
         state_changes: StateChangesForSplitStates,
     ) -> Result<Vec<ApplySplitStateResult>, Error> {
-        let trie_changes = self.tries.apply_state_changes_to_split_states(
+        let trie_updates = self.tries.apply_state_changes_to_split_states(
             &state_roots,
             state_changes,
             &|account_id| account_id_to_shard_uid(account_id, next_epoch_shard_layout),
         )?;
 
-        Ok(trie_changes
-            .into_iter()
-            .map(|(shard_uid, trie_changes)| ApplySplitStateResult {
+        let mut applied_split_state_results: Vec<_> = vec![];
+        for (shard_uid, trie_update) in trie_updates {
+            let (_, trie_changes, state_changes) = trie_update.finalize()?;
+            applied_split_state_results.push(ApplySplitStateResult {
                 shard_uid,
                 new_root: trie_changes.new_root,
                 trie_changes: WrappedTrieChanges::new(
                     self.get_tries(),
                     shard_uid,
                     trie_changes,
-                    vec![],
+                    state_changes,
                     *block_hash,
                 ),
-            })
-            .collect())
+            });
+        }
+
+        Ok(applied_split_state_results)
     }
 
     fn apply_state_part(
