@@ -31,7 +31,6 @@ pub struct StateSplitRequest {
     pub shard_uid: ShardUId,
     pub state_root: StateRoot,
     pub next_epoch_shard_layout: ShardLayout,
-    pub prev_block_info: BlockInfo,
 }
 
 // Skip `runtime_adapter`, because it's a complex object that has complex logic
@@ -120,12 +119,6 @@ impl Chain {
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let prev_hash = block_header.prev_hash();
         let state_root = *self.get_chunk_extra(&prev_hash, &shard_uid)?.state_root();
-        let prev_block_header = self.get_block_header(prev_hash)?;
-        let prev_block_info = BlockInfo {
-            hash: *prev_block_header.hash(),
-            prev_hash: *prev_block_header.prev_hash(),
-            height: prev_block_header.height(),
-        };
 
         state_split_scheduler(StateSplitRequest {
             runtime_adapter: self.runtime_adapter.clone(),
@@ -133,7 +126,6 @@ impl Chain {
             shard_uid,
             state_root,
             next_epoch_shard_layout,
-            prev_block_info,
         });
 
         Ok(())
@@ -156,8 +148,6 @@ impl Chain {
             shard_uid,
             state_root,
             next_epoch_shard_layout,
-            #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
-            prev_block_info,
             ..
         } = state_split_request;
         // TODO(resharding) use flat storage to split the trie here
@@ -205,19 +195,6 @@ impl Chain {
             &checked_account_id_to_shard_id,
         )?;
 
-        // create flat storage for child shards
-        #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
-        if let Some(flat_storage_manager) = runtime_adapter.get_flat_storage_manager() {
-            for shard_uid in next_epoch_shard_layout
-                .get_split_shard_uids(shard_id)
-                .expect("child shard uids must exist")
-            {
-                let store = runtime_adapter.store().clone();
-                let block_info: BlockInfo = prev_block_info;
-                set_flat_storage_state(store, &flat_storage_manager, shard_uid, block_info)?;
-            }
-        }
-
         Ok(state_roots)
     }
 
@@ -226,15 +203,51 @@ impl Chain {
         sync_hash: &CryptoHash,
         state_roots: Result<HashMap<ShardUId, StateRoot>, Error>,
     ) -> Result<(), Error> {
-        let prev_hash = *self.get_block_header(sync_hash)?.prev_hash();
+        let state_roots = state_roots?;
+        let block_header = self.get_block_header(sync_hash)?;
+        let prev_hash = block_header.prev_hash();
+
+        #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+        {
+            let keys: Vec<_> = state_roots.keys().collect();
+            self.initialize_flat_storage(&prev_hash, &keys)?;
+        }
+
         let mut chain_store_update = self.mut_store().store_update();
-        for (shard_uid, state_root) in state_roots? {
+        for (shard_uid, state_root) in state_roots {
             // here we store the state roots in chunk_extra in the database for later use
             let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
             chain_store_update.save_chunk_extra(&prev_hash, &shard_uid, chunk_extra);
             debug!(target:"chain", "Finish building split state for shard {:?} {:?} {:?} ", shard_uid, prev_hash, state_root);
         }
-        chain_store_update.commit()
+        chain_store_update.commit()?;
+
+        Ok(())
+    }
+
+    // Allow dead code is to avoid build error with protocol_feature_simple_nightshade_v2 feature
+    #[allow(dead_code)]
+    fn initialize_flat_storage(
+        &self,
+        prev_hash: &CryptoHash,
+        child_shard_uids: &[&ShardUId],
+    ) -> Result<(), Error> {
+        let prev_block_header = self.get_block_header(prev_hash)?;
+        let prev_block_info = BlockInfo {
+            hash: *prev_block_header.hash(),
+            prev_hash: *prev_block_header.prev_hash(),
+            height: prev_block_header.height(),
+        };
+
+        // create flat storage for child shards
+        if let Some(flat_storage_manager) = self.runtime_adapter.get_flat_storage_manager() {
+            for shard_uid in child_shard_uids {
+                let store = self.runtime_adapter.store().clone();
+                let block_info: BlockInfo = prev_block_info;
+                set_flat_storage_state(store, &flat_storage_manager, **shard_uid, block_info)?;
+            }
+        }
+        Ok(())
     }
 }
 
