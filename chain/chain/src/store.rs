@@ -3416,6 +3416,7 @@ mod tests {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap();
+        let genesis_hash = *genesis.hash();
         let signer = Arc::new(create_test_signer("test1"));
         let mut short_fork = vec![];
         let mut prev_block = genesis.clone();
@@ -3432,13 +3433,13 @@ mod tests {
         assert_eq!(
             chain.mut_store().check_transaction_validity_period(
                 &short_fork_head,
-                genesis.hash(),
+                &genesis_hash,
                 transaction_validity_period
             ),
             Err(InvalidTxError::Expired)
         );
         let mut long_fork = vec![];
-        let mut prev_block = genesis.clone();
+        let mut prev_block = genesis;
         for i in 1..(transaction_validity_period * 5) {
             let mut store_update = chain.mut_store().store_update();
             let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
@@ -3451,7 +3452,7 @@ mod tests {
         assert_eq!(
             chain.mut_store().check_transaction_validity_period(
                 long_fork_head,
-                genesis.hash(),
+                &genesis_hash,
                 transaction_validity_period
             ),
             Err(InvalidTxError::Expired)
@@ -3662,13 +3663,13 @@ mod tests {
         let mut chain = get_chain_with_epoch_length(1);
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
-        let mut prev_block = genesis.clone();
+        let mut prev_block = genesis;
         let mut blocks = vec![prev_block.clone()];
         {
             let mut store_update = chain.store().store().store_update();
             let block_info = BlockInfo::default();
             store_update
-                .insert_ser(DBCol::BlockInfo, genesis.hash().as_ref(), &block_info)
+                .insert_ser(DBCol::BlockInfo, prev_block.hash().as_ref(), &block_info)
                 .unwrap();
             store_update.commit().unwrap();
         }
