@@ -224,7 +224,7 @@ impl Block {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         epoch_sync_data_hash: Option<CryptoHash>,
-        approvals: Vec<Option<Signature>>,
+        approvals: Vec<Option<Box<Signature>>>,
         gas_price_adjustment_rate: Rational32,
         min_gas_price: Balance,
         max_gas_price: Balance,
