@@ -3418,7 +3418,6 @@ mod tests {
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
         let mut short_fork = vec![];
-        #[allow(clippy::redundant_clone)]
         let mut prev_block = genesis.clone();
         for i in 1..(transaction_validity_period + 2) {
             let mut store_update = chain.mut_store().store_update();
@@ -3439,7 +3438,6 @@ mod tests {
             Err(InvalidTxError::Expired)
         );
         let mut long_fork = vec![];
-        #[allow(clippy::redundant_clone)]
         let mut prev_block = genesis.clone();
         for i in 1..(transaction_validity_period * 5) {
             let mut store_update = chain.mut_store().store_update();
@@ -3664,7 +3662,6 @@ mod tests {
         let mut chain = get_chain_with_epoch_length(1);
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
-        #[allow(clippy::redundant_clone)]
         let mut prev_block = genesis.clone();
         let mut blocks = vec![prev_block.clone()];
         {

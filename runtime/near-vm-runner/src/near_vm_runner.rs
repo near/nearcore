@@ -185,7 +185,6 @@ fn translate_runtime_error(
 }
 
 #[derive(Hash, PartialEq, Debug)]
-#[allow(unused)]
 enum NearVmEngine {
     Universal = 1,
     StaticLib = 2,
@@ -193,7 +192,6 @@ enum NearVmEngine {
 }
 
 #[derive(Hash, PartialEq, Debug)]
-#[allow(unused)]
 enum NearVmCompiler {
     Singlepass = 1,
     Cranelift = 2,

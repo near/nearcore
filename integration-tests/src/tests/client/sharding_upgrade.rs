@@ -52,7 +52,6 @@ enum ReshardingType {
     // In the V0->V1 resharding outgoing receipts are reassigned to receiver.
     V1,
     // In the V1->V2 resharding outgoing receipts are reassigned to lowest index child.
-    #[allow(unused)]
     V2,
 }
 

@@ -537,7 +537,6 @@ impl ClientActor {
                 min(head.height + DEBUG_MAX_PRODUCTION_BLOCKS_TO_SHOW, estimated_epoch_end),
             );
 
-            #[allow(clippy::redundant_clone)]
             let mut epoch_id = head.epoch_id.clone();
             for height in
                 head.height.saturating_sub(DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW)..=max_height

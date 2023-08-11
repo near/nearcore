@@ -145,7 +145,6 @@ impl MockEpochManager {
         let map_with_default_hash3 = HashMap::from([(EpochId::default(), 0)]);
 
         let mut validators = HashMap::new();
-        #[allow(unused_mut)]
         let mut validators_by_valset: Vec<EpochValidatorSet> = vs
             .block_producers
             .iter()

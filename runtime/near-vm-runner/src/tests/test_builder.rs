@@ -91,25 +91,21 @@ impl TestBuilder {
 
     // We only test trapping tests on Wasmer, as of version 0.17, when tests executed in parallel,
     // Wasmer signal handlers may catch signals thrown from the Wasmtime, and produce fake failing tests.
-    #[allow(dead_code)]
     pub(crate) fn skip_wasmtime(mut self) -> Self {
         self.skip.insert(VMKind::Wasmtime);
         self
     }
 
-    #[allow(dead_code)]
     pub(crate) fn skip_wasmer0(mut self) -> Self {
         self.skip.insert(VMKind::Wasmer0);
         self
     }
 
-    #[allow(dead_code)]
     pub(crate) fn skip_wasmer2(mut self) -> Self {
         self.skip.insert(VMKind::Wasmer2);
         self
     }
 
-    #[allow(dead_code)]
     pub(crate) fn skip_near_vm(mut self) -> Self {
         self.skip.insert(VMKind::NearVm);
         self
@@ -120,7 +116,6 @@ impl TestBuilder {
         self.skip_wasmer0().skip_wasmer2().skip_near_vm()
     }
 
-    #[allow(dead_code)]
     pub(crate) fn only_wasmer0(self) -> Self {
         self.skip_wasmer2().skip_near_vm().skip_wasmtime()
     }
@@ -130,7 +125,6 @@ impl TestBuilder {
         self.skip_wasmer0().skip_near_vm().skip_wasmtime()
     }
 
-    #[allow(dead_code)]
     pub(crate) fn only_near_vm(self) -> Self {
         self.skip_wasmer0().skip_wasmer2().skip_wasmtime()
     }
