@@ -35,12 +35,12 @@ pub struct StoreConfig {
     /// Since #9389 change State in column block options filter and index block were caching
     /// was removed from block size cache and moved to heap. After that minimal amount of block
     /// cache was needed after 32MiB there is no significant performance improvement.
-    pub col_state_cache_size: bytesize::ByteSize,
+    pub col_state_block_cache_size: bytesize::ByteSize,
 
     /// Cache size for DBCol::FlatState column
     /// Default value: 32MiB
     /// This will be handled in next PR.
-    pub col_flat_state_cache_size: bytesize::ByteSize,
+    pub col_flat_state_block_cache_size: bytesize::ByteSize,
 
     /// Block size used internally in RocksDB.
     /// Default value: 16KiB.
