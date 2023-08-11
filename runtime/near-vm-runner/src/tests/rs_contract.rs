@@ -1,8 +1,7 @@
-use crate::logic::action::{Action, FunctionCallAction};
 use crate::logic::errors::{FunctionCallError, HostError, WasmTrap};
-use crate::logic::mocks::mock_external::MockedExternal;
+use crate::logic::mocks::mock_external::{MockAction, MockedExternal};
 use crate::logic::types::ReturnData;
-use crate::logic::{ReceiptMetadata, VMConfig};
+use crate::logic::VMConfig;
 use near_primitives::test_utils::encode;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
@@ -261,49 +260,6 @@ fn function_call_weight_contract() -> ContractCode {
 }
 
 #[test]
-fn attach_unspent_gas_but_burn_all_gas() {
-    let prepaid_gas = 100 * 10u64.pow(12);
-
-    let mut context = create_context(vec![]);
-    context.prepaid_gas = prepaid_gas;
-
-    let mut config = VMConfig::test();
-    config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
-
-    with_vm_variants(&config, |vm_kind: VMKind| {
-        let code = function_call_weight_contract();
-        let mut external = MockedExternal::new();
-        let fees = RuntimeFeesConfig::test();
-        let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
-
-        let outcome = runtime
-            .run(
-                &code,
-                "attach_unspent_gas_but_burn_all_gas",
-                &mut external,
-                context.clone(),
-                &fees,
-                &[],
-                LATEST_PROTOCOL_VERSION,
-                None,
-            )
-            .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
-
-        let err = outcome.aborted.as_ref().unwrap();
-        assert!(matches!(err, FunctionCallError::HostError(HostError::GasLimitExceeded)));
-        match &outcome.action_receipts.as_slice() {
-            [(_, ReceiptMetadata { actions, .. })] => match actions.as_slice() {
-                [Action::FunctionCall(FunctionCallAction { gas, .. })] => {
-                    assert!(*gas > prepaid_gas / 3);
-                }
-                other => panic!("unexpected actions: {other:?}"),
-            },
-            other => panic!("unexpected receipts: {other:?}"),
-        }
-    });
-}
-
-#[test]
 fn attach_unspent_gas_but_use_all_gas() {
     let mut context = create_context(vec![]);
     context.prepaid_gas = 100 * 10u64.pow(12);
@@ -333,14 +289,9 @@ fn attach_unspent_gas_but_use_all_gas() {
         let err = outcome.aborted.as_ref().unwrap();
         assert!(matches!(err, FunctionCallError::HostError(HostError::GasExceeded)));
 
-        match &outcome.action_receipts.as_slice() {
-            [(_, ReceiptMetadata { actions, .. }), _] => match actions.as_slice() {
-                [Action::FunctionCall(FunctionCallAction { gas, .. })] => {
-                    assert_eq!(*gas, 0);
-                }
-                other => panic!("unexpected actions: {other:?}"),
-            },
-            other => panic!("unexpected receipts: {other:?}"),
+        match &external.action_log[..] {
+            [_, MockAction::FunctionCallWeight { prepaid_gas: gas, .. }, _] => assert_eq!(*gas, 0),
+            other => panic!("unexpected actions: {other:?}"),
         }
     });
 }

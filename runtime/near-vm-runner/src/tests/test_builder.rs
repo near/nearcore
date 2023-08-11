@@ -1,11 +1,14 @@
 use crate::internal::VMKind;
 use crate::logic::{mocks::mock_external::MockedExternal, ProtocolVersion, VMContext, VMOutcome};
-use near_primitives::runtime::{config_store::RuntimeConfigStore, fees::RuntimeFeesConfig};
+use near_primitives::runtime::{
+    config::RuntimeConfig, config_store::RuntimeConfigStore, fees::RuntimeFeesConfig,
+};
 use near_primitives_core::{
     contract::ContractCode,
     types::Gas,
     version::{ProtocolFeature, PROTOCOL_VERSION},
 };
+use std::sync::Arc;
 use std::{collections::HashSet, fmt::Write};
 
 pub(crate) fn test_builder() -> TestBuilder {
@@ -162,6 +165,14 @@ impl TestBuilder {
     #[track_caller]
     pub(crate) fn expect(self, want: expect_test::Expect) {
         self.expects(&[want])
+    }
+
+    pub(crate) fn configs(&self) -> impl Iterator<Item = Arc<RuntimeConfig>> {
+        let runtime_config_store = RuntimeConfigStore::new(None);
+        self.protocol_versions
+            .clone()
+            .into_iter()
+            .map(move |pv| Arc::clone(runtime_config_store.get_config(pv)))
     }
 
     #[track_caller]

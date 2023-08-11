@@ -41,40 +41,6 @@ def get_nodes(args):
     return traffic_generator, nodes
 
 
-def get_node_peer_info(node):
-    config = mocknet.download_and_read_json(node,
-                                            '/home/ubuntu/.near/config.json')
-    node_key = mocknet.download_and_read_json(
-        node, '/home/ubuntu/.near/node_key.json')
-
-    key = node_key['public_key']
-    port = config['network']['addr'].split(':')[1]
-    return f'{key}@{node.machine.ip}:{port}'
-
-
-def get_boot_nodes(nodes):
-    boot_nodes = pmap(get_node_peer_info, nodes[:20])
-    return ','.join(boot_nodes)
-
-
-def get_validator_list(nodes):
-    validators = []
-
-    validator_keys = pmap(
-        lambda node: mocknet.download_and_read_json(
-            node, '/home/ubuntu/.near/validator_key.json'), nodes)
-
-    for i, validator_key in enumerate(validator_keys):
-        validators.append({
-            'account_id': validator_key['account_id'],
-            'public_key': validator_key['public_key'],
-            # TODO: give a way to specify the stakes
-            'amount': str(10**33),
-        })
-
-    return validators
-
-
 def run_cmd(node, cmd):
     r = node.machine.run(cmd)
     if r.exitcode != 0:
@@ -84,8 +50,8 @@ def run_cmd(node, cmd):
     return r
 
 
-LOG_DIR = '/home/ubuntu/.near/logs'
-STATUS_DIR = '/home/ubuntu/.near/logs/status'
+LOG_DIR = '/home/ubuntu/logs'
+STATUS_DIR = '/home/ubuntu/logs/status'
 
 
 def run_in_background(node, cmd, log_filename, env=''):
@@ -97,157 +63,7 @@ def run_in_background(node, cmd, log_filename, env=''):
     )
 
 
-def wait_process(node, log_filename):
-    r = run_cmd(
-        node,
-        f'stat {STATUS_DIR}/{log_filename} >/dev/null && tail --retry -f {STATUS_DIR}/{log_filename} | head -n 1'
-    )
-    if r.stdout.strip() != '0':
-        sys.exit(
-            f'bad status in {STATUS_DIR}/{log_filename} on {node.instance_name}: {r.stdout}\ncheck {LOG_DIR}/{log_filename} for details'
-        )
-
-
-def check_process(node, log_filename):
-    r = run_cmd(node, f'head -n 1 {STATUS_DIR}/{log_filename}')
-    out = r.stdout.strip()
-    if len(out) > 0 and out != '0':
-        sys.exit(
-            f'bad status in {STATUS_DIR}/{log_filename} on {node.instance_name}: {r.stdout}\ncheck {LOG_DIR}/{log_filename} for details'
-        )
-
-
-def set_boot_nodes(node, boot_nodes):
-    if not node.instance_name.endswith('traffic'):
-        home_dir = '/home/ubuntu/.near'
-    else:
-        home_dir = '/home/ubuntu/.near/target'
-
-    run_cmd(
-        node,
-        f't=$(mktemp) && jq \'.network.boot_nodes = "{boot_nodes}"\' {home_dir}/config.json > $t && mv $t {home_dir}/config.json'
-    )
-
-
-# returns the peer ID of the resulting initialized NEAR dir
-def init_home_dir(node, num_validators):
-    run_cmd(node, f'mkdir -p /home/ubuntu/.near/setup/')
-    run_cmd(node, f'mkdir -p {LOG_DIR}')
-    run_cmd(node, f'mkdir -p {STATUS_DIR}')
-
-    if not node.instance_name.endswith('traffic'):
-        cmd = 'find /home/ubuntu/.near -type f -maxdepth 1 -delete && '
-        cmd += 'rm -rf /home/ubuntu/.near/data && '
-        cmd += '/home/ubuntu/neard init --account-id "$(hostname).near" && '
-        cmd += 'rm -f /home/ubuntu/.near/genesis.json && '
-        home_dir = '/home/ubuntu/.near'
-    else:
-        cmd = 'rm -rf /home/ubuntu/.near/target/ && '
-        cmd += 'mkdir -p /home/ubuntu/.near/target/ && '
-        cmd += '/home/ubuntu/neard --home /home/ubuntu/.near/target/ init && '
-        cmd += 'rm -f /home/ubuntu/.near/target/validator_key.json && '
-        cmd += 'rm -f /home/ubuntu/.near/target/genesis.json && '
-        home_dir = '/home/ubuntu/.near/target'
-
-    # TODO: don't hardcode tracked_shards. mirror run only sends txs for the shards in tracked shards. maybe should change that...
-    config_changes = '.tracked_shards = [0, 1, 2, 3] | .archive = true | .log_summary_style="plain" | .rpc.addr = "0.0.0.0:3030" '
-    config_changes += '| .network.skip_sync_wait=false | .genesis_records_file = "records.json" | .rpc.enable_debug_rpc = true '
-    if num_validators < 3:
-        config_changes += f'| .consensus.min_num_peers = {num_validators}'
-
-    cmd += '''t=$(mktemp) && jq '{config_changes}' {home_dir}/config.json > $t && mv $t {home_dir}/config.json'''.format(
-        config_changes=config_changes, home_dir=home_dir)
-    run_cmd(node, cmd)
-
-    config = mocknet.download_and_read_json(node, f'{home_dir}/config.json')
-    node_key = mocknet.download_and_read_json(node, f'{home_dir}/node_key.json')
-    key = node_key['public_key']
-    port = config['network']['addr'].split(':')[1]
-    return f'{key}@{node.machine.ip}:{port}'
-
-
-BACKUP_DIR = '/home/ubuntu/.near/backup'
-
-
-def make_backup(node, log_filename):
-    if node.instance_name.endswith('traffic'):
-        home = '/home/ubuntu/.near/target'
-    else:
-        home = '/home/ubuntu/.near'
-    run_in_background(
-        node,
-        f'rm -rf {BACKUP_DIR} && mkdir {BACKUP_DIR} && cp -r {home}/data {BACKUP_DIR}/data && cp {home}/genesis.json {BACKUP_DIR}',
-        log_filename)
-
-
-def check_backup(node):
-    if node.instance_name.endswith('traffic'):
-        genesis = '/home/ubuntu/.near/target/genesis.json'
-    else:
-        genesis = '/home/ubuntu/.near/genesis.json'
-
-    cmd = f'current=$(md5sum {genesis} | cut -d " " -f1) '
-    cmd += f'&& saved=$(md5sum {BACKUP_DIR}/genesis.json | cut -d " " -f1)'
-    cmd += f' && if [ $current == $saved ]; then exit 0; else echo "md5sum mismatch between {genesis} and {BACKUP_DIR}/genesis.json"; exit 1; fi'
-    r = node.machine.run(cmd)
-    if r.exitcode != 0:
-        logger.warning(
-            f'on {node.instance_name} could not check that saved state in {BACKUP_DIR} matches with ~/.near:\n{r.stdout}\n{r.stderr}'
-        )
-        return False
-    return True
-
-
-def reset_data_dir(node, log_filename):
-    if node.instance_name.endswith('traffic'):
-        data = '/home/ubuntu/.near/target/data'
-    else:
-        data = '/home/ubuntu/.near/data'
-    run_in_background(node, f'rm -rf {data} && cp -r {BACKUP_DIR}/data {data}',
-                      log_filename)
-
-
-def amend_genesis_file(node, validators, epoch_length, num_seats, log_filename):
-    mocknet.upload_json(node, '/home/ubuntu/.near/setup/validators.json',
-                        validators)
-
-    if not node.instance_name.endswith('traffic'):
-        neard = '/home/ubuntu/neard-setup'
-        genesis_file_out = '/home/ubuntu/.near/genesis.json'
-        records_file_out = '/home/ubuntu/.near/records.json'
-        config_file_path = '/home/ubuntu/.near/config.json'
-    else:
-        neard = '/home/ubuntu/neard'
-        genesis_file_out = '/home/ubuntu/.near/target/genesis.json'
-        records_file_out = '/home/ubuntu/.near/target/records.json'
-    amend_genesis_cmd = [
-        neard,
-        'amend-genesis',
-        '--genesis-file-in',
-        '/home/ubuntu/.near/setup/genesis.json',
-        '--records-file-in',
-        '/home/ubuntu/.near/setup/records.json',
-        '--genesis-file-out',
-        genesis_file_out,
-        '--records-file-out',
-        records_file_out,
-        '--validators',
-        '/home/ubuntu/.near/setup/validators.json',
-        '--chain-id',
-        'mocknet',
-        '--transaction-validity-period',
-        '10000',
-        '--epoch-length',
-        str(epoch_length),
-        '--num-seats',
-        str(args.num_seats),
-    ]
-    amend_genesis_cmd = ' '.join(amend_genesis_cmd)
-    run_in_background(node, amend_genesis_cmd, log_filename)
-
-
-# like mocknet.wait_node_up() but we also check the status file
-def wait_node_up(node, log_filename):
+def wait_node_up(node):
     while True:
         try:
             res = node.get_validators()
@@ -258,43 +74,7 @@ def wait_node_up(node, log_filename):
         except (ConnectionRefusedError,
                 requests.exceptions.ConnectionError) as e:
             pass
-        check_process(node, log_filename)
         time.sleep(10)
-
-
-def neard_running(node):
-    return len(node.machine.run('ps cax | grep neard').stdout) > 0
-
-
-def start_neard(node, log_filename):
-    if node.instance_name.endswith('traffic'):
-        home = '/home/ubuntu/.near/target'
-    else:
-        home = '/home/ubuntu/.near/'
-
-    if not neard_running(node):
-        run_in_background(
-            node,
-            f'/home/ubuntu/neard --unsafe-fast-startup --home {home} run',
-            log_filename,
-            env='RUST_LOG=debug')
-        logger.info(f'started neard on {node.instance_name}')
-    else:
-        logger.info(f'neard already running on {node.instance_name}')
-
-
-def start_mirror(node, log_filename):
-    assert node.instance_name.endswith('traffic')
-
-    if not neard_running(node):
-        run_in_background(
-            node,
-            f'/home/ubuntu/neard mirror run --source-home /home/ubuntu/.near --target-home /home/ubuntu/.near/target --no-secret',
-            log_filename,
-            env='RUST_LOG=info,mirror=debug')
-        logger.info(f'started neard mirror run on {node.instance_name}')
-    else:
-        logger.info(f'neard already running on {node.instance_name}')
 
 
 def prompt_setup_flags(args):
@@ -316,6 +96,47 @@ def prompt_setup_flags(args):
         print('number of block producer seats?: ')
         args.num_seats = int(sys.stdin.readline().strip())
 
+    if args.genesis_protocol_version is None:
+        print('genesis protocol version?: ')
+        args.genesis_protocol_version = int(sys.stdin.readline().strip())
+
+
+def start_neard_runner(node):
+    run_in_background(node, f'/home/ubuntu/neard-runner/venv/bin/python /home/ubuntu/neard-runner/neard_runner.py ' \
+        '--home /home/ubuntu/neard-runner --neard-home /home/ubuntu/.near ' \
+        '--neard-logs /home/ubuntu/neard-logs --port 3000', 'neard-runner.txt')
+
+
+def upload_neard_runner(node):
+    node.machine.upload('tests/mocknet/helpers/neard_runner.py',
+                        '/home/ubuntu/neard-runner',
+                        switch_user='ubuntu')
+    node.machine.upload('tests/mocknet/helpers/requirements.txt',
+                        '/home/ubuntu/neard-runner',
+                        switch_user='ubuntu')
+
+
+def init_neard_runner(node, config, remove_home_dir=False):
+    stop_neard_runner(node)
+    rm_cmd = 'rm -rf /home/ubuntu/neard-runner && ' if remove_home_dir else ''
+    run_cmd(
+        node,
+        f'{rm_cmd}mkdir -p {LOG_DIR} && mkdir -p {STATUS_DIR} && mkdir -p /home/ubuntu/neard-runner'
+    )
+    upload_neard_runner(node)
+    mocknet.upload_json(node, '/home/ubuntu/neard-runner/config.json', config)
+    cmd = 'cd /home/ubuntu/neard-runner && python3 -m virtualenv venv -p $(which python3)' \
+    ' && ./venv/bin/pip install -r requirements.txt'
+    run_cmd(node, cmd)
+    start_neard_runner(node)
+
+
+def stop_neard_runner(node):
+    # it's probably fine for now, but this is very heavy handed/not precise
+    node.machine.run('kill $(ps -C python -o pid=)')
+
+
+def prompt_init_flags(args):
     if args.neard_binary_url is None:
         print('neard binary URL?: ')
         args.neard_binary_url = sys.stdin.readline().strip()
@@ -330,38 +151,23 @@ def prompt_setup_flags(args):
             args.neard_upgrade_binary_url = url
 
 
-def upload_neard_runner(node, config):
-    node.machine.run(
-        'rm -rf /home/ubuntu/neard-runner && mkdir /home/ubuntu/neard-runner && mkdir -p /home/ubuntu/neard-logs'
-    )
-    node.machine.upload('tests/mocknet/helpers/neard_runner.py',
-                        '/home/ubuntu/neard-runner',
-                        switch_user='ubuntu')
-    node.machine.upload('tests/mocknet/helpers/requirements.txt',
-                        '/home/ubuntu/neard-runner',
-                        switch_user='ubuntu')
-    mocknet.upload_json(node, '/home/ubuntu/neard-runner/config.json', config)
-    cmd = 'cd /home/ubuntu/neard-runner && python3 -m virtualenv venv -p $(which python3)' \
-    ' && ./venv/bin/pip install -r requirements.txt'
-    run_cmd(node, cmd)
-    run_in_background(node, f'/home/ubuntu/neard-runner/venv/bin/python /home/ubuntu/neard-runner/neard_runner.py ' \
-        '--home /home/ubuntu/neard-runner --neard-home /home/ubuntu/.near ' \
-        '--neard-logs /home/ubuntu/neard-logs --port 3000', 'neard-runner.txt')
-
-
-def stop_neard_runner(node):
-    # it's probably fine for now, but this is very heavy handed/not precise
-    node.machine.run('kill $(ps -C python -o pid=)')
-
-
-def init_neard_runner(nodes, binary_url, upgrade_binary_url):
-    if upgrade_binary_url is None:
+def init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False):
+    prompt_init_flags(args)
+    if args.neard_upgrade_binary_url is None:
         configs = [{
+            "is_traffic_generator": False,
             "binaries": [{
-                "url": binary_url,
+                "url": args.neard_binary_url,
                 "epoch_height": 0
             }]
         }] * len(nodes)
+        traffic_generator_config = {
+            "is_traffic_generator": True,
+            "binaries": [{
+                "url": args.neard_binary_url,
+                "epoch_height": 0
+            }]
+        }
     else:
         # for now this test starts all validators with the same stake, so just make the upgrade
         # epoch random. If we change the stakes, we should change this to choose how much stake
@@ -369,19 +175,90 @@ def init_neard_runner(nodes, binary_url, upgrade_binary_url):
         configs = []
         for i in range(len(nodes)):
             configs.append({
+                "is_traffic_generator":
+                    False,
                 "binaries": [{
-                    "url": binary_url,
+                    "url": args.neard_binary_url,
                     "epoch_height": 0
                 }, {
-                    "url": upgrade_binary_url,
+                    "url": args.neard_upgrade_binary_url,
                     "epoch_height": random.randint(1, 4)
                 }]
             })
+        traffic_generator_config = {
+            "is_traffic_generator":
+                True,
+            "binaries": [{
+                "url": args.neard_upgrade_binary_url,
+                "epoch_height": 0
+            }]
+        }
 
-    pmap(lambda x: upload_neard_runner(x[0], x[1]), zip(nodes, configs))
+    init_neard_runner(traffic_generator, traffic_generator_config,
+                      remove_home_dir)
+    pmap(lambda x: init_neard_runner(x[0], x[1], remove_home_dir),
+         zip(nodes, configs))
 
 
-def setup(args, traffic_generator, nodes):
+def init_cmd(args, traffic_generator, nodes):
+    init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False)
+
+
+def hard_reset_cmd(args, traffic_generator, nodes):
+    print("""
+        WARNING!!!!
+        WARNING!!!!
+        This will undo all chain state, which will force a restart from the beginning,
+        icluding the genesis state computation which takes several hours.
+        Continue? [yes/no]""")
+    if sys.stdin.readline().strip() != 'yes':
+        return
+    all_nodes = nodes + [traffic_generator]
+    pmap(stop_neard_runner, all_nodes)
+    mocknet.stop_nodes(all_nodes)
+    init_neard_runners(args, traffic_generator, nodes, remove_home_dir=True)
+
+
+def restart_cmd(args, traffic_generator, nodes):
+    all_nodes = nodes + [traffic_generator]
+    pmap(stop_neard_runner, all_nodes)
+    if args.upload_program:
+        pmap(upload_neard_runner, all_nodes)
+    pmap(start_neard_runner, all_nodes)
+
+
+# returns boot nodes and validators we want for the new test network
+def get_network_nodes(new_test_rpc_responses, num_validators):
+    validators = []
+    boot_nodes = []
+    for ip_addr, response in new_test_rpc_responses:
+        if len(validators) < num_validators:
+            if response['validator_account_id'] is not None:
+                # we assume here that validator_account_id is not null, validator_public_key
+                # better not be null either
+                validators.append({
+                    'account_id': response['validator_account_id'],
+                    'public_key': response['validator_public_key'],
+                    'amount': str(10**33),
+                })
+        if len(boot_nodes) < 20:
+            boot_nodes.append(
+                f'{response["node_key"]}@{ip_addr}:{response["listen_port"]}')
+
+        if len(validators) >= num_validators and len(boot_nodes) >= 20:
+            break
+    # neither of these should happen, since we check the number of available nodes in new_test(), and
+    # only the traffic generator will respond with null validator_account_id and validator_public_key
+    if len(validators) == 0:
+        sys.exit('no validators available after new_test RPCs')
+    if len(validators) < num_validators:
+        logger.warning(
+            f'wanted {num_validators} validators, but only {len(validators)} available'
+        )
+    return validators, boot_nodes
+
+
+def new_test(args, traffic_generator, nodes):
     prompt_setup_flags(args)
 
     if args.epoch_length <= 0:
@@ -394,96 +271,70 @@ def setup(args, traffic_generator, nodes):
         )
 
     all_nodes = nodes + [traffic_generator]
-    pmap(stop_neard_runner, nodes)
-    mocknet.stop_nodes(all_nodes)
 
-    # TODO: move all the setup logic to neard_runner.py and just call it here, so
-    # that each node does its own setup and we don't rely on the computer running this script
     logger.info(f'resetting/initializing home dirs')
-    boot_nodes = pmap(lambda node: init_home_dir(node, args.num_validators),
-                      all_nodes)
-    pmap(lambda node: set_boot_nodes(node, ','.join(boot_nodes[:20])),
-         all_nodes)
-    logger.info(f'home dir initialization finished')
+    test_keys = pmap(neard_runner_new_test, all_nodes)
 
-    random.shuffle(nodes)
-    validators = get_validator_list(nodes[:args.num_validators])
+    validators, boot_nodes = get_network_nodes(
+        zip([n.machine.ip for n in all_nodes], test_keys), args.num_validators)
 
-    init_neard_runner(nodes, args.neard_binary_url,
-                      args.neard_upgrade_binary_url)
-
-    logger.info(
-        f'setting validators and running neard amend-genesis on all nodes. validators: {validators}'
-    )
-    logger.info(f'this step will take a while (> 10 minutes)')
+    logger.info("""setting validators: {0}
+Then running neard amend-genesis on all nodes, and starting neard to compute genesis \
+state roots. This will take a few hours. Run `status` to check if the nodes are \
+ready. After they're ready, you can run `start-traffic`""".format(validators))
     pmap(
-        lambda node: amend_genesis_file(node, validators, args.epoch_length,
-                                        args.num_seats, 'amend-genesis.txt'),
-        all_nodes)
-    pmap(lambda node: wait_process(node, 'amend-genesis.txt'), all_nodes)
-    logger.info(f'finished neard amend-genesis step')
-
-    logger.info(
-        f'starting neard nodes then waiting for them to be ready. This may take a long time (a couple hours)'
-    )
-    logger.info(
-        'If your connection is broken in the meantime, run "make-backups" to resume'
-    )
-
-    make_backups(args, traffic_generator, nodes)
-
-    logger.info('test setup complete')
-
-    if args.start_traffic:
-        start_traffic(args, traffic_generator, nodes)
+        lambda node: neard_runner_network_init(
+            node, validators, boot_nodes, args.epoch_length, args.num_seats,
+            args.genesis_protocol_version), all_nodes)
 
 
-def make_backups(args, traffic_generator, nodes):
+def status_cmd(args, traffic_generator, nodes):
     all_nodes = nodes + [traffic_generator]
-    pmap(lambda node: start_neard(node, 'neard.txt'), all_nodes)
-    pmap(lambda node: wait_node_up(node, 'neard.txt'), all_nodes)
-    mocknet.stop_nodes(all_nodes)
+    statuses = pmap(neard_runner_ready, all_nodes)
+    num_ready = 0
+    not_ready = []
+    for ready, node in zip(statuses, all_nodes):
+        if not ready:
+            not_ready.append(node.instance_name)
 
-    logger.info(f'copying data dirs to {BACKUP_DIR}')
-    pmap(lambda node: make_backup(node, 'make-backup.txt'), all_nodes)
-    pmap(lambda node: wait_process(node, 'make-backup.txt'), all_nodes)
+    if len(not_ready) == 0:
+        print(f'all {len(all_nodes)} nodes ready')
+    else:
+        print(
+            f'{len(all_nodes)-len(not_ready)}/{len(all_nodes)} ready. Nodes not ready: {not_ready[:3]}'
+        )
 
 
-def reset_data_dirs(args, traffic_generator, nodes):
+def reset_cmd(args, traffic_generator, nodes):
+    print(
+        'this will reset all nodes\' home dirs to their initial states right after test initialization finished. continue? [yes/no]'
+    )
+    if sys.stdin.readline().strip() != 'yes':
+        sys.exit()
     all_nodes = nodes + [traffic_generator]
-    stop_nodes(args, traffic_generator, nodes)
-    # TODO: maybe have the neard runner not return from the JSON rpc until it's stopped?
-    while True:
-        if not any(mocknet.is_binary_running_all_nodes(
-                'neard',
-                all_nodes,
-        )):
-            break
-    if not all(pmap(check_backup, all_nodes)):
-        logger.warning('Not continuing with backup restoration')
-        return
-
-    logger.info('restoring data dirs from /home/ubuntu/.near/data-backup')
-    pmap(lambda node: reset_data_dir(node, 'reset-data.txt'), all_nodes)
-    pmap(lambda node: wait_process(node, 'reset-data.txt'), all_nodes)
-
-    if args.start_traffic:
-        start_traffic(args, traffic_generator, nodes)
+    pmap(neard_runner_reset, all_nodes)
+    logger.info(
+        'Data dir reset in progress. Run the `status` command to see when this is finished. Until it is finished, neard runners may not respond to HTTP requests.'
+    )
 
 
-def stop_nodes(args, traffic_generator, nodes):
-    mocknet.stop_nodes([traffic_generator])
-    pmap(neard_runner_stop, nodes)
+def stop_nodes_cmd(args, traffic_generator, nodes):
+    pmap(neard_runner_stop, nodes + [traffic_generator])
 
 
-def neard_runner_jsonrpc(node, method):
-    j = {'method': method, 'params': [], 'id': 'dontcare', 'jsonrpc': '2.0'}
-    r = requests.post(f'http://{node.machine.ip}:3000', json=j, timeout=5)
+def stop_traffic_cmd(args, traffic_generator, nodes):
+    neard_runner_stop(traffic_generator)
+
+
+def neard_runner_jsonrpc(node, method, params=[]):
+    j = {'method': method, 'params': params, 'id': 'dontcare', 'jsonrpc': '2.0'}
+    r = requests.post(f'http://{node.machine.ip}:3000', json=j, timeout=30)
     if r.status_code != 200:
         logger.warning(
             f'bad response {r.status_code} trying to send {method} JSON RPC to neard runner on {node.instance_name}:\n{r.content}'
         )
     r.raise_for_status()
+    return r.json()['result']
 
 
 def neard_runner_start(node):
@@ -494,20 +345,54 @@ def neard_runner_stop(node):
     neard_runner_jsonrpc(node, 'stop')
 
 
-def start_traffic(args, traffic_generator, nodes):
-    if not all(pmap(check_backup, nodes + [traffic_generator])):
-        logger.warning(
-            f'Not sending traffic, as the backups in {BACKUP_DIR} dont seem to be up to date'
+def neard_runner_new_test(node):
+    return neard_runner_jsonrpc(node, 'new_test')
+
+
+def neard_runner_network_init(node, validators, boot_nodes, epoch_length,
+                              num_seats, protocol_version):
+    return neard_runner_jsonrpc(node,
+                                'network_init',
+                                params={
+                                    'validators': validators,
+                                    'boot_nodes': boot_nodes,
+                                    'epoch_length': epoch_length,
+                                    'num_seats': num_seats,
+                                    'protocol_version': protocol_version,
+                                })
+
+
+def neard_runner_ready(node):
+    return neard_runner_jsonrpc(node, 'ready')
+
+
+def neard_runner_reset(node):
+    return neard_runner_jsonrpc(node, 'reset')
+
+
+def start_nodes_cmd(args, traffic_generator, nodes):
+    if not all(pmap(neard_runner_ready, nodes)):
+        logger.warn(
+            'not all nodes are ready to start yet. Run the `status` command to check their statuses'
         )
         return
+    pmap(neard_runner_start, nodes)
+    pmap(wait_node_up, nodes)
 
+
+def start_traffic_cmd(args, traffic_generator, nodes):
+    if not all(pmap(neard_runner_ready, nodes + [traffic_generator])):
+        logger.warn(
+            'not all nodes are ready to start yet. Run the `status` command to check their statuses'
+        )
+        return
     pmap(neard_runner_start, nodes)
     logger.info("waiting for validators to be up")
-    pmap(lambda node: wait_node_up(node, 'neard.txt'), nodes)
+    pmap(wait_node_up, nodes)
     logger.info(
         "waiting a bit after validators started before starting traffic")
     time.sleep(10)
-    start_mirror(traffic_generator, 'mirror.txt')
+    neard_runner_start(traffic_generator)
     logger.info(
         f'test running. to check the traffic sent, try running "curl http://{traffic_generator.machine.ip}:3030/metrics | grep mirror"'
     )
@@ -519,61 +404,81 @@ if __name__ == '__main__':
     parser.add_argument('--start-height', type=int, required=True)
     parser.add_argument('--unique-id', type=str, required=True)
 
-    parser.add_argument('--epoch-length', type=int)
-    parser.add_argument('--num-validators', type=int)
-    parser.add_argument('--num-seats', type=int)
-
-    parser.add_argument('--neard-binary-url', type=str)
-    parser.add_argument('--neard-upgrade-binary-url', type=str)
-
     subparsers = parser.add_subparsers(title='subcommands',
                                        description='valid subcommands',
                                        help='additional help')
 
-    setup_parser = subparsers.add_parser('setup',
-                                         help='''
+    init_parser = subparsers.add_parser('init-neard-runner',
+                                        help='''
+    Sets up the helper servers on each of the nodes. Doesn't start initializing the test
+    state, which is done with the `new-test` command.
+    ''')
+    init_parser.add_argument('--neard-binary-url', type=str)
+    init_parser.add_argument('--neard-upgrade-binary-url', type=str)
+    init_parser.set_defaults(func=init_cmd)
+
+    restart_parser = subparsers.add_parser('restart-neard-runner',
+                                           help='''
+    Restarts the neard runner on all nodes.
+    ''')
+    restart_parser.add_argument('--upload-program', action='store_true')
+    restart_parser.set_defaults(func=restart_cmd, upload_program=False)
+
+    hard_reset_parser = subparsers.add_parser('hard-reset',
+                                              help='''
+    Stops neard and clears all test state on all nodes.
+    ''')
+    hard_reset_parser.add_argument('--neard-binary-url', type=str)
+    hard_reset_parser.add_argument('--neard-upgrade-binary-url', type=str)
+    hard_reset_parser.set_defaults(func=hard_reset_cmd)
+
+    new_test_parser = subparsers.add_parser('new-test',
+                                            help='''
     Sets up new state from the prepared records and genesis files with the number
     of validators specified. This calls neard amend-genesis to create the new genesis
     and records files, and then starts the neard nodes and waits for them to be online
-    after computing the genesis state roots. This step takes a very long time (> 12 hours).
-    Use --start-traffic to start traffic after the setup is complete, which is equivalent to
-    just running the start-traffic subcommand manually after.
+    after computing the genesis state roots. This step takes a long time (a few hours).
     ''')
-    setup_parser.add_argument('--start-traffic',
-                              default=False,
-                              action='store_true')
-    setup_parser.set_defaults(func=setup)
+    new_test_parser.add_argument('--epoch-length', type=int)
+    new_test_parser.add_argument('--num-validators', type=int)
+    new_test_parser.add_argument('--num-seats', type=int)
+    new_test_parser.add_argument('--genesis-protocol-version', type=int)
+    new_test_parser.set_defaults(func=new_test)
 
-    start_parser = subparsers.add_parser(
+    status_parser = subparsers.add_parser('status',
+                                          help='''
+    Checks the status of test initialization on each node
+    ''')
+    status_parser.set_defaults(func=status_cmd)
+
+    start_traffic_parser = subparsers.add_parser(
         'start-traffic',
         help=
-        'starts all nodes and starts neard mirror run on the traffic generator')
-    start_parser.set_defaults(func=start_traffic)
+        'Starts all nodes and starts neard mirror run on the traffic generator.'
+    )
+    start_traffic_parser.set_defaults(func=start_traffic_cmd)
+
+    start_nodes_parser = subparsers.add_parser(
+        'start-nodes',
+        help='Starts all nodes, but does not start the traffic generator.')
+    start_nodes_parser.set_defaults(func=start_nodes_cmd)
 
     stop_parser = subparsers.add_parser('stop-nodes',
                                         help='kill all neard processes')
-    stop_parser.set_defaults(func=stop_nodes)
+    stop_parser.set_defaults(func=stop_nodes_cmd)
 
-    backup_parser = subparsers.add_parser('make-backups',
-                                          help='''
-    This is run automatically by "setup", but if your connection is interrupted during "setup", this will
-    resume waiting for the nodes to compute the state roots, and then will make a backup of all data dirs
-    ''')
-    backup_parser.add_argument('--start-traffic',
-                               default=False,
-                               action='store_true')
-    backup_parser.set_defaults(func=make_backups)
+    stop_parser = subparsers.add_parser(
+        'stop-traffic',
+        help='stop the traffic generator, but leave the other nodes running')
+    stop_parser.set_defaults(func=stop_traffic_cmd)
 
     reset_parser = subparsers.add_parser('reset',
                                          help='''
-    The setup command saves the data directory after the genesis state roots are computed so that
+    The new_test command saves the data directory after the genesis state roots are computed so that
     the test can be reset from the start without having to do that again. This command resets all nodes'
     data dirs to what was saved then, so that start-traffic will start the test all over again.
     ''')
-    reset_parser.add_argument('--start-traffic',
-                              default=False,
-                              action='store_true')
-    reset_parser.set_defaults(func=reset_data_dirs)
+    reset_parser.set_defaults(func=reset_cmd)
 
     args = parser.parse_args()
 

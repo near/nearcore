@@ -355,7 +355,7 @@ pub struct TestBlockBuilder {
     epoch_id: EpochId,
     next_epoch_id: EpochId,
     next_bp_hash: CryptoHash,
-    approvals: Vec<Option<Signature>>,
+    approvals: Vec<Option<Box<Signature>>>,
     block_merkle_root: CryptoHash,
 }
 
@@ -395,7 +395,7 @@ impl TestBlockBuilder {
         self.next_bp_hash = next_bp_hash;
         self
     }
-    pub fn approvals(mut self, approvals: Vec<Option<Signature>>) -> Self {
+    pub fn approvals(mut self, approvals: Vec<Option<Box<Signature>>>) -> Self {
         self.approvals = approvals;
         self
     }
@@ -408,6 +408,7 @@ impl TestBlockBuilder {
     }
 
     pub fn build(self) -> Block {
+        tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
         Block::produce(
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,

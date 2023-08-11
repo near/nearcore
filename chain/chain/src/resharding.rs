@@ -4,6 +4,7 @@
 /// by the client_actor while the heavy resharding build_state_for_split_shards is done by SyncJobsActor
 /// so as to not affect client.
 use std::collections::{HashMap, HashSet};
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 use near_chain_primitives::error::Error;
@@ -31,7 +32,21 @@ pub struct StateSplitRequest {
     pub next_epoch_shard_layout: ShardLayout,
 }
 
-#[derive(actix::Message)]
+// Skip `runtime_adapter`, because it's a complex object that has complex logic
+// and many fields.
+impl Debug for StateSplitRequest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StateSplitRequest")
+            .field("runtime_adapter", &"<not shown>")
+            .field("sync_hash", &self.sync_hash)
+            .field("shard_uid", &self.shard_uid)
+            .field("state_root", &self.state_root)
+            .field("next_epoch_shard_layout", &self.next_epoch_shard_layout)
+            .finish()
+    }
+}
+
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct StateSplitResponse {
     pub sync_hash: CryptoHash,

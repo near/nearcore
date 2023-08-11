@@ -60,6 +60,7 @@ pub mod config;
 pub mod ext;
 mod metrics;
 mod prefetch;
+pub mod receipt_manager;
 pub mod state_viewer;
 mod verifier;
 

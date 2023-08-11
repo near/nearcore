@@ -232,8 +232,6 @@ pub enum NetworkRequests {
         part_id: u64,
         target: AccountOrPeerIdOrHash,
     },
-    /// Response to state request.
-    StateResponse { route_back: CryptoHash, response: StateResponseInfo },
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
     /// Announce account
@@ -397,7 +395,6 @@ mod tests {
     use super::*;
     use crate::network_protocol::{RawRoutedMessage, RoutedMessage, RoutedMessageBody};
     use borsh::BorshSerialize as _;
-    use near_primitives::syncing::ShardStateSyncResponseV1;
 
     const ALLOWED_SIZE: usize = 1 << 20;
     const NOTIFY_SIZE: usize = 1024;
@@ -467,18 +464,6 @@ mod tests {
                 2, 6, 0, 0, 0, 116, 101, 115, 116, 95, 120, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
                 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
                 42,
-            ],
-        );
-
-        check(
-            RoutedMessageBody::VersionedStateResponse(StateResponseInfo::V1(StateResponseInfoV1 {
-                shard_id: 62,
-                sync_hash: CryptoHash([92; 32]),
-                state_response: ShardStateSyncResponseV1 { header: None, part: None },
-            })),
-            &[
-                17, 0, 62, 0, 0, 0, 0, 0, 0, 0, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92,
-                92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 0, 0,
             ],
         );
     }

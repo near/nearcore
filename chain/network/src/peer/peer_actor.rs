@@ -27,7 +27,9 @@ use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as 
 use lru::LruCache;
 use near_async::time;
 use near_crypto::Signature;
-use near_o11y::{handler_debug_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
+use near_o11y::{
+    handler_debug_span, handler_trace_span, log_assert, OpenTelemetrySpanExt, WithSpanContext,
+};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -917,20 +919,6 @@ impl PeerActor {
                 network_state.client.tx_status_response(tx_result).await;
                 None
             }
-            RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => network_state
-                .client
-                .state_request_header(shard_id, sync_hash)
-                .await?
-                .map(RoutedMessageBody::VersionedStateResponse),
-            RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) => network_state
-                .client
-                .state_request_part(shard_id, sync_hash, part_id)
-                .await?
-                .map(RoutedMessageBody::VersionedStateResponse),
-            RoutedMessageBody::VersionedStateResponse(info) => {
-                network_state.client.state_response(info).await;
-                None
-            }
             RoutedMessageBody::StateResponse(info) => {
                 network_state.client.state_response(StateResponseInfo::V1(info)).await;
                 None
@@ -1055,6 +1043,21 @@ impl PeerActor {
                 }
                 PeerMessage::Challenge(challenge) => {
                     network_state.client.challenge(challenge).await;
+                    None
+                }
+                PeerMessage::StateRequestHeader(shard_id, sync_hash) => network_state
+                    .client
+                    .state_request_header(shard_id, sync_hash)
+                    .await?
+                    .map(PeerMessage::VersionedStateResponse),
+                PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => network_state
+                    .client
+                    .state_request_part(shard_id, sync_hash, part_id)
+                    .await?
+                    .map(PeerMessage::VersionedStateResponse),
+                PeerMessage::VersionedStateResponse(info) => {
+                        //TODO: Route to state sync actor.
+                    network_state.client.state_response(info).await;
                     None
                 }
                 msg => {
@@ -1625,7 +1628,7 @@ impl actix::Handler<WithSpanContext<SendMessage>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<SendMessage>, _: &mut Self::Context) {
-        let (_span, msg) = handler_debug_span!(target: "network", msg);
+        let (_span, msg) = handler_trace_span!(target: "network", msg);
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message_or_log(&msg.message);
     }

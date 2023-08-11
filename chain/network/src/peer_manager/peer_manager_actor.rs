@@ -23,7 +23,7 @@ use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
 use near_async::messaging::Sender;
 use near_async::time;
-use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext};
+use near_o11y::{handler_trace_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -646,27 +646,6 @@ impl PeerManagerActor {
         }
     }
 
-    /// Return whether the message is sent or not.
-    fn send_message_to_account_or_peer_or_hash(
-        &mut self,
-        target: &AccountOrPeerIdOrHash,
-        msg: RoutedMessageBody,
-    ) -> bool {
-        let target = match target {
-            AccountOrPeerIdOrHash::AccountId(account_id) => {
-                return self.state.send_message_to_account(&self.clock, account_id, msg);
-            }
-            AccountOrPeerIdOrHash::PeerId(it) => PeerIdOrHash::PeerId(it.clone()),
-            AccountOrPeerIdOrHash::Hash(it) => PeerIdOrHash::Hash(*it),
-        };
-
-        self.state.send_message_to_peer(
-            &self.clock,
-            tcp::Tier::T2,
-            self.state.sign_message(&self.clock, RawRoutedMessage { target, body: msg }),
-        )
-    }
-
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
         let tier1 = self.state.tier1.load();
         let tier2 = self.state.tier2.load();
@@ -789,9 +768,14 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::StateRequestHeader { shard_id, sync_hash, target } => {
-                if self.send_message_to_account_or_peer_or_hash(
-                    &target,
-                    RoutedMessageBody::StateRequestHeader(shard_id, sync_hash),
+                let peer_id = match target {
+                    AccountOrPeerIdOrHash::AccountId(_) => return NetworkResponses::RouteNotFound,
+                    AccountOrPeerIdOrHash::PeerId(peer_id) => peer_id,
+                    AccountOrPeerIdOrHash::Hash(_) => return NetworkResponses::RouteNotFound,
+                };
+                if self.state.tier2.send_message(
+                    peer_id,
+                    Arc::new(PeerMessage::StateRequestHeader(shard_id, sync_hash)),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -799,24 +783,14 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, target } => {
-                if self.send_message_to_account_or_peer_or_hash(
-                    &target,
-                    RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id),
-                ) {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
-                }
-            }
-            NetworkRequests::StateResponse { route_back, response } => {
-                let body = RoutedMessageBody::VersionedStateResponse(response);
-                if self.state.send_message_to_peer(
-                    &self.clock,
-                    tcp::Tier::T2,
-                    self.state.sign_message(
-                        &self.clock,
-                        RawRoutedMessage { target: PeerIdOrHash::Hash(route_back), body },
-                    ),
+                let peer_id = match target {
+                    AccountOrPeerIdOrHash::AccountId(_) => return NetworkResponses::RouteNotFound,
+                    AccountOrPeerIdOrHash::PeerId(peer_id) => peer_id,
+                    AccountOrPeerIdOrHash::Hash(_) => return NetworkResponses::RouteNotFound,
+                };
+                if self.state.tier2.send_message(
+                    peer_id,
+                    Arc::new(PeerMessage::StateRequestPart(shard_id, sync_hash, part_id)),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1035,7 +1009,7 @@ impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerA
         ctx: &mut Self::Context,
     ) -> Self::Result {
         let msg_type: &str = (&msg.msg).into();
-        let (_span, msg) = handler_debug_span!(target: "network", msg, msg_type);
+        let (_span, msg) = handler_trace_span!(target: "network", msg, msg_type);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         self.handle_peer_manager_message(msg, ctx)
