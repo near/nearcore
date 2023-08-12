@@ -84,8 +84,6 @@ fn apply_delayed_receipts<'a>(
 
 // function to set up flat storage status to Ready after a resharding event
 // TODO(resharding) : Consolidate this with setting up flat storage during state sync logic
-// Allow dead code is to avoid build error with protocol_feature_simple_nightshade_v2 feature
-#[allow(dead_code)]
 fn set_flat_storage_state(
     store: Store,
     flat_storage_manager: &FlatStorageManager,
@@ -207,11 +205,8 @@ impl Chain {
         let block_header = self.get_block_header(sync_hash)?;
         let prev_hash = block_header.prev_hash();
 
-        #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
-        {
-            let keys: Vec<_> = state_roots.keys().collect();
-            self.initialize_flat_storage(&prev_hash, &keys)?;
-        }
+        let child_shard_uids: Vec<_> = state_roots.keys().collect();
+        self.initialize_flat_storage(&prev_hash, &child_shard_uids)?;
 
         let mut chain_store_update = self.mut_store().store_update();
         for (shard_uid, state_root) in state_roots {
@@ -225,8 +220,10 @@ impl Chain {
         Ok(())
     }
 
-    // Allow dead code is to avoid build error with protocol_feature_simple_nightshade_v2 feature
-    #[allow(dead_code)]
+    // Here we iterate over all the child shards and initialize flat storage for them by calling set_flat_storage_state
+    // Note that this function is called on the current_block which is the first block the next epoch.
+    // We set the flat_head as the prev_block as after resharding, the state written to flat storage corresponds to the
+    // state as of prev_block, and that's the convention that we follow.
     fn initialize_flat_storage(
         &self,
         prev_hash: &CryptoHash,
@@ -243,8 +240,7 @@ impl Chain {
         if let Some(flat_storage_manager) = self.runtime_adapter.get_flat_storage_manager() {
             for shard_uid in child_shard_uids {
                 let store = self.runtime_adapter.store().clone();
-                let block_info: BlockInfo = prev_block_info;
-                set_flat_storage_state(store, &flat_storage_manager, **shard_uid, block_info)?;
+                set_flat_storage_state(store, &flat_storage_manager, **shard_uid, prev_block_info)?;
             }
         }
         Ok(())
