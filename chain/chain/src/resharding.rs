@@ -362,7 +362,7 @@ mod tests {
             state_root = new_state_root;
 
             // update split states
-            let trie_changes = tries
+            let mut trie_updates = tries
                 .apply_state_changes_to_split_states(
                     &split_state_roots,
                     StateChangesForSplitStates::from_raw_state_changes(
@@ -372,13 +372,14 @@ mod tests {
                     account_id_to_shard_id,
                 )
                 .unwrap();
-            split_state_roots = trie_changes
-                .iter()
-                .map(|(shard_uid, trie_changes)| {
+            split_state_roots = trie_updates
+                .drain()
+                .map(|(shard_uid, trie_update)| {
                     let mut state_update = tries.store_update();
-                    let state_root = tries.apply_all(trie_changes, *shard_uid, &mut state_update);
+                    let (_, trie_changes, _) = trie_update.finalize().unwrap();
+                    let state_root = tries.apply_all(&trie_changes, shard_uid, &mut state_update);
                     state_update.commit().unwrap();
-                    (*shard_uid, state_root)
+                    (shard_uid, state_root)
                 })
                 .collect();
 
