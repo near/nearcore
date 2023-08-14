@@ -5,7 +5,6 @@ use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
 };
 use once_cell::sync::Lazy;
-use rocksdb::PerfStatsLevel;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt::Display;
@@ -47,6 +46,7 @@ static CF_PROPERTY_NAMES: Lazy<Vec<std::ffi::CString>> = Lazy::new(|| {
 });
 
 pub struct PerfContext {
+    rocksdb_context: rocksdb::perf::PerfContext,
     start: Instant,
     measurements_per_block_reads: BTreeMap<usize, Measurements>,
     measurements_overall: Measurements,
@@ -54,15 +54,17 @@ pub struct PerfContext {
 
 impl PerfContext {
     pub fn new() -> Self {
+        rocksdb::perf::set_perf_stats(rocksdb::perf::PerfStatsLevel::EnableTime);
         Self {
+            rocksdb_context: rocksdb::perf::PerfContext::default(),
             start: Instant::now(),
             measurements_per_block_reads: BTreeMap::new(),
             measurements_overall: Measurements::default(),
         }
     }
 
-    fn reset(&mut self, rocksdb_context: &mut rocksdb::perf::PerfContext) {
-        rocksdb_context.reset();
+    fn reset(&mut self) {
+        self.rocksdb_context.reset();
         self.start = Instant::now();
     }
 }
@@ -133,7 +135,6 @@ pub struct RocksDB {
     // counting total sum of max_open_files.
     _instance_tracker: instance_tracker::InstanceTracker,
 
-    rocksdb_context: rocksdb::perf::PerfContext,
     perf_context: RefCell<PerfContext>,
 }
 
@@ -197,13 +198,11 @@ impl RocksDB {
             .map_err(other_error)?;
         let (db, db_opt) = Self::open_db(path, store_config, mode, temp, columns)?;
         let cf_handles = Self::get_cf_handles(&db, columns);
-        rocksdb::perf::set_perf_stats(rocksdb::perf::PerfStatsLevel::EnableTime);
         Ok(Self {
             db,
             db_opt,
             cf_handles,
             _instance_tracker: counter,
-            rocksdb_context: rocksdb::perf::PerfContext::default(),
             perf_context: RefCell::new(PerfContext::new()),
         })
     }
@@ -393,11 +392,12 @@ impl Database for RocksDB {
             metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
         let read_options = rocksdb_read_options();
 
+        let mut perf_data = self.perf_context.borrow_mut();
         let observed_latency = self.perf_context.borrow().start.elapsed();
         let block_read_cnt =
-            self.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
+            perf_data.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
         let read_block_latency =
-            Duration::from_nanos(self.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadTime));
+            Duration::from_nanos(perf_data.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadTime));
         assert!(observed_latency > read_block_latency);
 
         let result = self
@@ -408,14 +408,13 @@ impl Database for RocksDB {
         timer.observe_duration();
 
         let has_merge =
-            self.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
-        self.perf_context
-            .borrow_mut()
+            perf_data.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
+        perf_data
             .measurements_per_block_reads
             .entry(block_read_cnt)
             .or_default()
             .record(observed_latency, read_block_latency, has_merge);
-        self.perf_context.borrow_mut().measurements_overall.record(
+        perf_data.measurements_overall.record(
             observed_latency,
             read_block_latency,
             has_merge,
@@ -517,13 +516,14 @@ impl Database for RocksDB {
         self.get_cf_statistics(&mut result);
         
         // Get all measurements from RocksDB perf
-        let perf_data = self.perf_context.borrow_mut();
+        let mut perf_data = self.perf_context.borrow_mut();
         result.data.push(("total_observed_latency_sum".to_string(), vec![StatsValue::Sum(
             perf_data.measurements_overall.total_observed_latency.as_secs() as i64
         )]));
         result.data.push(("total_observed_latency_count".to_string(), vec![StatsValue::Sum(
             perf_data.measurements_overall.count as i64
         )]));
+        perf_data.reset();
         
         if result.data.is_empty() {
             None
