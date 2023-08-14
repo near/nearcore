@@ -392,12 +392,16 @@ class NearNodeProxy:
         #
         # FSM outline:
         #
-        # [INIT] -> [TO_CREATE] --(post tx)--> [INFLIGHT] --(poll result)--> [TO_REFRESH] --(refresh)--> [DONE]
-        #   |        ^                    |        ^                    |         ^
-        #   |        |                    |        |                    |         |
-        #   |        |--(fail to submit)<--        |-----(not ready)<----         |
-        #   |                                                                     |
-        #   ----------------(account exists already)------------------------------|
+        #    [INIT] -----------------(account exists already)-------------
+        #       |                                                        |
+        #       V                                                        V
+        #  [TO_CREATE] --(post tx)--> [INFLIGHT] --(poll result)--> [TO_REFRESH]
+        #   ^                    |                                       |
+        #   |                    |                                       |
+        #   |--(fail to submit)<--                                   (refresh)
+        #                                                                |
+        #                                                                V
+        #                                                              [DONE]
         #
         to_create: typing.List[Account] = []
         inflight: typing.List[Transaction, dict, Account] = []
