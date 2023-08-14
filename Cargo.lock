@@ -4247,6 +4247,7 @@ dependencies = [
  "near-ping",
  "near-primitives",
  "once_cell",
+ "sha2 0.10.6",
  "tokio",
  "tracing",
 ]

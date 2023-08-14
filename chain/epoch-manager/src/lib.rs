@@ -325,7 +325,6 @@ impl EpochManager {
     /// we don't kick out too many validators in case of network instability.
     /// We also make sure that these exempted validators were not kicked out in the last epoch,
     /// so it is guaranteed that they will stay as validators after this epoch.
-    #[allow(unused_variables)]
     fn compute_exempted_kickout(
         epoch_info: &EpochInfo,
         validator_block_chunk_stats: &HashMap<AccountId, BlockChunkValidatorStats>,
@@ -340,7 +339,6 @@ impl EpochManager {
         // until the total excepted stake exceeds the ratio of total stake that we need to keep.
         // Later when we perform the check to kick out validators, we don't kick out validators in
         // exempted_validators.
-        #[allow(unused_mut)]
         let mut exempted_validators = HashSet::new();
         if checked_feature!("stable", MaxKickoutStake, epoch_info.protocol_version()) {
             let min_keep_stake = total_stake * (exempt_perc as u128) / 100;
@@ -420,7 +418,6 @@ impl EpochManager {
         let block_producer_kickout_threshold = config.block_producer_kickout_threshold;
         let chunk_producer_kickout_threshold = config.chunk_producer_kickout_threshold;
         let mut validator_block_chunk_stats = HashMap::new();
-        #[allow(unused)]
         let mut total_stake: Balance = 0;
         let mut maximum_block_prod = 0;
         let mut max_validator = None;
