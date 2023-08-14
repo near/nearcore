@@ -385,7 +385,8 @@ class NeardRunner:
             config['store']['trie_cache']['per_shard_max_bytes'] = {}
             if state_cache_size_mb is not None:
                 for i in range(4):
-                    config['store']['trie_cache']['per_shard_max_bytes'][f's{i}.v1'] = state_cache_size_mb * 10**6
+                    config['store']['trie_cache']['per_shard_max_bytes'][
+                        f's{i}.v1'] = state_cache_size_mb * 10**6
 
             with open(self.target_near_home_path('config.json'), 'w') as f:
                 json.dump(config, f, indent=2)
