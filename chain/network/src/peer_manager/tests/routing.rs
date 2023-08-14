@@ -787,7 +787,7 @@ async fn max_num_peers_limit() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start three nodes with max_num_peers=2");
-    let mut cfgs = make_configs(&chain, rng, 4, 4, true);
+    let mut cfgs = make_configs(&chain, rng, 4, 4, false);
     for config in cfgs.iter_mut() {
         config.max_num_peers = 2;
         config.ideal_connections_lo = 2;
@@ -801,6 +801,10 @@ async fn max_num_peers_limit() {
     let id0 = pm0.cfg.node_id();
     let id1 = pm1.cfg.node_id();
     let id2 = pm2.cfg.node_id();
+
+    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+    pm0.connect_to(&pm2.peer_info(), tcp::Tier::T2).await;
+    pm1.connect_to(&pm2.peer_info(), tcp::Tier::T2).await;
 
     tracing::info!(target:"test", "wait for {id0} routing table");
     pm0.wait_for_routing_table(&[
@@ -831,18 +835,21 @@ async fn max_num_peers_limit() {
     let id3 = pm3.cfg.node_id();
 
     tracing::info!(target:"test", "wait for {id0} to reject attempted connection");
+    pm3.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
     wait_for_connection_closed(
         &mut pm0_ev,
         ClosingReason::RejectedByPeerManager(RegisterPeerError::ConnectionLimitExceeded),
     )
     .await;
     tracing::info!(target:"test", "wait for {id1} to reject attempted connection");
+    pm3.send_outbound_connect(&pm1.peer_info(), tcp::Tier::T2).await;
     wait_for_connection_closed(
         &mut pm1_ev,
         ClosingReason::RejectedByPeerManager(RegisterPeerError::ConnectionLimitExceeded),
     )
     .await;
     tracing::info!(target:"test", "wait for {id2} to reject attempted connection");
+    pm3.send_outbound_connect(&pm2.peer_info(), tcp::Tier::T2).await;
     wait_for_connection_closed(
         &mut pm2_ev,
         ClosingReason::RejectedByPeerManager(RegisterPeerError::ConnectionLimitExceeded),

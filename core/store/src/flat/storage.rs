@@ -277,7 +277,6 @@ impl FlatStorage {
     /// Get sequence of blocks `target_block_hash` (inclusive) to flat head (exclusive)
     /// in backwards chain order. Returns an error if there is no path between them.
     #[cfg(test)]
-    #[allow(unused)]
     pub(crate) fn get_blocks_to_head(
         &self,
         target_block_hash: &CryptoHash,

@@ -508,7 +508,8 @@ mod tests {
         let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
         assert!(b1.header().verify_block_producer(&signer.public_key()));
         let other_signer = create_test_signer("other2");
-        let approvals = vec![Some(Approval::new(*b1.hash(), 1, 2, &other_signer).signature)];
+        let approvals =
+            vec![Some(Box::new(Approval::new(*b1.hash(), 1, 2, &other_signer).signature))];
         let b2 = TestBlockBuilder::new(&b1, signer.clone()).approvals(approvals).build();
         b2.header().verify_block_producer(&signer.public_key());
     }

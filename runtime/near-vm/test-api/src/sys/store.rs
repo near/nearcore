@@ -70,7 +70,6 @@ impl Default for Store {
         // We store them on a function that returns to make
         // sure this function doesn't emit a compile error even if
         // more than one compiler is enabled.
-        #[allow(unreachable_code)]
         fn get_config() -> impl CompilerConfig + 'static {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "default-singlepass")] {
@@ -81,7 +80,7 @@ impl Default for Store {
             }
         }
 
-        #[allow(unreachable_code, unused_mut)]
+        #[allow(unused_mut)]
         fn get_engine(mut config: impl CompilerConfig + 'static) -> UniversalEngine {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "default-universal")] {

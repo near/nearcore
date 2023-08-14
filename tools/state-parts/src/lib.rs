@@ -1,14 +1,15 @@
 use anyhow::Context;
 use near_async::time;
-use near_network::raw::{ConnectError, Connection, Message, RoutedMessage};
+use near_network::raw::{ConnectError, Connection, DirectMessage, Message};
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use near_primitives::version::ProtocolVersion;
+use sha2::Digest;
+use sha2::Sha256;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-
 pub mod cli;
 
 struct AppInfo {
@@ -27,7 +28,7 @@ fn handle_message(
     received_at: time::Instant,
 ) -> anyhow::Result<()> {
     match &msg {
-        Message::Routed(RoutedMessage::VersionedStateResponse(response)) => {
+        Message::Direct(DirectMessage::VersionedStateResponse(response)) => {
             let shard_id = response.shard_id();
             let sync_hash = response.sync_hash();
             let state_response = response.clone().take_state_response();
@@ -42,11 +43,21 @@ fn handle_message(
             } else {
                 None
             };
+            let part_hash = if let Some(part) = state_response.part() {
+                Sha256::digest(&part.1)
+                    .iter()
+                    .map(|byte| format!("{:02x}", byte))
+                    .collect::<String>()
+            } else {
+                "No part".to_string()
+            };
+
             tracing::info!(
                 shard_id,
                 ?sync_hash,
                 ?part_id,
                 ?duration,
+                ?part_hash,
                 "Received VersionedStateResponse"
             );
         }
@@ -129,9 +140,9 @@ async fn state_parts_from_node(
         tokio::select! {
             _ = &mut next_request => {
                 let target = &peer_id;
-                let msg = RoutedMessage::StateRequestPart(shard_id, block_hash, part_id);
+                let msg = DirectMessage::StateRequestPart(shard_id, block_hash, part_id);
                 tracing::info!(target: "state-parts", ?target, shard_id, ?block_hash, part_id, ttl, "Sending a request");
-                result = peer.send_routed_message(msg, peer_id.clone(), ttl).await.with_context(|| format!("Failed sending State Part Request to {:?}", target));
+                result = peer.send_message(msg).await.with_context(|| format!("Failed sending State Part Request to {:?}", target));
                 app_info.requests_sent.insert(part_id, time::Instant::now());
                 tracing::info!(target: "state-parts", ?result);
                 if result.is_err() {
