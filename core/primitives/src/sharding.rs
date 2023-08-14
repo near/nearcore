@@ -602,6 +602,8 @@ pub struct ShardProof {
 /// For each Merkle proof there is a subset of receipts which may be proven.
 pub struct ReceiptProof(pub Vec<Receipt>, pub ShardProof);
 
+// Implement ordering to ensure `ReceiptProofs` are ordered consistently,
+// because we expect messages with ReceiptProofs to be deterministic.
 impl PartialOrd<Self> for ReceiptProof {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
