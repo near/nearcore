@@ -800,11 +800,7 @@ impl ShardsManager {
         let (src, mut response_msg) = self.prepare_partial_encoded_chunk_response_unsorted(request);
         // Note that the PartialChunks column is a write-once column, and needs
         // the values to be deterministic.
-        response_msg.receipts.sort_by_key(
-            |ReceiptProof(_receipt, ShardProof { from_shard_id, to_shard_id, proof: _proof })| {
-                (*from_shard_id, *to_shard_id)
-            },
-        );
+        response_msg.receipts.sort();
         (src, response_msg)
     }
 

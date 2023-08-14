@@ -118,13 +118,15 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts<'a>(
         })
         .cloned()
         .collect();
-    let receipts = receipts
+    let mut receipts: Vec<_> = receipts
         .filter(|receipt| {
             cares_about_shard
                 || need_receipt(prev_block_hash, receipt.1.to_shard_id, me, shard_tracker)
         })
         .cloned()
         .collect();
+    // Make sure the receipts are in a deterministic order.
+    receipts.sort();
     match header.clone() {
         ShardChunkHeader::V1(header) => {
             PartialEncodedChunk::V1(PartialEncodedChunkV1 { header, parts, receipts })
