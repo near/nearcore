@@ -890,7 +890,6 @@ pub(crate) fn view_trie_leaves(
     Ok(())
 }
 
-#[allow(unused)]
 enum LoadTrieMode {
     /// Load latest state
     Latest,
