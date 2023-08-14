@@ -393,19 +393,21 @@ impl Database for RocksDB {
         let read_options = rocksdb_read_options();
 
         let mut perf_data = self.perf_context.borrow_mut();
-        let observed_latency = self.perf_context.borrow().start.elapsed();
-        let block_read_cnt =
-            perf_data.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
-        let read_block_latency =
-            Duration::from_nanos(perf_data.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadTime));
-        assert!(observed_latency > read_block_latency);
-
+        let observed_latency = perf_data.start.elapsed();
+        
         let result = self
             .db
             .get_pinned_cf_opt(self.cf_handle(col)?, key, &read_options)
             .map_err(into_other)?
             .map(DBSlice::from_rocksdb_slice);
         timer.observe_duration();
+
+        let block_read_cnt =
+            perf_data.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
+        let read_block_latency =
+            Duration::from_nanos(perf_data.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadTime));
+        assert!(observed_latency > read_block_latency);
+
 
         let has_merge =
             perf_data.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
