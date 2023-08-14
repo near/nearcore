@@ -615,7 +615,7 @@ impl Client {
                 if is_slashed {
                     None
                 } else {
-                    approvals_map.remove(&account_id).map(|x| x.0.signature)
+                    approvals_map.remove(&account_id).map(|x| x.0.signature.into())
                 }
             })
             .collect();

@@ -79,6 +79,7 @@ class SweatUser(NearUser):
         # means potential conflicts in nonces when we mint new tokens through
         # batches. Hence, let's add a new access key to the oracle account for
         # each sweat user.
+        self.sweat = self.environment.sweat
         oracle = self.environment.sweat.oracle
         user_oracle_key = key.Key.from_random(oracle.key.account_id)
         self.send_tx_retry(AddFullAccessKey(oracle, user_oracle_key),

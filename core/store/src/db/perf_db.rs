@@ -1,47 +1,98 @@
 use crate::config::Mode;
+use crate::db::rocksdb::instance_tracker::InstanceTracker;
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue};
-use crate::{metadata, metrics, DBCol, StoreConfig, StoreStatistics, Temperature};
+use crate::{metrics, DBCol, StoreConfig, StoreStatistics, Temperature};
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
 };
-use once_cell::sync::Lazy;
+use std::cell::RefCell;
 use std::io;
-use std::ops::Deref;
 use std::path::Path;
+use std::sync::RwLock;
+use std::time::Duration;
 use strum::IntoEnumIterator;
+use std::fmt::{Display, Write};
+use std::time::Instant;
+use std::collections::BTreeMap;
 use tracing::warn;
 
-mod instance_tracker;
-pub(crate) mod snapshot;
+pub struct PerfContext {
+    rocksdb_context: rocksdb::perf::PerfContext,
+    start: Instant,
+    measurements_per_block_reads: BTreeMap<usize, Measurements>,
+    measurements_overall: Measurements,
+}
 
-/// List of integer RocskDB properties we’re reading when collecting statistics.
-///
-/// In the end, they are exported as Prometheus metrics.
-static CF_PROPERTY_NAMES: Lazy<Vec<std::ffi::CString>> = Lazy::new(|| {
-    use ::rocksdb::properties;
-    let mut ret = Vec::new();
-    ret.extend_from_slice(
-        &[
-            properties::LIVE_SST_FILES_SIZE,
-            properties::ESTIMATE_LIVE_DATA_SIZE,
-            properties::COMPACTION_PENDING,
-            properties::NUM_RUNNING_COMPACTIONS,
-            properties::ESTIMATE_PENDING_COMPACTION_BYTES,
-            properties::ESTIMATE_TABLE_READERS_MEM,
-            properties::BLOCK_CACHE_CAPACITY,
-            properties::BLOCK_CACHE_USAGE,
-            properties::CUR_SIZE_ACTIVE_MEM_TABLE,
-            properties::SIZE_ALL_MEM_TABLES,
-        ]
-        .map(std::ffi::CStr::to_owned),
-    );
-    for level in 0..=6 {
-        ret.push(properties::num_files_at_level(level));
+impl PerfContext {
+    pub fn new() -> Self {
+        rocksdb::perf::set_perf_stats(rocksdb::perf::PerfStatsLevel::EnableTime);
+        Self {
+            rocksdb_context: rocksdb::perf::PerfContext::default(),
+            start: Instant::now(),
+            measurements_per_block_reads: BTreeMap::new(),
+            measurements_overall: Measurements::default(),
+        }
     }
-    ret
-});
 
-pub struct RocksDB {
+    fn reset(&mut self) {
+        self.rocksdb_context.reset();
+        self.start = Instant::now();
+    }
+}
+
+
+#[derive(Default)]
+struct Measurements {
+    pub samples: usize,
+    pub total_observed_latency: Duration,
+    pub total_read_block_latency: Duration,
+    pub samples_with_merge: usize,
+}
+
+impl Measurements {
+    pub fn record(
+        &mut self,
+        observed_latency: Duration,
+        read_block_latency: Duration,
+        has_merge: bool,
+    ) {
+        self.samples += 1;
+        self.total_observed_latency += observed_latency;
+        self.total_read_block_latency += read_block_latency;
+        if has_merge {
+            self.samples_with_merge += 1;
+        }
+    }
+
+    fn avg_observed_latency(&self) -> Duration {
+        self.total_observed_latency / (self.samples as u32)
+    }
+
+    fn avg_read_block_latency(&self) -> Duration {
+        self.total_read_block_latency / (self.samples as u32)
+    }
+}
+
+impl Display for Measurements {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "avg observed_latency: {:?}, block_read_time: {:?}, samples with merge: {}",
+            self.avg_observed_latency(),
+            self.avg_read_block_latency(),
+            format_samples(self.samples_with_merge, self.samples)
+        )
+    }
+}
+
+fn format_samples(positive: usize, total: usize) -> String {
+    format!(
+        "{positive} ({:.2}%)",
+        if total == 0 { 0.0 } else { 100.0 * positive as f64 / total as f64 }
+    )
+}
+
+pub struct PerfRocksDB {
     db: DB,
     db_opt: Options,
 
@@ -54,7 +105,10 @@ pub struct RocksDB {
 
     // RAII-style of keeping track of the number of instances of RocksDB and
     // counting total sum of max_open_files.
-    _instance_tracker: instance_tracker::InstanceTracker,
+    _instance_tracker: InstanceTracker,
+
+    // Measurements collection gathered
+    perf: PerfContext,
 }
 
 // DB was already Send+Sync. cf and read_options are const pointers using only functions in
@@ -62,7 +116,10 @@ pub struct RocksDB {
 unsafe impl Send for RocksDB {}
 unsafe impl Sync for RocksDB {}
 
-impl RocksDB {
+struct RocksDBIterator<'a>(rocksdb::DBIteratorWithThreadMode<'a, DB>);
+
+
+impl PerfRocksDB {
     /// Opens the database.
     ///
     /// `path` specifies location of the database.  It’s assumed that it has
@@ -113,11 +170,18 @@ impl RocksDB {
         temp: Temperature,
         columns: &[DBCol],
     ) -> io::Result<Self> {
-        let counter = instance_tracker::InstanceTracker::try_new(store_config.max_open_files)
-            .map_err(other_error)?;
+        let counter = InstanceTracker::try_new(store_config.max_open_files).map_err(other_error)?;
         let (db, db_opt) = Self::open_db(path, store_config, mode, temp, columns)?;
         let cf_handles = Self::get_cf_handles(&db, columns);
-        Ok(Self { db, db_opt, cf_handles, _instance_tracker: counter })
+        rocksdb::perf::set_perf_stats(rocksdb::perf::PerfStatsLevel::EnableTime);
+        Ok(Self {
+            db,
+            db_opt,
+            cf_handles,
+            _instance_tracker: counter,
+            //rocksdb_context: rocksdb::PerfContext::default(),
+            perf: RwLock::new(RefCell::new(PerfContext::new())),
+        })
     }
 
     /// Opens the database with given column families configured.
@@ -263,53 +327,34 @@ impl RocksDB {
     }
 }
 
-struct RocksDBIterator<'a>(rocksdb::DBIteratorWithThreadMode<'a, DB>);
-
-impl<'a> Iterator for RocksDBIterator<'a> {
-    type Item = io::Result<(Box<[u8]>, Box<[u8]>)>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        Some(self.0.next()?.map_err(into_other))
-    }
-}
-
-impl<'a> std::iter::FusedIterator for RocksDBIterator<'a> {}
-
-impl RocksDB {
-    /// Returns ranges of keys in a given column family.
-    ///
-    /// In other words, returns the smallest and largest key in the column.  If
-    /// the column is empty, returns `None`.
-    fn get_cf_key_range(
-        &self,
-        cf_handle: &ColumnFamily,
-    ) -> Result<Option<std::ops::RangeInclusive<Box<[u8]>>>, ::rocksdb::Error> {
-        let range = {
-            let mut iter = self.db.iterator_cf(cf_handle, IteratorMode::Start);
-            let start = iter.next().transpose()?;
-            iter.set_mode(IteratorMode::End);
-            let end = iter.next().transpose()?;
-            (start, end)
-        };
-        match range {
-            (Some(start), Some(end)) => Ok(Some(start.0..=end.0)),
-            (None, None) => Ok(None),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl Database for RocksDB {
+impl Database for PerfRocksDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         let timer =
             metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
         let read_options = rocksdb_read_options();
+
+        let block_read_cnt =
+            self.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
+        let read_block_latency =
+            Duration::from_nanos(self.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadTime));
+
         let result = self
             .db
             .get_pinned_cf_opt(self.cf_handle(col)?, key, &read_options)
             .map_err(into_other)?
             .map(DBSlice::from_rocksdb_slice);
         timer.observe_duration();
+
+        let has_merge =
+        self.perf.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
+        self.perf.measurements_per_block_reads.entry(block_read_cnt).or_default().record(
+            observed_latency,
+            read_block_latency,
+            has_merge,
+        );
+
+        self.measurements_overall.record(observed_latency, read_block_latency, has_merge);
+
         Ok(result)
     }
 
@@ -419,8 +464,15 @@ impl Database for RocksDB {
     }
 }
 
-/// DB level options
-fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
+pub(crate) fn other_error(msg: String) -> io::Error {
+    io::Error::new(io::ErrorKind::Other, msg)
+}
+
+fn into_other(error: rocksdb::Error) -> io::Error {
+    io::Error::new(io::ErrorKind::Other, error.into_string())
+}
+
+pub(crate) fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
     let mut opts = Options::default();
 
     set_compression_options(&mut opts);
@@ -461,53 +513,15 @@ fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
     opts
 }
 
-fn rocksdb_read_options() -> ReadOptions {
-    let mut read_options = ReadOptions::default();
-    read_options.set_verify_checksums(false);
-    read_options
-}
-
-fn rocksdb_block_based_options_no_index_cache(
-    block_size: bytesize::ByteSize,
-    cache_size: bytesize::ByteSize,
-) -> BlockBasedOptions {
-    let mut block_opts = BlockBasedOptions::default();
-    block_opts.set_block_size(block_size.as_u64().try_into().unwrap());
-    block_opts.set_block_cache(&Cache::new_lru_cache(cache_size.as_u64().try_into().unwrap()));
-    block_opts.set_cache_index_and_filter_blocks(false);
-    block_opts.set_bloom_filter(10.0, true);
-    block_opts
-}
-
-fn rocksdb_block_based_options_default(
-    block_size: bytesize::ByteSize,
-    cache_size: bytesize::ByteSize,
-) -> BlockBasedOptions {
-    let mut block_opts = BlockBasedOptions::default();
-    block_opts.set_block_size(block_size.as_u64().try_into().unwrap());
-    // We create block_cache for each of 47 columns, so the total cache size is 32 * 47 = 1504mb
-    block_opts.set_block_cache(&Cache::new_lru_cache(cache_size.as_u64().try_into().unwrap()));
-    block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
-    block_opts.set_cache_index_and_filter_blocks(true);
-    block_opts.set_bloom_filter(10.0, true);
-    block_opts
-}
-
-fn rocksdb_block_based_options(store_config: &StoreConfig, db_col: DBCol) -> BlockBasedOptions {
-    let cache_size = store_config.col_cache_size(db_col);
-    match db_col {
-        DBCol::FlatState  | DBCol::State => {
-            rocksdb_block_based_options_no_index_cache(store_config.block_size, cache_size)
-        }
-        _ => rocksdb_block_based_options_default(store_config.block_size, cache_size),
-    }
-}
-
-fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperature) -> Options {
+pub(crate) fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperature) -> Options {
     let mut opts = Options::default();
     set_compression_options(&mut opts);
     opts.set_level_compaction_dynamic_level_bytes(true);
-    opts.set_block_based_table_factory(&rocksdb_block_based_options(store_config, col));
+    let cache_size = store_config.col_cache_size(col);
+    opts.set_block_based_table_factory(&rocksdb_block_based_options(
+        store_config.block_size,
+        cache_size,
+    ));
 
     // Note that this function changes a lot of rustdb parameters including:
     //      write_buffer_size = memtable_memory_budget / 4
@@ -526,13 +540,33 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
 
     opts.set_target_file_size_base(64 * bytesize::MIB);
     if temp == Temperature::Hot && col.is_rc() {
-        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
-        opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
+        opts.set_merge_operator("refcount merge", PerfRocksDB::refcount_merge, PerfRocksDB::refcount_merge);
+        opts.set_compaction_filter("empty value filter", PerfRocksDB::empty_value_compaction_filter);
     }
     opts
 }
 
-fn set_compression_options(opts: &mut Options) {
+fn rocksdb_block_based_options(
+    block_size: bytesize::ByteSize,
+    cache_size: bytesize::ByteSize,
+) -> BlockBasedOptions {
+    let mut block_opts = BlockBasedOptions::default();
+    block_opts.set_block_size(block_size.as_u64().try_into().unwrap());
+    // We create block_cache for each of 47 columns, so the total cache size is 32 * 47 = 1504mb
+    block_opts.set_block_cache(&Cache::new_lru_cache(cache_size.as_u64().try_into().unwrap()));
+    block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
+    block_opts.set_cache_index_and_filter_blocks(true);
+    block_opts.set_bloom_filter(10.0, true);
+    block_opts
+}
+
+fn rocksdb_read_options() -> ReadOptions {
+    let mut read_options = ReadOptions::default();
+    read_options.set_verify_checksums(false);
+    read_options
+}
+
+pub(crate) fn set_compression_options(opts: &mut Options) {
     opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
     opts.set_bottommost_compression_type(rocksdb::DBCompressionType::Zstd);
     // RocksDB documenation says that 16KB is a typical dictionary size.
@@ -553,111 +587,12 @@ fn set_compression_options(opts: &mut Options) {
     opts.set_bottommost_zstd_max_train_bytes(max_train_bytes, true);
 }
 
-impl RocksDB {
-    /// Blocks until all RocksDB instances (usually 0 or 1) gracefully shutdown.
-    pub fn block_until_all_instances_are_dropped() {
-        instance_tracker::block_until_all_instances_are_closed();
-    }
-
-    /// Returns metadata of the database or `None` if the db doesn’t exist.
-    pub(crate) fn get_metadata(
-        path: &Path,
-        config: &StoreConfig,
-    ) -> io::Result<Option<metadata::DbMetadata>> {
-        if !path.join("CURRENT").is_file() {
-            return Ok(None);
-        }
-        // Specify only DBCol::DbVersion.  It’s ok to open db in read-only mode
-        // without specifying all column families but it’s an error to provide
-        // a descriptor for a column family which doesn’t exist.  This allows us
-        // to read the version without modifying the database before we figure
-        // out if there are any necessary migrations to perform.
-        let cols = [DBCol::DbVersion];
-        let db = Self::open_with_columns(path, config, Mode::ReadOnly, Temperature::Hot, &cols)?;
-        Some(metadata::DbMetadata::read(&db)).transpose()
-    }
-
-    /// Gets every int property in CF_PROPERTY_NAMES for every column in DBCol.
-    fn get_cf_statistics(&self, result: &mut StoreStatistics) {
-        for prop_name in CF_PROPERTY_NAMES.deref() {
-            let values = self
-                .cf_handles()
-                .filter_map(|(col, handle)| {
-                    let prop = self.db.property_int_value_cf(handle, prop_name);
-                    Some(StatsValue::ColumnValue(col, prop.ok()?? as i64))
-                })
-                .collect::<Vec<_>>();
-            if !values.is_empty() {
-                // TODO(mina86): Once const_str_from_utf8 is stabilised we might
-                // be able convert this runtime UTF-8 validation into const.
-                let stat_name = prop_name.to_str().unwrap();
-                result.data.push((stat_name.to_string(), values));
-            }
-        }
-    }
-}
-
-impl Drop for RocksDB {
-    fn drop(&mut self) {
-        if cfg!(feature = "single_thread_rocksdb") {
-            // RocksDB with only one thread stuck on wait some condition var
-            // Turn on additional threads to proceed
-            let mut env = Env::new().unwrap();
-            env.set_background_threads(4);
-        }
-        self.db.cancel_all_background_work(true);
-    }
-}
-
-/// Parses a string containing RocksDB statistics.
-/// Results are added into provided 'result' parameter.
-fn parse_statistics(
-    statistics: &str,
-    result: &mut StoreStatistics,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Statistics are given one per line.
-    for line in statistics.lines() {
-        // Each line follows one of two formats:
-        // 1) <stat_name> COUNT : <value>
-        // 2) <stat_name> P50 : <value> P90 : <value> COUNT : <value> SUM : <value>
-        // Each line gets split into words and we parse statistics according to this format.
-        if let Some((stat_name, words)) = line.split_once(' ') {
-            let mut values = vec![];
-            let mut words = words.split(" : ").flat_map(|v| v.split(" "));
-            while let (Some(key), Some(val)) = (words.next(), words.next()) {
-                match key {
-                    "COUNT" => values.push(StatsValue::Count(val.parse::<i64>()?)),
-                    "SUM" => values.push(StatsValue::Sum(val.parse::<i64>()?)),
-                    p if p.starts_with("P") => values.push(StatsValue::Percentile(
-                        key[1..].parse::<u32>()?,
-                        val.parse::<f64>()?,
-                    )),
-                    _ => {
-                        warn!(target: "stats", "Unsupported stats value: {key} in {line}");
-                    }
-                }
-            }
-            // We push some stats to result, even if later parsing will fail.
-            result.data.push((stat_name.to_string(), values));
-        }
-    }
-    Ok(())
-}
-
-fn other_error(msg: String) -> io::Error {
-    io::Error::new(io::ErrorKind::Other, msg)
-}
-
-fn into_other(error: rocksdb::Error) -> io::Error {
-    io::Error::new(io::ErrorKind::Other, error.into_string())
-}
-
 /// Returns name of a RocksDB column family corresponding to given column.
 ///
 /// Historically we used `col##` names (with `##` being index of the column).
 /// We have since deprecated this convention.  All future column families are
 /// named the same as the variant of the [`DBCol`] enum.
-fn col_name(col: DBCol) -> &'static str {
+pub(crate) fn col_name(col: DBCol) -> &'static str {
     match col {
         DBCol::DbVersion => "col0",
         DBCol::BlockMisc => "col1",
@@ -716,126 +651,36 @@ fn col_name(col: DBCol) -> &'static str {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::db::{Database, StatsValue};
-    use crate::{DBCol, NodeStorage, StoreStatistics};
-    use assert_matches::assert_matches;
-
-    use super::*;
-
-    #[test]
-    fn rocksdb_merge_sanity() {
-        let (_tmp_dir, opener) = NodeStorage::test_opener();
-        let store = opener.open().unwrap().get_hot_store();
-        let ptr = (&*store.storage) as *const (dyn Database + 'static);
-        let rocksdb = unsafe { &*(ptr as *const RocksDB) };
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
-        {
-            let mut store_update = store.store_update();
-            store_update.increment_refcount(DBCol::State, &[1], &[1]);
-            store_update.commit().unwrap();
-        }
-        {
-            let mut store_update = store.store_update();
-            store_update.increment_refcount(DBCol::State, &[1], &[1]);
-            store_update.commit().unwrap();
-        }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap().as_deref(), Some(&[1][..]));
-        assert_eq!(
-            rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(),
-            Some(&[1, 2, 0, 0, 0, 0, 0, 0, 0][..])
-        );
-        {
-            let mut store_update = store.store_update();
-            store_update.decrement_refcount(DBCol::State, &[1]);
-            store_update.commit().unwrap();
-        }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap().as_deref(), Some(&[1][..]));
-        assert_eq!(
-            rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(),
-            Some(&[1, 1, 0, 0, 0, 0, 0, 0, 0][..])
-        );
-        {
-            let mut store_update = store.store_update();
-            store_update.decrement_refcount(DBCol::State, &[1]);
-            store_update.commit().unwrap();
-        }
-        // Refcount goes to 0 -> get() returns None
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
-        // Internally there is an empty value
-        assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(), Some(&[][..]));
-
-        // single_thread_rocksdb makes compact hang forever
-        if !cfg!(feature = "single_thread_rocksdb") {
-            let none = Option::<&[u8]>::None;
-            let cf = rocksdb.cf_handle(DBCol::State).unwrap();
-
-            // I’m not sure why but we need to run compaction twice.  If we run
-            // it only once, we end up with an empty value for the key.  This is
-            // surprising because I assumed that compaction filter would discard
-            // empty values.
-            rocksdb.db.compact_range_cf(cf, none, none);
-            assert_eq!(
-                rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(),
-                Some(&[][..])
-            );
-            assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
-
-            rocksdb.db.compact_range_cf(cf, none, none);
-            assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap(), None);
-            assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
-        }
-    }
-
-    #[test]
-    fn test_parse_statistics() {
-        let statistics = "rocksdb.cold.file.read.count COUNT : 999\n\
-         rocksdb.db.get.micros P50 : 9.171086 P95 : 222.678751 P99 : 549.611652 P100 : 45816.000000 COUNT : 917578 SUM : 38313754";
-        let mut result = StoreStatistics { data: vec![] };
-        let parse_result = parse_statistics(statistics, &mut result);
-        // We should be able to parse stats and the result should be Ok(()).
-        parse_result.unwrap();
-        assert_eq!(
-            result,
-            StoreStatistics {
-                data: vec![
-                    ("rocksdb.cold.file.read.count".to_string(), vec![StatsValue::Count(999)]),
-                    (
-                        "rocksdb.db.get.micros".to_string(),
-                        vec![
-                            StatsValue::Percentile(50, 9.171086),
-                            StatsValue::Percentile(95, 222.678751),
-                            StatsValue::Percentile(99, 549.611652),
-                            StatsValue::Percentile(100, 45816.0),
-                            StatsValue::Count(917578),
-                            StatsValue::Sum(38313754)
-                        ]
-                    )
-                ]
+fn parse_statistics(
+    statistics: &str,
+    result: &mut StoreStatistics,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Statistics are given one per line.
+    for line in statistics.lines() {
+        // Each line follows one of two formats:
+        // 1) <stat_name> COUNT : <value>
+        // 2) <stat_name> P50 : <value> P90 : <value> COUNT : <value> SUM : <value>
+        // Each line gets split into words and we parse statistics according to this format.
+        if let Some((stat_name, words)) = line.split_once(' ') {
+            let mut values = vec![];
+            let mut words = words.split(" : ").flat_map(|v| v.split(" "));
+            while let (Some(key), Some(val)) = (words.next(), words.next()) {
+                match key {
+                    "COUNT" => values.push(StatsValue::Count(val.parse::<i64>()?)),
+                    "SUM" => values.push(StatsValue::Sum(val.parse::<i64>()?)),
+                    p if p.starts_with("P") => values.push(StatsValue::Percentile(
+                        key[1..].parse::<u32>()?,
+                        val.parse::<f64>()?,
+                    )),
+                    _ => {
+                        warn!(target: "stats", "Unsupported stats value: {key} in {line}");
+                    }
+                }
             }
-        );
-    }
-
-    #[test]
-    fn test_delete_range() {
-        let store = NodeStorage::test_opener().1.open().unwrap().get_hot_store();
-        let keys = [vec![0], vec![1], vec![2], vec![3]];
-        let column = DBCol::Block;
-
-        let mut store_update = store.store_update();
-        for key in &keys {
-            store_update.insert(column, key, &vec![42]);
+            // We push some stats to result, even if later parsing will fail.
+            result.data.push((stat_name.to_string(), values));
         }
-        store_update.commit().unwrap();
-
-        let mut store_update = store.store_update();
-        store_update.delete_range(column, &keys[1], &keys[3]);
-        store_update.commit().unwrap();
-
-        assert_matches!(store.exists(column, &keys[0]), Ok(true));
-        assert_matches!(store.exists(column, &keys[1]), Ok(false));
-        assert_matches!(store.exists(column, &keys[2]), Ok(false));
-        assert_matches!(store.exists(column, &keys[3]), Ok(true));
     }
+    Ok(())
 }
+

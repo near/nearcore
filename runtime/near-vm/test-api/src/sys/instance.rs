@@ -102,7 +102,7 @@ impl Instance {
     /// Those are, as defined by the spec:
     ///  * Link errors that happen when plugging the imports into the instance
     ///  * Runtime errors that happen when running the module `start` function.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(target = "near_vm", skip_all)]
     pub fn new_with_config(
         module: &Module,
         config: InstanceConfig,
