@@ -70,7 +70,8 @@ impl ShardTries {
                 | TrieKey::PostponedReceipt { receiver_id: account_id, .. }
                 | TrieKey::ContractData { account_id, .. } => {
                     let new_shard_uid = account_id_to_shard_id(account_id);
-                    // we can safely unwrap here because the caller of this function guarantees trie_updates contains all shard_uids for the new shards
+                    // we can safely unwrap here because the caller of this function guarantees trie_updates
+                    // contains all shard_uids for the new shards
                     let trie_update = trie_updates.get_mut(&new_shard_uid).unwrap();
                     match value {
                         Some(value) => trie_update.set(trie_key, value),
@@ -80,6 +81,9 @@ impl ShardTries {
             }
         }
         for (_, update) in trie_updates.iter_mut() {
+            // StateChangeCause should always be Resharding for processing split state.
+            // We do not want to commit the state_changes from resharding as they are already handled while
+            // processing parent shard
             update.commit(StateChangeCause::Resharding);
         }
 
@@ -268,6 +272,9 @@ fn apply_delayed_receipts_to_split_states_impl(
             TrieKey::DelayedReceiptIndices,
             delayed_receipts_indices_by_shard.get(shard_uid).unwrap(),
         );
+        // StateChangeCause should always be Resharding for processing split state.
+        // We do not want to commit the state_changes from resharding as they are already handled while
+        // processing parent shard
         trie_update.commit(StateChangeCause::Resharding);
     }
     Ok(())
