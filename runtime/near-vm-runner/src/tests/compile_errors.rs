@@ -434,12 +434,12 @@ fn test_sandbox_only_function() {
         .opaque_error();
 
     #[cfg(feature = "sandbox")]
-    tb.expect(expect![[r#"
+    tb.expect(&expect![[r#"
         VMOutcome: balance 4 storage_usage 12 return data None burnt gas 59805981 used gas 59805981
     "#]]);
 
     #[cfg(not(feature = "sandbox"))]
-    tb.expect(expect![[r#"
+    tb.expect(&expect![[r#"
         VMOutcome: balance 4 storage_usage 12 return data None burnt gas 57337713 used gas 57337713
         Err: ...
     "#]]);
@@ -456,12 +456,12 @@ fn extension_saturating_float_to_int() {
     );
 
     #[cfg(feature = "nightly")]
-    tb.expect(expect![[r#"
+    tb.expect(&expect![[r#"
         VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48450963 used gas 48450963
         Err: PrepareError: Error happened while deserializing the module.
     "#]]);
     #[cfg(not(feature = "nightly"))]
-    tb.expect(expect![[r#"
+    tb.expect(&expect![[r#"
         VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
         Err: PrepareError: Error happened while deserializing the module.
     "#]]);
