@@ -375,7 +375,6 @@ pub fn start_with_config_and_synchronization(
 
     let hot_store = storage.get_hot_store();
 
-    #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
     let network_actor = PeerManagerActor::spawn(
         time::Clock::real(),

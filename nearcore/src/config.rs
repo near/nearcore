@@ -503,7 +503,6 @@ impl Config {
         None
     }
 
-    #[allow(unused_variables)]
     pub fn set_rpc_addr(&mut self, addr: tcp::ListenerAddr) {
         #[cfg(feature = "json_rpc")]
         {

@@ -194,7 +194,6 @@ impl ShardTries {
         TrieUpdate::new(self.get_view_trie_for_shard(shard_uid, state_root))
     }
 
-    #[allow(unused_variables)]
     fn get_trie_for_shard_internal(
         &self,
         shard_uid: ShardUId,
