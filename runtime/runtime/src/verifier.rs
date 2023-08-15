@@ -135,7 +135,7 @@ pub fn verify_and_charge_transaction(
     gas_price: Balance,
     signed_transaction: &SignedTransaction,
     verify_signature: bool,
-    #[allow(unused)] block_height: Option<BlockHeight>,
+    block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
 ) -> Result<VerificationResult, RuntimeError> {
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
