@@ -1076,28 +1076,40 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_hash: &CryptoHash,
         state_roots: HashMap<ShardUId, StateRoot>,
         next_epoch_shard_layout: &ShardLayout,
-        state_changes: StateChangesForSplitStates,
+        state_changes_for_split_states: StateChangesForSplitStates,
     ) -> Result<Vec<ApplySplitStateResult>, Error> {
-        let trie_changes = self.tries.apply_state_changes_to_split_states(
+        let trie_updates = self.tries.apply_state_changes_to_split_states(
             &state_roots,
-            state_changes,
+            state_changes_for_split_states,
             &|account_id| account_id_to_shard_uid(account_id, next_epoch_shard_layout),
         )?;
 
-        Ok(trie_changes
-            .into_iter()
-            .map(|(shard_uid, trie_changes)| ApplySplitStateResult {
+        let mut applied_split_state_results: Vec<_> = vec![];
+        for (shard_uid, trie_update) in trie_updates {
+            let (_, trie_changes, state_changes) = trie_update.finalize()?;
+            // All state changes that are related to split state should have StateChangeCause as Resharding
+            // We do not want to commit the state_changes from resharding as they are already handled while
+            // processing parent shard
+            debug_assert!(state_changes.iter().all(|raw_state_changes| raw_state_changes
+                .changes
+                .iter()
+                .all(|state_change| state_change.cause == StateChangeCause::Resharding)));
+            let new_root = trie_changes.new_root;
+            let wrapped_trie_changes = WrappedTrieChanges::new(
+                self.get_tries(),
                 shard_uid,
-                new_root: trie_changes.new_root,
-                trie_changes: WrappedTrieChanges::new(
-                    self.get_tries(),
-                    shard_uid,
-                    trie_changes,
-                    vec![],
-                    *block_hash,
-                ),
-            })
-            .collect())
+                trie_changes,
+                state_changes,
+                *block_hash,
+            );
+            applied_split_state_results.push(ApplySplitStateResult {
+                shard_uid,
+                new_root,
+                trie_changes: wrapped_trie_changes,
+            });
+        }
+
+        Ok(applied_split_state_results)
     }
 
     fn apply_state_part(

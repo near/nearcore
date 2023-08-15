@@ -1,7 +1,5 @@
 use crate::flat::FlatStateChanges;
-use crate::{
-    get, get_delayed_receipt_indices, set, ShardTries, StoreUpdate, TrieChanges, TrieUpdate,
-};
+use crate::{get, get_delayed_receipt_indices, set, ShardTries, StoreUpdate, TrieUpdate};
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;
 use near_primitives::account::id::AccountId;
@@ -17,7 +15,7 @@ use std::collections::HashMap;
 
 impl ShardTries {
     /// applies `changes` to split states
-    /// and returns the generated TrieChanges for all split states
+    /// and returns the generated TrieUpdate for all split states
     /// Note that this function is different from the function `add_values_to_split_states`
     /// This function is used for applying updates to split states when processing blocks
     /// `add_values_to_split_states` are used to generate the initial states for shards split
@@ -27,7 +25,7 @@ impl ShardTries {
         state_roots: &HashMap<ShardUId, StateRoot>,
         changes: StateChangesForSplitStates,
         account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
-    ) -> Result<HashMap<ShardUId, TrieChanges>, StorageError> {
+    ) -> Result<HashMap<ShardUId, TrieUpdate>, StorageError> {
         let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
         let mut insert_receipts = Vec::new();
         for ConsolidatedStateChange { trie_key, value } in changes.changes {
@@ -55,7 +53,8 @@ impl ShardTries {
                 | TrieKey::PostponedReceipt { receiver_id: account_id, .. }
                 | TrieKey::ContractData { account_id, .. } => {
                     let new_shard_uid = account_id_to_shard_uid(account_id);
-                    // we can safely unwrap here because the caller of this function guarantees trie_updates contains all shard_uids for the new shards
+                    // we can safely unwrap here because the caller of this function guarantees trie_updates
+                    // contains all shard_uids for the new shards
                     let trie_update = trie_updates.get_mut(&new_shard_uid).unwrap();
                     match value {
                         Some(value) => trie_update.set(trie_key, value),
@@ -65,6 +64,9 @@ impl ShardTries {
             }
         }
         for (_, update) in trie_updates.iter_mut() {
+            // StateChangeCause should always be Resharding for processing split state.
+            // We do not want to commit the state_changes from resharding as they are already handled while
+            // processing parent shard
             update.commit(StateChangeCause::Resharding);
         }
 
@@ -80,12 +82,7 @@ impl ShardTries {
             account_id_to_shard_uid,
         )?;
 
-        let mut trie_changes_map = HashMap::new();
-        for (shard_uid, update) in trie_updates {
-            let (_, trie_changes, _) = update.finalize()?;
-            trie_changes_map.insert(shard_uid, trie_changes);
-        }
-        Ok(trie_changes_map)
+        Ok(trie_updates)
     }
 
     /// add `values` (key-value pairs of items stored in states) to build states for new shards
@@ -132,6 +129,8 @@ impl ShardTries {
         let mut new_state_roots = state_roots.clone();
         let mut store_update = self.store_update();
         for (shard_uid, changes) in changes_by_shard {
+            FlatStateChanges::from_raw_key_value(&changes)
+                .apply_to_flat_state(&mut store_update, shard_uid);
             // Here we assume that state_roots contains shard_uid, the caller of this method will guarantee that.
             let trie_changes =
                 self.get_trie_for_shard(shard_uid, state_roots[&shard_uid]).update(changes)?;
@@ -258,6 +257,9 @@ fn apply_delayed_receipts_to_split_states_impl(
             TrieKey::DelayedReceiptIndices,
             delayed_receipts_indices_by_shard.get(shard_uid).unwrap(),
         );
+        // StateChangeCause should always be Resharding for processing split state.
+        // We do not want to commit the state_changes from resharding as they are already handled while
+        // processing parent shard
         trie_update.commit(StateChangeCause::Resharding);
     }
     Ok(())

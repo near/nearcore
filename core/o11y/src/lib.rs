@@ -188,13 +188,18 @@ fn add_simple_log_layer<S, W>(
     filter: EnvFilter,
     writer: W,
     ansi: bool,
+    with_span_events: bool,
     subscriber: S,
 ) -> SimpleLogLayer<S, W>
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
     W: for<'writer> fmt::MakeWriter<'writer> + 'static,
 {
-    let layer = fmt::layer().with_ansi(ansi).with_writer(writer).with_filter(filter);
+    let layer = fmt::layer()
+        .with_ansi(ansi)
+        .with_span_events(get_fmt_span(with_span_events))
+        .with_writer(writer)
+        .with_filter(filter);
 
     subscriber.with(layer)
 }
@@ -337,7 +342,13 @@ pub fn default_subscriber(
     };
 
     let subscriber = tracing_subscriber::registry();
-    let subscriber = add_simple_log_layer(env_filter, make_writer, color_output, subscriber);
+    let subscriber = add_simple_log_layer(
+        env_filter,
+        make_writer,
+        color_output,
+        options.log_span_events,
+        subscriber,
+    );
 
     #[allow(unused_mut)]
     let mut io_trace_guard = None;

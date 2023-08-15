@@ -62,6 +62,18 @@ Then you can call
 `neard database change-db-kind --new-kind Cold change-hot`.
 Notice that even though in your mind this db is cold, in your config this db hot, so you have to pass `change-hot`.
 
+## Compact database
+
+Run compaction on the SST files. Running this command might increase database read performance.
+This is good use case when changing `block_size` and wishing to perform test on how the RocksDB performance has
+changed.
+
+Example usage:
+```bash
+cargo run --bin neard -- database compact-database
+```
+
+
 ## Make a DB Snapshot
 
 Makes a copy of a DB (hot store only) at a specified location. If the
@@ -70,7 +82,7 @@ take no additional disk space due to hardlinking all the files.
 
 Example usage:
 ```bash
-cargo run --bin neard -- --home /home/ubuntu/.near database make_snapshot --destination /home/ubuntu/.near/data/snapshot
+cargo run --bin neard -- --home /home/ubuntu/.near database make-snapshot --destination /home/ubuntu/.near/data/snapshot
 ```
 
 In this example all `.sst` files from `/home/ubuntu/.near/data` will be also
