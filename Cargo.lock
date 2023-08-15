@@ -3471,6 +3471,7 @@ dependencies = [
  "ansi_term",
  "assert_matches",
  "borsh 0.10.2",
+ "bytesize",
  "chrono",
  "crossbeam-channel",
  "delay-detector",

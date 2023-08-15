@@ -3,32 +3,30 @@
 /// build_state_for_split_shards_preprocessing and build_state_for_split_shards_postprocessing are handled
 /// by the client_actor while the heavy resharding build_state_for_split_shards is done by SyncJobsActor
 /// so as to not affect client.
-use crate::types::RuntimeAdapter;
 use crate::Chain;
 use itertools::Itertools;
 use near_chain_primitives::error::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
 use near_primitives::state::FlatStateValue;
-use near_primitives::syncing::STATE_PART_MEMORY_LIMIT;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, StateRoot};
-use near_store::flat::store_helper;
 use near_store::flat::{
     store_helper, BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
 };
 use near_store::split_state::get_delayed_receipts;
-use near_store::split_state::get_delayed_receipts;
-use near_store::{ShardTries, ShardUId, Store, Trie};
 use near_store::{ShardTries, ShardUId, Store, Trie, TrieDBStorage, TrieStorage};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use tracing::debug;
 
-// StateSplitRequest has all the information needed to start a resharding job. This message is sent from ClientActor to SyncJobsActor.
-// We do not want to stall the ClientActor with a long running resharding job. The SyncJobsActor is helpful for handling such long
-// running jobs.
+// This is the approx batch size of the trie key, value pair entries that are written to the child shard trie.
+const RESHARDING_BATCH_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(300 * bytesize::MIB);
+
+/// StateSplitRequest has all the information needed to start a resharding job. This message is sent
+/// from ClientActor to SyncJobsActor. We do not want to stall the ClientActor with a long running
+/// resharding job. The SyncJobsActor is helpful for handling such long running jobs.
 #[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct StateSplitRequest {
@@ -84,6 +82,8 @@ fn get_checked_account_id_to_shard_uid_fn(
 }
 
 // Return iterate over flat storage to get key, value. Used later in the get_trie_update_batch function.
+// TODO(#9436): This isn't completely correct. We need to get the flat storage iterator based off a
+// particular block, specifically, the last block of the previous epoch.
 fn get_flat_storage_iter<'a>(
     store: &'a Store,
     shard_uid: ShardUId,
@@ -107,16 +107,17 @@ fn get_flat_storage_iter<'a>(
 type TrieEntry = (Vec<u8>, Option<Vec<u8>>);
 
 // Function to return batches of trie key, value pairs from flat storage iter. We return None at the end of iter.
-// The batch size is roughly STATE_PART_MEMORY_LIMIT (30 MB)
+// The batch size is roughly RESHARDING_BATCH_MEMORY_LIMIT (300 MB)
+// TODO(#9434) Add metrics for resharding progress
 fn get_trie_update_batch(
     iter: &mut impl Iterator<Item = (Vec<u8>, Vec<u8>)>,
 ) -> Option<Vec<TrieEntry>> {
     let mut size: u64 = 0;
     let mut entries = Vec::new();
     while let Some((key, value)) = iter.next() {
-        size += value.len() as u64;
+        size += key.len() as u64 + value.len() as u64;
         entries.push((key, Some(value)));
-        if size > STATE_PART_MEMORY_LIMIT.as_u64() {
+        if size > RESHARDING_BATCH_MEMORY_LIMIT.as_u64() {
             break;
         }
     }
@@ -139,7 +140,7 @@ fn apply_delayed_receipts<'a>(
     let mut start_index = None;
     let mut new_state_roots = state_roots;
     while let Some((next_index, receipts)) =
-        get_delayed_receipts(&orig_trie_update, start_index, STATE_PART_MEMORY_LIMIT)?
+        get_delayed_receipts(&orig_trie_update, start_index, RESHARDING_BATCH_MEMORY_LIMIT)?
     {
         let (store_update, updated_state_roots) = tries.apply_delayed_receipts_to_split_states(
             &new_state_roots,
@@ -230,7 +231,7 @@ impl Chain {
 
         let mut iter = get_flat_storage_iter(&store, shard_uid);
         while let Some(batch) = get_trie_update_batch(&mut iter) {
-            // TODO(resharding): This is highly inefficient as for each key in the batch, we are parsing the account_id
+            // TODO(#9435): This is highly inefficient as for each key in the batch, we are parsing the account_id
             // A better way would be to use the boundary account to construct the from and to key range for flat storage iterator
             let (store_update, new_state_roots) = tries.add_values_to_split_states(
                 &state_roots,
@@ -304,6 +305,8 @@ impl Chain {
 
 #[cfg(test)]
 mod tests {
+    use super::StateSplitRequest;
+    use crate::Chain;
     use near_primitives::account::Account;
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
@@ -322,10 +325,6 @@ mod tests {
     use rand::Rng;
     use std::collections::HashMap;
     use std::sync::Arc;
-
-    use crate::Chain;
-
-    use super::StateSplitRequest;
 
     #[test]
     fn test_split_and_update_states() {
