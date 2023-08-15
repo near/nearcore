@@ -3,6 +3,7 @@
 /// build_state_for_split_shards_preprocessing and build_state_for_split_shards_postprocessing are handled
 /// by the client_actor while the heavy resharding build_state_for_split_shards is done by SyncJobsActor
 /// so as to not affect client.
+use itertools::Itertools;
 use near_chain_primitives::error::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
@@ -205,7 +206,7 @@ impl Chain {
         let block_header = self.get_block_header(sync_hash)?;
         let prev_hash = block_header.prev_hash();
 
-        let child_shard_uids: Vec<_> = state_roots.keys().collect();
+        let child_shard_uids = state_roots.keys().collect_vec();
         self.initialize_flat_storage(&prev_hash, &child_shard_uids)?;
 
         let mut chain_store_update = self.mut_store().store_update();
