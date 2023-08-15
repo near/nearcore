@@ -57,7 +57,6 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
 }
 
 #[macro_export]
-#[allow(unused_macros)] // Suppress Rustc warnings even though this macro is used.
 macro_rules! test_with_client {
     ($node_type:expr, $client:ident, $block:expr) => {
         init_test_logger();

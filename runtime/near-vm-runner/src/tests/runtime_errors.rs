@@ -15,7 +15,7 @@ fn test_infinite_initializer() {
     test_builder()
         .wat(INFINITE_INITIALIZER_CONTRACT)
         .gas(10u64.pow(10))
-        .expect(expect![[r#"
+        .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 10000000000 used gas 10000000000
             Err: Exceeded the prepaid gas.
         "#]]);
@@ -131,7 +131,7 @@ fn test_export_not_found() {
 
 #[test]
 fn test_empty_method() {
-    test_builder().wat(SIMPLE_CONTRACT).method("").expect(expect![[r#"
+    test_builder().wat(SIMPLE_CONTRACT).method("").expect(&expect![[r#"
         VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
         Err: MethodEmptyName
     "#]]);
@@ -394,7 +394,7 @@ fn test_panic_re_export() {
   (export "main" (func $panic))
 )"#,
         )
-        .expect(expect![[r#"
+        .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 312352074 used gas 312352074
             Err: Smart contract panicked: explicit guest panic
         "#]]);
@@ -445,7 +445,7 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .opaque_error()
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 18136872021 used gas 18136872021
                 Err: ...
             "#]],
             expect![[r#"
@@ -480,7 +480,7 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .skip_wasmtime()
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 18136872021 used gas 18136872021
                 Err: ...
             "#]],
             expect![[r#"
@@ -511,7 +511,7 @@ fn test_memory_grow() {
 )"#,
         )
         .gas(10u64.pow(10))
-        .expect(expect![[r#"
+        .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 10000000000 used gas 10000000000
             Err: Exceeded the prepaid gas.
         "#]]);
@@ -613,7 +613,7 @@ fn test_bad_import_3() {
 
 #[test]
 fn test_bad_import_4() {
-    test_builder().wasm(&bad_import_func("env")).opaque_error().expect(expect![[r#"
+    test_builder().wasm(&bad_import_func("env")).opaque_error().expect(&expect![[r#"
         VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47800713 used gas 47800713
         Err: ...
     "#]]);
@@ -630,7 +630,7 @@ fn test_initializer_no_gas() {
 )"#,
         )
         .gas(0)
-        .expect(expect![[r#"
+        .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: Exceeded the prepaid gas.
         "#]]);
@@ -652,7 +652,7 @@ fn test_bad_many_imports() {
                 )"#,
         ))
         .opaque_error()
-        .expect(expect![[r#"
+        .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 299447463 used gas 299447463
             Err: ...
         "#]])
@@ -684,7 +684,7 @@ fn test_external_call_ok() {
 
 #[test]
 fn test_external_call_error() {
-    test_builder().wat(EXTERNAL_CALL_CONTRACT).gas(100).expect(expect![[r#"
+    test_builder().wat(EXTERNAL_CALL_CONTRACT).gas(100).expect(&expect![[r#"
         VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100 used gas 100
         Err: Exceeded the prepaid gas.
     "#]]);
@@ -833,7 +833,7 @@ fn test_nan_sign() {
 // even load a contract.
 #[test]
 fn test_gas_exceed_loading() {
-    test_builder().wat(SIMPLE_CONTRACT).method("non_empty_non_existing").gas(1).expect(expect![[
+    test_builder().wat(SIMPLE_CONTRACT).method("non_empty_non_existing").gas(1).expect(&expect![[
         r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 1 used gas 1
             Err: Exceeded the prepaid gas.
@@ -854,7 +854,7 @@ fn gas_overflow_direct_call() {
     (call $gas (i32.const 0xffff_ffff)))
 )"#,
         )
-        .expect(expect![[r#"
+        .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100000000000000 used gas 100000000000000
             Err: Exceeded the maximum amount of gas allowed to burn per contract.
         "#]]);
@@ -881,7 +881,7 @@ fn gas_overflow_indirect_call() {
       (i32.const 0)))
 )"#,
         )
-        .expect(expect![[r#"
+        .expect(&expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100000000000000 used gas 100000000000000
             Err: Exceeded the maximum amount of gas allowed to burn per contract.
         "#]]);
@@ -908,15 +908,15 @@ mod fix_contract_loading_cost_protocol_upgrade {
         test_builder()
             .wat(ALMOST_TRIVIAL_CONTRACT)
             .protocol_features(&[
+                ProtocolFeature::PreparationV2,
                 ProtocolFeature::FixContractLoadingCost,
-                ProtocolFeature::PreparationV2
             ])
             .expects(&[
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53989035 used gas 53989035
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53989035 used gas 53989035
                 "#]],
                 expect![[r#"
                     VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53989035 used gas 53989035
@@ -1062,8 +1062,8 @@ mod fix_contract_loading_cost_protocol_upgrade {
 
 #[test]
 fn test_regression_9393() {
-    let before_builder = test_builder().protocol_versions(vec![62]);
-    let after_builder = test_builder().protocol_versions(vec![63]);
+    let before_builder = test_builder().only_protocol_versions(vec![62]);
+    let after_builder = test_builder().only_protocol_versions(vec![63]);
     let before_cost = before_builder.configs().next().unwrap().wasm_config.regular_op_cost;
     let after_cost = after_builder.configs().next().unwrap().wasm_config.regular_op_cost;
     assert_eq!(
