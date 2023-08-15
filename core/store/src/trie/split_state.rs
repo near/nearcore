@@ -146,6 +146,8 @@ impl ShardTries {
         let mut new_state_roots = state_roots.clone();
         let mut store_update = self.store_update();
         for (shard_uid, changes) in changes_by_shard {
+            FlatStateChanges::from_raw_key_value(&changes)
+                .apply_to_flat_state(&mut store_update, shard_uid);
             // Here we assume that state_roots contains shard_uid, the caller of this method will guarantee that.
             let trie_changes =
                 self.get_trie_for_shard(shard_uid, state_roots[&shard_uid]).update(changes)?;
