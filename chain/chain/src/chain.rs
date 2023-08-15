@@ -5015,9 +5015,11 @@ impl<'a> ChainUpdate<'a> {
                     sum_balance_burnt += balance_burnt;
 
                     if let Some(manager) = self.runtime_adapter.get_flat_storage_manager() {
+                        // TODO(#9430): Support manager.save_flat_state_changes and manager.update_flat_storage_for_shard
+                        // functions to be a part of the same chain_store_update
                         let store_update = manager.save_flat_state_changes(
-                            *block.hash(),
-                            *block.header().prev_hash(),
+                            *block_hash,
+                            *prev_hash,
                             block.header().height(),
                             result.shard_uid,
                             result.trie_changes.state_changes(),
