@@ -3477,13 +3477,9 @@ impl Chain {
         results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<(), Error> {
         let block = self.store.get_block(block_hash)?;
-        let prev_block = self.store.get_block(block.header().prev_hash())?;
         let mut chain_update = self.chain_update();
-        chain_update.apply_chunk_postprocessing(
-            &block,
-            &prev_block,
-            results.into_iter().collect::<Result<Vec<_>, Error>>()?,
-        )?;
+        let results = results.into_iter().collect::<Result<Vec<_>, Error>>()?;
+        chain_update.apply_chunk_postprocessing(&block, results)?;
         chain_update.commit()?;
 
         let epoch_id = block.header().epoch_id();
@@ -4903,17 +4899,11 @@ impl<'a> ChainUpdate<'a> {
     fn apply_chunk_postprocessing(
         &mut self,
         block: &Block,
-        prev_block: &Block,
         apply_results: Vec<ApplyChunkResult>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing").entered();
         for result in apply_results {
-            self.process_apply_chunk_result(
-                result,
-                *block.hash(),
-                block.header().height(),
-                *prev_block.hash(),
-            )?
+            self.process_apply_chunk_result(block, result)?
         }
         Ok(())
     }
@@ -4960,11 +4950,12 @@ impl<'a> ChainUpdate<'a> {
     /// for state changes, store the state changes for splitting states
     fn process_split_state(
         &mut self,
-        block_hash: &CryptoHash,
-        prev_block_hash: &CryptoHash,
+        block: &Block,
         shard_uid: &ShardUId,
         apply_results_or_state_changes: ApplySplitStateResultOrStateChanges,
     ) -> Result<(), Error> {
+        let block_hash = block.hash();
+        let prev_hash = block.header().prev_hash();
         match apply_results_or_state_changes {
             ApplySplitStateResultOrStateChanges::ApplySplitStateResults(results) => {
                 // Split validator_proposals, gas_burnt, balance_burnt to each split shard
@@ -4977,7 +4968,7 @@ impl<'a> ChainUpdate<'a> {
                 let chunk_extra = self.chain_store_update.get_chunk_extra(block_hash, shard_uid)?;
                 let next_epoch_shard_layout = {
                     let epoch_id =
-                        self.epoch_manager.get_next_epoch_id_from_prev_block(prev_block_hash)?;
+                        self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
                     self.epoch_manager.get_shard_layout(&epoch_id)?
                 };
 
@@ -5023,6 +5014,20 @@ impl<'a> ChainUpdate<'a> {
                     sum_gas_used += gas_burnt;
                     sum_balance_burnt += balance_burnt;
 
+                    if let Some(manager) = self.runtime_adapter.get_flat_storage_manager() {
+                        // TODO(#9430): Support manager.save_flat_state_changes and manager.update_flat_storage_for_shard
+                        // functions to be a part of the same chain_store_update
+                        let store_update = manager.save_flat_state_changes(
+                            *block_hash,
+                            *prev_hash,
+                            block.header().height(),
+                            result.shard_uid,
+                            result.trie_changes.state_changes(),
+                        )?;
+                        manager.update_flat_storage_for_shard(*shard_uid, block)?;
+                        self.chain_store_update.merge(store_update);
+                    }
+
                     self.chain_store_update.save_chunk_extra(
                         block_hash,
                         &result.shard_uid,
@@ -5047,11 +5052,12 @@ impl<'a> ChainUpdate<'a> {
     /// Processed results of applying chunk
     fn process_apply_chunk_result(
         &mut self,
+        block: &Block,
         result: ApplyChunkResult,
-        block_hash: CryptoHash,
-        height: BlockHeight,
-        prev_block_hash: CryptoHash,
     ) -> Result<(), Error> {
+        let block_hash = block.hash();
+        let prev_hash = block.header().prev_hash();
+        let height = block.header().height();
         match result {
             ApplyChunkResult::SameHeight(SameHeightResult {
                 gas_limit,
@@ -5065,7 +5071,7 @@ impl<'a> ChainUpdate<'a> {
 
                 // Save state root after applying transactions.
                 self.chain_store_update.save_chunk_extra(
-                    &block_hash,
+                    block_hash,
                     &shard_uid,
                     ChunkExtra::new(
                         &apply_result.new_root,
@@ -5078,8 +5084,8 @@ impl<'a> ChainUpdate<'a> {
                 );
                 if let Some(manager) = self.runtime_adapter.get_flat_storage_manager() {
                     let store_update = manager.save_flat_state_changes(
-                        block_hash,
-                        prev_block_hash,
+                        *block_hash,
+                        *prev_hash,
                         height,
                         shard_uid,
                         apply_result.trie_changes.state_changes(),
@@ -5088,24 +5094,19 @@ impl<'a> ChainUpdate<'a> {
                 }
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
                 self.chain_store_update.save_outgoing_receipt(
-                    &block_hash,
+                    block_hash,
                     shard_id,
                     apply_result.outgoing_receipts,
                 );
                 // Save receipt and transaction results.
                 self.chain_store_update.save_outcomes_with_proofs(
-                    &block_hash,
+                    block_hash,
                     shard_id,
                     apply_result.outcomes,
                     outcome_paths,
                 );
                 if let Some(apply_results_or_state_changes) = apply_split_result_or_state_changes {
-                    self.process_split_state(
-                        &block_hash,
-                        &prev_block_hash,
-                        &shard_uid,
-                        apply_results_or_state_changes,
-                    )?;
+                    self.process_split_state(block, &shard_uid, apply_results_or_state_changes)?;
                 }
             }
             ApplyChunkResult::DifferentHeight(DifferentHeightResult {
@@ -5113,40 +5114,33 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 apply_split_result_or_state_changes,
             }) => {
-                let old_extra =
-                    self.chain_store_update.get_chunk_extra(&prev_block_hash, &shard_uid)?;
+                let old_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
 
                 let mut new_extra = ChunkExtra::clone(&old_extra);
                 *new_extra.state_root_mut() = apply_result.new_root;
 
                 if let Some(manager) = self.runtime_adapter.get_flat_storage_manager() {
                     let store_update = manager.save_flat_state_changes(
-                        block_hash,
-                        prev_block_hash,
+                        *block_hash,
+                        *prev_hash,
                         height,
                         shard_uid,
                         apply_result.trie_changes.state_changes(),
                     )?;
                     self.chain_store_update.merge(store_update);
                 }
-                self.chain_store_update.save_chunk_extra(&block_hash, &shard_uid, new_extra);
+                self.chain_store_update.save_chunk_extra(block_hash, &shard_uid, new_extra);
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
 
                 if let Some(apply_results_or_state_changes) = apply_split_result_or_state_changes {
-                    self.process_split_state(
-                        &block_hash,
-                        &prev_block_hash,
-                        &shard_uid,
-                        apply_results_or_state_changes,
-                    )?;
+                    self.process_split_state(block, &shard_uid, apply_results_or_state_changes)?;
                 }
             }
             ApplyChunkResult::SplitState(SplitStateResult { shard_uid, results }) => {
                 self.chain_store_update
-                    .remove_state_changes_for_split_states(block_hash, shard_uid.shard_id());
+                    .remove_state_changes_for_split_states(*block.hash(), shard_uid.shard_id());
                 self.process_split_state(
-                    &block_hash,
-                    &prev_block_hash,
+                    block,
                     &shard_uid,
                     ApplySplitStateResultOrStateChanges::ApplySplitStateResults(results),
                 )?;
@@ -5165,14 +5159,13 @@ impl<'a> ChainUpdate<'a> {
         apply_chunks_results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<Option<Tip>, Error> {
         let prev_hash = block.header().prev_hash();
-        let prev_block = self.chain_store_update.get_block(prev_hash)?;
         let results = apply_chunks_results.into_iter().map(|x| {
             if let Err(err) = &x {
                 warn!(target:"chain", hash = %block.hash(), error = %err, "Error in applying chunks for block");
             }
             x
         }).collect::<Result<Vec<_>, Error>>()?;
-        self.apply_chunk_postprocessing(block, &prev_block, results)?;
+        self.apply_chunk_postprocessing(block, results)?;
 
         let BlockPreprocessInfo {
             is_caught_up,
