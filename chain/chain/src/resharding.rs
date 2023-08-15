@@ -200,9 +200,8 @@ impl Chain {
     pub fn build_state_for_split_shards_postprocessing(
         &mut self,
         sync_hash: &CryptoHash,
-        state_roots: Result<HashMap<ShardUId, StateRoot>, Error>,
+        state_roots: HashMap<ShardUId, StateRoot>,
     ) -> Result<(), Error> {
-        let state_roots = state_roots?;
         let block_header = self.get_block_header(sync_hash)?;
         let prev_hash = block_header.prev_hash();
 
