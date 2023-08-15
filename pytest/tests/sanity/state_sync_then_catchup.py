@@ -35,6 +35,10 @@ def epoch_height(block_height):
     return int((block_height - 1) / EPOCH_LENGTH)
 
 
+def random_u64():
+    return bytes(random.randint(0, 255) for _ in range(8))
+
+
 # Generates traffic for all possible shards.
 # Assumes that `test0`, `test1`, `near` all belong to different shards.
 def random_workload_until(target, nonce, keys, node0, node1, target_node):
@@ -77,10 +81,6 @@ def random_workload_until(target, nonce, keys, node0, node1, target_node):
                 call_function('write', key, nonce, node.signer_key,
                               last_block_hash, node0)
     return nonce, keys
-
-
-def random_u64():
-    return bytes(random.randint(0, 255) for _ in range(8))
 
 
 def call_function(op, key, nonce, signer_key, last_block_hash, node):
