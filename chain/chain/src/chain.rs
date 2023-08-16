@@ -3780,10 +3780,6 @@ impl Chain {
         invalid_chunks: &mut Vec<ShardChunkHeader>,
     ) -> Result<Vec<ApplyChunkJob>, Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunks_preprocessing").entered();
-        #[cfg(not(feature = "mock_node"))]
-        let protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
-
         let prev_hash = block.header().prev_hash();
         let will_shard_layout_change = self.epoch_manager.will_shard_layout_change(prev_hash)?;
         let prev_chunk_headers =
@@ -3806,7 +3802,6 @@ impl Chain {
                     prev_chunk_header,
                     shard_id,
                     mode,
-                    protocol_version,
                     will_shard_layout_change,
                     incoming_receipts,
                     state_patch,
@@ -3836,7 +3831,6 @@ impl Chain {
         prev_chunk_header: &ShardChunkHeader,
         shard_id: usize,
         mode: ApplyChunksMode,
-        protocol_version: u32,
         will_shard_layout_change: bool,
         incoming_receipts: &HashMap<u64, Vec<ReceiptProof>>,
         state_patch: SandboxStatePatch,
@@ -3886,7 +3880,6 @@ impl Chain {
                     chunk_header,
                     prev_chunk_header,
                     shard_uid,
-                    protocol_version,
                     will_shard_layout_change,
                     incoming_receipts,
                     state_patch,
@@ -3930,7 +3923,6 @@ impl Chain {
         chunk_header: &ShardChunkHeader,
         prev_chunk_header: &ShardChunkHeader,
         shard_uid: ShardUId,
-        protocol_version: u32,
         will_shard_layout_change: bool,
         incoming_receipts: &HashMap<u64, Vec<ReceiptProof>>,
         state_patch: SandboxStatePatch,
@@ -3999,6 +3991,10 @@ impl Chain {
         // if we are running mock_node, ignore this check because
         // this check may require old block headers, which may not exist in storage
         // of the client in the mock network
+        #[cfg(not(feature = "mock_node"))]
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+
         #[cfg(not(feature = "mock_node"))]
         if checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
             let transaction_validity_period = self.transaction_validity_period;
