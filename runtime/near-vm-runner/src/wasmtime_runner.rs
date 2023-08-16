@@ -175,21 +175,10 @@ impl crate::runner::VM for WasmtimeVM {
         )
         .unwrap();
         let memory_copy = memory.0;
-        let mut logic = VMLogic::new_with_protocol_version(
-            ext,
-            context,
-            &self.config,
-            fees_config,
-            promise_results,
-            &mut memory,
-            current_protocol_version,
-        );
+        let mut logic =
+            VMLogic::new(ext, context, &self.config, fees_config, promise_results, &mut memory);
 
-        let result = logic.before_loading_executable(
-            method_name,
-            current_protocol_version,
-            code.code().len(),
-        );
+        let result = logic.before_loading_executable(method_name, code.code().len());
         if let Err(e) = result {
             return Ok(VMOutcome::abort(logic, e));
         }
@@ -205,7 +194,7 @@ impl crate::runner::VM for WasmtimeVM {
         };
         let mut linker = Linker::new(&engine);
 
-        let result = logic.after_loading_executable(current_protocol_version, code.code().len());
+        let result = logic.after_loading_executable(code.code().len());
         if let Err(e) = result {
             return Ok(VMOutcome::abort(logic, e));
         }
@@ -227,18 +216,13 @@ impl crate::runner::VM for WasmtimeVM {
                         let err = FunctionCallError::MethodResolveError(
                             MethodResolveError::MethodInvalidSignature,
                         );
-                        return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
-                            logic,
-                            err,
-                            current_protocol_version,
-                        ));
+                        return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, err));
                     }
                 }
                 _ => {
                     return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
                         logic,
                         FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound),
-                        current_protocol_version,
                     ));
                 }
             },
@@ -246,7 +230,6 @@ impl crate::runner::VM for WasmtimeVM {
                 return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
                     logic,
                     FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound),
-                    current_protocol_version,
                 ));
             }
         }
@@ -263,7 +246,6 @@ impl crate::runner::VM for WasmtimeVM {
                     return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
                         logic,
                         FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound),
-                        current_protocol_version,
                     ));
                 }
             },

@@ -383,11 +383,7 @@ impl Runtime {
                     }
                 } else {
                     // Implicit account creation
-                    debug_assert!(checked_feature!(
-                        "stable",
-                        ImplicitAccountCreation,
-                        apply_state.current_protocol_version
-                    ));
+                    debug_assert!(apply_state.config.wasm_config.implicit_account_creation);
                     debug_assert!(!is_refund);
                     action_implicit_account_creation_transfer(
                         state_update,

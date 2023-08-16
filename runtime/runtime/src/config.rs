@@ -15,7 +15,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, Transaction,
 };
 use near_primitives::types::{AccountId, Balance, Compute, Gas};
-use near_primitives::version::{checked_feature, ProtocolVersion};
+use near_primitives::version::ProtocolVersion;
 
 /// Describes the cost of converting this transaction into a receipt.
 #[derive(Debug)]

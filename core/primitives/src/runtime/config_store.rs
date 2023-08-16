@@ -18,6 +18,7 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
+    (35, include_config!("35.yaml")),
     (42, include_config!("42.yaml")),
     (48, include_config!("48.yaml")),
     (49, include_config!("49.yaml")),
@@ -33,6 +34,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (61, include_config!("61.yaml")),
     (62, include_config!("62.yaml")),
     (63, include_config!("63.yaml")),
+    (129, include_config!("129.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
@@ -261,8 +263,8 @@ mod tests {
         );
 
         let expected_config = {
-            let first_diff = CONFIG_DIFFS[0].1.parse().unwrap();
-            base_params.apply_diff(first_diff).unwrap();
+            base_params.apply_diff(CONFIG_DIFFS[0].1.parse().unwrap()).unwrap();
+            base_params.apply_diff(CONFIG_DIFFS[1].1.parse().unwrap()).unwrap();
             RuntimeConfig::new(&base_params).unwrap()
         };
         assert_eq!(**config, expected_config);
@@ -270,8 +272,7 @@ mod tests {
         let config = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert_eq!(config.fees.fee(ActionCosts::new_data_receipt_base).send_sir, 36_486_732_312);
         let expected_config = {
-            let second_diff = CONFIG_DIFFS[1].1.parse().unwrap();
-            base_params.apply_diff(second_diff).unwrap();
+            base_params.apply_diff(CONFIG_DIFFS[2].1.parse().unwrap()).unwrap();
             RuntimeConfig::new(&base_params).unwrap()
         };
         assert_eq!(config.as_ref(), &expected_config);

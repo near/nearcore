@@ -896,9 +896,8 @@ pub(crate) fn check_account_existence(
                 }
                 .into());
             } else {
-                if checked_feature!("stable", ImplicitAccountCreation, current_protocol_version)
-                    && account_id.is_implicit()
-                {
+                // TODO: this should be `config.implicit_account_creation`.
+                if config.wasm_config.implicit_account_creation && account_id.is_implicit() {
                     // If the account doesn't exist and it's 64-length hex account ID, then you
                     // should only be able to create it using single transfer action.
                     // Because you should not be able to add another access key to the account in
@@ -917,11 +916,8 @@ pub(crate) fn check_account_existence(
         }
         Action::Transfer(_) => {
             if account.is_none() {
-                return if checked_feature!(
-                    "stable",
-                    ImplicitAccountCreation,
-                    current_protocol_version
-                ) && is_the_only_action
+                return if config.wasm_config.implicit_account_creation
+                    && is_the_only_action
                     && account_id.is_implicit()
                     && !is_refund
                 {
@@ -1374,7 +1370,7 @@ mod tests {
                 &Action::Delegate(signed_delegate_action),
                 &mut None,
                 &sender_id,
-                1,
+                &RuntimeConfig::test(),
                 false,
                 false
             ),

@@ -96,6 +96,7 @@ pub enum ProtocolFeature {
     ///
     /// Compute Costs NEP-455: https://github.com/near/NEPs/blob/master/neps/nep-0455.md
     ComputeCosts,
+
     /// Enable flat storage for reads, reducing number of DB accesses from `2 * key.len()` in
     /// the worst case to 2.
     ///

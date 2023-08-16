@@ -164,4 +164,7 @@ wasmer2_stack_limit                                  204_800
 max_locals_per_contract                            1_000_000
 account_id_validity_rules_version                          1
 disable_9393_fix                        false
+flat_storage_reads                      true
+implicit_account_creation               true
+fix_contract_loading_cost               true
 
