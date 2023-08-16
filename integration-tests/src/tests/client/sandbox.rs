@@ -44,12 +44,12 @@ fn test_setup() -> (TestEnv, InMemorySigner) {
             "test0".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer,
-            vec![Action::FunctionCall(FunctionCallAction {
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "write_random_value".to_string(),
                 args: vec![],
                 gas: 100000000000000,
                 deposit: 0,
-            })],
+            }))],
         ),
         ProcessTxResponse::ValidTx
     );
