@@ -1094,7 +1094,7 @@ mod tests {
         core::mem::drop(file);
         let store = crate::test_utils::create_test_store();
         assert_eq!(
-            std::io::ErrorKind::InvalidInput,
+            std::io::ErrorKind::InvalidData,
             store.load_state_from_file(tmp.path()).unwrap_err().kind()
         );
     }
