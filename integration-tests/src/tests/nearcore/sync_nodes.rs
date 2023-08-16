@@ -66,7 +66,7 @@ fn add_blocks(
             epoch_id,
             next_epoch_id,
             None,
-            vec![Some(
+            vec![Some(Box::new(
                 Approval::new(
                     *prev.hash(),
                     prev.header().height(),
@@ -74,7 +74,7 @@ fn add_blocks(
                     signer,
                 )
                 .signature,
-            )],
+            ))],
             Ratio::from_integer(0),
             0,
             1000,

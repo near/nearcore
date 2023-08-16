@@ -343,7 +343,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         prev_block_hash: &CryptoHash,
         prev_block_height: BlockHeight,
         block_height: BlockHeight,
-        approvals: &[Option<Signature>],
+        approvals: &[Option<Box<Signature>>],
     ) -> Result<bool, Error>;
 
     /// Verify approvals and check threshold, but ignore next epoch approvals and slashing
@@ -351,14 +351,14 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         epoch_id: &EpochId,
         can_approved_block_be_produced: &dyn Fn(
-            &[Option<Signature>],
+            &[Option<Box<Signature>>],
             // (stake this in epoch, stake in next epoch, is_slashed)
             &[(Balance, Balance, bool)],
         ) -> bool,
         prev_block_hash: &CryptoHash,
         prev_block_height: BlockHeight,
         block_height: BlockHeight,
-        approvals: &[Option<Signature>],
+        approvals: &[Option<Box<Signature>>],
     ) -> Result<(), Error>;
 
     fn cares_about_shard_from_prev_block(
@@ -838,7 +838,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         prev_block_hash: &CryptoHash,
         prev_block_height: BlockHeight,
         block_height: BlockHeight,
-        approvals: &[Option<Signature>],
+        approvals: &[Option<Box<Signature>>],
     ) -> Result<bool, Error> {
         let info = {
             let epoch_manager = self.read();
@@ -874,13 +874,13 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         epoch_id: &EpochId,
         can_approved_block_be_produced: &dyn Fn(
-            &[Option<Signature>],
+            &[Option<Box<Signature>>],
             &[(Balance, Balance, bool)],
         ) -> bool,
         prev_block_hash: &CryptoHash,
         prev_block_height: BlockHeight,
         block_height: BlockHeight,
-        approvals: &[Option<Signature>],
+        approvals: &[Option<Box<Signature>>],
     ) -> Result<(), Error> {
         let info = {
             let epoch_manager = self.read();

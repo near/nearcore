@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from locust import User, events, runners
 from retrying import retry
 import abc
@@ -122,9 +122,10 @@ class FunctionCall(Transaction):
         self.balance = int(balance)
 
     @abc.abstractmethod
-    def args(self) -> dict:
+    def args(self) -> typing.Union[dict, typing.List[dict]]:
         """
         Function call arguments to be serialized and sent with the call.
+        Return a single dict for `FunctionCall` but a list of dict for `MultiFunctionCall`.
         """
 
     def sign_and_serialize(self, block_hash) -> bytes:
@@ -135,6 +136,34 @@ class FunctionCall(Transaction):
 
     def sender_account(self) -> Account:
         return self.sender
+
+
+class MultiFunctionCall(FunctionCall):
+    """
+    Batches multiple function calls into a single transaction.
+    """
+
+    def __init__(self,
+                 sender: Account,
+                 receiver_id: str,
+                 method: str,
+                 balance: int = 0):
+        super().__init__(sender, receiver_id, method, balance=balance)
+
+    def sign_and_serialize(self, block_hash) -> bytes:
+        all_args = self.args()
+        gas = 300 * TGAS // len(all_args)
+
+        def create_action(args):
+            return transaction.create_function_call_action(
+                self.method,
+                json.dumps(args).encode('utf-8'), gas, int(self.balance))
+
+        actions = [create_action(args) for args in all_args]
+        return transaction.sign_and_serialize_transaction(
+            self.receiver_id, self.sender.use_nonce(), actions, block_hash,
+            self.sender.key.account_id, self.sender.key.decoded_pk(),
+            self.sender.key.decoded_sk())
 
 
 class Deploy(Transaction):
@@ -172,6 +201,25 @@ class CreateSubAccount(Transaction):
         return transaction.sign_create_account_with_full_access_key_and_balance_tx(
             sender.key, sub.account_id, sub, int(self.balance * 1E24),
             sender.use_nonce(), block_hash)
+
+    def sender_account(self) -> Account:
+        return self.sender
+
+
+class AddFullAccessKey(Transaction):
+
+    def __init__(self, parent: Account, new_key: key.Key):
+        super().__init__()
+        self.sender = parent
+        self.new_key = new_key
+
+    def sign_and_serialize(self, block_hash) -> bytes:
+        action = transaction.create_full_access_key_action(
+            self.new_key.decoded_pk())
+        return transaction.sign_and_serialize_transaction(
+            self.sender.key.account_id, self.sender.use_nonce(),
+            [action], block_hash, self.sender.key.account_id,
+            self.sender.key.decoded_pk(), self.sender.key.decoded_sk())
 
     def sender_account(self) -> Account:
         return self.sender
@@ -215,23 +263,14 @@ class NearNodeProxy:
                 )
                 time.sleep(0.25)
 
-    def send_tx(self, tx: Transaction, locust_name) -> dict:
+    def send_tx(self, tx: Transaction, locust_name: str) -> dict:
         """
         Send a transaction and return the result, no retry attempted.
         """
-        block_hash = base58.b58decode(self.node.get_latest_block().hash)
+        block_hash = self.final_block_hash()
         signed_tx = tx.sign_and_serialize(block_hash)
 
-        meta = {
-            "request_type": "near-rpc",
-            "name": locust_name,
-            "start_time": time.time(),
-            "response_time": 0,  # overwritten later  with end-to-end time
-            "response_length": 0,  # overwritten later
-            "response": None,  # overwritten later
-            "context": {},  # not used  right now
-            "exception": None,  # maybe overwritten later
-        }
+        meta = self.new_locust_metadata(locust_name)
         start_perf_counter = time.perf_counter()
 
         try:
@@ -269,6 +308,22 @@ class NearNodeProxy:
         # Track request + response in Locust
         self.request_event.fire(**meta)
         return meta
+
+    def final_block_hash(self):
+        return base58.b58decode(
+            self.node.get_final_block()['result']['header']['hash'])
+
+    def new_locust_metadata(self, locust_name: str):
+        return {
+            "request_type": "near-rpc",
+            "name": locust_name,
+            "start_time": time.time(),
+            "response_time": 0,  # overwritten later  with end-to-end time
+            "response_length": 0,  # overwritten later
+            "response": None,  # overwritten later
+            "context": {},  # not used  right now
+            "exception": None,  # maybe overwritten later
+        }
 
     def post_json(self, method: str, params: typing.List[str]):
         j = {
@@ -314,6 +369,98 @@ class NearNodeProxy:
                 CreateSubAccount(parent, account.key, balance=balance), msg)
         account.refresh_nonce(self.node)
         return exists
+
+    def prepare_accounts(self,
+                         accounts: typing.List[Account],
+                         parent: Account,
+                         balance: int,
+                         msg: str,
+                         timeout: timedelta = timedelta(minutes=3)):
+        """
+        Creates accounts if they don't exist and refreshes their nonce.
+        Accounts must share the parent account.
+        
+        This implementation attempts on-chain parallelization, hence it should
+        be faster than calling `prepare_account` in a loop.
+        
+        Note that error-handling in this variant isn't quite as smooth. Errors
+        that are only reported by the sync API of RPC nodes will not be caught
+        here. Instead, we do a best-effort retry and stop after a fixed timeout.
+        """
+
+        # To avoid blocking, each account goes though a FSM independently.
+        #
+        # FSM outline:
+        #
+        #    [INIT] -----------------(account exists already)-------------
+        #       |                                                        |
+        #       V                                                        V
+        #  [TO_CREATE] --(post tx)--> [INFLIGHT] --(poll result)--> [TO_REFRESH]
+        #   ^                    |                                       |
+        #   |                    |                                       |
+        #   |--(fail to submit)<--                                   (refresh)
+        #                                                                |
+        #                                                                V
+        #                                                              [DONE]
+        #
+        to_create: typing.List[Account] = []
+        inflight: typing.List[Transaction, dict, Account] = []
+        to_refresh: typing.List[Account] = []
+
+        for account in accounts:
+            if self.account_exists(account.key.account_id):
+                to_refresh.append(account)
+            else:
+                to_create.append(account)
+
+        block_hash = self.final_block_hash()
+        start = datetime.now()
+        while len(to_create) + len(to_refresh) + len(inflight) > 0:
+            logger.info(
+                f"preparing {len(accounts)} accounts, {len(to_create)} to create, {len(to_refresh)} to refresh, {len(inflight)} inflight"
+            )
+            if start + timeout < datetime.now():
+                raise SystemExit("Account preparation timed out")
+            try_again = []
+            for account in to_create:
+                meta = self.new_locust_metadata(msg)
+                tx = CreateSubAccount(parent, account.key, balance=balance)
+                signed_tx = tx.sign_and_serialize(block_hash)
+                submit_raw_response = self.post_json(
+                    "broadcast_tx_async",
+                    [base64.b64encode(signed_tx).decode('utf8')])
+                meta["response_length"] = len(submit_raw_response.text)
+                submit_response = submit_raw_response.json()
+                if not "result" in submit_response:
+                    # something failed, let's not block, just try again later
+                    logger.debug(
+                        f"couldn't submit account creation TX, got {submit_raw_response.text}"
+                    )
+                    try_again.append(account)
+                else:
+                    tx.transaction_id = submit_response["result"]
+                    inflight.append((tx, meta, account))
+            to_create = try_again
+
+            # while requests are processed on-chain, refresh nonces for existing accounts
+            for account in to_refresh:
+                account.refresh_nonce(self.node)
+            to_refresh.clear()
+
+            # poll all pending requests
+            for tx, meta, account in inflight:
+                # Using retrying lib here to poll until a response is ready.
+                # This is blocking on a single request, but we expect requests
+                # to be processed in order so it shouldn't matter.
+                self.poll_tx_result(meta, tx)
+                meta["response_time"] = (time.time() -
+                                         meta["start_time"]) * 1000
+                to_refresh.append(account)
+                # Locust tracking
+                self.request_event.fire(**meta)
+            inflight.clear()
+
+        logger.info(f"done preparing {len(accounts)} accounts")
 
 
 class NearUser(User):
@@ -577,12 +724,16 @@ def do_on_locust_init(environment):
     if isinstance(environment.runner, runners.MasterRunner):
         num_funding_accounts = environment.parsed_options.max_workers
         funding_balance = 10000 * NearUser.INIT_BALANCE
-        # TODO: Create accounts in parallel
-        for id in range(num_funding_accounts):
+
+        def create_account(id):
             account_id = f"funds_worker_{id}.{master_funding_account.key.account_id}"
-            worker_key = key.Key.from_seed_testonly(account_id)
-            node.prepare_account(Account(worker_key), master_funding_account,
-                                 funding_balance, "create funding account")
+            return Account(key.Key.from_seed_testonly(account_id))
+
+        funding_accounts = [
+            create_account(id) for id in range(num_funding_accounts)
+        ]
+        node.prepare_accounts(funding_accounts, master_funding_account,
+                              funding_balance, "create funding account")
         funding_account = master_funding_account
     elif isinstance(environment.runner, runners.WorkerRunner):
         worker_id = environment.runner.worker_index

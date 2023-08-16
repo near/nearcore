@@ -11,6 +11,8 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 use near_primitives::checked_feature;
+#[cfg(feature = "new_epoch_sync")]
+use near_primitives::epoch_manager::epoch_sync::EpochSyncInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
@@ -820,6 +822,15 @@ impl ChainStore {
         store_update.set_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY, &latest_known)?;
         self.latest_known = once_cell::unsync::OnceCell::from(latest_known);
         store_update.commit().map_err(|err| err.into())
+    }
+
+    /// Save epoch sync info
+    #[cfg(feature = "new_epoch_sync")]
+    pub fn get_epoch_sync_info(&self, epoch_id: &EpochId) -> Result<EpochSyncInfo, Error> {
+        option_to_not_found(
+            self.store.get_ser(DBCol::EpochSyncInfo, epoch_id.as_ref()),
+            "EpochSyncInfo",
+        )
     }
 
     /// Retrieve the kinds of state changes occurred in a given block.
@@ -2706,9 +2717,10 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
             | DBCol::FlatStorageStatus
-            | DBCol::Misc => {
-                unreachable!();
-            }
+            | DBCol::Misc
+            => unreachable!(),
+            #[cfg(feature = "new_epoch_sync")]
+            DBCol::EpochSyncInfo => unreachable!(),
         }
         self.merge(store_update);
     }
@@ -3416,9 +3428,9 @@ mod tests {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap();
+        let genesis_hash = *genesis.hash();
         let signer = Arc::new(create_test_signer("test1"));
         let mut short_fork = vec![];
-        #[allow(clippy::redundant_clone)]
         let mut prev_block = genesis.clone();
         for i in 1..(transaction_validity_period + 2) {
             let mut store_update = chain.mut_store().store_update();
@@ -3433,14 +3445,13 @@ mod tests {
         assert_eq!(
             chain.mut_store().check_transaction_validity_period(
                 &short_fork_head,
-                genesis.hash(),
+                &genesis_hash,
                 transaction_validity_period
             ),
             Err(InvalidTxError::Expired)
         );
         let mut long_fork = vec![];
-        #[allow(clippy::redundant_clone)]
-        let mut prev_block = genesis.clone();
+        let mut prev_block = genesis;
         for i in 1..(transaction_validity_period * 5) {
             let mut store_update = chain.mut_store().store_update();
             let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
@@ -3453,7 +3464,7 @@ mod tests {
         assert_eq!(
             chain.mut_store().check_transaction_validity_period(
                 long_fork_head,
-                genesis.hash(),
+                &genesis_hash,
                 transaction_validity_period
             ),
             Err(InvalidTxError::Expired)
@@ -3664,14 +3675,13 @@ mod tests {
         let mut chain = get_chain_with_epoch_length(1);
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
-        #[allow(clippy::redundant_clone)]
-        let mut prev_block = genesis.clone();
+        let mut prev_block = genesis;
         let mut blocks = vec![prev_block.clone()];
         {
             let mut store_update = chain.store().store().store_update();
             let block_info = BlockInfo::default();
             store_update
-                .insert_ser(DBCol::BlockInfo, genesis.hash().as_ref(), &block_info)
+                .insert_ser(DBCol::BlockInfo, prev_block.hash().as_ref(), &block_info)
                 .unwrap();
             store_update.commit().unwrap();
         }

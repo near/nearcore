@@ -1,3 +1,5 @@
+pub mod delegate;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::{
@@ -174,7 +176,7 @@ pub enum Action {
     AddKey(AddKeyAction),
     DeleteKey(DeleteKeyAction),
     DeleteAccount(DeleteAccountAction),
-    Delegate(super::delegate_action::SignedDelegateAction),
+    Delegate(delegate::SignedDelegateAction),
 }
 
 impl Action {
