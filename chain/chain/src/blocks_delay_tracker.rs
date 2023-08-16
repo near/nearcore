@@ -9,7 +9,7 @@ use near_primitives::views::{
     BlockProcessingInfo, BlockProcessingStatus, ChainProcessingInfo, ChunkProcessingInfo,
     ChunkProcessingStatus, DroppedReason,
 };
-use std::collections::{BTreeMap, HashMap, hash_map::Entry};
+use std::collections::{hash_map::Entry, BTreeMap, HashMap};
 use std::mem;
 use std::time::Instant;
 use tracing::error;

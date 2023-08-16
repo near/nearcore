@@ -116,9 +116,7 @@ mod private_non_delegate_action {
     }
 
     impl borsh::de::BorshDeserialize for NonDelegateAction {
-        fn deserialize_reader<R: Read>(
-            rd: &mut R,
-        ) -> ::core::result::Result<Self, Error> {
+        fn deserialize_reader<R: Read>(rd: &mut R) -> ::core::result::Result<Self, Error> {
             match u8::deserialize_reader(rd)? {
                 ACTION_DELEGATE_NUMBER => Err(Error::new(
                     ErrorKind::InvalidInput,
