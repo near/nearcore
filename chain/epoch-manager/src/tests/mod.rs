@@ -2507,7 +2507,6 @@ fn test_validator_kickout_sanity() {
 #[test]
 /// Test that the stake of validators kicked out in an epoch doesn't exceed the max_kickout_stake_ratio
 fn test_max_kickout_stake_ratio() {
-    #[allow(unused_mut)]
     let mut epoch_config =
         epoch_config(5, 2, 4, 0, 90, 80, 0).for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![

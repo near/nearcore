@@ -48,6 +48,7 @@ expensive_tests = []
 test_features = []
 delay_detector = ["delay-detector/delay_detector"]
 no_cache = ["near-store/no_cache"]
+new_epoch_sync = ["near-store/new_epoch_sync", "near-primitives/new_epoch_sync"]
 
 protocol_feature_reject_blocks_with_outdated_protocol_version = [
   "near-primitives/protocol_feature_reject_blocks_with_outdated_protocol_version",

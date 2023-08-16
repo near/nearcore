@@ -72,6 +72,7 @@ json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
 protocol_feature_simple_nightshade_v2 = ["nearcore/protocol_feature_simple_nightshade_v2"]
 serialize_all_state_changes = ["nearcore/serialize_all_state_changes"]
+new_epoch_sync = ["nearcore/new_epoch_sync"]
 
 nightly = [
   "nightly_protocol",

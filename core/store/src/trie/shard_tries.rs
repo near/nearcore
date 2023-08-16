@@ -189,7 +189,6 @@ impl ShardTries {
         TrieUpdate::new(self.get_view_trie_for_shard(shard_uid, state_root))
     }
 
-    #[allow(unused_variables)]
     fn get_trie_for_shard_internal(
         &self,
         shard_uid: ShardUId,
@@ -725,6 +724,20 @@ pub struct WrappedTrieChanges {
     block_hash: CryptoHash,
 }
 
+// Partial implementation. Skips `tries` due to its complexity and
+// `trie_changes` and `state_changes` due to their large volume.
+impl std::fmt::Debug for WrappedTrieChanges {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WrappedTrieChanges")
+            .field("tries", &"<not shown>")
+            .field("shard_uid", &self.shard_uid)
+            .field("trie_changes", &"<not shown>")
+            .field("state_changes", &"<not shown>")
+            .field("block_hash", &self.block_hash)
+            .finish()
+    }
+}
+
 impl WrappedTrieChanges {
     pub fn new(
         tries: ShardTries,
@@ -754,7 +767,7 @@ impl WrappedTrieChanges {
     ///
     /// NOTE: the changes are drained from `self`.
     pub fn state_changes_into(&mut self, store_update: &mut StoreUpdate) {
-        for change_with_trie_key in self.state_changes.drain(..) {
+        for mut change_with_trie_key in self.state_changes.drain(..) {
             assert!(
                 !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
                     cause,
@@ -763,13 +776,14 @@ impl WrappedTrieChanges {
                 "NotWritableToDisk changes must never be finalized."
             );
 
-            assert!(
-                !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
-                    cause,
-                    StateChangeCause::Resharding
-                )),
-                "Resharding changes must never be finalized."
-            );
+            // Resharding changes must not be finalized, however they may be introduced here when we are
+            // evaluating changes for split state in process_split_state function
+            change_with_trie_key
+                .changes
+                .retain(|change| change.cause != StateChangeCause::Resharding);
+            if change_with_trie_key.changes.is_empty() {
+                continue;
+            }
 
             let storage_key = if cfg!(feature = "serialize_all_state_changes") {
                 // Serialize all kinds of state changes without any filtering.

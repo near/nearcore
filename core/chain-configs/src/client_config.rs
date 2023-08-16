@@ -212,8 +212,6 @@ pub struct ClientConfig {
     pub ttl_account_id_router: Duration,
     /// Horizon at which instead of fetching block, fetch full state.
     pub block_fetch_horizon: BlockHeightDelta,
-    /// Horizon to step from the latest block when fetching state.
-    pub state_fetch_horizon: NumBlocks,
     /// Time between check to perform catchup.
     pub catchup_step_period: Duration,
     /// Time between checking to re-request chunks.
@@ -318,7 +316,6 @@ impl ClientConfig {
             num_block_producer_seats,
             ttl_account_id_router: Duration::from_secs(60 * 60),
             block_fetch_horizon: 50,
-            state_fetch_horizon: 5,
             catchup_step_period: Duration::from_millis(1),
             chunk_request_retry_period: min(
                 Duration::from_millis(100),

@@ -29,13 +29,11 @@ pub(super) fn promise_create(
     )
 }
 
-#[allow(dead_code)]
 pub(super) fn promise_batch_create(logic: &mut TestVMLogic, account_id: &str) -> Result<u64> {
     let account_id = logic.internal_mem_write(account_id.as_bytes());
     logic.promise_batch_create(account_id.len, account_id.ptr)
 }
 
-#[allow(dead_code)]
 pub(super) fn promise_batch_action_function_call(
     logic: &mut TestVMLogic<'_>,
     promise_index: u64,
@@ -52,7 +50,6 @@ pub(super) fn promise_batch_action_function_call(
     )
 }
 
-#[allow(dead_code)]
 pub(super) fn promise_batch_action_function_call_ext(
     logic: &mut TestVMLogic<'_>,
     promise_index: u64,
@@ -76,7 +73,6 @@ pub(super) fn promise_batch_action_function_call_ext(
     )
 }
 
-#[allow(dead_code)]
 pub(super) fn promise_batch_action_function_call_weight(
     logic: &mut TestVMLogic<'_>,
     promise_index: u64,
@@ -95,7 +91,6 @@ pub(super) fn promise_batch_action_function_call_weight(
     )
 }
 
-#[allow(dead_code)]
 pub(super) fn promise_batch_action_function_call_weight_ext(
     logic: &mut TestVMLogic<'_>,
     promise_index: u64,
@@ -121,7 +116,6 @@ pub(super) fn promise_batch_action_function_call_weight_ext(
     )
 }
 
-#[allow(dead_code)]
 pub(super) fn promise_batch_action_add_key_with_function_call(
     logic: &mut TestVMLogic<'_>,
     promise_index: u64,
@@ -149,7 +143,6 @@ pub(super) fn promise_batch_action_add_key_with_function_call(
     )
 }
 
-#[allow(dead_code)]
 pub(super) fn promise_batch_action_add_key_with_full_access(
     logic: &mut TestVMLogic<'_>,
     promise_index: u64,

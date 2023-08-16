@@ -3749,6 +3749,7 @@ dependencies = [
  "nearcore",
  "rayon",
  "tqdm",
+ "tracing",
 ]
 
 [[package]]
@@ -4120,6 +4121,7 @@ version = "0.0.0"
 dependencies = [
  "arbitrary",
  "assert_matches",
+ "base64 0.21.0",
  "bencher",
  "borsh 0.10.2",
  "bytesize",
@@ -4245,6 +4247,7 @@ dependencies = [
  "near-ping",
  "near-primitives",
  "once_cell",
+ "sha2 0.10.6",
  "tokio",
  "tracing",
 ]
@@ -4718,6 +4721,7 @@ dependencies = [
  "near-crypto",
  "near-o11y",
  "near-primitives",
+ "near-primitives-core",
  "near-store",
  "near-test-contracts",
  "near-vm-runner",

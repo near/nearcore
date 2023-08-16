@@ -55,8 +55,8 @@ use near_network::types::{
 };
 use near_o11y::testonly::TracingCapture;
 use near_o11y::WithSpanContextExt;
+use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
-use near_primitives::delegate_action::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
@@ -85,7 +85,6 @@ use near_telemetry::TelemetryActor;
 use crate::adapter::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
     BlockResponse, ProcessTxResponse, SetNetworkInfo, StateRequestHeader, StateRequestPart,
-    StateResponse,
 };
 
 pub struct PeerManagerMock {
@@ -972,16 +971,6 @@ pub fn setup_mock_all_validators(
                                                 }
                                                 future::ready(())
                                             }),
-                                    );
-                                }
-                            }
-                        }
-                        NetworkRequests::StateResponse { route_back, response } => {
-                            for (i, address) in addresses.iter().enumerate() {
-                                if route_back == address {
-                                    connectors1[i].client_actor.do_send(
-                                        StateResponse(Box::new(response.clone()))
-                                            .with_span_context(),
                                     );
                                 }
                             }

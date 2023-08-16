@@ -1,4 +1,5 @@
 use crate::near_primitives::version::PROTOCOL_VERSION;
+use crate::receipt_manager::ReceiptManager;
 use crate::{actions::execute_function_call, ext::RuntimeExt};
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -175,8 +176,10 @@ impl TrieViewer {
         let originator_id = contract_id;
         let public_key = PublicKey::empty(KeyType::ED25519);
         let empty_hash = CryptoHash::default();
+        let mut receipt_manager = ReceiptManager::default();
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,
+            &mut receipt_manager,
             contract_id,
             &empty_hash,
             &view_state.epoch_id,

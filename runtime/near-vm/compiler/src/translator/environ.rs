@@ -59,7 +59,7 @@ impl<'data> ModuleEnvironment<'data> {
 
     /// Translate a wasm module using this environment. This consumes the
     /// `ModuleEnvironment` and produces a `ModuleInfoTranslation`.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(target = "near_vm", skip_all)]
     pub fn translate(mut self, data: &'data [u8]) -> WasmResult<ModuleEnvironment<'data>> {
         assert!(self.module_translation_state.is_none());
         let module_translation_state = translate_module(data, &mut self)?;
