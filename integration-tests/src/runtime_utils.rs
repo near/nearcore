@@ -5,6 +5,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::types::AccountId;
 use near_primitives::types::StateRoot;
+use near_primitives_core::hash::CryptoHash;
 use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::create_tries_complex;
 use near_store::{ShardTries, TrieUpdate};
@@ -62,5 +63,17 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
         genesis,
         account_ids,
     );
+    let flat_storage_manager = tries.get_flat_storage_manager();
+    for shard_uid in shard_layout.get_shard_uids() {
+        let mut store_update = tries.store_update();
+        flat_storage_manager.set_flat_storage_for_genesis(
+            &mut store_update,
+            shard_uid,
+            &CryptoHash::default(),
+            0,
+        );
+        store_update.commit().unwrap();
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+    }
     (runtime, tries, genesis_root)
 }
