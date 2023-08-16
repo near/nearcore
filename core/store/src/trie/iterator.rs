@@ -296,6 +296,27 @@ impl<'a> TrieIterator<'a> {
         prefix
     }
 
+    // TODO(#9446) remove function when shifting to flat storage iteration for resharding
+    pub(crate) fn get_trie_items(
+        &mut self,
+        path_begin: &[u8],
+        path_end: &[u8],
+    ) -> Result<Vec<TrieItem>, StorageError> {
+        let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, false);
+        self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, false)?;
+
+        let mut trie_items = vec![];
+        for item in self {
+            let trie_item = item?;
+            let key_encoded: Vec<_> = NibbleSlice::new(&trie_item.0).iter().collect();
+            if &key_encoded[..] >= path_end {
+                return Ok(trie_items);
+            }
+            trie_items.push(trie_item);
+        }
+        Ok(trie_items)
+    }
+
     /// Visits all nodes belonging to the interval [path_begin, path_end) in depth-first search
     /// order and return TrieTraversalItem for each visited node.
     /// Used to generate and apply state parts for state sync.
