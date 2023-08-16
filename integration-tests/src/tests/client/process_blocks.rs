@@ -231,12 +231,12 @@ pub(crate) fn prepare_env_with_congestion(
             "test0".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer,
-            vec![Action::FunctionCall(FunctionCallAction {
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "call_promise".to_string(),
                 args: serde_json::to_vec(&data).unwrap(),
                 gas: gas_1,
                 deposit: 0,
-            })],
+            }))],
             *genesis_block.hash(),
         );
         tx_hashes.push(signed_transaction.get_hash());
@@ -2431,12 +2431,12 @@ fn test_validate_chunk_extra() {
         "test0".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
-        vec![Action::FunctionCall(FunctionCallAction {
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "write_block_height".to_string(),
             args: vec![],
             gas: 100000000000000,
             deposit: 0,
-        })],
+        }))],
         *last_block.hash(),
     );
     assert_eq!(
@@ -3556,12 +3556,12 @@ fn test_validator_stake_host_function() {
         "test0".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
-        vec![Action::FunctionCall(FunctionCallAction {
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_validator_stake".to_string(),
             args: b"test0".to_vec(),
             gas: 100_000_000_000_000,
             deposit: 0,
-        })],
+        }))],
         *genesis_block.hash(),
     );
     assert_eq!(

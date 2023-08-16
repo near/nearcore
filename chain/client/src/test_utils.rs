@@ -2207,7 +2207,7 @@ impl TestEnv {
             relayer,
             sender,
             &relayer_signer,
-            vec![Action::Delegate(signed_delegate_action)],
+            vec![Action::Delegate(Box::new(signed_delegate_action))],
             tip.last_block_hash,
         )
     }
@@ -2246,12 +2246,12 @@ impl TestEnv {
     /// deployed already.
     pub fn call_main(&mut self, account: &AccountId) -> FinalExecutionOutcomeView {
         let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
-        let actions = vec![Action::FunctionCall(FunctionCallAction {
+        let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: vec![],
             gas: 3 * 10u64.pow(14),
             deposit: 0,
-        })];
+        }))];
         let tx = self.tx_from_actions(actions, &signer, signer.account_id.clone());
         self.execute_tx(tx).unwrap()
     }

@@ -295,8 +295,12 @@ fn produce_saturated_chunk(
 ) -> std::sync::Arc<ShardChunk> {
     let msg_len = (method_name.len() + args.len()) as u64; // needed for gas computation later
     let gas = 300_000_000_000_000;
-    let actions =
-        vec![Action::FunctionCall(FunctionCallAction { method_name, args, gas, deposit: 0 })];
+    let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
+        method_name,
+        args,
+        gas,
+        deposit: 0,
+    }))];
     let signer = InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account);
 
     let tip = env.clients[0].chain.head().unwrap();

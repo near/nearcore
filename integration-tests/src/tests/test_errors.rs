@@ -43,10 +43,10 @@ fn test_check_tx_error_log() {
         vec![
             Action::CreateAccount(CreateAccountAction {}),
             Action::Transfer(TransferAction { deposit: 1_000 }),
-            Action::AddKey(AddKeyAction {
+            Action::AddKey(Box::new(AddKeyAction {
                 public_key: signer.public_key.clone(),
                 access_key: AccessKey::full_access(),
-            }),
+            })),
         ],
         block_hash,
     );
@@ -83,10 +83,10 @@ fn test_deliver_tx_error_log() {
         vec![
             Action::CreateAccount(CreateAccountAction {}),
             Action::Transfer(TransferAction { deposit: TESTING_INIT_BALANCE + 1 }),
-            Action::AddKey(AddKeyAction {
+            Action::AddKey(Box::new(AddKeyAction {
                 public_key: signer.public_key.clone(),
                 access_key: AccessKey::full_access(),
-            }),
+            })),
         ],
         block_hash,
     );

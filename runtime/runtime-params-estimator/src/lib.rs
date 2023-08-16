@@ -522,7 +522,7 @@ fn add_key_transaction(
     tb.transaction_from_actions(
         sender,
         receiver,
-        vec![Action::AddKey(AddKeyAction { public_key, access_key })],
+        vec![Action::AddKey(Box::new(AddKeyAction { public_key, access_key }))],
     )
 }
 
@@ -532,9 +532,9 @@ fn action_delete_key(ctx: &mut EstimatorContext) -> GasCost {
             let sender = tb.random_unused_account();
             let receiver = sender.clone();
 
-            let actions = vec![Action::DeleteKey(DeleteKeyAction {
+            let actions = vec![Action::DeleteKey(Box::new(DeleteKeyAction {
                 public_key: SecretKey::from_seed(KeyType::ED25519, sender.as_ref()).public_key(),
-            })];
+            }))];
             tb.transaction_from_actions(sender, receiver, actions)
         };
         transaction_cost(ctx, &mut make_transaction)
@@ -551,10 +551,10 @@ fn action_stake(ctx: &mut EstimatorContext) -> GasCost {
             let sender = tb.random_unused_account();
             let receiver = sender.clone();
 
-            let actions = vec![Action::Stake(StakeAction {
+            let actions = vec![Action::Stake(Box::new(StakeAction {
                 stake: 1,
                 public_key: "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap(),
-            })];
+            }))];
             tb.transaction_from_actions(sender, receiver, actions)
         };
         transaction_cost(ctx, &mut make_transaction)
