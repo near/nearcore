@@ -1,5 +1,5 @@
 use crate::flat::FlatStateChanges;
-use crate::{get, get_delayed_receipt_indices, set, ShardTries, StoreUpdate, TrieUpdate, Trie};
+use crate::{get, get_delayed_receipt_indices, set, ShardTries, StoreUpdate, Trie, TrieUpdate};
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;
 use near_primitives::account::id::AccountId;
