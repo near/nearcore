@@ -362,6 +362,23 @@ def neard_runner_network_init(node, validators, boot_nodes, epoch_length,
                                 })
 
 
+def neard_update_config(node, state_cache_size_mb):
+    return neard_runner_jsonrpc(node,
+                                'update_config',
+                                params={
+                                    'state_cache_size_mb': state_cache_size_mb,
+                                })
+
+
+def update_config_cmd(args, traffic_generator, nodes):
+    nodes = nodes + [traffic_generator]
+    results = pmap(
+        lambda node: neard_update_config(node, args.state_cache_size_mb), nodes)
+    if not all(results):
+        logger.warn('failed to update configs for some nodes')
+        return
+
+
 def neard_runner_ready(node):
     return neard_runner_jsonrpc(node, 'ready')
 
@@ -416,6 +433,13 @@ if __name__ == '__main__':
     init_parser.add_argument('--neard-binary-url', type=str)
     init_parser.add_argument('--neard-upgrade-binary-url', type=str)
     init_parser.set_defaults(func=init_cmd)
+
+    update_config_parser = subparsers.add_parser('update-config',
+                                                 help='''
+        Update config.json with given flags for all nodes.
+        ''')
+    update_config_parser.add_argument('--state-cache-size-mb', type=int)
+    update_config_parser.set_defaults(func=update_config_cmd)
 
     restart_parser = subparsers.add_parser('restart-neard-runner',
                                            help='''
