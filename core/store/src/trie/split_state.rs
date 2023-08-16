@@ -1,5 +1,4 @@
 use crate::flat::FlatStateChanges;
-use crate::trie::iterator::TrieItem;
 use crate::{get, get_delayed_receipt_indices, set, ShardTries, StoreUpdate, Trie, TrieUpdate};
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;
@@ -15,14 +14,10 @@ use near_primitives::types::{
 };
 use std::collections::HashMap;
 
+use super::iterator::TrieItem;
+
 impl Trie {
-    /// Computes the set of trie items (nodes with keys and values) for a state part.
-    ///
-    /// # Panics
-    /// part_id must be in [0..num_parts)
-    ///
-    /// # Errors
-    /// StorageError if the storage is corrupted
+    // TODO(#9446) remove function when shifting to flat storage iteration for resharding
     pub fn get_trie_items_for_part(&self, part_id: PartId) -> Result<Vec<TrieItem>, StorageError> {
         let path_begin = self.find_state_part_boundary(part_id.idx, part_id.total)?;
         let path_end = self.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
@@ -41,7 +36,7 @@ impl ShardTries {
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
         changes: StateChangesForSplitStates,
-        account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
+        account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
     ) -> Result<HashMap<ShardUId, TrieUpdate>, StorageError> {
         let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
         let mut insert_receipts = Vec::new();
@@ -69,7 +64,7 @@ impl ShardTries {
                 | TrieKey::PendingDataCount { receiver_id: account_id, .. }
                 | TrieKey::PostponedReceipt { receiver_id: account_id, .. }
                 | TrieKey::ContractData { account_id, .. } => {
-                    let new_shard_uid = account_id_to_shard_id(account_id);
+                    let new_shard_uid = account_id_to_shard_uid(account_id);
                     // we can safely unwrap here because the caller of this function guarantees trie_updates
                     // contains all shard_uids for the new shards
                     let trie_update = trie_updates.get_mut(&new_shard_uid).unwrap();
@@ -96,7 +91,7 @@ impl ShardTries {
             &mut trie_updates,
             &insert_receipts,
             &changes.processed_delayed_receipts,
-            account_id_to_shard_id,
+            account_id_to_shard_uid,
         )?;
 
         Ok(trie_updates)
@@ -173,14 +168,14 @@ impl ShardTries {
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
         receipts: &[Receipt],
-        account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
+        account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
         apply_delayed_receipts_to_split_states_impl(
             &mut trie_updates,
             receipts,
             &[],
-            account_id_to_shard_id,
+            account_id_to_shard_uid,
         )?;
         self.finalize_and_apply_trie_updates(trie_updates)
     }
@@ -206,7 +201,7 @@ fn apply_delayed_receipts_to_split_states_impl(
     trie_updates: &mut HashMap<ShardUId, TrieUpdate>,
     insert_receipts: &[Receipt],
     delete_receipts: &[Receipt],
-    account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
+    account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
 ) -> Result<(), StorageError> {
     let mut delayed_receipts_indices_by_shard = HashMap::new();
     for (shard_uid, update) in trie_updates.iter() {
@@ -214,7 +209,7 @@ fn apply_delayed_receipts_to_split_states_impl(
     }
 
     for receipt in insert_receipts {
-        let new_shard_uid: ShardUId = account_id_to_shard_id(&receipt.receiver_id);
+        let new_shard_uid: ShardUId = account_id_to_shard_uid(&receipt.receiver_id);
         if !trie_updates.contains_key(&new_shard_uid) {
             let err = format!(
                 "Account {} is in new shard {:?} but state_roots only contains {:?}",
@@ -243,7 +238,7 @@ fn apply_delayed_receipts_to_split_states_impl(
     }
 
     for receipt in delete_receipts {
-        let new_shard_uid: ShardUId = account_id_to_shard_id(&receipt.receiver_id);
+        let new_shard_uid: ShardUId = account_id_to_shard_uid(&receipt.receiver_id);
         if !trie_updates.contains_key(&new_shard_uid) {
             let err = format!(
                 "Account {} is in new shard {:?} but state_roots only contains {:?}",
@@ -324,8 +319,7 @@ pub fn get_delayed_receipts(
 mod tests {
     use crate::split_state::{apply_delayed_receipts_to_split_states_impl, get_delayed_receipts};
     use crate::test_utils::{
-        create_tries, gen_changes, gen_larger_changes, gen_receipts, get_all_delayed_receipts,
-        simplify_changes, test_populate_trie,
+        create_tries, gen_changes, gen_receipts, get_all_delayed_receipts, test_populate_trie,
     };
 
     use crate::{set, ShardTries, ShardUId, Trie};
@@ -333,52 +327,10 @@ mod tests {
     use near_primitives::borsh::BorshSerialize;
     use near_primitives::hash::hash;
     use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
-    use near_primitives::state_part::PartId;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{NumShards, StateChangeCause, StateRoot};
     use rand::Rng;
     use std::collections::HashMap;
-
-    #[test]
-    fn test_get_trie_items_for_part() {
-        let mut rng = rand::thread_rng();
-        let tries = create_tries();
-        let num_parts = rng.gen_range(5..10);
-
-        let changes = gen_larger_changes(&mut rng, 1000);
-        let changes = simplify_changes(&changes);
-        let state_root = test_populate_trie(
-            &tries,
-            &Trie::EMPTY_ROOT,
-            ShardUId::single_shard(),
-            changes.clone(),
-        );
-        let mut expected_trie_items: Vec<_> =
-            changes.into_iter().map(|(key, value)| (key, value.unwrap())).collect();
-        expected_trie_items.sort();
-
-        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
-        let total_trie_items = trie.get_trie_items_for_part(PartId::new(0, 1)).unwrap();
-        assert_eq!(expected_trie_items, total_trie_items);
-
-        let mut combined_trie_items = vec![];
-        for part_id in 0..num_parts {
-            let trie_items = trie.get_trie_items_for_part(PartId::new(part_id, num_parts)).unwrap();
-            combined_trie_items.extend_from_slice(&trie_items);
-            // check that items are split relatively evenly across all parts
-            assert!(
-                trie_items.len()
-                    >= (total_trie_items.len() / num_parts as usize / 2)
-                        .checked_sub(10)
-                        .unwrap_or_default()
-                    && trie_items.len() <= total_trie_items.len() / num_parts as usize * 2 + 10,
-                "part length {} avg length {}",
-                trie_items.len(),
-                total_trie_items.len() / num_parts as usize
-            );
-        }
-        assert_eq!(expected_trie_items, combined_trie_items);
-    }
 
     #[test]
     fn test_add_values_to_split_states() {
