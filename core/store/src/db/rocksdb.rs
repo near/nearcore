@@ -5,12 +5,12 @@ use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
 };
 use once_cell::sync::Lazy;
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::io;
 use std::ops::Deref;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use strum::IntoEnumIterator;
 use tracing::warn;
@@ -135,7 +135,7 @@ pub struct RocksDB {
     // counting total sum of max_open_files.
     _instance_tracker: instance_tracker::InstanceTracker,
 
-    perf_context: RefCell<PerfContext>,
+    perf_context: Arc<Mutex<PerfContext>>,
 }
 
 // DB was already Send+Sync. cf and read_options are const pointers using only functions in
@@ -203,7 +203,7 @@ impl RocksDB {
             db_opt,
             cf_handles,
             _instance_tracker: counter,
-            perf_context: RefCell::new(PerfContext::new()),
+            perf_context: Arc::new(Mutex::new(PerfContext::new())),
         })
     }
 
@@ -392,9 +392,9 @@ impl Database for RocksDB {
             metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
         let read_options = rocksdb_read_options();
 
-        let mut perf_data = self.perf_context.borrow_mut();
+        let mut perf_data = self.perf_context.lock().unwrap();
         let observed_latency = perf_data.start.elapsed();
-        
+
         let result = self
             .db
             .get_pinned_cf_opt(self.cf_handle(col)?, key, &read_options)
@@ -404,23 +404,19 @@ impl Database for RocksDB {
 
         let block_read_cnt =
             perf_data.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
-        let read_block_latency =
-            Duration::from_nanos(perf_data.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadTime));
+        let read_block_latency = Duration::from_nanos(
+            perf_data.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadTime),
+        );
         assert!(observed_latency > read_block_latency);
-
 
         let has_merge =
             perf_data.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
-        perf_data
-            .measurements_per_block_reads
-            .entry(block_read_cnt)
-            .or_default()
-            .record(observed_latency, read_block_latency, has_merge);
-        perf_data.measurements_overall.record(
+        perf_data.measurements_per_block_reads.entry(block_read_cnt).or_default().record(
             observed_latency,
             read_block_latency,
             has_merge,
         );
+        perf_data.measurements_overall.record(observed_latency, read_block_latency, has_merge);
 
         Ok(result)
     }
@@ -516,17 +512,21 @@ impl Database for RocksDB {
             }
         }
         self.get_cf_statistics(&mut result);
-        
+
         // Get all measurements from RocksDB perf
-        let mut perf_data = self.perf_context.borrow_mut();
-        result.data.push(("total_observed_latency_sum".to_string(), vec![StatsValue::Sum(
-            perf_data.measurements_overall.total_observed_latency.as_secs() as i64
-        )]));
-        result.data.push(("total_observed_latency_count".to_string(), vec![StatsValue::Sum(
-            perf_data.measurements_overall.count as i64
-        )]));
-        perf_data.reset();
-        
+        let mut perf_data = self.perf_context.lock().unwrap();
+        result.data.push((
+            "total_observed_latency_sum".to_string(),
+            vec![StatsValue::Sum(
+                perf_data.measurements_overall.total_observed_latency.as_secs() as i64
+            )],
+        ));
+        result.data.push((
+            "total_observed_latency_count".to_string(),
+            vec![StatsValue::Sum(perf_data.measurements_overall.count as i64)],
+        ));
+        //perf_data.reset();
+
         if result.data.is_empty() {
             None
         } else {
