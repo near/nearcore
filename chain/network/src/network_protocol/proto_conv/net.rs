@@ -81,7 +81,7 @@ impl From<&PeerInfo> for proto::PeerInfo {
     }
 }
 
-pub type ParsePeerInfoError = borsh::maybestd::io::Error;
+pub type ParsePeerInfoError = std::io::Error;
 
 impl TryFrom<&proto::PeerInfo> for PeerInfo {
     type Error = ParsePeerInfoError;
@@ -92,7 +92,7 @@ impl TryFrom<&proto::PeerInfo> for PeerInfo {
 
 ////////////////////////////////////////
 
-pub type ParsePartialEdgeInfoError = borsh::maybestd::io::Error;
+pub type ParsePartialEdgeInfoError = std::io::Error;
 
 impl From<&PartialEdgeInfo> for proto::PartialEdgeInfo {
     fn from(x: &PartialEdgeInfo) -> Self {
@@ -109,7 +109,7 @@ impl TryFrom<&proto::PartialEdgeInfo> for PartialEdgeInfo {
 
 ////////////////////////////////////////
 
-pub type ParseEdgeError = borsh::maybestd::io::Error;
+pub type ParseEdgeError = std::io::Error;
 
 impl From<&Edge> for proto::Edge {
     fn from(x: &Edge) -> Self {
@@ -126,7 +126,7 @@ impl TryFrom<&proto::Edge> for Edge {
 
 ////////////////////////////////////////
 
-pub type ParseAnnounceAccountError = borsh::maybestd::io::Error;
+pub type ParseAnnounceAccountError = std::io::Error;
 
 impl From<&AnnounceAccount> for proto::AnnounceAccount {
     fn from(x: &AnnounceAccount) -> Self {

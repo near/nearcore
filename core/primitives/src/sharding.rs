@@ -70,7 +70,7 @@ pub use shard_chunk_header_inner::{
 };
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct ShardChunkHeaderV1 {
     pub inner: ShardChunkHeaderInnerV1,
 
@@ -84,7 +84,7 @@ pub struct ShardChunkHeaderV1 {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct ShardChunkHeaderV2 {
     pub inner: ShardChunkHeaderInnerV1,
 
@@ -148,7 +148,7 @@ impl ShardChunkHeaderV2 {
 
 // V2 -> V3: Use versioned ShardChunkHeaderInner structure
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct ShardChunkHeaderV3 {
     pub inner: ShardChunkHeaderInner,
 

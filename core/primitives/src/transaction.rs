@@ -56,7 +56,7 @@ impl Transaction {
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, Eq, Debug, Clone,
 )]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct SignedTransaction {
     pub transaction: Transaction,
     pub signature: Signature,

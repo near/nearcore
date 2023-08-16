@@ -10,7 +10,6 @@ use crate::{checkpoint_hot_storage_and_cleanup_columns, metrics, DBCol, NodeStor
 use crate::{Store, StoreConfig, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
 use near_primitives::block::Block;
-use near_primitives::borsh::maybestd::collections::HashMap;
 use near_primitives::errors::EpochError;
 use near_primitives::errors::StorageError;
 use near_primitives::errors::StorageError::StorageInconsistentState;
@@ -24,6 +23,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, RwLock, TryLockError};
+use std::collections::HashMap;
 
 struct ShardTriesInner {
     store: Store,

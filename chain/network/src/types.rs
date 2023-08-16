@@ -53,6 +53,7 @@ pub struct KnownProducer {
 
 /// Ban reason.
 #[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq, Copy)]
+#[borsh(use_discriminant=false)]
 pub enum ReasonForBan {
     None = 0,
     BadBlock = 1,

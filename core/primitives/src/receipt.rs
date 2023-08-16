@@ -1,4 +1,4 @@
-use crate::borsh::maybestd::collections::HashMap;
+use std::collections::HashMap;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::transaction::{Action, TransferAction};

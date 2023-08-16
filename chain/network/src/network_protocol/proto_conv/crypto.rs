@@ -26,7 +26,7 @@ impl TryFrom<&proto::CryptoHash> for CryptoHash {
 
 //////////////////////////////////////////
 
-pub type ParsePublicKeyError = borsh::maybestd::io::Error;
+pub type ParsePublicKeyError = std::io::Error;
 
 impl From<&PublicKey> for proto::PublicKey {
     fn from(x: &PublicKey) -> Self {
@@ -56,7 +56,7 @@ impl TryFrom<&proto::PublicKey> for PeerId {
 
 //////////////////////////////////////////
 
-pub type ParseSignatureError = borsh::maybestd::io::Error;
+pub type ParseSignatureError = std::io::Error;
 
 impl From<&near_crypto::Signature> for proto::Signature {
     fn from(x: &near_crypto::Signature) -> Self {

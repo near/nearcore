@@ -55,7 +55,7 @@ pub struct MessageDiscriminant {
 /// Only used for constructing a signature, not used to transmit messages. The
 /// discriminant prefix is implicit and should be known by the receiver based on
 /// the context in which the message is received.
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize)]
 pub struct SignableMessage<'a, T> {
     pub discriminant: MessageDiscriminant,
     pub msg: &'a T,

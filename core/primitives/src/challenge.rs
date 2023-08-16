@@ -87,7 +87,7 @@ pub enum ChallengeBody {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct Challenge {
     pub body: ChallengeBody,
     pub account_id: AccountId,

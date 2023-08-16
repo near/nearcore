@@ -264,7 +264,7 @@ impl ApprovalMessage {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct BlockHeaderV1 {
     pub prev_hash: CryptoHash,
 
@@ -293,7 +293,7 @@ impl BlockHeaderV1 {
 
 /// V1 -> V2: Remove `chunks_included` from `inner_reset`
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct BlockHeaderV2 {
     pub prev_hash: CryptoHash,
 
@@ -313,7 +313,7 @@ pub struct BlockHeaderV2 {
 /// V2 -> V3: Add `prev_height` to `inner_rest` and use new `ValidatorStake`
 // Add `block_ordinal` to `inner_rest`
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct BlockHeaderV3 {
     pub prev_hash: CryptoHash,
 
@@ -332,7 +332,7 @@ pub struct BlockHeaderV3 {
 
 /// V3 -> V4: Add hash of block body to inner_rest
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct BlockHeaderV4 {
     pub prev_hash: CryptoHash,
 

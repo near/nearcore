@@ -117,7 +117,7 @@ impl From<&BlockHeader> for proto::BlockHeader {
     }
 }
 
-pub type ParseBlockHeaderError = borsh::maybestd::io::Error;
+pub type ParseBlockHeaderError = std::io::Error;
 
 impl TryFrom<&proto::BlockHeader> for BlockHeader {
     type Error = ParseBlockHeaderError;
@@ -134,7 +134,7 @@ impl From<&Block> for proto::Block {
     }
 }
 
-pub type ParseBlockError = borsh::maybestd::io::Error;
+pub type ParseBlockError = std::io::Error;
 
 impl TryFrom<&proto::Block> for Block {
     type Error = ParseBlockError;
@@ -151,7 +151,7 @@ impl From<&StateResponseInfo> for proto::StateResponseInfo {
     }
 }
 
-pub type ParseStateInfoError = borsh::maybestd::io::Error;
+pub type ParseStateInfoError = std::io::Error;
 
 impl TryFrom<&proto::StateResponseInfo> for StateResponseInfo {
     type Error = ParseStateInfoError;
@@ -270,10 +270,10 @@ impl From<&PeerMessage> for proto::PeerMessage {
     }
 }
 
-pub type ParsePeersRequestError = borsh::maybestd::io::Error;
-pub type ParseTransactionError = borsh::maybestd::io::Error;
-pub type ParseRoutedError = borsh::maybestd::io::Error;
-pub type ParseChallengeError = borsh::maybestd::io::Error;
+pub type ParsePeersRequestError = std::io::Error;
+pub type ParseTransactionError = std::io::Error;
+pub type ParseRoutedError = std::io::Error;
+pub type ParseChallengeError = std::io::Error;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ParsePeerMessageError {
