@@ -394,7 +394,7 @@ impl ReceiptManager {
 
 #[cfg(test)]
 mod tests {
-    use near_primitives::transaction::{Action};
+    use near_primitives::transaction::Action;
     use near_primitives_core::types::{Gas, GasWeight};
 
     #[track_caller]

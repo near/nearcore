@@ -230,7 +230,9 @@ fn test_zero_balance_account_add_key() {
         new_account_id.clone(),
         new_account_id.clone(),
         &new_signer,
-        vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key: keys.last().unwrap().clone() }))],
+        vec![Action::DeleteKey(Box::new(DeleteKeyAction {
+            public_key: keys.last().unwrap().clone(),
+        }))],
         *genesis_block.hash(),
     );
     assert_eq!(env.clients[0].process_tx(delete_key_tx, false, false), ProcessTxResponse::ValidTx);

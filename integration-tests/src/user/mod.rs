@@ -166,7 +166,10 @@ pub trait User {
             vec![
                 Action::CreateAccount(CreateAccountAction {}),
                 Action::Transfer(TransferAction { deposit: amount }),
-                Action::AddKey(Box::new(AddKeyAction { public_key, access_key: AccessKey::full_access() })),
+                Action::AddKey(Box::new(AddKeyAction {
+                    public_key,
+                    access_key: AccessKey::full_access(),
+                })),
             ],
         )
     }

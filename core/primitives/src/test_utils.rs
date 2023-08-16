@@ -220,7 +220,12 @@ impl SignedTransaction {
             signer_id,
             receiver_id,
             signer,
-            vec![Action::FunctionCall(Box::new(FunctionCallAction { args, method_name, gas, deposit }))],
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                args,
+                method_name,
+                gas,
+                deposit,
+            }))],
             block_hash,
         )
     }

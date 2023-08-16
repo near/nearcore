@@ -493,7 +493,8 @@ fn meta_tx_delete_key() {
 
     let tx_cost = fee_helper.delete_key_cost();
     let public_key = PublicKey::from_seed(KeyType::ED25519, &receiver);
-    let actions = vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key: public_key.clone() }))];
+    let actions =
+        vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key: public_key.clone() }))];
     check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver.clone());
 
     let err = node
