@@ -5640,7 +5640,7 @@ impl<'a> ChainUpdate<'a> {
         // because `last_final_block` for genesis is `CryptoHash::default()`
         // Here we return just the same genesis block header as last known block header
         // TODO(posvyatokum) process this case carefully in epoch sync validation
-        // TODO(pposvyatokum) process this carefully in saving the parts of epoch sync data
+        // TODO(posvyatokum) process this carefully in saving the parts of epoch sync data
         let last_finalised_header = {
             if *header.last_final_block() == CryptoHash::default() {
                 header.clone()
