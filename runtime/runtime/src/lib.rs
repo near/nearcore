@@ -22,7 +22,7 @@ use near_primitives::receipt::{
     ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
 };
 pub use near_primitives::runtime::apply_state::ApplyState;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
@@ -299,7 +299,7 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ActionResult, RuntimeError> {
         let exec_fees = exec_fee(
-            &apply_state.config.fees,
+            &apply_state.config,
             action,
             &receipt.receiver_id,
             apply_state.current_protocol_version,
@@ -614,7 +614,7 @@ impl Runtime {
                 action_receipt,
                 &mut result,
                 apply_state.current_protocol_version,
-                &apply_state.config.fees,
+                &apply_state.config,
             )?
         };
         stats.gas_deficit_amount = safe_add_balance(stats.gas_deficit_amount, gas_deficit_amount)?;
@@ -773,25 +773,21 @@ impl Runtime {
         action_receipt: &ActionReceipt,
         result: &mut ActionResult,
         current_protocol_version: ProtocolVersion,
-        transaction_costs: &RuntimeFeesConfig,
+        config: &RuntimeConfig,
     ) -> Result<Balance, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
         let prepaid_gas = safe_add_gas(
             total_prepaid_gas(&action_receipt.actions)?,
-            total_prepaid_send_fees(
-                transaction_costs,
-                &action_receipt.actions,
-                current_protocol_version,
-            )?,
+            total_prepaid_send_fees(config, &action_receipt.actions, current_protocol_version)?,
         )?;
         let prepaid_exec_gas = safe_add_gas(
             total_prepaid_exec_fees(
-                transaction_costs,
+                config,
                 &action_receipt.actions,
                 &receipt.receiver_id,
                 current_protocol_version,
             )?,
-            transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee(),
+            config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
         )?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gas_refund = if result.result.is_err() {
@@ -1463,7 +1459,7 @@ impl Runtime {
         }
 
         check_balance(
-            &apply_state.config.fees,
+            &apply_state.config,
             &state_update,
             validator_accounts_update,
             incoming_receipts,
@@ -2255,7 +2251,7 @@ mod tests {
         let expected_gas_burnt = safe_add_gas(
             apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
             total_prepaid_exec_fees(
-                &apply_state.config.fees,
+                &apply_state.config,
                 &actions,
                 &alice_account(),
                 PROTOCOL_VERSION,
@@ -2324,7 +2320,7 @@ mod tests {
         let expected_gas_burnt = safe_add_gas(
             apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
             total_prepaid_exec_fees(
-                &apply_state.config.fees,
+                &apply_state.config,
                 &actions,
                 &alice_account(),
                 PROTOCOL_VERSION,

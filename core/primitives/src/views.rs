@@ -1252,10 +1252,7 @@ impl TryFrom<ActionView> for Action {
                 Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
             }
             ActionView::Delegate { delegate_action, signature } => {
-                Action::Delegate(SignedDelegateAction {
-                    delegate_action: delegate_action,
-                    signature,
-                })
+                Action::Delegate(SignedDelegateAction { delegate_action, signature })
             }
         })
     }
