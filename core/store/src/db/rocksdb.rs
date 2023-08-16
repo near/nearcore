@@ -47,7 +47,6 @@ static CF_PROPERTY_NAMES: Lazy<Vec<std::ffi::CString>> = Lazy::new(|| {
 
 pub struct PerfContext {
     rocksdb_context: rocksdb::perf::PerfContext,
-    start: Instant,
     measurements_per_block_reads: BTreeMap<usize, Measurements>,
     measurements_overall: Measurements,
 }
@@ -57,7 +56,6 @@ impl PerfContext {
         rocksdb::perf::set_perf_stats(rocksdb::perf::PerfStatsLevel::EnableTime);
         Self {
             rocksdb_context: rocksdb::perf::PerfContext::default(),
-            start: Instant::now(),
             measurements_per_block_reads: BTreeMap::new(),
             measurements_overall: Measurements::default(),
         }
@@ -65,7 +63,6 @@ impl PerfContext {
 
     fn reset(&mut self) {
         self.rocksdb_context.reset();
-        self.start = Instant::now();
     }
 }
 
@@ -523,13 +520,13 @@ impl Database for RocksDB {
             let perf_data = self.perf_context.lock().unwrap();
             result.data.push((
                 "rocksdb_perf_total_observed_latency".to_string(),
-                vec![StatsValue::Sum(
+                vec![StatsValue::Count(
                     perf_data.measurements_overall.total_observed_latency.as_secs() as i64
                 )],
             ));
             result.data.push((
                 "rocksdb_perf_total_observed_latency_count".to_string(),
-                vec![StatsValue::Sum(perf_data.measurements_overall.count as i64)],
+                vec![StatsValue::Count(perf_data.measurements_overall.count as i64)],
             ));
         }
         //perf_data.reset();
