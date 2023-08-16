@@ -48,12 +48,12 @@ fn test_nearvm_upgrade() {
         signer_id: "test0".parse().unwrap(),
         receiver_id: "test0".parse().unwrap(),
         public_key: signer.public_key(),
-        actions: vec![Action::FunctionCall(FunctionCallAction {
+        actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "log_something".to_string(),
             args: Vec::new(),
             gas: 100_000_000_000_000,
             deposit: 0,
-        })],
+        }))],
 
         nonce: 0,
         block_hash: CryptoHash::default(),

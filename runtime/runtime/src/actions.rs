@@ -1168,12 +1168,12 @@ mod tests {
                 actions: vec![
                     non_delegate_action(
                         Action::FunctionCall(
-                            FunctionCallAction {
+                            Box::new(FunctionCallAction {
                                  method_name: "ft_transfer".parse().unwrap(),
                                  args: vec![123, 34, 114, 101, 99, 101, 105, 118, 101, 114, 95, 105, 100, 34, 58, 34, 106, 97, 110, 101, 46, 116, 101, 115, 116, 46, 110, 101, 97, 114, 34, 44, 34, 97, 109, 111, 117, 110, 116, 34, 58, 34, 52, 34, 125],
                                  gas: 30000000000000,
                                  deposit: 1,
-                            }
+                            })
                         )
                     )
                 ],
@@ -1190,7 +1190,7 @@ mod tests {
             gas_price: 1,
             output_data_receivers: Vec::new(),
             input_data_ids: Vec::new(),
-            actions: vec![Action::Delegate(signed_delegate_action.clone())],
+            actions: vec![Action::Delegate(Box::new(signed_delegate_action.clone()))],
         };
 
         (action_receipt, signed_delegate_action)
@@ -1371,7 +1371,7 @@ mod tests {
         // Sender account doesn't exist. Must fail.
         assert_eq!(
             check_account_existence(
-                &Action::Delegate(signed_delegate_action),
+                &Action::Delegate(Box::new(signed_delegate_action)),
                 &mut None,
                 &sender_id,
                 1,
@@ -1567,12 +1567,12 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
+            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
                 method_name: "test_method".parse().unwrap(),
-            }))];
+            })))];
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
         assert!(result.result.is_ok(), "Result error {:?}", result.result);
     }
@@ -1618,18 +1618,18 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions = vec![
-            non_delegate_action(Action::FunctionCall(FunctionCallAction {
+            non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
                 method_name: "test_method".parse().unwrap(),
-            })),
-            non_delegate_action(Action::FunctionCall(FunctionCallAction {
+            }))),
+            non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
                 method_name: "test_method".parse().unwrap(),
-            })),
+            }))),
         ];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
@@ -1657,12 +1657,12 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
+            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 1,
                 gas: 300,
                 method_name: "test_method".parse().unwrap(),
-            }))];
+            })))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
 
@@ -1689,12 +1689,12 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
+            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
                 method_name: "test_method".parse().unwrap(),
-            }))];
+            })))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
 
@@ -1724,12 +1724,12 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
+            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
                 method_name: "test_method".parse().unwrap(),
-            }))];
+            })))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
 
