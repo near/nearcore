@@ -37,9 +37,11 @@ use near_primitives::challenge::{
     MaybeEncodedShardChunk, PartialState, SlashedValidator,
 };
 use near_primitives::checked_feature;
-use near_primitives::epoch_manager::block_info::BlockInfo;
 #[cfg(feature = "new_epoch_sync")]
-use near_primitives::epoch_manager::epoch_sync::{BlockHeaderPair, EpochSyncInfo};
+use near_primitives::epoch_manager::{
+    block_info::BlockInfo,
+    epoch_sync::{BlockHeaderPair, EpochSyncInfo},
+};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{
