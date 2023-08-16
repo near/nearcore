@@ -109,6 +109,15 @@ impl FlatStateChanges {
         Self(delta)
     }
 
+    pub fn from_raw_key_value(entries: &[(Vec<u8>, Option<Vec<u8>>)]) -> Self {
+        let mut delta = HashMap::new();
+        for (key, raw_value) in entries {
+            let flat_state_value = raw_value.as_ref().map(|value| FlatStateValue::on_disk(value));
+            delta.insert(key.to_vec(), flat_state_value);
+        }
+        Self(delta)
+    }
+
     /// Applies delta to the flat state.
     pub fn apply_to_flat_state(self, store_update: &mut StoreUpdate, shard_uid: ShardUId) {
         for (key, value) in self.0.into_iter() {
