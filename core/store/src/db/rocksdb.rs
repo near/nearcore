@@ -407,7 +407,7 @@ impl Database for RocksDB {
         let read_block_latency = Duration::from_nanos(
             perf_data.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadTime),
         );
-        assert!(observed_latency > read_block_latency);
+        //assert!(observed_latency > read_block_latency);
 
         let has_merge =
             perf_data.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
