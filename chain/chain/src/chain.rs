@@ -37,6 +37,11 @@ use near_primitives::challenge::{
     MaybeEncodedShardChunk, PartialState, SlashedValidator,
 };
 use near_primitives::checked_feature;
+#[cfg(feature = "new_epoch_sync")]
+use near_primitives::epoch_manager::{
+    block_info::BlockInfo,
+    epoch_sync::{BlockHeaderPair, EpochSyncInfo},
+};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{
@@ -5311,6 +5316,13 @@ impl<'a> ChainUpdate<'a> {
             .add_validator_proposals(BlockHeaderInfo::new(block.header(), last_finalized_height))?;
         self.chain_store_update.merge(epoch_manager_update);
 
+        #[cfg(feature = "new_epoch_sync")]
+        {
+            // BlockInfo should be already recorded in epoch_manager cache
+            let block_info = self.epoch_manager.get_block_info(block.hash())?;
+            self.save_epoch_sync_info(block.header().epoch_id(), block.header(), &block_info)?;
+        }
+
         // Add validated block to the db, even if it's not the canonical fork.
         self.chain_store_update.save_block(block.clone());
         self.chain_store_update.inc_block_refcount(prev_hash)?;
@@ -5686,6 +5698,67 @@ impl<'a> ChainUpdate<'a> {
 
         self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, new_chunk_extra);
         Ok(true)
+    }
+
+    /// If the block is the last one in the epoch
+    /// construct and record `EpochSyncInfo` to `self.chain_store_update`.
+    #[cfg(feature = "new_epoch_sync")]
+    fn save_epoch_sync_info(
+        &mut self,
+        epoch_id: &EpochId,
+        last_block_header: &BlockHeader,
+        last_block_info: &BlockInfo,
+    ) -> Result<(), Error> {
+        if self.epoch_manager.is_next_block_epoch_start(last_block_header.hash())? {
+            let mut store_update = self.chain_store_update.store().store_update();
+            store_update
+                .set_ser(
+                    DBCol::EpochSyncInfo,
+                    epoch_id.as_ref(),
+                    &self.create_epoch_sync_info(last_block_header, last_block_info)?,
+                )
+                .map_err(EpochError::from)?;
+            self.chain_store_update.merge(store_update);
+        }
+        Ok(())
+    }
+
+    /// Create a pair of `BlockHeader`s necessary to create `BlockInfo` for `block_hash`
+    #[cfg(feature = "new_epoch_sync")]
+    fn get_header_pair(&self, block_hash: &CryptoHash) -> Result<BlockHeaderPair, Error> {
+        let header = self.chain_store_update.get_block_header(block_hash)?;
+        // `block_hash` can correspond to genesis block, for which there is no last final block recorded,
+        // because `last_final_block` for genesis is `CryptoHash::default()`
+        // Here we return just the same genesis block header as last known block header
+        // TODO(posvyatokum) process this case carefully in epoch sync validation
+        // TODO(posvyatokum) process this carefully in saving the parts of epoch sync data
+        let last_finalised_header = {
+            if *header.last_final_block() == CryptoHash::default() {
+                header.clone()
+            } else {
+                self.chain_store_update.get_block_header(header.last_final_block())?
+            }
+        };
+        Ok(BlockHeaderPair { header, last_finalised_header })
+    }
+
+    /// Data that is necessary to prove Epoch in new Epoch Sync.
+    #[cfg(feature = "new_epoch_sync")]
+    fn create_epoch_sync_info(
+        &self,
+        last_block_header: &BlockHeader,
+        last_block_info: &BlockInfo,
+    ) -> Result<EpochSyncInfo, Error> {
+        let last = self.get_header_pair(last_block_header.hash())?;
+        let prev_last = self.get_header_pair(last_block_header.prev_hash())?;
+        let first = self.get_header_pair(last_block_info.epoch_first_block())?;
+        let epoch_info = self.epoch_manager.get_epoch_info(last_block_info.epoch_id())?;
+        Ok(EpochSyncInfo {
+            last,
+            prev_last,
+            first,
+            block_producers: epoch_info.validators_iter().collect(),
+        })
     }
 }
 
