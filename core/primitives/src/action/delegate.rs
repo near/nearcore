@@ -171,7 +171,7 @@ mod tests {
         // Expected an error. Buffer is empty
         assert_eq!(
             NonDelegateAction::try_from_slice(Vec::new().as_ref()).map_err(|e| e.kind()),
-            Err(ErrorKind::InvalidInput)
+            Err(ErrorKind::InvalidData)
         );
 
         let delegate_action = create_delegate_action(Vec::<Action>::new());
