@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # Spins up one validating node.
-# Spins a non-validating node that tracks some shards and the set of tracked shards changes regularly.
-# The node gets stopped, and gets restarted close to an epoch boundary but in a way to trigger epoch sync.
+# Spins a non-validating node that tracks some shards and the set of tracked
+# shards changes regularly.
+# The node gets stopped, and gets restarted close to an epoch boundary but in a
+# way to trigger state sync.
 #
 # This test is a regression test to ensure that the node doesn't panic during
 # function execution during block sync after a state sync.
@@ -25,10 +27,10 @@ EPOCH_LENGTH = 50
 state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
 
 config0 = {
-    'enable_multiline_logging': False,
+    'gc_num_epochs_to_keep': 100,
     'log_summary_period': {
         'secs': 0,
-        'nanos': 100000000
+        'nanos': 500000000
     },
     'log_summary_style': 'plain',
     'state_sync': {
@@ -48,10 +50,10 @@ config0 = {
     'tracked_shards': [0],
 }
 config1 = {
-    'enable_multiline_logging': False,
+    'gc_num_epochs_to_keep': 100,
     'log_summary_period': {
         'secs': 0,
-        'nanos': 100000000
+        'nanos': 500000000
     },
     'log_summary_style': 'plain',
     'state_sync': {
@@ -66,7 +68,7 @@ config1 = {
         }
     },
     'state_sync_enabled': True,
-    'state_sync_timeout': {
+    'consensus.state_sync_timeout': {
         'secs': 0,
         'nanos': 500000000
     },
@@ -74,9 +76,6 @@ config1 = {
                                [0, 1]],
     'tracked_shards': [],
 }
-logger.info(f'state_parts_dir: {state_parts_dir}')
-logger.info(f'config0: {config0}')
-logger.info(f'config1: {config1}')
 
 config = load_config()
 near_root, node_dirs = init_cluster(1, 1, 4, config,
