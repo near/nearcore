@@ -80,7 +80,7 @@ pub struct ShardChunkHeaderV1 {
     /// Signature of the chunk producer.
     pub signature: Signature,
 
-    #[borsh_skip]
+    #[borsh(skip)]
     pub hash: ChunkHash,
 }
 
@@ -94,7 +94,7 @@ pub struct ShardChunkHeaderV2 {
     /// Signature of the chunk producer.
     pub signature: Signature,
 
-    #[borsh_skip]
+    #[borsh(skip)]
     pub hash: ChunkHash,
 }
 
@@ -158,7 +158,7 @@ pub struct ShardChunkHeaderV3 {
     /// Signature of the chunk producer.
     pub signature: Signature,
 
-    #[borsh_skip]
+    #[borsh(skip)]
     pub hash: ChunkHash,
 }
 

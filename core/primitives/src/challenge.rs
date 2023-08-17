@@ -93,7 +93,7 @@ pub struct Challenge {
     pub account_id: AccountId,
     pub signature: Signature,
 
-    #[borsh_skip]
+    #[borsh(skip)]
     pub hash: CryptoHash,
 }
 

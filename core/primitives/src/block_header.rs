@@ -277,7 +277,7 @@ pub struct BlockHeaderV1 {
     pub signature: Signature,
 
     /// Cached value of hash for this block.
-    #[borsh_skip]
+    #[borsh(skip)]
     pub hash: CryptoHash,
 }
 
@@ -306,7 +306,7 @@ pub struct BlockHeaderV2 {
     pub signature: Signature,
 
     /// Cached value of hash for this block.
-    #[borsh_skip]
+    #[borsh(skip)]
     pub hash: CryptoHash,
 }
 
@@ -326,7 +326,7 @@ pub struct BlockHeaderV3 {
     pub signature: Signature,
 
     /// Cached value of hash for this block.
-    #[borsh_skip]
+    #[borsh(skip)]
     pub hash: CryptoHash,
 }
 
@@ -345,7 +345,7 @@ pub struct BlockHeaderV4 {
     pub signature: Signature,
 
     /// Cached value of hash for this block.
-    #[borsh_skip]
+    #[borsh(skip)]
     pub hash: CryptoHash,
 }
 

@@ -60,9 +60,9 @@ impl Transaction {
 pub struct SignedTransaction {
     pub transaction: Transaction,
     pub signature: Signature,
-    #[borsh_skip]
+    #[borsh(skip)]
     hash: CryptoHash,
-    #[borsh_skip]
+    #[borsh(skip)]
     size: u64,
 }
 
@@ -193,7 +193,7 @@ pub struct ExecutionOutcome {
     // At the moment this field is only set at runtime and is not persisted in the database.
     // This means that when execution outcomes are read from the database, this value will not be
     // set and any code that attempts to use it will crash.
-    #[borsh_skip]
+    #[borsh(skip)]
     pub compute_usage: Option<Compute>,
     /// The amount of tokens burnt corresponding to the burnt gas amount.
     /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
