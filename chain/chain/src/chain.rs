@@ -5067,8 +5067,10 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<(), Error> {
         let block_hash = block.hash();
         let prev_hash = block.header().prev_hash();
+        let height = block.header().height();
         match apply_results_or_state_changes {
             ApplySplitStateResultOrStateChanges::ApplySplitStateResults(results) => {
+                tracing::debug!(target: "resharding", height, ?shard_uid, "process_split_state apply");
                 // Split validator_proposals, gas_burnt, balance_burnt to each split shard
                 // and store the chunk extra for split shards
                 // Note that here we do not split outcomes by the new shard layout, we simply store
@@ -5085,12 +5087,12 @@ impl<'a> ChainUpdate<'a> {
 
                 let mut validator_proposals_by_shard: HashMap<_, Vec<_>> = HashMap::new();
                 for validator_proposal in chunk_extra.validator_proposals() {
-                    let shard_id = account_id_to_shard_uid(
+                    let shard_uid = account_id_to_shard_uid(
                         validator_proposal.account_id(),
                         &next_epoch_shard_layout,
                     );
                     validator_proposals_by_shard
-                        .entry(shard_id)
+                        .entry(shard_uid)
                         .or_default()
                         .push(validator_proposal);
                 }
@@ -5099,21 +5101,36 @@ impl<'a> ChainUpdate<'a> {
                     .get_split_shard_uids(shard_uid.shard_id())
                     .unwrap_or_else(|| panic!("invalid shard layout {:?}", next_epoch_shard_layout))
                     .len() as NumShards;
+
                 let total_gas_used = chunk_extra.gas_used();
                 let total_balance_burnt = chunk_extra.balance_burnt();
-                let gas_res = total_gas_used % num_split_shards;
+
+                let mut gas_res = total_gas_used % num_split_shards;
                 let gas_split = total_gas_used / num_split_shards;
-                let balance_res = (total_balance_burnt % num_split_shards as u128) as NumShards;
+
+                let mut balance_res = (total_balance_burnt % num_split_shards as u128) as NumShards;
                 let balance_split = total_balance_burnt / (num_split_shards as u128);
                 let gas_limit = chunk_extra.gas_limit();
                 let outcome_root = *chunk_extra.outcome_root();
 
                 let mut sum_gas_used = 0;
                 let mut sum_balance_burnt = 0;
+
+                // The gas and balance distribution assumes that we have a result for every split shard.
+                // TODO(resharding) make sure that is the case.
+                assert_eq!(num_split_shards, results.len() as u64);
+
                 for result in results {
-                    let shard_id = result.shard_uid.shard_id();
-                    let gas_burnt = gas_split + if shard_id < gas_res { 1 } else { 0 };
-                    let balance_burnt = balance_split + if shard_id < balance_res { 1 } else { 0 };
+                    let mut gas_burnt = gas_split;
+                    if gas_res > 0 {
+                        gas_res -= 1;
+                        gas_burnt += 1;
+                    }
+                    let mut balance_burnt = balance_split;
+                    if balance_res > 0 {
+                        balance_res -= 1;
+                        balance_burnt += 1;
+                    }
                     let new_chunk_extra = ChunkExtra::new(
                         &result.new_root,
                         outcome_root,
@@ -5150,6 +5167,7 @@ impl<'a> ChainUpdate<'a> {
                 assert_eq!(sum_balance_burnt, total_balance_burnt);
             }
             ApplySplitStateResultOrStateChanges::StateChangesForSplitStates(state_changes) => {
+                tracing::debug!(target: "resharding", height, ?shard_uid, "process_split_state store");
                 self.chain_store_update.add_state_changes_for_split_states(
                     *block_hash,
                     shard_uid.shard_id(),
