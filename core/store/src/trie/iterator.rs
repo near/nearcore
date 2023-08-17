@@ -296,10 +296,7 @@ impl<'a> TrieIterator<'a> {
         prefix
     }
 
-    /// Note that path_begin and path_end are not bytes, they are nibbles
-    /// Visits all nodes belonging to the interval [path_begin, path_end) in depth-first search
-    /// order and return key-value pairs for each visited node with value stored
-    /// Used to generate split states for re-sharding
+    // TODO(#9446) remove function when shifting to flat storage iteration for resharding
     pub(crate) fn get_trie_items(
         &mut self,
         path_begin: &[u8],
@@ -475,15 +472,8 @@ mod tests {
             }
             test_seek_prefix(&trie, &map, &[]);
 
-            let empty_vec = vec![];
-            let max_key = map.keys().max().unwrap_or(&empty_vec);
-            let min_key = map.keys().min().unwrap_or(&empty_vec);
-            test_get_trie_items(&trie, &map, &[], &[]);
-            test_get_trie_items(&trie, &map, min_key, max_key);
             for (seek_key, _) in trie_changes.iter() {
                 test_seek_prefix(&trie, &map, seek_key);
-                test_get_trie_items(&trie, &map, min_key, seek_key);
-                test_get_trie_items(&trie, &map, seek_key, max_key);
             }
             for _ in 0..20 {
                 let alphabet = &b"abcdefgh"[0..rng.gen_range(2..8)];
@@ -491,12 +481,6 @@ mod tests {
                 let seek_key: Vec<u8> =
                     (0..key_length).map(|_| *alphabet.choose(&mut rng).unwrap()).collect();
                 test_seek_prefix(&trie, &map, &seek_key);
-
-                let seek_key2: Vec<u8> =
-                    (0..key_length).map(|_| *alphabet.choose(&mut rng).unwrap()).collect();
-                let path_begin = seek_key.clone().min(seek_key2.clone());
-                let path_end = seek_key.clone().max(seek_key2.clone());
-                test_get_trie_items(&trie, &map, &path_begin, &path_end);
             }
         }
     }
@@ -642,29 +626,6 @@ mod tests {
             test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes.clone());
         let trie = tries.get_trie_for_shard(shard_uid, state_root);
         (trie_changes, map, trie)
-    }
-
-    fn test_get_trie_items(
-        trie: &Trie,
-        map: &BTreeMap<Vec<u8>, Vec<u8>>,
-        path_begin: &[u8],
-        path_end: &[u8],
-    ) {
-        let path_begin_nibbles: Vec<_> = NibbleSlice::new(path_begin).iter().collect();
-        let path_end_nibbles: Vec<_> = NibbleSlice::new(path_end).iter().collect();
-        let result1 =
-            trie.iter().unwrap().get_trie_items(&path_begin_nibbles, &path_end_nibbles).unwrap();
-        let result2: Vec<_> = map
-            .range(path_begin.to_vec()..path_end.to_vec())
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-        assert_eq!(result1, result2);
-
-        // test when path_end ends in [16]
-        let result1 = trie.iter().unwrap().get_trie_items(&path_begin_nibbles, &[16u8]).unwrap();
-        let result2: Vec<_> =
-            map.range(path_begin.to_vec()..).map(|(k, v)| (k.clone(), v.clone())).collect();
-        assert_eq!(result1, result2);
     }
 
     fn test_seek_prefix(trie: &Trie, map: &BTreeMap<Vec<u8>, Vec<u8>>, seek_key: &[u8]) {
