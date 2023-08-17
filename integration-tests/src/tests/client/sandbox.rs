@@ -29,9 +29,9 @@ fn test_setup() -> (TestEnv, InMemorySigner) {
             "test0".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer,
-            vec![Action::DeployContract(DeployContractAction {
+            vec![Action::DeployContract(Box::new(DeployContractAction {
                 code: near_test_contracts::rs_contract().to_vec(),
-            })],
+            }))],
         ),
         ProcessTxResponse::ValidTx
     );
