@@ -41,7 +41,7 @@ impl SinglepassCompiler {
 impl Compiler for SinglepassCompiler {
     /// Compile the module using Singlepass, producing a compilation result with
     /// associated relocations.
-    #[tracing::instrument(target = "near_vm", level = "debug", skip_all)]
+    #[tracing::instrument(target = "near_vm", level = "info", skip_all)]
     fn compile_module(
         &self,
         target: &Target,
