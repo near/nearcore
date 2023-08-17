@@ -65,6 +65,7 @@ nightly_protocol = [
   "near-primitives-core/nightly_protocol",
   "near-vm-runner/nightly_protocol",
 ]
+new_epoch_sync = []
 
 
 calimero_zero_storage = []

@@ -792,7 +792,19 @@ impl ShardsManager {
     /// Finds the parts and receipt proofs asked for in the request, and returns a response
     /// containing whatever was found. See comment for PartialEncodedChunkResponseSource for
     /// an explanation of that part of the return value.
+    /// Ensures the receipts in the response are in a deterministic order.
     fn prepare_partial_encoded_chunk_response(
+        &mut self,
+        request: PartialEncodedChunkRequestMsg,
+    ) -> (PartialEncodedChunkResponseSource, PartialEncodedChunkResponseMsg) {
+        let (src, mut response_msg) = self.prepare_partial_encoded_chunk_response_unsorted(request);
+        // Note that the PartialChunks column is a write-once column, and needs
+        // the values to be deterministic.
+        response_msg.receipts.sort();
+        (src, response_msg)
+    }
+
+    fn prepare_partial_encoded_chunk_response_unsorted(
         &mut self,
         request: PartialEncodedChunkRequestMsg,
     ) -> (PartialEncodedChunkResponseSource, PartialEncodedChunkResponseMsg) {

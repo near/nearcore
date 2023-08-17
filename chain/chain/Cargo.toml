@@ -10,8 +10,10 @@ actix.workspace = true
 ansi_term.workspace = true
 assert_matches.workspace = true
 borsh.workspace = true
+bytesize.workspace = true
 chrono.workspace = true
 crossbeam-channel.workspace = true
+delay-detector.workspace = true
 enum-map.workspace = true
 itertools.workspace = true
 itoa.workspace = true
@@ -25,7 +27,6 @@ strum.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-delay-detector.workspace = true
 near-chain-configs.workspace = true
 near-chain-primitives.workspace = true
 near-crypto.workspace = true
@@ -48,6 +49,7 @@ expensive_tests = []
 test_features = []
 delay_detector = ["delay-detector/delay_detector"]
 no_cache = ["near-store/no_cache"]
+new_epoch_sync = ["near-store/new_epoch_sync", "near-primitives/new_epoch_sync"]
 
 protocol_feature_reject_blocks_with_outdated_protocol_version = [
   "near-primitives/protocol_feature_reject_blocks_with_outdated_protocol_version",
