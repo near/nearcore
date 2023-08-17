@@ -155,7 +155,6 @@ pub fn decode_encoded_chunk(
         })
     {
         debug!(target: "chunks", "Reconstructed and decoded chunk {}, encoded length was {}, num txs: {}, I'm {:?}", chunk_hash.0, encoded_chunk.encoded_length(), shard_chunk.transactions().len(), me);
-
         let partial_chunk = create_partial_chunk(
             encoded_chunk,
             merkle_paths,

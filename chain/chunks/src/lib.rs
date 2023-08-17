@@ -606,17 +606,21 @@ impl ShardsManager {
             },
         );
 
-        if !mark_only {
-            let fetch_from_archival = chunk_needs_to_be_fetched_from_archival(
+        if mark_only {
+            debug!(target: "chunks", height, shard_id, ?chunk_hash, "Marked the chunk as being requested but did not send the request yet.");
+            return;
+        }
+
+        let fetch_from_archival = chunk_needs_to_be_fetched_from_archival(
                 &ancestor_hash, &self.chain_header_head.last_block_hash,
             self.epoch_manager.as_ref()).unwrap_or_else(|err| {
                 error!(target: "chunks", "Error during requesting partial encoded chunk. Cannot determine whether to request from an archival node, defaulting to not: {}", err);
                 false
             });
-            let old_block = self.chain_header_head.last_block_hash != prev_block_hash
-                && self.chain_header_head.prev_block_hash != prev_block_hash;
+        let old_block = self.chain_header_head.last_block_hash != prev_block_hash
+            && self.chain_header_head.prev_block_hash != prev_block_hash;
 
-            let should_wait_for_chunk_forwarding =
+        let should_wait_for_chunk_forwarding =
                 self.should_wait_for_chunk_forwarding(&ancestor_hash, chunk_header.shard_id(), chunk_header.height_created()+1).unwrap_or_else(|_| {
                     // ancestor_hash must be accepted because we don't request missing chunks through this
                     // this function for orphans
@@ -625,30 +629,27 @@ impl ShardsManager {
                     false
                 });
 
-            // If chunks forwarding is enabled,
-            // we purposely do not send chunk request messages right away for new blocks. Such requests
-            // will eventually be sent because of the `resend_chunk_requests` loop. However,
-            // we want to give some time for any `PartialEncodedChunkForward` messages to arrive
-            // before we send requests.
-            if !should_wait_for_chunk_forwarding || fetch_from_archival || old_block {
-                debug!(target: "chunks", height, shard_id, ?chunk_hash, "Requesting.");
-                let request_result = self.request_partial_encoded_chunk(
-                    height,
-                    &ancestor_hash,
-                    shard_id,
-                    &chunk_hash,
-                    false,
-                    old_block,
-                    fetch_from_archival,
-                );
-                if let Err(err) = request_result {
-                    error!(target: "chunks", "Error during requesting partial encoded chunk: {}", err);
-                }
-            } else {
-                debug!(target: "chunks",should_wait_for_chunk_forwarding, fetch_from_archival, old_block,  "Delaying the chunk request.");
+        // If chunks forwarding is enabled,
+        // we purposely do not send chunk request messages right away for new blocks. Such requests
+        // will eventually be sent because of the `resend_chunk_requests` loop. However,
+        // we want to give some time for any `PartialEncodedChunkForward` messages to arrive
+        // before we send requests.
+        if !should_wait_for_chunk_forwarding || fetch_from_archival || old_block {
+            debug!(target: "chunks", height, shard_id, ?chunk_hash, "Requesting.");
+            let request_result = self.request_partial_encoded_chunk(
+                height,
+                &ancestor_hash,
+                shard_id,
+                &chunk_hash,
+                false,
+                old_block,
+                fetch_from_archival,
+            );
+            if let Err(err) = request_result {
+                error!(target: "chunks", "Error during requesting partial encoded chunk: {}", err);
             }
         } else {
-            debug!(target: "chunks", height, shard_id, ?chunk_hash, "Marked the chunk as being requested but did not send the request yet.");
+            debug!(target: "chunks",should_wait_for_chunk_forwarding, fetch_from_archival, old_block,  "Delaying the chunk request.");
         }
     }
 
@@ -1434,7 +1435,7 @@ impl ShardsManager {
             }
         }
 
-        // 2. Consider it valid; mergeparts and receipts included in the partial encoded chunk
+        // 2. Consider it valid; merge parts and receipts included in the partial encoded chunk
         // into chunk cache
         let new_part_ords =
             self.encoded_chunks.merge_in_partial_encoded_chunk(partial_encoded_chunk);
