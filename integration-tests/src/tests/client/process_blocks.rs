@@ -147,7 +147,7 @@ pub(crate) fn deploy_test_contract_with_protocol_version(
         account_id.clone(),
         account_id,
         &signer,
-        vec![Action::DeployContract(DeployContractAction { code: wasm_code.to_vec() })],
+        vec![Action::DeployContract(Box::new(DeployContractAction { code: wasm_code.to_vec() }))],
         *block.hash(),
     );
     assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -200,9 +200,9 @@ pub(crate) fn prepare_env_with_congestion(
         "test0".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
-        vec![Action::DeployContract(DeployContractAction {
+        vec![Action::DeployContract(Box::new(DeployContractAction {
             code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
-        })],
+        }))],
         *genesis_block.hash(),
     );
     assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -2412,9 +2412,9 @@ fn test_validate_chunk_extra() {
         "test0".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
-        vec![Action::DeployContract(DeployContractAction {
+        vec![Action::DeployContract(Box::new(DeployContractAction {
             code: near_test_contracts::rs_contract().to_vec(),
-        })],
+        }))],
         *genesis_block.hash(),
     );
     assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -2878,7 +2878,7 @@ fn test_delayed_receipt_count_limit() {
             "test0".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer,
-            vec![Action::DeployContract(DeployContractAction { code: vec![92; 10000] })],
+            vec![Action::DeployContract(Box::new(DeployContractAction { code: vec![92; 10000] }))],
             *genesis_block.hash(),
         );
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);

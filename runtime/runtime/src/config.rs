@@ -11,7 +11,7 @@ use near_primitives::errors::IntegerOverflowError;
 pub use near_primitives::num_rational::Rational32;
 pub use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::fees::{transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig};
-use near_primitives::transaction::{Action, DeployContractAction, Transaction};
+use near_primitives::transaction::{Action, Transaction};
 use near_primitives::types::{AccountId, Balance, Compute, Gas};
 use near_primitives::version::{checked_feature, ProtocolVersion};
 
@@ -85,8 +85,8 @@ pub fn total_send_fees(
             CreateAccount(_) => {
                 config.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
             }
-            DeployContract(DeployContractAction { code }) => {
-                let num_bytes = code.len() as u64;
+            DeployContract(deploy_contract_action) => {
+                let num_bytes = deploy_contract_action.code.len() as u64;
                 config.fee(ActionCosts::deploy_contract_base).send_fee(sender_is_receiver)
                     + config.fee(ActionCosts::deploy_contract_byte).send_fee(sender_is_receiver)
                         * num_bytes
@@ -191,8 +191,8 @@ pub fn exec_fee(
 
     match action {
         CreateAccount(_) => config.fee(ActionCosts::create_account).exec_fee(),
-        DeployContract(DeployContractAction { code }) => {
-            let num_bytes = code.len() as u64;
+        DeployContract(deploy_contract_action) => {
+            let num_bytes = deploy_contract_action.code.len() as u64;
             config.fee(ActionCosts::deploy_contract_base).exec_fee()
                 + config.fee(ActionCosts::deploy_contract_byte).exec_fee() * num_bytes
         }

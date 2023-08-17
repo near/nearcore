@@ -331,14 +331,14 @@ mod tests {
             block_hash: Default::default(),
             actions: vec![
                 Action::CreateAccount(CreateAccountAction {}),
-                Action::DeployContract(DeployContractAction { code: vec![1, 2, 3] }),
+                Action::DeployContract(Box::new(DeployContractAction { code: vec![1, 2, 3] })),
                 Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "qqq".to_string(),
                     args: vec![1, 2, 3],
                     gas: 1_000,
                     deposit: 1_000_000,
                 })),
-                Action::Transfer(TransferAction { deposit: 123 }),
+                Action::Transfer(Box::new(TransferAction { deposit: 123 })),
                 Action::Stake(Box::new(StakeAction {
                     public_key: public_key.clone(),
                     stake: 1_000_000,
@@ -355,9 +355,9 @@ mod tests {
                     },
                 })),
                 Action::DeleteKey(Box::new(DeleteKeyAction { public_key })),
-                Action::DeleteAccount(DeleteAccountAction {
+                Action::DeleteAccount(Box::new(DeleteAccountAction {
                     beneficiary_id: "123".parse().unwrap(),
-                }),
+                })),
             ],
         };
         let signed_tx = SignedTransaction::new(Signature::empty(KeyType::ED25519), transaction);

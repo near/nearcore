@@ -1942,9 +1942,9 @@ mod tests {
                         gas_price: GAS_PRICE,
                         output_data_receivers: vec![],
                         input_data_ids: vec![],
-                        actions: vec![Action::Transfer(TransferAction {
+                        actions: vec![Action::Transfer(Box::new(TransferAction {
                             deposit: small_transfer + Balance::from(i),
-                        })],
+                        }))],
                     }),
                 }
             })
@@ -2297,7 +2297,7 @@ mod tests {
         match &result.outgoing_receipts[0].receipt {
             ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
                 assert!(
-                    matches!(actions[0], Action::Transfer(TransferAction { deposit }) if deposit == expected_refund)
+                    matches!(&actions[0], Action::Transfer(transfer_action) if transfer_action.deposit == expected_refund)
                 );
             }
             _ => unreachable!(),
@@ -2523,9 +2523,9 @@ mod tests {
         let deploy_contract_receipt = create_receipt_with_actions(
             alice_account(),
             signer.clone(),
-            vec![Action::DeployContract(DeployContractAction {
+            vec![Action::DeployContract(Box::new(DeployContractAction {
                 code: near_test_contracts::rs_contract().to_vec(),
-            })],
+            }))],
         );
 
         let first_call_receipt = create_receipt_with_actions(
@@ -2610,9 +2610,9 @@ mod tests {
         let deploy_contract_receipt = create_receipt_with_actions(
             alice_account(),
             signer.clone(),
-            vec![Action::DeployContract(DeployContractAction {
+            vec![Action::DeployContract(Box::new(DeployContractAction {
                 code: near_test_contracts::rs_contract().to_vec(),
-            })],
+            }))],
         );
 
         let first_call_receipt = create_receipt_with_actions(

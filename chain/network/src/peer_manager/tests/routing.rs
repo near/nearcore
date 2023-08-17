@@ -27,6 +27,8 @@ use std::collections::HashSet;
 use std::net::Ipv6Addr;
 use std::sync::Arc;
 
+use near_primitives::transaction::Action;
+
 // test routing in a two-node network before and after connecting the nodes
 #[tokio::test]
 async fn simple() {
@@ -1383,4 +1385,9 @@ async fn connect_to_unbanned_peer() {
 
     drop(pm0);
     drop(pm1);
+}
+
+#[test]
+fn saketh() {
+    println!("action size: {}", std::mem::size_of::<Action>());
 }

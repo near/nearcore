@@ -1100,7 +1100,7 @@ mod tests {
                 delegate_action: DelegateAction {
                     sender_id: "account.near".parse().unwrap(),
                     receiver_id: "receiver.near".parse().unwrap(),
-                    actions: vec![Action::Transfer(TransferAction { deposit: 1 })
+                    actions: vec![Action::Transfer(Box::new(TransferAction { deposit: 1 }))
                         .try_into()
                         .unwrap()],
                     nonce: 0,

@@ -1044,12 +1044,12 @@ impl RuntimeAdapter for KeyValueRuntime {
                 assert_eq!(account_id_to_shard_id(&receipt.receiver_id, self.num_shards), shard_id);
                 if !state.receipt_nonces.contains(&receipt.receipt_id) {
                     state.receipt_nonces.insert(receipt.receipt_id);
-                    if let Action::Transfer(TransferAction { deposit }) = action.actions[0] {
+                    if let Action::Transfer(transfer_action) = &action.actions[0] {
                         balance_transfers.push((
                             receipt.get_hash(),
                             receipt.predecessor_id.clone(),
                             receipt.receiver_id.clone(),
-                            deposit,
+                            transfer_action.deposit,
                             0,
                         ));
                     }
@@ -1069,8 +1069,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             if transaction.transaction.actions.is_empty() {
                 continue;
             }
-            if let Action::Transfer(TransferAction { deposit }) = transaction.transaction.actions[0]
-            {
+            if let Action::Transfer(transfer_action) = &transaction.transaction.actions[0] {
                 if !state.tx_nonces.contains(&AccountNonce(
                     transaction.transaction.receiver_id.clone(),
                     transaction.transaction.nonce,
@@ -1083,7 +1082,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         transaction.get_hash(),
                         transaction.transaction.signer_id.clone(),
                         transaction.transaction.receiver_id.clone(),
-                        deposit,
+                        transfer_action.deposit,
                         transaction.transaction.nonce,
                     ));
                 } else {
@@ -1133,7 +1132,9 @@ impl RuntimeAdapter for KeyValueRuntime {
                             gas_price,
                             output_data_receivers: vec![],
                             input_data_ids: vec![],
-                            actions: vec![Action::Transfer(TransferAction { deposit: amount })],
+                            actions: vec![Action::Transfer(Box::new(TransferAction {
+                                deposit: amount,
+                            }))],
                         }),
                     };
                     let receipt_hash = receipt.get_hash();

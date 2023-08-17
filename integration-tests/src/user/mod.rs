@@ -116,7 +116,7 @@ pub trait User {
         self.sign_and_commit_actions(
             signer_id,
             receiver_id,
-            vec![Action::Transfer(TransferAction { deposit: amount })],
+            vec![Action::Transfer(Box::new(TransferAction { deposit: amount }))],
         )
     }
 
@@ -128,7 +128,7 @@ pub trait User {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
-            vec![Action::DeployContract(DeployContractAction { code })],
+            vec![Action::DeployContract(Box::new(DeployContractAction { code }))],
         )
     }
 
@@ -165,7 +165,7 @@ pub trait User {
             new_account_id,
             vec![
                 Action::CreateAccount(CreateAccountAction {}),
-                Action::Transfer(TransferAction { deposit: amount }),
+                Action::Transfer(Box::new(TransferAction { deposit: amount })),
                 Action::AddKey(Box::new(AddKeyAction {
                     public_key,
                     access_key: AccessKey::full_access(),
@@ -225,7 +225,7 @@ pub trait User {
         self.sign_and_commit_actions(
             signer_id,
             receiver_id,
-            vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
+            vec![Action::DeleteAccount(Box::new(DeleteAccountAction { beneficiary_id }))],
         )
     }
 

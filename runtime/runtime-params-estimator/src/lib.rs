@@ -358,7 +358,7 @@ fn action_transfer(ctx: &mut EstimatorContext) -> GasCost {
         let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let (sender, receiver) = tb.random_account_pair();
 
-            let actions = vec![Action::Transfer(TransferAction { deposit: 1 })];
+            let actions = vec![Action::Transfer(Box::new(TransferAction { deposit: 1 }))];
             tb.transaction_from_actions(sender, receiver, actions)
         };
         let block_size = 100;
@@ -381,7 +381,7 @@ fn action_create_account(ctx: &mut EstimatorContext) -> GasCost {
 
             let actions = vec![
                 Action::CreateAccount(CreateAccountAction {}),
-                Action::Transfer(TransferAction { deposit: 10u128.pow(26) }),
+                Action::Transfer(Box::new(TransferAction { deposit: 10u128.pow(26) })),
             ];
             tb.transaction_from_actions(sender, new_account, actions)
         };
@@ -403,7 +403,7 @@ fn action_delete_account(ctx: &mut EstimatorContext) -> GasCost {
             let receiver = sender.clone();
             let beneficiary_id = tb.random_unused_account();
 
-            let actions = vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })];
+            let actions = vec![Action::DeleteAccount(Box::new(DeleteAccountAction { beneficiary_id }))];
             tb.transaction_from_actions(sender, receiver, actions)
         };
         let block_size = 100;
@@ -648,7 +648,7 @@ fn deploy_contract_cost(
         let sender = tb.random_unused_account();
         let receiver = sender.clone();
 
-        let actions = vec![Action::DeployContract(DeployContractAction { code: code_factory() })];
+        let actions = vec![Action::DeployContract(Box::new(DeployContractAction { code: code_factory() }))];
         tb.transaction_from_actions(sender, receiver, actions)
     };
     // Use a small block size since deployments are gas heavy.

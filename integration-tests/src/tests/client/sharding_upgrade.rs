@@ -896,9 +896,9 @@ fn setup_test_env_with_cross_contract_txs(
                     account_id.clone(),
                     account_id.clone(),
                     &signer,
-                    vec![Action::DeployContract(DeployContractAction {
+                    vec![Action::DeployContract(Box::new(DeployContractAction {
                         code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
-                    })],
+                    }))],
                     genesis_hash,
                 )
             })

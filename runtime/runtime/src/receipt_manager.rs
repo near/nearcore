@@ -136,7 +136,7 @@ impl ReceiptManager {
         receipt_index: ReceiptIndex,
         code: Vec<u8>,
     ) -> Result<(), VMLogicError> {
-        self.append_action(receipt_index, Action::DeployContract(DeployContractAction { code }));
+        self.append_action(receipt_index, Action::DeployContract(Box::new(DeployContractAction { code })));
         Ok(())
     }
 
@@ -205,7 +205,7 @@ impl ReceiptManager {
         receipt_index: ReceiptIndex,
         deposit: Balance,
     ) -> Result<(), VMLogicError> {
-        self.append_action(receipt_index, Action::Transfer(TransferAction { deposit }));
+        self.append_action(receipt_index, Action::Transfer(Box::new(TransferAction { deposit })));
         Ok(())
     }
 
@@ -345,7 +345,7 @@ impl ReceiptManager {
     ) -> Result<(), VMLogicError> {
         self.append_action(
             receipt_index,
-            Action::DeleteAccount(DeleteAccountAction { beneficiary_id }),
+            Action::DeleteAccount(Box::new(DeleteAccountAction { beneficiary_id })),
         );
         Ok(())
     }

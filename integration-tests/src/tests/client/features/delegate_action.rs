@@ -269,7 +269,7 @@ fn meta_tx_near_transfer() {
     let fee_helper = fee_helper(&node);
 
     let amount = nearcore::NEAR_BASE;
-    let actions = vec![Action::Transfer(TransferAction { deposit: amount })];
+    let actions = vec![Action::Transfer(Box::new(TransferAction { deposit: amount }))];
     let tx_cost = fee_helper.transfer_cost();
     check_meta_tx_no_fn_call(&node, actions, tx_cost, amount, sender, relayer, receiver);
 }
@@ -433,7 +433,7 @@ fn meta_tx_deploy() {
 
     let code = smallest_rs_contract().to_vec();
     let tx_cost = fee_helper.deploy_contract_cost(code.len() as u64);
-    let actions = vec![Action::DeployContract(DeployContractAction { code })];
+    let actions = vec![Action::DeployContract(Box::new(DeployContractAction { code }))];
     check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver);
 }
 
@@ -526,7 +526,7 @@ fn meta_tx_delete_account() {
     let fee_helper = fee_helper(&node);
 
     let actions =
-        vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id: relayer.clone() })];
+        vec![Action::DeleteAccount(Box::new(DeleteAccountAction { beneficiary_id: relayer.clone() }))];
 
     // special case balance check for deleting account
     let gas_cost = fee_helper.prepaid_delete_account_cost()
@@ -762,7 +762,7 @@ fn meta_tx_create_named_account() {
     // That's the minimum to create a (useful) account.
     let actions = vec![
         Action::CreateAccount(CreateAccountAction {}),
-        Action::Transfer(TransferAction { deposit: amount }),
+        Action::Transfer(Box::new(TransferAction { deposit: amount })),
         Action::AddKey(Box::new(AddKeyAction { public_key, access_key: AccessKey::full_access() })),
     ];
 
@@ -815,8 +815,8 @@ fn meta_tx_create_and_use_implicit_account() {
 
     let initial_amount = nearcore::NEAR_BASE;
     let actions = vec![
-        Action::Transfer(TransferAction { deposit: initial_amount }),
-        Action::DeployContract(DeployContractAction { code: ft_contract().to_vec() }),
+        Action::Transfer(Box::new(TransferAction { deposit: initial_amount })),
+        Action::DeployContract(Box::new(DeployContractAction { code: ft_contract().to_vec() })),
     ];
 
     // Execute and expect `AccountDoesNotExist`, as we try to call a meta
@@ -849,7 +849,7 @@ fn meta_tx_create_implicit_account() {
 
     let fee_helper = fee_helper(&node);
     let initial_amount = nearcore::NEAR_BASE;
-    let actions = vec![Action::Transfer(TransferAction { deposit: initial_amount })];
+    let actions = vec![Action::Transfer(Box::new(TransferAction { deposit: initial_amount }))];
     let tx_cost = fee_helper.create_account_transfer_full_key_cost();
     check_meta_tx_no_fn_call(
         &node,
@@ -868,7 +868,7 @@ fn meta_tx_create_implicit_account() {
 
     // Now test we can use this account in a meta transaction that sends back half the tokens to alice.
     let transfer_amount = initial_amount / 2;
-    let actions = vec![Action::Transfer(TransferAction { deposit: transfer_amount })];
+    let actions = vec![Action::Transfer(Box::new(TransferAction { deposit: transfer_amount }))];
     let tx_cost = fee_helper.transfer_cost();
     check_meta_tx_no_fn_call(
         &node,

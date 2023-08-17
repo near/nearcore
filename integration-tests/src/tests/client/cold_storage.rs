@@ -105,9 +105,9 @@ fn test_storage_after_commit_of_cold_update() {
                 "test0".parse().unwrap(),
                 "test0".parse().unwrap(),
                 &signer,
-                vec![Action::DeployContract(DeployContractAction {
+                vec![Action::DeployContract(Box::new(DeployContractAction {
                     code: near_test_contracts::rs_contract().to_vec(),
-                })],
+                }))],
                 last_hash,
             );
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);

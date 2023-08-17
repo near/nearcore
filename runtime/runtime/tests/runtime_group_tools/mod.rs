@@ -392,7 +392,7 @@ macro_rules! assert_receipts {
     ($group:ident, $from:expr => $receipt:ident @ $to:expr,
     $receipt_pat:pat,
     $receipt_assert:block,
-    $actions_name:ident,
+    $actions_name:expr,
     $($action_name:ident, $action_pat:pat, $action_assert:block ),+
      => [ $($produced_receipt:ident),*] ) => {
         let r = $group.get_receipt($to, $receipt);
@@ -434,9 +434,9 @@ macro_rules! assert_receipts {
 macro_rules! assert_refund {
  ($group:ident, $receipt:ident @ $to:expr) => {
         assert_receipts!($group, "system" => $receipt @ $to,
-                         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-                         actions,
-                         a0, Action::Transfer(TransferAction{..}), {}
+                         ReceiptEnum::Action(action_receipt), {},
+                         action_receipt.actions,
+                         a0, Action::Transfer(_), {}
                          => []);
  }
 }

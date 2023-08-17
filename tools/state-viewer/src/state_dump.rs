@@ -455,9 +455,9 @@ mod test {
             "test0".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer0,
-            vec![Action::DeployContract(DeployContractAction {
+            vec![Action::DeployContract(Box::new(DeployContractAction {
                 code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
-            })],
+            }))],
             genesis_hash,
         );
         let tx01 = SignedTransaction::stake(

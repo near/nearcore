@@ -1449,7 +1449,7 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            vec![Action::DeployContract(DeployContractAction { code: vec![1; 5] })],
+            vec![Action::DeployContract(Box::new(DeployContractAction { code: vec![1; 5] }))],
             CryptoHash::default(),
         );
         let transaction_size = transaction.get_size();
@@ -1671,9 +1671,9 @@ mod tests {
             validate_actions(
                 &limit_config,
                 &[
-                    Action::DeleteAccount(DeleteAccountAction {
+                    Action::DeleteAccount(Box::new(DeleteAccountAction {
                         beneficiary_id: "bob".parse().unwrap()
-                    }),
+                    })),
                     Action::CreateAccount(CreateAccountAction {}),
                 ],
                 PROTOCOL_VERSION,
@@ -1692,9 +1692,9 @@ mod tests {
                 &limit_config,
                 &[
                     Action::CreateAccount(CreateAccountAction {}),
-                    Action::DeleteAccount(DeleteAccountAction {
+                    Action::DeleteAccount(Box::new(DeleteAccountAction {
                         beneficiary_id: "bob".parse().unwrap()
-                    }),
+                    })),
                 ],
                 PROTOCOL_VERSION,
             ),
@@ -1751,7 +1751,7 @@ mod tests {
     fn test_validate_action_valid_transfer() {
         validate_action(
             &VMLimitConfig::test(),
-            &Action::Transfer(TransferAction { deposit: 10 }),
+            &Action::Transfer(Box::new(TransferAction { deposit: 10 })),
             PROTOCOL_VERSION,
         )
         .expect("valid action");
@@ -1837,7 +1837,7 @@ mod tests {
     fn test_validate_action_valid_delete_account() {
         validate_action(
             &VMLimitConfig::test(),
-            &Action::DeleteAccount(DeleteAccountAction { beneficiary_id: alice_account() }),
+            &Action::DeleteAccount(Box::new(DeleteAccountAction { beneficiary_id: alice_account() })),
             PROTOCOL_VERSION,
         )
         .expect("valid action");

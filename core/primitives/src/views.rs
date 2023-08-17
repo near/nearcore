@@ -1228,7 +1228,7 @@ impl TryFrom<ActionView> for Action {
         Ok(match action_view {
             ActionView::CreateAccount => Action::CreateAccount(CreateAccountAction {}),
             ActionView::DeployContract { code } => {
-                Action::DeployContract(DeployContractAction { code })
+                Action::DeployContract(Box::new(DeployContractAction { code }))
             }
             ActionView::FunctionCall { method_name, args, gas, deposit } => {
                 Action::FunctionCall(Box::new(FunctionCallAction {
@@ -1238,7 +1238,7 @@ impl TryFrom<ActionView> for Action {
                     deposit,
                 }))
             }
-            ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
+            ActionView::Transfer { deposit } => Action::Transfer(Box::new(TransferAction { deposit })),
             ActionView::Stake { stake, public_key } => {
                 Action::Stake(Box::new(StakeAction { stake, public_key }))
             }
@@ -1249,7 +1249,7 @@ impl TryFrom<ActionView> for Action {
                 Action::DeleteKey(Box::new(DeleteKeyAction { public_key }))
             }
             ActionView::DeleteAccount { beneficiary_id } => {
-                Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
+                Action::DeleteAccount(Box::new(DeleteAccountAction { beneficiary_id }))
             }
             ActionView::Delegate { delegate_action, signature } => {
                 Action::Delegate(Box::new(SignedDelegateAction {

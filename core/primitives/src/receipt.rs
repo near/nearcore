@@ -64,7 +64,7 @@ impl Receipt {
                 gas_price: 0,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
-                actions: vec![Action::Transfer(TransferAction { deposit: refund })],
+                actions: vec![Action::Transfer(Box::new(TransferAction { deposit: refund }))],
             }),
         }
     }
@@ -91,7 +91,7 @@ impl Receipt {
                 gas_price: 0,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
-                actions: vec![Action::Transfer(TransferAction { deposit: refund })],
+                actions: vec![Action::Transfer(Box::new(TransferAction { deposit: refund }))],
             }),
         }
     }

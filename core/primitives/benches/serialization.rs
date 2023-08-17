@@ -21,7 +21,7 @@ use num_rational::Rational32;
 fn create_transaction() -> SignedTransaction {
     let mut actions = vec![];
     for _ in 0..10 {
-        actions.push(Action::Transfer(TransferAction { deposit: 1_000_000_000 }));
+        actions.push(Action::Transfer(Box::new(TransferAction { deposit: 1_000_000_000 })));
     }
     SignedTransaction::new(
         Signature::empty(KeyType::ED25519),

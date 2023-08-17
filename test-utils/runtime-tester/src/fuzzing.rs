@@ -110,7 +110,7 @@ impl TransactionConfig {
                 signer_id: signer_account.id.clone(),
                 receiver_id: receiver_account.id,
                 signer: scope.full_access_signer(u, &signer_account)?,
-                actions: vec![Action::Transfer(TransferAction { deposit: amount })],
+                actions: vec![Action::Transfer(Box::new(TransferAction { deposit: amount }))],
             })
         });
 
@@ -162,7 +162,7 @@ impl TransactionConfig {
                             permission: AccessKeyPermission::FullAccess,
                         },
                     })),
-                    Action::Transfer(TransferAction { deposit: NEAR_BASE }),
+                    Action::Transfer(Box::new(TransferAction { deposit: NEAR_BASE })),
                 ],
             })
         });
@@ -189,9 +189,9 @@ impl TransactionConfig {
                     signer_id: signer_account.id.clone(),
                     receiver_id: receiver_account.id,
                     signer,
-                    actions: vec![Action::DeleteAccount(DeleteAccountAction {
+                    actions: vec![Action::DeleteAccount(Box::new(DeleteAccountAction {
                         beneficiary_id: beneficiary_id.id,
-                    })],
+                    }))],
                 })
             });
         }
@@ -214,9 +214,9 @@ impl TransactionConfig {
                 signer_id: signer_account.id.clone(),
                 receiver_id: signer_account.id.clone(),
                 signer,
-                actions: vec![Action::DeployContract(DeployContractAction {
+                actions: vec![Action::DeployContract(Box::new(DeployContractAction {
                     code: scope.available_contracts[contract_id].code.clone(),
-                })],
+                }))],
             })
         });
 

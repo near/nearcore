@@ -43,7 +43,7 @@ fn scenario_smoke_test() {
                 signer_id,
                 receiver_id,
                 signer,
-                actions: vec![Action::Transfer(TransferAction { deposit: 10 })],
+                actions: vec![Action::Transfer(Box::new(TransferAction { deposit: 10 }))],
             }
         };
         block.transactions.push(transaction);

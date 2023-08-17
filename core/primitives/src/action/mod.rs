@@ -169,13 +169,13 @@ pub enum Action {
     /// <http://nomicon.io/Primitives/Account.html>.
     CreateAccount(CreateAccountAction),
     /// Sets a Wasm code to a receiver_id
-    DeployContract(DeployContractAction),
+    DeployContract(Box<DeployContractAction>),
     FunctionCall(Box<FunctionCallAction>),
-    Transfer(TransferAction),
+    Transfer(Box<TransferAction>),
     Stake(Box<StakeAction>),
     AddKey(Box<AddKeyAction>),
     DeleteKey(Box<DeleteKeyAction>),
-    DeleteAccount(DeleteAccountAction),
+    DeleteAccount(Box<DeleteAccountAction>),
     Delegate(Box<delegate::SignedDelegateAction>),
 }
 
@@ -203,7 +203,7 @@ impl From<CreateAccountAction> for Action {
 
 impl From<DeployContractAction> for Action {
     fn from(deploy_contract_action: DeployContractAction) -> Self {
-        Self::DeployContract(deploy_contract_action)
+        Self::DeployContract(Box::new(deploy_contract_action))
     }
 }
 
@@ -215,7 +215,7 @@ impl From<FunctionCallAction> for Action {
 
 impl From<TransferAction> for Action {
     fn from(transfer_action: TransferAction) -> Self {
-        Self::Transfer(transfer_action)
+        Self::Transfer(Box::new(transfer_action))
     }
 }
 
@@ -239,6 +239,6 @@ impl From<DeleteKeyAction> for Action {
 
 impl From<DeleteAccountAction> for Action {
     fn from(delete_account_action: DeleteAccountAction) -> Self {
-        Self::DeleteAccount(delete_account_action)
+        Self::DeleteAccount(Box::new(delete_account_action))
     }
 }

@@ -584,8 +584,8 @@ fn test_simple_transfer() {
     assert_receipts!(group, "near_1" => r1 @ "near_2",
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
-                     a0, Action::Transfer(TransferAction{deposit}), {
-                        assert_eq!(*deposit, 1000000000);
+                     a0, Action::Transfer(transfer_action), {
+                        assert_eq!(transfer_action.deposit, 1000000000);
                      }
                      => [ref1] );
 
@@ -652,8 +652,8 @@ fn test_create_account_with_transfer_and_full_key() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::CreateAccount(CreateAccountAction{}), {},
-                     a1, Action::Transfer(TransferAction{deposit}), {
-                        assert_eq!(*deposit, 10000000000000000000000000);
+                     a1, Action::Transfer(transfer_action), {
+                        assert_eq!(transfer_action.deposit, 10000000000000000000000000);
                      },
                      a2, Action::AddKey(add_key_action), {
                         assert_eq!(add_key_action.public_key, signer_new_account.public_key);
@@ -770,8 +770,8 @@ fn test_account_factory() {
                      },
                      actions,
                      a0, Action::CreateAccount(CreateAccountAction{}), {},
-                     a1, Action::Transfer(TransferAction{deposit}), {
-                        assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
+                     a1, Action::Transfer(transfer_action), {
+                        assert_eq!(transfer_action.deposit, TESTING_INIT_BALANCE / 2);
                      },
                      a2, Action::AddKey(add_key_action), {
                         assert_eq!(add_key_action.public_key, signer_new_account.public_key);
@@ -782,8 +782,8 @@ fn test_account_factory() {
                             method_names: vec!["call_promise".to_string(), "hello".to_string()],
                         }));
                      },
-                     a3, Action::DeployContract(DeployContractAction{code}), {
-                        assert_eq!(code, near_test_contracts::rs_contract());
+                     a3, Action::DeployContract(deploy_contract_action), {
+                        assert_eq!(deploy_contract_action.code, near_test_contracts::rs_contract());
                      },
                      a4, Action::FunctionCall(function_call_action), {
                         assert_eq!(function_call_action.gas, GAS_2);
@@ -910,16 +910,16 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::CreateAccount(CreateAccountAction{}), {},
-                     a1, Action::Transfer(TransferAction{deposit}), {
-                        assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
+                     a1, Action::Transfer(transfer_action), {
+                        assert_eq!(transfer_action.deposit, TESTING_INIT_BALANCE / 2);
                      },
                      a2, Action::AddKey(add_key_action), {
                         assert_eq!(add_key_action.public_key, signer_new_account.public_key);
                         assert_eq!(add_key_action.access_key.nonce, 1);
                         assert_eq!(add_key_action.access_key.permission, AccessKeyPermission::FullAccess);
                      },
-                     a3, Action::DeployContract(DeployContractAction{code}), {
-                        assert_eq!(code, near_test_contracts::rs_contract());
+                     a3, Action::DeployContract(deploy_contract_action), {
+                        assert_eq!(deploy_contract_action.code, near_test_contracts::rs_contract());
                      },
                      a4, Action::FunctionCall(function_call_action), {
                         assert_eq!(function_call_action.gas, GAS_2);
@@ -928,8 +928,8 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                      a5, Action::DeleteKey(delete_key_action), {
                         assert_eq!(delete_key_action.public_key, signer_new_account.public_key);
                      },
-                     a6, Action::DeleteAccount(DeleteAccountAction{beneficiary_id}), {
-                        assert_eq!(beneficiary_id.as_ref(), "near_2");
+                     a6, Action::DeleteAccount(delete_account_action), {
+                        assert_eq!(delete_account_action.beneficiary_id.as_ref(), "near_2");
                      }
                      => [r2, r3, ref1] );
 
@@ -1003,8 +1003,8 @@ fn test_transfer_64len_hex() {
     assert_receipts!(group, "near_1" => r1 @ account_id.as_ref(),
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
-                     a0, Action::Transfer(TransferAction{deposit}), {
-                        assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
+                     a0, Action::Transfer(transfer_action), {
+                        assert_eq!(transfer_action.deposit, TESTING_INIT_BALANCE / 2);
                      }
                      => [ref1] );
     assert_refund!(group, ref0 @ "near_0");
@@ -1070,8 +1070,8 @@ fn test_create_transfer_64len_hex_fail() {
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::CreateAccount(CreateAccountAction{}), {},
-                     a1, Action::Transfer(TransferAction{deposit}), {
-                        assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
+                     a1, Action::Transfer(transfer_action), {
+                        assert_eq!(transfer_action.deposit, TESTING_INIT_BALANCE / 2);
                      }
                      => [ref1, ref2] );
     assert_refund!(group, ref0 @ "near_0");

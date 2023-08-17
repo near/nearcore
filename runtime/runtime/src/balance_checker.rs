@@ -436,7 +436,7 @@ mod tests {
                 gas_price,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
-                actions: vec![Action::Transfer(TransferAction { deposit })],
+                actions: vec![Action::Transfer(Box::new(TransferAction { deposit }))],
             }),
         };
 
@@ -491,7 +491,7 @@ mod tests {
                 gas_price,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
-                actions: vec![Action::Transfer(TransferAction { deposit })],
+                actions: vec![Action::Transfer(Box::new(TransferAction { deposit }))],
             }),
         };
 

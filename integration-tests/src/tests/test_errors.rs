@@ -42,7 +42,7 @@ fn test_check_tx_error_log() {
         &*signer,
         vec![
             Action::CreateAccount(CreateAccountAction {}),
-            Action::Transfer(TransferAction { deposit: 1_000 }),
+            Action::Transfer(Box::new(TransferAction { deposit: 1_000 })),
             Action::AddKey(Box::new(AddKeyAction {
                 public_key: signer.public_key.clone(),
                 access_key: AccessKey::full_access(),
@@ -82,7 +82,7 @@ fn test_deliver_tx_error_log() {
         &*signer,
         vec![
             Action::CreateAccount(CreateAccountAction {}),
-            Action::Transfer(TransferAction { deposit: TESTING_INIT_BALANCE + 1 }),
+            Action::Transfer(Box::new(TransferAction { deposit: TESTING_INIT_BALANCE + 1 })),
             Action::AddKey(Box::new(AddKeyAction {
                 public_key: signer.public_key.clone(),
                 access_key: AccessKey::full_access(),

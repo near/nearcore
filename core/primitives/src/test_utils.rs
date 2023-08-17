@@ -49,7 +49,7 @@ impl Transaction {
     }
 
     pub fn deploy_contract(mut self, code: Vec<u8>) -> Self {
-        self.actions.push(Action::DeployContract(DeployContractAction { code }));
+        self.actions.push(Action::DeployContract(Box::new(DeployContractAction { code })));
         self
     }
 
@@ -70,7 +70,7 @@ impl Transaction {
     }
 
     pub fn transfer(mut self, deposit: Balance) -> Self {
-        self.actions.push(Action::Transfer(TransferAction { deposit }));
+        self.actions.push(Action::Transfer(Box::new(TransferAction { deposit })));
         self
     }
 
@@ -89,7 +89,7 @@ impl Transaction {
     }
 
     pub fn delete_account(mut self, beneficiary_id: AccountId) -> Self {
-        self.actions.push(Action::DeleteAccount(DeleteAccountAction { beneficiary_id }));
+        self.actions.push(Action::DeleteAccount(Box::new(DeleteAccountAction { beneficiary_id })));
         self
     }
 }
@@ -127,7 +127,7 @@ impl SignedTransaction {
             signer_id,
             receiver_id,
             signer,
-            vec![Action::Transfer(TransferAction { deposit })],
+            vec![Action::Transfer(Box::new(TransferAction { deposit }))],
             block_hash,
         )
     }
@@ -170,7 +170,7 @@ impl SignedTransaction {
                     public_key,
                     access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
                 })),
-                Action::Transfer(TransferAction { deposit: amount }),
+                Action::Transfer(Box::new(TransferAction { deposit: amount })),
             ],
             block_hash,
         )
@@ -197,8 +197,8 @@ impl SignedTransaction {
                     public_key,
                     access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
                 })),
-                Action::Transfer(TransferAction { deposit: amount }),
-                Action::DeployContract(DeployContractAction { code }),
+                Action::Transfer(Box::new(TransferAction { deposit: amount })),
+                Action::DeployContract(Box::new(DeployContractAction { code })),
             ],
             block_hash,
         )
@@ -243,7 +243,7 @@ impl SignedTransaction {
             signer_id,
             receiver_id,
             signer,
-            vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
+            vec![Action::DeleteAccount(Box::new(DeleteAccountAction { beneficiary_id }))],
             block_hash,
         )
     }

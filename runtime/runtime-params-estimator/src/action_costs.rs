@@ -682,7 +682,7 @@ fn create_account_action() -> Action {
 }
 
 fn create_transfer_action() -> Action {
-    Action::Transfer(near_primitives::transaction::TransferAction { deposit: 10u128.pow(24) })
+    Action::Transfer(Box::new(near_primitives::transaction::TransferAction { deposit: 10u128.pow(24) }))
 }
 
 fn stake_action() -> Action {
@@ -693,15 +693,15 @@ fn stake_action() -> Action {
 }
 
 fn delete_account_action() -> Action {
-    Action::DeleteAccount(near_primitives::transaction::DeleteAccountAction {
+    Action::DeleteAccount(Box::new(near_primitives::transaction::DeleteAccountAction {
         beneficiary_id: "bob.near".parse().unwrap(),
-    })
+    }))
 }
 
 fn deploy_action(size: ActionSize) -> Action {
-    Action::DeployContract(near_primitives::transaction::DeployContractAction {
+    Action::DeployContract(Box::new(near_primitives::transaction::DeployContractAction {
         code: near_test_contracts::sized_contract(size.deploy_contract() as usize),
-    })
+    }))
 }
 
 fn add_full_access_key_action() -> Action {
@@ -736,7 +736,7 @@ fn delete_key_action() -> Action {
 }
 
 fn transfer_action() -> Action {
-    Action::Transfer(near_primitives::transaction::TransferAction { deposit: 77 })
+    Action::Transfer(Box::new(near_primitives::transaction::TransferAction { deposit: 77 }))
 }
 
 fn function_call_action(size: ActionSize) -> Action {

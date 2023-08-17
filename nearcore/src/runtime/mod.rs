@@ -2639,9 +2639,9 @@ mod test {
             signers[1].account_id.clone(),
             signers[1].account_id.clone(),
             &signers[1] as &dyn Signer,
-            vec![Action::DeleteAccount(DeleteAccountAction {
+            vec![Action::DeleteAccount(Box::new(DeleteAccountAction {
                 beneficiary_id: signers[0].account_id.clone(),
-            })],
+            }))],
             // runtime does not validate block history
             CryptoHash::default(),
         );
@@ -2735,7 +2735,7 @@ mod test {
             signers[0].account_id.clone(),
             validators[1].clone(),
             &signers[0] as &dyn Signer,
-            vec![Action::Transfer(TransferAction { deposit: 10 })],
+            vec![Action::Transfer(Box::new(TransferAction { deposit: 10 }))],
             // runtime does not validate block history
             CryptoHash::default(),
         );

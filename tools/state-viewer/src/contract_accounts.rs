@@ -579,9 +579,9 @@ mod tests {
             "bob.near",
             "alice.near",
             vec![
-                Action::Transfer(TransferAction { deposit: 20 }),
+                Action::Transfer(Box::new(TransferAction { deposit: 20 })),
                 Action::CreateAccount(CreateAccountAction {}),
-                Action::DeployContract(DeployContractAction { code: vec![] }),
+                Action::DeployContract(Box::new(DeployContractAction { code: vec![] })),
             ],
         );
 
