@@ -27,9 +27,9 @@ pub struct ScenarioBuilder {
 ///
 ///     builder.add_block();
 ///     builder.add_transaction(0, 9,
-///                             vec![Action::DeployContract(DeployContractAction {
+///                             vec![Action::DeployContract(Box::new(DeployContractAction {
 ///                                 code: near_test_contracts::rs_contract().to_vec(),
-///                             })]);
+///                             }))]);
 ///
 ///     builder.add_block();
 ///     builder.add_block();
