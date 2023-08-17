@@ -3542,6 +3542,7 @@ dependencies = [
  "derive-enum-from-into",
  "derive_more",
  "futures",
+ "itertools",
  "lru",
  "near-async",
  "near-chain",
@@ -3720,6 +3721,7 @@ version = "0.0.0"
 dependencies = [
  "borsh 0.10.2",
  "chrono",
+ "itertools",
  "near-cache",
  "near-chain-configs",
  "near-chain-primitives",

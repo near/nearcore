@@ -1,6 +1,7 @@
 use borsh::BorshSerialize;
 use near_client::{Client, ProcessTxResponse};
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
+use near_primitives_core::num_rational::Rational32;
 
 use crate::tests::client::process_blocks::set_block_protocol_version;
 use assert_matches::assert_matches;
@@ -94,12 +95,11 @@ struct TestShardUpgradeEnv {
     init_txs: Vec<SignedTransaction>,
     txs_by_height: BTreeMap<u64, Vec<SignedTransaction>>,
     epoch_length: u64,
-    num_validators: usize,
     num_clients: usize,
 }
 
 impl TestShardUpgradeEnv {
-    fn new_with_protocol_version(
+    fn new(
         epoch_length: u64,
         num_validators: usize,
         num_clients: usize,
@@ -125,33 +125,17 @@ impl TestShardUpgradeEnv {
             .validator_seats(num_validators)
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
+            .track_all_shards()
             .build();
+        assert_eq!(env.validators.len(), num_validators);
         Self {
             env,
             initial_accounts,
             epoch_length,
-            num_validators,
             num_clients,
             init_txs: vec![],
             txs_by_height: BTreeMap::new(),
         }
-    }
-
-    fn new(
-        epoch_length: u64,
-        num_validators: usize,
-        num_clients: usize,
-        num_init_accounts: usize,
-        gas_limit: Option<u64>,
-    ) -> Self {
-        Self::new_with_protocol_version(
-            epoch_length,
-            num_validators,
-            num_clients,
-            num_init_accounts,
-            gas_limit,
-            SIMPLE_NIGHTSHADE_PROTOCOL_VERSION - 1,
-        )
     }
 
     /// `init_txs` are added before any block is produced
@@ -198,12 +182,7 @@ impl TestShardUpgradeEnv {
         // add transactions for the next block
         if height == 1 {
             for tx in self.init_txs.iter() {
-                for j in 0..self.num_validators {
-                    assert_eq!(
-                        env.clients[j].process_tx(tx.clone(), false, false),
-                        ProcessTxResponse::ValidTx
-                    );
-                }
+                Self::process_tx(env, tx);
             }
         }
 
@@ -213,35 +192,25 @@ impl TestShardUpgradeEnv {
         // it when we are producing the block at `height`
         if let Some(txs) = self.txs_by_height.get(&(height + 1)) {
             for tx in txs {
-                let mut response_valid_count = 0;
-                let mut response_routed_count = 0;
-                for j in 0..self.num_validators {
-                    let response = env.clients[j].process_tx(tx.clone(), false, false);
-                    tracing::debug!(target: "test", client=j, tx=?tx.get_hash(), ?response, "process tx");
-                    match response {
-                        ProcessTxResponse::ValidTx => response_valid_count += 1,
-                        ProcessTxResponse::RequestRouted => response_routed_count += 1,
-                        response => {
-                            panic!("invalid tx response {response:?}");
-                        }
-                    }
-                }
-                assert_ne!(response_valid_count, 0);
-                assert_eq!(response_valid_count + response_routed_count, self.num_validators);
+                Self::process_tx(env, tx);
             }
         }
 
         // produce block
-        let block_producer = {
-            let epoch_id = env.clients[0]
-                .epoch_manager
-                .get_epoch_id_from_prev_block(&head.last_block_hash)
-                .unwrap();
-            env.clients[0].epoch_manager.get_block_producer(&epoch_id, height).unwrap()
+        let block = {
+            let client = &env.clients[0];
+            let epoch_id =
+                client.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash).unwrap();
+            let block_producer =
+                client.epoch_manager.get_block_producer(&epoch_id, height).unwrap();
+            let _span = tracing::debug_span!(target: "test", "", client=?block_producer).entered();
+            let block_producer_client = env.client(&block_producer);
+            let mut block = block_producer_client.produce_block(height).unwrap().unwrap();
+            set_block_protocol_version(&mut block, block_producer.clone(), protocol_version);
+
+            block
         };
-        let block_producer_client = env.client(&block_producer);
-        let mut block = block_producer_client.produce_block(height).unwrap().unwrap();
-        set_block_protocol_version(&mut block, block_producer.clone(), protocol_version);
+
         // Make sure that catchup is done before the end of each epoch, but when it is done is
         // by chance. This simulates when catchup takes a long time to be done
         // Note: if the catchup happens only at the last block of an epoch then
@@ -249,11 +218,13 @@ impl TestShardUpgradeEnv {
         let should_catchup = rng.gen_bool(P_CATCHUP) || height % self.epoch_length == 0;
         // process block, this also triggers chunk producers for the next block to produce chunks
         for j in 0..self.num_clients {
+            let client = &mut env.clients[j];
+            let _span = tracing::debug_span!(target: "test", "process block", client=j).entered();
             let produce_chunks = !rng.gen_bool(p_drop_chunk);
             // Here we don't just call self.clients[i].process_block_sync_with_produce_chunk_options
             // because we want to call run_catchup before finish processing this block. This simulates
             // that catchup and block processing run in parallel.
-            env.clients[j]
+            client
                 .start_process_block(
                     MaybeValidated::from(block.clone()),
                     Provenance::NONE,
@@ -261,11 +232,10 @@ impl TestShardUpgradeEnv {
                 )
                 .unwrap();
             if should_catchup {
-                run_catchup(&mut env.clients[j], &[]).unwrap();
+                run_catchup(client, &[]).unwrap();
             }
-            while wait_for_all_blocks_in_processing(&mut env.clients[j].chain) {
-                let (_, errors) =
-                    env.clients[j].postprocess_ready_blocks(Arc::new(|_| {}), produce_chunks);
+            while wait_for_all_blocks_in_processing(&mut client.chain) {
+                let (_, errors) = client.postprocess_ready_blocks(Arc::new(|_| {}), produce_chunks);
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
             if should_catchup {
@@ -291,6 +261,28 @@ impl TestShardUpgradeEnv {
         for account_id in self.initial_accounts.iter() {
             check_account(env, account_id, &block);
         }
+    }
+
+    // Submit the tx to all clients for processing and checks:
+    // Clients that track the relevant shard should return ValidTx
+    // Clients that do not track the relevenat shard should return RequestRouted
+    // At least one client should process it and return ValidTx.
+    fn process_tx(env: &mut TestEnv, tx: &SignedTransaction) {
+        let mut response_valid_count = 0;
+        let mut response_routed_count = 0;
+        for j in 0..env.validators.len() {
+            let response = env.clients[j].process_tx(tx.clone(), false, false);
+            tracing::trace!(target: "test", client=j, tx=?tx.get_hash(), ?response, "process tx");
+            match response {
+                ProcessTxResponse::ValidTx => response_valid_count += 1,
+                ProcessTxResponse::RequestRouted => response_routed_count += 1,
+                response => {
+                    panic!("invalid tx response {response:?} {tx:?}");
+                }
+            }
+        }
+        assert_ne!(response_valid_count, 0);
+        assert_eq!(response_valid_count + response_routed_count, env.validators.len());
     }
 
     /// check that all accounts in `accounts` exist in the current state
@@ -640,6 +632,15 @@ fn setup_genesis(
         genesis.config.gas_limit = gas_limit;
     }
 
+    // The block producer assignment often happens to be unlucky enough to not
+    // include one of the validators in the first epoch. When that happens the
+    // new protocol version gets only 75% of the votes which is lower that the
+    // default 80% threshold for upgrading. Delaying the upgrade also delays
+    // resharding and makes it harder to predict. The threshold is set slightly
+    // lower here to always ensure that upgrade takes place as soon as possible.
+    // This was not fun to debug.
+    genesis.config.protocol_upgrade_stake_threshold = Rational32::new(7, 10);
+
     let default_epoch_config = EpochConfig::from(&genesis.config);
     let all_epoch_config = AllEpochConfig::new(true, default_epoch_config);
     let epoch_config = all_epoch_config.for_protocol_version(genesis_protocol_version);
@@ -649,15 +650,6 @@ fn setup_genesis(
         epoch_config.num_block_producer_seats_per_shard;
     genesis.config.avg_hidden_validator_seats_per_shard =
         epoch_config.avg_hidden_validator_seats_per_shard;
-
-    // TODO(resharding)
-    // In the current simple test setup each validator may track different
-    // shards. Unfortunately something is broken in how state sync is triggered
-    // from this test. The config below forces both validators to track all
-    // shards so that we can avoid that problem for now. It would be nice to
-    // set it up properly and test both state sync and resharding - once the
-    // integration is fully supported.
-    genesis.config.minimum_validators_per_shard = 2;
 
     genesis
 }
@@ -673,14 +665,8 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType) {
 
     // setup
     let epoch_length = 5;
-    let mut test_env = TestShardUpgradeEnv::new_with_protocol_version(
-        epoch_length,
-        2,
-        2,
-        100,
-        None,
-        genesis_protocol_version,
-    );
+    let mut test_env =
+        TestShardUpgradeEnv::new(epoch_length, 2, 2, 100, None, genesis_protocol_version);
     test_env.set_init_tx(vec![]);
 
     let mut nonce = 100;
@@ -868,8 +854,16 @@ fn gen_cross_contract_transaction(
 /// Return test_env and a map from tx hash to the new account that will be added by this transaction
 fn setup_test_env_with_cross_contract_txs(
     epoch_length: u64,
+    genesis_protocol_version: ProtocolVersion,
 ) -> (TestShardUpgradeEnv, HashMap<CryptoHash, AccountId>) {
-    let mut test_env = TestShardUpgradeEnv::new(epoch_length, 4, 4, 100, Some(100_000_000_000_000));
+    let mut test_env = TestShardUpgradeEnv::new(
+        epoch_length,
+        4,
+        4,
+        100,
+        Some(100_000_000_000_000),
+        genesis_protocol_version,
+    );
     let mut rng = thread_rng();
 
     let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
@@ -963,26 +957,48 @@ fn setup_test_env_with_cross_contract_txs(
 
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
-#[test]
-fn test_shard_layout_upgrade_cross_contract_calls() {
+fn test_shard_layout_upgrade_cross_contract_calls_impl(resharding_type: ReshardingType) {
     init_test_logger();
 
     // setup
     let epoch_length = 5;
+    let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
+    let target_protocol_version = get_target_protocol_version(&resharding_type);
 
-    let (mut test_env, new_accounts) = setup_test_env_with_cross_contract_txs(epoch_length);
+    let (mut test_env, new_accounts) =
+        setup_test_env_with_cross_contract_txs(epoch_length, genesis_protocol_version);
 
     for _ in 1..5 * epoch_length {
-        test_env.step(0.);
+        test_env.step_impl(0., target_protocol_version, &resharding_type);
         test_env.check_receipt_id_to_shard_id();
     }
 
     let successful_txs = test_env.check_tx_outcomes(false, vec![2 * epoch_length + 1]);
-    let new_accounts: Vec<_> =
+    let new_accounts =
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
+
     test_env.check_accounts(new_accounts);
 
     test_env.check_split_states_artifacts();
+}
+
+// Test cross contract calls
+// This test case tests postponed receipts and delayed receipts
+#[test]
+fn test_shard_layout_upgrade_cross_contract_calls_v1() {
+    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V1);
+}
+
+// Test cross contract calls
+// This test case tests postponed receipts and delayed receipts
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+// TODO(resharding) this test is currently broken, potentially due to lack of
+// flat storage support. Once flat storage for resharding is fully implemented
+// this test should be revisited, fixed and re-enabled. See #8992 for overall progress.
+#[ignore]
+#[test]
+fn test_shard_layout_upgrade_cross_contract_calls_v2() {
+    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2);
 }
 
 // Test cross contract calls
@@ -991,9 +1007,13 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
 fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
     init_test_logger();
 
+    let resharding_type = ReshardingType::V1;
+    let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
+
     // setup
     let epoch_length = 10;
-    let (mut test_env, new_accounts) = setup_test_env_with_cross_contract_txs(epoch_length);
+    let (mut test_env, new_accounts) =
+        setup_test_env_with_cross_contract_txs(epoch_length, genesis_protocol_version);
 
     // randomly dropping chunks at the first few epochs when sharding splits happens
     // make sure initial txs (deploy smart contracts) are processed succesfully

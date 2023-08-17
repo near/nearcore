@@ -1874,21 +1874,48 @@ impl TestEnv {
 
     pub fn process_partial_encoded_chunks(&mut self) {
         let network_adapters = self.network_adapters.clone();
-        for network_adapter in network_adapters {
-            // process partial encoded chunks
-            while let Some(request) = network_adapter.pop() {
-                if let PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::PartialEncodedChunkMessage {
-                        account_id,
-                        partial_encoded_chunk,
-                    },
-                ) = request
-                {
-                    self.shards_manager(&account_id).send(
-                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
-                            PartialEncodedChunk::from(partial_encoded_chunk),
-                        ),
-                    );
+
+        let mut keep_going = true;
+        while keep_going {
+            for network_adapter in network_adapters.iter() {
+                keep_going = false;
+                // process partial encoded chunks
+                while let Some(request) = network_adapter.pop() {
+                    // if there are any requests in any of the adapters reset
+                    // keep going to true as processing of any message may
+                    // trigger more messages to be processed in other clients
+                    // it's a bit sad and it would be much nicer if all messages
+                    // were forwarded to a single queue
+                    // TODO would be nicer to first handle all PECs and then all PECFs
+                    keep_going = true;
+                    match request {
+                        PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::PartialEncodedChunkMessage {
+                                account_id,
+                                partial_encoded_chunk,
+                            },
+                        ) => {
+                            let partial_encoded_chunk =
+                                PartialEncodedChunk::from(partial_encoded_chunk);
+                            let message =
+                                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
+                                    partial_encoded_chunk,
+                                );
+                            self.shards_manager(&account_id).send(message);
+                        }
+                        PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::PartialEncodedChunkForward { account_id, forward },
+                        ) => {
+                            let message =
+                                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
+                                    forward,
+                                );
+                            self.shards_manager(&account_id).send(message);
+                        }
+                        _ => {
+                            tracing::debug!(target: "test", ?request, "skipping unsupported request type");
+                        }
+                    }
                 }
             }
         }
@@ -1983,6 +2010,9 @@ impl TestEnv {
     }
 
     pub fn process_shards_manager_responses_and_finish_processing_blocks(&mut self, idx: usize) {
+        let _span =
+            tracing::debug_span!(target: "test", "process_shards_manager", client=idx).entered();
+
         loop {
             self.process_shards_manager_responses(idx);
             if self.clients[idx].finish_blocks_in_processing().is_empty() {
