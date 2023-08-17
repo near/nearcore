@@ -18,6 +18,7 @@ rand_hc.workspace = true
 serde_json.workspace = true
 smart-default.workspace = true
 tracing.workspace = true
+# itertools has collect_vec which is useful in quick debugging prints
 itertools.workspace = true
 
 near-crypto.workspace = true
@@ -46,7 +47,4 @@ nightly_protocol = [
   "near-store/nightly_protocol",
 ]
 no_cache = []
-new_epoch_sync = [
-  "near-store/new_epoch_sync",
-  "near-primitives/new_epoch_sync"
-]
+new_epoch_sync = ["near-store/new_epoch_sync", "near-primitives/new_epoch_sync"]

@@ -994,7 +994,7 @@ fn test_shard_layout_upgrade_cross_contract_calls_v1() {
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 // TODO(resharding) this test is currently broken, potentially due to lack of
 // flat storage support. Once flat storage for resharding is fully implemented
-// this test should be revisited, fixed and re-enabled.
+// this test should be revisited, fixed and re-enabled. See #8992 for overall progress.
 #[ignore]
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls_v2() {
@@ -1008,12 +1008,12 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
     init_test_logger();
 
     let resharding_type = ReshardingType::V1;
-    let genesis_protocol_versino = get_genesis_protocol_version(&resharding_type);
+    let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
 
     // setup
     let epoch_length = 10;
     let (mut test_env, new_accounts) =
-        setup_test_env_with_cross_contract_txs(epoch_length, genesis_protocol_versino);
+        setup_test_env_with_cross_contract_txs(epoch_length, genesis_protocol_version);
 
     // randomly dropping chunks at the first few epochs when sharding splits happens
     // make sure initial txs (deploy smart contracts) are processed succesfully
