@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 macro_rules! include_config {
     ($file:expr) => {
-        include_str!(concat!("../../res/runtime_configs/", $file))
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/runtime_configs/", $file))
     };
 }
 
@@ -150,9 +150,38 @@ mod tests {
         LowerDataReceiptAndEcrecoverBaseCost, LowerStorageCost, LowerStorageKeyLimit,
     };
     use near_primitives_core::config::{ActionCosts, ExtCosts};
+    use std::collections::HashSet;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
     const RECEIPTS_DEPTH: u64 = 63;
+
+    #[test]
+    fn all_configs_are_specified() {
+        let file_versions =
+            std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/res/runtime_configs/"))
+                .expect("can open config directory");
+        let mut files = file_versions
+            .into_iter()
+            .map(|de| {
+                de.expect("direntry should read successfully")
+                    .path()
+                    .file_name()
+                    .expect("direntry should have a filename")
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect::<HashSet<_>>();
+
+        for (ver, _) in super::CONFIG_DIFFS {
+            assert!(files.remove(&format!("{ver}.yaml")), "{ver}.yaml file is missing?");
+        }
+
+        for file in files {
+            let Some((name, "yaml")) = file.rsplit_once(".") else { continue };
+            let Ok(version_num) = name.parse::<u32>() else { continue };
+            panic!("CONFIG_DIFFS does not contain reference to the {version_num}.yaml file!");
+        }
+    }
 
     #[test]
     fn test_max_prepaid_gas() {

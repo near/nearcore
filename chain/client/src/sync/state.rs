@@ -1137,7 +1137,7 @@ impl StateSync {
         let result = self.split_state_roots.remove(&shard_id);
         let mut shard_sync_done = false;
         if let Some(state_roots) = result {
-            chain.build_state_for_split_shards_postprocessing(&sync_hash, state_roots)?;
+            chain.build_state_for_split_shards_postprocessing(&sync_hash, state_roots?)?;
             *shard_sync_download =
                 ShardSyncDownload { downloads: vec![], status: ShardSyncStatus::StateSyncDone };
             shard_sync_done = true;

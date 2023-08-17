@@ -502,9 +502,6 @@ impl Trie {
     }
 }
 
-/// TODO (#8997): test set seems incomplete. Perhaps `get_trie_items_for_part`
-/// should also belong to this file. We need to use it to check that state
-/// parts are continuous and disjoint. Maybe it is checked in split_state.rs.
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
