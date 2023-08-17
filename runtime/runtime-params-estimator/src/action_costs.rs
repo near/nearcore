@@ -682,7 +682,9 @@ fn create_account_action() -> Action {
 }
 
 fn create_transfer_action() -> Action {
-    Action::Transfer(Box::new(near_primitives::transaction::TransferAction { deposit: 10u128.pow(24) }))
+    Action::Transfer(Box::new(near_primitives::transaction::TransferAction {
+        deposit: 10u128.pow(24),
+    }))
 }
 
 fn stake_action() -> Action {

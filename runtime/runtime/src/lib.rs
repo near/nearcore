@@ -2468,8 +2468,9 @@ mod tests {
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
         let wasm_code = near_test_contracts::rs_contract().to_vec();
-        let actions =
-            vec![Action::DeployContract(DeployContractAction { code: wasm_code.clone() })];
+        let actions = vec![Action::DeployContract(Box::new(DeployContractAction {
+            code: wasm_code.clone(),
+        }))];
 
         let receipts = vec![create_receipt_with_actions(alice_account(), signer, actions)];
 

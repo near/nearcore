@@ -254,7 +254,8 @@ pub(crate) fn fn_cost_in_contract(
 
     for account in &chosen_accounts {
         let tb = testbed.transaction_builder();
-        let setup = vec![Action::DeployContract(Box::new(DeployContractAction { code: code.to_vec() }))];
+        let setup =
+            vec![Action::DeployContract(Box::new(DeployContractAction { code: code.to_vec() }))];
         let setup_tx = tb.transaction_from_actions(account.clone(), account.clone(), setup);
 
         testbed.process_block(vec![setup_tx], 0);

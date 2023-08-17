@@ -136,7 +136,10 @@ impl ReceiptManager {
         receipt_index: ReceiptIndex,
         code: Vec<u8>,
     ) -> Result<(), VMLogicError> {
-        self.append_action(receipt_index, Action::DeployContract(Box::new(DeployContractAction { code })));
+        self.append_action(
+            receipt_index,
+            Action::DeployContract(Box::new(DeployContractAction { code })),
+        );
         Ok(())
     }
 

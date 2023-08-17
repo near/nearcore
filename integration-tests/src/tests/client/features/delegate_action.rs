@@ -525,8 +525,9 @@ fn meta_tx_delete_account() {
 
     let fee_helper = fee_helper(&node);
 
-    let actions =
-        vec![Action::DeleteAccount(Box::new(DeleteAccountAction { beneficiary_id: relayer.clone() }))];
+    let actions = vec![Action::DeleteAccount(Box::new(DeleteAccountAction {
+        beneficiary_id: relayer.clone(),
+    }))];
 
     // special case balance check for deleting account
     let gas_cost = fee_helper.prepaid_delete_account_cost()

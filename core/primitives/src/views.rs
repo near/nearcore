@@ -1238,7 +1238,9 @@ impl TryFrom<ActionView> for Action {
                     deposit,
                 }))
             }
-            ActionView::Transfer { deposit } => Action::Transfer(Box::new(TransferAction { deposit })),
+            ActionView::Transfer { deposit } => {
+                Action::Transfer(Box::new(TransferAction { deposit }))
+            }
             ActionView::Stake { stake, public_key } => {
                 Action::Stake(Box::new(StakeAction { stake, public_key }))
             }

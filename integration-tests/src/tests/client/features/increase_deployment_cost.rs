@@ -46,7 +46,8 @@ fn test_deploy_cost_increased() {
     };
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let actions = vec![Action::DeployContract(Box::new(DeployContractAction { code: test_contract }))];
+    let actions =
+        vec![Action::DeployContract(Box::new(DeployContractAction { code: test_contract }))];
 
     let tx = env.tx_from_actions(actions.clone(), &signer, signer.account_id.clone());
     let old_outcome = env.execute_tx(tx).unwrap();

@@ -1837,7 +1837,9 @@ mod tests {
     fn test_validate_action_valid_delete_account() {
         validate_action(
             &VMLimitConfig::test(),
-            &Action::DeleteAccount(Box::new(DeleteAccountAction { beneficiary_id: alice_account() })),
+            &Action::DeleteAccount(Box::new(DeleteAccountAction {
+                beneficiary_id: alice_account(),
+            })),
             PROTOCOL_VERSION,
         )
         .expect("valid action");
