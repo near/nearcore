@@ -887,7 +887,7 @@ impl StoreCompiledContractCache {
 impl CompiledContractCache for StoreCompiledContractCache {
     fn put(&self, key: &CryptoHash, value: CompiledContract, use_cache: bool) -> io::Result<()> {
         if use_cache {
-            self.cache.put(*key, value);
+            self.cache.put(*key, value.clone());
         }
         let mut update = crate::db::DBTransaction::new();
         // We intentionally use `.set` here, rather than `.insert`. We don't yet
@@ -899,7 +899,10 @@ impl CompiledContractCache for StoreCompiledContractCache {
     }
 
     fn get(&self, key: &CryptoHash) -> io::Result<Option<CompiledContract>> {
-        // if self.cache.g
+        if let Some(value) = self.cache.get(key) {
+            return Ok(Some(value.clone()));
+        }
+
         let raw_bytes = {
             let _span = tracing::debug_span!(target: "vm", "get_raw_bytes").entered();
             self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref())
