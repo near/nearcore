@@ -7,7 +7,7 @@ use ::rocksdb::{
 use once_cell::sync::Lazy;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
-use std::io;
+use std::{io, println};
 use std::ops::Deref;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -83,9 +83,11 @@ impl PerfContext {
 
     fn reset(&mut self) {
         self.rocksdb_context.reset();
+        self.column_measurements.clear();
     }
 }
 
+#[derive(Debug)]
 struct ColumnMeasurement {
     measurements_per_block_reads: BTreeMap<usize, Measurements>,
     measurements_overall: Measurements,
@@ -100,7 +102,7 @@ impl ColumnMeasurement {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct Measurements {
     pub count: usize,
     pub total_observed_latency: Duration,
@@ -733,7 +735,7 @@ impl RocksDB {
 
     /// Fills results with rocksdb perf data
     fn fill_perf_data(&self, result: &mut StoreStatistics) {
-        let perf_data = self.perf_context.lock().unwrap();
+        let mut perf_data = self.perf_context.lock().unwrap();
         // This works
         /*let obs_lat_values = perf_data*/
         /*.column_measurements*/
@@ -746,9 +748,10 @@ impl RocksDB {
         /*})*/
         /*.collect::<Vec<_>>();*/
 
+        println!("Data: {:?}", perf_data.column_measurements);
         match perf_data.column_measurements.get(&DBCol::State) {
             Some(measurement) => {
-                info!("Senfing state perf data");
+                info!("Sending state perf data");
                 let state_obs_late_avg = measurement
                     .measurements_overall
                     .avg_observed_latency()
@@ -782,11 +785,12 @@ impl RocksDB {
                     "rocksdb_perf_total_observed_latency_per_block".to_string(),
                     state_avg_obs_lat_per_block,
                 ));
-            }
+            },
             None => {
                 info!("No data to send");
             }
         }
+        perf_data.reset();
     }
 }
 
