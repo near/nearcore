@@ -747,10 +747,8 @@ impl RocksDB {
         /*})*/
         /*.collect::<Vec<_>>();*/
 
-        println!("Data: {:?}", perf_data.column_measurements);
         match perf_data.column_measurements.get(&DBCol::State) {
             Some(measurement) => {
-                info!("Sending state perf data");
                 let state_obs_late_avg =
                     measurement.measurements_overall.avg_observed_latency().as_micros() as i64;
                 result.data.push((
@@ -781,11 +779,9 @@ impl RocksDB {
                     state_avg_obs_lat_per_block,
                 ));
             }
-            None => {
-                info!("No data to send");
-            }
+            None => {}
         }
-        perf_data.reset();
+        //perf_data.reset();
     }
 }
 
