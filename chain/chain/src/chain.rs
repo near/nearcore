@@ -5069,8 +5069,14 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = block.header().prev_hash();
         let height = block.header().height();
         match apply_results_or_state_changes {
-            ApplySplitStateResultOrStateChanges::ApplySplitStateResults(results) => {
+            ApplySplitStateResultOrStateChanges::ApplySplitStateResults(mut results) => {
                 tracing::debug!(target: "resharding", height, ?shard_uid, "process_split_state apply");
+
+                // Sort the results so that the gas reassignment is deterministic.
+                results.sort_unstable_by_key(|r| r.shard_uid);
+                // Drop the mutability as we no longer need it.
+                let results = results;
+
                 // Split validator_proposals, gas_burnt, balance_burnt to each split shard
                 // and store the chunk extra for split shards
                 // Note that here we do not split outcomes by the new shard layout, we simply store
@@ -5105,11 +5111,20 @@ impl<'a> ChainUpdate<'a> {
                 let total_gas_used = chunk_extra.gas_used();
                 let total_balance_burnt = chunk_extra.balance_burnt();
 
+                // The gas remainder, the split shards will be reassigned one
+                // unit each until its depleted.
                 let mut gas_res = total_gas_used % num_split_shards;
+                // The gas quotient, the split shards will be reassigned the
+                // full value each.
                 let gas_split = total_gas_used / num_split_shards;
 
+                // The balance remainder, the split shards will be reassigned one
+                // unit each until its depleted.
                 let mut balance_res = (total_balance_burnt % num_split_shards as u128) as NumShards;
+                // The balance quotient, the split shards will be reassigned the
+                // full value each.
                 let balance_split = total_balance_burnt / (num_split_shards as u128);
+
                 let gas_limit = chunk_extra.gas_limit();
                 let outcome_root = *chunk_extra.outcome_root();
 
@@ -5121,16 +5136,22 @@ impl<'a> ChainUpdate<'a> {
                 assert_eq!(num_split_shards, results.len() as u64);
 
                 for result in results {
-                    let mut gas_burnt = gas_split;
-                    if gas_res > 0 {
+                    tracing::debug!(target: "resharding", height, ?shard_uid, result_shard_uid=?result.shard_uid, "process_split_state apply");
+
+                    let gas_burnt = if gas_res > 0 {
                         gas_res -= 1;
-                        gas_burnt += 1;
-                    }
-                    let mut balance_burnt = balance_split;
-                    if balance_res > 0 {
+                        gas_split + 1
+                    } else {
+                        gas_split
+                    };
+
+                    let balance_burnt = if balance_res > 0 {
                         balance_res -= 1;
-                        balance_burnt += 1;
-                    }
+                        balance_split + 1
+                    } else {
+                        balance_split
+                    };
+
                     let new_chunk_extra = ChunkExtra::new(
                         &result.new_root,
                         outcome_root,
