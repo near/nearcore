@@ -7,13 +7,13 @@ use ::rocksdb::{
 use once_cell::sync::Lazy;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
-use std::{io, println};
 use std::ops::Deref;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use std::{io, println};
 use strum::IntoEnumIterator;
-use tracing::{warn, info};
+use tracing::{info, warn};
 
 pub(crate) mod instance_tracker;
 pub(crate) mod snapshot;
@@ -67,18 +67,17 @@ impl PerfContext {
         read_block_latency: Duration,
         has_merge: bool,
     ) {
-        self.column_measurements.entry(db_col).and_modify(|col_measurement| {
-            col_measurement
-                .measurements_per_block_reads
-                .entry(block_read_count)
-                .or_default()
-                .record(observed_latency, read_block_latency, has_merge);
-            col_measurement.measurements_overall.record(
-                observed_latency,
-                read_block_latency,
-                has_merge,
-            );
-        });
+        let col_measurement = self.column_measurements.entry(db_col).or_insert(ColumnMeasurement::new());
+        col_measurement
+            .measurements_per_block_reads
+            .entry(block_read_count)
+            .or_default()
+            .record(observed_latency, read_block_latency, has_merge);
+        col_measurement.measurements_overall.record(
+            observed_latency,
+            read_block_latency,
+            has_merge,
+        );
     }
 
     fn reset(&mut self) {
@@ -752,19 +751,15 @@ impl RocksDB {
         match perf_data.column_measurements.get(&DBCol::State) {
             Some(measurement) => {
                 info!("Sending state perf data");
-                let state_obs_late_avg = measurement
-                    .measurements_overall
-                    .avg_observed_latency()
-                    .as_micros() as i64;
+                let state_obs_late_avg =
+                    measurement.measurements_overall.avg_observed_latency().as_micros() as i64;
                 result.data.push((
                     "rocksdb_perf_avg_observed_latency".to_string(),
                     vec![StatsValue::Count(state_obs_late_avg)],
                 ));
 
-                let state_read_block_latency = measurement
-                    .measurements_overall
-                    .avg_read_block_latency()
-                    .as_micros() as i64;
+                let state_read_block_latency =
+                    measurement.measurements_overall.avg_read_block_latency().as_micros() as i64;
                 result.data.push((
                     "rocksdb_perf_avg_read_block_latency".to_string(),
                     vec![StatsValue::Count(state_read_block_latency)],
@@ -785,7 +780,7 @@ impl RocksDB {
                     "rocksdb_perf_total_observed_latency_per_block".to_string(),
                     state_avg_obs_lat_per_block,
                 ));
-            },
+            }
             None => {
                 info!("No data to send");
             }
