@@ -1,12 +1,10 @@
 use crate::internal::VMKind;
 use crate::logic::{mocks::mock_external::MockedExternal, ProtocolVersion, VMContext, VMOutcome};
-use near_primitives::runtime::{config_store::RuntimeConfigStore, fees::RuntimeFeesConfig};
-use near_primitives_core::{
-    contract::ContractCode,
-    types::Gas,
-    version::{ProtocolFeature, PROTOCOL_VERSION},
+use near_primitives::runtime::{
+    config::RuntimeConfig, config_store::RuntimeConfigStore, fees::RuntimeFeesConfig,
 };
-use std::{collections::HashSet, fmt::Write};
+use near_primitives_core::{contract::ContractCode, types::Gas, version::ProtocolFeature};
+use std::{collections::HashSet, fmt::Write, sync::Arc};
 
 pub(crate) fn test_builder() -> TestBuilder {
     let context = VMContext {
@@ -31,7 +29,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         code: ContractCode::new(Vec::new(), None),
         context,
         method: "main".to_string(),
-        protocol_versions: vec![PROTOCOL_VERSION],
+        protocol_versions: vec![u32::MAX],
         skip: HashSet::new(),
         opaque_error: false,
         opaque_outcome: false,
@@ -88,25 +86,21 @@ impl TestBuilder {
 
     // We only test trapping tests on Wasmer, as of version 0.17, when tests executed in parallel,
     // Wasmer signal handlers may catch signals thrown from the Wasmtime, and produce fake failing tests.
-    #[allow(dead_code)]
     pub(crate) fn skip_wasmtime(mut self) -> Self {
         self.skip.insert(VMKind::Wasmtime);
         self
     }
 
-    #[allow(dead_code)]
     pub(crate) fn skip_wasmer0(mut self) -> Self {
         self.skip.insert(VMKind::Wasmer0);
         self
     }
 
-    #[allow(dead_code)]
     pub(crate) fn skip_wasmer2(mut self) -> Self {
         self.skip.insert(VMKind::Wasmer2);
         self
     }
 
-    #[allow(dead_code)]
     pub(crate) fn skip_near_vm(mut self) -> Self {
         self.skip.insert(VMKind::NearVm);
         self
@@ -117,7 +111,6 @@ impl TestBuilder {
         self.skip_wasmer0().skip_wasmer2().skip_near_vm()
     }
 
-    #[allow(dead_code)]
     pub(crate) fn only_wasmer0(self) -> Self {
         self.skip_wasmer2().skip_near_vm().skip_wasmtime()
     }
@@ -127,13 +120,11 @@ impl TestBuilder {
         self.skip_wasmer0().skip_near_vm().skip_wasmtime()
     }
 
-    #[allow(dead_code)]
     pub(crate) fn only_near_vm(self) -> Self {
         self.skip_wasmer0().skip_wasmer2().skip_wasmtime()
     }
 
-    /// Run  the necessary tests to check protocol upgrades for the given
-    /// features.
+    /// Add additional protocol features to this test.
     ///
     /// Tricky. Given `[feat1, feat2, feat3]`, this will run *four* tests for
     /// protocol versions `[feat1 - 1, feat2 - 1, feat3 - 1, PROTOCOL_VERSION]`.
@@ -141,33 +132,52 @@ impl TestBuilder {
     /// When using this method with `n` features, be sure to pass `n + 1`
     /// expectations to the `expects` method. For nightly features, you can
     /// `cfg` the relevant features and expect.
-    pub(crate) fn protocol_features(self, protocol_features: &'static [ProtocolFeature]) -> Self {
-        let mut protocol_versions = Vec::new();
+    pub(crate) fn protocol_features(
+        mut self,
+        protocol_features: &'static [ProtocolFeature],
+    ) -> Self {
         for feat in protocol_features {
-            protocol_versions.push(feat.protocol_version() - 1)
+            self = self.protocol_version(feat.protocol_version() - 1);
         }
-        protocol_versions.push(PROTOCOL_VERSION);
-
-        self.protocol_versions(protocol_versions)
+        self
     }
 
-    /// Run the tests for each protocol version.
-    ///
-    /// Generally you should call `protocol_features` instead.
-    pub(crate) fn protocol_versions(mut self, protocol_versions: Vec<ProtocolVersion>) -> Self {
+    /// Add a protocol version to test.
+    pub(crate) fn protocol_version(mut self, protocol_version: ProtocolVersion) -> Self {
+        self.protocol_versions.push(protocol_version - 1);
+        self
+    }
+
+    pub(crate) fn only_protocol_versions(
+        mut self,
+        protocol_versions: Vec<ProtocolVersion>,
+    ) -> Self {
         self.protocol_versions = protocol_versions;
         self
     }
 
     #[track_caller]
-    pub(crate) fn expect(self, want: expect_test::Expect) {
-        self.expects(&[want])
+    pub(crate) fn expect(self, want: &expect_test::Expect) {
+        self.expects(std::iter::once(want))
+    }
+
+    pub(crate) fn configs(&self) -> impl Iterator<Item = Arc<RuntimeConfig>> {
+        let runtime_config_store = RuntimeConfigStore::new(None);
+        self.protocol_versions
+            .clone()
+            .into_iter()
+            .map(move |pv| Arc::clone(runtime_config_store.get_config(pv)))
     }
 
     #[track_caller]
-    pub(crate) fn expects(self, wants: &[expect_test::Expect]) {
+    pub(crate) fn expects<'a, I>(mut self, wants: I)
+    where
+        I: IntoIterator<Item = &'a expect_test::Expect>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        self.protocol_versions.sort();
         let runtime_config_store = RuntimeConfigStore::new(None);
-
+        let wants = wants.into_iter();
         assert_eq!(
             wants.len(),
             self.protocol_versions.len(),
@@ -176,7 +186,7 @@ impl TestBuilder {
             wants.len(),
         );
 
-        for (want, &protocol_version) in wants.iter().zip(&self.protocol_versions) {
+        for (want, &protocol_version) in wants.zip(&self.protocol_versions) {
             let mut results = vec![];
             for vm_kind in [VMKind::NearVm, VMKind::Wasmer2, VMKind::Wasmer0, VMKind::Wasmtime] {
                 if self.skip.contains(&vm_kind) {
@@ -201,6 +211,7 @@ impl TestBuilder {
                 let promise_results = vec![];
 
                 let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+                println!("Running {:?} for protocol version {}", vm_kind, protocol_version);
                 let outcome = runtime
                     .run(
                         &self.code,

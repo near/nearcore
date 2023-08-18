@@ -113,10 +113,11 @@ class SweatMint(FunctionCall):
         }
 
 
-class SweatMintBatch(FunctionCall):
+class SweatMintBatch(MultiFunctionCall):
     """
     A call to `record_batch`.
     Mints new tokens for walked steps for a batch of users.
+    Might get split into multiple function calls to avoid log output limits.
     """
 
     def __init__(self, sweat_id: str, oracle: Account,
@@ -124,8 +125,16 @@ class SweatMintBatch(FunctionCall):
         super().__init__(oracle, sweat_id, "record_batch")
         self.recipient_step_pairs = recipient_step_pairs
 
-    def args(self) -> dict:
-        return {"steps_batch": self.recipient_step_pairs}
+    def args(self) -> typing.List[dict]:
+        # above a threshold, we hit the log output limit of 16kB
+        # this depends a bit on the exact account id names
+        chunk_len = 150
+        chunks = [
+            self.recipient_step_pairs[s:s + chunk_len]
+            for s in range(0, len(self.recipient_step_pairs), chunk_len)
+        ]
+
+        return [{"steps_batch": chunk} for chunk in chunks]
 
 
 @events.init.add_listener
@@ -157,12 +166,18 @@ def on_locust_init(environment, **kwargs):
     # on master, register oracles for workers
     if isinstance(environment.runner, locust.runners.MasterRunner):
         num_oracles = int(environment.parsed_options.max_workers)
-        # TODO: Add oracles in parallel
-        for worker_id in range(num_oracles):
-            id = worker_oracle_id(worker_id, run_id, funding_account)
-            worker_oracle = Account(key.Key.from_seed_testonly(id))
-            node.prepare_account(worker_oracle, funding_account, 100000,
-                                 "create contract account")
+        oracle_accounts = [
+            Account(
+                key.Key.from_seed_testonly(
+                    worker_oracle_id(id, run_id,
+                                     environment.master_funding_account)))
+            for id in range(num_oracles)
+        ]
+        node.prepare_accounts(oracle_accounts,
+                              environment.master_funding_account, 100000,
+                              "create contract account")
+        for oracle in oracle_accounts:
+            id = oracle.key.account_id
             environment.sweat.register_oracle(node, id)
             environment.sweat.top_up(node, id)
 

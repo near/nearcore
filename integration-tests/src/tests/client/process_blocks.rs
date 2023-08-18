@@ -1174,10 +1174,10 @@ fn test_invalid_approvals() {
     b1.mut_header().get_mut().inner_rest.approvals = (0..100)
         .map(|i| {
             let account_id = AccountId::try_from(format!("test{}", i)).unwrap();
-            Some(
+            Some(Box::new(
                 create_test_signer(account_id.as_str())
                     .sign_approval(&ApprovalInner::Endorsement(*genesis.hash()), 1),
-            )
+            ))
         })
         .collect();
     b1.mut_header().resign(&*signer);
@@ -1307,7 +1307,7 @@ fn test_bad_orphan() {
         // Orphan block with invalid approvals. Allowed for now.
         let mut block = env.clients[0].produce_block(9).unwrap().unwrap();
         let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
-        block.mut_header().get_mut().inner_rest.approvals = vec![Some(some_signature)];
+        block.mut_header().get_mut().inner_rest.approvals = vec![Some(Box::new(some_signature))];
         block.mut_header().get_mut().prev_hash = CryptoHash([3; 32]);
         block.mut_header().resign(&*signer);
         let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);

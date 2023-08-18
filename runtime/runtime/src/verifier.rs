@@ -1,6 +1,6 @@
 use near_crypto::key_conversion::is_valid_staking_key;
+use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::checked_feature;
-use near_primitives::delegate_action::SignedDelegateAction;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::transaction::DeleteAccountAction;
 use near_primitives::types::{BlockHeight, StorageUsage};
@@ -123,7 +123,7 @@ pub fn validate_transaction(
 
     let sender_is_receiver = &transaction.receiver_id == signer_id;
 
-    tx_cost(&config.fees, transaction, gas_price, sender_is_receiver, current_protocol_version)
+    tx_cost(&config, transaction, gas_price, sender_is_receiver, current_protocol_version)
         .map_err(|_| InvalidTxError::CostOverflow.into())
 }
 
@@ -135,7 +135,7 @@ pub fn verify_and_charge_transaction(
     gas_price: Balance,
     signed_transaction: &SignedTransaction,
     verify_signature: bool,
-    #[allow(unused)] block_height: Option<BlockHeight>,
+    block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
 ) -> Result<VerificationResult, RuntimeError> {
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
@@ -562,7 +562,7 @@ mod tests {
     use crate::near_primitives::borsh::BorshSerialize;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, FunctionCallPermission};
-    use near_primitives::delegate_action::{DelegateAction, NonDelegateAction};
+    use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{

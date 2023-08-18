@@ -424,7 +424,6 @@ where
     }
 }
 
-#[allow(dead_code)]
 impl StoreWithCache<'_> {
     pub fn iter_prefix_with_callback(
         &mut self,

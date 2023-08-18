@@ -96,6 +96,18 @@ impl BlockSync {
                 && !self.archive
                 && self.state_sync_enabled
             {
+                tracing::debug!(
+                    target: "sync",
+                    head_epoch_id = ?head.epoch_id,
+                    header_head_epoch_id = ?header_head.epoch_id,
+                    head_next_epoch_id = ?head.next_epoch_id,
+                    head_height = head.height,
+                    header_head_height = header_head.height,
+                    header_head_height_sub = header_head.height.saturating_sub(self.block_fetch_horizon),
+                    archive = self.archive,
+                    state_sync_enabled = self.state_sync_enabled,
+                    block_fetch_horizon = self.block_fetch_horizon,
+                    "Switched from block sync to state sync");
                 // Epochs are different and we are too far from horizon, State Sync is needed
                 return Ok(true);
             }

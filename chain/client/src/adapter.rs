@@ -16,7 +16,7 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 
 /// Transaction status query
-#[derive(actix::Message)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "Option<Box<FinalExecutionOutcomeView>>")]
 pub(crate) struct TxStatusRequest {
     pub tx_hash: CryptoHash,
@@ -24,12 +24,12 @@ pub(crate) struct TxStatusRequest {
 }
 
 /// Transaction status response
-#[derive(actix::Message)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub(crate) struct TxStatusResponse(pub Box<FinalExecutionOutcomeView>);
 
 /// Request a block.
-#[derive(actix::Message)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "Option<Box<Block>>")]
 pub(crate) struct BlockRequest(pub CryptoHash);
 
@@ -47,7 +47,7 @@ pub struct BlockResponse {
 pub struct BlockApproval(pub Approval, pub PeerId);
 
 /// Request headers.
-#[derive(actix::Message)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "Option<Vec<BlockHeader>>")]
 pub(crate) struct BlockHeadersRequest(pub Vec<CryptoHash>);
 
@@ -57,7 +57,7 @@ pub(crate) struct BlockHeadersRequest(pub Vec<CryptoHash>);
 pub(crate) struct BlockHeadersResponse(pub Vec<BlockHeader>, pub PeerId);
 
 /// State request header.
-#[derive(actix::Message)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "Option<StateResponse>")]
 pub(crate) struct StateRequestHeader {
     pub shard_id: ShardId,
@@ -81,7 +81,7 @@ pub(crate) struct StateResponse(pub Box<StateResponseInfo>);
 /// Account announcements that needs to be validated before being processed.
 /// They are paired with last epoch id known to this announcement, in order to accept only
 /// newer announcements.
-#[derive(actix::Message)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "Result<Vec<AnnounceAccount>,ReasonForBan>")]
 pub(crate) struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 

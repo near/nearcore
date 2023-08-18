@@ -25,7 +25,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
         txs.into_iter()
             .map(|tx| {
                 let cost = tx_cost(
-                    &runtime_config.fees,
+                    &runtime_config,
                     &near_primitives::transaction::Transaction {
                         signer_id: tx.transaction.signer_id.clone(),
                         public_key: tx.transaction.public_key.clone(),

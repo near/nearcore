@@ -145,7 +145,6 @@ impl MockEpochManager {
         let map_with_default_hash3 = HashMap::from([(EpochId::default(), 0)]);
 
         let mut validators = HashMap::new();
-        #[allow(unused_mut)]
         let mut validators_by_valset: Vec<EpochValidatorSet> = vs
             .block_producers
             .iter()
@@ -853,7 +852,7 @@ impl EpochManagerAdapter for MockEpochManager {
         _prev_block_hash: &CryptoHash,
         _prev_block_height: BlockHeight,
         _block_height: BlockHeight,
-        _approvals: &[Option<Signature>],
+        _approvals: &[Option<Box<Signature>>],
     ) -> Result<bool, Error> {
         Ok(true)
     }
@@ -862,13 +861,13 @@ impl EpochManagerAdapter for MockEpochManager {
         &self,
         epoch_id: &EpochId,
         can_approved_block_be_produced: &dyn Fn(
-            &[Option<Signature>],
+            &[Option<Box<Signature>>],
             &[(Balance, Balance, bool)],
         ) -> bool,
         prev_block_hash: &CryptoHash,
         prev_block_height: BlockHeight,
         block_height: BlockHeight,
-        approvals: &[Option<Signature>],
+        approvals: &[Option<Box<Signature>>],
     ) -> Result<(), Error> {
         let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
         let message_to_sign = Approval::get_data_for_sig(

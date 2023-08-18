@@ -63,7 +63,7 @@ pub struct BlockHeaderInnerRest {
     pub last_ds_final_block: CryptoHash,
 
     /// All the approvals included in this block
-    pub approvals: Vec<Option<Signature>>,
+    pub approvals: Vec<Option<Box<Signature>>>,
 
     /// Latest protocol version that this block producer has.
     pub latest_protocol_version: ProtocolVersion,
@@ -99,7 +99,7 @@ pub struct BlockHeaderInnerRestV2 {
     pub last_ds_final_block: CryptoHash,
 
     /// All the approvals included in this block
-    pub approvals: Vec<Option<Signature>>,
+    pub approvals: Vec<Option<Box<Signature>>>,
 
     /// Latest protocol version that this block producer has.
     pub latest_protocol_version: ProtocolVersion,
@@ -145,7 +145,7 @@ pub struct BlockHeaderInnerRestV3 {
     pub epoch_sync_data_hash: Option<CryptoHash>,
 
     /// All the approvals included in this block
-    pub approvals: Vec<Option<Signature>>,
+    pub approvals: Vec<Option<Box<Signature>>>,
 
     /// Latest protocol version that this block producer has.
     pub latest_protocol_version: ProtocolVersion,
@@ -190,7 +190,7 @@ pub struct BlockHeaderInnerRestV4 {
     pub epoch_sync_data_hash: Option<CryptoHash>,
 
     /// All the approvals included in this block
-    pub approvals: Vec<Option<Signature>>,
+    pub approvals: Vec<Option<Box<Signature>>>,
 
     /// Latest protocol version that this block producer has.
     pub latest_protocol_version: ProtocolVersion,
@@ -428,7 +428,7 @@ impl BlockHeader {
         last_final_block: CryptoHash,
         last_ds_final_block: CryptoHash,
         epoch_sync_data_hash: Option<CryptoHash>,
-        approvals: Vec<Option<Signature>>,
+        approvals: Vec<Option<Box<Signature>>>,
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
         prev_height: BlockHeight,
@@ -1027,7 +1027,7 @@ impl BlockHeader {
     }
 
     #[inline]
-    pub fn approvals(&self) -> &[Option<Signature>] {
+    pub fn approvals(&self) -> &[Option<Box<Signature>>] {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.inner_rest.approvals,
             BlockHeader::BlockHeaderV2(header) => &header.inner_rest.approvals,

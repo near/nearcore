@@ -4,6 +4,7 @@
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
+use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::{
     BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderInnerRestV3,
@@ -13,7 +14,6 @@ use crate::block_header::{BlockHeaderInnerRestV4, BlockHeaderV4};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::checked_feature;
 use crate::contract::ContractCode;
-use crate::delegate_action::{DelegateAction, SignedDelegateAction};
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, MerklePath};
@@ -757,7 +757,7 @@ pub struct BlockHeaderView {
     pub next_bp_hash: CryptoHash,
     pub block_merkle_root: CryptoHash,
     pub epoch_sync_data_hash: Option<CryptoHash>,
-    pub approvals: Vec<Option<Signature>>,
+    pub approvals: Vec<Option<Box<Signature>>>,
     pub signature: Signature,
     pub latest_protocol_version: ProtocolVersion,
 }
@@ -1252,10 +1252,7 @@ impl TryFrom<ActionView> for Action {
                 Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
             }
             ActionView::Delegate { delegate_action, signature } => {
-                Action::Delegate(SignedDelegateAction {
-                    delegate_action: delegate_action,
-                    signature,
-                })
+                Action::Delegate(SignedDelegateAction { delegate_action, signature })
             }
         })
     }
@@ -2014,7 +2011,7 @@ pub struct LightClientBlockView {
     pub inner_lite: BlockHeaderInnerLiteView,
     pub inner_rest_hash: CryptoHash,
     pub next_bps: Option<Vec<ValidatorStakeView>>,
-    pub approvals_after_next: Vec<Option<Signature>>,
+    pub approvals_after_next: Vec<Option<Box<Signature>>>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
@@ -2476,6 +2473,8 @@ pub struct VMConfigView {
     /// Gas cost of a regular operation.
     pub regular_op_cost: u32,
 
+    pub disable_9393_fix: bool,
+
     /// Describes limits for VM and Runtime.
     ///
     /// TODO: Consider changing this to `VMLimitConfigView` to avoid dependency
@@ -2489,6 +2488,7 @@ impl From<VMConfig> for VMConfigView {
             ext_costs: ExtCostsConfigView::from(config.ext_costs),
             grow_mem_cost: config.grow_mem_cost,
             regular_op_cost: config.regular_op_cost,
+            disable_9393_fix: config.disable_9393_fix,
             limit_config: config.limit_config,
         }
     }
@@ -2500,6 +2500,7 @@ impl From<VMConfigView> for VMConfig {
             ext_costs: near_primitives_core::config::ExtCostsConfig::from(view.ext_costs),
             grow_mem_cost: view.grow_mem_cost,
             regular_op_cost: view.regular_op_cost,
+            disable_9393_fix: view.disable_9393_fix,
             limit_config: view.limit_config,
         }
     }

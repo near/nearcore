@@ -25,7 +25,6 @@ node1_config = {
     "consensus": {
         "block_fetch_horizon": 10,
         "block_header_fetch_horizon": 10,
-        "state_fetch_horizon": 0
     },
     "tracked_shards": [0],
     "gc_blocks_limit": 10,
