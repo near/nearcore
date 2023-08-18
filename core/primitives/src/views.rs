@@ -2473,7 +2473,14 @@ pub struct VMConfigView {
     /// Gas cost of a regular operation.
     pub regular_op_cost: u32,
 
+    /// See [`VMConfig::disable_9393_fix`].
     pub disable_9393_fix: bool,
+    /// See [`VMConfig::flat_storage_reads`].
+    pub flat_storage_reads: bool,
+    /// See [`VMConfig::fix_contract_loading_cost`].
+    pub fix_contract_loading_cost: bool,
+    /// See [`VMConfig::implicit_account_creation`].
+    pub implicit_account_creation: bool,
 
     /// Describes limits for VM and Runtime.
     ///
@@ -2490,6 +2497,9 @@ impl From<VMConfig> for VMConfigView {
             regular_op_cost: config.regular_op_cost,
             disable_9393_fix: config.disable_9393_fix,
             limit_config: config.limit_config,
+            flat_storage_reads: config.flat_storage_reads,
+            fix_contract_loading_cost: config.fix_contract_loading_cost,
+            implicit_account_creation: config.implicit_account_creation,
         }
     }
 }
@@ -2502,6 +2512,9 @@ impl From<VMConfigView> for VMConfig {
             regular_op_cost: view.regular_op_cost,
             disable_9393_fix: view.disable_9393_fix,
             limit_config: view.limit_config,
+            flat_storage_reads: view.flat_storage_reads,
+            fix_contract_loading_cost: view.fix_contract_loading_cost,
+            implicit_account_creation: view.implicit_account_creation,
         }
     }
 }

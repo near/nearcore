@@ -13,7 +13,6 @@ use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::version::ProtocolVersion;
 use near_store::{get, get_account, get_postponed_receipt, TrieAccess, TrieUpdate};
 use near_vm_runner::logic::ActionCosts;
 use std::collections::HashSet;
@@ -38,7 +37,6 @@ fn get_delayed_receipts(
 /// Calculates and returns cost of a receipt.
 fn receipt_cost(
     config: &RuntimeConfig,
-    current_protocol_version: ProtocolVersion,
     receipt: &Receipt,
 ) -> Result<Balance, IntegerOverflowError> {
     Ok(match &receipt.receipt {
@@ -47,21 +45,12 @@ fn receipt_cost(
             if !AccountId::is_system(&receipt.predecessor_id) {
                 let mut total_gas = safe_add_gas(
                     config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-                    total_prepaid_exec_fees(
-                        config,
-                        &action_receipt.actions,
-                        &receipt.receiver_id,
-                        current_protocol_version,
-                    )?,
+                    total_prepaid_exec_fees(config, &action_receipt.actions, &receipt.receiver_id)?,
                 )?;
                 total_gas = safe_add_gas(total_gas, total_prepaid_gas(&action_receipt.actions)?)?;
                 total_gas = safe_add_gas(
                     total_gas,
-                    total_prepaid_send_fees(
-                        config,
-                        &action_receipt.actions,
-                        current_protocol_version,
-                    )?,
+                    total_prepaid_send_fees(config, &action_receipt.actions)?,
                 )?;
                 let total_gas_cost = safe_gas_to_balance(action_receipt.gas_price, total_gas)?;
                 total_cost = safe_add_balance(total_cost, total_gas_cost)?;
@@ -75,11 +64,10 @@ fn receipt_cost(
 /// Calculates and returns total cost of all the receipts.
 fn total_receipts_cost(
     config: &RuntimeConfig,
-    current_protocol_version: ProtocolVersion,
     receipts: &[Receipt],
 ) -> Result<Balance, IntegerOverflowError> {
     receipts.iter().try_fold(0, |accumulator, receipt| {
-        let cost = receipt_cost(config, current_protocol_version, receipt)?;
+        let cost = receipt_cost(config, receipt)?;
         safe_add_balance(accumulator, cost)
     })
 }
@@ -102,14 +90,13 @@ fn total_accounts_balance(
 fn total_postponed_receipts_cost(
     state: &dyn TrieAccess,
     config: &RuntimeConfig,
-    current_protocol_version: ProtocolVersion,
     receipt_ids: &HashSet<(AccountId, crate::CryptoHash)>,
 ) -> Result<Balance, RuntimeError> {
     receipt_ids.iter().try_fold(0, |total, item| {
         let (account_id, receipt_id) = item;
         let cost = match get_postponed_receipt(state, account_id, *receipt_id)? {
             None => return Ok(total),
-            Some(receipt) => receipt_cost(config, current_protocol_version, &receipt)?,
+            Some(receipt) => receipt_cost(config, &receipt)?,
         };
         safe_add_balance(total, cost).map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
     })
@@ -123,7 +110,6 @@ pub(crate) fn check_balance(
     transactions: &[SignedTransaction],
     outgoing_receipts: &[Receipt],
     stats: &ApplyStats,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<(), RuntimeError> {
     let initial_state = final_state.trie();
 
@@ -173,7 +159,7 @@ pub(crate) fn check_balance(
     let final_accounts_balance = total_accounts_balance(final_state, &all_accounts_ids)?;
     // Receipts
     let receipts_cost = |receipts: &[Receipt]| -> Result<Balance, IntegerOverflowError> {
-        total_receipts_cost(config, current_protocol_version, receipts)
+        total_receipts_cost(config, receipts)
     };
     let incoming_receipts_balance = receipts_cost(incoming_receipts)?;
     let outgoing_receipts_balance = receipts_cost(outgoing_receipts)?;
@@ -208,18 +194,10 @@ pub(crate) fn check_balance(
         })
         .collect::<Result<HashSet<_>, StorageError>>()?;
 
-    let initial_postponed_receipts_balance = total_postponed_receipts_cost(
-        initial_state,
-        config,
-        current_protocol_version,
-        &all_potential_postponed_receipt_ids,
-    )?;
-    let final_postponed_receipts_balance = total_postponed_receipts_cost(
-        final_state,
-        config,
-        current_protocol_version,
-        &all_potential_postponed_receipt_ids,
-    )?;
+    let initial_postponed_receipts_balance =
+        total_postponed_receipts_cost(initial_state, config, &all_potential_postponed_receipt_ids)?;
+    let final_postponed_receipts_balance =
+        total_postponed_receipts_cost(final_state, config, &all_potential_postponed_receipt_ids)?;
     // Sum it up
 
     let initial_balance = safe_add_balance_apply!(
@@ -277,7 +255,6 @@ mod tests {
 
     use crate::near_primitives::shard_layout::ShardUId;
     use assert_matches::assert_matches;
-    use near_primitives::version::PROTOCOL_VERSION;
 
     /// Initial balance used in tests.
     pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -298,7 +275,6 @@ mod tests {
             &[],
             &[],
             &ApplyStats::default(),
-            PROTOCOL_VERSION,
         )
         .unwrap();
     }
@@ -316,7 +292,6 @@ mod tests {
             &[],
             &[],
             &ApplyStats::default(),
-            PROTOCOL_VERSION,
         )
         .unwrap_err();
         assert_matches!(err, RuntimeError::BalanceMismatchError(_));
@@ -376,7 +351,6 @@ mod tests {
             &[],
             &[],
             &ApplyStats::default(),
-            PROTOCOL_VERSION,
         )
         .unwrap();
     }
@@ -450,7 +424,6 @@ mod tests {
                 other_burnt_amount: 0,
                 slashed_burnt_amount: 0,
             },
-            PROTOCOL_VERSION,
         )
         .unwrap();
     }
@@ -501,7 +474,6 @@ mod tests {
                 &[tx],
                 &[],
                 &ApplyStats::default(),
-                PROTOCOL_VERSION,
             ),
             Err(RuntimeError::UnexpectedIntegerOverflow)
         );

@@ -5,7 +5,6 @@ use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::Action;
 use near_primitives::types::{AccountId, Balance, Gas};
-use near_primitives::version::PROTOCOL_VERSION;
 
 pub struct FeeHelper {
     pub rt_cfg: RuntimeConfig,
@@ -182,14 +181,7 @@ impl FeeHelper {
         let total_gas = base.exec_fee()
             + base.send_fee(sir)
             + receipt.send_fee(sir)
-            + node_runtime::config::total_send_fees(
-                &self.rt_cfg,
-                sir,
-                actions,
-                receiver,
-                PROTOCOL_VERSION,
-            )
-            .unwrap();
+            + node_runtime::config::total_send_fees(&self.rt_cfg, sir, actions, receiver).unwrap();
         self.gas_to_balance(total_gas)
     }
 }

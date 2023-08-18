@@ -15,7 +15,6 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, Transaction,
 };
 use near_primitives::types::{AccountId, Balance, Compute, Gas};
-use near_primitives::version::{checked_feature, ProtocolVersion};
 
 /// Describes the cost of converting this transaction into a receipt.
 #[derive(Debug)]
@@ -77,7 +76,6 @@ pub fn total_send_fees(
     sender_is_receiver: bool,
     actions: &[Action],
     receiver_id: &AccountId,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<Gas, IntegerOverflowError> {
     let mut result = 0;
     let fees = &config.fees;
@@ -101,8 +99,7 @@ pub fn total_send_fees(
             Transfer(_) => {
                 // Account for implicit account creation
                 let is_receiver_implicit =
-                    checked_feature!("stable", ImplicitAccountCreation, current_protocol_version)
-                        && receiver_id.is_implicit();
+                    config.wasm_config.implicit_account_creation && receiver_id.is_implicit();
                 transfer_send_fee(fees, sender_is_receiver, is_receiver_implicit)
             }
             Stake(_) => fees.fee(ActionCosts::stake).send_fee(sender_is_receiver),
@@ -136,7 +133,6 @@ pub fn total_send_fees(
                         sender_is_receiver,
                         &delegate_action.get_actions(),
                         &delegate_action.receiver_id,
-                        current_protocol_version,
                     )?
             }
         };
@@ -153,7 +149,6 @@ pub fn total_send_fees(
 pub fn total_prepaid_send_fees(
     config: &RuntimeConfig,
     actions: &[Action],
-    current_protocol_version: ProtocolVersion,
 ) -> Result<Gas, IntegerOverflowError> {
     let mut result = 0;
     for action in actions {
@@ -168,7 +163,6 @@ pub fn total_prepaid_send_fees(
                     sender_is_receiver,
                     &delegate_action.get_actions(),
                     &delegate_action.receiver_id,
-                    current_protocol_version,
                 )?
             }
             _ => 0,
@@ -178,12 +172,7 @@ pub fn total_prepaid_send_fees(
     Ok(result)
 }
 
-pub fn exec_fee(
-    config: &RuntimeConfig,
-    action: &Action,
-    receiver_id: &AccountId,
-    current_protocol_version: ProtocolVersion,
-) -> Gas {
+pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId) -> Gas {
     use Action::*;
     let fees = &config.fees;
     match action {
@@ -201,8 +190,7 @@ pub fn exec_fee(
         Transfer(_) => {
             // Account for implicit account creation
             let is_receiver_implicit =
-                checked_feature!("stable", ImplicitAccountCreation, current_protocol_version)
-                    && receiver_id.is_implicit();
+                config.wasm_config.implicit_account_creation && receiver_id.is_implicit();
             transfer_exec_fee(fees, is_receiver_implicit)
         }
         Stake(_) => fees.fee(ActionCosts::stake).exec_fee(),
@@ -233,7 +221,6 @@ pub fn tx_cost(
     transaction: &Transaction,
     gas_price: Balance,
     sender_is_receiver: bool,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<TransactionCost, IntegerOverflowError> {
     let fees = &config.fees;
     let mut gas_burnt: Gas = fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
@@ -244,12 +231,11 @@ pub fn tx_cost(
             sender_is_receiver,
             &transaction.actions,
             &transaction.receiver_id,
-            current_protocol_version,
         )?,
     )?;
     let prepaid_gas = safe_add_gas(
         total_prepaid_gas(&transaction.actions)?,
-        total_prepaid_send_fees(config, &transaction.actions, current_protocol_version)?,
+        total_prepaid_send_fees(config, &transaction.actions)?,
     )?;
     // If signer is equals to receiver the receipt will be processed at the same block as this
     // transaction. Otherwise it will processed in the next block and the gas might be inflated.
@@ -274,12 +260,7 @@ pub fn tx_cost(
         safe_add_gas(prepaid_gas, fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
     gas_remaining = safe_add_gas(
         gas_remaining,
-        total_prepaid_exec_fees(
-            config,
-            &transaction.actions,
-            &transaction.receiver_id,
-            current_protocol_version,
-        )?,
+        total_prepaid_exec_fees(config, &transaction.actions, &transaction.receiver_id)?,
     )?;
     let burnt_amount = safe_gas_to_balance(gas_price, gas_burnt)?;
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
@@ -293,7 +274,6 @@ pub fn total_prepaid_exec_fees(
     config: &RuntimeConfig,
     actions: &[Action],
     receiver_id: &AccountId,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<Gas, IntegerOverflowError> {
     let mut result = 0;
     let fees = &config.fees;
@@ -306,20 +286,14 @@ pub fn total_prepaid_exec_fees(
                 config,
                 &actions,
                 &signed_delegate_action.delegate_action.receiver_id,
-                current_protocol_version,
             )?;
             delta = safe_add_gas(
                 delta,
-                exec_fee(
-                    config,
-                    action,
-                    &signed_delegate_action.delegate_action.receiver_id,
-                    current_protocol_version,
-                ),
+                exec_fee(config, action, &signed_delegate_action.delegate_action.receiver_id),
             )?;
             delta = safe_add_gas(delta, fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
         } else {
-            delta = exec_fee(config, action, receiver_id, current_protocol_version);
+            delta = exec_fee(config, action, receiver_id);
         }
 
         result = safe_add_gas(result, delta)?;

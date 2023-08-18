@@ -684,11 +684,7 @@ pub(crate) fn apply_delegate_action(
     // Some contracts refund the deposit. Usually they refund the deposit to the predecessor and this is sender_id/Sender from DelegateAction.
     // Therefore Relayer should verify DelegateAction before submitting it because it spends the attached deposit.
 
-    let prepaid_send_fees = total_prepaid_send_fees(
-        &apply_state.config,
-        &action_receipt.actions,
-        apply_state.current_protocol_version,
-    )?;
+    let prepaid_send_fees = total_prepaid_send_fees(&apply_state.config, &action_receipt.actions)?;
     let required_gas = receipt_required_gas(apply_state, &new_receipt)?;
     // This gas will be burnt by the receiver of the created receipt,
     result.gas_used = safe_add_gas(result.gas_used, required_gas)?;
@@ -712,7 +708,6 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
                     &apply_state.config,
                     &action_receipt.actions,
                     &receipt.receiver_id,
-                    apply_state.current_protocol_version,
                 )?,
                 total_prepaid_gas(&action_receipt.actions)?,
             )?;
@@ -884,7 +879,7 @@ pub(crate) fn check_account_existence(
     action: &Action,
     account: &mut Option<Account>,
     account_id: &AccountId,
-    current_protocol_version: ProtocolVersion,
+    config: &RuntimeConfig,
     is_the_only_action: bool,
     is_refund: bool,
 ) -> Result<(), ActionError> {
@@ -896,9 +891,8 @@ pub(crate) fn check_account_existence(
                 }
                 .into());
             } else {
-                if checked_feature!("stable", ImplicitAccountCreation, current_protocol_version)
-                    && account_id.is_implicit()
-                {
+                // TODO: this should be `config.implicit_account_creation`.
+                if config.wasm_config.implicit_account_creation && account_id.is_implicit() {
                     // If the account doesn't exist and it's 64-length hex account ID, then you
                     // should only be able to create it using single transfer action.
                     // Because you should not be able to add another access key to the account in
@@ -917,11 +911,8 @@ pub(crate) fn check_account_existence(
         }
         Action::Transfer(_) => {
             if account.is_none() {
-                return if checked_feature!(
-                    "stable",
-                    ImplicitAccountCreation,
-                    current_protocol_version
-                ) && is_the_only_action
+                return if config.wasm_config.implicit_account_creation
+                    && is_the_only_action
                     && account_id.is_implicit()
                     && !is_refund
                 {
@@ -1374,7 +1365,7 @@ mod tests {
                 &Action::Delegate(signed_delegate_action),
                 &mut None,
                 &sender_id,
-                1,
+                &RuntimeConfig::test(),
                 false,
                 false
             ),

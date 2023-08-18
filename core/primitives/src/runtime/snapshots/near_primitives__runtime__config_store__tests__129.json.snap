@@ -24,9 +24,9 @@ expression: config_view
     },
     "action_creation_config": {
       "create_account_cost": {
-        "send_sir": 99607375000,
-        "send_not_sir": 99607375000,
-        "execution": 99607375000
+        "send_sir": 3850000000000,
+        "send_not_sir": 3850000000000,
+        "execution": 3850000000000
       },
       "deploy_contract_cost": {
         "send_sir": 184765750000,
@@ -173,13 +173,13 @@ expression: config_view
     "grow_mem_cost": 1,
     "regular_op_cost": 822756,
     "disable_9393_fix": false,
-    "flat_storage_reads": false,
-    "fix_contract_loading_cost": false,
+    "flat_storage_reads": true,
+    "fix_contract_loading_cost": true,
     "implicit_account_creation": true,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
-      "max_stack_height": 16384,
-      "contract_prepare_version": 1,
+      "max_stack_height": 262144,
+      "contract_prepare_version": 2,
       "initial_memory_pages": 1024,
       "max_memory_pages": 2048,
       "registers_memory_limit": 1073741824,

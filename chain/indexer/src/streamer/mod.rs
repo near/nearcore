@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use actix::Addr;
 use async_recursion::async_recursion;
-use near_indexer_primitives::types::ProtocolVersion;
 use node_runtime::config::RuntimeConfig;
 use rocksdb::DB;
 use tokio::sync::mpsc;
@@ -128,7 +127,6 @@ async fn build_streamer_message(
         let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
             &client,
             &runtime_config,
-            protocol_config_view.protocol_version,
             indexer_transactions
                 .iter()
                 .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id)
@@ -175,7 +173,6 @@ async fn build_streamer_message(
                     if let Some(receipt) = find_local_receipt_by_id_in_block(
                         &client,
                         &runtime_config,
-                        protocol_config_view.protocol_version,
                         prev_block,
                         execution_outcome.id,
                     )
@@ -188,7 +185,7 @@ async fn build_streamer_message(
                 }
             };
             receipt_execution_outcomes
-                .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt: receipt });
+                .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt });
         }
 
         // Blocks #47317863 and #47317864
@@ -246,7 +243,6 @@ async fn build_streamer_message(
 async fn find_local_receipt_by_id_in_block(
     client: &Addr<near_client::ViewClientActor>,
     runtime_config: &RuntimeConfig,
-    protocol_version: ProtocolVersion,
     block: views::BlockView,
     receipt_id: near_primitives::hash::CryptoHash,
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
@@ -276,7 +272,6 @@ async fn find_local_receipt_by_id_in_block(
             let local_receipts = convert_transactions_sir_into_local_receipts(
                 &client,
                 &runtime_config,
-                protocol_version,
                 vec![&indexer_transaction],
                 &block,
             )

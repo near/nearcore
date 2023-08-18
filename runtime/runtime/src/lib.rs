@@ -298,12 +298,7 @@ impl Runtime {
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ActionResult, RuntimeError> {
-        let exec_fees = exec_fee(
-            &apply_state.config,
-            action,
-            &receipt.receiver_id,
-            apply_state.current_protocol_version,
-        );
+        let exec_fees = exec_fee(&apply_state.config, action, &receipt.receiver_id);
         let mut result = ActionResult::default();
         result.gas_used = exec_fees;
         result.gas_burnt = exec_fees;
@@ -317,7 +312,7 @@ impl Runtime {
             action,
             account,
             account_id,
-            apply_state.current_protocol_version,
+            &apply_state.config,
             is_the_only_action,
             is_refund,
         ) {
@@ -383,11 +378,7 @@ impl Runtime {
                     }
                 } else {
                     // Implicit account creation
-                    debug_assert!(checked_feature!(
-                        "stable",
-                        ImplicitAccountCreation,
-                        apply_state.current_protocol_version
-                    ));
+                    debug_assert!(apply_state.config.wasm_config.implicit_account_creation);
                     debug_assert!(!is_refund);
                     action_implicit_account_creation_transfer(
                         state_update,
@@ -613,7 +604,6 @@ impl Runtime {
                 receipt,
                 action_receipt,
                 &mut result,
-                apply_state.current_protocol_version,
                 &apply_state.config,
             )?
         };
@@ -772,21 +762,15 @@ impl Runtime {
         receipt: &Receipt,
         action_receipt: &ActionReceipt,
         result: &mut ActionResult,
-        current_protocol_version: ProtocolVersion,
         config: &RuntimeConfig,
     ) -> Result<Balance, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
         let prepaid_gas = safe_add_gas(
             total_prepaid_gas(&action_receipt.actions)?,
-            total_prepaid_send_fees(config, &action_receipt.actions, current_protocol_version)?,
+            total_prepaid_send_fees(config, &action_receipt.actions)?,
         )?;
         let prepaid_exec_gas = safe_add_gas(
-            total_prepaid_exec_fees(
-                config,
-                &action_receipt.actions,
-                &receipt.receiver_id,
-                current_protocol_version,
-            )?,
+            total_prepaid_exec_fees(config, &action_receipt.actions, &receipt.receiver_id)?,
             config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
         )?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
@@ -1466,7 +1450,6 @@ impl Runtime {
             transactions,
             &outgoing_receipts,
             &stats,
-            apply_state.current_protocol_version,
         )?;
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
@@ -2250,13 +2233,7 @@ mod tests {
 
         let expected_gas_burnt = safe_add_gas(
             apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-            total_prepaid_exec_fees(
-                &apply_state.config,
-                &actions,
-                &alice_account(),
-                PROTOCOL_VERSION,
-            )
-            .unwrap(),
+            total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
         .unwrap();
         let receipts = vec![Receipt {
@@ -2319,13 +2296,7 @@ mod tests {
 
         let expected_gas_burnt = safe_add_gas(
             apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-            total_prepaid_exec_fees(
-                &apply_state.config,
-                &actions,
-                &alice_account(),
-                PROTOCOL_VERSION,
-            )
-            .unwrap(),
+            total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
         .unwrap();
         let receipts = vec![Receipt {

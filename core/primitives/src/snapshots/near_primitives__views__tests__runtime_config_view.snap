@@ -173,6 +173,9 @@ expression: "&view"
     "grow_mem_cost": 1,
     "regular_op_cost": 3856371,
     "disable_9393_fix": false,
+    "flat_storage_reads": true,
+    "fix_contract_loading_cost": false,
+    "implicit_account_creation": true,
     "limit_config": {
       "max_gas_burnt": 200000000000000,
       "max_stack_height": 262144,
