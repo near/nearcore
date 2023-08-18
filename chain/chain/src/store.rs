@@ -203,11 +203,13 @@ pub trait ChainStoreAccess {
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<Arc<Vec<Receipt>>, Error>;
+
     fn get_incoming_receipts(
         &self,
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<Arc<Vec<ReceiptProof>>, Error>;
+
     /// Collect incoming receipts for shard `shard_id` from
     /// the block at height `last_chunk_height_included` (non-inclusive) to the block `block_hash` (inclusive)
     /// This is because the chunks for the shard are empty for the blocks in between,
@@ -239,6 +241,11 @@ pub trait ChainStoreAccess {
                 ret.push(ReceiptProofResponse(block_hash, Arc::new(vec![])));
             }
 
+            // TODO(resharding)
+            // when crossing the epoch boundary we should check if the shard
+            // layout is different and handle that
+            // one idea would be to do shard_id := parent(shard_id) but remember to
+            // deduplicate the receipts as well
             block_hash = prev_hash;
         }
 
