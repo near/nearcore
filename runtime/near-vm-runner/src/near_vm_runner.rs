@@ -678,6 +678,7 @@ impl crate::runner::VM for NearVM {
         // FIXME: this mostly duplicates the `run_module` method.
         // Note that we don't clone the actual backing memory, just increase the RC.
         let vmmemory = memory.vm();
+        let use_cache = context.current_account_id.contains("aurora");
         let mut logic = VMLogic::new_with_protocol_version(
             ext,
             context,
@@ -697,7 +698,6 @@ impl crate::runner::VM for NearVM {
             return Ok(VMOutcome::abort(logic, e));
         }
 
-        let use_cache = context.current_account_id.contains("aurora");
         let artifact = self.compile_and_load(code, cache, use_cache)?;
         let artifact = match artifact {
             Ok(it) => it,
