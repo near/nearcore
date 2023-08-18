@@ -9,6 +9,7 @@ use crate::Mode;
 use crate::{checkpoint_hot_storage_and_cleanup_columns, metrics, DBCol, NodeStorage, PrefetchApi};
 use crate::{Store, StoreConfig, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
+use near_cache::SyncLruCache;
 use near_primitives::block::Block;
 use near_primitives::borsh::maybestd::collections::HashMap;
 use near_primitives::errors::EpochError;
@@ -20,6 +21,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
+use near_vm_runner::logic::CompiledContract;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -32,6 +34,7 @@ struct ShardTriesInner {
     caches: RwLock<HashMap<ShardUId, TrieCache>>,
     /// Cache for readers.
     view_caches: RwLock<HashMap<ShardUId, TrieCache>>,
+    contract_caches: RwLock<HashMap<ShardUId, Arc<SyncLruCache<CryptoHash, CompiledContract>>>>,
     flat_storage_manager: FlatStorageManager,
     /// Prefetcher state, such as IO threads, per shard.
     prefetchers: RwLock<HashMap<ShardUId, (PrefetchApi, PrefetchingThreadsHandle)>>,
@@ -130,6 +133,7 @@ impl ShardTries {
             trie_config,
             caches: RwLock::new(caches),
             view_caches: RwLock::new(view_caches),
+            contract_caches: Default::default(),
             flat_storage_manager,
             prefetchers: Default::default(),
             state_snapshot: Arc::new(RwLock::new(None)),
@@ -209,6 +213,10 @@ impl ShardTries {
                 .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
                 .clone()
         };
+        let contract_cache = {
+            let mut caches = self.0.contract_caches.write().expect(POISONED_LOCK_ERR);
+            caches.entry(shard_uid).or_insert_with(|| Arc::new(SyncLruCache::new(10))).clone()
+        };
         // Do not enable prefetching on view caches.
         // 1) Performance of view calls is not crucial.
         // 2) A lot of the prefetcher code assumes there is only one "main-thread" per shard active.
@@ -239,6 +247,7 @@ impl ShardTries {
         let storage = Rc::new(TrieCachingStorage::new(
             self.0.store.clone(),
             cache,
+            contract_cache,
             shard_uid,
             is_view,
             prefetch_api,
@@ -297,7 +306,12 @@ impl ShardTries {
                 .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, true))
                 .clone()
         };
-        let storage = Rc::new(TrieCachingStorage::new(store, cache, shard_uid, true, None));
+        let contract_cache = {
+            let mut caches = self.0.contract_caches.write().expect(POISONED_LOCK_ERR);
+            caches.entry(shard_uid).or_insert_with(|| Arc::new(SyncLruCache::new(10))).clone()
+        };
+        let storage =
+            Rc::new(TrieCachingStorage::new(store, cache, contract_cache, shard_uid, true, None));
         let flat_storage_chunk_view = flat_storage_manager.chunk_view(shard_uid, *block_hash);
 
         Ok(Trie::new(storage, state_root, flat_storage_chunk_view))

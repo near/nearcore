@@ -52,6 +52,8 @@ use self::accounting_cache::TrieAccountingCache;
 use self::trie_recording::TrieRecorder;
 use self::trie_storage::TrieMemoryPartialStorage;
 pub use from_flat::construct_trie_from_flat;
+use near_cache::SyncLruCache;
+use near_vm_runner::logic::CompiledContract;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -338,6 +340,7 @@ pub struct Trie {
     /// once will be guaranteed to be cached, and further reads to these nodes
     /// will encounter less gas cost.
     accounting_cache: RefCell<TrieAccountingCache>,
+    contract_cache: Arc<SyncLruCache<CryptoHash, CompiledContract>>,
     /// If present, we're capturing all trie nodes that have been accessed
     /// during the lifetime of this Trie struct. This is used to produce a
     /// state proof so that the same access pattern can be replayed using only
@@ -469,11 +472,13 @@ impl Trie {
             )))),
             None => RefCell::new(TrieAccountingCache::new(None)),
         };
+        let contract_cache = storage.as_caching_storage().unwrap().contract_cache.clone();
         Trie {
             storage,
             root,
             flat_storage_chunk_view,
             accounting_cache: accounting_cache,
+            contract_cache,
             recorder: None,
             skip_accounting_cache_for_trie_nodes: false,
         }

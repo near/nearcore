@@ -3,6 +3,7 @@ use crate::trie::prefetching_trie_storage::PrefetcherResult;
 use crate::trie::POISONED_LOCK_ERR;
 use crate::{metrics, DBCol, PrefetchApi, StorageError, Store};
 use lru::LruCache;
+use near_cache::SyncLruCache;
 use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
@@ -10,6 +11,7 @@ use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::ShardId;
+use near_vm_runner::logic::CompiledContract;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -357,6 +359,7 @@ pub struct TrieCachingStorage {
     /// Caches ever requested items for the shard `shard_uid`. Used to speed up DB operations, presence of any item is
     /// not guaranteed.
     pub(crate) shard_cache: TrieCache,
+    pub contract_cache: Arc<SyncLruCache<CryptoHash, CompiledContract>>,
 
     /// The entry point for the runtime to submit prefetch requests.
     pub(crate) prefetch_api: Option<PrefetchApi>,
@@ -385,6 +388,7 @@ impl TrieCachingStorage {
     pub fn new(
         store: Store,
         shard_cache: TrieCache,
+        contract_cache: Arc<SyncLruCache<CryptoHash, CompiledContract>>,
         shard_uid: ShardUId,
         is_view: bool,
         prefetch_api: Option<PrefetchApi>,
@@ -416,6 +420,7 @@ impl TrieCachingStorage {
             shard_uid,
             is_view,
             shard_cache,
+            contract_cache,
             prefetch_api,
             metrics,
             retrieve_raw_bytes_us: Cell::new(0),

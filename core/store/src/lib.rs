@@ -871,12 +871,12 @@ use near_cache::SyncLruCache;
 
 pub struct StoreCompiledContractCache {
     db: Arc<dyn Database>,
-    cache: SyncLruCache<CryptoHash, CompiledContract>,
+    cache: Arc<SyncLruCache<CryptoHash, CompiledContract>>,
 }
 
 impl StoreCompiledContractCache {
-    pub fn new(store: &Store) -> Self {
-        Self { db: store.storage.clone(), cache: SyncLruCache::new(20) }
+    pub fn new(store: &Store, cache: Arc<SyncLruCache<CryptoHash, CompiledContract>>) -> Self {
+        Self { db: store.storage.clone(), cache }
     }
 }
 
@@ -900,6 +900,7 @@ impl CompiledContractCache for StoreCompiledContractCache {
 
     fn get(&self, key: &CryptoHash) -> io::Result<Option<CompiledContract>> {
         if let Some(value) = self.cache.get(key) {
+            tracing::debug!(target: "vm", "match");
             return Ok(Some(value.clone()));
         }
 

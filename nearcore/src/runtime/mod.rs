@@ -363,6 +363,7 @@ impl NightshadeRuntime {
 
         debug!(target: "runtime", ?epoch_height, ?epoch_id, ?current_protocol_version, ?is_first_block_of_version);
 
+        let contract_cache = trie.storage.as_caching_storage().unwrap().contract_cache.clone();
         let apply_state = ApplyState {
             block_height,
             prev_block_hash: *prev_block_hash,
@@ -375,7 +376,7 @@ impl NightshadeRuntime {
             random_seed,
             current_protocol_version,
             config: self.runtime_config_store.get_config(current_protocol_version).clone(),
-            cache: Some(Box::new(StoreCompiledContractCache::new(&self.store))),
+            cache: Some(Box::new(StoreCompiledContractCache::new(&self.store, contract_cache))),
             is_new_chunk,
             migration_data: Arc::clone(&self.migration_data),
             migration_flags: MigrationFlags {
@@ -473,7 +474,7 @@ impl NightshadeRuntime {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
         let compiled_contract_cache: Option<Box<dyn CompiledContractCache>> =
-            Some(Box::new(StoreCompiledContractCache::new(&self.store)));
+            Some(Box::new(StoreCompiledContractCache::new(&self.store, Default::default())));
         // Execute precompile_contract in parallel but prevent it from using more than half of all
         // threads so that node will still function normally.
         rayon::scope(|scope| {
@@ -1271,7 +1272,10 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             epoch_height,
             block_timestamp,
             current_protocol_version,
-            cache: Some(Box::new(StoreCompiledContractCache::new(&self.tries.get_store()))),
+            cache: Some(Box::new(StoreCompiledContractCache::new(
+                &self.tries.get_store(),
+                Default::default(),
+            ))),
         };
         self.trie_viewer.call_function(
             state_update,
