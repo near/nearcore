@@ -2711,8 +2711,16 @@ impl Chain {
         parent_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> bool {
-        let will_shard_layout_change =
-            epoch_manager.will_shard_layout_change(parent_hash).unwrap_or(false);
+        let result = epoch_manager.will_shard_layout_change(parent_hash);
+        let will_shard_layout_change = match result {
+            Ok(will_shard_layout_change) => will_shard_layout_change,
+            Err(err) => {
+                // TODO(resharding) This is a problem, if this happens the node
+                // will not perform resharding and fall behind the network.
+                tracing::error!(target: "chain", ?err, "failed to check if shard layout will change");
+                false
+            }
+        };
         // if shard layout will change the next epoch, we should catch up the shard regardless
         // whether we already have the shard's state this epoch, because we need to generate
         // new states for shards split from the current shard for the next epoch
