@@ -261,11 +261,16 @@ impl FaultingCompiledContractCache {
 }
 
 impl CompiledContractCache for FaultingCompiledContractCache {
-    fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()> {
+    fn put(
+        &self,
+        key: &CryptoHash,
+        value: CompiledContract,
+        use_cache: bool,
+    ) -> std::io::Result<()> {
         if self.write_fault.swap(false, Ordering::Relaxed) {
             return Err(io::ErrorKind::Other.into());
         }
-        self.inner.put(key, value)
+        self.inner.put(key, value, use_cache)
     }
 
     fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {

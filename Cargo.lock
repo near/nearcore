@@ -4279,6 +4279,7 @@ dependencies = [
  "itertools",
  "itoa",
  "lru",
+ "near-cache",
  "near-chain-configs",
  "near-crypto",
  "near-fmt",

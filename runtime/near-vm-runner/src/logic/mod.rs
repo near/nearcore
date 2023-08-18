@@ -36,7 +36,12 @@ pub enum CompiledContract {
 
 /// Cache for compiled modules
 pub trait CompiledContractCache: Send + Sync {
-    fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()>;
+    fn put(
+        &self,
+        key: &CryptoHash,
+        value: CompiledContract,
+        use_cache: bool,
+    ) -> std::io::Result<()>;
     fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>>;
     fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
         self.get(key).map(|entry| entry.is_some())

@@ -280,7 +280,7 @@ impl Wasmer0VM {
                 }
                 Err(err) => CompiledContract::CompileModuleError(err.clone()),
             };
-            cache.put(&key, record).map_err(CacheError::WriteError)?;
+            cache.put(&key, record, false).map_err(CacheError::WriteError)?;
         }
 
         Ok(module_or_error)

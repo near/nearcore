@@ -322,6 +322,7 @@ impl NearVM {
         &self,
         code: &ContractCode,
         cache: Option<&dyn CompiledContractCache>,
+        use_cache: bool,
     ) -> Result<Result<UniversalExecutable, CompilationError>, CacheError> {
         let executable_or_error = self.compile_uncached(code);
         let key = get_contract_cache_key(code, VMKind::NearVm, &self.config);
@@ -336,7 +337,7 @@ impl NearVM {
                 }
                 Err(err) => CompiledContract::CompileModuleError(err.clone()),
             };
-            cache.put(&key, record).map_err(CacheError::WriteError)?;
+            cache.put(&key, record, use_cache).map_err(CacheError::WriteError)?;
         }
 
         Ok(executable_or_error)
@@ -346,6 +347,7 @@ impl NearVM {
         &self,
         code: &ContractCode,
         cache: Option<&dyn CompiledContractCache>,
+        use_cache: bool,
     ) -> VMResult<Result<VMArtifact, CompilationError>> {
         // `cache` stores compiled machine code in the database
         //
@@ -389,7 +391,7 @@ impl NearVM {
         Ok(if let Some(it) = stored_artifact {
             Ok(it)
         } else {
-            match self.compile_and_cache(code, cache)? {
+            match self.compile_and_cache(code, cache, use_cache)? {
                 Ok(executable) => Ok(self
                     .engine
                     .load_universal_executable(&executable)
@@ -695,7 +697,8 @@ impl crate::runner::VM for NearVM {
             return Ok(VMOutcome::abort(logic, e));
         }
 
-        let artifact = self.compile_and_load(code, cache)?;
+        let use_cache = context.current_account_id.contains("aurora");
+        let artifact = self.compile_and_load(code, cache, use_cache)?;
         let artifact = match artifact {
             Ok(it) => it,
             Err(err) => {
@@ -735,7 +738,7 @@ impl crate::runner::VM for NearVM {
         crate::logic::errors::CacheError,
     > {
         Ok(self
-            .compile_and_cache(code, Some(cache))?
+            .compile_and_cache(code, Some(cache), false)?
             .map(|_| ContractPrecompilatonResult::ContractCompiled))
     }
 }
