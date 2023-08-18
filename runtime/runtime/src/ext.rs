@@ -12,6 +12,8 @@ use near_store::{get_code, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
+use std::cell::Cell;
+use std::time::Instant;
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -25,6 +27,7 @@ pub struct RuntimeExt<'a> {
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
     new_feature: bool,
+    pub storage_get_us: Cell<u64>,
 }
 
 /// Error used by `RuntimeExt`.
@@ -80,6 +83,7 @@ impl<'a> RuntimeExt<'a> {
             epoch_info_provider,
             current_protocol_version,
             new_feature,
+            storage_get_us: Cell::new(0),
         }
     }
 
@@ -124,19 +128,27 @@ impl<'a> External for RuntimeExt<'a> {
         key: &[u8],
         mode: StorageGetMode,
     ) -> ExtResult<Option<Box<dyn ValuePtr + 'b>>> {
+        let t = Instant::now();
         let storage_key = self.create_storage_key(key);
         let mode = match mode {
             StorageGetMode::FlatStorage => KeyLookupMode::FlatStorage,
-            StorageGetMode::Trie => if self.new_feature {
-                KeyLookupMode::BackgroundTrieFetch
-            } else {
-                KeyLookupMode::Trie
-            },
+            StorageGetMode::Trie => {
+                if self.new_feature {
+                    KeyLookupMode::BackgroundTrieFetch
+                } else {
+                    KeyLookupMode::Trie
+                }
+            }
         };
-        self.trie_update
+        let res = self
+            .trie_update
             .get_ref(&storage_key, mode)
             .map_err(wrap_storage_error)
-            .map(|option| option.map(|ptr| Box::new(RuntimeExtValuePtr(ptr)) as Box<_>))
+            .map(|option| option.map(|ptr| Box::new(RuntimeExtValuePtr(ptr)) as Box<_>));
+
+        let x = self.storage_get_us.get();
+        self.storage_get_us.set(x + t.elapsed().as_micros() as u64);
+        res
     }
 
     fn storage_remove(&mut self, key: &[u8]) -> ExtResult<()> {
@@ -149,11 +161,13 @@ impl<'a> External for RuntimeExt<'a> {
         let storage_key = self.create_storage_key(key);
         let mode = match mode {
             StorageGetMode::FlatStorage => KeyLookupMode::FlatStorage,
-            StorageGetMode::Trie => if self.new_feature {
-                KeyLookupMode::BackgroundTrieFetch
-            } else {
-                KeyLookupMode::Trie
-            },
+            StorageGetMode::Trie => {
+                if self.new_feature {
+                    KeyLookupMode::BackgroundTrieFetch
+                } else {
+                    KeyLookupMode::Trie
+                }
+            }
         };
         self.trie_update
             .get_ref(&storage_key, mode)

@@ -51,6 +51,7 @@ pub use near_vm_runner::with_ext_cost_counter;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::debug;
 
 mod actions;
@@ -1197,6 +1198,7 @@ impl Runtime {
             num_transactions = transactions.len())
         .entered();
 
+        let start_apply = Instant::now();
         let prefetcher = TriePrefetcher::new_if_enabled(&trie);
         let mut state_update = TrieUpdate::new(trie);
 
@@ -1450,9 +1452,9 @@ impl Runtime {
         metrics.incoming_receipts_done(total_gas_burnt, total_compute_usage);
 
         // No more receipts are executed on this trie, stop any pending prefetches on it.
-        if let Some(prefetcher) = &prefetcher {
-            prefetcher.clear();
-        }
+        // if let Some(prefetcher) = &prefetcher {
+        //     prefetcher.clear();
+        // }
 
         if delayed_receipts_indices != initial_delayed_receipt_indices {
             set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
@@ -1471,7 +1473,38 @@ impl Runtime {
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         self.apply_state_patch(&mut state_update, state_patch);
+
+        let shard_id = if let Some(chunk_view) = &state_update.trie.flat_storage_chunk_view {
+            chunk_view.flat_storage.shard_uid().shard_id
+        } else {
+            0
+        };
+        if let Some(storage) = state_update.trie.storage.as_caching_storage() {
+            let retrieve_raw_bytes_ms = storage.retrieve_raw_bytes_us.get() / 1000;
+            metrics::TIME_RETRIEVE_RAW_BYTES_MS
+                .with_label_values(&[&shard_id.to_string()])
+                .set(retrieve_raw_bytes_ms as i64);
+            tracing::info!(target: "runtime", retrieve_raw_bytes_ms);
+        }
+
+        let start_finalize = Instant::now();
         let (trie, trie_changes, state_changes) = state_update.finalize()?;
+        let took_finalize = start_finalize.elapsed();
+        let took_apply = start_apply.elapsed();
+
+        metrics::TIME_FINALIZE_MS
+            .with_label_values(&[&shard_id.to_string()])
+            .set(took_finalize.as_millis() as i64);
+        metrics::TIME_APPLY_MS
+            .with_label_values(&[&shard_id.to_string()])
+            .set(took_apply.as_millis() as i64);
+        tracing::info!(target: "runtime", ?took_finalize, ?took_apply);
+
+        // (logunov) moved:
+        // Finalize ended, everything is read
+        if let Some(prefetcher) = &prefetcher {
+            prefetcher.clear();
+        }
 
         // Dedup proposals from the same account.
         // The order is deterministically changed.

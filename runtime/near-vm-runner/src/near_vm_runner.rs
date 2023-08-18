@@ -354,11 +354,10 @@ impl NearVM {
         // outcome). And `cache`, being a database, can fail with an `io::Error`.
         let _span = tracing::debug_span!(target: "vm", "NearVM::compile_and_load").entered();
         let key = get_contract_cache_key(code, VMKind::NearVm, &self.config);
-        let cache_record = cache
-            .map(|cache| cache.get(&key))
-            .transpose()
-            .map_err(CacheError::ReadError)?
-            .flatten();
+        let cache_record = {
+            let _span = tracing::debug_span!(target: "vm", "cache_get").entered();
+            cache.map(|cache| cache.get(&key)).transpose().map_err(CacheError::ReadError)?.flatten()
+        };
 
         let stored_artifact: Option<VMArtifact> = match cache_record {
             None => None,

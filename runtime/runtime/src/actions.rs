@@ -118,6 +118,8 @@ pub(crate) fn execute_function_call(
         apply_state.current_protocol_version,
         apply_state.cache.as_deref(),
     );
+    let storage_get_ms = (runtime_ext.storage_get_us.get() as f64) / 1000f64;
+    tracing::info!(target: "runtime", storage_get_ms);
 
     if checked_feature!("stable", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);

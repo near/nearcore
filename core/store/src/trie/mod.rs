@@ -327,11 +327,11 @@ impl std::fmt::Debug for TrieNode {
 }
 
 pub struct Trie {
-    storage: Rc<dyn TrieStorage>,
+    pub storage: Rc<dyn TrieStorage>,
     root: StateRoot,
     /// If present, flat storage is used to look up keys (if asked for).
     /// Otherwise, we would crawl through the trie.
-    flat_storage_chunk_view: Option<FlatStorageChunkView>,
+    pub flat_storage_chunk_view: Option<FlatStorageChunkView>,
     /// This is the deterministic accounting cache, meaning that for the
     /// lifetime of this Trie struct, whenever the accounting cache is enabled
     /// (which can be toggled on the fly), trie nodes that have been looked up

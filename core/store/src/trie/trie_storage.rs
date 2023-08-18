@@ -10,9 +10,10 @@ use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::ShardId;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 pub(crate) struct BoundedQueue<T> {
     queue: VecDeque<T>,
@@ -363,6 +364,7 @@ pub struct TrieCachingStorage {
     // Counters tracking operations happening inside the shard cache.
     // Stored here to avoid overhead of looking them up on hot paths.
     metrics: TrieCacheInnerMetrics,
+    pub retrieve_raw_bytes_us: Cell<u64>,
 }
 
 struct TrieCacheInnerMetrics {
@@ -409,7 +411,15 @@ impl TrieCachingStorage {
             prefetch_retry: metrics::PREFETCH_RETRY.with_label_values(&metrics_labels[..1]),
             prefetch_conflict: metrics::PREFETCH_CONFLICT.with_label_values(&metrics_labels[..1]),
         };
-        TrieCachingStorage { store, shard_uid, is_view, shard_cache, prefetch_api, metrics }
+        TrieCachingStorage {
+            store,
+            shard_uid,
+            is_view,
+            shard_cache,
+            prefetch_api,
+            metrics,
+            retrieve_raw_bytes_us: Cell::new(0),
+        }
     }
 
     pub fn get_key_from_shard_uid_and_hash(shard_uid: ShardUId, hash: &CryptoHash) -> [u8; 40] {
@@ -422,6 +432,7 @@ impl TrieCachingStorage {
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
+        let t = Instant::now();
         // Try to get value from shard cache containing most recently touched nodes.
         let mut guard = self.shard_cache.lock();
         self.metrics.shard_cache_size.set(guard.len() as i64);
@@ -514,6 +525,9 @@ impl TrieStorage for TrieCachingStorage {
                 val
             }
         };
+
+        let x = self.retrieve_raw_bytes_us.get();
+        self.retrieve_raw_bytes_us.set(x + t.elapsed().as_micros() as u64);
 
         Ok(val)
     }

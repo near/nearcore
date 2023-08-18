@@ -20,7 +20,7 @@ const MAX_PREFETCH_STAGING_MEMORY: usize = 200 * 1024 * 1024;
 /// How much memory capacity is reserved for each prefetch request before
 /// sending it. Once the value is fetched, the actual size is used instead.
 /// Set to 4MiB, the same as `max_length_storage_value`.
-const PREFETCH_RESERVED_BYTES_PER_SLOT: usize = 4 * 1024 * 1024;
+const PREFETCH_RESERVED_BYTES_PER_SLOT: usize = 200; //4 * 1024 * 1024;
 /// How many threads will be prefetching data, without the scheduler thread.
 /// Because the storage driver is blocking, there is only one request per thread
 /// at a time.

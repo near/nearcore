@@ -33,7 +33,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateChangeCause, StateChangesForSplitStates, StateRoot, StateRootNode,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryRequest, QueryResponse, QueryResponseKind, ViewApplyState,
     ViewStateResult,
@@ -356,10 +356,9 @@ impl NightshadeRuntime {
         };
 
         let epoch_height = self.epoch_manager.get_epoch_height_from_prev_block(prev_block_hash)?;
-        let prev_block_epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash)?;
-        let current_protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let prev_block_protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(&prev_block_epoch_id)?;
+        // let prev_block_epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash)?;
+        let current_protocol_version = PROTOCOL_VERSION; // self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let prev_block_protocol_version = PROTOCOL_VERSION; // self.epoch_manager.get_epoch_protocol_version(&prev_block_epoch_id)?;
         let is_first_block_of_version = current_protocol_version != prev_block_protocol_version;
 
         debug!(target: "runtime", ?epoch_height, ?epoch_id, ?current_protocol_version, ?is_first_block_of_version);
