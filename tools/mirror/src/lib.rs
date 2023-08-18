@@ -1176,10 +1176,15 @@ impl<T: ChainAccess> TxMirror<T> {
 
         let mut nonce_updates = HashSet::new();
         let mut target_actions = Vec::new();
+        let mut full_key_added = false;
+        let mut account_created = false;
 
         for a in actions {
             match a {
                 Action::AddKey(a) => {
+                    if a.access_key.permission == AccessKeyPermission::FullAccess {
+                        full_key_added = true;
+                    }
                     let target_public_key =
                         crate::key_mapping::map_key(&a.public_key, self.secret.as_ref())
                             .public_key();
@@ -1191,6 +1196,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     }));
                 }
                 Action::CreateAccount(_) => {
+                    account_created = true;
                     target_actions.push(Action::CreateAccount(CreateAccountAction {}))
                 }
                 Action::Transfer(_) => {
@@ -1205,6 +1211,12 @@ impl<T: ChainAccess> TxMirror<T> {
                 }
                 _ => {}
             };
+        }
+        if account_created && !full_key_added {
+            target_actions.push(Action::AddKey(AddKeyAction {
+                public_key: crate::key_mapping::EXTRA_KEY.public_key(),
+                access_key: AccessKey::full_access(),
+            }));
         }
 
         tracing::debug!(
@@ -1283,19 +1295,20 @@ impl<T: ChainAccess> TxMirror<T> {
                         _ => {}
                     };
                 }
-                if !key_added {
-                    continue;
-                }
-                if provenance.is_create_account() && !account_created {
-                    tracing::warn!(
-                        target: "mirror", "for receipt {} predecessor and receiver are different but no create account in the actions: {:?}",
-                        &receipt.receipt_id, &r.actions,
-                    );
-                } else if !provenance.is_create_account() && account_created {
-                    tracing::warn!(
-                        target: "mirror", "for receipt {} predecessor and receiver are the same but there's a create account in the actions: {:?}",
-                        &receipt.receipt_id, &r.actions,
-                    );
+                if provenance.is_create_account() {
+                    if !account_created {
+                        continue;
+                    }
+                } else {
+                    if !key_added {
+                        continue;
+                    }
+                    if account_created {
+                        tracing::warn!(
+                            target: "mirror", "for receipt {} predecessor and receiver are the same but there's a create account in the actions: {:?}",
+                            &receipt.receipt_id, &r.actions,
+                        );
+                    }
                 }
                 let outcome = self
                     .source_chain_access
