@@ -83,10 +83,9 @@ class FTContract:
         prefix_len = max_account_id_len - len(parent.key.account_id) - 1
         assert prefix_len > 4, f"user key {parent.key.account_id} is too long"
         chars = string.ascii_lowercase + string.digits
-        rng = random.Random()
 
         def create_account():
-            prefix = ''.join(rng.choice(chars) for _ in range(prefix_len))
+            prefix = ''.join(random.choices(chars, k=prefix_len))
             account_id = f"{prefix}.{parent.key.account_id}"
             return Account(key.Key.from_seed_testonly(account_id))
 

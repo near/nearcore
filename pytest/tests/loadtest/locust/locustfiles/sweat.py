@@ -62,7 +62,7 @@ class SweatUser(NearUser):
     def record_batch_of_large_batches(self):
         # create more sweat users to allow for a decent record_batch size
         while len(self.sweat.registered_users) < 1000:
-            # creating 20 account in parallel, about 200 should fit in a chunk
+            # creating 20 accounts in parallel, about 200 should fit in a chunk
             # but we don't want to assume we get to use all the chunk space for
             # ourself. Also, other SweatUsers will be in the same loop and at
             # some point the local CPU becomes a bottleneck, too.
