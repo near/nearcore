@@ -422,7 +422,6 @@ impl RocksDB {
 
 impl Database for RocksDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
-        info!("Calling get_raw_bytes");
         let timer =
             metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
         let read_options = rocksdb_read_options();
@@ -447,6 +446,7 @@ impl Database for RocksDB {
 
             let has_merge =
                 perf_data.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
+            info!("Adding measurement for {}", <&str>::from(col));
             perf_data.add_measurement(
                 col,
                 block_read_cnt,
@@ -460,7 +460,6 @@ impl Database for RocksDB {
     }
 
     fn iter_raw_bytes(&self, col: DBCol) -> DBIterator {
-        info!("Calling iter_raw_bytes");
         Box::new(self.iter_raw_bytes_internal(col, None, None, None))
     }
 
@@ -479,13 +478,11 @@ impl Database for RocksDB {
         lower_bound: Option<&[u8]>,
         upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
-        info!("Calling iter_range");
         let iter = self.iter_raw_bytes_internal(col, None, lower_bound, upper_bound);
         refcount::iter_with_rc_logic(col, iter)
     }
 
     fn write(&self, transaction: DBTransaction) -> io::Result<()> {
-        info!("Calling write");
         let mut batch = WriteBatch::default();
         for op in transaction.ops {
             match op {
