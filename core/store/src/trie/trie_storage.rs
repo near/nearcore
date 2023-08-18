@@ -388,11 +388,16 @@ impl TrieCachingStorage {
     pub fn new(
         store: Store,
         shard_cache: TrieCache,
-        contract_cache: Arc<SyncLruCache<CryptoHash, CompiledContract>>,
+        contract_cache: Option<Arc<SyncLruCache<CryptoHash, CompiledContract>>>,
         shard_uid: ShardUId,
         is_view: bool,
         prefetch_api: Option<PrefetchApi>,
     ) -> TrieCachingStorage {
+        let cache = match contract_cache {
+            Some(cache) => cache,
+            None => Arc::new(SyncLruCache::new(1)),
+        };
+
         // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
         let mut buffer = itoa::Buffer::new();
         let shard_id = buffer.format(shard_uid.shard_id);
@@ -420,7 +425,7 @@ impl TrieCachingStorage {
             shard_uid,
             is_view,
             shard_cache,
-            contract_cache,
+            contract_cache: cache,
             prefetch_api,
             metrics,
             retrieve_raw_bytes_us: Cell::new(0),

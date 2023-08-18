@@ -247,7 +247,7 @@ impl ShardTries {
         let storage = Rc::new(TrieCachingStorage::new(
             self.0.store.clone(),
             cache,
-            contract_cache,
+            Some(contract_cache),
             shard_uid,
             is_view,
             prefetch_api,
@@ -310,8 +310,14 @@ impl ShardTries {
             let mut caches = self.0.contract_caches.write().expect(POISONED_LOCK_ERR);
             caches.entry(shard_uid).or_insert_with(|| Arc::new(SyncLruCache::new(10))).clone()
         };
-        let storage =
-            Rc::new(TrieCachingStorage::new(store, cache, contract_cache, shard_uid, true, None));
+        let storage = Rc::new(TrieCachingStorage::new(
+            store,
+            cache,
+            Some(contract_cache),
+            shard_uid,
+            true,
+            None,
+        ));
         let flat_storage_chunk_view = flat_storage_manager.chunk_view(shard_uid, *block_hash);
 
         Ok(Trie::new(storage, state_root, flat_storage_chunk_view))
