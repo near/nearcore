@@ -1524,7 +1524,7 @@ impl Client {
             .send(ShardsManagerRequestFromClient::CheckIncompleteChunks(*block.hash()));
     }
 
-    /// reconcile the transaction pool after processing a block
+    /// Reconcile the transaction pool after processing a block.
     /// returns true if it's ok to proceed to produce chunks
     /// returns false when handling a fork and there is no need to produce chunks
     fn reconcile_transaction_pool(
@@ -1535,17 +1535,17 @@ impl Client {
     ) -> bool {
         match status {
             BlockStatus::Next => {
-                // If this block immediately follows the current tip, remove transactions
-                //    from the txpool
-                self.remove_transactions_for_block(validator_id.clone(), block);
+                // If this block immediately follows the current tip, remove
+                // transactions from the txpool.
+                self.remove_transactions_for_block(validator_id, block);
             }
             BlockStatus::Fork => {
-                // If it's a fork, no need to reconcile transactions or produce chunks
+                // If it's a fork, no need to reconcile transactions or produce chunks.
                 return false;
             }
             BlockStatus::Reorg(prev_head) => {
-                // If a reorg happened, reintroduce transactions from the previous chain and
-                //    remove transactions from the new chain
+                // If a reorg happened, reintroduce transactions from the
+                // previous chain and remove transactions from the new chain.
                 let mut reintroduce_head = self.chain.get_block_header(&prev_head).unwrap();
                 let mut remove_head = block.header().clone();
                 assert_ne!(remove_head.hash(), reintroduce_head.hash());
