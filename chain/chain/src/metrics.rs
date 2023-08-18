@@ -1,6 +1,7 @@
 use near_o11y::metrics::{
-    exponential_buckets, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_gauge, Histogram, HistogramVec, IntCounter, IntGauge,
+    exponential_buckets, try_create_gauge, try_create_histogram, try_create_histogram_vec,
+    try_create_int_counter, try_create_int_gauge, Gauge, Histogram, HistogramVec, IntCounter,
+    IntGauge,
 };
 use once_cell::sync::Lazy;
 
@@ -18,6 +19,13 @@ pub static BLOCK_PROCESSED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
 pub static BLOCK_PROCESSING_TIME: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram("near_block_processing_time", "Time taken to process blocks successfully, from when a block is ready to be processed till when the processing is finished. Measures only the time taken by the successful attempts of block processing")
         .unwrap()
+});
+pub static BLOCK_PROCESSING_TIME_EXACT: Lazy<Gauge> = Lazy::new(|| {
+    try_create_gauge(
+        "near_block_processing_time_exact",
+        "Same as near_block_processing_time but computes exact values",
+    )
+    .unwrap()
 });
 pub static APPLYING_CHUNKS_TIME: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(

@@ -2278,10 +2278,11 @@ impl Chain {
             ));
         // We want to include block height here, so we didn't put this line at the beginning of the
         // function.
+        let block_height = block.header().height();
         let _span = tracing::debug_span!(
             target: "chain",
             "postprocess_block",
-            height = block.header().height())
+            height = block_height)
         .entered();
 
         let prev_head = self.store.head()?;
@@ -2367,11 +2368,12 @@ impl Chain {
         };
 
         metrics::BLOCK_PROCESSED_TOTAL.inc();
-        metrics::BLOCK_PROCESSING_TIME.observe(
-            StaticClock::instant()
-                .saturating_duration_since(block_start_processing_time)
-                .as_secs_f64(),
-        );
+        let block_processing_time = StaticClock::instant()
+            .saturating_duration_since(block_start_processing_time)
+            .as_secs_f64();
+        info!(target: "chain", %block_processing_time, %block_height, %block_hash);
+        metrics::BLOCK_PROCESSING_TIME.observe(block_processing_time);
+        metrics::BLOCK_PROCESSING_TIME_EXACT.set(block_processing_time);
         self.blocks_delay_tracker.finish_block_processing(&block_hash, new_head.clone());
 
         timer.observe_duration();
