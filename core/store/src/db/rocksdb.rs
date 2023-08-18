@@ -422,6 +422,7 @@ impl RocksDB {
 
 impl Database for RocksDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+        info!("Calling get_raw_bytes");
         let timer =
             metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
         let read_options = rocksdb_read_options();
@@ -459,6 +460,7 @@ impl Database for RocksDB {
     }
 
     fn iter_raw_bytes(&self, col: DBCol) -> DBIterator {
+        info!("Calling iter_raw_bytes");
         Box::new(self.iter_raw_bytes_internal(col, None, None, None))
     }
 
@@ -477,11 +479,13 @@ impl Database for RocksDB {
         lower_bound: Option<&[u8]>,
         upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
+        info!("Calling iter_range");
         let iter = self.iter_raw_bytes_internal(col, None, lower_bound, upper_bound);
         refcount::iter_with_rc_logic(col, iter)
     }
 
     fn write(&self, transaction: DBTransaction) -> io::Result<()> {
+        info!("Calling write");
         let mut batch = WriteBatch::default();
         for op in transaction.ops {
             match op {
@@ -746,10 +750,7 @@ impl RocksDB {
         match perf_data.column_measurements.get(&DBCol::State) {
             Some(measurement) => {
                 info!("Senfing state perf data");
-                let state_obs_late_avg = perf_data
-                    .column_measurements
-                    .get(&DBCol::State)
-                    .unwrap()
+                let state_obs_late_avg = measurement
                     .measurements_overall
                     .avg_observed_latency()
                     .as_micros() as i64;
@@ -758,10 +759,7 @@ impl RocksDB {
                     vec![StatsValue::Count(state_obs_late_avg)],
                 ));
 
-                let state_read_block_latency = perf_data
-                    .column_measurements
-                    .get(&DBCol::State)
-                    .unwrap()
+                let state_read_block_latency = measurement
                     .measurements_overall
                     .avg_read_block_latency()
                     .as_micros() as i64;
@@ -770,10 +768,7 @@ impl RocksDB {
                     vec![StatsValue::Count(state_read_block_latency)],
                 ));
 
-                let state_avg_obs_lat_per_block: Vec<StatsValue> = perf_data
-                    .column_measurements
-                    .get(&DBCol::State)
-                    .unwrap()
+                let state_avg_obs_lat_per_block: Vec<StatsValue> = measurement
                     .measurements_per_block_reads
                     .iter()
                     .map(|(block_count, measurement)| {
