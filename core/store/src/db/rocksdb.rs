@@ -5,7 +5,7 @@ use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
 };
 use once_cell::sync::Lazy;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
 use std::io;
 use std::ops::Deref;
@@ -47,8 +47,7 @@ static CF_PROPERTY_NAMES: Lazy<Vec<std::ffi::CString>> = Lazy::new(|| {
 
 pub struct PerfContext {
     rocksdb_context: rocksdb::perf::PerfContext,
-    measurements_per_block_reads: BTreeMap<usize, Measurements>,
-    measurements_overall: Measurements,
+    column_measurements: HashMap<DBCol, ColumnMeasurement>,
 }
 
 impl PerfContext {
@@ -56,13 +55,48 @@ impl PerfContext {
         rocksdb::perf::set_perf_stats(rocksdb::perf::PerfStatsLevel::EnableTime);
         Self {
             rocksdb_context: rocksdb::perf::PerfContext::default(),
-            measurements_per_block_reads: BTreeMap::new(),
-            measurements_overall: Measurements::default(),
+            column_measurements: HashMap::new(),
         }
+    }
+
+    fn add_measurement(
+        &mut self,
+        db_col: DBCol,
+        block_read_count: usize,
+        observed_latency: Duration,
+        read_block_latency: Duration,
+        has_merge: bool,
+    ) {
+        self.column_measurements.entry(db_col).and_modify(|col_measurement| {
+            col_measurement
+                .measurements_per_block_reads
+                .entry(block_read_count)
+                .or_default()
+                .record(observed_latency, read_block_latency, has_merge);
+            col_measurement.measurements_overall.record(
+                observed_latency,
+                read_block_latency,
+                has_merge,
+            );
+        });
     }
 
     fn reset(&mut self) {
         self.rocksdb_context.reset();
+    }
+}
+
+struct ColumnMeasurement {
+    measurements_per_block_reads: BTreeMap<usize, Measurements>,
+    measurements_overall: Measurements,
+}
+
+impl ColumnMeasurement {
+    fn new() -> Self {
+        Self {
+            measurements_per_block_reads: BTreeMap::new(),
+            measurements_overall: Measurements::default(),
+        }
     }
 }
 
@@ -412,14 +446,15 @@ impl Database for RocksDB {
 
             let has_merge =
                 perf_data.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
-            perf_data.measurements_per_block_reads.entry(block_read_cnt).or_default().record(
+            perf_data.add_measurement(
+                col,
+                block_read_cnt,
                 observed_latency,
                 read_block_latency,
                 has_merge,
             );
-            perf_data.measurements_overall.record(observed_latency, read_block_latency, has_merge);
         }
-        
+
         Ok(result)
     }
 
@@ -516,20 +551,7 @@ impl Database for RocksDB {
         self.get_cf_statistics(&mut result);
 
         // Get all measurements from RocksDB perf
-        {
-            let perf_data = self.perf_context.lock().unwrap();
-            result.data.push((
-                "rocksdb_perf_total_observed_latency".to_string(),
-                vec![StatsValue::Count(
-                    perf_data.measurements_overall.total_observed_latency.as_secs() as i64
-                )],
-            ));
-            result.data.push((
-                "rocksdb_perf_total_observed_latency_count".to_string(),
-                vec![StatsValue::Count(perf_data.measurements_overall.count as i64)],
-            ));
-        }
-        //perf_data.reset();
+        self.fill_perf_data(&mut result);
 
         if result.data.is_empty() {
             None
@@ -705,6 +727,64 @@ impl RocksDB {
             }
         }
     }
+
+    /// Fills results with rocksdb perf data
+    fn fill_perf_data(&self, result: &mut StoreStatistics) {
+        let perf_data = self.perf_context.lock().unwrap();
+        // This works
+        /*let obs_lat_values = perf_data*/
+        /*.column_measurements*/
+        /*.iter()*/
+        /*.filter_map(|(col, measurement)| {*/
+        /*//let prop = self.db.property_int_value_cf(handle, prop_name);*/
+        /*let obs_lat =*/
+        /*measurement.measurements_overall.total_observed_latency.as_secs() as i64;*/
+        /*Some(StatsValue::ColumnValue(*col, obs_lat))*/
+        /*})*/
+        /*.collect::<Vec<_>>();*/
+
+        let state_obs_late_avg = perf_data
+            .column_measurements
+            .get(&DBCol::State)
+            .unwrap()
+            .measurements_overall
+            .avg_observed_latency()
+            .as_micros() as i64;
+        result.data.push((
+            "rocksdb_perf_avg_observed_latency".to_string(),
+            vec![StatsValue::Count(state_obs_late_avg)],
+        ));
+
+        // How to get histogram?
+        let state_read_block_latency = perf_data
+            .column_measurements
+            .get(&DBCol::State)
+            .unwrap()
+            .measurements_overall
+            .avg_read_block_latency()
+            .as_micros() as i64;
+        result.data.push((
+            "rocksdb_perf_avg_read_block_late".to_string(),
+            vec![StatsValue::Count(state_read_block_latency)],
+        ));
+
+        let state_avg_obs_lat_per_block: Vec<StatsValue> = perf_data
+            .column_measurements
+            .get(&DBCol::State)
+            .unwrap()
+            .measurements_per_block_reads
+            .iter()
+            .map(|(block_count, measurement)| {
+                StatsValue::Bucket(
+                    DBCol::State,
+                    block_count.to_string(),
+                    measurement.avg_observed_latency().as_micros() as i64,
+                )
+            })
+            .collect();
+
+        result.data.push(("rocksdb_perf_total_observed_latency_per_block".to_string(), state_avg_obs_lat_per_block));
+    }
 }
 
 impl Drop for RocksDB {
@@ -729,8 +809,7 @@ fn parse_statistics(
     for line in statistics.lines() {
         // Each line follows one of two formats:
         // 1) <stat_name> COUNT : <value>
-        // 2) <stat_name> P50 : <value> P90 : <value> COUNT : <value> SUM : <value>
-        // Each line gets split into words and we parse statistics according to this format.
+        // 2) <stat_name> P50 : <value> P90 : <value> COUNT : <value> SUM : <value> Each line gets split into words and we parse statistics according to this format.
         if let Some((stat_name, words)) = line.split_once(' ') {
             let mut values = vec![];
             let mut words = words.split(" : ").flat_map(|v| v.split(" "));

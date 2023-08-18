@@ -1,5 +1,6 @@
 use crate::DBCol;
 use near_fmt::{AbbrBytes, StorageKey};
+use std::collections::HashMap;
 use std::io;
 
 pub(crate) mod rocksdb;
@@ -243,12 +244,13 @@ key: {key:?}
     )
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum StatsValue {
     Count(i64),
     Sum(i64),
     Percentile(u32, f64),
     ColumnValue(DBCol, i64),
+    Bucket(DBCol, String, i64),
 }
 
 #[derive(Debug, Clone, PartialEq)]

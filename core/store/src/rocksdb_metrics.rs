@@ -41,6 +41,8 @@ pub(crate) struct RocksDBMetrics {
     int_vec_gauges: HashMap<String, IntGaugeVec>,
     // Contains floating point statistics, such as quantiles of timings.
     gauges: HashMap<String, GaugeVec>,
+    // Contains histogram values,
+    histograms: HashMap<String, GaugeVec>,
 }
 
 impl RocksDBMetrics {
@@ -118,6 +120,22 @@ impl RocksDBMetrics {
                         };
                         // Writing value for column.
                         gauge.with_label_values(&[<&str>::from(col)]).set(value);
+                    }
+                    StatsValue::Bucket(col, bucket, value) => {
+                        let key = &stat_name;
+
+                        // Checking for metric to be present.
+                        let gauge = match self.int_vec_gauges.entry(key.to_string()) {
+                            // If not -> creating it.
+                            Entry::Vacant(entry) => entry.insert(try_create_int_gauge_vec(
+                                &get_prometheus_metric_name(&stat_name),
+                                &stat_name,
+                                &["col"],
+                            )?),
+                            Entry::Occupied(entry) => entry.into_mut(),
+                        };
+                        // Writing value for column.
+                        gauge.with_label_values(&[<&str>::from(col), &bucket]).set(value);
                     }
                 }
             }
