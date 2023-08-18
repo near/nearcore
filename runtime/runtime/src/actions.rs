@@ -685,7 +685,7 @@ pub(crate) fn apply_delegate_action(
     // Therefore Relayer should verify DelegateAction before submitting it because it spends the attached deposit.
 
     let prepaid_send_fees = total_prepaid_send_fees(
-        &apply_state.config.fees,
+        &apply_state.config,
         &action_receipt.actions,
         apply_state.current_protocol_version,
     )?;
@@ -709,7 +709,7 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
         ReceiptEnum::Action(action_receipt) => {
             let mut required_gas = safe_add_gas(
                 total_prepaid_exec_fees(
-                    &apply_state.config.fees,
+                    &apply_state.config,
                     &action_receipt.actions,
                     &receipt.receiver_id,
                     apply_state.current_protocol_version,
