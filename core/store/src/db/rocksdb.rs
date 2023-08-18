@@ -13,7 +13,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use strum::IntoEnumIterator;
-use tracing::warn;
+use tracing::{warn, info};
 
 pub(crate) mod instance_tracker;
 pub(crate) mod snapshot;
@@ -743,47 +743,56 @@ impl RocksDB {
         /*})*/
         /*.collect::<Vec<_>>();*/
 
-        let state_obs_late_avg = perf_data
-            .column_measurements
-            .get(&DBCol::State)
-            .unwrap()
-            .measurements_overall
-            .avg_observed_latency()
-            .as_micros() as i64;
-        result.data.push((
-            "rocksdb_perf_avg_observed_latency".to_string(),
-            vec![StatsValue::Count(state_obs_late_avg)],
-        ));
+        match perf_data.column_measurements.get(&DBCol::State) {
+            Some(measurement) => {
+                info!("Senfing state perf data");
+                let state_obs_late_avg = perf_data
+                    .column_measurements
+                    .get(&DBCol::State)
+                    .unwrap()
+                    .measurements_overall
+                    .avg_observed_latency()
+                    .as_micros() as i64;
+                result.data.push((
+                    "rocksdb_perf_avg_observed_latency".to_string(),
+                    vec![StatsValue::Count(state_obs_late_avg)],
+                ));
 
-        // How to get histogram?
-        let state_read_block_latency = perf_data
-            .column_measurements
-            .get(&DBCol::State)
-            .unwrap()
-            .measurements_overall
-            .avg_read_block_latency()
-            .as_micros() as i64;
-        result.data.push((
-            "rocksdb_perf_avg_read_block_late".to_string(),
-            vec![StatsValue::Count(state_read_block_latency)],
-        ));
+                let state_read_block_latency = perf_data
+                    .column_measurements
+                    .get(&DBCol::State)
+                    .unwrap()
+                    .measurements_overall
+                    .avg_read_block_latency()
+                    .as_micros() as i64;
+                result.data.push((
+                    "rocksdb_perf_avg_read_block_latency".to_string(),
+                    vec![StatsValue::Count(state_read_block_latency)],
+                ));
 
-        let state_avg_obs_lat_per_block: Vec<StatsValue> = perf_data
-            .column_measurements
-            .get(&DBCol::State)
-            .unwrap()
-            .measurements_per_block_reads
-            .iter()
-            .map(|(block_count, measurement)| {
-                StatsValue::Bucket(
-                    DBCol::State,
-                    block_count.to_string(),
-                    measurement.avg_observed_latency().as_micros() as i64,
-                )
-            })
-            .collect();
-
-        result.data.push(("rocksdb_perf_total_observed_latency_per_block".to_string(), state_avg_obs_lat_per_block));
+                let state_avg_obs_lat_per_block: Vec<StatsValue> = perf_data
+                    .column_measurements
+                    .get(&DBCol::State)
+                    .unwrap()
+                    .measurements_per_block_reads
+                    .iter()
+                    .map(|(block_count, measurement)| {
+                        StatsValue::Bucket(
+                            DBCol::State,
+                            block_count.to_string(),
+                            measurement.avg_observed_latency().as_micros() as i64,
+                        )
+                    })
+                    .collect();
+                result.data.push((
+                    "rocksdb_perf_total_observed_latency_per_block".to_string(),
+                    state_avg_obs_lat_per_block,
+                ));
+            }
+            None => {
+                info!("No data to send");
+            }
+        }
     }
 }
 
