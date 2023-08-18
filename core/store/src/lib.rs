@@ -875,7 +875,14 @@ pub struct StoreCompiledContractCache {
 }
 
 impl StoreCompiledContractCache {
-    pub fn new(store: &Store, cache: Arc<SyncLruCache<CryptoHash, CompiledContract>>) -> Self {
+    pub fn new(
+        store: &Store,
+        cache: Option<Arc<SyncLruCache<CryptoHash, CompiledContract>>>,
+    ) -> Self {
+        let cache = match cache {
+            Some(cache) => cache,
+            None => Arc::new(SyncLruCache::new(1)),
+        };
         Self { db: store.storage.clone(), cache }
     }
 }
