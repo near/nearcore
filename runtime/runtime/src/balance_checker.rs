@@ -9,7 +9,7 @@ use near_primitives::errors::{
     BalanceMismatchError, IntegerOverflowError, RuntimeError, StorageError,
 };
 use near_primitives::receipt::{Receipt, ReceiptEnum};
-use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
@@ -37,7 +37,7 @@ fn get_delayed_receipts(
 
 /// Calculates and returns cost of a receipt.
 fn receipt_cost(
-    transaction_costs: &RuntimeFeesConfig,
+    config: &RuntimeConfig,
     current_protocol_version: ProtocolVersion,
     receipt: &Receipt,
 ) -> Result<Balance, IntegerOverflowError> {
@@ -46,9 +46,9 @@ fn receipt_cost(
             let mut total_cost = total_deposit(&action_receipt.actions)?;
             if !AccountId::is_system(&receipt.predecessor_id) {
                 let mut total_gas = safe_add_gas(
-                    transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee(),
+                    config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
                     total_prepaid_exec_fees(
-                        transaction_costs,
+                        config,
                         &action_receipt.actions,
                         &receipt.receiver_id,
                         current_protocol_version,
@@ -58,7 +58,7 @@ fn receipt_cost(
                 total_gas = safe_add_gas(
                     total_gas,
                     total_prepaid_send_fees(
-                        transaction_costs,
+                        config,
                         &action_receipt.actions,
                         current_protocol_version,
                     )?,
@@ -74,12 +74,12 @@ fn receipt_cost(
 
 /// Calculates and returns total cost of all the receipts.
 fn total_receipts_cost(
-    transaction_costs: &RuntimeFeesConfig,
+    config: &RuntimeConfig,
     current_protocol_version: ProtocolVersion,
     receipts: &[Receipt],
 ) -> Result<Balance, IntegerOverflowError> {
     receipts.iter().try_fold(0, |accumulator, receipt| {
-        let cost = receipt_cost(transaction_costs, current_protocol_version, receipt)?;
+        let cost = receipt_cost(config, current_protocol_version, receipt)?;
         safe_add_balance(accumulator, cost)
     })
 }
@@ -101,7 +101,7 @@ fn total_accounts_balance(
 /// Calculates and returns total costs of all the postponed receipts.
 fn total_postponed_receipts_cost(
     state: &dyn TrieAccess,
-    transaction_costs: &RuntimeFeesConfig,
+    config: &RuntimeConfig,
     current_protocol_version: ProtocolVersion,
     receipt_ids: &HashSet<(AccountId, crate::CryptoHash)>,
 ) -> Result<Balance, RuntimeError> {
@@ -109,14 +109,14 @@ fn total_postponed_receipts_cost(
         let (account_id, receipt_id) = item;
         let cost = match get_postponed_receipt(state, account_id, *receipt_id)? {
             None => return Ok(total),
-            Some(receipt) => receipt_cost(transaction_costs, current_protocol_version, &receipt)?,
+            Some(receipt) => receipt_cost(config, current_protocol_version, &receipt)?,
         };
         safe_add_balance(total, cost).map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
     })
 }
 
 pub(crate) fn check_balance(
-    transaction_costs: &RuntimeFeesConfig,
+    config: &RuntimeConfig,
     final_state: &TrieUpdate,
     validator_accounts_update: &Option<ValidatorAccountsUpdate>,
     incoming_receipts: &[Receipt],
@@ -173,7 +173,7 @@ pub(crate) fn check_balance(
     let final_accounts_balance = total_accounts_balance(final_state, &all_accounts_ids)?;
     // Receipts
     let receipts_cost = |receipts: &[Receipt]| -> Result<Balance, IntegerOverflowError> {
-        total_receipts_cost(transaction_costs, current_protocol_version, receipts)
+        total_receipts_cost(config, current_protocol_version, receipts)
     };
     let incoming_receipts_balance = receipts_cost(incoming_receipts)?;
     let outgoing_receipts_balance = receipts_cost(outgoing_receipts)?;
@@ -210,13 +210,13 @@ pub(crate) fn check_balance(
 
     let initial_postponed_receipts_balance = total_postponed_receipts_cost(
         initial_state,
-        transaction_costs,
+        config,
         current_protocol_version,
         &all_potential_postponed_receipt_ids,
     )?;
     let final_postponed_receipts_balance = total_postponed_receipts_cost(
         final_state,
-        transaction_costs,
+        config,
         current_protocol_version,
         &all_potential_postponed_receipt_ids,
     )?;
@@ -268,7 +268,6 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::ActionReceipt;
-    use near_primitives::runtime::fees::RuntimeFeesConfig;
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{Action, TransferAction};
     use near_primitives::types::{MerkleHash, StateChangeCause};
@@ -291,9 +290,8 @@ mod tests {
         let tries = create_tries();
         let root = MerkleHash::default();
         let final_state = tries.new_trie_update(ShardUId::single_shard(), root);
-        let transaction_costs = RuntimeFeesConfig::test();
         check_balance(
-            &transaction_costs,
+            &RuntimeConfig::test(),
             &final_state,
             &None,
             &[],
@@ -310,9 +308,8 @@ mod tests {
         let tries = create_tries();
         let root = MerkleHash::default();
         let final_state = tries.new_trie_update(ShardUId::single_shard(), root);
-        let transaction_costs = RuntimeFeesConfig::test();
         let err = check_balance(
-            &transaction_costs,
+            &RuntimeConfig::test(),
             &final_state,
             &None,
             &[Receipt::new_balance_refund(&alice_account(), 1000)],
@@ -371,9 +368,8 @@ mod tests {
             },
         );
 
-        let transaction_costs = RuntimeFeesConfig::test();
         check_balance(
-            &transaction_costs,
+            &RuntimeConfig::test(),
             &final_state,
             &None,
             &[Receipt::new_balance_refund(&account_id, refund_balance)],
@@ -392,13 +388,14 @@ mod tests {
         let initial_balance = TESTING_INIT_BALANCE / 2;
         let deposit = 500_000_000;
         let gas_price = 100;
-        let cfg = RuntimeFeesConfig::test();
-        let exec_gas = cfg.fee(ActionCosts::new_action_receipt).exec_fee()
-            + cfg.fee(ActionCosts::transfer).exec_fee();
-        let send_gas = cfg.fee(ActionCosts::new_action_receipt).send_fee(false)
-            + cfg.fee(ActionCosts::transfer).send_fee(false);
-        let contract_reward = send_gas as u128 * *cfg.burnt_gas_reward.numer() as u128 * gas_price
-            / (*cfg.burnt_gas_reward.denom() as u128);
+        let cfg = RuntimeConfig::test();
+        let fees = &cfg.fees;
+        let exec_gas = fees.fee(ActionCosts::new_action_receipt).exec_fee()
+            + fees.fee(ActionCosts::transfer).exec_fee();
+        let send_gas = fees.fee(ActionCosts::new_action_receipt).send_fee(false)
+            + fees.fee(ActionCosts::transfer).send_fee(false);
+        let contract_reward = send_gas as u128 * *fees.burnt_gas_reward.numer() as u128 * gas_price
+            / (*fees.burnt_gas_reward.denom() as u128);
         let total_validator_reward = send_gas as Balance * gas_price - contract_reward;
 
         let final_state = prepare_state_change(
@@ -495,10 +492,9 @@ mod tests {
             }),
         };
 
-        let transaction_costs = RuntimeFeesConfig::test();
         assert_eq!(
             check_balance(
-                &transaction_costs,
+                &RuntimeConfig::test(),
                 &initial_state,
                 &None,
                 &[receipt],
