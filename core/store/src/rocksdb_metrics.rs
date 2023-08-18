@@ -130,7 +130,7 @@ impl RocksDBMetrics {
                             Entry::Vacant(entry) => entry.insert(try_create_int_gauge_vec(
                                 &get_prometheus_metric_name(&stat_name),
                                 &stat_name,
-                                &["col"],
+                                &["col", "blocks_count"],
                             )?),
                             Entry::Occupied(entry) => entry.into_mut(),
                         };
