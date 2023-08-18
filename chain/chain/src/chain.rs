@@ -5136,8 +5136,6 @@ impl<'a> ChainUpdate<'a> {
                 assert_eq!(num_split_shards, results.len() as u64);
 
                 for result in results {
-                    tracing::debug!(target: "resharding", height, ?shard_uid, result_shard_uid=?result.shard_uid, "process_split_state apply");
-
                     let gas_burnt = if gas_res > 0 {
                         gas_res -= 1;
                         gas_split + 1
