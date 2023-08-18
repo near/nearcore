@@ -1590,47 +1590,39 @@ impl Client {
         true
     }
 
+    // Produce new chunks
     fn produce_chunks(&mut self, block: &Block, validator_id: AccountId) {
-        // Produce new chunks
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
         for shard_id in 0..self.epoch_manager.num_shards(&epoch_id).unwrap() {
-            let chunk_proposer = self
-                .epoch_manager
-                .get_chunk_producer(&epoch_id, block.header().height() + 1, shard_id)
-                .unwrap();
+            let next_height = block.header().height() + 1;
+            let epoch_manager = self.epoch_manager.as_ref();
+            let chunk_proposer =
+                epoch_manager.get_chunk_producer(&epoch_id, next_height, shard_id).unwrap();
+            if &chunk_proposer != &validator_id {
+                continue;
+            }
 
-            if &chunk_proposer == &validator_id {
-                let _span = tracing::debug_span!(
-                    target: "client",
-                    "on_block_accepted",
-                    prev_block_hash = ?*block.hash(),
-                    ?shard_id)
-                .entered();
-                let _timer = metrics::PRODUCE_AND_DISTRIBUTE_CHUNK_TIME
-                    .with_label_values(&[&shard_id.to_string()])
-                    .start_timer();
-                match self.produce_chunk(
-                    *block.hash(),
-                    &epoch_id,
-                    Chain::get_prev_chunk_header(self.epoch_manager.as_ref(), block, shard_id)
-                        .unwrap(),
-                    block.header().height() + 1,
-                    shard_id,
-                ) {
-                    Ok(Some((encoded_chunk, merkle_paths, receipts))) => {
-                        self.persist_and_distribute_encoded_chunk(
-                            encoded_chunk,
-                            merkle_paths,
-                            receipts,
-                            validator_id.clone(),
-                        )
-                        .expect("Failed to process produced chunk");
-                    }
-                    Ok(None) => {}
-                    Err(err) => {
-                        error!(target: "client", "Error producing chunk {:?}", err);
-                    }
+            let _span = tracing::debug_span!(
+                target: "client", "on_block_accepted", prev_block_hash = ?*block.hash(), ?shard_id)
+            .entered();
+            let _timer = metrics::PRODUCE_AND_DISTRIBUTE_CHUNK_TIME
+                .with_label_values(&[&shard_id.to_string()])
+                .start_timer();
+            let last_header = Chain::get_prev_chunk_header(epoch_manager, block, shard_id).unwrap();
+            match self.produce_chunk(*block.hash(), &epoch_id, last_header, next_height, shard_id) {
+                Ok(Some((encoded_chunk, merkle_paths, receipts))) => {
+                    self.persist_and_distribute_encoded_chunk(
+                        encoded_chunk,
+                        merkle_paths,
+                        receipts,
+                        validator_id.clone(),
+                    )
+                    .expect("Failed to process produced chunk");
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    error!(target: "client", "Error producing chunk {:?}", err);
                 }
             }
         }
