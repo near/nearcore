@@ -446,7 +446,9 @@ impl Database for RocksDB {
 
             let has_merge =
                 perf_data.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
-            info!("Adding measurement for {}", <&str>::from(col));
+            if col == DBCol::State {
+                info!("Adding measurement for {}", <&str>::from(col));
+            }
             perf_data.add_measurement(
                 col,
                 block_read_cnt,
