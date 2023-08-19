@@ -750,14 +750,14 @@ impl RocksDB {
                     measurement.measurements_overall.avg_observed_latency().as_micros() as i64;
                 result.data.push((
                     "rocksdb_perf_avg_observed_latency".to_string(),
-                    vec![StatsValue::Count(state_obs_late_avg)],
+                    vec![StatsValue::ColumnValue(DBCol::State, state_obs_late_avg)],
                 ));
 
                 let state_read_block_latency =
                     measurement.measurements_overall.avg_read_block_latency().as_micros() as i64;
                 result.data.push((
                     "rocksdb_perf_avg_read_block_latency".to_string(),
-                    vec![StatsValue::Count(state_read_block_latency)],
+                    vec![StatsValue::ColumnValue(DBCol::State, state_read_block_latency)],
                 ));
 
                 let state_avg_obs_lat_per_block: Vec<StatsValue> = measurement
