@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{io, println};
 use strum::IntoEnumIterator;
-use tracing::{info, warn};
+use tracing::warn;
 
 pub(crate) mod instance_tracker;
 pub(crate) mod snapshot;
@@ -447,9 +447,6 @@ impl Database for RocksDB {
 
             let has_merge =
                 perf_data.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
-            if col == DBCol::State {
-                info!("Adding measurement for {}", <&str>::from(col));
-            }
             perf_data.add_measurement(
                 col,
                 block_read_cnt,
@@ -781,7 +778,7 @@ impl RocksDB {
             }
             None => {}
         }
-        //perf_data.reset();
+        perf_data.reset();
     }
 }
 
