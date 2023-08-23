@@ -178,6 +178,10 @@ pub enum Action {
     DeleteAccount(DeleteAccountAction),
     Delegate(Box<delegate::SignedDelegateAction>),
 }
+const _: () = assert!(
+    cfg!(not(target_pointer_width = "64")) || std::mem::size_of::<Action>() == 32,
+    "Action is less than 32 bytes for performance reasons, see #9451"
+);
 
 impl Action {
     pub fn get_prepaid_gas(&self) -> Gas {
