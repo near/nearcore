@@ -1231,28 +1231,28 @@ impl TryFrom<ActionView> for Action {
                 Action::DeployContract(DeployContractAction { code })
             }
             ActionView::FunctionCall { method_name, args, gas, deposit } => {
-                Action::FunctionCall(FunctionCallAction {
+                Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name,
                     args: args.into(),
                     gas,
                     deposit,
-                })
+                }))
             }
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
             ActionView::Stake { stake, public_key } => {
-                Action::Stake(StakeAction { stake, public_key })
+                Action::Stake(Box::new(StakeAction { stake, public_key }))
             }
             ActionView::AddKey { public_key, access_key } => {
-                Action::AddKey(AddKeyAction { public_key, access_key: access_key.into() })
+                Action::AddKey(Box::new(AddKeyAction { public_key, access_key: access_key.into() }))
             }
             ActionView::DeleteKey { public_key } => {
-                Action::DeleteKey(DeleteKeyAction { public_key })
+                Action::DeleteKey(Box::new(DeleteKeyAction { public_key }))
             }
             ActionView::DeleteAccount { beneficiary_id } => {
                 Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
             }
             ActionView::Delegate { delegate_action, signature } => {
-                Action::Delegate(SignedDelegateAction { delegate_action, signature })
+                Action::Delegate(Box::new(SignedDelegateAction { delegate_action, signature }))
             }
         })
     }

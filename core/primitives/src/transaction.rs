@@ -332,15 +332,18 @@ mod tests {
             actions: vec![
                 Action::CreateAccount(CreateAccountAction {}),
                 Action::DeployContract(DeployContractAction { code: vec![1, 2, 3] }),
-                Action::FunctionCall(FunctionCallAction {
+                Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "qqq".to_string(),
                     args: vec![1, 2, 3],
                     gas: 1_000,
                     deposit: 1_000_000,
-                }),
+                })),
                 Action::Transfer(TransferAction { deposit: 123 }),
-                Action::Stake(StakeAction { public_key: public_key.clone(), stake: 1_000_000 }),
-                Action::AddKey(AddKeyAction {
+                Action::Stake(Box::new(StakeAction {
+                    public_key: public_key.clone(),
+                    stake: 1_000_000,
+                })),
+                Action::AddKey(Box::new(AddKeyAction {
                     public_key: public_key.clone(),
                     access_key: AccessKey {
                         nonce: 0,
@@ -350,8 +353,8 @@ mod tests {
                             method_names: vec!["www".to_string()],
                         }),
                     },
-                }),
-                Action::DeleteKey(DeleteKeyAction { public_key }),
+                })),
+                Action::DeleteKey(Box::new(DeleteKeyAction { public_key })),
                 Action::DeleteAccount(DeleteAccountAction {
                     beneficiary_id: "123".parse().unwrap(),
                 }),

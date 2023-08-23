@@ -449,7 +449,7 @@ fn meta_tx_stake() {
 
     let tx_cost = fee_helper.stake_cost();
     let public_key = create_user_test_signer(&sender).public_key;
-    let actions = vec![Action::Stake(StakeAction { public_key, stake: 0 })];
+    let actions = vec![Action::Stake(Box::new(StakeAction { public_key, stake: 0 }))];
     check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver);
 }
 
@@ -466,10 +466,10 @@ fn meta_tx_add_key() {
     // any public key works as long as it doesn't exists on the receiver, the
     // relayer public key is just handy
     let public_key = node.signer().public_key();
-    let actions = vec![Action::AddKey(AddKeyAction {
+    let actions = vec![Action::AddKey(Box::new(AddKeyAction {
         public_key: public_key.clone(),
         access_key: AccessKey::full_access(),
-    })];
+    }))];
     check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver.clone());
 
     let key_view = node
@@ -494,7 +494,8 @@ fn meta_tx_delete_key() {
 
     let tx_cost = fee_helper.delete_key_cost();
     let public_key = PublicKey::from_seed(KeyType::ED25519, &receiver);
-    let actions = vec![Action::DeleteKey(DeleteKeyAction { public_key: public_key.clone() })];
+    let actions =
+        vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key: public_key.clone() }))];
     check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver.clone());
 
     let err = node
@@ -628,12 +629,12 @@ fn meta_tx_ft_transfer() {
 
 /// Call the function "log_something" in the test contract.
 fn log_something_fn_call() -> Action {
-    Action::FunctionCall(FunctionCallAction {
+    Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: TEST_METHOD.to_owned(),
         args: vec![],
         gas: 30_000_000_000_000,
         deposit: 0,
-    })
+    }))
 }
 
 /// Construct an function call action with a FT transfer.
@@ -650,12 +651,12 @@ fn ft_transfer_action(receiver: &str, amount: u128) -> (Action, u64) {
     .collect();
     let method_name = "ft_transfer".to_owned();
     let num_bytes = method_name.len() + args.len();
-    let action = Action::FunctionCall(FunctionCallAction {
+    let action = Action::FunctionCall(Box::new(FunctionCallAction {
         method_name,
         args,
         gas: 20_000_000_000_000,
         deposit: 1,
-    });
+    }));
 
     (action, num_bytes as u64)
 }
@@ -670,12 +671,12 @@ fn ft_register_action(receiver: &str) -> Action {
     )
     .bytes()
     .collect();
-    Action::FunctionCall(FunctionCallAction {
+    Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "storage_deposit".to_owned(),
         args,
         gas: 20_000_000_000_000,
         deposit: NEAR_BASE,
-    })
+    }))
 }
 
 /// Format a NEP-141 event for an ft transfer
@@ -763,7 +764,7 @@ fn meta_tx_create_named_account() {
     let actions = vec![
         Action::CreateAccount(CreateAccountAction {}),
         Action::Transfer(TransferAction { deposit: amount }),
-        Action::AddKey(AddKeyAction { public_key, access_key: AccessKey::full_access() }),
+        Action::AddKey(Box::new(AddKeyAction { public_key, access_key: AccessKey::full_access() })),
     ];
 
     // Check the account doesn't exist, yet. We want to create it.
