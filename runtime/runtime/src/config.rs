@@ -102,7 +102,7 @@ pub fn total_send_fees(
                 transfer_send_fee(fees, sender_is_receiver, is_receiver_implicit)
             }
             Stake(_) => fees.fee(ActionCosts::stake).send_fee(sender_is_receiver),
-            AddKey(add_key_action) => match add_key_action.access_key.permission.clone() {
+            AddKey(add_key_action) => match &add_key_action.access_key.permission {
                 AccessKeyPermission::FunctionCall(call_perm) => {
                     let num_bytes = call_perm
                         .method_names
@@ -194,7 +194,7 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             transfer_exec_fee(fees, is_receiver_implicit)
         }
         Stake(_) => fees.fee(ActionCosts::stake).exec_fee(),
-        AddKey(add_key_action) => match add_key_action.access_key.permission.clone() {
+        AddKey(add_key_action) => match &add_key_action.access_key.permission {
             AccessKeyPermission::FunctionCall(call_perm) => {
                 let num_bytes = call_perm
                     .method_names
