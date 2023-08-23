@@ -36,6 +36,9 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
             regular_op_cost: u32::try_from(regular_op_cost).unwrap(),
             disable_9393_fix: false,
             limit_config: vm_limit_config,
+            flat_storage_reads: true,
+            fix_contract_loading_cost: false,
+            implicit_account_creation: true,
         },
         account_creation_config: AccountCreationConfig::default(),
     };

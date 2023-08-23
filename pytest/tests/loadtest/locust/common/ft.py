@@ -1,4 +1,5 @@
 import random
+import string
 import sys
 import pathlib
 import typing
@@ -47,6 +48,14 @@ class FTContract:
                            locust_name="FT Funding")
         self.registered_users.append(user.account_id)
 
+    def register_passive_user(self, node: NearNodeProxy, account: Account):
+        """
+        Passive users are only used as receiver, not as signer.
+        """
+        node.send_tx_retry(InitFTAccount(self.account, account),
+                           locust_name="Init FT Account")
+        self.registered_users.append(account.key.account_id)
+
     def random_receiver(self, sender: str) -> str:
         return self.random_receivers(sender, 1)[0]
 
@@ -59,6 +68,37 @@ class FTContract:
         return list(
             map(lambda a: a.replace(sender, self.ft_distributor.key.account_id),
                 receivers))
+
+    def create_passive_users(self,
+                             num: int,
+                             node: NearNodeProxy,
+                             parent: Account,
+                             max_account_id_len=64):
+        """
+        Create on-chain accounts and register them as FT users.
+        Note that these are not locust users and they are not able to sign
+        transactions. They are only used as targets of transactions and as a
+        side-effect they also increase the state size of the contract.
+        """
+        prefix_len = max_account_id_len - len(parent.key.account_id) - 1
+        assert prefix_len > 4, f"user key {parent.key.account_id} is too long"
+        chars = string.ascii_lowercase + string.digits
+
+        def create_account():
+            prefix = ''.join(random.choices(chars, k=prefix_len))
+            account_id = f"{prefix}.{parent.key.account_id}"
+            return Account(key.Key.from_seed_testonly(account_id))
+
+        accounts = [create_account() for _ in range(num)]
+        node.prepare_accounts(accounts,
+                              parent,
+                              balance=0.3,
+                              msg="create passive user")
+        # TODO: this could also be done in parallel, actually in very simple
+        # ways since there are no nonce conflicts (transactions are signed by
+        # different users)
+        for account in accounts:
+            self.register_passive_user(node, account)
 
 
 class TransferFT(FunctionCall):

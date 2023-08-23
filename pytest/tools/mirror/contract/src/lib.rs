@@ -26,12 +26,13 @@ impl KeyAdder {
     }
 
     #[payable]
-    pub fn create_account(&mut self, account_id: AccountId, public_key: String) -> Promise {
-        let public_key = PublicKey::from_str(&public_key).unwrap();
-        Promise::new(account_id)
-            .create_account()
-            .add_full_access_key(public_key)
-            .transfer(env::attached_deposit())
+    pub fn create_account(&mut self, account_id: AccountId, public_key: Option<String>) -> Promise {
+        let mut p = Promise::new(account_id).create_account();
+        if let Some(public_key) = public_key {
+            let public_key = PublicKey::from_str(&public_key).unwrap();
+            p = p.add_full_access_key(public_key);
+        }
+        p.transfer(env::attached_deposit())
     }
 
     pub fn stake(&mut self, amount: Balance, public_key: PublicKey) -> Promise {

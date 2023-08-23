@@ -227,7 +227,7 @@ class MirrorProcess:
 
     def start(self):
         env = os.environ.copy()
-        env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
+        env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,indexer=info," + env.get(
             "RUST_LOG", "debug")
         with open(dot_near() / f'{MIRROR_DIR}/stdout', 'ab') as stdout, \
             open(dot_near() / f'{MIRROR_DIR}/stderr', 'ab') as stderr:
@@ -363,9 +363,9 @@ def call_addkey(node, signer_key, new_key, nonce, block_hash, extra_actions=[]):
     logger.info(f'called add_key for {new_key.account_id} {new_key.pk}: {res}')
 
 
-def call_create_account(node, signer_key, account_id, nonce, block_hash):
-    k = key.Key.from_random(account_id)
-    args = json.dumps({'account_id': account_id, 'public_key': k.pk})
+def call_create_account(node, signer_key, account_id, public_key, nonce,
+                        block_hash):
+    args = json.dumps({'account_id': account_id, 'public_key': public_key})
     args = bytearray(args, encoding='utf-8')
 
     actions = [
@@ -380,8 +380,8 @@ def call_create_account(node, signer_key, account_id, nonce, block_hash):
                                                     signer_key.decoded_sk())
     res = node.send_tx(tx)
     logger.info(
-        f'called create account contract for {account_id} {k.pk}: {res}')
-    return k
+        f'called create account contract for {account_id}, public key: {public_key}: {res}'
+    )
 
 
 def call_stake(node, signer_key, amount, public_key, nonce, block_hash):
@@ -519,6 +519,8 @@ class TrafficData:
     def __init__(self, num_accounts):
         self.nonces = [2] * num_accounts
         self.implicit_account = None
+        self.keyless_account0 = 'keyless0.test0'
+        self.keyless_account1 = 'keyless1.test0'
 
     def send_transfers(self, nodes, block_hash, skip_senders=None):
         for sender in range(len(self.nonces)):
@@ -532,6 +534,13 @@ class TrafficData:
                                              self.nonces[sender], block_hash)
             nodes[sender].send_tx(tx)
             self.nonces[sender] += 1
+
+    def check_ok(self, source_node, target_node):
+        keys = target_node.get_access_key_list(self.keyless_account0)
+        assert len(keys['result']['keys']) > 0, keys
+        keys = target_node.get_access_key_list(self.keyless_account1)
+        assert len(keys['result']['keys']) > 0, keys
+        check_num_txs(source_node, target_node)
 
 
 def added_keys_send_transfers(nodes, added_keys, receivers, amount, block_hash):
@@ -667,15 +676,30 @@ def send_traffic(near_root, source_nodes, traffic_data, callback):
     traffic_data.nonces[1] += 1
     test1_contract_key = AddedKey(test1_contract_key)
 
-    test0_subaccount_contract_key = AddedKey(
-        call_create_account(source_nodes[1], source_nodes[0].signer_key,
-                            'test0.test0', traffic_data.nonces[0],
-                            block_hash_bytes))
+    test0_subaccount_contract_key = AddedKey(key.Key.from_random('test0.test0'))
+    call_create_account(source_nodes[1], source_nodes[0].signer_key,
+                        test0_subaccount_contract_key.key.account_id,
+                        test0_subaccount_contract_key.key.pk,
+                        traffic_data.nonces[0], block_hash_bytes)
     traffic_data.nonces[0] += 1
-    test1_subaccount_contract_key = AddedKey(
-        call_create_account(source_nodes[1], source_nodes[1].signer_key,
-                            'test1.test0', traffic_data.nonces[1],
-                            block_hash_bytes))
+    test1_subaccount_contract_key = AddedKey(key.Key.from_random('test1.test0'))
+    call_create_account(source_nodes[1], source_nodes[1].signer_key,
+                        test1_subaccount_contract_key.key.account_id,
+                        test1_subaccount_contract_key.key.pk,
+                        traffic_data.nonces[1], block_hash_bytes)
+    traffic_data.nonces[1] += 1
+
+    # here we create an account from a contract without adding an access key,
+    # and then check that the mirror binary adds a full access key so we can control the account
+    call_create_account(source_nodes[1], source_nodes[0].signer_key,
+                        traffic_data.keyless_account0, None,
+                        traffic_data.nonces[0], block_hash_bytes)
+    traffic_data.nonces[0] += 1
+    # now do the same thing but with signer different from the contract account
+    # to exercise different code paths
+    call_create_account(source_nodes[1], source_nodes[1].signer_key,
+                        traffic_data.keyless_account1, None,
+                        traffic_data.nonces[1], block_hash_bytes)
     traffic_data.nonces[1] += 1
 
     test0_deleted_height = None

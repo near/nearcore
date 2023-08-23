@@ -374,21 +374,10 @@ impl crate::runner::VM for Wasmer0VM {
         // Note that we don't clone the actual backing memory, just increase the RC.
         let memory_copy = memory.clone();
 
-        let mut logic = VMLogic::new_with_protocol_version(
-            ext,
-            context,
-            &self.config,
-            fees_config,
-            promise_results,
-            &mut memory,
-            current_protocol_version,
-        );
+        let mut logic =
+            VMLogic::new(ext, context, &self.config, fees_config, promise_results, &mut memory);
 
-        let result = logic.before_loading_executable(
-            method_name,
-            current_protocol_version,
-            code.code().len(),
-        );
+        let result = logic.before_loading_executable(method_name, code.code().len());
         if let Err(e) = result {
             return Ok(VMOutcome::abort(logic, e));
         }
@@ -409,7 +398,7 @@ impl crate::runner::VM for Wasmer0VM {
             }
         };
 
-        let result = logic.after_loading_executable(current_protocol_version, code.code().len());
+        let result = logic.after_loading_executable(code.code().len());
         if let Err(e) = result {
             return Ok(VMOutcome::abort(logic, e));
         }
@@ -418,11 +407,7 @@ impl crate::runner::VM for Wasmer0VM {
             imports::wasmer::build(memory_copy, &mut logic, current_protocol_version);
 
         if let Err(e) = check_method(&module, method_name) {
-            return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
-                logic,
-                e,
-                current_protocol_version,
-            ));
+            return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e));
         }
 
         match run_method(&module, &import_object, method_name)? {

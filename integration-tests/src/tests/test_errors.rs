@@ -15,6 +15,7 @@ use near_primitives::transaction::{
 use near_primitives::version::PROTOCOL_VERSION;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::load_test_config;
+use node_runtime::config::RuntimeConfig;
 use testlib::runtime_utils::{alice_account, bob_account};
 
 fn start_node() -> ThreadNode {
@@ -68,7 +69,7 @@ fn test_deliver_tx_error_log() {
     let runtime_config_store = RuntimeConfigStore::new(None);
     let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
     let fee_helper = testlib::fees_utils::FeeHelper::new(
-        runtime_config.fees.clone(),
+        RuntimeConfig::clone(&runtime_config),
         node.genesis().config.min_gas_price,
     );
     let signer =
