@@ -64,13 +64,12 @@ fn calc_total_supply(env: &mut TestEnv) -> u128 {
 fn test_burn_mint() {
     let genesis = build_genesis();
     let mut env = setup_env(&genesis);
-    let transaction_costs = env.clients[0]
+    let config = env.clients[0]
         .runtime_adapter
         .get_protocol_config(&EpochId::default())
         .unwrap()
-        .runtime_config
-        .fees;
-    let fee_helper = FeeHelper::new(transaction_costs, genesis.config.min_gas_price);
+        .runtime_config;
+    let fee_helper = FeeHelper::new(config, genesis.config.min_gas_price);
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let initial_total_supply = env.chain_genesis.total_supply;
     let genesis_hash = *env.clients[0].chain.genesis().hash();

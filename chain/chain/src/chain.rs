@@ -1711,17 +1711,18 @@ impl Chain {
         let mut receipt_proofs_by_shard_id = HashMap::new();
 
         for chunk_header in block.chunks().iter() {
-            if chunk_header.height_included() == height {
-                let partial_encoded_chunk =
-                    self.store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
-                for receipt in partial_encoded_chunk.receipts().iter() {
-                    let ReceiptProof(_, shard_proof) = receipt;
-                    let ShardProof { from_shard_id: _, to_shard_id, proof: _ } = shard_proof;
-                    receipt_proofs_by_shard_id
-                        .entry(*to_shard_id)
-                        .or_insert_with(Vec::new)
-                        .push(receipt.clone());
-                }
+            if chunk_header.height_included() != height {
+                continue;
+            }
+            let partial_encoded_chunk =
+                self.store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
+            for receipt in partial_encoded_chunk.receipts().iter() {
+                let ReceiptProof(_, shard_proof) = receipt;
+                let ShardProof { to_shard_id, .. } = shard_proof;
+                receipt_proofs_by_shard_id
+                    .entry(*to_shard_id)
+                    .or_insert_with(Vec::new)
+                    .push(receipt.clone());
             }
         }
         // sort the receipts deterministically so the order that they will be processed is deterministic
@@ -3981,13 +3982,12 @@ impl Chain {
         // we can't use hash from the current block here yet because the incoming receipts
         // for this block is not stored yet
         let mut receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
-        receipts.extend(collect_receipts_from_response(
-            &self.store().get_incoming_receipts_for_shard(
-                shard_id,
-                *prev_hash,
-                prev_chunk_height_included,
-            )?,
-        ));
+        let receipt_proof_response = &self.store().get_incoming_receipts_for_shard(
+            shard_id,
+            *prev_hash,
+            prev_chunk_height_included,
+        )?;
+        receipts.extend(collect_receipts_from_response(receipt_proof_response));
         let chunk = self.get_chunk_clone_from_header(&chunk_header.clone())?;
 
         let transactions = chunk.transactions();

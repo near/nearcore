@@ -10,12 +10,11 @@ use near_primitives::errors::IntegerOverflowError;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 pub use near_primitives::num_rational::Rational32;
 pub use near_primitives::runtime::config::RuntimeConfig;
-use near_primitives::runtime::fees::{transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig};
+use near_primitives::runtime::fees::{transfer_exec_fee, transfer_send_fee};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, Transaction,
 };
 use near_primitives::types::{AccountId, Balance, Compute, Gas};
-use near_primitives::version::{checked_feature, ProtocolVersion};
 
 /// Describes the cost of converting this transaction into a receipt.
 #[derive(Debug)]
@@ -73,40 +72,37 @@ macro_rules! safe_add_balance_apply {
 
 /// Total sum of gas that needs to be burnt to send these actions.
 pub fn total_send_fees(
-    config: &RuntimeFeesConfig,
+    config: &RuntimeConfig,
     sender_is_receiver: bool,
     actions: &[Action],
     receiver_id: &AccountId,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<Gas, IntegerOverflowError> {
     let mut result = 0;
+    let fees = &config.fees;
 
     for action in actions {
         use Action::*;
         let delta = match action {
-            CreateAccount(_) => {
-                config.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
-            }
+            CreateAccount(_) => fees.fee(ActionCosts::create_account).send_fee(sender_is_receiver),
             DeployContract(DeployContractAction { code }) => {
                 let num_bytes = code.len() as u64;
-                config.fee(ActionCosts::deploy_contract_base).send_fee(sender_is_receiver)
-                    + config.fee(ActionCosts::deploy_contract_byte).send_fee(sender_is_receiver)
+                fees.fee(ActionCosts::deploy_contract_base).send_fee(sender_is_receiver)
+                    + fees.fee(ActionCosts::deploy_contract_byte).send_fee(sender_is_receiver)
                         * num_bytes
             }
             FunctionCall(FunctionCallAction { method_name, args, .. }) => {
                 let num_bytes = method_name.as_bytes().len() as u64 + args.len() as u64;
-                config.fee(ActionCosts::function_call_base).send_fee(sender_is_receiver)
-                    + config.fee(ActionCosts::function_call_byte).send_fee(sender_is_receiver)
+                fees.fee(ActionCosts::function_call_base).send_fee(sender_is_receiver)
+                    + fees.fee(ActionCosts::function_call_byte).send_fee(sender_is_receiver)
                         * num_bytes
             }
             Transfer(_) => {
                 // Account for implicit account creation
                 let is_receiver_implicit =
-                    checked_feature!("stable", ImplicitAccountCreation, current_protocol_version)
-                        && receiver_id.is_implicit();
-                transfer_send_fee(config, sender_is_receiver, is_receiver_implicit)
+                    config.wasm_config.implicit_account_creation && receiver_id.is_implicit();
+                transfer_send_fee(fees, sender_is_receiver, is_receiver_implicit)
             }
-            Stake(_) => config.fee(ActionCosts::stake).send_fee(sender_is_receiver),
+            Stake(_) => fees.fee(ActionCosts::stake).send_fee(sender_is_receiver),
             AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
                 AccessKeyPermission::FunctionCall(call_perm) => {
                     let num_bytes = call_perm
@@ -115,22 +111,20 @@ pub fn total_send_fees(
                         // Account for null-terminating characters.
                         .map(|name| name.as_bytes().len() as u64 + 1)
                         .sum::<u64>();
-                    config.fee(ActionCosts::add_function_call_key_base).send_fee(sender_is_receiver)
+                    fees.fee(ActionCosts::add_function_call_key_base).send_fee(sender_is_receiver)
                         + num_bytes
-                            * config
+                            * fees
                                 .fee(ActionCosts::add_function_call_key_byte)
                                 .send_fee(sender_is_receiver)
                 }
                 AccessKeyPermission::FullAccess => {
-                    config.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
+                    fees.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
                 }
             },
-            DeleteKey(_) => config.fee(ActionCosts::delete_key).send_fee(sender_is_receiver),
-            DeleteAccount(_) => {
-                config.fee(ActionCosts::delete_account).send_fee(sender_is_receiver)
-            }
+            DeleteKey(_) => fees.fee(ActionCosts::delete_key).send_fee(sender_is_receiver),
+            DeleteAccount(_) => fees.fee(ActionCosts::delete_account).send_fee(sender_is_receiver),
             Delegate(signed_delegate_action) => {
-                let delegate_cost = config.fee(ActionCosts::delegate).send_fee(sender_is_receiver);
+                let delegate_cost = fees.fee(ActionCosts::delegate).send_fee(sender_is_receiver);
                 let delegate_action = &signed_delegate_action.delegate_action;
 
                 delegate_cost
@@ -139,7 +133,6 @@ pub fn total_send_fees(
                         sender_is_receiver,
                         &delegate_action.get_actions(),
                         &delegate_action.receiver_id,
-                        current_protocol_version,
                     )?
             }
         };
@@ -154,12 +147,10 @@ pub fn total_send_fees(
 /// need to be prepaid. All other actions burn send fees directly, so calling this function
 /// with other actions will return 0.
 pub fn total_prepaid_send_fees(
-    config: &RuntimeFeesConfig,
+    config: &RuntimeConfig,
     actions: &[Action],
-    current_protocol_version: ProtocolVersion,
 ) -> Result<Gas, IntegerOverflowError> {
     let mut result = 0;
-
     for action in actions {
         use Action::*;
         let delta = match action {
@@ -172,7 +163,6 @@ pub fn total_prepaid_send_fees(
                     sender_is_receiver,
                     &delegate_action.get_actions(),
                     &delegate_action.receiver_id,
-                    current_protocol_version,
                 )?
             }
             _ => 0,
@@ -182,34 +172,28 @@ pub fn total_prepaid_send_fees(
     Ok(result)
 }
 
-pub fn exec_fee(
-    config: &RuntimeFeesConfig,
-    action: &Action,
-    receiver_id: &AccountId,
-    current_protocol_version: ProtocolVersion,
-) -> Gas {
+pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId) -> Gas {
     use Action::*;
-
+    let fees = &config.fees;
     match action {
-        CreateAccount(_) => config.fee(ActionCosts::create_account).exec_fee(),
+        CreateAccount(_) => fees.fee(ActionCosts::create_account).exec_fee(),
         DeployContract(DeployContractAction { code }) => {
             let num_bytes = code.len() as u64;
-            config.fee(ActionCosts::deploy_contract_base).exec_fee()
-                + config.fee(ActionCosts::deploy_contract_byte).exec_fee() * num_bytes
+            fees.fee(ActionCosts::deploy_contract_base).exec_fee()
+                + fees.fee(ActionCosts::deploy_contract_byte).exec_fee() * num_bytes
         }
         FunctionCall(FunctionCallAction { method_name, args, .. }) => {
             let num_bytes = method_name.as_bytes().len() as u64 + args.len() as u64;
-            config.fee(ActionCosts::function_call_base).exec_fee()
-                + config.fee(ActionCosts::function_call_byte).exec_fee() * num_bytes
+            fees.fee(ActionCosts::function_call_base).exec_fee()
+                + fees.fee(ActionCosts::function_call_byte).exec_fee() * num_bytes
         }
         Transfer(_) => {
             // Account for implicit account creation
             let is_receiver_implicit =
-                checked_feature!("stable", ImplicitAccountCreation, current_protocol_version)
-                    && receiver_id.is_implicit();
-            transfer_exec_fee(config, is_receiver_implicit)
+                config.wasm_config.implicit_account_creation && receiver_id.is_implicit();
+            transfer_exec_fee(fees, is_receiver_implicit)
         }
-        Stake(_) => config.fee(ActionCosts::stake).exec_fee(),
+        Stake(_) => fees.fee(ActionCosts::stake).exec_fee(),
         AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
             AccessKeyPermission::FunctionCall(call_perm) => {
                 let num_bytes = call_perm
@@ -218,29 +202,28 @@ pub fn exec_fee(
                     // Account for null-terminating characters.
                     .map(|name| name.as_bytes().len() as u64 + 1)
                     .sum::<u64>();
-                config.fee(ActionCosts::add_function_call_key_base).exec_fee()
-                    + num_bytes * config.fee(ActionCosts::add_function_call_key_byte).exec_fee()
+                fees.fee(ActionCosts::add_function_call_key_base).exec_fee()
+                    + num_bytes * fees.fee(ActionCosts::add_function_call_key_byte).exec_fee()
             }
             AccessKeyPermission::FullAccess => {
-                config.fee(ActionCosts::add_full_access_key).exec_fee()
+                fees.fee(ActionCosts::add_full_access_key).exec_fee()
             }
         },
-        DeleteKey(_) => config.fee(ActionCosts::delete_key).exec_fee(),
-        DeleteAccount(_) => config.fee(ActionCosts::delete_account).exec_fee(),
-        Delegate(_) => config.fee(ActionCosts::delegate).exec_fee(),
+        DeleteKey(_) => fees.fee(ActionCosts::delete_key).exec_fee(),
+        DeleteAccount(_) => fees.fee(ActionCosts::delete_account).exec_fee(),
+        Delegate(_) => fees.fee(ActionCosts::delegate).exec_fee(),
     }
 }
 
 /// Returns transaction costs for a given transaction.
 pub fn tx_cost(
-    config: &RuntimeFeesConfig,
+    config: &RuntimeConfig,
     transaction: &Transaction,
     gas_price: Balance,
     sender_is_receiver: bool,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<TransactionCost, IntegerOverflowError> {
-    let mut gas_burnt: Gas =
-        config.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
+    let fees = &config.fees;
+    let mut gas_burnt: Gas = fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
     gas_burnt = safe_add_gas(
         gas_burnt,
         total_send_fees(
@@ -248,17 +231,16 @@ pub fn tx_cost(
             sender_is_receiver,
             &transaction.actions,
             &transaction.receiver_id,
-            current_protocol_version,
         )?,
     )?;
     let prepaid_gas = safe_add_gas(
         total_prepaid_gas(&transaction.actions)?,
-        total_prepaid_send_fees(config, &transaction.actions, current_protocol_version)?,
+        total_prepaid_send_fees(config, &transaction.actions)?,
     )?;
     // If signer is equals to receiver the receipt will be processed at the same block as this
     // transaction. Otherwise it will processed in the next block and the gas might be inflated.
     let initial_receipt_hop = if transaction.signer_id == transaction.receiver_id { 0 } else { 1 };
-    let minimum_new_receipt_gas = config.min_receipt_with_function_call_gas();
+    let minimum_new_receipt_gas = fees.min_receipt_with_function_call_gas();
     // In case the config is free, we don't care about the maximum depth.
     let receipt_gas_price = if gas_price == 0 {
         0
@@ -269,21 +251,16 @@ pub fn tx_cost(
             .map_err(|_| IntegerOverflowError {})?;
         safe_gas_price_inflated(
             gas_price,
-            config.pessimistic_gas_price_inflation_ratio,
+            fees.pessimistic_gas_price_inflation_ratio,
             inflation_exponent,
         )?
     };
 
     let mut gas_remaining =
-        safe_add_gas(prepaid_gas, config.fee(ActionCosts::new_action_receipt).exec_fee())?;
+        safe_add_gas(prepaid_gas, fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
     gas_remaining = safe_add_gas(
         gas_remaining,
-        total_prepaid_exec_fees(
-            config,
-            &transaction.actions,
-            &transaction.receiver_id,
-            current_protocol_version,
-        )?,
+        total_prepaid_exec_fees(config, &transaction.actions, &transaction.receiver_id)?,
     )?;
     let burnt_amount = safe_gas_to_balance(gas_price, gas_burnt)?;
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
@@ -294,12 +271,12 @@ pub fn tx_cost(
 
 /// Total sum of gas that would need to be burnt before we start executing the given actions.
 pub fn total_prepaid_exec_fees(
-    config: &RuntimeFeesConfig,
+    config: &RuntimeConfig,
     actions: &[Action],
     receiver_id: &AccountId,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<Gas, IntegerOverflowError> {
     let mut result = 0;
+    let fees = &config.fees;
     for action in actions {
         let mut delta;
         // In case of Action::Delegate it's needed to add Gas which is required for the inner actions.
@@ -309,20 +286,14 @@ pub fn total_prepaid_exec_fees(
                 config,
                 &actions,
                 &signed_delegate_action.delegate_action.receiver_id,
-                current_protocol_version,
             )?;
             delta = safe_add_gas(
                 delta,
-                exec_fee(
-                    config,
-                    action,
-                    &signed_delegate_action.delegate_action.receiver_id,
-                    current_protocol_version,
-                ),
+                exec_fee(config, action, &signed_delegate_action.delegate_action.receiver_id),
             )?;
-            delta = safe_add_gas(delta, config.fee(ActionCosts::new_action_receipt).exec_fee())?;
+            delta = safe_add_gas(delta, fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
         } else {
-            delta = exec_fee(config, action, receiver_id, current_protocol_version);
+            delta = exec_fee(config, action, receiver_id);
         }
 
         result = safe_add_gas(result, delta)?;

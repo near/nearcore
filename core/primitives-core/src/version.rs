@@ -101,17 +101,13 @@ pub enum ProtocolFeature {
     ///
     /// Flat Storage NEP-399: https://github.com/near/NEPs/blob/master/neps/nep-0399.md
     FlatStorageReads,
-
     /// Enables preparation V2. Note that this setting is not supported in production settings
     /// without NearVmRuntime enabled alongside it, as the VM runner would be too slow.
     PreparationV2,
-
     /// Enables Near-Vm. Note that this setting is not at all supported without PreparationV2,
     /// as it hardcodes preparation v2 code into the generated assembly.
     NearVmRuntime,
-
     BlockHeaderV4,
-
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio

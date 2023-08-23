@@ -228,14 +228,15 @@ fn check_meta_tx_fn_call(
     // dynamic cost. The contract reward can be inferred from that.
 
     // static send gas is paid and burnt upfront
-    let static_send_gas = fee_helper.cfg.fee(ActionCosts::new_action_receipt).send_fee(false)
-        + num_fn_calls as u64 * fee_helper.cfg.fee(ActionCosts::function_call_base).send_fee(false)
-        + msg_len * fee_helper.cfg.fee(ActionCosts::function_call_byte).send_fee(false);
+    let static_send_gas = fee_helper.cfg().fee(ActionCosts::new_action_receipt).send_fee(false)
+        + num_fn_calls as u64
+            * fee_helper.cfg().fee(ActionCosts::function_call_base).send_fee(false)
+        + msg_len * fee_helper.cfg().fee(ActionCosts::function_call_byte).send_fee(false);
     // static execution gas burnt in the same receipt as the function calls but
     // it doesn't contribute to the contract reward
-    let static_exec_gas = fee_helper.cfg.fee(ActionCosts::new_action_receipt).exec_fee()
-        + num_fn_calls as u64 * fee_helper.cfg.fee(ActionCosts::function_call_base).exec_fee()
-        + msg_len * fee_helper.cfg.fee(ActionCosts::function_call_byte).exec_fee();
+    let static_exec_gas = fee_helper.cfg().fee(ActionCosts::new_action_receipt).exec_fee()
+        + num_fn_calls as u64 * fee_helper.cfg().fee(ActionCosts::function_call_base).exec_fee()
+        + msg_len * fee_helper.cfg().fee(ActionCosts::function_call_byte).exec_fee();
 
     // calculate contract rewards as reward("gas burnt in fn call receipt" - "static exec costs")
     let gas_burnt_for_function_call =

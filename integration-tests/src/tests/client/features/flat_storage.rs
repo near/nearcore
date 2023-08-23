@@ -29,9 +29,10 @@ fn test_flat_storage_upgrade() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = old_protocol_version;
     let chain_genesis = ChainGenesis::new(&genesis);
+    let runtime_config = near_primitives::runtime::config_store::RuntimeConfigStore::new(None);
     let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
+        .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config])
         .build();
 
     // We assume that it is enough to process 4 blocks to get a single txn included and processed.
