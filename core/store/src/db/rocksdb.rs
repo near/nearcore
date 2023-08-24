@@ -749,6 +749,40 @@ impl RocksDB {
                     "rocksdb_perf_total_observed_latency_per_block".to_string(),
                     state_avg_obs_lat_per_block,
                 ));
+
+
+            let state_count_per_block: Vec<StatsValue> = measurement
+                    .measurements_per_block_reads
+                    .iter()
+                    .map(|(block_count, measurement)| {
+                        StatsValue::BucketBlockCount(
+                            DBCol::State,
+                            block_count.to_string(),
+                            measurement.count as i64
+                        )
+                    })
+                    .collect();
+                result.data.push((
+                    "rocksdb_perf_count_per_block".to_string(),
+                    state_count_per_block,
+                ));
+
+            let state_total_lat_per_block: Vec<StatsValue> = measurement
+                    .measurements_per_block_reads
+                    .iter()
+                    .map(|(block_count, measurement)| {
+                        StatsValue::BucketBlockCount(
+                            DBCol::State,
+                            block_count.to_string(),
+                            measurement.total_read_block_latency.as_micros() as i64
+                        )
+                    })
+                    .collect();
+                result.data.push((
+                    "rocksdb_perf_total_lat_per_block".to_string(),
+                    state_total_lat_per_block,
+                ));
+
             }
             None => {}
         }
