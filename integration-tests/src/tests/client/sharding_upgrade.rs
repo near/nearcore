@@ -992,10 +992,6 @@ fn test_shard_layout_upgrade_cross_contract_calls_v1() {
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
-// TODO(resharding) this test is currently broken, potentially due to lack of
-// flat storage support. Once flat storage for resharding is fully implemented
-// this test should be revisited, fixed and re-enabled. See #8992 for overall progress.
-#[ignore]
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls_v2() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2);
