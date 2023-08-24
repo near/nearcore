@@ -182,7 +182,7 @@ pub fn expected_routing_tables(
 }
 
 /// `GetInfo` gets `NetworkInfo` from `PeerManager`.
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message)]
 #[rtype(result = "NetworkInfo")]
 pub struct GetInfo {}
 
@@ -196,7 +196,7 @@ impl Handler<WithSpanContext<GetInfo>> for PeerManagerActor {
 }
 
 // `StopSignal is used to stop PeerManagerActor for unit tests
-#[derive(actix::Message, Default, Debug)]
+#[derive(actix::Message, Default)]
 #[rtype(result = "()")]
 pub struct StopSignal {
     pub should_panic: bool,
