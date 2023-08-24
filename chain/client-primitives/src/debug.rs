@@ -167,6 +167,7 @@ pub struct ValidatorStatus {
 }
 
 // Different debug requests that can be sent by HTML pages, via GET.
+#[derive(Debug)]
 pub enum DebugStatus {
     // Request for the current sync status
     SyncStatus,
