@@ -11,6 +11,7 @@ publish = true
 
 [dependencies]
 arbitrary.workspace = true
+base64.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
 cfg-if.workspace = true
@@ -64,6 +65,7 @@ nightly_protocol = [
   "near-primitives-core/nightly_protocol",
   "near-vm-runner/nightly_protocol",
 ]
+new_epoch_sync = []
 
 
 calimero_zero_storage = []

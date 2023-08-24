@@ -10,6 +10,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use reed_solomon_erasure::galois_8::{Field, ReedSolomon};
 use reed_solomon_erasure::ReconstructShard;
+use std::cmp::Ordering;
 use std::sync::Arc;
 
 #[derive(
@@ -600,6 +601,21 @@ pub struct ShardProof {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, serde::Deserialize)]
 /// For each Merkle proof there is a subset of receipts which may be proven.
 pub struct ReceiptProof(pub Vec<Receipt>, pub ShardProof);
+
+// Implement ordering to ensure `ReceiptProofs` are ordered consistently,
+// because we expect messages with ReceiptProofs to be deterministic.
+impl PartialOrd<Self> for ReceiptProof {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ReceiptProof {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.1.from_shard_id, self.1.to_shard_id)
+            .cmp(&(other.1.from_shard_id, other.1.to_shard_id))
+    }
+}
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct PartialEncodedChunkPart {

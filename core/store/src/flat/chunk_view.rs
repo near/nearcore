@@ -21,7 +21,6 @@ pub struct FlatStorageChunkView {
     /// Used to access flat state stored at the head of flat storage.
     /// It should store all trie keys and values/value refs for the state on top of
     /// flat_storage.head, except for delayed receipt keys.
-    #[allow(unused)]
     store: Store,
     /// The block for which key-value pairs of its state will be retrieved. The flat state
     /// will reflect the state AFTER the block is applied.

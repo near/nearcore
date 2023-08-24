@@ -38,18 +38,18 @@ fn process_transaction(
         "test0".parse().unwrap(),
         signer,
         vec![
-            Action::FunctionCall(FunctionCallAction {
+            Action::FunctionCall(Box::new(FunctionCallAction {
                 args: encode(&[0u64, 10u64]),
                 method_name: "write_key_value".to_string(),
                 gas,
                 deposit: 0,
-            }),
-            Action::FunctionCall(FunctionCallAction {
+            })),
+            Action::FunctionCall(Box::new(FunctionCallAction {
                 args: encode(&[1u64, 20u64]),
                 method_name: "write_key_value".to_string(),
                 gas,
                 deposit: 0,
-            }),
+            })),
         ],
         last_block_hash,
     );

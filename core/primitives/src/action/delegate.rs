@@ -4,8 +4,8 @@
 //! This is the module containing the types introduced for delegate actions.
 
 pub use self::private_non_delegate_action::NonDelegateAction;
-use super::action::Action;
-use super::signable_message::{SignableMessage, SignableMessageType};
+use super::Action;
+use crate::signable_message::{SignableMessage, SignableMessageType};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::{hash, CryptoHash};
@@ -56,7 +56,7 @@ impl SignedDelegateAction {
 
 impl From<SignedDelegateAction> for Action {
     fn from(delegate_action: SignedDelegateAction) -> Self {
-        Self::Delegate(delegate_action)
+        Self::Delegate(Box::new(delegate_action))
     }
 }
 
@@ -133,7 +133,7 @@ mod private_non_delegate_action {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::logic::action::CreateAccountAction;
+    use crate::action::CreateAccountAction;
     use near_crypto::KeyType;
 
     /// A serialized `Action::Delegate(SignedDelegateAction)` for testing.
@@ -150,7 +150,7 @@ mod tests {
     );
 
     fn create_delegate_action(actions: Vec<Action>) -> Action {
-        Action::Delegate(SignedDelegateAction {
+        Action::Delegate(Box::new(SignedDelegateAction {
             delegate_action: DelegateAction {
                 sender_id: "aaa".parse().unwrap(),
                 receiver_id: "bbb".parse().unwrap(),
@@ -163,7 +163,7 @@ mod tests {
                 public_key: PublicKey::empty(KeyType::ED25519),
             },
             signature: Signature::empty(KeyType::ED25519),
-        })
+        }))
     }
 
     #[test]

@@ -35,7 +35,7 @@ impl ModuleTranslationState {
     }
 
     /// Build map of imported functions names for intrinsification.
-    #[tracing::instrument(target = "near_vm", skip_all)]
+    #[tracing::instrument(target = "near_vm", level = "trace", skip_all)]
     pub fn build_import_map(&mut self, module: &ModuleInfo) {
         for key in module.imports.keys() {
             let value = &module.imports[key];

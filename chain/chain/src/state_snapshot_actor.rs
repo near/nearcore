@@ -50,6 +50,7 @@ impl actix::Handler<WithSpanContext<MakeSnapshotRequest>> for StateSnapshotActor
         _ctx: &mut actix::Context<Self>,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
+        tracing::debug!(target: "state_snapshot", ?msg);
         let MakeSnapshotRequest { prev_block_hash, shard_uids, block, compaction_enabled } = msg;
 
         let res = self.tries.make_state_snapshot(&prev_block_hash, &shard_uids, &block);
@@ -80,7 +81,8 @@ impl actix::Handler<WithSpanContext<CompactSnapshotRequest>> for StateSnapshotAc
         msg: WithSpanContext<CompactSnapshotRequest>,
         _ctx: &mut actix::Context<Self>,
     ) -> Self::Result {
-        let (_span, _msg) = handler_debug_span!(target: "state_snapshot", msg);
+        let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
+        tracing::debug!(target: "state_snapshot", ?msg);
 
         if let Err(err) = self.tries.compact_state_snapshot() {
             tracing::error!(target: "state_snapshot", ?err, "State snapshot compaction failed");

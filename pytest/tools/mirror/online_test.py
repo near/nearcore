@@ -51,7 +51,7 @@ def main():
             f'waiting for {int(time_left)} seconds to allow transactions to make it to the target chain'
         )
         time.sleep(time_left)
-    mirror_utils.check_num_txs(source_nodes[0], target_nodes[0])
+    traffic_data.check_ok(source_nodes[0], target_nodes[0])
 
 
 if __name__ == '__main__':

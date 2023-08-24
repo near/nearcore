@@ -29,9 +29,10 @@ fn test_flat_storage_upgrade() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = old_protocol_version;
     let chain_genesis = ChainGenesis::new(&genesis);
+    let runtime_config = near_primitives::runtime::config_store::RuntimeConfigStore::new(None);
     let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
+        .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config])
         .build();
 
     // We assume that it is enough to process 4 blocks to get a single txn included and processed.
@@ -65,12 +66,12 @@ fn test_flat_storage_upgrade() {
 
     // Write key-value pair to state.
     {
-        let write_value_action = vec![Action::FunctionCall(FunctionCallAction {
+        let write_value_action = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             args: encode(&[1u64, 10u64]),
             method_name: "write_key_value".to_string(),
             gas,
             deposit: 0,
-        })];
+        }))];
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction = Transaction {
             nonce: 10,
@@ -93,12 +94,12 @@ fn test_flat_storage_upgrade() {
 
     let touching_trie_node_costs: Vec<_> = (0..2)
         .map(|i| {
-            let read_value_action = vec![Action::FunctionCall(FunctionCallAction {
+            let read_value_action = vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 args: encode(&[1u64]),
                 method_name: "read_value".to_string(),
                 gas,
                 deposit: 0,
-            })];
+            }))];
             let tip = env.clients[0].chain.head().unwrap();
             let signed_transaction = Transaction {
                 nonce: 20 + i,

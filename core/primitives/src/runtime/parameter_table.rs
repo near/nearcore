@@ -291,6 +291,9 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 disable_9393_fix: params.get(Parameter::Disable9393Fix)?,
                 limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits()))
                     .map_err(InvalidConfigError::InvalidYaml)?,
+                fix_contract_loading_cost: params.get(Parameter::FixContractLoadingCost)?,
+                flat_storage_reads: params.get(Parameter::FlatStorageReads)?,
+                implicit_account_creation: params.get(Parameter::ImplicitAccountCreation)?,
             },
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params

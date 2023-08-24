@@ -563,12 +563,12 @@ mod tests {
         let fn_call_receipt = create_receipt_with_actions(
             "alice.near",
             "bob.near",
-            vec![Action::FunctionCall(FunctionCallAction {
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "foo".to_owned(),
                 args: vec![],
                 gas: 1000,
                 deposit: 0,
-            })],
+            }))],
         );
 
         // This is the receipt spawned, with the actions triggered by the

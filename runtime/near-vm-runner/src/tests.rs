@@ -57,17 +57,3 @@ fn create_context(input: Vec<u8>) -> VMContext {
         output_data_receivers: vec![],
     }
 }
-
-/// Small helper to compute expected loading gas cost charged before loading.
-///
-/// Includes hard-coded value for runtime parameter values
-/// `wasm_contract_loading_base` and `wasm_contract_loading_bytes` which would
-/// have to be updated if they change in the future.
-#[allow(unused)]
-fn prepaid_loading_gas(bytes: usize) -> u64 {
-    if cfg!(feature = "protocol_feature_fix_contract_loading_cost") {
-        35_445_963 + bytes as u64 * 21_6750
-    } else {
-        0
-    }
-}

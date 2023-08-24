@@ -295,12 +295,12 @@ pub(crate) fn fn_cost_in_contract(
 }
 
 fn function_call_action(method_name: String) -> Action {
-    Action::FunctionCall(FunctionCallAction {
+    Action::FunctionCall(Box::new(FunctionCallAction {
         method_name,
         args: Vec::new(),
         gas: 10u64.pow(15),
         deposit: 0,
-    })
+    }))
 }
 
 /// Takes a list of measurements of input blocks and returns the cost for a
