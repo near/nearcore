@@ -171,13 +171,13 @@ impl ReceiptManager {
     ) -> Result<(), VMLogicError> {
         let action_index = self.append_action(
             receipt_index,
-            Action::FunctionCall(FunctionCallAction {
+            Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: String::from_utf8(method_name)
                     .map_err(|_| HostError::InvalidMethodName)?,
                 args,
                 gas: prepaid_gas,
                 deposit: attached_deposit,
-            }),
+            })),
         );
 
         if gas_weight.0 > 0 {
@@ -226,7 +226,10 @@ impl ReceiptManager {
         stake: Balance,
         public_key: PublicKey,
     ) {
-        self.append_action(receipt_index, Action::Stake(StakeAction { stake, public_key }));
+        self.append_action(
+            receipt_index,
+            Action::Stake(Box::new(StakeAction { stake, public_key })),
+        );
     }
 
     /// Attach the [`AddKeyAction`] action to an existing receipt.
@@ -248,10 +251,10 @@ impl ReceiptManager {
     ) {
         self.append_action(
             receipt_index,
-            Action::AddKey(AddKeyAction {
+            Action::AddKey(Box::new(AddKeyAction {
                 public_key,
                 access_key: AccessKey { nonce, permission: AccessKeyPermission::FullAccess },
-            }),
+            })),
         );
     }
 
@@ -283,7 +286,7 @@ impl ReceiptManager {
     ) -> Result<(), VMLogicError> {
         self.append_action(
             receipt_index,
-            Action::AddKey(AddKeyAction {
+            Action::AddKey(Box::new(AddKeyAction {
                 public_key,
                 access_key: AccessKey {
                     nonce,
@@ -299,7 +302,7 @@ impl ReceiptManager {
                             .collect::<std::result::Result<Vec<_>, _>>()?,
                     }),
                 },
-            }),
+            })),
         );
         Ok(())
     }
@@ -319,7 +322,10 @@ impl ReceiptManager {
         receipt_index: ReceiptIndex,
         public_key: PublicKey,
     ) {
-        self.append_action(receipt_index, Action::DeleteKey(DeleteKeyAction { public_key }));
+        self.append_action(
+            receipt_index,
+            Action::DeleteKey(Box::new(DeleteKeyAction { public_key })),
+        );
     }
 
     /// Attach the [`DeleteAccountAction`] action to an existing receipt
@@ -388,7 +394,7 @@ impl ReceiptManager {
 
 #[cfg(test)]
 mod tests {
-    use near_primitives::transaction::{Action, FunctionCallAction};
+    use near_primitives::transaction::Action;
     use near_primitives_core::types::{Gas, GasWeight};
 
     #[track_caller]
@@ -425,10 +431,10 @@ mod tests {
         let mut function_calls_iter = function_calls.iter();
         for (_, receipt) in receipt_manager.action_receipts {
             for action in receipt.actions {
-                if let Action::FunctionCall(FunctionCallAction { gas, .. }) = action {
+                if let Action::FunctionCall(function_call_action) = action {
                     let reference = function_calls_iter.next().unwrap();
-                    assert_eq!(gas, accessor(reference));
-                    function_call_gas += gas;
+                    assert_eq!(function_call_action.gas, accessor(reference));
+                    function_call_gas += function_call_action.gas;
                 }
             }
         }

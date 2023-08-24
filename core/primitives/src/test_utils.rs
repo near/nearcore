@@ -60,12 +60,12 @@ impl Transaction {
         gas: Gas,
         deposit: Balance,
     ) -> Self {
-        self.actions.push(Action::FunctionCall(FunctionCallAction {
+        self.actions.push(Action::FunctionCall(Box::new(FunctionCallAction {
             method_name,
             args,
             gas,
             deposit,
-        }));
+        })));
         self
     }
 
@@ -75,16 +75,16 @@ impl Transaction {
     }
 
     pub fn stake(mut self, stake: Balance, public_key: PublicKey) -> Self {
-        self.actions.push(Action::Stake(StakeAction { stake, public_key }));
+        self.actions.push(Action::Stake(Box::new(StakeAction { stake, public_key })));
         self
     }
     pub fn add_key(mut self, public_key: PublicKey, access_key: AccessKey) -> Self {
-        self.actions.push(Action::AddKey(AddKeyAction { public_key, access_key }));
+        self.actions.push(Action::AddKey(Box::new(AddKeyAction { public_key, access_key })));
         self
     }
 
     pub fn delete_key(mut self, public_key: PublicKey) -> Self {
-        self.actions.push(Action::DeleteKey(DeleteKeyAction { public_key }));
+        self.actions.push(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })));
         self
     }
 
@@ -145,7 +145,7 @@ impl SignedTransaction {
             signer_id.clone(),
             signer_id,
             signer,
-            vec![Action::Stake(StakeAction { stake, public_key })],
+            vec![Action::Stake(Box::new(StakeAction { stake, public_key }))],
             block_hash,
         )
     }
@@ -166,10 +166,10 @@ impl SignedTransaction {
             signer,
             vec![
                 Action::CreateAccount(CreateAccountAction {}),
-                Action::AddKey(AddKeyAction {
+                Action::AddKey(Box::new(AddKeyAction {
                     public_key,
                     access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
-                }),
+                })),
                 Action::Transfer(TransferAction { deposit: amount }),
             ],
             block_hash,
@@ -193,10 +193,10 @@ impl SignedTransaction {
             signer,
             vec![
                 Action::CreateAccount(CreateAccountAction {}),
-                Action::AddKey(AddKeyAction {
+                Action::AddKey(Box::new(AddKeyAction {
                     public_key,
                     access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
-                }),
+                })),
                 Action::Transfer(TransferAction { deposit: amount }),
                 Action::DeployContract(DeployContractAction { code }),
             ],
@@ -220,7 +220,12 @@ impl SignedTransaction {
             signer_id,
             receiver_id,
             signer,
-            vec![Action::FunctionCall(FunctionCallAction { args, method_name, gas, deposit })],
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                args,
+                method_name,
+                gas,
+                deposit,
+            }))],
             block_hash,
         )
     }

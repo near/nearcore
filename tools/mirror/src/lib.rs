@@ -969,17 +969,17 @@ impl<T: ChainAccess> TxMirror<T> {
                         crate::key_mapping::map_account(tx.receiver_id(), self.secret.as_ref());
 
                     nonce_updates.insert((receiver_id, public_key.clone()));
-                    actions.push(Action::AddKey(AddKeyAction {
+                    actions.push(Action::AddKey(Box::new(AddKeyAction {
                         public_key,
                         access_key: add_key.access_key.clone(),
-                    }));
+                    })));
                 }
                 Action::DeleteKey(delete_key) => {
                     let replacement =
                         crate::key_mapping::map_key(&delete_key.public_key, self.secret.as_ref());
                     let public_key = replacement.public_key();
 
-                    actions.push(Action::DeleteKey(DeleteKeyAction { public_key }));
+                    actions.push(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })));
                 }
                 Action::Transfer(_) => {
                     if tx.receiver_id().is_implicit() && source_actions.len() == 1 {
@@ -1018,10 +1018,10 @@ impl<T: ChainAccess> TxMirror<T> {
             };
         }
         if account_created && !full_key_added {
-            actions.push(Action::AddKey(AddKeyAction {
+            actions.push(Action::AddKey(Box::new(AddKeyAction {
                 public_key: crate::key_mapping::EXTRA_KEY.public_key(),
                 access_key: AccessKey::full_access(),
-            }));
+            })));
         }
         Ok((actions, nonce_updates))
     }
@@ -1190,10 +1190,10 @@ impl<T: ChainAccess> TxMirror<T> {
                             .public_key();
 
                     nonce_updates.insert((target_receiver_id.clone(), target_public_key.clone()));
-                    target_actions.push(Action::AddKey(AddKeyAction {
+                    target_actions.push(Action::AddKey(Box::new(AddKeyAction {
                         public_key: target_public_key,
                         access_key: a.access_key.clone(),
-                    }));
+                    })));
                 }
                 Action::CreateAccount(_) => {
                     account_created = true;
@@ -1213,10 +1213,10 @@ impl<T: ChainAccess> TxMirror<T> {
             };
         }
         if account_created && !full_key_added {
-            target_actions.push(Action::AddKey(AddKeyAction {
+            target_actions.push(Action::AddKey(Box::new(AddKeyAction {
                 public_key: crate::key_mapping::EXTRA_KEY.public_key(),
                 access_key: AccessKey::full_access(),
-            }));
+            })));
         }
 
         tracing::debug!(
@@ -1631,7 +1631,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 &mut txs,
                 predecessor_id,
                 receiver_id.clone(),
-                &[Action::Stake(StakeAction { public_key, stake: 0 })],
+                &[Action::Stake(Box::new(StakeAction { public_key, stake: 0 }))],
                 target_hash,
                 MappedTxProvenance::Unstake(*target_hash),
                 None,
