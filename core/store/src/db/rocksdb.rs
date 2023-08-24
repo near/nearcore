@@ -6,7 +6,6 @@ use ::rocksdb::{
 };
 use once_cell::sync::Lazy;
 use std::collections::{BTreeMap, HashMap};
-use std::fmt::Display;
 use std::ops::Deref;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -63,7 +62,6 @@ impl PerfContext {
         &mut self,
         db_col: DBCol,
         block_read_count: usize,
-        observed_latency: Duration,
         read_block_latency: Duration,
         has_merge: bool,
     ) {
@@ -72,9 +70,8 @@ impl PerfContext {
             .measurements_per_block_reads
             .entry(block_read_count)
             .or_default()
-            .record(observed_latency, read_block_latency, has_merge);
+            .record(read_block_latency, has_merge);
         col_measurement.measurements_overall.record(
-            observed_latency,
             read_block_latency,
             has_merge,
         );
@@ -104,7 +101,6 @@ impl ColumnMeasurement {
 #[derive(Debug, Default)]
 struct Measurements {
     pub count: usize,
-    pub total_observed_latency: Duration,
     pub total_read_block_latency: Duration,
     pub samples_with_merge: usize,
 }
@@ -112,36 +108,18 @@ struct Measurements {
 impl Measurements {
     pub fn record(
         &mut self,
-        observed_latency: Duration,
         read_block_latency: Duration,
         has_merge: bool,
     ) {
         self.count += 1;
-        self.total_observed_latency += observed_latency;
         self.total_read_block_latency += read_block_latency;
         if has_merge {
             self.samples_with_merge += 1;
         }
     }
 
-    fn avg_observed_latency(&self) -> Duration {
-        self.total_observed_latency / (self.count as u32)
-    }
-
     fn avg_read_block_latency(&self) -> Duration {
         self.total_read_block_latency / (self.count as u32)
-    }
-}
-
-impl Display for Measurements {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "avg observed_latency: {:?}, block_read_time: {:?}, samples with merge: {}",
-            self.avg_observed_latency(),
-            self.avg_read_block_latency(),
-            format_samples(self.samples_with_merge, self.count)
-        )
     }
 }
 
@@ -427,8 +405,6 @@ impl Database for RocksDB {
             metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
         let read_options = rocksdb_read_options();
 
-        let observed_latency = self.start.elapsed();
-
         let result = self
             .db
             .get_pinned_cf_opt(self.cf_handle(col)?, key, &read_options)
@@ -444,16 +420,17 @@ impl Database for RocksDB {
                 perf_data.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadTime),
             );
             println!("Block read count: {}", block_read_cnt);
-            println!("Read block lat: {:?}", read_block_latency);
-            println!("Observerd latency: {:?}", observed_latency);
             // assert!(observed_latency > read_block_latency);
+            if !read_block_latency.is_zero() {
+                println!("Read block lat: {:?}", read_block_latency);
+            }
+            perf_data.reset();
 
             let has_merge =
                 perf_data.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
             perf_data.add_measurement(
                 col,
                 block_read_cnt,
-                observed_latency,
                 read_block_latency,
                 has_merge,
             );
@@ -749,14 +726,6 @@ impl RocksDB {
 
         match perf_data.column_measurements.get(&DBCol::State) {
             Some(measurement) => {
-                let state_obs_late_avg =
-                    measurement.measurements_overall.avg_observed_latency().as_micros() as i64;
-                result.data.push((
-                    "rocksdb_perf_avg_observed_latency".to_string(),
-                    vec![StatsValue::ColumnValue(DBCol::State, state_obs_late_avg)],
-                ));
-                println!("rocksdb_perf_avg_observed_latency: {}", state_obs_late_avg);
-
                 let state_read_block_latency =
                     measurement.measurements_overall.avg_read_block_latency().as_micros() as i64;
                 result.data.push((
@@ -769,10 +738,10 @@ impl RocksDB {
                     .measurements_per_block_reads
                     .iter()
                     .map(|(block_count, measurement)| {
-                        StatsValue::Bucket(
+                        StatsValue::BucketBlockCount(
                             DBCol::State,
                             block_count.to_string(),
-                            measurement.avg_observed_latency().as_micros() as i64,
+                            measurement.avg_read_block_latency().as_micros() as i64,
                         )
                     })
                     .collect();

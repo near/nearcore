@@ -121,7 +121,7 @@ impl RocksDBMetrics {
                         // Writing value for column.
                         gauge.with_label_values(&[<&str>::from(col)]).set(value);
                     }
-                    StatsValue::Bucket(col, bucket, value) => {
+                    StatsValue::BucketBlockCount(col, bucket, value) => {
                         let key = &stat_name;
 
                         // Checking for metric to be present.

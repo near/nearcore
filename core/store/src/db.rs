@@ -250,7 +250,7 @@ pub enum StatsValue {
     Sum(i64),
     Percentile(u32, f64),
     ColumnValue(DBCol, i64),
-    Bucket(DBCol, String, i64),
+    BucketBlockCount(DBCol, String, i64),
 }
 
 #[derive(Debug, Clone, PartialEq)]
