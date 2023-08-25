@@ -23,7 +23,7 @@ use near_client_primitives::types::{
     GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetMaintenanceWindows,
     GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
     GetProtocolConfigError, GetReceipt, GetReceiptError, GetSplitStorageInfo,
-    GetSplitStorageInfoError, GetStateChangesError, GetStateChangesWithCauseInBlock,
+    GetSplitStorageInfoError, GetStateChangesError,
     GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
     TxStatus, TxStatusError,
 };
@@ -776,31 +776,6 @@ impl Handler<WithSpanContext<GetStateChanges>> for ViewClientActor {
             .chain
             .store()
             .get_state_changes(&msg.block_hash, &msg.state_changes_request.into())?
-            .into_iter()
-            .map(Into::into)
-            .collect())
-    }
-}
-
-/// Returns a list of changes in a store with causes for a given block.
-impl Handler<WithSpanContext<GetStateChangesWithCauseInBlock>> for ViewClientActor {
-    type Result = Result<StateChangesView, GetStateChangesError>;
-
-    #[perf]
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<GetStateChangesWithCauseInBlock>,
-        _: &mut Self::Context,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "client", msg);
-        tracing::debug!(target: "client", ?msg);
-        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
-            .with_label_values(&["GetStateChangesWithCauseInBlock"])
-            .start_timer();
-        Ok(self
-            .chain
-            .store()
-            .get_state_changes_with_cause_in_block(&msg.block_hash)?
             .into_iter()
             .map(Into::into)
             .collect())

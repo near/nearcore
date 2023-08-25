@@ -330,10 +330,6 @@ class BaseNode(object):
     def get_tx(self, tx_hash, tx_recipient_id):
         return self.json_rpc('tx', [tx_hash, tx_recipient_id])
 
-    def get_changes_in_block(self, changes_in_block_request):
-        return self.json_rpc('EXPERIMENTAL_changes_in_block',
-                             changes_in_block_request)
-
     def get_changes(self, changes_request):
         return self.json_rpc('EXPERIMENTAL_changes', changes_request)
 

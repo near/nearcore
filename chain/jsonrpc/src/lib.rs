@@ -13,9 +13,9 @@ use near_chain_configs::GenesisConfig;
 use near_client::{
     ClientActor, DebugStatus, GetBlock, GetBlockProof, GetChunk, GetClientConfig,
     GetExecutionOutcome, GetGasPrice, GetMaintenanceWindows, GetNetworkInfo,
-    GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
-    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, ProcessTxRequest,
-    ProcessTxResponse, Query, Status, TxStatus, ViewClientActor,
+    GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges, GetValidatorInfo,
+    GetValidatorOrdered, ProcessTxRequest, ProcessTxResponse, Query, Status, TxStatus,
+    ViewClientActor,
 };
 use near_client_primitives::types::GetSplitStorageInfo;
 pub use near_jsonrpc_client as client;
@@ -315,9 +315,6 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_changes" => {
                 process_method_call(request, |params| self.changes_in_block_by_type(params)).await
-            }
-            "EXPERIMENTAL_changes_in_block" => {
-                process_method_call(request, |params| self.changes_in_block(params)).await
             }
             "EXPERIMENTAL_check_tx" => {
                 process_method_call(request, |params| self.check_tx(params)).await
@@ -925,25 +922,6 @@ impl JsonRpcHandler {
         }
     }
 
-    async fn changes_in_block(
-        &self,
-        request: near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeResponse,
-        near_jsonrpc_primitives::types::changes::RpcStateChangesError,
-    > {
-        let block: near_primitives::views::BlockView =
-            self.view_client_send(GetBlock(request.block_reference)).await?;
-
-        let block_hash = block.header.hash;
-        let changes = self.view_client_send(GetStateChangesInBlock { block_hash }).await?;
-
-        Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeResponse {
-            block_hash: block.header.hash,
-            changes,
-        })
-    }
-
     async fn changes_in_block_by_type(
         &self,
         request: near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeRequest,
@@ -1476,7 +1454,6 @@ async fn display_debug_html(
         "network_info" => Some(debug_page_string!("network_info.html", handler)),
         "network_info.css" => Some(debug_page_string!("network_info.css", handler)),
         "network_info.js" => Some(debug_page_string!("network_info.js", handler)),
-        "tier1_network_info" => Some(debug_page_string!("tier1_network_info.html", handler)),
         "epoch_info" => Some(debug_page_string!("epoch_info.html", handler)),
         "chain_n_chunk_info" => Some(debug_page_string!("chain_n_chunk_info.html", handler)),
         "sync" => Some(debug_page_string!("sync.html", handler)),
