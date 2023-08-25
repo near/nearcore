@@ -2,9 +2,7 @@ use serde_json::Value;
 
 use near_client_primitives::types::GetValidatorInfoError;
 use near_jsonrpc_primitives::errors::RpcParseError;
-use near_jsonrpc_primitives::types::validator::{
-    RpcValidatorError, RpcValidatorRequest, RpcValidatorsOrderedRequest,
-};
+use near_jsonrpc_primitives::types::validator::{RpcValidatorError, RpcValidatorRequest};
 use near_primitives::types::EpochReference;
 
 use super::{Params, RpcFrom, RpcRequest};
@@ -18,12 +16,6 @@ impl RpcRequest for RpcValidatorRequest {
             })
             .unwrap_or_parse()?;
         Ok(Self { epoch_reference })
-    }
-}
-
-impl RpcRequest for RpcValidatorsOrderedRequest {
-    fn parse(value: Value) -> Result<Self, RpcParseError> {
-        Params::parse(value)
     }
 }
 

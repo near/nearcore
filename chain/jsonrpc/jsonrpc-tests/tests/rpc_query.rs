@@ -9,7 +9,6 @@ use near_actix_test_utils::run_actix;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::{new_client, ChunkId};
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
-use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
@@ -442,20 +441,6 @@ fn test_health_ok() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let health = client.health().await;
         assert_eq!(health, Ok(()));
-    });
-}
-
-#[test]
-fn test_validators_ordered() {
-    test_with_client!(test_utils::NodeType::Validator, client, async move {
-        let validators = client
-            .EXPERIMENTAL_validators_ordered(RpcValidatorsOrderedRequest { block_id: None })
-            .await
-            .unwrap();
-        assert_eq!(
-            validators.into_iter().map(|v| v.take_account_id()).collect::<Vec<_>>(),
-            vec!["test1".parse().unwrap(), "test2".parse().unwrap()]
-        )
     });
 }
 

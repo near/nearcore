@@ -7,14 +7,12 @@ use crate::adapter::{
 };
 use crate::{
     metrics, sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
-    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
+    GetStateChangesInBlock, GetValidatorInfo,
 };
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
 use near_async::messaging::CanSend;
 use near_chain::types::{RuntimeAdapter, Tip};
-use near_chain::{
-    get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
-};
+use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_client_primitives::types::{
@@ -51,7 +49,6 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
     ShardId, SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
 };
-use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockView,
@@ -710,29 +707,6 @@ impl Handler<WithSpanContext<GetValidatorInfo>> for ViewClientActor {
     }
 }
 
-impl Handler<WithSpanContext<GetValidatorOrdered>> for ViewClientActor {
-    type Result = Result<Vec<ValidatorStakeView>, GetValidatorInfoError>;
-
-    #[perf]
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<GetValidatorOrdered>,
-        _: &mut Self::Context,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "client", msg);
-        tracing::debug!(target: "client", ?msg);
-        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
-            .with_label_values(&["GetValidatorOrdered"])
-            .start_timer();
-        Ok(self.maybe_block_id_to_block_header(msg.block_id).and_then(|header| {
-            get_epoch_block_producers_view(
-                header.epoch_id(),
-                header.prev_hash(),
-                self.epoch_manager.as_ref(),
-            )
-        })?)
-    }
-}
 /// Returns a list of change kinds per account in a store for a given block.
 impl Handler<WithSpanContext<GetStateChangesInBlock>> for ViewClientActor {
     type Result = Result<StateChangesKindsView, GetStateChangesError>;

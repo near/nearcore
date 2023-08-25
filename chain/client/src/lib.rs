@@ -4,8 +4,8 @@ pub use near_client_primitives::types::{
     GetExecutionOutcomesForBlock, GetGasPrice, GetMaintenanceWindows, GetNetworkInfo,
     GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetSplitStorageInfo, GetStateChanges,
     GetStateChangesInBlock, GetStateChangesWithCauseInBlock,
-    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfo, GetValidatorOrdered, Query,
-    QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
+    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfo, Query, QueryError, Status,
+    StatusResponse, SyncStatus, TxStatus, TxStatusError,
 };
 
 pub use near_client_primitives::debug::DebugStatus;

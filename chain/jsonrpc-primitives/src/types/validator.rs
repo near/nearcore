@@ -1,8 +1,5 @@
 use serde_json::Value;
 
-pub type RpcValidatorsOrderedResponse =
-    Vec<near_primitives::views::validator_stake_view::ValidatorStakeView>;
-
 #[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcValidatorError {
@@ -18,11 +15,6 @@ pub enum RpcValidatorError {
 pub struct RpcValidatorRequest {
     #[serde(flatten)]
     pub epoch_reference: near_primitives::types::EpochReference,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct RpcValidatorsOrderedRequest {
-    pub block_id: near_primitives::types::MaybeBlockId,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]

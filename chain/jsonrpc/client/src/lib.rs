@@ -5,10 +5,8 @@ use near_jsonrpc_primitives::message::{from_slice, Message};
 use near_jsonrpc_primitives::types::changes::{
     RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
 };
-use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockId, BlockReference, MaybeBlockId, ShardId};
-use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
     StatusResponse,
@@ -226,14 +224,6 @@ impl JsonRpcClient {
         request: RpcStateChangesInBlockByTypeRequest,
     ) -> RpcRequest<RpcStateChangesInBlockByTypeResponse> {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_changes", request)
-    }
-
-    #[allow(non_snake_case)]
-    pub fn EXPERIMENTAL_validators_ordered(
-        &self,
-        request: RpcValidatorsOrderedRequest,
-    ) -> RpcRequest<Vec<ValidatorStakeView>> {
-        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_validators_ordered", request)
     }
 
     #[allow(non_snake_case)]

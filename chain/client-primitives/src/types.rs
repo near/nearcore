@@ -12,7 +12,6 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
     TransactionOrReceiptId,
 };
-use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, DownloadStatusView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
@@ -765,15 +764,6 @@ impl From<near_chain_primitives::Error> for GetValidatorInfoError {
             _ => Self::Unreachable(error.to_string()),
         }
     }
-}
-
-#[derive(Debug)]
-pub struct GetValidatorOrdered {
-    pub block_id: MaybeBlockId,
-}
-
-impl Message for GetValidatorOrdered {
-    type Result = Result<Vec<ValidatorStakeView>, GetValidatorInfoError>;
 }
 
 #[derive(Debug)]

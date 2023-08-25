@@ -14,8 +14,8 @@ use near_client::{
     ClientActor, DebugStatus, GetBlock, GetBlockProof, GetChunk, GetClientConfig,
     GetExecutionOutcome, GetGasPrice, GetMaintenanceWindows, GetNetworkInfo,
     GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
-    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, ProcessTxRequest,
-    ProcessTxResponse, Query, Status, TxStatus, ViewClientActor,
+    GetStateChangesInBlock, GetValidatorInfo, ProcessTxRequest, ProcessTxResponse, Query, Status,
+    TxStatus, ViewClientActor,
 };
 use near_client_primitives::types::GetSplitStorageInfo;
 pub use near_jsonrpc_client as client;
@@ -342,9 +342,6 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_tx_status" => {
                 process_method_call(request, |params| self.tx_status_common(params, true)).await
-            }
-            "EXPERIMENTAL_validators_ordered" => {
-                process_method_call(request, |params| self.validators_ordered(params)).await
             }
             "EXPERIMENTAL_maintenance_windows" => {
                 process_method_call(request, |params| self.maintenance_windows(params)).await
@@ -1044,22 +1041,6 @@ impl JsonRpcHandler {
             .view_client_send(GetValidatorInfo { epoch_reference: request_data.epoch_reference })
             .await?;
         Ok(near_jsonrpc_primitives::types::validator::RpcValidatorResponse { validator_info })
-    }
-
-    /// Returns the current epoch validators ordered in the block producer order with repetition.
-    /// This endpoint is solely used for bridge currently and is not intended for other external use
-    /// cases.
-    async fn validators_ordered(
-        &self,
-        request: near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedResponse,
-        near_jsonrpc_primitives::types::validator::RpcValidatorError,
-    > {
-        let near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest { block_id } =
-            request;
-        let validators = self.view_client_send(GetValidatorOrdered { block_id }).await?;
-        Ok(validators)
     }
 
     /// If experimental_debug_pages_src_path config is set, reads the html file from that
