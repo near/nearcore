@@ -117,3 +117,24 @@ pub(crate) static SCHEDULED_CATCHUP_BLOCK: Lazy<IntGauge> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub(crate) static LARGEST_TARGET_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_largest_target_height",
+        "The largest height for which we sent an approval (or skip)",
+    )
+    .unwrap()
+});
+pub(crate) static LARGEST_THRESHOLD_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_largest_threshold_height",
+        "The largest height where we got enough approvals",
+    )
+    .unwrap()
+});
+pub(crate) static LARGEST_APPROVAL_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_largest_approval_height",
+        "The largest height for which we've got at least one approval",
+    )
+    .unwrap()
+});

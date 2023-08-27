@@ -2,6 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::metrics;
 use near_client_primitives::debug::{ApprovalAtHeightStatus, ApprovalHistoryEntry};
 use near_crypto::Signature;
 use near_primitives::block::{Approval, ApprovalInner};
@@ -337,6 +338,9 @@ impl Doomslug {
         signer: Option<Arc<dyn ValidatorSigner>>,
         threshold_mode: DoomslugThresholdMode,
     ) -> Self {
+        metrics::LARGEST_TARGET_HEIGHT.set(largest_target_height as i64);
+        metrics::LARGEST_THRESHOLD_HEIGHT.set(0);
+        metrics::LARGEST_APPROVAL_HEIGHT.set(0);
         Doomslug {
             approval_tracking: HashMap::new(),
             largest_target_height,
@@ -445,6 +449,7 @@ impl Doomslug {
             {
                 if tip_height >= self.largest_target_height {
                     self.largest_target_height = tip_height + 1;
+                    metrics::LARGEST_TARGET_HEIGHT.set(self.largest_target_height as i64);
 
                     if let Some(approval) = self.create_approval(tip_height + 1) {
                         ret.push(approval);
@@ -471,6 +476,7 @@ impl Doomslug {
 
                 self.largest_target_height =
                     std::cmp::max(self.timer.height + 1, self.largest_target_height);
+                metrics::LARGEST_TARGET_HEIGHT.set(self.largest_target_height as i64);
 
                 if let Some(approval) = self.create_approval(self.timer.height + 1) {
                     ret.push(approval);
@@ -606,11 +612,13 @@ impl Doomslug {
 
         if approval.target_height > self.largest_approval_height {
             self.largest_approval_height = approval.target_height;
+            metrics::LARGEST_APPROVAL_HEIGHT.set(self.largest_approval_height as i64);
         }
 
         if ret != DoomslugBlockProductionReadiness::NotReady {
             if approval.target_height > self.largest_threshold_height {
                 self.largest_threshold_height = approval.target_height;
+                metrics::LARGEST_THRESHOLD_HEIGHT.set(self.largest_threshold_height as i64);
             }
         }
 
