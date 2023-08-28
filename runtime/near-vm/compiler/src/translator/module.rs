@@ -15,7 +15,7 @@ use wasmparser::{NameSectionReader, Parser, Payload};
 
 /// Translate a sequence of bytes forming a valid Wasm binary into a
 /// parsed ModuleInfo `ModuleTranslationState`.
-#[tracing::instrument(target = "near_vm", skip_all)]
+#[tracing::instrument(target = "near_vm", level = "trace", skip_all)]
 pub fn translate_module<'data>(
     data: &'data [u8],
     environ: &mut ModuleEnvironment<'data>,

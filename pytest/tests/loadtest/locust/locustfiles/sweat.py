@@ -60,9 +60,19 @@ class SweatUser(NearUser):
     @tag("storage-stress-test")
     @task
     def record_batch_of_large_batches(self):
-        # ensure large enough state by creating more sweat users
+        # create more sweat users to allow for a decent record_batch size
         while len(self.sweat.registered_users) < 1000:
-            SweatUser(self.environment).on_start()
+            # creating 20 accounts in parallel, about 200 should fit in a chunk
+            # but we don't want to assume we get to use all the chunk space for
+            # ourself. Also, other SweatUsers will be in the same loop and at
+            # some point the local CPU becomes a bottleneck, too.
+            self.sweat.create_passive_users(
+                20,
+                self.node,
+                self.account,
+                # protocol enforced max length is 64 but we want shorter names to
+                # not hit the log limits too soon
+                max_account_id_len=48)
 
         rng = random.Random()
         # just around 300Tgas

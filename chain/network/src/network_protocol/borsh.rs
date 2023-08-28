@@ -120,7 +120,6 @@ impl std::error::Error for HandshakeFailureReason {}
 /// If need to remove old items - replace with `None`.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, strum::AsRefStr)]
 // TODO(#1313): Use Box
-#[allow(clippy::large_enum_variant)]
 pub(super) enum PeerMessage {
     Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),

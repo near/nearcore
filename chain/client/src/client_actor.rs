@@ -48,10 +48,7 @@ use near_network::types::ReasonForBan;
 use near_network::types::{
     NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_o11y::{
-    handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext,
-    WithSpanContextExt,
-};
+use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
@@ -265,28 +262,6 @@ impl ClientActor {
         f: impl FnOnce(&mut Self, Req) -> Res,
     ) -> Res {
         let (_span, msg) = handler_debug_span!(target: "client", msg, msg_type);
-        self.wrap_impl(msg, ctx, msg_type, f)
-    }
-
-    // Same as `wrap()`, because creates a span at the `trace` verbosity.
-    fn wrap_trace<Req: std::fmt::Debug + actix::Message, Res>(
-        &mut self,
-        msg: WithSpanContext<Req>,
-        ctx: &mut Context<Self>,
-        msg_type: &str,
-        f: impl FnOnce(&mut Self, Req) -> Res,
-    ) -> Res {
-        let (_span, msg) = handler_trace_span!(target: "client", msg, msg_type);
-        self.wrap_impl(msg, ctx, msg_type, f)
-    }
-
-    fn wrap_impl<Req: std::fmt::Debug + actix::Message, Res>(
-        &mut self,
-        msg: Req,
-        ctx: &mut Context<Self>,
-        msg_type: &str,
-        f: impl FnOnce(&mut Self, Req) -> Res,
-    ) -> Res {
         self.check_triggers(ctx);
         let _d =
             delay_detector::DelayDetector::new(|| format!("NetworkClientMessage {:?}", msg).into());
@@ -583,7 +558,7 @@ impl Handler<WithSpanContext<SetNetworkInfo>> for ClientActor {
 
     fn handle(&mut self, msg: WithSpanContext<SetNetworkInfo>, ctx: &mut Context<Self>) {
         // SetNetworkInfo is a large message. Avoid printing it at the `debug` verbosity.
-        self.wrap_trace(msg, ctx, "SetNetworkInfo", |this, msg| {
+        self.wrap(msg, ctx, "SetNetworkInfo", |this, msg| {
             let SetNetworkInfo(network_info) = msg;
             this.network_info = network_info;
         })
@@ -636,6 +611,7 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<Status>, ctx: &mut Context<Self>) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _d = delay_detector::DelayDetector::new(|| "client status".into());
         self.check_triggers(ctx);
 
@@ -1771,6 +1747,7 @@ impl Handler<WithSpanContext<ApplyStatePartsResponse>> for ClientActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
             sync.set_apply_result(msg.shard_id, msg.apply_result);
@@ -1789,6 +1766,7 @@ impl Handler<WithSpanContext<BlockCatchUpResponse>> for ClientActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         if let Some((_, _, blocks_catch_up_state)) =
             self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
         {
@@ -1809,6 +1787,7 @@ impl Handler<WithSpanContext<StateSplitResponse>> for ClientActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
             sync.set_split_result(msg.shard_id, msg.new_state_roots);
@@ -1856,7 +1835,8 @@ impl Handler<WithSpanContext<GetClientConfig>> for ClientActor {
         msg: WithSpanContext<GetClientConfig>,
         _: &mut Context<Self>,
     ) -> Self::Result {
-        let (_span, _msg) = handler_debug_span!(target: "client", msg);
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _d = delay_detector::DelayDetector::new(|| "client get client config".into());
 
         Ok(self.client.config.clone())

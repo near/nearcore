@@ -3,9 +3,6 @@ use crate::logic::mocks::mock_memory::MockedMemory;
 use crate::logic::types::PromiseResult;
 use crate::logic::{MemSlice, VMConfig, VMContext, VMLogic};
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
-use near_primitives_core::types::ProtocolVersion;
-
-pub(super) const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
 
 pub(super) struct VMLogicBuilder {
     pub ext: MockedExternal,
@@ -13,7 +10,6 @@ pub(super) struct VMLogicBuilder {
     pub fees_config: RuntimeFeesConfig,
     pub promise_results: Vec<PromiseResult>,
     pub memory: MockedMemory,
-    pub current_protocol_version: ProtocolVersion,
     pub context: VMContext,
 }
 
@@ -25,7 +21,6 @@ impl Default for VMLogicBuilder {
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),
             promise_results: vec![],
-            current_protocol_version: LATEST_PROTOCOL_VERSION,
             context: get_context(),
         }
     }
@@ -41,14 +36,13 @@ impl VMLogicBuilder {
 
     pub fn build(&mut self) -> TestVMLogic<'_> {
         let context = self.context.clone();
-        TestVMLogic::from(VMLogic::new_with_protocol_version(
+        TestVMLogic::from(VMLogic::new(
             &mut self.ext,
             context,
             &self.config,
             &self.fees_config,
             &self.promise_results,
             &mut self.memory,
-            self.current_protocol_version,
         ))
     }
 
@@ -59,7 +53,6 @@ impl VMLogicBuilder {
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),
             promise_results: vec![],
-            current_protocol_version: LATEST_PROTOCOL_VERSION,
             context: get_context(),
         }
     }

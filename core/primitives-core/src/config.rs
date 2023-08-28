@@ -25,6 +25,17 @@ pub struct VMConfig {
     /// Disable the fix for the #9393 issue in near-vm-runner.
     pub disable_9393_fix: bool,
 
+    /// Enable the `FlatStorageReads` protocol feature.
+    ///
+    // TODO(nagisa): replace with StorageGetMode when VMConfig is moved to near-vm-runner.
+    pub flat_storage_reads: bool,
+
+    /// Enable the `FixContractLoadingCost` protocol feature.
+    pub fix_contract_loading_cost: bool,
+
+    /// Enable the `ImplicitAccountCreation` protocol feature.
+    pub implicit_account_creation: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: VMLimitConfig,
 }
@@ -184,6 +195,9 @@ impl VMConfig {
             regular_op_cost: (SAFETY_MULTIPLIER as u32) * 1285457,
             disable_9393_fix: false,
             limit_config: VMLimitConfig::test(),
+            fix_contract_loading_cost: cfg!(feature = "protocol_feature_fix_contract_loading_cost"),
+            flat_storage_reads: true,
+            implicit_account_creation: true,
         }
     }
 
@@ -203,6 +217,9 @@ impl VMConfig {
             disable_9393_fix: false,
             // We shouldn't have any costs in the limit config.
             limit_config: VMLimitConfig { max_gas_burnt: u64::MAX, ..VMLimitConfig::test() },
+            fix_contract_loading_cost: cfg!(feature = "protocol_feature_fix_contract_loading_cost"),
+            flat_storage_reads: true,
+            implicit_account_creation: true,
         }
     }
 }
