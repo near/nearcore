@@ -138,3 +138,10 @@ pub(crate) static LARGEST_APPROVAL_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub(crate) static LARGEST_FINAL_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_largest_final_height",
+        "Largest height for which we saw a block containing 1/2 endorsements in it",
+    )
+    .unwrap()
+});
