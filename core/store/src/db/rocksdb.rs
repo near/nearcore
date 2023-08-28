@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::ops::Deref;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{io, println};
 use strum::IntoEnumIterator;
 use tracing::warn;
@@ -77,10 +77,6 @@ impl PerfContext {
         );
     }
 
-    fn clear(&mut self) {
-        self.column_measurements.clear();
-    }
-
     fn reset(&mut self) {
         self.rocksdb_context.reset();
     }
@@ -126,13 +122,6 @@ impl Measurements {
     }
 }
 
-fn format_samples(positive: usize, total: usize) -> String {
-    format!(
-        "{positive} ({:.2}%)",
-        if total == 0 { 0.0 } else { 100.0 * positive as f64 / total as f64 }
-    )
-}
-
 pub struct RocksDB {
     db: DB,
     db_opt: Options,
@@ -149,8 +138,6 @@ pub struct RocksDB {
     _instance_tracker: instance_tracker::InstanceTracker,
 
     perf_context: Arc<Mutex<PerfContext>>,
-
-    start: Instant,
 }
 
 // DB was already Send+Sync. cf and read_options are const pointers using only functions in
@@ -218,8 +205,7 @@ impl RocksDB {
             db_opt,
             cf_handles,
             _instance_tracker: counter,
-            perf_context: Arc::new(Mutex::new(PerfContext::new())),
-            start: Instant::now(),
+            perf_context: Arc::new(Mutex::new(PerfContext::new()))
         })
     }
 
@@ -744,6 +730,7 @@ impl RocksDB {
                         )
                     })
                     .collect();
+                println!("state_avg_obs_per_block {:?}", state_avg_obs_lat_per_block);
                 result.data.push((
                     "rocksdb_perf_total_observed_latency_per_block".to_string(),
                     state_avg_obs_lat_per_block,
