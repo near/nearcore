@@ -77,9 +77,12 @@ impl PerfContext {
         );
     }
 
+    fn clear(&mut self) {
+        self.column_measurements.clear();
+    }
+
     fn reset(&mut self) {
         self.rocksdb_context.reset();
-        self.column_measurements.clear();
     }
 }
 
@@ -412,28 +415,25 @@ impl Database for RocksDB {
             .map(DBSlice::from_rocksdb_slice);
         timer.observe_duration();
 
-        {
-            let mut perf_data = self.perf_context.lock().unwrap();
-            let block_read_cnt =
-                perf_data.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
-            let read_block_latency = Duration::from_nanos(
-                perf_data.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadTime),
-            );
-            // assert!(observed_latency > read_block_latency);
-            if !read_block_latency.is_zero() {
-                println!("Read block lat: {:?}", read_block_latency);
-            }
-            perf_data.reset();
-
-            let has_merge =
-                perf_data.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
-            perf_data.add_measurement(
-                col,
-                block_read_cnt,
-                read_block_latency,
-                has_merge,
-            );
+        let mut perf_data = self.perf_context.lock().unwrap();
+        let block_read_cnt =
+            perf_data.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
+        let read_block_latency = Duration::from_nanos(
+            perf_data.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadTime),
+        );
+        // assert!(observed_latency > read_block_latency);
+        if !read_block_latency.is_zero() {
+            println!("Read block lat: {:?}", read_block_latency);
         }
+
+        let has_merge =
+            perf_data.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
+        perf_data.add_measurement(
+            col,
+            block_read_cnt,
+            read_block_latency,
+            has_merge,
+        );
 
         Ok(result)
     }
