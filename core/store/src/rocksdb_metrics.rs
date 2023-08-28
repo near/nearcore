@@ -41,8 +41,6 @@ pub(crate) struct RocksDBMetrics {
     int_vec_gauges: HashMap<String, IntGaugeVec>,
     // Contains floating point statistics, such as quantiles of timings.
     gauges: HashMap<String, GaugeVec>,
-    // Contains histogram values,
-    histograms: HashMap<String, GaugeVec>,
 }
 
 impl RocksDBMetrics {
