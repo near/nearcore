@@ -1,6 +1,6 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError};
-use crate::logic::{CompiledContract, CompiledContractCache, ProtocolVersion, VMConfig};
+use crate::logic::{CompiledContract, CompiledContractCache, Config, ProtocolVersion};
 use crate::vm_kind::VMKind;
 use borsh::BorshSerialize;
 use near_primitives_core::contract::ContractCode;
@@ -43,11 +43,7 @@ fn vm_hash(vm_kind: VMKind) -> u64 {
     }
 }
 
-pub fn get_contract_cache_key(
-    code: &ContractCode,
-    vm_kind: VMKind,
-    config: &VMConfig,
-) -> CryptoHash {
+pub fn get_contract_cache_key(code: &ContractCode, vm_kind: VMKind, config: &Config) -> CryptoHash {
     let _span = tracing::debug_span!(target: "vm", "get_key").entered();
     let key = ContractCacheKey::Version4 {
         code_hash: *code.hash(),
@@ -93,7 +89,7 @@ impl fmt::Debug for MockCompiledContractCache {
 /// is already in the cache, or if cache is `None`.
 pub fn precompile_contract(
     code: &ContractCode,
-    config: &VMConfig,
+    config: &Config,
     current_protocol_version: ProtocolVersion,
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError> {

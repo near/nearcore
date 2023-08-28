@@ -5,11 +5,11 @@ use crate::logic::errors::{
     VMRunnerError, WasmTrap,
 };
 use crate::logic::types::PromiseResult;
+use crate::logic::Config;
 use crate::logic::{
     CompiledContractCache, External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome,
 };
 use crate::{imports, prepare};
-use near_primitives_core::config::VMConfig;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::types::ProtocolVersion;
@@ -136,11 +136,11 @@ pub(crate) fn wasmtime_vm_hash() -> u64 {
 }
 
 pub(crate) struct WasmtimeVM {
-    config: VMConfig,
+    config: Config,
 }
 
 impl WasmtimeVM {
-    pub(crate) fn new(config: VMConfig) -> Self {
+    pub(crate) fn new(config: Config) -> Self {
         Self { config }
     }
 

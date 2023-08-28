@@ -1,5 +1,5 @@
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
-use crate::logic::VMConfig;
+use crate::logic::Config;
 use crate::logic::{HostError, VMLogicError};
 
 #[test]
@@ -32,9 +32,9 @@ fn test_many_registers() {
     let mut logic = logic_builder.build();
 
     for i in 0..max_registers {
-        let value = (i * 10).to_le_bytes();
-        logic.wrapped_internal_write_register(i, &value).unwrap();
-        logic.assert_read_register(&(i * 10).to_le_bytes(), i);
+        let value = (i * 10u64).to_le_bytes();
+        logic.wrapped_internal_write_register(i, &value[..]).unwrap();
+        logic.assert_read_register(&value[..], i);
     }
 
     // One more register hits the boundary check.
@@ -61,7 +61,7 @@ fn test_max_register_size() {
 #[test]
 fn test_max_register_memory_limit() {
     let mut logic_builder = VMLogicBuilder::free();
-    let config = VMConfig::free();
+    let config = Config::free();
     logic_builder.config = config.clone();
     let mut logic = logic_builder.build();
 

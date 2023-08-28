@@ -5,7 +5,7 @@ use super::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
 use crate::internal::VMKind;
 use crate::logic::errors::VMRunnerError;
 use crate::logic::mocks::mock_external::MockedExternal;
-use crate::logic::VMConfig;
+use crate::logic::Config;
 use crate::logic::{CompiledContract, CompiledContractCache};
 use crate::runner::VMResult;
 use crate::wasmer2_runner::Wasmer2VM;
@@ -21,7 +21,7 @@ use wasmer_engine::Executable;
 
 #[test]
 fn test_caches_compilation_error() {
-    let config = VMConfig::test();
+    let config = Config::test();
     with_vm_variants(&config, |vm_kind: VMKind| {
         match vm_kind {
             VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
@@ -45,7 +45,7 @@ fn test_caches_compilation_error() {
 
 #[test]
 fn test_does_not_cache_io_error() {
-    let config = VMConfig::test();
+    let config = Config::test();
     with_vm_variants(&config, |vm_kind: VMKind| {
         match vm_kind {
             VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
@@ -75,7 +75,7 @@ fn test_does_not_cache_io_error() {
 }
 
 fn make_cached_contract_call_vm(
-    config: &VMConfig,
+    config: &Config,
     cache: &dyn CompiledContractCache,
     code: &[u8],
     method_name: &str,
@@ -132,7 +132,7 @@ fn test_wasmer2_artifact_output_stability() {
     for seed in seeds {
         let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
 
-        let config = VMConfig::test();
+        let config = Config::test();
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::Wasmer2).unwrap();
         got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));
@@ -203,7 +203,7 @@ fn test_near_vm_artifact_output_stability() {
     for seed in seeds {
         let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
 
-        let config = VMConfig::test();
+        let config = Config::test();
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::NearVm).unwrap();
         got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));

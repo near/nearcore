@@ -1,7 +1,7 @@
 use crate::logic::errors::{FunctionCallError, HostError, WasmTrap};
 use crate::logic::mocks::mock_external::{MockAction, MockedExternal};
 use crate::logic::types::ReturnData;
-use crate::logic::VMConfig;
+use crate::logic::Config;
 use near_primitives::test_utils::encode;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
@@ -43,7 +43,7 @@ fn assert_run_result(result: VMResult, expected_value: u64) {
 
 #[test]
 pub fn test_read_write() {
-    let config = VMConfig::test();
+    let config = Config::test();
     with_vm_variants(&config, |vm_kind: VMKind| {
         let code = test_contract(vm_kind);
         let mut fake_external = MockedExternal::new();
@@ -84,7 +84,7 @@ macro_rules! def_test_ext {
     ($name:ident, $method:expr, $expected:expr, $input:expr, $validator:expr) => {
         #[test]
         pub fn $name() {
-            let config = VMConfig::test();
+            let config = Config::test();
             with_vm_variants(&config, |vm_kind: VMKind| {
                 run_test_ext(&config, $method, $expected, $input, $validator, vm_kind)
             });
@@ -93,7 +93,7 @@ macro_rules! def_test_ext {
     ($name:ident, $method:expr, $expected:expr, $input:expr) => {
         #[test]
         pub fn $name() {
-            let config = VMConfig::test();
+            let config = Config::test();
             with_vm_variants(&config, |vm_kind: VMKind| {
                 run_test_ext(&config, $method, $expected, $input, vec![], vm_kind)
             });
@@ -102,7 +102,7 @@ macro_rules! def_test_ext {
     ($name:ident, $method:expr, $expected:expr) => {
         #[test]
         pub fn $name() {
-            let config = VMConfig::test();
+            let config = Config::test();
             with_vm_variants(&config, |vm_kind: VMKind| {
                 run_test_ext(&config, $method, $expected, &[], vec![], vm_kind)
             })
@@ -111,7 +111,7 @@ macro_rules! def_test_ext {
 }
 
 fn run_test_ext(
-    config: &VMConfig,
+    config: &Config,
     method: &str,
     expected: &[u8],
     input: &[u8],
@@ -158,7 +158,7 @@ def_test_ext!(ext_storage_usage, "ext_storage_usage", &12u64.to_le_bytes());
 
 #[test]
 pub fn ext_used_gas() {
-    let config = VMConfig::test();
+    let config = Config::test();
     with_vm_variants(&config, |vm_kind: VMKind| {
         // Note, the used_gas is not a global used_gas at the beginning of method, but instead a
         // diff in used_gas for computing fib(30) in a loop
@@ -216,7 +216,7 @@ def_test_ext!(
 
 #[test]
 pub fn test_out_of_memory() {
-    let config = VMConfig::free();
+    let config = Config::free();
     with_vm_variants(&config, |vm_kind: VMKind| {
         // TODO: currently we only run this test on Wasmer.
         match vm_kind {
@@ -264,7 +264,7 @@ fn attach_unspent_gas_but_use_all_gas() {
     let mut context = create_context(vec![]);
     context.prepaid_gas = 100 * 10u64.pow(12);
 
-    let mut config = VMConfig::test();
+    let mut config = Config::test();
     config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
 
     with_vm_variants(&config, |vm_kind: VMKind| {

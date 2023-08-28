@@ -590,7 +590,7 @@ fn produce_block_with_approvals_arrived_early() {
                                 let block = block_holder.read().unwrap().clone().unwrap();
                                 conns[0].client_actor.do_send(
                                     BlockResponse {
-                                        block: block,
+                                        block,
                                         peer_id: PeerInfo::random().id,
                                         was_requested: false,
                                     }
@@ -2947,11 +2947,11 @@ fn test_execution_metadata() {
         + config.fees.fee(ActionCosts::function_call_byte).exec_fee() * "main".len() as u64;
 
     let expected_wasm_ops = match config.wasm_config.limit_config.contract_prepare_version {
-        near_primitives::config::ContractPrepareVersion::V0 => 2,
-        near_primitives::config::ContractPrepareVersion::V1 => 2,
+        near_vm_runner::logic::ContractPrepareVersion::V0 => 2,
+        near_vm_runner::logic::ContractPrepareVersion::V1 => 2,
         // We spend two wasm instructions (call & drop), plus 8 ops for initializing function
         // operand stack (8 bytes worth to hold the return value.)
-        near_primitives::config::ContractPrepareVersion::V2 => 10,
+        near_vm_runner::logic::ContractPrepareVersion::V2 => 10,
     };
 
     // Profile for what's happening *inside* wasm vm during function call.

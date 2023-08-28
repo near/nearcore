@@ -42,7 +42,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
-use near_primitives_core::config::{ActionCosts, ExtCosts, ParameterCost, VMConfig};
+use near_primitives_core::config::{ActionCosts, ExtCosts, ParameterCost};
 use near_primitives_core::runtime::fees::Fee;
 use near_vm_runner::logic::CompiledContractCache;
 use num_rational::Rational32;
@@ -2476,7 +2476,7 @@ pub struct VMConfigView {
     /// See [`VMConfig::disable_9393_fix`].
     pub disable_9393_fix: bool,
     /// See [`VMConfig::flat_storage_reads`].
-    pub flat_storage_reads: bool,
+    pub storage_get_mode: near_vm_runner::logic::StorageGetMode,
     /// See [`VMConfig::fix_contract_loading_cost`].
     pub fix_contract_loading_cost: bool,
     /// See [`VMConfig::implicit_account_creation`].
@@ -2486,25 +2486,25 @@ pub struct VMConfigView {
     ///
     /// TODO: Consider changing this to `VMLimitConfigView` to avoid dependency
     /// on runtime.
-    pub limit_config: near_primitives_core::config::VMLimitConfig,
+    pub limit_config: near_vm_runner::logic::LimitConfig,
 }
 
-impl From<VMConfig> for VMConfigView {
-    fn from(config: VMConfig) -> Self {
+impl From<near_vm_runner::logic::Config> for VMConfigView {
+    fn from(config: near_vm_runner::logic::Config) -> Self {
         Self {
             ext_costs: ExtCostsConfigView::from(config.ext_costs),
             grow_mem_cost: config.grow_mem_cost,
             regular_op_cost: config.regular_op_cost,
             disable_9393_fix: config.disable_9393_fix,
             limit_config: config.limit_config,
-            flat_storage_reads: config.flat_storage_reads,
+            storage_get_mode: config.storage_get_mode,
             fix_contract_loading_cost: config.fix_contract_loading_cost,
             implicit_account_creation: config.implicit_account_creation,
         }
     }
 }
 
-impl From<VMConfigView> for VMConfig {
+impl From<VMConfigView> for near_vm_runner::logic::Config {
     fn from(view: VMConfigView) -> Self {
         Self {
             ext_costs: near_primitives_core::config::ExtCostsConfig::from(view.ext_costs),
@@ -2512,7 +2512,7 @@ impl From<VMConfigView> for VMConfig {
             regular_op_cost: view.regular_op_cost,
             disable_9393_fix: view.disable_9393_fix,
             limit_config: view.limit_config,
-            flat_storage_reads: view.flat_storage_reads,
+            storage_get_mode: view.storage_get_mode,
             fix_contract_loading_cost: view.fix_contract_loading_cost,
             implicit_account_creation: view.implicit_account_creation,
         }

@@ -26,6 +26,7 @@ parity-wasm.workspace = true
 prefix-sum-vec.workspace = true
 ripemd.workspace = true
 serde.workspace = true
+serde_repr.workspace = true
 serde_with.workspace = true
 sha2.workspace = true
 sha3.workspace = true
@@ -67,6 +68,12 @@ expect-test.workspace = true
 hex.workspace = true
 near-primitives.workspace = true
 near-test-contracts.workspace = true
+# Woah. The tests in this crate depend on (the public interface of) this crate itself. This is
+# because the `test_builder` loads `RuntimeConfig` which comes from `near-primitives` and that
+# `RuntimeConfig` contains types from `[lib]` output of this package. These types are then
+# different from `crate::*` stuff that you get in the tests themselves, so in some special
+# circumstances it is necessary to refer to the `[lib]` output rather than using `crate::*` stuff.
+near-vm-runner.workspace = true
 rand.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
 wasm-smith.workspace = true
