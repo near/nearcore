@@ -15,6 +15,22 @@ pub(crate) struct EstimateConfig {
     /// Comma separated list of metrics to use in estimation.
     #[clap(long, default_value = "icount,time", value_parser(["icount", "time"]), use_value_delimiter = true)]
     pub metrics: Vec<String>,
+    /// Bundle of estimator config options.
+    #[clap(long, value_enum, default_value_t = Mode::Default)]
+    pub mode: Mode,
+}
+
+/// The mode selects a pre-selected bundle of config options for the estimator.
+///
+/// Pick one of these modes when running the estimator through the warehouse
+/// scripts. For more control, such as choosing exactly which estimations to run
+/// or skip, run the estimator directly without the warehouse script.
+#[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
+pub(crate) enum Mode {
+    /// Standardized config options for a full estimation.
+    Default,
+    /// Single iteration with fastest possible config options.
+    Fast,
 }
 
 pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result<()> {
@@ -40,20 +56,21 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
     let _env_guard_two = sh.push_env("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "1");
 
     // Build estimator
-    cmd!(sh, "cargo build --release -p runtime-params-estimator --features runtime-params-estimator/required").run()?;
+    let cargo_profile = config.mode.cargo_profile();
+    cmd!(sh, "cargo build --profile {cargo_profile} -p runtime-params-estimator --features runtime-params-estimator/required").run()?;
     // Find binary, some users have CARGO_TARGET_DIR pointing to a custom target directory
     let estimator_binary = if let Ok(target_dir) = sh.var("CARGO_TARGET_DIR") {
-        format!("{target_dir}/release/runtime-params-estimator")
+        format!("{target_dir}/{cargo_profile}/runtime-params-estimator")
     } else {
-        format!("{git_root}/target/release/runtime-params-estimator")
+        format!("{git_root}/target/{cargo_profile}/runtime-params-estimator")
     };
 
     // Actual estimations
     let output = cmd!(sh, "git rev-parse HEAD").output()?;
     let mut commit_hash = String::from_utf8_lossy(&output.stdout).to_string();
     commit_hash.pop(); // \n
-    let iters = 5.to_string();
-    let warmup_iters = 1.to_string();
+    let iters = config.mode.iters();
+    let warmup_iters = config.mode.warmup_iters();
 
     if config.metrics.iter().any(|m| m == "time") {
         let mut maybe_drop_cache = vec![];
@@ -89,4 +106,27 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
     }
 
     Ok(())
+}
+
+impl Mode {
+    fn iters(self) -> &'static str {
+        match self {
+            Mode::Default => "5",
+            Mode::Fast => "1",
+        }
+    }
+
+    fn warmup_iters(self) -> &'static str {
+        match self {
+            Mode::Default => "1",
+            Mode::Fast => "0",
+        }
+    }
+
+    fn cargo_profile(self) -> &'static str {
+        match self {
+            Mode::Default => "release",
+            Mode::Fast => "quick-release",
+        }
+    }
 }
