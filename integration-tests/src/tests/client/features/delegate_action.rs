@@ -314,7 +314,7 @@ fn meta_tx_fn_call_access_key() {
     // Check previous allowance is set as expected
     let key =
         node.user().get_access_key(&sender, &public_key).expect("failed looking up fn access key");
-    let AccessKeyPermissionView::FunctionCall { allowance, ..} = key.permission else {
+    let AccessKeyPermissionView::FunctionCall { allowance, .. } = key.permission else {
         panic!("should be function access key")
     };
     assert_eq!(allowance.unwrap(), INITIAL_ALLOWANCE);
@@ -339,7 +339,7 @@ fn meta_tx_fn_call_access_key() {
         .user()
         .get_access_key(&sender, &signer.public_key())
         .expect("failed looking up fn access key");
-    let AccessKeyPermissionView::FunctionCall { allowance, ..} = key.permission else {
+    let AccessKeyPermissionView::FunctionCall { allowance, .. } = key.permission else {
         panic!("should be function access key")
     };
     assert_eq!(
