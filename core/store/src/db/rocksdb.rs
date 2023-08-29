@@ -94,8 +94,8 @@ impl PerfContext {
             .measurements_per_block_reads
             .entry(block_read_count)
             .or_default()
-            .record(read_block_latency, has_merge);
-        col_measurement.measurements_overall.record(read_block_latency, has_merge);
+            .add(read_block_latency, has_merge);
+        col_measurement.measurements_overall.add(read_block_latency, has_merge);
     }
 
     fn reset(&mut self) {
@@ -126,7 +126,7 @@ struct Measurements {
 }
 
 impl Measurements {
-    pub fn record(&mut self, read_block_latency: Duration, has_merge: bool) {
+    pub fn add(&mut self, read_block_latency: Duration, has_merge: bool) {
         self.count += 1;
         self.total_read_block_latency += read_block_latency;
         if has_merge {
@@ -245,6 +245,7 @@ impl RocksDB {
                 )
             })
             .collect::<Vec<_>>();
+        println!("Opening database in {:?} mode", mode);
         let db = if mode.read_only() {
             DB::open_cf_descriptors_read_only(&options, path, cf_descriptors, false)
         } else {
@@ -716,7 +717,6 @@ impl RocksDB {
                     "rocksdb_perf_avg_read_block_latency".to_string(),
                     vec![StatsValue::ColumnValue(DBCol::State, state_read_block_latency)],
                 ));
-                println!("rocksdb_perf_avg_read_block_latency: {}", state_read_block_latency);
 
                 let state_avg_obs_lat_per_block: Vec<StatsValue> = measurement
                     .measurements_per_block_reads
@@ -729,7 +729,6 @@ impl RocksDB {
                         )
                     })
                     .collect();
-                println!("state_avg_obs_per_block {:?}", state_avg_obs_lat_per_block);
                 result.data.push((
                     "rocksdb_perf_total_observed_latency_per_block".to_string(),
                     state_avg_obs_lat_per_block,
