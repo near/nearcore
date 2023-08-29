@@ -1,12 +1,12 @@
 use crate::internal::VMKind;
 use crate::logic::errors::PrepareError;
-use crate::logic::VMConfig;
+use crate::logic::Config;
 use finite_wasm::wasmparser as wp;
 use wasm_encoder::{Encode, Section, SectionId};
 
 struct PrepareContext<'a> {
     code: &'a [u8],
-    config: &'a VMConfig,
+    config: &'a Config,
     output_code: Vec<u8>,
     function_limit: u64,
     local_limit: u64,
@@ -16,7 +16,7 @@ struct PrepareContext<'a> {
 }
 
 impl<'a> PrepareContext<'a> {
-    fn new(code: &'a [u8], features: crate::features::WasmFeatures, config: &'a VMConfig) -> Self {
+    fn new(code: &'a [u8], features: crate::features::WasmFeatures, config: &'a Config) -> Self {
         let limits = &config.limit_config;
         Self {
             code,
@@ -268,7 +268,7 @@ impl<'a> PrepareContext<'a> {
 pub(crate) fn prepare_contract(
     original_code: &[u8],
     features: crate::features::WasmFeatures,
-    config: &VMConfig,
+    config: &Config,
     kind: VMKind,
 ) -> Result<Vec<u8>, PrepareError> {
     let lightly_steamed = PrepareContext::new(original_code, features, config).run()?;
@@ -363,11 +363,11 @@ impl<'a> wp::VisitOperator<'a> for SimpleGasCostCfg {
 #[cfg(test)]
 mod test {
     use crate::internal::VMKind;
-    use crate::logic::{ContractPrepareVersion, VMConfig};
+    use crate::logic::{Config, ContractPrepareVersion};
 
     #[test]
     fn v2_preparation_wasmtime_generates_valid_contract() {
-        let mut config = VMConfig::test();
+        let mut config = Config::test();
         let prepare_version = ContractPrepareVersion::V2;
         config.limit_config.contract_prepare_version = prepare_version;
         let features = crate::features::WasmFeatures::from(prepare_version);
@@ -394,7 +394,7 @@ mod test {
 
     #[test]
     fn v2_preparation_near_vm_generates_valid_contract() {
-        let mut config = VMConfig::test();
+        let mut config = Config::test();
         let prepare_version = ContractPrepareVersion::V2;
         config.limit_config.contract_prepare_version = prepare_version;
         let features = crate::features::WasmFeatures::from(prepare_version);

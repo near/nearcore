@@ -1,9 +1,8 @@
-use crate::safe_add_balance_apply;
-
 use crate::config::{
     safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_prepaid_exec_fees,
     total_prepaid_gas, total_prepaid_send_fees,
 };
+use crate::safe_add_balance_apply;
 use crate::{ApplyStats, DelayedReceiptIndices, ValidatorAccountsUpdate};
 use near_primitives::errors::{
     BalanceMismatchError, IntegerOverflowError, RuntimeError, StorageError,
@@ -13,8 +12,8 @@ use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
+use near_primitives_core::config::ActionCosts;
 use near_store::{get, get_account, get_postponed_receipt, TrieAccess, TrieUpdate};
-use near_vm_runner::logic::ActionCosts;
 use std::collections::HashSet;
 
 /// Returns delayed receipts with given range of indices.

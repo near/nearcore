@@ -1,5 +1,4 @@
 //! Settings of the parameters of the runtime.
-use crate::config::VMConfig;
 use crate::runtime::config_store::INITIAL_TESTNET_CONFIG;
 use crate::runtime::fees::RuntimeFeesConfig;
 use crate::runtime::parameter_table::ParameterTable;
@@ -20,7 +19,7 @@ pub struct RuntimeConfig {
     ///
     /// This contains all the configuration parameters that are only required by
     /// the WASM runtime.
-    pub wasm_config: VMConfig,
+    pub wasm_config: near_vm_runner::logic::Config,
     /// Config that defines rules for account creation.
     pub account_creation_config: AccountCreationConfig,
 }
@@ -40,7 +39,7 @@ impl RuntimeConfig {
     pub fn test() -> Self {
         RuntimeConfig {
             fees: RuntimeFeesConfig::test(),
-            wasm_config: VMConfig::test(),
+            wasm_config: near_vm_runner::logic::Config::test(),
             account_creation_config: AccountCreationConfig::default(),
         }
     }
@@ -48,7 +47,7 @@ impl RuntimeConfig {
     pub fn free() -> Self {
         Self {
             fees: RuntimeFeesConfig::free(),
-            wasm_config: VMConfig::free(),
+            wasm_config: near_vm_runner::logic::Config::free(),
             account_creation_config: AccountCreationConfig::default(),
         }
     }

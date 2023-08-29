@@ -7,7 +7,7 @@ use crate::logic::errors::{
 use crate::logic::gas_counter::FastGasCounter;
 use crate::logic::types::{PromiseResult, ProtocolVersion};
 use crate::logic::{
-    CompiledContract, CompiledContractCache, External, MemSlice, MemoryLike, VMConfig, VMContext,
+    CompiledContract, CompiledContractCache, Config, External, MemSlice, MemoryLike, VMContext,
     VMLogic, VMOutcome,
 };
 use crate::prepare;
@@ -231,12 +231,12 @@ pub(crate) fn wasmer2_vm_hash() -> u64 {
 pub(crate) type VMArtifact = Arc<wasmer_engine_universal::UniversalArtifact>;
 
 pub(crate) struct Wasmer2VM {
-    pub(crate) config: VMConfig,
+    pub(crate) config: Config,
     pub(crate) engine: UniversalEngine,
 }
 
 impl Wasmer2VM {
-    pub(crate) fn new_for_target(config: VMConfig, target: wasmer_compiler::Target) -> Self {
+    pub(crate) fn new_for_target(config: Config, target: wasmer_compiler::Target) -> Self {
         // We only support singlepass compiler at the moment.
         assert_eq!(WASMER2_CONFIG.compiler, WasmerCompiler::Singlepass);
         let compiler = Singlepass::new();
@@ -250,7 +250,7 @@ impl Wasmer2VM {
         }
     }
 
-    pub(crate) fn new(config: VMConfig) -> Self {
+    pub(crate) fn new(config: Config) -> Self {
         use wasmer_compiler::{CpuFeature, Target, Triple};
         let target_features = if cfg!(feature = "no_cpu_compatibility_checks") {
             let mut fs = CpuFeature::set();

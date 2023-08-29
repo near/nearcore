@@ -1,9 +1,11 @@
-use crate::internal::VMKind;
-use crate::logic::{mocks::mock_external::MockedExternal, ProtocolVersion, VMContext, VMOutcome};
 use near_primitives::runtime::{
     config::RuntimeConfig, config_store::RuntimeConfigStore, fees::RuntimeFeesConfig,
 };
 use near_primitives_core::{contract::ContractCode, types::Gas, version::ProtocolFeature};
+use near_vm_runner::internal::VMKind;
+use near_vm_runner::logic::{
+    mocks::mock_external::MockedExternal, ProtocolVersion, VMContext, VMOutcome,
+};
 use std::{collections::HashSet, fmt::Write, sync::Arc};
 
 pub(crate) fn test_builder() -> TestBuilder {
@@ -198,7 +200,7 @@ impl TestBuilder {
                 // NearVM includes a different contract preparation algorithm, that is not supported on old protocol versions
                 if vm_kind == VMKind::NearVm
                     && runtime_config.wasm_config.limit_config.contract_prepare_version
-                        != near_primitives_core::config::ContractPrepareVersion::V2
+                        != near_vm_runner::logic::ContractPrepareVersion::V2
                 {
                     continue;
                 }
@@ -265,9 +267,9 @@ fn fmt_outcome_without_abort(
     out: &mut dyn std::fmt::Write,
 ) -> std::fmt::Result {
     let return_data_str = match &outcome.return_data {
-        crate::logic::ReturnData::None => "None".to_string(),
-        crate::logic::ReturnData::ReceiptIndex(_) => "Receipt".to_string(),
-        crate::logic::ReturnData::Value(v) => format!("Value [{} bytes]", v.len()),
+        near_vm_runner::logic::ReturnData::None => "None".to_string(),
+        near_vm_runner::logic::ReturnData::ReceiptIndex(_) => "Receipt".to_string(),
+        near_vm_runner::logic::ReturnData::Value(v) => format!("Value [{} bytes]", v.len()),
     };
     write!(
         out,
