@@ -1015,13 +1015,13 @@ mod tests {
             // No changes.
             let changes = FlatStateChanges::default();
             // Simulates `Chain::save_flat_state_changes()`.
-            let prev_block_with_changes =
-                store_helper::get_prev_block_with_changes(
-                    &store,
-                    shard_uid,
-                    chain.get_block(i).hash,
-                    chain.get_block(i).prev_hash,
-                ).unwrap();
+            let prev_block_with_changes = store_helper::get_prev_block_with_changes(
+                &store,
+                shard_uid,
+                chain.get_block(i).hash,
+                chain.get_block(i).prev_hash,
+            )
+            .unwrap();
             let delta = FlatStateDelta {
                 changes,
                 metadata: FlatStateDeltaMetadata {
@@ -1042,13 +1042,13 @@ mod tests {
             .map(|height| (chain.get_block_hash(height), height))
             .collect::<HashMap<CryptoHash, BlockHeight>>();
 
-            let block_hash = chain.get_block_hash((num_blocks-1) as BlockHeight);
-            flat_storage.update_flat_head(&block_hash, true).unwrap();
+        let block_hash = chain.get_block_hash((num_blocks - 1) as BlockHeight);
+        flat_storage.update_flat_head(&block_hash, true).unwrap();
 
-            let flat_head_hash = flat_storage.get_head_hash();
-            let flat_head_height = hashes.get(&flat_head_hash).unwrap();
+        let flat_head_hash = flat_storage.get_head_hash();
+        let flat_head_height = hashes.get(&flat_head_hash).unwrap();
 
-        assert_eq!(*flat_head_height, (num_blocks-1) as BlockHeight);
+        assert_eq!(*flat_head_height, (num_blocks - 1) as BlockHeight);
     }
 
     #[test]
