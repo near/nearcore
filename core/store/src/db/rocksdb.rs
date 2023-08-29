@@ -74,11 +74,16 @@ impl PerfContext {
             self.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
 
         let block_cache_hit = self.rocksdb_context.metric(rocksdb::PerfMetric::BlockCacheHitCount);
+        let bloom_mem_hit = self.rocksdb_context.metric(rocksdb::PerfMetric::BloomMemtableHitCount);
+        let bloom_mem_miss = self.rocksdb_context.metric(rocksdb::PerfMetric::BloomMemtableMissCount);
         let bloom_sst_hit = self.rocksdb_context.metric(rocksdb::PerfMetric::BloomSstHitCount);
         let bloom_sst_miss = self.rocksdb_context.metric(rocksdb::PerfMetric::BloomSstMissCount);
 
         if block_cache_hit > 0 || bloom_sst_hit > 0 || bloom_sst_miss > 0 {
             println!("Add metrics: cache_hit {}, bloom hit {} miss {}", block_cache_hit, bloom_sst_hit, bloom_sst_miss);
+        }
+        if bloom_mem_miss > 0 || bloom_mem_hit > 0 {
+            println!("Add metrics: mem_hit {}, mem_miss {}", bloom_mem_hit, bloom_mem_miss);
         }
         self.add_measurement(col, block_read_cnt, read_block_latency, has_merge);
     }
