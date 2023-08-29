@@ -72,6 +72,12 @@ impl PerfContext {
         }
         let has_merge =
             self.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
+
+        let block_cache_hit = self.rocksdb_context.metric(rocksdb::PerfMetric::BlockCacheHitCount);
+        let bloom_sst_hit = self.rocksdb_context.metric(rocksdb::PerfMetric::BloomSstHitCount);
+        let bloom_sst_miss = self.rocksdb_context.metric(rocksdb::PerfMetric::BloomSstMissCount);
+
+        println!("Add metrics: cache_hit {}, bloom hit {} miss {}", block_cache_hit, bloom_sst_hit, bloom_sst_miss);
         self.add_measurement(col, block_read_cnt, read_block_latency, has_merge);
     }
 
