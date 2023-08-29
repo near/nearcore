@@ -75,6 +75,7 @@ members = [
     "tools/rpctypegen/macro",
     "tools/speedy_sync",
     "tools/state-parts",
+    "tools/state-parts-dump",
     "tools/state-viewer",
     "tools/storage-usage-delta-calculator",
     "tools/themis",

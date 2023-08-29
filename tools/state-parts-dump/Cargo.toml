@@ -1,0 +1,15 @@
+[package]
+name = "state-parts-dump"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+reqwest = { version = "0.11.6", features = ["blocking", "json"]  }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
