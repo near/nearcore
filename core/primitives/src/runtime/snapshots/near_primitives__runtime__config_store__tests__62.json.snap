@@ -173,7 +173,7 @@ expression: config_view
     "grow_mem_cost": 1,
     "regular_op_cost": 822756,
     "disable_9393_fix": true,
-    "flat_storage_reads": true,
+    "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": false,
     "implicit_account_creation": true,
     "limit_config": {

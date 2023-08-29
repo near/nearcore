@@ -11,3 +11,5 @@ pub mod runtime;
 pub mod serialize;
 pub mod types;
 pub mod version;
+
+pub use enum_map;

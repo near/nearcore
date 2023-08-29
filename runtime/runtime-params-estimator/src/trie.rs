@@ -1,10 +1,10 @@
 use crate::estimator_context::{EstimatorContext, Testbed};
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::utils::{aggregate_per_block_measurements, overhead_per_measured_block, percentiles};
+use near_primitives::config::ExtCosts;
 use near_primitives::hash::hash;
 use near_store::trie::accounting_cache::TrieAccountingCache;
 use near_store::TrieCachingStorage;
-use near_vm_runner::logic::ExtCosts;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static SINK: AtomicUsize = AtomicUsize::new(0);

@@ -1,9 +1,9 @@
+use crate::config::Config;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError, VMRunnerError};
 use crate::logic::types::PromiseResult;
 use crate::logic::{CompiledContractCache, External, VMContext, VMOutcome};
 use crate::vm_kind::VMKind;
-use near_primitives_core::config::VMConfig;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::types::ProtocolVersion;
@@ -46,7 +46,7 @@ pub fn run(
     method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
-    wasm_config: &VMConfig,
+    wasm_config: &Config,
     fees_config: &RuntimeFeesConfig,
     promise_results: &[PromiseResult],
     current_protocol_version: ProtocolVersion,
@@ -114,7 +114,7 @@ pub trait VM {
     /// into the `cache`.
     ///
     /// Further calls to [`Self::run`] or [`Self::precompile`] with the same
-    /// `code`, `cache` and [`VMConfig`] may reuse the results of this
+    /// `code`, `cache` and [`Config`] may reuse the results of this
     /// precompilation step.
     fn precompile(
         &self,
@@ -128,7 +128,7 @@ impl VMKind {
     ///
     /// This is not intended to be used by code other than internal tools like
     /// the estimator.
-    pub fn runtime(&self, config: VMConfig) -> Option<Box<dyn VM>> {
+    pub fn runtime(&self, config: Config) -> Option<Box<dyn VM>> {
         match self {
             #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
             Self::Wasmer0 => Some(Box::new(crate::wasmer_runner::Wasmer0VM::new(config))),

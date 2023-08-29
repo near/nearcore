@@ -3,6 +3,7 @@ use crate::config::{Config, GasMetric};
 use crate::gas_cost::GasCost;
 use genesis_populate::get_account_id;
 use genesis_populate::state_dump::StateDump;
+use near_primitives::config::ExtCosts;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -18,7 +19,7 @@ use near_store::flat::{
 };
 use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
-use near_vm_runner::logic::{ExtCosts, VMLimitConfig};
+use near_vm_runner::logic::LimitConfig;
 use node_runtime::{ApplyState, Runtime};
 use std::collections::HashMap;
 use std::iter;
@@ -103,7 +104,7 @@ impl<'c> EstimatorContext<'c> {
             RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).as_ref().clone();
 
         // Override vm limits config to simplify block processing.
-        runtime_config.wasm_config.limit_config = VMLimitConfig {
+        runtime_config.wasm_config.limit_config = LimitConfig {
             max_total_log_length: u64::MAX,
             max_number_registers: u64::MAX,
             max_gas_burnt: u64::MAX,
@@ -116,7 +117,7 @@ impl<'c> EstimatorContext<'c> {
 
             max_total_prepaid_gas: u64::MAX,
 
-            ..VMLimitConfig::test()
+            ..LimitConfig::test()
         };
         runtime_config.account_creation_config.min_allowed_top_level_account_length = 0;
 

@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::errors::{ContractPrecompilatonResult, IntoVMError};
 use crate::internal::VMKind;
 use crate::logic::errors::{
@@ -11,7 +12,6 @@ use crate::memory::WasmerMemory;
 use crate::prepare;
 use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports};
-use near_primitives_core::config::VMConfig;
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::types::ProtocolVersion;
@@ -234,11 +234,11 @@ pub(crate) fn wasmer0_vm_hash() -> u64 {
 }
 
 pub(crate) struct Wasmer0VM {
-    config: VMConfig,
+    config: Config,
 }
 
 impl Wasmer0VM {
-    pub(crate) fn new(config: VMConfig) -> Self {
+    pub(crate) fn new(config: Config) -> Self {
         Self { config }
     }
 

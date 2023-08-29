@@ -2,7 +2,7 @@ use crate::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef
 use crate::internal::VMKind;
 use crate::logic::errors::FunctionCallError;
 use crate::logic::mocks::mock_external::MockedExternal;
-use crate::logic::{VMConfig, VMContext};
+use crate::logic::{Config, VMContext};
 use crate::runner::VMResult;
 use arbitrary::Arbitrary;
 use bolero::check;
@@ -111,7 +111,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     let mut context = create_context(vec![]);
     context.prepaid_gas = 10u64.pow(14);
 
-    let mut config = VMConfig::test();
+    let mut config = Config::test();
     config.limit_config.wasmer2_stack_limit = i32::MAX; // If we can crash wasmer2 even without the secondary stack limit it's still good to know
 
     let fees = RuntimeFeesConfig::test();
@@ -198,7 +198,7 @@ fn near_vm_is_reproducible() {
     bolero::check!().for_each(|data: &[u8]| {
         if let Ok(module) = ArbitraryModule::arbitrary(&mut arbitrary::Unstructured::new(data)) {
             let code = ContractCode::new(module.0.module.to_bytes(), None);
-            let config = VMConfig::test();
+            let config = Config::test();
             let mut first_hash = None;
             for _ in 0..3 {
                 let vm = NearVM::new(config.clone());
