@@ -73,20 +73,20 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
     let warmup_iters = config.mode.warmup_iters();
 
     if config.metrics.iter().any(|m| m == "time") {
-        let mut maybe_drop_cache = vec![];
+        let mut optional_args = vec![];
 
         #[cfg(target_family = "unix")]
         if Uid::effective().is_root() {
-            maybe_drop_cache.push("--drop-os-cache");
+            optional_args.push("--drop-os-cache");
+        } else {
+            eprintln!("Running as non-root, storage related costs might be inaccurate because OS caches cannot be dropped");
         }
 
-        if maybe_drop_cache.is_empty() {
-            eprintln!("Running as non-root, storage related costs might be inaccurate because OS caches cannot be dropped");
-        };
+        optional_args.append(&mut config.mode.optional_args_time_metric());
 
         let estimation_output =
             cmd!(sh,
-                "{estimator_binary} --iters {iters} --warmup-iters {warmup_iters} --json-output --home {estimator_home} {maybe_drop_cache...} --metric time"
+                "{estimator_binary} --iters {iters} --warmup-iters {warmup_iters} --json-output --home {estimator_home} {optional_args...} --metric time"
             ).read()?;
         db.import_json_lines(
             &ImportConfig { commit_hash: Some(commit_hash.clone()), protocol_version: None },
@@ -127,6 +127,13 @@ impl Mode {
         match self {
             Mode::Default => "release",
             Mode::Fast => "quick-release",
+        }
+    }
+
+    fn optional_args_time_metric(self) -> Vec<&'static str> {
+        match self {
+            Mode::Default => vec![],
+            Mode::Fast => vec!["--in-memory-db"],
         }
     }
 }
