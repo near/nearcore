@@ -60,7 +60,7 @@ which gas is purchased.
 (See [Effective Gas Purchase Price](#effective-gas-price).)
 
 The price is measured in NEAR tokens per unit of gas. It dynamically changes in
-the range between 0.1 NEAR per Pgas and 1 NEAR per Pgas, based on demand. (1
+the range between 0.1 NEAR per Pgas and 2 NEAR per Pgas, based on demand. (1
 Pgas = 1000 Tgas corresponds to a full chunk.)
 
 The block producer has to set this field following the exact formula as defined
