@@ -58,6 +58,23 @@ impl PerfContext {
         }
     }
 
+    fn record(&mut self, col: DBCol, obs_latency: Duration) {
+        let block_read_cnt =
+            self.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
+        let read_block_latency =
+            Duration::from_nanos(self.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadTime));
+        // assert!(observed_latency > read_block_latency);
+        if !read_block_latency.is_zero() {
+            println!(
+                "Read block lat: {:?} for block count {} and obs lat: {:?}",
+                read_block_latency, block_read_cnt, obs_latency
+            );
+        }
+        let has_merge =
+            self.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
+        self.add_measurement(col, block_read_cnt, read_block_latency, has_merge);
+    }
+
     fn add_measurement(
         &mut self,
         db_col: DBCol,
@@ -65,16 +82,14 @@ impl PerfContext {
         read_block_latency: Duration,
         has_merge: bool,
     ) {
-        let col_measurement = self.column_measurements.entry(db_col).or_insert(ColumnMeasurement::new());
+        let col_measurement =
+            self.column_measurements.entry(db_col).or_insert(ColumnMeasurement::new());
         col_measurement
             .measurements_per_block_reads
             .entry(block_read_count)
             .or_default()
             .record(read_block_latency, has_merge);
-        col_measurement.measurements_overall.record(
-            read_block_latency,
-            has_merge,
-        );
+        col_measurement.measurements_overall.record(read_block_latency, has_merge);
     }
 
     fn reset(&mut self) {
@@ -105,11 +120,7 @@ struct Measurements {
 }
 
 impl Measurements {
-    pub fn record(
-        &mut self,
-        read_block_latency: Duration,
-        has_merge: bool,
-    ) {
+    pub fn record(&mut self, read_block_latency: Duration, has_merge: bool) {
         self.count += 1;
         self.total_read_block_latency += read_block_latency;
         if has_merge {
@@ -205,7 +216,7 @@ impl RocksDB {
             db_opt,
             cf_handles,
             _instance_tracker: counter,
-            perf_context: Arc::new(Mutex::new(PerfContext::new()))
+            perf_context: Arc::new(Mutex::new(PerfContext::new())),
         })
     }
 
@@ -399,27 +410,9 @@ impl Database for RocksDB {
             .get_pinned_cf_opt(self.cf_handle(col)?, key, &read_options)
             .map_err(into_other)?
             .map(DBSlice::from_rocksdb_slice);
-        timer.observe_duration();
+        let obs_latency = Duration::from_secs_f64(timer.stop_and_record());
 
-        let mut perf_data = self.perf_context.lock().unwrap();
-        let block_read_cnt =
-            perf_data.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
-        let read_block_latency = Duration::from_nanos(
-            perf_data.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadTime),
-        );
-        // assert!(observed_latency > read_block_latency);
-        if !read_block_latency.is_zero() {
-            println!("Read block lat: {:?} for block count {}", read_block_latency, block_read_cnt);
-        }
-
-        let has_merge =
-            perf_data.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
-        perf_data.add_measurement(
-            col,
-            block_read_cnt,
-            read_block_latency,
-            has_merge,
-        );
+        self.perf_context.lock().unwrap().record(col, obs_latency);
 
         Ok(result)
     }
@@ -736,31 +729,29 @@ impl RocksDB {
                     state_avg_obs_lat_per_block,
                 ));
 
-
-            let state_count_per_block: Vec<StatsValue> = measurement
+                let state_count_per_block: Vec<StatsValue> = measurement
                     .measurements_per_block_reads
                     .iter()
                     .map(|(block_count, measurement)| {
                         StatsValue::BucketBlockCount(
                             DBCol::State,
                             block_count.to_string(),
-                            measurement.count as i64
+                            measurement.count as i64,
                         )
                     })
                     .collect();
-                result.data.push((
-                    "rocksdb_perf_count_per_block".to_string(),
-                    state_count_per_block,
-                ));
+                result
+                    .data
+                    .push(("rocksdb_perf_count_per_block".to_string(), state_count_per_block));
 
-            let state_total_lat_per_block: Vec<StatsValue> = measurement
+                let state_total_lat_per_block: Vec<StatsValue> = measurement
                     .measurements_per_block_reads
                     .iter()
                     .map(|(block_count, measurement)| {
                         StatsValue::BucketBlockCount(
                             DBCol::State,
                             block_count.to_string(),
-                            measurement.total_read_block_latency.as_micros() as i64
+                            measurement.total_read_block_latency.as_micros() as i64,
                         )
                     })
                     .collect();
@@ -768,7 +759,6 @@ impl RocksDB {
                     "rocksdb_perf_total_lat_per_block".to_string(),
                     state_total_lat_per_block,
                 ));
-
             }
             None => {}
         }
