@@ -113,7 +113,7 @@ impl FlatStorageInner {
                 Some(prev_block_with_changes) => {
                     // Don't include blocks with no changes in the result,
                     // unless it's the target block.
-                    if block_hash == target_block_hash {
+                    if &block_hash == target_block_hash {
                         blocks.push(block_hash);
                     }
                     if prev_block_with_changes.height > flat_head.height {
