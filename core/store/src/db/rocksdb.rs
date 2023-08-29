@@ -77,7 +77,9 @@ impl PerfContext {
         let bloom_sst_hit = self.rocksdb_context.metric(rocksdb::PerfMetric::BloomSstHitCount);
         let bloom_sst_miss = self.rocksdb_context.metric(rocksdb::PerfMetric::BloomSstMissCount);
 
-        println!("Add metrics: cache_hit {}, bloom hit {} miss {}", block_cache_hit, bloom_sst_hit, bloom_sst_miss);
+        if block_cache_hit > 0 || bloom_sst_hit > 0 || bloom_sst_miss > 0 {
+            println!("Add metrics: cache_hit {}, bloom hit {} miss {}", block_cache_hit, bloom_sst_hit, bloom_sst_miss);
+        }
         self.add_measurement(col, block_read_cnt, read_block_latency, has_merge);
     }
 
@@ -245,7 +247,8 @@ impl RocksDB {
                 )
             })
             .collect::<Vec<_>>();
-        println!("Opening database in {:?} mode", mode);
+
+        tracing::info!("Opening database in {:?} mode", mode);
         let db = if mode.read_only() {
             DB::open_cf_descriptors_read_only(&options, path, cf_descriptors, false)
         } else {
