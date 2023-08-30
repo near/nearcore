@@ -1,3 +1,7 @@
+// FIXME(nagisa): Is there a good reason we're triggering this? Luckily though this is just test
+// code so we're in the clear.
+#![allow(clippy::arc_with_non_send_sync)]
+
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::mem::swap;

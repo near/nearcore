@@ -39,6 +39,7 @@ use near_primitives::utils::{
     create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives_core::config::ActionCosts;
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
     set_account, set_delayed_receipt, set_postponed_receipt, set_received_data, PartialStorage,
@@ -46,7 +47,7 @@ use near_store::{
 };
 use near_store::{set_access_key, set_code};
 use near_vm_runner::logic::types::PromiseResult;
-use near_vm_runner::logic::{ActionCosts, ReturnData};
+use near_vm_runner::logic::ReturnData;
 pub use near_vm_runner::with_ext_cost_counter;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
@@ -1528,9 +1529,9 @@ mod tests {
     };
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives_core::config::{ExtCosts, ParameterCost};
     use near_store::test_utils::create_tries;
     use near_store::{set_access_key, ShardTries, StoreCompiledContractCache};
-    use near_vm_runner::logic::{ExtCosts, ParameterCost};
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use super::*;

@@ -1,5 +1,6 @@
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
-use near_primitives_core::config::{VMLimitConfig, ViewConfig};
+use crate::logic::LimitConfig;
+use near_primitives_core::config::ViewConfig;
 
 macro_rules! decl_test_bytes {
     ($testname:ident, $method:ident, $ctx:ident, $want:expr) => {
@@ -96,8 +97,7 @@ fn test_attached_deposit_view() {
     fn test_view(amount: u128) {
         let mut logic_builder = VMLogicBuilder::default();
         let context = &mut logic_builder.context;
-        context.view_config =
-            Some(ViewConfig { max_gas_burnt: VMLimitConfig::test().max_gas_burnt });
+        context.view_config = Some(ViewConfig { max_gas_burnt: LimitConfig::test().max_gas_burnt });
         context.account_balance = 0;
         context.attached_deposit = amount;
         let mut logic = logic_builder.build();

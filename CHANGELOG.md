@@ -15,6 +15,7 @@
 * Our more efficient and scalable V2 routing protocol is implemented. It shadows the V1 protocol for now while we verify its performance. [#9187](https://github.com/near/nearcore/pull/9187)
 * The default config now enables TIER1 outbound connections by default. [#9349](https://github.com/near/nearcore/pull/9349)
 * State Sync from GCS is available for experimental use. [#9398](https://github.com/near/nearcore/pull/9398)
+* Add prometheus metrics for the internal state of the doomslug. [#9458](https://github.com/near/nearcore/pull/9458)
 
 ## 1.35.0
 

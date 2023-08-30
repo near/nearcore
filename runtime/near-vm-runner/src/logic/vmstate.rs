@@ -1,11 +1,9 @@
 use super::dependencies::{MemSlice, MemoryLike};
-use super::gas_counter::GasCounter;
-
 use super::errors::{HostError, VMLogicError};
-use near_primitives_core::config::ExtCosts::*;
-use near_primitives_core::config::VMLimitConfig;
-
+use super::gas_counter::GasCounter;
+use crate::config::LimitConfig;
 use core::mem::size_of;
+use near_primitives_core::config::ExtCosts::*;
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 
@@ -163,7 +161,7 @@ impl Registers {
     pub(super) fn set<T>(
         &mut self,
         gas_counter: &mut GasCounter,
-        config: &VMLimitConfig,
+        config: &LimitConfig,
         register_id: u64,
         data: T,
     ) -> Result<()>
@@ -194,7 +192,7 @@ impl Registers {
     /// into the registers.
     fn check_set_register<'a>(
         &'a mut self,
-        config: &VMLimitConfig,
+        config: &LimitConfig,
         register_id: u64,
         data_len: u64,
     ) -> Result<Entry<'a, u64, Box<[u8]>>> {
@@ -255,16 +253,15 @@ pub(super) fn get_memory_or_register<'a, 'b>(
 
 #[cfg(test)]
 mod tests {
-    use super::Registers;
-
-    use crate::logic::gas_counter::GasCounter;
-
     use super::HostError;
-    use near_primitives_core::config::{ExtCostsConfig, VMLimitConfig};
+    use super::Registers;
+    use crate::logic::gas_counter::GasCounter;
+    use crate::logic::LimitConfig;
+    use near_primitives_core::config::ExtCostsConfig;
 
     struct RegistersTestContext {
         gas: GasCounter,
-        cfg: VMLimitConfig,
+        cfg: LimitConfig,
         regs: Registers,
     }
 
@@ -273,7 +270,7 @@ mod tests {
             let costs = ExtCostsConfig::test();
             Self {
                 gas: GasCounter::new(costs, u64::MAX, 0, u64::MAX, false),
-                cfg: VMLimitConfig::test(),
+                cfg: LimitConfig::test(),
                 regs: Default::default(),
             }
         }

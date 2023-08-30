@@ -7,7 +7,7 @@ use crate::logic::errors::{
 use crate::logic::gas_counter::FastGasCounter;
 use crate::logic::types::{PromiseResult, ProtocolVersion};
 use crate::logic::{
-    CompiledContract, CompiledContractCache, External, MemSlice, MemoryLike, VMConfig, VMContext,
+    CompiledContract, CompiledContractCache, Config, External, MemSlice, MemoryLike, VMContext,
     VMLogic, VMOutcome,
 };
 use crate::prepare;
@@ -230,12 +230,12 @@ pub(crate) fn near_vm_vm_hash() -> u64 {
 pub(crate) type VMArtifact = Arc<near_vm_engine::universal::UniversalArtifact>;
 
 pub(crate) struct NearVM {
-    pub(crate) config: VMConfig,
+    pub(crate) config: Config,
     pub(crate) engine: UniversalEngine,
 }
 
 impl NearVM {
-    pub(crate) fn new_for_target(config: VMConfig, target: near_vm_compiler::Target) -> Self {
+    pub(crate) fn new_for_target(config: Config, target: near_vm_compiler::Target) -> Self {
         // We only support singlepass compiler at the moment.
         assert_eq!(VM_CONFIG.compiler, NearVmCompiler::Singlepass);
         let mut compiler = Singlepass::new();
@@ -277,7 +277,7 @@ impl NearVM {
         }
     }
 
-    pub(crate) fn new(config: VMConfig) -> Self {
+    pub(crate) fn new(config: Config) -> Self {
         use near_vm_compiler::{CpuFeature, Target, Triple};
         let target_features = if cfg!(feature = "no_cpu_compatibility_checks") {
             let mut fs = CpuFeature::set();

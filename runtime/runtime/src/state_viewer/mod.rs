@@ -2,24 +2,21 @@ use crate::near_primitives::version::PROTOCOL_VERSION;
 use crate::receipt_manager::ReceiptManager;
 use crate::{actions::execute_function_call, ext::RuntimeExt};
 use near_crypto::{KeyType, PublicKey};
+use near_primitives::account::{AccessKey, Account};
+use near_primitives::borsh::BorshDeserialize;
+use near_primitives::contract::ContractCode;
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ActionReceipt;
+use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::{
-    account::{AccessKey, Account},
-    borsh::BorshDeserialize,
-    contract::ContractCode,
-    hash::CryptoHash,
-    receipt::ActionReceipt,
-    runtime::{
-        apply_state::ApplyState,
-        migration_data::{MigrationData, MigrationFlags},
-    },
-    transaction::FunctionCallAction,
-    trie_key::trie_key_parsers,
-    types::{AccountId, EpochInfoProvider, Gas},
-    views::{StateItem, ViewApplyState, ViewStateResult},
-};
+use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use near_primitives::transaction::FunctionCallAction;
+use near_primitives::trie_key::trie_key_parsers;
+use near_primitives::types::{AccountId, EpochInfoProvider, Gas};
+use near_primitives::views::{StateItem, ViewApplyState, ViewStateResult};
+use near_primitives_core::config::ViewConfig;
 use near_store::{get_access_key, get_account, get_code, TrieUpdate};
-use near_vm_runner::logic::{ReturnData, ViewConfig};
+use near_vm_runner::logic::ReturnData;
 use std::{str, sync::Arc, time::Instant};
 use tracing::debug;
 

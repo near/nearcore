@@ -27,6 +27,7 @@ use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
+use near_primitives_core::config::ActionCosts;
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
     StorageError, TrieUpdate,
@@ -35,7 +36,7 @@ use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::types::PromiseResult;
-use near_vm_runner::logic::{ActionCosts, VMContext, VMOutcome};
+use near_vm_runner::logic::{VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
 
 /// Runs given function call with given context / apply state.
