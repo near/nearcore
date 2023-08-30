@@ -23,6 +23,7 @@ use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQuery};
+use near_jsonrpc_primitives::types::query::RpcQueryRequest;
 use near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse;
 use near_network::tcp;
 use near_network::PeerManagerActor;
@@ -31,7 +32,7 @@ use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives::views::FinalExecutionOutcomeViewEnum;
+use near_primitives::views::{FinalExecutionOutcomeViewEnum, QueryRequest};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -243,11 +244,32 @@ impl JsonRpcHandler {
         let timer = Instant::now();
 
         let request_method = request.method.clone();
+        let params: RpcQueryRequest = RpcRequest::parse(request.params.clone())?;
         let response = self.process_request_internal(request).await;
 
         let request_method = match &response {
             Err(err) if err.code == -32_601 => "UNSUPPORTED_METHOD",
-            _ => &request_method,
+            _ => {
+                // `query` RPC method consists of several methods which should be tracked separately
+                if request_method == "query" {
+                    match params.request {
+                        QueryRequest::ViewAccount { .. } => "query_view_account",
+                        QueryRequest::ViewCode { .. } => "query_view_code",
+                        QueryRequest::ViewState { include_proof, .. } => {
+                            if include_proof {
+                                "query_view_state_with_proof"
+                            } else {
+                                "query_view_state"
+                            }
+                        }
+                        QueryRequest::ViewAccessKey { .. } => "query_view_access_key",
+                        QueryRequest::ViewAccessKeyList { .. } => "query_view_access_key_list",
+                        QueryRequest::CallFunction { .. } => "query_call_function",
+                    }
+                } else {
+                    &request_method
+                }
+            }
         };
 
         metrics::HTTP_RPC_REQUEST_COUNT.with_label_values(&[request_method]).inc();
