@@ -1034,7 +1034,7 @@ mod tests {
             store_update.commit().unwrap();
         }
 
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let flat_storage_manager = FlatStorageManager::new(store);
         flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
 
