@@ -1,19 +1,16 @@
 //! Settings of the parameters of the runtime.
 
-use near_vm_runner::logic::ActionCosts;
+use near_primitives::account::AccessKeyPermission;
+use near_primitives::errors::IntegerOverflowError;
+use near_primitives_core::config::ActionCosts;
 use num_bigint::BigUint;
 use num_traits::cast::ToPrimitive;
 use num_traits::pow::Pow;
-
-use near_primitives::account::AccessKeyPermission;
-use near_primitives::errors::IntegerOverflowError;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 pub use near_primitives::num_rational::Rational32;
 pub use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::fees::{transfer_exec_fee, transfer_send_fee};
-use near_primitives::transaction::{
-    Action, AddKeyAction, DeployContractAction, FunctionCallAction, Transaction,
-};
+use near_primitives::transaction::{Action, DeployContractAction, Transaction};
 use near_primitives::types::{AccountId, Balance, Compute, Gas};
 
 /// Describes the cost of converting this transaction into a receipt.
@@ -90,8 +87,9 @@ pub fn total_send_fees(
                     + fees.fee(ActionCosts::deploy_contract_byte).send_fee(sender_is_receiver)
                         * num_bytes
             }
-            FunctionCall(FunctionCallAction { method_name, args, .. }) => {
-                let num_bytes = method_name.as_bytes().len() as u64 + args.len() as u64;
+            FunctionCall(function_call_action) => {
+                let num_bytes = function_call_action.method_name.as_bytes().len() as u64
+                    + function_call_action.args.len() as u64;
                 fees.fee(ActionCosts::function_call_base).send_fee(sender_is_receiver)
                     + fees.fee(ActionCosts::function_call_byte).send_fee(sender_is_receiver)
                         * num_bytes
@@ -103,7 +101,7 @@ pub fn total_send_fees(
                 transfer_send_fee(fees, sender_is_receiver, is_receiver_implicit)
             }
             Stake(_) => fees.fee(ActionCosts::stake).send_fee(sender_is_receiver),
-            AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
+            AddKey(add_key_action) => match &add_key_action.access_key.permission {
                 AccessKeyPermission::FunctionCall(call_perm) => {
                     let num_bytes = call_perm
                         .method_names
@@ -182,8 +180,9 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             fees.fee(ActionCosts::deploy_contract_base).exec_fee()
                 + fees.fee(ActionCosts::deploy_contract_byte).exec_fee() * num_bytes
         }
-        FunctionCall(FunctionCallAction { method_name, args, .. }) => {
-            let num_bytes = method_name.as_bytes().len() as u64 + args.len() as u64;
+        FunctionCall(function_call_action) => {
+            let num_bytes = function_call_action.method_name.as_bytes().len() as u64
+                + function_call_action.args.len() as u64;
             fees.fee(ActionCosts::function_call_base).exec_fee()
                 + fees.fee(ActionCosts::function_call_byte).exec_fee() * num_bytes
         }
@@ -194,7 +193,7 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             transfer_exec_fee(fees, is_receiver_implicit)
         }
         Stake(_) => fees.fee(ActionCosts::stake).exec_fee(),
-        AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
+        AddKey(add_key_action) => match &add_key_action.access_key.permission {
             AccessKeyPermission::FunctionCall(call_perm) => {
                 let num_bytes = call_perm
                     .method_names

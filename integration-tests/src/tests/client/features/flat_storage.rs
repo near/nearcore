@@ -66,12 +66,12 @@ fn test_flat_storage_upgrade() {
 
     // Write key-value pair to state.
     {
-        let write_value_action = vec![Action::FunctionCall(FunctionCallAction {
+        let write_value_action = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             args: encode(&[1u64, 10u64]),
             method_name: "write_key_value".to_string(),
             gas,
             deposit: 0,
-        })];
+        }))];
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction = Transaction {
             nonce: 10,
@@ -94,12 +94,12 @@ fn test_flat_storage_upgrade() {
 
     let touching_trie_node_costs: Vec<_> = (0..2)
         .map(|i| {
-            let read_value_action = vec![Action::FunctionCall(FunctionCallAction {
+            let read_value_action = vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 args: encode(&[1u64]),
                 method_name: "read_value".to_string(),
                 gas,
                 deposit: 0,
-            })];
+            }))];
             let tip = env.clients[0].chain.head().unwrap();
             let signed_transaction = Transaction {
                 nonce: 20 + i,

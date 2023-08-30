@@ -17,11 +17,11 @@ pub mod types;
 mod utils;
 mod vmstate;
 
+pub use crate::config::{Config, ContractPrepareVersion, LimitConfig};
 pub use context::VMContext;
 pub use dependencies::{External, MemSlice, MemoryLike, StorageGetMode, ValuePtr};
 pub use errors::{HostError, VMLogicError};
 pub use logic::{VMLogic, VMOutcome};
-pub use near_primitives_core::config::*;
 pub use near_primitives_core::profile;
 pub use near_primitives_core::types::ProtocolVersion;
 pub use types::ReturnData;

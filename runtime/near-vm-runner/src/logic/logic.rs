@@ -6,10 +6,11 @@ use super::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use super::utils::split_method_names;
 use super::{HostError, VMLogicError};
 use super::{StorageGetMode, ValuePtr};
+use crate::config::Config;
 use near_crypto::Secp256K1Signature;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::ViewConfig;
-use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
+use near_primitives_core::config::{ActionCosts, ExtCosts};
 use near_primitives_core::profile::ProfileDataV3;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::runtime::fees::{transfer_exec_fee, transfer_send_fee};
@@ -33,7 +34,7 @@ pub struct VMLogic<'a> {
     /// Part of Context API and Economics API that was extracted from the receipt.
     context: VMContext,
     /// All gas and economic parameters required during contract execution.
-    config: &'a VMConfig,
+    config: &'a Config,
     /// Fees for creating (async) actions on runtime.
     fees_config: &'a RuntimeFeesConfig,
     /// If this method execution is invoked directly as a callback by one or more contract calls the
@@ -127,7 +128,7 @@ impl<'a> VMLogic<'a> {
     pub fn new(
         ext: &'a mut dyn External,
         context: VMContext,
-        config: &'a VMConfig,
+        config: &'a Config,
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
@@ -179,7 +180,7 @@ impl<'a> VMLogic<'a> {
     }
 
     #[cfg(test)]
-    pub(super) fn config(&self) -> &VMConfig {
+    pub(super) fn config(&self) -> &Config {
         &self.config
     }
 
@@ -2471,11 +2472,7 @@ impl<'a> VMLogic<'a> {
         }
         self.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        let read_mode = match self.config.flat_storage_reads {
-            true => StorageGetMode::FlatStorage,
-            false => StorageGetMode::Trie,
-        };
-        let read = self.ext.storage_get(&key, read_mode);
+        let read = self.ext.storage_get(&key, self.config.storage_get_mode);
         let nodes_delta = self
             .ext
             .get_trie_nodes_count()
@@ -2618,11 +2615,7 @@ impl<'a> VMLogic<'a> {
         }
         self.gas_counter.pay_per(storage_has_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        let read_mode = match self.config.flat_storage_reads {
-            true => StorageGetMode::FlatStorage,
-            false => StorageGetMode::Trie,
-        };
-        let res = self.ext.storage_has_key(&key, read_mode);
+        let res = self.ext.storage_has_key(&key, self.config.storage_get_mode);
         let nodes_delta = self
             .ext
             .get_trie_nodes_count()

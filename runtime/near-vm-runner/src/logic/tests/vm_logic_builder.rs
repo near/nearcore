@@ -1,12 +1,12 @@
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::mocks::mock_memory::MockedMemory;
 use crate::logic::types::PromiseResult;
-use crate::logic::{MemSlice, VMConfig, VMContext, VMLogic};
+use crate::logic::{Config, MemSlice, VMContext, VMLogic};
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 
 pub(super) struct VMLogicBuilder {
     pub ext: MockedExternal,
-    pub config: VMConfig,
+    pub config: Config,
     pub fees_config: RuntimeFeesConfig,
     pub promise_results: Vec<PromiseResult>,
     pub memory: MockedMemory,
@@ -16,7 +16,7 @@ pub(super) struct VMLogicBuilder {
 impl Default for VMLogicBuilder {
     fn default() -> Self {
         VMLogicBuilder {
-            config: VMConfig::test(),
+            config: Config::test(),
             fees_config: RuntimeFeesConfig::test(),
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),
@@ -30,7 +30,8 @@ impl VMLogicBuilder {
     pub fn view() -> Self {
         let mut builder = Self::default();
         let max_gas_burnt = builder.config.limit_config.max_gas_burnt;
-        builder.context.view_config = Some(crate::logic::ViewConfig { max_gas_burnt });
+        builder.context.view_config =
+            Some(near_primitives_core::config::ViewConfig { max_gas_burnt });
         builder
     }
 
@@ -48,7 +49,7 @@ impl VMLogicBuilder {
 
     pub fn free() -> Self {
         VMLogicBuilder {
-            config: VMConfig::free(),
+            config: Config::free(),
             fees_config: RuntimeFeesConfig::free(),
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),

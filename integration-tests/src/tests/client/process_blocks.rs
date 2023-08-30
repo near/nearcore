@@ -231,12 +231,12 @@ pub(crate) fn prepare_env_with_congestion(
             "test0".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer,
-            vec![Action::FunctionCall(FunctionCallAction {
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "call_promise".to_string(),
                 args: serde_json::to_vec(&data).unwrap(),
                 gas: gas_1,
                 deposit: 0,
-            })],
+            }))],
             *genesis_block.hash(),
         );
         tx_hashes.push(signed_transaction.get_hash());
@@ -590,7 +590,7 @@ fn produce_block_with_approvals_arrived_early() {
                                 let block = block_holder.read().unwrap().clone().unwrap();
                                 conns[0].client_actor.do_send(
                                     BlockResponse {
-                                        block: block,
+                                        block,
                                         peer_id: PeerInfo::random().id,
                                         was_requested: false,
                                     }
@@ -2431,12 +2431,12 @@ fn test_validate_chunk_extra() {
         "test0".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
-        vec![Action::FunctionCall(FunctionCallAction {
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "write_block_height".to_string(),
             args: vec![],
             gas: 100000000000000,
             deposit: 0,
-        })],
+        }))],
         *last_block.hash(),
     );
     assert_eq!(
@@ -2947,11 +2947,11 @@ fn test_execution_metadata() {
         + config.fees.fee(ActionCosts::function_call_byte).exec_fee() * "main".len() as u64;
 
     let expected_wasm_ops = match config.wasm_config.limit_config.contract_prepare_version {
-        near_primitives::config::ContractPrepareVersion::V0 => 2,
-        near_primitives::config::ContractPrepareVersion::V1 => 2,
+        near_vm_runner::logic::ContractPrepareVersion::V0 => 2,
+        near_vm_runner::logic::ContractPrepareVersion::V1 => 2,
         // We spend two wasm instructions (call & drop), plus 8 ops for initializing function
         // operand stack (8 bytes worth to hold the return value.)
-        near_primitives::config::ContractPrepareVersion::V2 => 10,
+        near_vm_runner::logic::ContractPrepareVersion::V2 => 10,
     };
 
     // Profile for what's happening *inside* wasm vm during function call.
@@ -3556,12 +3556,12 @@ fn test_validator_stake_host_function() {
         "test0".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
-        vec![Action::FunctionCall(FunctionCallAction {
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_validator_stake".to_string(),
             args: b"test0".to_vec(),
             gas: 100_000_000_000_000,
             deposit: 0,
-        })],
+        }))],
         *genesis_block.hash(),
     );
     assert_eq!(

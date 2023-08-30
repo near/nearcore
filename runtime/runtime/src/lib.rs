@@ -39,6 +39,7 @@ use near_primitives::utils::{
     create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives_core::config::ActionCosts;
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
     set_account, set_delayed_receipt, set_postponed_receipt, set_received_data, PartialStorage,
@@ -46,7 +47,7 @@ use near_store::{
 };
 use near_store::{set_access_key, set_code};
 use near_vm_runner::logic::types::PromiseResult;
-use near_vm_runner::logic::{ActionCosts, ReturnData};
+use near_vm_runner::logic::ReturnData;
 pub use near_vm_runner::with_ext_cost_counter;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
@@ -1528,9 +1529,9 @@ mod tests {
     };
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives_core::config::{ExtCosts, ParameterCost};
     use near_store::test_utils::create_tries;
     use near_store::{set_access_key, ShardTries, StoreCompiledContractCache};
-    use near_vm_runner::logic::{ExtCosts, ParameterCost};
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use super::*;
@@ -2224,12 +2225,12 @@ mod tests {
 
         let gas = 2 * 10u64.pow(14);
         let gas_price = GAS_PRICE / 10;
-        let actions = vec![Action::FunctionCall(FunctionCallAction {
+        let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "hello".to_string(),
             args: b"world".to_vec(),
             gas,
             deposit: 0,
-        })];
+        }))];
 
         let expected_gas_burnt = safe_add_gas(
             apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
@@ -2287,12 +2288,12 @@ mod tests {
 
         let gas = 1_000_000;
         let gas_price = GAS_PRICE / 10;
-        let actions = vec![Action::FunctionCall(FunctionCallAction {
+        let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "hello".to_string(),
             args: b"world".to_vec(),
             gas,
             deposit: 0,
-        })];
+        }))];
 
         let expected_gas_burnt = safe_add_gas(
             apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
@@ -2343,11 +2344,11 @@ mod tests {
         let initial_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
 
         let actions = vec![
-            Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key() }),
-            Action::AddKey(AddKeyAction {
+            Action::DeleteKey(Box::new(DeleteKeyAction { public_key: signer.public_key() })),
+            Action::AddKey(Box::new(AddKeyAction {
                 public_key: signer.public_key(),
                 access_key: AccessKey::full_access(),
-            }),
+            })),
         ];
 
         let receipts = vec![create_receipt_with_actions(alice_account(), signer, actions)];
@@ -2394,7 +2395,8 @@ mod tests {
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
 
-        let actions = vec![Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key() })];
+        let actions =
+            vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key: signer.public_key() }))];
 
         let receipts = vec![create_receipt_with_actions(alice_account(), signer, actions)];
 
@@ -2497,23 +2499,23 @@ mod tests {
         let first_call_receipt = create_receipt_with_actions(
             alice_account(),
             signer.clone(),
-            vec![Action::FunctionCall(FunctionCallAction {
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
                 gas: sha256_cost.gas,
                 deposit: 0,
-            })],
+            }))],
         );
 
         let second_call_receipt = create_receipt_with_actions(
             alice_account(),
             signer,
-            vec![Action::FunctionCall(FunctionCallAction {
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"second".to_vec(),
                 gas: sha256_cost.gas,
                 deposit: 0,
-            })],
+            }))],
         );
 
         let apply_result = runtime
@@ -2584,12 +2586,12 @@ mod tests {
         let first_call_receipt = create_receipt_with_actions(
             alice_account(),
             signer,
-            vec![Action::FunctionCall(FunctionCallAction {
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
                 gas: 1,
                 deposit: 0,
-            })],
+            }))],
         );
 
         let apply_result = runtime

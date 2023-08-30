@@ -119,6 +119,7 @@ impl actix::Handler<WithSpanContext<BlockCatchUpRequest>> for SyncJobsActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work);
 
         self.client_addr.do_send(
@@ -137,6 +138,7 @@ impl actix::Handler<WithSpanContext<StateSplitRequest>> for SyncJobsActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let response = Chain::build_state_for_split_shards(msg);
         self.client_addr.do_send(response.with_span_context());
     }

@@ -44,7 +44,7 @@ pub struct StateSplitRequest {
 impl Debug for StateSplitRequest {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StateSplitRequest")
-            .field("runtime_adapter", &"<not shown>")
+            .field("tries", &"<not shown>")
             .field("sync_hash", &self.sync_hash)
             .field("shard_uid", &self.shard_uid)
             .field("state_root", &self.state_root)

@@ -1096,7 +1096,7 @@ mod tests {
         let original_near_actions = NearActions {
             sender_account_id: "proxy.near".parse().unwrap(),
             receiver_account_id: "account.near".parse().unwrap(),
-            actions: vec![Action::Delegate(SignedDelegateAction {
+            actions: vec![Action::Delegate(Box::new(SignedDelegateAction {
                 delegate_action: DelegateAction {
                     sender_id: "account.near".parse().unwrap(),
                     receiver_id: "receiver.near".parse().unwrap(),
@@ -1108,7 +1108,7 @@ mod tests {
                     public_key: sk.public_key(),
                 },
                 signature: sk.sign(&[0]),
-            })],
+            }))],
         };
 
         let operations: Vec<crate::models::Operation> =
