@@ -10,7 +10,7 @@ use near_primitives::shard_layout::ShardVersion;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::flat::{
     inline_flat_state_values, store_helper, FlatStateDelta, FlatStateDeltaMetadata,
-    FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
+    FlatStorageManager, FlatStorageStatus,
 };
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime};
@@ -312,7 +312,7 @@ impl FlatStorageCommand {
         let mut verified = 0;
         let mut success = true;
         for (item_trie, item_flat) in tqdm(std::iter::zip(trie_iter, flat_state_entries_iter)) {
-            let item_flat = item_flat.unwrap();
+            let item_flat = item_flat?;
             let value_ref = item_flat.1.to_value_ref();
             verified += 1;
 
