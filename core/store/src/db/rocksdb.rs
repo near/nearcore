@@ -102,9 +102,9 @@ impl PerfContext {
         col_measurement.measurements_overall.add(read_block_latency, has_merge);
     }
 
-/*    fn reset(&mut self) {*/
-        /*rocksdb_ctx.reset();*/
-    /*}*/
+    fn reset(&self, rocksdb_ctx: &mut rocksdb::perf::PerfContext) {
+        rocksdb_ctx.reset();
+    }
 }
 
 #[derive(Debug)]
@@ -776,7 +776,9 @@ impl RocksDB {
             }
             None => {}
         }
-        //perf_data.reset();
+        let mut perf = rocksdb::perf::PerfContext::default();
+        perf.reset();
+        //perf_data.reset(&mut perf);
         //self.rocksdb_context.reset();
     }
 }
