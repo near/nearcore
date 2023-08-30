@@ -1,5 +1,9 @@
 use std::path::Path;
 
+use anyhow::anyhow;
+use near_store::DBCol;
+use strum::IntoEnumIterator;
+
 pub(crate) fn open_rocksdb(
     home: &Path,
     mode: near_store::Mode,
@@ -12,4 +16,11 @@ pub(crate) fn open_rocksdb(
     let rocksdb =
         near_store::db::RocksDB::open(&db_path, store_config, mode, near_store::Temperature::Hot)?;
     Ok(rocksdb)
+}
+
+pub(crate) fn resolve_column(col_name: &str) -> anyhow::Result<DBCol> {
+    DBCol::iter()
+        .filter(|db_col| <&str>::from(db_col) == col_name)
+        .next()
+        .ok_or_else(|| anyhow!("column {col_name} does not exist"))
 }
