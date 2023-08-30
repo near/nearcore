@@ -427,7 +427,8 @@ impl Database for RocksDB {
             .map(DBSlice::from_rocksdb_slice);
         let obs_latency = Duration::from_secs_f64(timer.stop_and_record());
 
-        self.perf_context.lock().unwrap().record(col, obs_latency, &self.rocksdb_context);
+        let perf = rocksdb::perf::PerfContext::default();
+        self.perf_context.lock().unwrap().record(col, obs_latency, &perf);
 
         Ok(result)
     }
