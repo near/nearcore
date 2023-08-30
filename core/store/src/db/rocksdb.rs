@@ -45,24 +45,21 @@ static CF_PROPERTY_NAMES: Lazy<Vec<std::ffi::CString>> = Lazy::new(|| {
 });
 
 pub struct PerfContext {
-    rocksdb_context: rocksdb::perf::PerfContext,
     column_measurements: HashMap<DBCol, ColumnMeasurement>,
 }
 
 impl PerfContext {
     pub fn new() -> Self {
-        rocksdb::perf::set_perf_stats(rocksdb::perf::PerfStatsLevel::EnableTime);
         Self {
-            rocksdb_context: rocksdb::perf::PerfContext::default(),
             column_measurements: HashMap::new(),
         }
     }
 
-    fn record(&mut self, col: DBCol, obs_latency: Duration) {
+    fn record(&mut self, col: DBCol, obs_latency: Duration, rocksdb_ctx: &rocksdb::perf::PerfContext) {
         let block_read_cnt =
-            self.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
+            rocksdb_ctx.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
         let read_block_latency =
-            Duration::from_nanos(self.rocksdb_context.metric(rocksdb::PerfMetric::BlockReadTime));
+            Duration::from_nanos(rocksdb_ctx.metric(rocksdb::PerfMetric::BlockReadTime));
         // assert!(observed_latency > read_block_latency);
         if !read_block_latency.is_zero() {
             println!(
@@ -71,13 +68,13 @@ impl PerfContext {
             );
         }
         let has_merge =
-            self.rocksdb_context.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
+            rocksdb_ctx.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
 
-        let block_cache_hit = self.rocksdb_context.metric(rocksdb::PerfMetric::BlockCacheHitCount);
-        let bloom_mem_hit = self.rocksdb_context.metric(rocksdb::PerfMetric::BloomMemtableHitCount);
-        let bloom_mem_miss = self.rocksdb_context.metric(rocksdb::PerfMetric::BloomMemtableMissCount);
-        let bloom_sst_hit = self.rocksdb_context.metric(rocksdb::PerfMetric::BloomSstHitCount);
-        let bloom_sst_miss = self.rocksdb_context.metric(rocksdb::PerfMetric::BloomSstMissCount);
+        let block_cache_hit = rocksdb_ctx.metric(rocksdb::PerfMetric::BlockCacheHitCount);
+        let bloom_mem_hit = rocksdb_ctx.metric(rocksdb::PerfMetric::BloomMemtableHitCount);
+        let bloom_mem_miss = rocksdb_ctx.metric(rocksdb::PerfMetric::BloomMemtableMissCount);
+        let bloom_sst_hit = rocksdb_ctx.metric(rocksdb::PerfMetric::BloomSstHitCount);
+        let bloom_sst_miss = rocksdb_ctx.metric(rocksdb::PerfMetric::BloomSstMissCount);
 
         if block_cache_hit > 0 || bloom_sst_hit > 0 || bloom_sst_miss > 0 {
             println!("Add metrics: cache_hit {}, bloom hit {} miss {}", block_cache_hit, bloom_sst_hit, bloom_sst_miss);
@@ -105,9 +102,9 @@ impl PerfContext {
         col_measurement.measurements_overall.add(read_block_latency, has_merge);
     }
 
-    fn reset(&mut self) {
-        self.rocksdb_context.reset();
-    }
+/*    fn reset(&mut self) {*/
+        /*rocksdb_ctx.reset();*/
+    /*}*/
 }
 
 #[derive(Debug)]
@@ -161,6 +158,7 @@ pub struct RocksDB {
     // counting total sum of max_open_files.
     _instance_tracker: instance_tracker::InstanceTracker,
 
+    rocksdb_context: rocksdb::perf::PerfContext,
     perf_context: Arc<Mutex<PerfContext>>,
 }
 
@@ -224,11 +222,13 @@ impl RocksDB {
             .map_err(other_error)?;
         let (db, db_opt) = Self::open_db(path, store_config, mode, temp, columns)?;
         let cf_handles = Self::get_cf_handles(&db, columns);
+        rocksdb::perf::set_perf_stats(rocksdb::perf::PerfStatsLevel::EnableTime);
         Ok(Self {
             db,
             db_opt,
             cf_handles,
             _instance_tracker: counter,
+            rocksdb_context: rocksdb::perf::PerfContext::default(),
             perf_context: Arc::new(Mutex::new(PerfContext::new())),
         })
     }
@@ -427,7 +427,7 @@ impl Database for RocksDB {
             .map(DBSlice::from_rocksdb_slice);
         let obs_latency = Duration::from_secs_f64(timer.stop_and_record());
 
-        self.perf_context.lock().unwrap().record(col, obs_latency);
+        self.perf_context.lock().unwrap().record(col, obs_latency, &self.rocksdb_context);
 
         Ok(result)
     }
@@ -775,7 +775,8 @@ impl RocksDB {
             }
             None => {}
         }
-        perf_data.reset();
+        //perf_data.reset();
+        //self.rocksdb_context.reset();
     }
 }
 
