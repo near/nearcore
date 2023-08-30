@@ -9,6 +9,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{get_block_shard_uid_rev, ShardUId};
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, StateSyncInfo};
 use near_primitives::state::FlatStateValue;
+use near_primitives::state_record::StateRecord;
 use near_primitives::syncing::{
     ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, StateSyncDumpProgress,
 };
@@ -16,11 +17,12 @@ use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction}
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash_rev};
+use near_primitives_core::account::Account;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata};
-use near_store::{DBCol, RawTrieNodeWithSize, Store, TrieChanges};
+use near_store::{DBCol, NibbleSlice, RawTrieNodeWithSize, Store, TrieChanges};
 use std::collections::HashSet;
 use std::fmt::Debug;
 use strum::IntoEnumIterator;
@@ -93,6 +95,10 @@ fn format_key_and_value<'a>(
             Box::new(CryptoHash::try_from(key).unwrap()),
             Box::new(u64::try_from_slice(value).unwrap()),
         ),
+        DBCol::BlocksToCatchup => (
+            Box::new(CryptoHash::try_from(key).unwrap()),
+            Box::new(Vec::<CryptoHash>::try_from_slice(value).unwrap()),
+        ),
         DBCol::ChunkExtra => (
             Box::new(get_block_shard_uid_rev(key).unwrap()),
             Box::new(ChunkExtra::try_from_slice(value).unwrap()),
@@ -129,9 +135,13 @@ fn format_key_and_value<'a>(
             Box::new(BlockHeight::try_from_slice(value).unwrap()),
         ),
         DBCol::FlatState => {
-            let (shard_uid, key) =
+            let (shard_uid, entry_key) =
                 near_store::flat::store_helper::decode_flat_state_db_key(key).unwrap();
-            (Box::new((shard_uid, key)), Box::new(FlatStateValue::try_from_slice(value).unwrap()))
+            let nibbles = NibbleSlice::new(&key[8..]);
+            (
+                Box::new((shard_uid, entry_key, nibbles)),
+                Box::new(FlatStateValue::try_from_slice(value).unwrap()),
+            )
         }
         DBCol::FlatStateChanges => (
             // TODO: Format keys as nibbles.
