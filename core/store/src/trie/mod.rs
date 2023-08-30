@@ -25,7 +25,6 @@ use near_primitives::types::{StateRoot, StateRootNode};
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fmt::Write;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::str;
@@ -668,20 +667,6 @@ impl Trie {
         }
     }
 
-    // Converts the list of Nibbles to a readable string.
-    fn nibbles_to_string(prefix: &[u8]) -> String {
-        let (chunks, remainder) = stdx::as_chunks::<2, _>(prefix);
-        let mut result = chunks
-            .into_iter()
-            .map(|chunk| (chunk[0] * 16) + chunk[1])
-            .flat_map(|ch| std::ascii::escape_default(ch).map(char::from))
-            .collect::<String>();
-        if let Some(final_nibble) = remainder.first() {
-            write!(&mut result, "\\x{:x}_", final_nibble).unwrap();
-        }
-        result
-    }
-
     fn print_recursive_internal(
         &self,
         f: &mut dyn std::io::Write,
@@ -714,7 +699,7 @@ impl Trie {
                 writeln!(
                     f,
                     "{spaces}Leaf {slice:?} {value:?} prefix:{} hash:{hash} mem_usage:{mem_usage} state_record:{:?}",
-                    Self::nibbles_to_string(prefix),
+                    NibbleSlice::nibbles_to_string(prefix),
                     state_record.map(|sr|format!("{}", sr)),
                 )?;
                 prefix.truncate(prefix.len() - slice.len());
@@ -724,7 +709,7 @@ impl Trie {
                 writeln!(
                     f,
                     "{spaces}Branch value:(none) prefix:{} hash:{hash} mem_usage:{mem_usage}",
-                    Self::nibbles_to_string(prefix),
+                    NibbleSlice::nibbles_to_string(prefix),
                 )?;
                 children
             }
@@ -732,7 +717,7 @@ impl Trie {
                 writeln!(
                     f,
                     "{spaces}Branch value:{value:?} prefix:{} hash:{hash} mem_usage:{mem_usage}",
-                    Self::nibbles_to_string(prefix),
+                    NibbleSlice::nibbles_to_string(prefix),
                 )?;
                 children
             }
@@ -744,7 +729,7 @@ impl Trie {
                     spaces,
                     slice,
                     child,
-                    Self::nibbles_to_string(prefix),
+                    NibbleSlice::nibbles_to_string(prefix),
                 )?;
                 spaces.push_str("  ");
                 prefix.extend(slice.iter());

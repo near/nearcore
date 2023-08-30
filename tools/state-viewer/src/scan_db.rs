@@ -135,9 +135,11 @@ fn format_key_and_value<'a>(
         DBCol::FlatState => {
             let (shard_uid, entry_key) =
                 near_store::flat::store_helper::decode_flat_state_db_key(key).unwrap();
-            let nibbles = NibbleSlice::new(&key[8..]);
+            let nibbles = NibbleSlice::nibbles_to_string(
+                &NibbleSlice::new(&entry_key).iter().collect::<Vec<u8>>(),
+            );
             (
-                Box::new((shard_uid, entry_key, nibbles)),
+                Box::new((shard_uid, nibbles)),
                 Box::new(FlatStateValue::try_from_slice(value).unwrap()),
             )
         }
