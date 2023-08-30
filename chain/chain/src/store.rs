@@ -222,6 +222,8 @@ pub trait ChainStoreAccess {
     ) -> Result<Vec<ReceiptProofResponse>, Error> {
         let mut ret = vec![];
 
+        // tracing::info!(?shard_id, ?last_chunk_height_included, "get_incoming_receipts_for_shard");
+
         loop {
             let header = self.get_block_header(&block_hash)?;
 
@@ -233,12 +235,26 @@ pub trait ChainStoreAccess {
                 break;
             }
 
-            let prev_hash = *header.prev_hash();
+            let receipts = self.get_incoming_receipts(&block_hash, shard_id);
+            match receipts {
+                Ok(receipt_proofs) => {
+                    tracing::info!(
+                        ?shard_id,
+                        ?last_chunk_height_included,
+                        "get_incoming_receipts_for_shard loop ok"
+                    );
+                    ret.push(ReceiptProofResponse(block_hash, receipt_proofs));
+                }
+                Err(err) => {
+                    tracing::info!(
+                        ?shard_id,
+                        ?last_chunk_height_included,
+                        ?err,
+                        "get_incoming_receipts_for_shard loop err"
+                    );
 
-            if let Ok(receipt_proofs) = self.get_incoming_receipts(&block_hash, shard_id) {
-                ret.push(ReceiptProofResponse(block_hash, receipt_proofs));
-            } else {
-                ret.push(ReceiptProofResponse(block_hash, Arc::new(vec![])));
+                    ret.push(ReceiptProofResponse(block_hash, Arc::new(vec![])));
+                }
             }
 
             // TODO(resharding)
@@ -246,7 +262,11 @@ pub trait ChainStoreAccess {
             // layout is different and handle that
             // one idea would be to do shard_id := parent(shard_id) but remember to
             // deduplicate the receipts as well
-            block_hash = prev_hash;
+            block_hash = *header.prev_hash();
+        }
+
+        if !ret.is_empty() {
+            tracing::info!(?shard_id, ?last_chunk_height_included, ret_len=?ret.len(), "get_incoming_receipts_for_shard");
         }
 
         Ok(ret)
@@ -1237,7 +1257,7 @@ impl ChainStoreAccess for ChainStore {
                 &self.incoming_receipts,
                 &get_block_shard_id(block_hash, shard_id),
             ),
-            format_args!("INCOMING RECEIPT: {}", block_hash),
+            format_args!("INCOMING RECEIPT: {} {}", block_hash, shard_id),
         )
     }
 
@@ -1979,6 +1999,12 @@ impl<'a> ChainStoreUpdate<'a> {
         shard_id: ShardId,
         receipt_proof: Arc<Vec<ReceiptProof>>,
     ) {
+        tracing::info!(?hash, ?shard_id, "saving incoming receipt all");
+        for receipt_proof in receipt_proof.iter() {
+            for receipt in &receipt_proof.0 {
+                tracing::info!(?shard_id, predecessor_id=?receipt.predecessor_id, receiver_id=?receipt.receiver_id, receipt_id=?receipt.receipt_id, "saving incoming receipt");
+            }
+        }
         self.chain_store_cache_update.incoming_receipts.insert((*hash, shard_id), receipt_proof);
     }
 
@@ -3012,6 +3038,11 @@ impl<'a> ChainStoreUpdate<'a> {
         for ((block_hash, shard_id), receipt) in
             self.chain_store_cache_update.incoming_receipts.iter()
         {
+            for receipt_proof in receipt.iter() {
+                for receipt in &receipt_proof.0 {
+                    tracing::info!(?shard_id, predecessor_id=?receipt.predecessor_id, receiver_id=?receipt.receiver_id, receipt_id=?receipt.receipt_id, "setting incoming receipt");
+                }
+            }
             store_update.set_ser(
                 DBCol::IncomingReceipts,
                 &get_block_shard_id(block_hash, *shard_id),

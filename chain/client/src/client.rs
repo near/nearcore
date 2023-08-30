@@ -1517,6 +1517,8 @@ impl Client {
                 && !skip_produce_chunk
             {
                 self.produce_chunks(&block, validator_id);
+            } else {
+                tracing::info!("producing chunk skipped at {}", block.header().height() + 1);
             }
         }
 
