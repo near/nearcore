@@ -642,7 +642,7 @@ pub fn display_sync_status(
                 write!(res, "[{}: {}]", shard_id, shard_status.status.to_string(),).unwrap();
             }
             match state_sync_config {
-                SyncConfig::Peers => {
+                SyncConfig::Peers(_) => {
                     tracing::warn!(
                         target: "stats",
                         "The node is trying to sync its State from its peers. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\

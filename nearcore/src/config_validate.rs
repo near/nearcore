@@ -111,7 +111,7 @@ impl<'a> ConfigValidator<'a> {
                 }
             }
             match &state_sync.sync {
-                SyncConfig::Peers => {}
+                SyncConfig::Peers(_) => {}
                 SyncConfig::ExternalStorage(config) => {
                     match &config.location {
                         ExternalStorageLocation::S3 { bucket, region } => {

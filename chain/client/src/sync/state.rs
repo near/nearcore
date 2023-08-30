@@ -32,14 +32,14 @@ use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::near_chain_primitives;
 use near_chain::resharding::StateSplitRequest;
 use near_chain::Chain;
-use near_chain_configs::{ExternalStorageConfig, ExternalStorageLocation, SyncConfig};
+use near_chain_configs::{ExternalStorageConfig, ExternalStorageLocation, PeersConfig, SyncConfig};
 use near_client_primitives::types::format_shard_sync_phase_per_shard;
 use near_client_primitives::types::{
     format_shard_sync_phase, DownloadStatus, ShardSyncDownload, ShardSyncStatus,
 };
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::types::AccountOrPeerIdOrHash;
 use near_network::types::PeerManagerMessageRequest;
+use near_network::types::{AccountOrPeerIdOrHash, PeerInfo};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
@@ -53,6 +53,7 @@ use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use std::ops::Add;
+use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
@@ -120,7 +121,9 @@ enum StateSyncInner {
         /// Which parts were requested from which peer and when.
         last_part_id_requested: HashMap<(AccountOrPeerIdOrHash, ShardId), PendingRequestStatus>,
         /// Map from which part we requested to whom.
-        requested_target: lru::LruCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
+        requested_target: lru::LruCache<(ShardId, u64, CryptoHash), AccountOrPeerIdOrHash>,
+        /// If set, only download state from these peers.
+        peers: Option<Vec<AccountOrPeerIdOrHash>>,
     },
     /// Requests the state header from peers but gets the state parts from an
     /// external storage.
@@ -162,6 +165,22 @@ pub struct StateSync {
 }
 
 impl StateSync {
+    fn parse_peer_list(allowed_peers: &Vec<String>) -> Vec<AccountOrPeerIdOrHash> {
+        allowed_peers
+            .iter()
+            .map(|peer: &String| PeerInfo::from_str(peer.as_str()))
+            .map(|result| match result {
+                Ok(peer_info) => Ok(AccountOrPeerIdOrHash::PeerId(peer_info.id)),
+                Err(e) => {
+                    tracing::debug!("Could not parse peer: {:?}", e);
+                    Err(e)
+                }
+            })
+            .filter(Result::is_ok)
+            .map(|result| result.unwrap())
+            .collect()
+    }
+
     pub fn new(
         network_adapter: PeerManagerAdapter,
         timeout: TimeDuration,
@@ -170,9 +189,14 @@ impl StateSync {
         catchup: bool,
     ) -> Self {
         let inner = match sync_config {
-            SyncConfig::Peers => StateSyncInner::Peers {
+            SyncConfig::Peers(PeersConfig { allowed_peers }) => StateSyncInner::Peers {
                 last_part_id_requested: Default::default(),
                 requested_target: lru::LruCache::new(MAX_PENDING_PART as usize),
+                peers: if !allowed_peers.is_empty() {
+                    Some(Self::parse_peer_list(allowed_peers))
+                } else {
+                    None
+                },
             },
             SyncConfig::ExternalStorage(ExternalStorageConfig {
                 location,
@@ -507,8 +531,8 @@ impl StateSync {
         sync_hash: CryptoHash,
     ) {
         match &mut self.inner {
-            StateSyncInner::Peers { last_part_id_requested, requested_target } => {
-                let key = (part_id, sync_hash);
+            StateSyncInner::Peers { last_part_id_requested, requested_target, peers: _ } => {
+                let key = (shard_id, part_id, sync_hash);
                 // Check that it came from the target that we requested it from.
                 if let Some(target) = requested_target.get(&key) {
                     if last_part_id_requested.get_mut(&(target.clone(), shard_id)).map_or(
@@ -587,9 +611,13 @@ impl StateSync {
             StateSyncInner::Peers {
                 last_part_id_requested,
                 requested_target: _requested_target,
+                peers: peers_override,
             } => {
                 last_part_id_requested.retain(|_, request| !request.expired());
-                peers
+                // Only select peers from config if they exist.
+                peers_override
+                    .clone()
+                    .unwrap_or(peers)
                     .into_iter()
                     .filter(|candidate| {
                         // If we still have a pending request from this node - don't add another one.
@@ -700,7 +728,7 @@ impl StateSync {
         // Iterate over all parts that needs to be requested (i.e. download.run_me is true).
         // Parts are ordered such that its index match its part_id.
         match &mut self.inner {
-            StateSyncInner::Peers { last_part_id_requested, requested_target } => {
+            StateSyncInner::Peers { last_part_id_requested, requested_target, peers: _peers } => {
                 // We'll select all the 'highest' peers + validators as candidates (excluding those that gave us timeout in the past).
                 // And for each one of them, we'll ask for up to 16 (MAX_STATE_PART_REQUEST) parts.
                 let possible_targets_sampler =
@@ -1256,11 +1284,11 @@ fn sent_request_part(
     shard_id: ShardId,
     sync_hash: CryptoHash,
     last_part_id_requested: &mut HashMap<(AccountOrPeerIdOrHash, ShardId), PendingRequestStatus>,
-    requested_target: &mut lru::LruCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
+    requested_target: &mut lru::LruCache<(ShardId, u64, CryptoHash), AccountOrPeerIdOrHash>,
     timeout: Duration,
 ) {
     // FIXME: something is wrong - the index should have a shard_id too.
-    requested_target.put((part_id, sync_hash), target.clone());
+    requested_target.put((shard_id, part_id, sync_hash), target.clone());
     last_part_id_requested
         .entry((target, shard_id))
         .and_modify(|pending_request| {
@@ -1411,7 +1439,7 @@ mod test {
             mock_peer_manager.clone().into(),
             TimeDuration::from_secs(1),
             "chain_id",
-            &SyncConfig::Peers,
+            &SyncConfig::default(),
             false,
         );
         let mut new_shard_sync = HashMap::new();

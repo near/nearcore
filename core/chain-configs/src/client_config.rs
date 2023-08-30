@@ -83,6 +83,13 @@ fn default_num_concurrent_requests_during_catchup() -> u32 {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct PeersConfig {
+    /// Only download state from these peers.
+    #[serde(default)]
+    pub allowed_peers: Vec<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct ExternalStorageConfig {
     /// Location of state parts.
     pub location: ExternalStorageLocation,
@@ -131,14 +138,14 @@ pub struct DumpConfig {
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub enum SyncConfig {
     /// Syncs state from the peers without reading anything from external storage.
-    Peers,
+    Peers(PeersConfig),
     /// Expects parts to be available in external storage.
     ExternalStorage(ExternalStorageConfig),
 }
 
 impl Default for SyncConfig {
     fn default() -> Self {
-        Self::Peers
+        Self::Peers(PeersConfig { allowed_peers: vec![] })
     }
 }
 
@@ -155,7 +162,10 @@ pub struct StateSyncConfig {
 impl SyncConfig {
     /// Checks whether the object equals its default value.
     fn is_default(&self) -> bool {
-        matches!(self, Self::Peers)
+        match self {
+            SyncConfig::Peers(PeersConfig { allowed_peers }) => allowed_peers.is_empty(),
+            SyncConfig::ExternalStorage(_) => false,
+        }
     }
 }
 
