@@ -238,35 +238,38 @@ pub trait ChainStoreAccess {
             let receipts = self.get_incoming_receipts(&block_hash, shard_id);
             match receipts {
                 Ok(receipt_proofs) => {
-                    tracing::info!(
+                    tracing::debug!(
                         ?shard_id,
                         ?last_chunk_height_included,
-                        "get_incoming_receipts_for_shard loop ok"
+                        ?block_hash,
+                        "get_incoming_receipts_for_shard found receipts from block with missing chunk"
                     );
                     ret.push(ReceiptProofResponse(block_hash, receipt_proofs));
                 }
                 Err(err) => {
-                    tracing::info!(
+                    tracing::warn!(
                         ?shard_id,
                         ?last_chunk_height_included,
+                        ?block_hash,
                         ?err,
-                        "get_incoming_receipts_for_shard loop err"
+                        "get_incoming_receipts_for_shard could not find receipts from block with missing chunk"
                     );
 
+                    // This can happen when all chunks are missing in a block
+                    // and then we can safely assume that there aren't any
+                    // incoming receipts. It would be nicer to explicitly check
+                    // that condition rather than relying on errors when reading
+                    // from the db.
                     ret.push(ReceiptProofResponse(block_hash, Arc::new(vec![])));
                 }
             }
 
             // TODO(resharding)
-            // when crossing the epoch boundary we should check if the shard
-            // layout is different and handle that
-            // one idea would be to do shard_id := parent(shard_id) but remember to
-            // deduplicate the receipts as well
+            // When crossing the epoch boundary we should check if the shard
+            // layout is different and handle that.
+            // One idea would be to do shard_id := parent(shard_id) but remember to
+            // deduplicate the receipts as well.
             block_hash = *header.prev_hash();
-        }
-
-        if !ret.is_empty() {
-            tracing::info!(?shard_id, ?last_chunk_height_included, ret_len=?ret.len(), "get_incoming_receipts_for_shard");
         }
 
         Ok(ret)
