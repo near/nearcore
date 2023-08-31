@@ -805,6 +805,7 @@ impl RocksDB {
                 result.data.push(("rocksdb_perf_bloom_sst_hit".to_string(),
                 vec![StatsValue::ColumnValue(DBCol::State, measurement.bloom_sst.hits as i64)]));
 
+                println!("Send data: {:?}", measurement);
             }
             None => {}
         }
