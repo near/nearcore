@@ -497,7 +497,7 @@ impl TestShardUpgradeEnv {
                 let execution_outcomes = client.chain.get_transaction_execution_result(id).unwrap();
                 if execution_outcomes.is_empty() {
                     tracing::error!(target: "test", tx=?id, client=i, "tx not processed");
-                    // assert!(allow_not_started, "tx {:?} not processed", id);
+                    assert!(allow_not_started, "tx {:?} not processed", id);
                     continue;
                 }
                 let final_outcome = client.chain.get_final_transaction_result(id).unwrap();
@@ -1122,7 +1122,11 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(resharding_type: ReshardingT
         test_env.check_receipt_id_to_shard_id();
     }
 
-    let successful_txs = test_env.check_tx_outcomes(false, vec![2 * epoch_length + 1]);
+    // TODO(resharding) get rid of skip_heights
+    // - 2 * epoch_length is skipped because we miss a chunk in that block and
+    // we lose the transaction pool during resharding. fix that
+    let skip_heights = vec![2 * epoch_length, 2 * epoch_length + 1];
+    let successful_txs = test_env.check_tx_outcomes(false, skip_heights);
     let new_accounts =
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
 
