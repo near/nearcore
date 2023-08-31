@@ -133,7 +133,7 @@ impl Mode {
     fn optional_args_time_metric(self) -> Vec<&'static str> {
         match self {
             Mode::Default => vec![],
-            Mode::Fast => vec!["--in-memory-db"],
+            Mode::Fast => vec!["--in-memory-db", "--additional-accounts-num=1000", "--accounts-num=1000"],
         }
     }
 }
