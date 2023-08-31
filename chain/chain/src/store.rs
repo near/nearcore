@@ -222,8 +222,6 @@ pub trait ChainStoreAccess {
     ) -> Result<Vec<ReceiptProofResponse>, Error> {
         let mut ret = vec![];
 
-        // tracing::info!(?shard_id, ?last_chunk_height_included, "get_incoming_receipts_for_shard");
-
         loop {
             let header = self.get_block_header(&block_hash)?;
 
@@ -247,7 +245,7 @@ pub trait ChainStoreAccess {
                     ret.push(ReceiptProofResponse(block_hash, receipt_proofs));
                 }
                 Err(err) => {
-                    tracing::warn!(
+                    tracing::debug!(
                         ?shard_id,
                         ?last_chunk_height_included,
                         ?block_hash,
@@ -265,10 +263,10 @@ pub trait ChainStoreAccess {
             }
 
             // TODO(resharding)
-            // When crossing the epoch boundary we should check if the shard
-            // layout is different and handle that.
-            // One idea would be to do shard_id := parent(shard_id) but remember to
-            // deduplicate the receipts as well.
+            // when crossing the epoch boundary we should check if the shard
+            // layout is different and handle that
+            // one idea would be to do shard_id := parent(shard_id) but remember to
+            // deduplicate the receipts as well
             block_hash = *header.prev_hash();
         }
 
@@ -2002,12 +2000,6 @@ impl<'a> ChainStoreUpdate<'a> {
         shard_id: ShardId,
         receipt_proof: Arc<Vec<ReceiptProof>>,
     ) {
-        tracing::info!(?hash, ?shard_id, "saving incoming receipt all");
-        for receipt_proof in receipt_proof.iter() {
-            for receipt in &receipt_proof.0 {
-                tracing::info!(?shard_id, predecessor_id=?receipt.predecessor_id, receiver_id=?receipt.receiver_id, receipt_id=?receipt.receipt_id, "saving incoming receipt");
-            }
-        }
         self.chain_store_cache_update.incoming_receipts.insert((*hash, shard_id), receipt_proof);
     }
 
@@ -3041,11 +3033,6 @@ impl<'a> ChainStoreUpdate<'a> {
         for ((block_hash, shard_id), receipt) in
             self.chain_store_cache_update.incoming_receipts.iter()
         {
-            for receipt_proof in receipt.iter() {
-                for receipt in &receipt_proof.0 {
-                    tracing::info!(?shard_id, predecessor_id=?receipt.predecessor_id, receiver_id=?receipt.receiver_id, receipt_id=?receipt.receipt_id, "setting incoming receipt");
-                }
-            }
             store_update.set_ser(
                 DBCol::IncomingReceipts,
                 &get_block_shard_id(block_hash, *shard_id),

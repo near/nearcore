@@ -3982,20 +3982,12 @@ impl Chain {
         // we can't use hash from the current block here yet because the incoming receipts
         // for this block is not stored yet
         let new_receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
-        for receipt in &new_receipts {
-            tracing::info!(?shard_id, predecessor_id=?receipt.predecessor_id, receiver_id=?receipt.receiver_id, receipt_id=?receipt.receipt_id, "getting incoming receipt new");
-        }
-
         let old_receipts = &self.store().get_incoming_receipts_for_shard(
             shard_id,
             *prev_hash,
             prev_chunk_height_included,
         )?;
         let old_receipts = collect_receipts_from_response(old_receipts);
-        for receipt in &old_receipts {
-            tracing::info!(?shard_id, predecessor_id=?receipt.predecessor_id, receiver_id=?receipt.receiver_id, receipt_id=?receipt.receipt_id, "getting incoming receipt old");
-        }
-
         let receipts = [new_receipts, old_receipts].concat();
 
         let chunk = self.get_chunk_clone_from_header(&chunk_header.clone())?;
