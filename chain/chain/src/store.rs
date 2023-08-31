@@ -216,13 +216,12 @@ pub trait ChainStoreAccess {
     /// so the receipts from these blocks are propagated
     fn get_incoming_receipts_for_shard(
         &self,
+        epoch_manager: &dyn EpochManagerAdapter,
         shard_id: ShardId,
         mut block_hash: CryptoHash,
         last_chunk_height_included: BlockHeight,
     ) -> Result<Vec<ReceiptProofResponse>, Error> {
         let mut ret = vec![];
-
-        // tracing::info!(?shard_id, ?last_chunk_height_included, "get_incoming_receipts_for_shard");
 
         loop {
             let header = self.get_block_header(&block_hash)?;

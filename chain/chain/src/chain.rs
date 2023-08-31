@@ -2925,8 +2925,10 @@ impl Chain {
             },
         };
 
-        // Getting all existing incoming_receipts from prev_chunk height to the new epoch.
+        // Getting all existing incoming_receipts from prev_chunk height to the
+        // new epoch.
         let incoming_receipts_proofs = self.store.get_incoming_receipts_for_shard(
+            self.epoch_manager.as_ref(),
             shard_id,
             sync_hash,
             prev_chunk_height_included,
@@ -3986,7 +3988,9 @@ impl Chain {
             tracing::info!(?shard_id, predecessor_id=?receipt.predecessor_id, receiver_id=?receipt.receiver_id, receipt_id=?receipt.receipt_id, "getting incoming receipt new");
         }
 
+        // TODO(wacban) OK, in chain
         let old_receipts = &self.store().get_incoming_receipts_for_shard(
+            self.epoch_manager.as_ref(),
             shard_id,
             *prev_hash,
             prev_chunk_height_included,
