@@ -47,7 +47,7 @@ const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion =
 #[cfg(not(feature = "protocol_feature_simple_nightshade_v2"))]
 const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion = PROTOCOL_VERSION + 1;
 
-// const P_CATCHUP: f64 = 0.2;
+const P_CATCHUP: f64 = 0.2;
 
 enum ReshardingType {
     // In the V0->V1 resharding outgoing receipts are reassigned to receiver.
@@ -295,8 +295,7 @@ impl TestShardUpgradeEnv {
         // by chance. This simulates when catchup takes a long time to be done
         // Note: if the catchup happens only at the last block of an epoch then
         // client will fail to produce the chunks in the first block of the next epoch.
-        // let should_catchup = rng.gen_bool(P_CATCHUP) || next_height % self.epoch_length == 0;
-        let should_catchup = (next_height + 1) % self.epoch_length == 0;
+        let should_catchup = rng.gen_bool(P_CATCHUP) || next_height % self.epoch_length == 0;
         // process block, this also triggers chunk producers for the next block to produce chunks
         for j in 0..self.num_clients {
             let client = &mut env.clients[j];
@@ -758,8 +757,6 @@ fn setup_genesis(
     genesis.config.avg_hidden_validator_seats_per_shard =
         epoch_config.avg_hidden_validator_seats_per_shard;
 
-    tracing::info!("genesis {:#?}", genesis);
-
     genesis
 }
 
@@ -1036,7 +1033,7 @@ fn setup_test_env_with_cross_contract_txs(
         2 * epoch_length - 1,
         2 * epoch_length,
     ] {
-        test_env.set_tx_at_height(height, generate_txs(10, 10));
+        test_env.set_tx_at_height(height, generate_txs(5, 8));
     }
 
     // adds some transactions after sharding change finishes
