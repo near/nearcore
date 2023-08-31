@@ -55,12 +55,16 @@ impl PerfContext {
         }
     }
 
-    fn record(&mut self, col: DBCol, obs_latency: Duration, rocksdb_ctx: &rocksdb::perf::PerfContext) {
-        let block_read_cnt =
-            rocksdb_ctx.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
+    // We call record for every read since rocksdb perf context is local for
+    // every thread and because of that we cannot use single rocksdb perf 
+    // context to get all data
+    fn record(&mut self, col: DBCol, obs_latency: Duration) {
+        let rocksdb_ctx = rocksdb::perf::PerfContext::default();
+        let col_measurement =
+            self.column_measurements.entry(col).or_insert(ColumnMeasurement::new()); let block_read_cnt = rocksdb_ctx.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
+
         let read_block_latency =
             Duration::from_nanos(rocksdb_ctx.metric(rocksdb::PerfMetric::BlockReadTime));
-        // assert!(observed_latency > read_block_latency);
         if !read_block_latency.is_zero() {
             println!(
                 "Read block lat: {:?} for block count {} and obs lat: {:?}",
@@ -70,18 +74,19 @@ impl PerfContext {
         let has_merge =
             rocksdb_ctx.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
 
-        let block_cache_hit = rocksdb_ctx.metric(rocksdb::PerfMetric::BlockCacheHitCount);
-        let bloom_mem_hit = rocksdb_ctx.metric(rocksdb::PerfMetric::BloomMemtableHitCount);
-        let bloom_mem_miss = rocksdb_ctx.metric(rocksdb::PerfMetric::BloomMemtableMissCount);
-        let bloom_sst_hit = rocksdb_ctx.metric(rocksdb::PerfMetric::BloomSstHitCount);
-        let bloom_sst_miss = rocksdb_ctx.metric(rocksdb::PerfMetric::BloomSstMissCount);
+        col_measurement.block_cache.add_hits(rocksdb_ctx.metric(rocksdb::PerfMetric::BlockCacheHitCount));
+        col_measurement.bloom_mem.add_hits(rocksdb_ctx.metric(rocksdb::PerfMetric::BloomMemtableHitCount));
+        col_measurement.bloom_mem.add_miss(rocksdb_ctx.metric(rocksdb::PerfMetric::BloomMemtableMissCount));
 
-        if block_cache_hit > 0 || bloom_sst_hit > 0 || bloom_sst_miss > 0 {
-            println!("Add metrics: cache_hit {}, bloom hit {} miss {}", block_cache_hit, bloom_sst_hit, bloom_sst_miss);
-        }
-        if bloom_mem_miss > 0 || bloom_mem_hit > 0 {
-            println!("Add metrics: mem_hit {}, mem_miss {}", bloom_mem_hit, bloom_mem_miss);
-        }
+        col_measurement.bloom_sst.add_hits(rocksdb_ctx.metric(rocksdb::PerfMetric::BloomSstHitCount));
+        col_measurement.bloom_sst.add_hits(rocksdb_ctx.metric(rocksdb::PerfMetric::BloomSstMissCount));
+
+/*        if block_cache_hit > 0 || bloom_sst_hit > 0 || bloom_sst_miss > 0 {*/
+            /*println!("Add metrics: cache_hit {}, bloom hit {} miss {}", block_cache_hit, bloom_sst_hit, bloom_sst_miss);*/
+        /*}*/
+        /*if bloom_mem_miss > 0 || bloom_mem_hit > 0 {*/
+            /*println!("Add metrics: mem_hit {}, mem_miss {}", bloom_mem_hit, bloom_mem_miss);*/
+        /*}*/
         self.add_measurement(col, block_read_cnt, read_block_latency, has_merge);
     }
 
@@ -111,6 +116,9 @@ impl PerfContext {
 struct ColumnMeasurement {
     measurements_per_block_reads: BTreeMap<usize, Measurements>,
     measurements_overall: Measurements,
+    block_cache: CacheUsage,
+    bloom_mem: CacheUsage,
+    bloom_sst: CacheUsage,
 }
 
 impl ColumnMeasurement {
@@ -118,7 +126,29 @@ impl ColumnMeasurement {
         Self {
             measurements_per_block_reads: BTreeMap::new(),
             measurements_overall: Measurements::default(),
+            block_cache: CacheUsage::default(),
+            bloom_mem: CacheUsage::default(),
+            bloom_sst: CacheUsage::default(),
         }
+    }
+}
+
+#[derive(Debug, Default)]
+struct CacheUsage {
+    pub hits: u64,
+    pub miss: u64,
+    pub count: u64,
+}
+
+impl CacheUsage {
+    pub fn add_hits(&mut self, hits: u64) {
+        self.hits += hits;
+        self.count += hits;
+    }
+
+    pub fn add_miss(&mut self, miss: u64) {
+        self.miss += miss;
+        self.count += miss;
     }
 }
 
@@ -427,8 +457,7 @@ impl Database for RocksDB {
             .map(DBSlice::from_rocksdb_slice);
         let obs_latency = Duration::from_secs_f64(timer.stop_and_record());
 
-        let perf = rocksdb::perf::PerfContext::default();
-        self.perf_context.lock().unwrap().record(col, obs_latency, &perf);
+        self.perf_context.lock().unwrap().record(col, obs_latency);
 
         Ok(result)
     }
@@ -706,17 +735,6 @@ impl RocksDB {
     /// Fills results with rocksdb perf data
     fn fill_perf_data(&self, result: &mut StoreStatistics) {
         let mut perf_data = self.perf_context.lock().unwrap();
-        // This works
-        /*let obs_lat_values = perf_data*/
-        /*.column_measurements*/
-        /*.iter()*/
-        /*.filter_map(|(col, measurement)| {*/
-        /*//let prop = self.db.property_int_value_cf(handle, prop_name);*/
-        /*let obs_lat =*/
-        /*measurement.measurements_overall.total_observed_latency.as_secs() as i64;*/
-        /*Some(StatsValue::ColumnValue(*col, obs_lat))*/
-        /*})*/
-        /*.collect::<Vec<_>>();*/
 
         match perf_data.column_measurements.get(&DBCol::State) {
             Some(measurement) => {
@@ -773,13 +791,26 @@ impl RocksDB {
                     "rocksdb_perf_total_lat_per_block".to_string(),
                     state_total_lat_per_block,
                 ));
+ 
+                result.data.push(("rocksdb_perf_block_cache_hit".to_string(),
+                vec![StatsValue::ColumnValue(DBCol::State, measurement.block_cache.hits as i64)]));
+
+                result.data.push(("rocksdb_perf_bloom_sst_hit".to_string(),
+                vec![StatsValue::ColumnValue(DBCol::State, measurement.bloom_mem.hits as i64)]));
+                result.data.push(("rocksdb_perf_bloom_sst_miss".to_string(),
+                vec![StatsValue::ColumnValue(DBCol::State, measurement.bloom_mem.miss as i64)]));
+
+                result.data.push(("rocksdb_perf_bloom_sst_hit".to_string(),
+                vec![StatsValue::ColumnValue(DBCol::State, measurement.bloom_sst.hits as i64)]));
+                result.data.push(("rocksdb_perf_bloom_sst_hit".to_string(),
+                vec![StatsValue::ColumnValue(DBCol::State, measurement.bloom_sst.hits as i64)]));
+
             }
             None => {}
         }
         let mut perf = rocksdb::perf::PerfContext::default();
         perf.reset();
-        //perf_data.reset(&mut perf);
-        //self.rocksdb_context.reset();
+        perf_data.reset(&mut perf);
     }
 }
 
