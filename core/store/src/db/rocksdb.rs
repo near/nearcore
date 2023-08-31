@@ -59,7 +59,7 @@ impl PerfContext {
     // every thread and because of that we cannot use single rocksdb perf 
     // context to get all data
     fn record(&mut self, col: DBCol, obs_latency: Duration) {
-        let rocksdb_ctx = rocksdb::perf::PerfContext::default();
+        let mut rocksdb_ctx = rocksdb::perf::PerfContext::default();
         let col_measurement =
             self.column_measurements.entry(col).or_insert(ColumnMeasurement::new()); let block_read_cnt = rocksdb_ctx.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
 
@@ -76,6 +76,7 @@ impl PerfContext {
         col_measurement.bloom_sst.add_hits(rocksdb_ctx.metric(rocksdb::PerfMetric::BloomSstMissCount));
 
         self.add_measurement(col, block_read_cnt, read_block_latency, has_merge);
+        rocksdb_ctx.reset();
     }
 
     fn add_measurement(
