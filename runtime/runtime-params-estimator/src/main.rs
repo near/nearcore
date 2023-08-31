@@ -102,6 +102,9 @@ struct CliArgs {
     /// Use in-memory test DB, useful to avoid variance caused by DB.
     #[clap(long)]
     pub in_memory_db: bool,
+    /// Only run a minimal check that's faster than trying to get accurate results.
+    #[clap(long)]
+    pub check_only: bool,
     /// Extra configuration parameters for RocksDB specific estimations
     #[clap(flatten)]
     db_test_config: RocksDBTestConfig,
@@ -301,6 +304,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         json_output: cli_args.json_output,
         drop_os_cache: cli_args.drop_os_cache,
         in_memory_db: cli_args.in_memory_db,
+        check_only: cli_args.check_only,
     };
     let cost_table = runtime_params_estimator::run(config);
     Ok(Some(cost_table))
