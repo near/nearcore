@@ -5,6 +5,7 @@ use borsh::BorshDeserialize;
 use clap;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::block::Tip;
+use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
 use near_store::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
@@ -408,12 +409,30 @@ impl PrepareHotCmd {
         let cold_head = cold_head.ok_or(anyhow::anyhow!("The cold head is missing"))?;
 
         // Ideally it should look like this:
-        // RPC     T . . . . . H
-        // COLD  . . . . H
+        // RPC     T . .  . . . . H
+        // COLD  . . . ES . . H
 
         if cold_head.height < rpc_tail {
             return Err(anyhow::anyhow!(
                 "The cold head is behind the rpc tail. cold head height: {} rpc tail height: {}",
+                cold_head.height,
+                rpc_tail
+            ));
+        }
+
+        let cold_head_hash = cold_head.last_block_hash;
+        let cold_head_block_info =
+            rpc_store.get_ser::<BlockInfo>(DBCol::BlockInfo, cold_head_hash.as_ref())?;
+        let cold_head_block_info =
+            cold_head_block_info.ok_or(anyhow::anyhow!("Cold head block info is not in rpc db"))?;
+        let cold_epoch_first_block = *cold_head_block_info.epoch_first_block();
+        let cold_epoch_first_block_info =
+            rpc_store.get_ser::<BlockInfo>(DBCol::BlockInfo, cold_epoch_first_block.as_ref())?;
+
+        if cold_epoch_first_block_info.is_none() {
+            return Err(anyhow::anyhow!(
+                "The start of the latest epoch in cold db is behind the rpc tail.\
+                cold head height: {}, rpc tail height: {}",
                 cold_head.height,
                 rpc_tail
             ));

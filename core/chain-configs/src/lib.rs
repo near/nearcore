@@ -1,6 +1,7 @@
 mod client_config;
 mod genesis_config;
 pub mod genesis_validate;
+#[cfg(feature = "metrics")]
 mod metrics;
 mod updateable_config;
 

@@ -1,8 +1,8 @@
-use std::{fs, io};
+use std::{fs, io, rc::Rc};
 
 use cargo_metadata::{camino::Utf8PathBuf, CargoOpt, MetadataCommand};
 
-use super::types::{Package, Workspace};
+use super::types::{Manifest, Package, Workspace};
 
 pub fn read_toml(path: &Utf8PathBuf) -> anyhow::Result<Option<toml::Value>> {
     match fs::read(path) {
@@ -20,29 +20,39 @@ pub fn parse_workspace() -> anyhow::Result<Workspace> {
 
     let metadata = cmd.exec()?;
 
+    let workspace_manifest = Rc::new(Manifest::new(
+        match read_toml(&metadata.workspace_root.join("Cargo.toml"))? {
+            Some(raw) => raw,
+            None => anyhow::bail!("workspace manifest not found"),
+        },
+        None,
+    ));
+
     let members = metadata
         .packages
         .iter()
         .cloned()
         .filter(|package| metadata.workspace_members.contains(&package.id))
         .map(|package| {
-            let raw = match read_toml(&package.manifest_path)? {
-                Some(raw) => raw,
-                None => anyhow::bail!("package manifest `{}` not found", package.name),
-            };
-            Ok(Package { parsed: package, raw })
+            Ok(Package {
+                manifest: Manifest::new(
+                    match read_toml(&package.manifest_path)? {
+                        Some(raw) => raw,
+                        None => anyhow::bail!("package manifest `{}` not found", package.name),
+                    },
+                    Some(workspace_manifest.clone()),
+                ),
+                parsed: package,
+            })
         })
         .collect::<anyhow::Result<_>>()?;
-    let raw = match read_toml(&metadata.workspace_root.join("Cargo.toml"))? {
-        Some(raw) => raw,
-        None => anyhow::bail!("workspace manifest not found"),
-    };
-    Ok(Workspace { root: metadata.workspace_root, members, raw })
+
+    Ok(Workspace { root: metadata.workspace_root, members, manifest: workspace_manifest })
 }
 
 /// Checks if the crate specified is explicitly publishable
 pub fn is_publishable(pkg: &Package) -> bool {
-    !matches!(pkg.raw["package"].get("publish"), Some(toml::Value::Boolean(false)))
+    !matches!(pkg.manifest.read(&["package", "publish"]), Some(toml::Value::Boolean(false)))
 }
 
 /// Checks if the file specified exists relative to the crate folder

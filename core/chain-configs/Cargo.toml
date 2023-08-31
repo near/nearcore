@@ -1,14 +1,13 @@
 [package]
 name = "near-chain-configs"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
-publish = true
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 edition.workspace = true
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/near/nearcore"
+rust-version.workspace = true
 description = "This crate provides typed interfaces to the NEAR Genesis and Chain Configs"
+repository.workspace = true
+license.workspace = true
+publish = true
 
 [dependencies]
 anyhow.workspace = true
@@ -23,9 +22,10 @@ smart-default.workspace = true
 tracing.workspace = true
 
 near-crypto.workspace = true
-near-o11y.workspace = true
+near-o11y = { workspace = true, optional = true }
 near-primitives.workspace = true
 near-config-utils.workspace = true
 
 [features]
 default = []
+metrics = ["near-o11y"]

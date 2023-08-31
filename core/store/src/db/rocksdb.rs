@@ -212,9 +212,9 @@ impl RocksDB {
     fn iter_raw_bytes_internal<'a>(
         &'a self,
         col: DBCol,
-        prefix: Option<&'a [u8]>,
-        lower_bound: Option<&'a [u8]>,
-        upper_bound: Option<&'a [u8]>,
+        prefix: Option<&[u8]>,
+        lower_bound: Option<&[u8]>,
+        upper_bound: Option<&[u8]>,
     ) -> RocksDBIterator<'a> {
         let cf_handle = self.cf_handle(col).unwrap();
         let mut read_options = rocksdb_read_options();
@@ -290,15 +290,15 @@ impl Database for RocksDB {
         Ok(result)
     }
 
-    fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+    fn iter_raw_bytes(&self, col: DBCol) -> DBIterator {
         Box::new(self.iter_raw_bytes_internal(col, None, None, None))
     }
 
-    fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+    fn iter(&self, col: DBCol) -> DBIterator {
         refcount::iter_with_rc_logic(col, self.iter_raw_bytes_internal(col, None, None, None))
     }
 
-    fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
+    fn iter_prefix(&self, col: DBCol, key_prefix: &[u8]) -> DBIterator {
         let iter = self.iter_raw_bytes_internal(col, Some(key_prefix), None, None);
         refcount::iter_with_rc_logic(col, iter)
     }
@@ -306,8 +306,8 @@ impl Database for RocksDB {
     fn iter_range<'a>(
         &'a self,
         col: DBCol,
-        lower_bound: Option<&'a [u8]>,
-        upper_bound: Option<&'a [u8]>,
+        lower_bound: Option<&[u8]>,
+        upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
         let iter = self.iter_raw_bytes_internal(col, None, lower_bound, upper_bound);
         refcount::iter_with_rc_logic(col, iter)

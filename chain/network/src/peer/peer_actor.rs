@@ -1,11 +1,11 @@
-use crate::accounts_data;
+use crate::accounts_data::AccountDataError;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
     PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
-    RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
+    RoutedMessageBody, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -802,7 +802,7 @@ impl PeerActor {
             known_edges.retain(|edge| edge.removal_info().is_none());
             metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
         }
-        let known_accounts = self.network_state.graph.routing_table.get_announce_accounts();
+        let known_accounts = self.network_state.account_announcements.get_announcements();
         self.send_message_or_log(&PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
             known_edges,
             known_accounts,
@@ -1073,26 +1073,6 @@ impl PeerActor {
         );
     }
 
-    fn add_route_back(&self, conn: &connection::Connection, msg: &RoutedMessageV2) {
-        if !msg.expect_response() {
-            return;
-        }
-        tracing::trace!(target: "network", route_back = ?msg.clone(), "Received peer message that requires response");
-        let from = &conn.peer_info.id;
-        match conn.tier {
-            tcp::Tier::T1 => self.network_state.tier1_route_back.lock().insert(
-                &self.clock,
-                msg.hash(),
-                from.clone(),
-            ),
-            tcp::Tier::T2 => self.network_state.graph.routing_table.add_route_back(
-                &self.clock,
-                msg.hash(),
-                from.clone(),
-            ),
-        }
-    }
-
     fn handle_msg_ready(
         &mut self,
         ctx: &mut actix::Context<Self>,
@@ -1261,13 +1241,9 @@ impl PeerActor {
                         network_state.add_accounts_data(&clock, msg.accounts_data).await
                     {
                         conn.stop(Some(match err {
-                            accounts_data::Error::InvalidSignature => {
-                                ReasonForBan::InvalidSignature
-                            }
-                            accounts_data::Error::DataTooLarge => ReasonForBan::Abusive,
-                            accounts_data::Error::SingleAccountMultipleData => {
-                                ReasonForBan::Abusive
-                            }
+                            AccountDataError::InvalidSignature => ReasonForBan::InvalidSignature,
+                            AccountDataError::DataTooLarge => ReasonForBan::Abusive,
+                            AccountDataError::SingleAccountMultipleData => ReasonForBan::Abusive,
                         }));
                     }
                     network_state
@@ -1327,7 +1303,7 @@ impl PeerActor {
                     return;
                 }
 
-                self.add_route_back(&conn, msg.as_ref());
+                self.network_state.tier2_add_route_back(&self.clock, &conn, msg.as_ref());
                 if for_me {
                     // Handle Ping and Pong message if they are for us without sending to client.
                     // i.e. Return false in case of Ping and Pong
@@ -1387,9 +1363,8 @@ impl PeerActor {
         // as well as filter out those which are older than the fetched ones (to avoid overriding
         // a newer announce with an older one).
         let old = network_state
-            .graph
-            .routing_table
-            .get_broadcasted_announces(rtu.accounts.iter().map(|a| &a.account_id));
+            .account_announcements
+            .get_broadcasted_announcements(rtu.accounts.iter().map(|a| &a.account_id));
         let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = rtu
             .accounts
             .into_iter()

@@ -1,9 +1,12 @@
 [package]
 name = "runtime-params-estimator"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
-publish = false
 edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
 
 [[bin]]
 name = "runtime-params-estimator"
@@ -42,7 +45,7 @@ near-primitives.workspace = true
 near-store.workspace = true
 near-test-contracts.workspace = true
 near-vm-logic.workspace = true
-near-vm-runner.workspace = true
+near-vm-runner = { workspace = true, features = ["clap"] }
 nearcore.workspace = true
 node-runtime.workspace = true
 

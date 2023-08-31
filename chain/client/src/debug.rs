@@ -709,7 +709,8 @@ pub(crate) fn new_network_info_view(chain: &Chain, network_info: &NetworkInfo) -
                     .collect(),
                 account_key: d.account_key.clone(),
                 timestamp: chrono::DateTime::from_utc(
-                    chrono::NaiveDateTime::from_timestamp(d.timestamp.unix_timestamp(), 0),
+                    chrono::NaiveDateTime::from_timestamp_opt(d.timestamp.unix_timestamp(), 0)
+                        .unwrap(),
                     chrono::Utc,
                 ),
             })

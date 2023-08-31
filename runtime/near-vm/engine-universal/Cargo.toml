@@ -1,11 +1,11 @@
 [package]
 name = "near-vm-engine-universal"
-version = "0.0.0"
+version.workspace = true
 description = "Wasmer Universal Engine"
 categories = ["wasm"]
 keywords = ["wasm", "webassembly", "engine", "universal"]
 authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
-repository = "https://github.com/near/nearcore"
+repository.workspace = true
 license = "MIT OR Apache-2.0 WITH LLVM-exception "
 readme = "README.md"
 edition = "2021"

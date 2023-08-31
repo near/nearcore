@@ -1,10 +1,12 @@
 [package]
 name = "chainsync-loadtest"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
-publish = false
 edition.workspace = true
-default-run = "chainsync-loadtest"
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
 
 [[bin]]
 path = "src/main.rs"

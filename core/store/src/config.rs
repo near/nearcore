@@ -2,7 +2,9 @@ use near_primitives::shard_layout::ShardUId;
 use std::time::Duration;
 use std::{collections::HashMap, iter::FromIterator};
 
-use crate::trie::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT;
+use crate::trie::{
+    DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
+};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -200,6 +202,7 @@ impl Default for StoreConfig {
                     ShardUId { version: 1, shard_id: 3 },
                     3_000_000_000,
                 )]),
+                shard_cache_deletions_queue_capacity: DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY,
             },
 
             // Use default sized caches for view calls, because they don't impact
@@ -279,6 +282,9 @@ pub struct TrieCacheConfig {
     pub default_max_bytes: u64,
     /// Overwrites `default_max_bytes` for specific shards.
     pub per_shard_max_bytes: HashMap<ShardUId, u64>,
+    /// Limit the number of elements in caches deletions queue for specific
+    /// shard
+    pub shard_cache_deletions_queue_capacity: usize,
 }
 
 impl Default for TrieCacheConfig {
@@ -286,6 +292,7 @@ impl Default for TrieCacheConfig {
         Self {
             default_max_bytes: DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
             per_shard_max_bytes: Default::default(),
+            shard_cache_deletions_queue_capacity: DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY,
         }
     }
 }

@@ -238,8 +238,6 @@ pub enum StateSyncDumpProgress {
         /// The dumped state corresponds to the state at the beginning of the specified epoch.
         epoch_id: EpochId,
         epoch_height: EpochHeight,
-        // Missing in case of a node running the first epoch.
-        num_parts: Option<u64>,
     },
     /// Represents the case of an epoch being partially dumped.
     InProgress {
@@ -249,7 +247,5 @@ pub enum StateSyncDumpProgress {
         /// Block hash of the first block of the epoch.
         /// The dumped state corresponds to the state before applying this block.
         sync_hash: CryptoHash,
-        /// Progress made.
-        parts_dumped: u64,
     },
 }

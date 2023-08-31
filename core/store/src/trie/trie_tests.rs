@@ -1,6 +1,7 @@
 use crate::test_utils::{create_tries_complex, gen_changes, simplify_changes, test_populate_trie};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
 use crate::{PartialStorage, Trie, TrieUpdate};
+use near_primitives::challenge::PartialState;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::ShardUId;
@@ -22,8 +23,8 @@ pub struct IncompletePartialStorage {
 
 impl IncompletePartialStorage {
     pub fn new(partial_storage: PartialStorage, nodes_count_to_fail_at: usize) -> Self {
-        let recorded_storage =
-            partial_storage.nodes.0.into_iter().map(|value| (hash(&value), value)).collect();
+        let PartialState::TrieValues(nodes) = partial_storage.nodes;
+        let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
         Self {
             recorded_storage,
             visited_nodes: Default::default(),
@@ -34,14 +35,14 @@ impl IncompletePartialStorage {
 
 impl TrieStorage for IncompletePartialStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let result = self.recorded_storage.get(hash).cloned().ok_or(StorageError::TrieNodeMissing);
+        let result = self.recorded_storage.get(hash).cloned().ok_or(StorageError::MissingTrieValue);
 
         if result.is_ok() {
             self.visited_nodes.borrow_mut().insert(*hash);
         }
 
         if self.visited_nodes.borrow().len() > self.node_count_to_fail_after {
-            Err(StorageError::TrieNodeMissing)
+            Err(StorageError::MissingTrieValue)
         } else {
             result
         }
@@ -73,7 +74,7 @@ where
     Out: PartialEq + Debug,
 {
     let (storage, trie, expected) = setup_storage(trie, &mut test);
-    let size = storage.nodes.0.len();
+    let size = storage.nodes.len();
     print!("Test touches {} nodes, expected result {:?}...", size, expected);
     for i in 0..(size + 1) {
         let storage = IncompletePartialStorage::new(storage.clone(), i);
@@ -83,7 +84,7 @@ where
             flat_storage_chunk_view: None,
         };
         let expected_result =
-            if i < size { Err(&StorageError::TrieNodeMissing) } else { Ok(&expected) };
+            if i < size { Err(&StorageError::MissingTrieValue) } else { Ok(&expected) };
         assert_eq!(test(new_trie).map(|v| v.1).as_ref(), expected_result);
     }
     println!("Success");
@@ -277,7 +278,7 @@ mod trie_storage_tests {
         let key = hash(&value);
 
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        assert_matches!(result, Err(StorageError::StorageInconsistentState(_)));
+        assert_matches!(result, Err(StorageError::MissingTrieValue));
     }
 
     /// Check that large values does not fall into shard cache, but fall into chunk cache.

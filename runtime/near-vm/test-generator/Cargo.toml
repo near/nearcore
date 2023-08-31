@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-test-generator"
-version = "0.0.0"
+version.workspace = true
 edition = "2021"
 authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
 publish = false

@@ -1,8 +1,12 @@
+use crate::flat::store_helper;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::FlatStateValue;
 
 use crate::Store;
 
-use super::{FlatStateValue, FlatStorage};
+use super::types::FlatStateIterator;
+use super::FlatStorage;
 
 /// Struct for getting value references from the flat storage, corresponding
 /// to some block defined in `blocks_to_head`.
@@ -40,5 +44,21 @@ impl FlatStorageChunkView {
     // TODO (#7327): consider inlining small values, so we could use only one db access.
     pub fn get_value(&self, key: &[u8]) -> Result<Option<FlatStateValue>, crate::StorageError> {
         self.flat_storage.get_value(&self.block_hash, key)
+    }
+
+    pub fn iter_flat_state_entries<'a>(
+        &'a self,
+        from: Option<&[u8]>,
+        to: Option<&[u8]>,
+    ) -> FlatStateIterator<'a> {
+        store_helper::iter_flat_state_entries(self.flat_storage.shard_uid(), &self.store, from, to)
+    }
+
+    pub fn get_head_hash(&self) -> CryptoHash {
+        self.flat_storage.get_head_hash()
+    }
+
+    pub fn shard_uid(&self) -> ShardUId {
+        self.flat_storage.shard_uid()
     }
 }

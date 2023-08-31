@@ -5,6 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use chrono::Utc;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
+use near_store::flat::FlatStorageManager;
 use num_rational::Rational32;
 
 use crate::metrics;
@@ -31,7 +32,6 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
-use near_store::flat::{FlatStorage, FlatStorageStatus};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 pub use near_epoch_manager::EpochManagerAdapter;
@@ -270,6 +270,8 @@ impl ChainGenesis {
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
+/// Naming note: `state_root` is a pre state root for block `block_hash` and a
+/// post state root for block `prev_hash`.
 pub trait RuntimeAdapter: Send + Sync {
     /// Get store and genesis state roots
     fn genesis_state(&self) -> (Store, Vec<StateRoot>);
@@ -278,9 +280,9 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn store(&self) -> &Store;
 
-    /// Returns trie with non-view cache for given `state_root`. `prev_hash` is used to access flat storage and to
-    /// identify the epoch the given `shard_id` is at.
-    /// Note that `prev_hash` and `state_root` must correspond to the same block.
+    /// Returns trie with non-view cache for given `state_root`.
+    /// `prev_hash` is a block whose post state root is `state_root`, used to
+    /// access flat storage and to identify the epoch the given `shard_id` is at.
     fn get_trie_for_shard(
         &self,
         shard_id: ShardId,
@@ -297,29 +299,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: StateRoot,
     ) -> Result<Trie, Error>;
 
-    fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage>;
-
-    fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus;
-
-    /// Creates flat storage state for given shard, assuming that all flat storage data
-    /// is already stored in DB.
-    /// TODO (#7327): consider returning flat storage creation errors here
-    fn create_flat_storage_for_shard(&self, shard_uid: ShardUId);
-
-    /// Removes flat storage state for shard, if it exists.
-    /// Used to clear old flat storage data from disk and memory before syncing to newer state.
-    fn remove_flat_storage_for_shard(
-        &self,
-        shard_uid: ShardUId,
-        epoch_id: &EpochId,
-    ) -> Result<(), Error>;
-
-    fn set_flat_storage_for_genesis(
-        &self,
-        genesis_block: &CryptoHash,
-        genesis_block_height: BlockHeight,
-        genesis_epoch_id: &EpochId,
-    ) -> Result<StoreUpdate, Error>;
+    fn get_flat_storage_manager(&self) -> Option<FlatStorageManager>;
 
     /// Validates a given signed transaction.
     /// If the state root is given, then the verification will use the account. Otherwise it will
@@ -477,12 +457,13 @@ pub trait RuntimeAdapter: Send + Sync {
         request: &QueryRequest,
     ) -> Result<QueryResponse, near_chain_primitives::error::QueryError>;
 
-    /// Get the part of the state from given state root.
-    /// `block_hash` is a block whose `prev_state_root` is `state_root`
+    /// Get part of the state corresponding to the given state root.
+    /// `prev_hash` is a block whose post state root is `state_root`.
+    /// Returns error when storage is inconsistent.
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
-        block_hash: &CryptoHash,
+        prev_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: PartId,
     ) -> Result<Vec<u8>, Error>;

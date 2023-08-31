@@ -3,12 +3,14 @@ use near_primitives::checked_feature;
 use near_vm_logic::ProtocolVersion;
 use std::hash::Hash;
 
-#[derive(Clone, Copy, Debug, Hash, BorshSerialize, PartialEq, Eq)]
-// Note, that VMKind is part of serialization protocol, so we cannot remove entries
-// from this list if particular VM reached publicly visible networks.
+// Note, that VMKind is part of serialization protocol, so we cannot remove entries from this list
+// if particular VM reached publicly visible networks.
 //
-// Additionally, this is public only for the purposes of internal tools like thea estimator.
-// This API should otherwise be considered a private implementation detail of the `near-vm-runner` crate.
+// Additionally, this is public only for the purposes of internal tools like thea estimator. This
+// API should otherwise be considered a private implementation detail of the `near-vm-runner`
+// crate.
+#[derive(Clone, Copy, Debug, Hash, BorshSerialize, PartialEq, Eq)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum VMKind {
     /// Wasmer 0.17.x VM.
     Wasmer0,
@@ -41,14 +43,15 @@ impl VMKind {
             return VMKind::Wasmer2;
         }
 
-        if cfg!(target_arch = "x86_64") {
-            if checked_feature!("stable", Wasmer2, protocol_version) {
-                VMKind::Wasmer2
-            } else {
-                VMKind::Wasmer0
-            }
-        } else {
-            VMKind::Wasmtime
+        if cfg!(not(target_arch = "x86_64")) {
+            return VMKind::Wasmtime;
         }
+        if checked_feature!("stable", NearVmRuntime, protocol_version) {
+            return VMKind::NearVm;
+        }
+        if checked_feature!("stable", Wasmer2, protocol_version) {
+            return VMKind::Wasmer2;
+        }
+        return VMKind::Wasmer0;
     }
 }

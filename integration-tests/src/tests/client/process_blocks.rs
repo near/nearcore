@@ -1627,7 +1627,8 @@ fn test_archival_gc_common(
     if !legacy {
         max_gc_height = std::cmp::min(
             max_height - epoch_length * DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-            max_cold_head_height,
+            // Nice little way to round down to latest epoch start
+            max_cold_head_height / epoch_length * epoch_length,
         );
     };
 
@@ -2881,6 +2882,14 @@ fn test_execution_metadata() {
         + config.fees.fee(ActionCosts::function_call_base).exec_fee()
         + config.fees.fee(ActionCosts::function_call_byte).exec_fee() * "main".len() as u64;
 
+    let expected_wasm_ops = match config.wasm_config.limit_config.contract_prepare_version {
+        near_primitives::config::ContractPrepareVersion::V0 => 2,
+        near_primitives::config::ContractPrepareVersion::V1 => 2,
+        // We spend two wasm instructions (call & drop), plus 8 ops for initializing function
+        // operand stack (8 bytes worth to hold the return value.)
+        near_primitives::config::ContractPrepareVersion::V2 => 10,
+    };
+
     // Profile for what's happening *inside* wasm vm during function call.
     let expected_profile = serde_json::json!([
       // Inside the contract, we called one host function.
@@ -2900,11 +2909,10 @@ fn test_execution_metadata() {
         "cost": "CONTRACT_LOADING_BYTES",
         "gas_used": "18423750"
       },
-      // We spend two wasm instructions (call & drop).
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "WASM_INSTRUCTION",
-        "gas_used": (config.wasm_config.regular_op_cost as u64 * 2).to_string()
+        "gas_used": (config.wasm_config.regular_op_cost as u64 * expected_wasm_ops).to_string()
       }
     ]);
     let outcome = &execution_outcome.receipts_outcome[0].outcome;
@@ -3570,6 +3578,7 @@ mod contract_precompilation_tests {
     #[test]
     #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
     fn test_sync_and_call_cached_contract() {
+        init_integration_logger();
         let num_clients = 2;
         let stores: Vec<Store> = (0..num_clients).map(|_| create_test_store()).collect();
         let mut genesis =

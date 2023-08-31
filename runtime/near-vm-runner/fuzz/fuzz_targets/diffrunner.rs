@@ -11,9 +11,9 @@ use near_vm_runner_fuzz::{create_context, find_entry_point, ArbitraryModule};
 
 libfuzzer_sys::fuzz_target!(|module: ArbitraryModule| {
     let code = ContractCode::new(module.0.module.to_bytes(), None);
-    let wasmer2 = run_fuzz(&code, VMKind::Wasmer2);
+    let near_vm = run_fuzz(&code, VMKind::NearVm);
     let wasmtime = run_fuzz(&code, VMKind::Wasmtime);
-    assert_eq!(wasmer2, wasmtime);
+    assert_eq!(near_vm, wasmtime);
 });
 
 fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMOutcome {
@@ -21,7 +21,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMOutcome {
     let mut context = create_context(vec![]);
     context.prepaid_gas = 10u64.pow(14);
     let mut config = VMConfig::test();
-    config.limit_config.wasmer2_stack_limit = i32::MAX; // If we can crash wasmer2 even without the secondary stack limit it's still good to know
+    config.limit_config.contract_prepare_version = near_vm_logic::ContractPrepareVersion::V2;
     let fees = RuntimeFeesConfig::test();
 
     let promise_results = vec![];

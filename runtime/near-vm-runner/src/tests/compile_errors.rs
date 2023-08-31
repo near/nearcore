@@ -163,6 +163,7 @@ fn test_limit_contract_functions_number() {
     )
     .protocol_features(&[
         ProtocolFeature::LimitContractFunctionsNumber,
+        ProtocolFeature::PreparationV2,
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
         ProtocolFeature::FixContractLoadingCost,
     ])
@@ -173,9 +174,12 @@ fn test_limit_contract_functions_number() {
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13048032213 used gas 13048032213
         "#]],
+        expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13054614261 used gas 13054614261
+        "#]],
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13048032213 used gas 13048032213
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13054614261 used gas 13054614261
         "#]],
     ]);
 
@@ -188,12 +192,17 @@ fn test_limit_contract_functions_number() {
     )
     .protocol_features(&[
         ProtocolFeature::LimitContractFunctionsNumber,
+        ProtocolFeature::PreparationV2,
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
         ProtocolFeature::FixContractLoadingCost,
     ])
     .expects(&[
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13049332713 used gas 13049332713
+        "#]],
+        expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+            Err: PrepareError: Too many functions in contract.
         "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
@@ -216,10 +225,15 @@ fn test_limit_contract_functions_number() {
             .make(),
         )
         .protocol_features(&[
+            ProtocolFeature::PreparationV2,
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
         ])
         .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+                Err: PrepareError: Too many functions in contract.
+            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
                 Err: PrepareError: Too many functions in contract.
@@ -241,10 +255,15 @@ fn test_limit_contract_functions_number() {
             .make(),
         )
         .protocol_features(&[
+            ProtocolFeature::PreparationV2,
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
         ])
         .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+                Err: PrepareError: Too many functions in contract.
+            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
                 Err: PrepareError: Too many functions in contract.
@@ -269,10 +288,15 @@ fn test_limit_locals() {
             .make(),
         )
         .protocol_features(&[
+            ProtocolFeature::PreparationV2,
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
         ])
         .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+                Err: PrepareError: Error happened while deserializing the module.
+            "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
                 Err: PrepareError: Error happened while deserializing the module.
@@ -293,11 +317,21 @@ fn test_limit_locals() {
             }
             .make(),
         )
-        .skip_wasmtime()
-        .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43682463 used gas 43682463
-            Err: WebAssembly trap: An `unreachable` opcode was executed.
-        "#]]);
+        .skip_wasmer0()
+        .opaque_error()
+        .protocol_features(&[
+            ProtocolFeature::PreparationV2,
+        ])
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43682463 used gas 43682463
+                Err: ...
+            "#]],
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43682463 used gas 43682463
+                Err: ...
+            "#]],
+        ]);
 }
 
 #[test]
@@ -310,12 +344,17 @@ fn test_limit_locals_global() {
     .make())
     .protocol_features(&[
         ProtocolFeature::LimitContractLocals,
+        ProtocolFeature::PreparationV2,
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
         ProtocolFeature::FixContractLoadingCost,
     ])
     .expects(&[
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 195407463 used gas 195407463
+        "#]],
+        expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+            Err: PrepareError: Too many locals declared in the contract.
         "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
@@ -337,13 +376,22 @@ fn test_limit_locals_global() {
             }
             .make(),
         )
-        .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 139269213 used gas 139269213
-        "#]]);
+        .opaque_error()
+        .protocol_features(&[
+            ProtocolFeature::PreparationV2,
+        ])
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 139269213 used gas 139269213
+            "#]],
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13001413761 used gas 13001413761
+            "#]]
+        ]);
 }
 
 #[test]
-pub fn test_stablized_host_function() {
+pub fn test_stabilized_host_function() {
     test_builder()
         .wat(
             r#"
@@ -353,7 +401,10 @@ pub fn test_stablized_host_function() {
     (call $ripemd160 (i64.const 0) (i64.const 0) (i64.const 0)))
 )"#,
         )
-        .protocol_features(&[ProtocolFeature::MathExtension])
+        .protocol_features(&[
+            ProtocolFeature::MathExtension,
+            ProtocolFeature::PreparationV2,
+        ])
         .opaque_error()
         .expects(&[
             expect![[r#"
@@ -362,6 +413,9 @@ pub fn test_stablized_host_function() {
             "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7143010623 used gas 7143010623
+            "#]],
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7149592671 used gas 7149592671
             "#]],
         ]);
 }
@@ -415,21 +469,23 @@ fn extension_saturating_float_to_int() {
 
 #[test]
 fn extension_signext() {
-    let tb = test_builder().wat(
-        r#"
+    let tb = test_builder()
+        .wat(
+            r#"
             (module
                 (func $extend8_s (param $x i32) (result i32) (i32.extend8_s (local.get $x)))
+                (func (export "main"))
             )
             "#,
-    );
-    #[cfg(feature = "nightly")]
-    tb.expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48017463 used gas 48017463
-        Err: PrepareError: Error happened while deserializing the module.
-    "#]]);
-    #[cfg(not(feature = "nightly"))]
-    tb.expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-        Err: PrepareError: Error happened while deserializing the module.
-    "#]]);
+        )
+        .protocol_features(&[ProtocolFeature::PreparationV2]);
+    tb.expects(&[
+        expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+            Err: PrepareError: Error happened while deserializing the module.
+        "#]],
+        expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 58284261 used gas 58284261
+        "#]],
+    ]);
 }

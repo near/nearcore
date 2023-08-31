@@ -150,6 +150,14 @@ pub enum ProtocolFeature {
     /// Flat Storage NEP-399: https://github.com/near/NEPs/blob/master/neps/nep-0399.md
     FlatStorageReads,
 
+    /// Enables preparation V2. Note that this setting is not supported in production settings
+    /// without NearVmRuntime enabled alongside it, as the VM runner would be too slow.
+    PreparationV2,
+
+    /// Enables Near-Vm. Note that this setting is not at all supported without PreparationV2,
+    /// as it hardcodes preparation v2 code into the generated assembly.
+    NearVmRuntime,
+
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
@@ -169,7 +177,7 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 61;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 62;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
@@ -193,7 +201,7 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy:
     // after the set date. Ideally that should be during working hours.
     // e.g. ProtocolUpgradeVotingSchedule::from_env_or_str("2000-01-01 15:00:00").unwrap());
 
-    ProtocolUpgradeVotingSchedule::default()
+    ProtocolUpgradeVotingSchedule::from_env_or_str("2023-08-01 15:00:00").unwrap() // Tuesday
 });
 
 /// Gives new clients an option to upgrade without announcing that they support
@@ -245,6 +253,7 @@ impl ProtocolFeature {
             | ProtocolFeature::ZeroBalanceAccount
             | ProtocolFeature::DelegateAction => 59,
             ProtocolFeature::ComputeCosts | ProtocolFeature::FlatStorageReads => 61,
+            ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]

@@ -168,6 +168,7 @@ message Handshake {
   PartialEdgeInfo partial_edge_info = 7;
   // See description of OwnedAccount.
   AccountKeySignedPayload owned_account = 8; // optional
+  reserved 9; // https://github.com/near/nearcore/pull/9191
 }
 
 // Response to Handshake, in case the Handshake was rejected.
