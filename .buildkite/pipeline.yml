@@ -55,7 +55,7 @@ steps:
       - "distro=amazonlinux"
     branches: "!master"
 
-  - label: "sanity checks"
+  - label: "cargo check"
     command: |
       source ~/.cargo/env && set -eux
       rustc --version && cargo --version
@@ -67,7 +67,12 @@ steps:
       cargo check --workspace --all-targets --all-features
       cargo check -p neard --features test_features
       cargo check -p neard --features sandbox
+    agents:
+      - "distro=amazonlinux"
+    branches: "!master"
 
+  - label: "sanity spin-up-cluster"
+    command: |
       cargo build -p neard --bin neard --features nightly
       cd pytest
       python3 -m pip install --progress-bar off --user -r requirements.txt
@@ -76,7 +81,12 @@ steps:
       # Note: We're not running spin_up_cluster.py for non-nightly
       # because spinning up non-nightly clusters is already covered
       # by other steps in the CI, e.g. upgradable.
+    agents:
+      - "distro=amazonlinux"
+    branches: "!master"
 
+  - label: "sanity checks"
+    command: |
       cargo build -p neard --bin neard
       python3 scripts/state/update_res.py check
 
