@@ -531,6 +531,7 @@ mod tests {
             in_memory_db: false,
             db_test_config: clap::Parser::parse_from(std::iter::empty::<std::ffi::OsString>()),
             sub_cmd: None,
+            check_only: false, // we run a small number of estimations, no need to take more shortcuts
         };
         run_estimation(args).unwrap();
     }
