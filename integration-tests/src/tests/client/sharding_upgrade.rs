@@ -1042,11 +1042,11 @@ fn setup_test_env_with_cross_contract_txs(
     // adds some transactions after sharding change finishes
     // but do not add too many because I want all transactions to
     // finish processing before epoch 5
-    // for height in 2 * epoch_length + 1..3 * epoch_length {
-    //     if rng.gen_bool(0.3) {
-    //         test_env.set_tx_at_height(height, generate_txs(5, 8));
-    //     }
-    // }
+    for height in 2 * epoch_length + 1..3 * epoch_length {
+        if rng.gen_bool(0.3) {
+            test_env.set_tx_at_height(height, generate_txs(5, 8));
+        }
+    }
 
     (test_env, new_accounts)
 }
