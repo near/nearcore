@@ -100,10 +100,12 @@ following steps when creating a PR:
 need to pass before a PR can be merged.
 2. When all the comments from the reviewer(s) have been addressed, they should
 approve the PR allowing a PR to be merged.
-3. An approved PR can be merged by adding the `S-automerge` label to it.  The
-label can be added by the author if they have the appropriate access or by a
-reviewer otherwise.  PR authors can also apply label immediately after filing a
-PR: removing an additional round-trip after PR is approved.
+3. An approved PR can be merged by clicking the "Merge when ready" button.  The
+button can be clicked by the author if they have the appropriate access, or by a
+reviewer otherwise.  PR authors can also click the button immediately after filing
+a PR; removing an additional round-trip after the PR gets approved. The PR author
+will be notified by email by github if the PR fails to land, once it has entered
+the merge queue (ie. after it has passed PR CI and gotten an approving review).
 
 ## Code review process
 
