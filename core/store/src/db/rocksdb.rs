@@ -65,12 +65,6 @@ impl PerfContext {
 
         let read_block_latency =
             Duration::from_nanos(rocksdb_ctx.metric(rocksdb::PerfMetric::BlockReadTime));
-        if !read_block_latency.is_zero() {
-            println!(
-                "Read block lat: {:?} for block count {} and obs lat: {:?}",
-                read_block_latency, block_read_cnt, obs_latency
-            );
-        }
         let has_merge =
             rocksdb_ctx.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
 
@@ -81,12 +75,6 @@ impl PerfContext {
         col_measurement.bloom_sst.add_hits(rocksdb_ctx.metric(rocksdb::PerfMetric::BloomSstHitCount));
         col_measurement.bloom_sst.add_hits(rocksdb_ctx.metric(rocksdb::PerfMetric::BloomSstMissCount));
 
-/*        if block_cache_hit > 0 || bloom_sst_hit > 0 || bloom_sst_miss > 0 {*/
-            /*println!("Add metrics: cache_hit {}, bloom hit {} miss {}", block_cache_hit, bloom_sst_hit, bloom_sst_miss);*/
-        /*}*/
-        /*if bloom_mem_miss > 0 || bloom_mem_hit > 0 {*/
-            /*println!("Add metrics: mem_hit {}, mem_miss {}", bloom_mem_hit, bloom_mem_miss);*/
-        /*}*/
         self.add_measurement(col, block_read_cnt, read_block_latency, has_merge);
     }
 
@@ -107,8 +95,10 @@ impl PerfContext {
         col_measurement.measurements_overall.add(read_block_latency, has_merge);
     }
 
-    fn reset(&self, rocksdb_ctx: &mut rocksdb::perf::PerfContext) {
+    fn reset(&mut self) {
+        let mut rocksdb_ctx = rocksdb::perf::PerfContext::default();
         rocksdb_ctx.reset();
+        self.column_measurements.clear();
     }
 }
 
@@ -188,7 +178,6 @@ pub struct RocksDB {
     // counting total sum of max_open_files.
     _instance_tracker: instance_tracker::InstanceTracker,
 
-    rocksdb_context: rocksdb::perf::PerfContext,
     perf_context: Arc<Mutex<PerfContext>>,
 }
 
@@ -258,7 +247,6 @@ impl RocksDB {
             db_opt,
             cf_handles,
             _instance_tracker: counter,
-            rocksdb_context: rocksdb::perf::PerfContext::default(),
             perf_context: Arc::new(Mutex::new(PerfContext::new())),
         })
     }
@@ -809,9 +797,7 @@ impl RocksDB {
             }
             None => {}
         }
-        let mut perf = rocksdb::perf::PerfContext::default();
-        perf.reset();
-        perf_data.reset(&mut perf);
+        perf_data.reset();
     }
 }
 
