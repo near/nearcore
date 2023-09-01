@@ -430,7 +430,7 @@ impl ShardsManager {
                 let prefer_peer = request_from_archival || rand::thread_rng().gen::<bool>();
                 debug!(
                     target: "chunks",
-                    part_ors=?part_ords[..5],
+                    ?part_ords,
                     shard_id,
                     ?target_account,
                     prefer_peer,

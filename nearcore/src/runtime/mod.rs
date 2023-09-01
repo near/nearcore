@@ -139,7 +139,7 @@ impl NightshadeRuntime {
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
             Ok(shard_layout.get_shard_uids())
         }) {
-            tracing::warn!(target: "runtime", ?err, "Failed to check if a state snapshot exists");
+            tracing::error!(target: "runtime", ?err, "Failed to check if a state snapshot exists");
         }
 
         let migration_data = Arc::new(load_migration_data(&genesis_config.chain_id));

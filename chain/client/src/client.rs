@@ -1517,8 +1517,6 @@ impl Client {
                 && !skip_produce_chunk
             {
                 self.produce_chunks(&block, validator_id);
-            } else {
-                tracing::info!("producing chunk skipped at {}", block.header().height() + 1);
             }
         }
 
@@ -1977,10 +1975,8 @@ impl Client {
     fn possibly_forward_tx_to_next_epoch(&mut self, tx: &SignedTransaction) -> Result<(), Error> {
         let head = self.chain.head()?;
         if let Some(next_epoch_id) = self.get_next_epoch_id_if_at_boundary(&head)? {
-            tracing::trace!(target: "client", tx=?tx.get_hash(), "forwarding to next epoch");
             self.forward_tx(&next_epoch_id, tx)?;
         } else {
-            tracing::trace!(target: "client", tx=?tx.get_hash(), "forwarding to current epoch");
             self.forward_tx(&head.epoch_id, tx)?;
         }
         Ok(())
@@ -2057,7 +2053,6 @@ impl Client {
             } else {
                 // Transactions only need to be recorded if the node is a validator.
                 if me.is_some() {
-                    // TODO(wacban) check what's up here
                     match self.sharded_tx_pool.insert_transaction(shard_id, tx.clone()) {
                         InsertTransactionResult::Success => {
                             trace!(target: "client", shard_id, tx=?tx.get_hash(), "Recorded a transaction.");
@@ -2086,7 +2081,6 @@ impl Client {
                     metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
 
                     if !is_forwarded {
-                        // TODO(wacban) check what's up here
                         self.possibly_forward_tx_to_next_epoch(tx)?;
                     }
                     Ok(ProcessTxResponse::ValidTx)
