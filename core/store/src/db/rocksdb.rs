@@ -76,13 +76,11 @@ impl PerfContext {
             Duration::from_nanos(rocksdb_ctx.metric(rocksdb::PerfMetric::BlockReadTime));
         let has_merge = rocksdb_ctx.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
 
-        if !read_block_latency.is_zero() {
-            col_measurement
-                .measurements_per_block_reads
-                .entry(block_read_cnt)
-                .or_default()
-                .add(read_block_latency, has_merge);
-        }
+        col_measurement
+            .measurements_per_block_reads
+            .entry(block_read_cnt)
+            .or_default()
+            .add(read_block_latency, has_merge);
         //col_measurement.measurements_overall.add(obs_latency, has_merge);
 
         rocksdb_ctx.reset();
@@ -140,12 +138,16 @@ struct Measurements {
     pub count: usize,
     pub total_read_block_latency: Duration,
     pub samples_with_merge: usize,
+    zeros: usize
 }
 
 impl Measurements {
     pub fn add(&mut self, read_block_latency: Duration, has_merge: bool) {
         self.count += 1;
         self.total_read_block_latency += read_block_latency;
+        if self.total_read_block_latency.is_zero() {
+            self.zeros += 1;
+        }
         if has_merge {
             self.samples_with_merge += 1;
         }
@@ -719,7 +721,6 @@ impl RocksDB {
 
         match perf_data.column_measurements.get(&DBCol::State) {
             Some(measurement) => {
-                println!("Fill perf res: {:?}", measurement);
                 /*let state_read_block_latency =*/
                 /*measurement.measurements_overall.avg_read_block_latency().as_micros() as i64;*/
                 /*result.data.push((*/
