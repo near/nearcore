@@ -56,11 +56,7 @@ impl PerfContext {
     // We call record for every read since rocksdb perf context is local for
     // every thread and because of that we cannot use single rocksdb perf
     // context to get all data
-    fn record(
-        &mut self,
-        col: DBCol,
-        obs_latency: Duration,
-    ) {
+    fn record(&mut self, col: DBCol, obs_latency: Duration) {
         let mut rocksdb_ctx = rocksdb::perf::PerfContext::default();
         rocksdb::perf::set_perf_stats(rocksdb::perf::PerfStatsLevel::EnableTime);
 
@@ -79,13 +75,6 @@ impl PerfContext {
         let read_block_latency =
             Duration::from_nanos(rocksdb_ctx.metric(rocksdb::PerfMetric::BlockReadTime));
         let has_merge = rocksdb_ctx.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
-        if !read_block_latency.is_zero() {
-            println!(
-                "Read block latency exists: {}, {:?} {:?}",
-                block_read_cnt, read_block_latency, has_merge
-            );
-        }
-
         col_measurement
             .measurements_per_block_reads
             .entry(block_read_cnt)
