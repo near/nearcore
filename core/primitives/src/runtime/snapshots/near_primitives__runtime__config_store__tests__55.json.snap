@@ -36,7 +36,7 @@ expression: config_view
       "deploy_contract_cost_per_byte": {
         "send_sir": 6812999,
         "send_not_sir": 6812999,
-        "execution": 6812999
+        "execution": 64572944
       },
       "function_call_cost": {
         "send_sir": 2319861500000,
@@ -178,8 +178,8 @@ expression: config_view
     "implicit_account_creation": true,
     "math_extension": true,
     "ed25519_verify": false,
-    "alt_bn128": false,
-    "function_call_weight": false,
+    "alt_bn128": true,
+    "function_call_weight": true,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
       "max_stack_height": 16384,
@@ -199,12 +199,13 @@ expression: config_view
       "max_length_returned_data": 4194304,
       "max_contract_size": 4194304,
       "max_transaction_size": 4194304,
-      "max_length_storage_key": 4194304,
+      "max_length_storage_key": 2048,
       "max_length_storage_value": 4194304,
       "max_promises_per_function_call_action": 1024,
       "max_number_input_data_dependencies": 128,
       "max_functions_number_per_contract": 10000,
-      "wasmer2_stack_limit": 102400,
+      "wasmer2_stack_limit": 204800,
+      "max_locals_per_contract": 1000000,
       "account_id_validity_rules_version": 0
     }
   },

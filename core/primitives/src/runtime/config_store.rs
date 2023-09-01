@@ -20,6 +20,7 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (35, include_config!("35.yaml")),
     (42, include_config!("42.yaml")),
+    (46, include_config!("46.yaml")),
     (48, include_config!("48.yaml")),
     (49, include_config!("49.yaml")),
     (50, include_config!("50.yaml")),
@@ -28,6 +29,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     // Increased deployment costs, increased wasmer2 stack_limit, added limiting of contract locals,
     // set read_cached_trie_node cost, decrease storage key limit
     (53, include_config!("53.yaml")),
+    (55, include_config!("55.yaml")),
     (57, include_config!("57.yaml")),
     // Introduce Zero Balance Account and increase account creation cost to 7.7Tgas
     (59, include_config!("59.yaml")),
@@ -262,19 +264,24 @@ mod tests {
             store.get_config(LowerStorageCost.protocol_version() - 1).as_ref()
         );
 
-        let expected_config = {
-            base_params.apply_diff(CONFIG_DIFFS[0].1.parse().unwrap()).unwrap();
-            base_params.apply_diff(CONFIG_DIFFS[1].1.parse().unwrap()).unwrap();
-            RuntimeConfig::new(&base_params).unwrap()
-        };
+        for (ver, diff) in &CONFIG_DIFFS[..] {
+            if *ver <= LowerStorageCost.protocol_version() {
+                base_params.apply_diff(diff.parse().unwrap()).unwrap();
+            }
+        }
+        let expected_config = RuntimeConfig::new(&base_params).unwrap();
         assert_eq!(**config, expected_config);
 
         let config = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert_eq!(config.fees.fee(ActionCosts::new_data_receipt_base).send_sir, 36_486_732_312);
-        let expected_config = {
-            base_params.apply_diff(CONFIG_DIFFS[2].1.parse().unwrap()).unwrap();
-            RuntimeConfig::new(&base_params).unwrap()
-        };
+        for (ver, diff) in &CONFIG_DIFFS[..] {
+            if *ver <= LowerStorageCost.protocol_version() {
+                continue;
+            } else if *ver <= LowerDataReceiptAndEcrecoverBaseCost.protocol_version() {
+                base_params.apply_diff(diff.parse().unwrap()).unwrap();
+            }
+        }
+        let expected_config = RuntimeConfig::new(&base_params).unwrap();
         assert_eq!(config.as_ref(), &expected_config);
     }
 

@@ -34,7 +34,6 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMOutcome {
             context,
             &fees,
             &promise_results,
-            PROTOCOL_VERSION,
             None,
         )
         .unwrap_or_else(|err| panic!("fatal error: {err:?}"))

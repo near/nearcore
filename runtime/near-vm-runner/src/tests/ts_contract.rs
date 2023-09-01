@@ -5,7 +5,7 @@ use crate::logic::{Config, External, StorageGetMode};
 use crate::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 
-use crate::tests::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
+use crate::tests::{create_context, with_vm_variants};
 use crate::vm_kind::VMKind;
 
 #[test]
@@ -28,7 +28,6 @@ pub fn test_ts_contract() {
             context,
             &fees,
             &promise_results,
-            LATEST_PROTOCOL_VERSION,
             None,
         );
         let outcome = result.expect("execution failed");
@@ -49,7 +48,6 @@ pub fn test_ts_contract() {
                 context,
                 &fees,
                 &promise_results,
-                LATEST_PROTOCOL_VERSION,
                 None,
             )
             .expect("bad failure");
@@ -72,7 +70,6 @@ pub fn test_ts_contract() {
                 context,
                 &fees,
                 &promise_results,
-                LATEST_PROTOCOL_VERSION,
                 None,
             )
             .expect("execution failed");

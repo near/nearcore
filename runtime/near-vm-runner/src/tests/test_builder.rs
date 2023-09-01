@@ -224,7 +224,6 @@ impl TestBuilder {
                         context,
                         &fees,
                         &promise_results,
-                        protocol_version,
                         None,
                     )
                     .expect("execution failed");

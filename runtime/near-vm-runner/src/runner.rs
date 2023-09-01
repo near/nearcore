@@ -75,7 +75,6 @@ pub fn run(
         context,
         fees_config,
         promise_results,
-        current_protocol_version,
         cache,
     )?;
 
@@ -106,7 +105,6 @@ pub trait VM {
         context: VMContext,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
-        current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
     ) -> VMResult;
 

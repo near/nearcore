@@ -2485,6 +2485,14 @@ pub struct VMConfigView {
     pub fix_contract_loading_cost: bool,
     /// See [`VMConfig::implicit_account_creation`].
     pub implicit_account_creation: bool,
+    /// See [`VMConfig::math_extension`].
+    pub math_extension: bool,
+    /// See [`VMConfig::ed25519_verify`].
+    pub ed25519_verify: bool,
+    /// See [`VMConfig::alt_bn128`].
+    pub alt_bn128: bool,
+    /// See [`VMConfig::function_call_weight`].
+    pub function_call_weight: bool,
 
     /// Describes limits for VM and Runtime.
     ///
@@ -2504,6 +2512,10 @@ impl From<near_vm_runner::logic::Config> for VMConfigView {
             storage_get_mode: config.storage_get_mode,
             fix_contract_loading_cost: config.fix_contract_loading_cost,
             implicit_account_creation: config.implicit_account_creation,
+            math_extension: config.math_extension,
+            ed25519_verify: config.ed25519_verify,
+            alt_bn128: config.alt_bn128,
+            function_call_weight: config.function_call_weight,
         }
     }
 }
@@ -2519,6 +2531,10 @@ impl From<VMConfigView> for near_vm_runner::logic::Config {
             storage_get_mode: view.storage_get_mode,
             fix_contract_loading_cost: view.fix_contract_loading_cost,
             implicit_account_creation: view.implicit_account_creation,
+            math_extension: view.math_extension,
+            ed25519_verify: view.ed25519_verify,
+            alt_bn128: view.alt_bn128,
+            function_call_weight: view.function_call_weight,
         }
     }
 }
