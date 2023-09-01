@@ -195,12 +195,7 @@ impl crate::runner::VM for WasmtimeVM {
             return Ok(VMOutcome::abort(logic, e));
         }
 
-        imports::wasmtime::link(
-            &mut linker,
-            memory_copy,
-            &store,
-            &mut logic,
-        );
+        imports::wasmtime::link(&mut linker, memory_copy, &store, &mut logic);
         match module.get_export(method_name) {
             Some(export) => match export {
                 Func(func_type) => {

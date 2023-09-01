@@ -319,7 +319,7 @@ pub(crate) mod wasmer2 {
     use std::sync::Arc;
 
     use super::str_eq;
-    use crate::logic::{VMLogic};
+    use crate::logic::VMLogic;
     use wasmer_engine::Engine;
     use wasmer_engine_universal::UniversalEngine;
     use wasmer_vm::{
@@ -464,12 +464,7 @@ pub(crate) mod wasmer2 {
             // contains this metadata.
             ExportFunctionMetadata::new(logic as *mut _ as *mut _, None, |ptr| ptr, |_| {})
         };
-        Wasmer2Imports {
-            memory,
-            vmlogic: logic,
-            metadata: Arc::new(metadata),
-            engine,
-        }
+        Wasmer2Imports { memory, vmlogic: logic, metadata: Arc::new(metadata), engine }
     }
 }
 
@@ -478,7 +473,7 @@ pub(crate) mod near_vm {
     use std::sync::Arc;
 
     use super::str_eq;
-    use crate::logic::{VMLogic};
+    use crate::logic::VMLogic;
     use near_vm_engine::universal::UniversalEngine;
     use near_vm_vm::{
         ExportFunction, ExportFunctionMetadata, Resolver, VMFunction, VMFunctionKind, VMMemory,
@@ -622,12 +617,7 @@ pub(crate) mod near_vm {
             // contains this metadata.
             ExportFunctionMetadata::new(logic as *mut _ as *mut _, None, |ptr| ptr, |_| {})
         };
-        NearVmImports {
-            memory,
-            vmlogic: logic,
-            metadata: Arc::new(metadata),
-            engine,
-        }
+        NearVmImports { memory, vmlogic: logic, metadata: Arc::new(metadata), engine }
     }
 }
 

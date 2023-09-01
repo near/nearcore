@@ -400,8 +400,7 @@ impl crate::runner::VM for Wasmer0VM {
             return Ok(VMOutcome::abort(logic, e));
         }
 
-        let import_object =
-            imports::wasmer::build(memory_copy, &mut logic);
+        let import_object = imports::wasmer::build(memory_copy, &mut logic);
 
         if let Err(e) = check_method(&module, method_name) {
             return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e));
