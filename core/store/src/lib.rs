@@ -20,7 +20,6 @@ pub use db::{
 use near_crypto::PublicKey;
 use near_fmt::{AbbrBytes, StorageKey};
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
@@ -28,6 +27,7 @@ pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, StateRoot};
 use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
+use near_vm_runner::ContractCode;
 
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics};
 pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
