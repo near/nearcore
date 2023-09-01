@@ -142,7 +142,8 @@ def stop_cmd(args):
     # instead of remembering what the process' IP was. Should be possible to do this right, but this will work for now
     cmd_utils.run_cmd(
         master,
-        'kill $(ps -C python3 -o pid=,cmd= | grep "locust" | cut -d " " -f 2)')
+        'pids=$(ps -C python3 -o pid=,cmd= | grep "locust" | cut -d " " -f 2) && if [ ! -z "$pids" ]; then kill $pids; fi'
+    )
 
 
 if __name__ == '__main__':
