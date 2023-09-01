@@ -78,6 +78,9 @@ impl PerfContext {
             Duration::from_nanos(rocksdb_ctx.metric(rocksdb::PerfMetric::BlockReadTime));
         let has_merge =
             rocksdb_ctx.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
+        if read_block_latency > 0 {
+            println!("Read block latency exists: {}, {} {}", block_read_cnt, read_block_latency, has_merge);
+        }
 
         col_measurement
             .measurements_per_block_reads
