@@ -217,15 +217,20 @@ pub trait ChainStoreAccess {
     fn get_incoming_receipts_for_shard(
         &self,
         epoch_manager: &dyn EpochManagerAdapter,
-        shard_id: ShardId,
+        mut shard_id: ShardId,
         mut block_hash: CryptoHash,
         last_chunk_height_included: BlockHeight,
     ) -> Result<Vec<ReceiptProofResponse>, Error> {
+        let _span =
+            tracing::debug_span!(target: "store", "get_incoming_receipts_for_shard").entered();
+
         let mut ret = vec![];
+        let mut header = self.get_block_header(&block_hash)?;
+
+        let target_shard_id = shard_id;
+        let target_shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash)?;
 
         loop {
-            let header = self.get_block_header(&block_hash)?;
-
             if header.height() < last_chunk_height_included {
                 panic!("get_incoming_receipts_for_shard failed");
             }
@@ -234,24 +239,67 @@ pub trait ChainStoreAccess {
                 break;
             }
 
-            let receipts = self.get_incoming_receipts(&block_hash, shard_id);
-            match receipts {
+            let prev_hash = header.prev_hash();
+            let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash)?;
+            let prev_shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_hash)?;
+
+            if shard_layout != prev_shard_layout {
+                let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
+                tracing::debug!(
+                    target: "store",
+                    version = shard_layout.version(),
+                    prev_version = prev_shard_layout.version(),
+                    shard_id,
+                    parent_shard_id,
+                    "crossing epoch boundary with shard layout change, updating shard id"
+                );
+                shard_id = parent_shard_id;
+            }
+
+            let receipts_proofs = self.get_incoming_receipts(&block_hash, shard_id);
+            match receipts_proofs {
                 Ok(receipt_proofs) => {
                     tracing::debug!(
+                        target: "store",
                         ?shard_id,
                         ?last_chunk_height_included,
                         ?block_hash,
-                        "get_incoming_receipts_for_shard found receipts from block with missing chunk"
+                        "found receipts from block with missing chunks",
                     );
-                    ret.push(ReceiptProofResponse(block_hash, receipt_proofs));
+
+                    // If the shard layout changed we need to filter to make
+                    // sure we only include receipts where receiver belongs to
+                    // the target shard id in the target shard layout.
+                    let mut filtered_receipt_proofs = vec![];
+                    for receipt_proof in receipt_proofs.iter() {
+                        let mut filtered_receipts = vec![];
+                        let ReceiptProof(receipts, shard_proof) = receipt_proof.clone();
+                        for receipt in receipts {
+                            let receiver_shard_id =
+                                account_id_to_shard_id(&receipt.receiver_id, &target_shard_layout);
+                            if receiver_shard_id == target_shard_id {
+                                tracing::debug!(target:"store", receipt_id=?receipt.receipt_id, "including receipt");
+                                filtered_receipts.push(receipt);
+                            } else {
+                                tracing::debug!(target:"store", receipt_id=?receipt.receipt_id, "excluding receipt");
+                            }
+                        }
+                        // TODO(resharding) adjust the shard proof accordingly
+                        // currently this only matters for state sync
+                        let receipt_proof = ReceiptProof(filtered_receipts, shard_proof);
+                        filtered_receipt_proofs.push(receipt_proof);
+                    }
+
+                    ret.push(ReceiptProofResponse(block_hash, filtered_receipt_proofs.into()));
                 }
                 Err(err) => {
-                    tracing::warn!(
+                    tracing::debug!(
+                        target: "store",
                         ?shard_id,
                         ?last_chunk_height_included,
                         ?block_hash,
                         ?err,
-                        "get_incoming_receipts_for_shard could not find receipts from block with missing chunk"
+                        "could not find receipts from block with missing chunks"
                     );
 
                     // This can happen when all chunks are missing in a block
@@ -263,16 +311,13 @@ pub trait ChainStoreAccess {
                 }
             }
 
-            // TODO(resharding)
-            // When crossing the epoch boundary we should check if the shard
-            // layout is different and handle that.
-            // One idea would be to do shard_id := parent(shard_id) but remember to
-            // deduplicate the receipts as well.
-            block_hash = *header.prev_hash();
+            block_hash = *prev_hash;
+            header = self.get_block_header(&block_hash)?;
         }
 
         Ok(ret)
     }
+
     /// Returns whether the block with the given hash was challenged
     fn is_block_challenged(&self, hash: &CryptoHash) -> Result<bool, Error>;
 
