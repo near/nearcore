@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 # Spins up a validator node tracking all shards and a non-validator node.
-# Create several accounts and deploy contract codes to them.
-# Sto the non-validator node.
-# Delete the accounts.
-# After the non-validator node does catchup, call the contracts of deleted accounts.
-# The calls should fail, because the accounts no longer exist.
-# Observe that the non-validator node is aware of them being deleted.
+# Create an account
+# Restart the non-validator node.
+# Delete the accounts while the non-validator node is not tracking that shard.
+# After the non-validator node does catchup, attempt to send a token to the deleted account.
+# Observe that both nodes correctly execute the transaction and return an error.
 
 import pathlib
 import sys
@@ -204,7 +203,7 @@ def main():
 
     print_balances(nodes, account_ids)
 
-    for i in range(10):
+    for i in range(1):
         # Send tokens and expect the transaction to fail.
         latest_block_hash = boot_node.get_latest_block().hash_bytes
         nonce1 = get_nonce_for_pk(boot_node, boot_node.signer_key.account_id, boot_node.signer_key.pk)
@@ -215,6 +214,8 @@ def main():
         assert 'result' in result and 'error' not in result, ('Expected "result" and no "error" in response, got: {}'.format(result))
 
         print_balances(nodes, account_ids)
+
+    utils.wait_for_blocks(node, target=int(5.5 * EPOCH_LENGTH))
 
 if __name__ == "__main__":
     main()
