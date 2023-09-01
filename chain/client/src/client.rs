@@ -2025,7 +2025,7 @@ impl Client {
         let will_care_about_shard =
             self.shard_tracker.will_care_about_shard(me, &head.last_block_hash, shard_id, true);
         // TODO(resharding) will_care_about_shard should be called with the
-        // shard id from the next epoch, in case shard layout changes
+        // account shard id from the next epoch, in case shard layout changes
         if care_about_shard || will_care_about_shard {
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, &shard_uid) {
