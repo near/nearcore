@@ -7,11 +7,11 @@ use super::utils::split_method_names;
 use super::{HostError, VMLogicError};
 use super::{StorageGetMode, ValuePtr};
 use crate::config::Config;
+use crate::ProfileDataV3;
 use near_crypto::Secp256K1Signature;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::ViewConfig;
 use near_primitives_core::config::{ActionCosts, ExtCosts};
-use near_primitives_core::profile::ProfileDataV3;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::runtime::fees::{transfer_exec_fee, transfer_send_fee};
 use near_primitives_core::types::{
