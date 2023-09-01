@@ -4,6 +4,7 @@ use crate::{metadata, metrics, DBCol, StoreConfig, StoreStatistics, Temperature}
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
 };
+use core::fmt;
 use once_cell::sync::Lazy;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Deref;
@@ -133,17 +134,17 @@ impl CacheUsage {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct Measurements {
-    pub count: usize,
+    pub samples: usize,
     pub total_read_block_latency: Duration,
     pub samples_with_merge: usize,
-    zeros: usize
+    zeros: usize,
 }
 
 impl Measurements {
     pub fn add(&mut self, read_block_latency: Duration, has_merge: bool) {
-        self.count += 1;
+        self.samples += 1;
         self.total_read_block_latency += read_block_latency;
         if self.total_read_block_latency.is_zero() {
             self.zeros += 1;
@@ -154,7 +155,19 @@ impl Measurements {
     }
 
     fn avg_read_block_latency(&self) -> Duration {
-        self.total_read_block_latency / (self.count as u32)
+        self.total_read_block_latency / (self.samples as u32)
+    }
+}
+
+impl fmt::Debug for Measurements {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f,
+            "Measurements: samples: {}, total: {:?} zeros: {} avg: {:?}",
+            self.samples,
+            self.total_read_block_latency,
+            self.zeros,
+            self.avg_read_block_latency()
+        )
     }
 }
 
