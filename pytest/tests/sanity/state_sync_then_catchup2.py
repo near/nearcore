@@ -20,7 +20,7 @@ import key
 
 from configured_logger import logger
 
-EPOCH_LENGTH = 50
+EPOCH_LENGTH = 20
 
 def epoch_height(block_height):
     if block_height == 0:
@@ -35,7 +35,17 @@ def print_balances(nodes, account_ids):
     for node in nodes:
         for account_id in account_ids:
             res = node.json_rpc('query', {'request_type': 'view_account', 'account_id': account_id, 'finality': 'optimistic'})
-            logger.info(res)
+            logger.info(f'{node.signer_key.account_id}: {account_id}: {res}')
+
+def get_nonce_for_pk(node, account_id, pk):
+    access_keys = node.json_rpc('query', { 'request_type': 'view_access_key_list', 'account_id': account_id, 'finality': 'optimistic' })
+    if not access_keys['result']['keys']:
+        raise KeyError(account_id)
+
+    nonce = next((key['access_key']['nonce'] for key in access_keys['result']['keys'] if key['public_key'] == pk), None)
+    if nonce is None:
+        raise KeyError(f'Nonce for {account_id} {pk} not found')
+    return nonce
 
 
 def main():
@@ -111,20 +121,19 @@ def main():
 
     print_balances(nodes, account_ids)
 
-    contract = utils.load_test_contract()
-
     # Create account.
 
     latest_block = boot_node.get_latest_block()
     latest_block_hash = latest_block.hash_bytes
-    nonce = (latest_block.height + 10) * 1000000
+    nonce1 = 10
 
-    sub_account_key_json = boot_node.signer_key.to_json()
-    sub_account_key_json['account_id'] = sub_account_id
-    sub_account_key = key.Key.from_json(sub_account_key_json)
+    sub_account_key = key.Key.from_random(sub_account_id)
 
-    nonce += 1
-    tx = transaction.sign_create_account_with_full_access_key_and_balance_tx(boot_node.signer_key, sub_account_id, boot_node.signer_key, 100*(10**24), nonce, latest_block_hash)
+    logger.info(boot_node.signer_key.to_json())
+    logger.info(sub_account_key.to_json())
+
+    nonce1 += 1
+    tx = transaction.sign_create_account_with_full_access_key_and_balance_tx(boot_node.signer_key, sub_account_id, sub_account_key, 100*(10**24), nonce1, latest_block_hash)
     result = boot_node.send_tx_and_wait(tx, 10)
     assert 'result' in result and 'error' not in result, ('Expected "result" and no "error" in response, got: {}'.format(result))
     logger.info(f'Created an account {sub_account_id}')
@@ -133,8 +142,9 @@ def main():
 
     # Send tokens to check the account exists.
     latest_block_hash = boot_node.get_latest_block().hash_bytes
-    nonce += 1
-    tx = transaction.sign_payment_tx(boot_node.signer_key, sub_account_id, 1, nonce, latest_block_hash)
+    nonce2 = get_nonce_for_pk(boot_node, sub_account_id, sub_account_key.pk)
+    nonce2 += 1
+    tx = transaction.sign_payment_tx(boot_node.signer_key, sub_account_id, 1, nonce2, latest_block_hash)
     result = boot_node.send_tx_and_wait(tx, 10)
     assert 'result' in result and 'error' not in result, ('Expected "result" and no "error" in response, got: {}'.format(result))
     logger.info(f'Sent a token from {boot_node.signer_key.account_id} to {sub_account_id}')
@@ -146,8 +156,8 @@ def main():
 
     # Send tokens back
     latest_block_hash = boot_node.get_latest_block().hash_bytes
-    nonce += 1
-    tx = transaction.sign_payment_tx(sub_account_key, boot_node.signer_key.account_id, 1, nonce, latest_block_hash)
+    nonce2 += 1
+    tx = transaction.sign_payment_tx(sub_account_key, boot_node.signer_key.account_id, 1, nonce2, latest_block_hash)
     result = boot_node.send_tx_and_wait(tx, 10)
     assert 'result' in result and 'error' not in result, ('Expected "result" and no "error" in response, got: {}'.format(result))
     logger.info(f'Sent a token from {sub_account_id} to {boot_node.signer_key.account_id}')
@@ -170,13 +180,12 @@ def main():
     print_balances(nodes, account_ids)
 
     # Delete the account.
-    for i in range(10):
-        latest_block_hash = boot_node.get_latest_block().hash_bytes
-        nonce += 1
-        tx = transaction.sign_delete_account_tx(sub_account_key, sub_account_id, boot_node.signer_key.account_id, nonce, latest_block_hash)
-        result = boot_node.send_tx(tx)
-        logger.info(result)
-        logger.info(f'Deleted {sub_account_id}')
+    latest_block_hash = boot_node.get_latest_block().hash_bytes
+    nonce2 += 1
+    tx = transaction.sign_delete_account_tx(sub_account_key, sub_account_id, boot_node.signer_key.account_id, nonce2, latest_block_hash)
+    result = boot_node.send_tx(tx)
+    logger.info(result)
+    logger.info(f'Deleted {sub_account_id}')
 
     latest_block = utils.wait_for_blocks(boot_node, target=int(3.5 * EPOCH_LENGTH))
     epoch = epoch_height(latest_block.height)
@@ -198,8 +207,9 @@ def main():
     for i in range(10):
         # Send tokens and expect the transaction to fail.
         latest_block_hash = boot_node.get_latest_block().hash_bytes
-        nonce += 1
-        tx = transaction.sign_payment_tx(boot_node.signer_key, sub_account_id, 1, nonce, latest_block_hash)
+        nonce1 = get_nonce_for_pk(boot_node, boot_node.signer_key.account_id, boot_node.signer_key.pk)
+        nonce1 += 1
+        tx = transaction.sign_payment_tx(boot_node.signer_key, sub_account_id, 1, nonce1, latest_block_hash)
         logger.info(f'Sending a token from {boot_node.signer_key.account_id} to {sub_account_id} now')
         result = boot_node.send_tx_and_wait(tx, 10)
         assert 'result' in result and 'error' not in result, ('Expected "result" and no "error" in response, got: {}'.format(result))

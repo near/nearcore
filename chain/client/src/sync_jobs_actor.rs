@@ -69,7 +69,6 @@ impl SyncJobsActor {
         msg: &ApplyStatePartsRequest,
     ) -> Result<(), near_chain_primitives::error::Error> {
         let _span = tracing::debug_span!(target: "client", "clear_flat_state").entered();
-        tracing::info!(target: "debug-me", "clear_flat_state");
         if let Some(flat_storage_manager) = msg.runtime_adapter.get_flat_storage_manager() {
             flat_storage_manager.remove_flat_storage_for_shard(msg.shard_uid)?
         }

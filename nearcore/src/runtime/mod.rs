@@ -805,7 +805,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         states_to_patch: SandboxStatePatch,
         use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
-        tracing::info!(target: "runtime", num_receipts = receipts.len(), num_transactions = transactions.len(), "apply_transactions_with_optional_storage_proof");
         let trie =
             self.get_trie_for_shard(shard_id, prev_block_hash, *state_root, use_flat_storage)?;
 
