@@ -50,36 +50,40 @@ pub struct PerfContext {
 
 impl PerfContext {
     pub fn new() -> Self {
-        Self {
-            column_measurements: HashMap::new(),
-        }
+        Self { column_measurements: HashMap::new() }
     }
 
     // We call record for every read since rocksdb perf context is local for
-    // every thread and because of that we cannot use single rocksdb perf 
+    // every thread and because of that we cannot use single rocksdb perf
     // context to get all data
-    fn record(&mut self, col: DBCol, obs_latency: Duration, rocksdb_ctx: &rocksdb::perf::PerfContext) {
-        //let mut rocksdb_ctx = rocksdb::perf::PerfContext::default();
-        let col_measurement =
-            self.column_measurements.entry(col).or_default();
+    fn record(
+        &mut self,
+        col: DBCol,
+        obs_latency: Duration,
+    ) {
+        let mut rocksdb_ctx = rocksdb::perf::PerfContext::default();
+        rocksdb::perf::set_perf_stats(rocksdb::perf::PerfStatsLevel::EnableTime);
+
+        let col_measurement = self.column_measurements.entry(col).or_default();
 
         // Add cache measurements
-/*        col_measurement.block_cache.add_hits(rocksdb_ctx.metric(rocksdb::PerfMetric::BlockCacheHitCount));*/
+        /*        col_measurement.block_cache.add_hits(rocksdb_ctx.metric(rocksdb::PerfMetric::BlockCacheHitCount));*/
         /*col_measurement.bloom_mem.add_hits(rocksdb_ctx.metric(rocksdb::PerfMetric::BloomMemtableHitCount));*/
         /*col_measurement.bloom_mem.add_miss(rocksdb_ctx.metric(rocksdb::PerfMetric::BloomMemtableMissCount));*/
 
         /*col_measurement.bloom_sst.add_hits(rocksdb_ctx.metric(rocksdb::PerfMetric::BloomSstHitCount));*/
         /*col_measurement.bloom_sst.add_hits(rocksdb_ctx.metric(rocksdb::PerfMetric::BloomSstMissCount));*/
- 
+
         // Add block latencies measurements
-        let block_read_cnt =
-            rocksdb_ctx.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
+        let block_read_cnt = rocksdb_ctx.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
         let read_block_latency =
             Duration::from_nanos(rocksdb_ctx.metric(rocksdb::PerfMetric::BlockReadTime));
-        let has_merge =
-            rocksdb_ctx.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
+        let has_merge = rocksdb_ctx.metric(rocksdb::PerfMetric::MergeOperatorTimeNanos) > 0;
         if !read_block_latency.is_zero() {
-            println!("Read block latency exists: {}, {:?} {:?}", block_read_cnt, read_block_latency, has_merge);
+            println!(
+                "Read block latency exists: {}, {:?} {:?}",
+                block_read_cnt, read_block_latency, has_merge
+            );
         }
 
         col_measurement
@@ -88,8 +92,8 @@ impl PerfContext {
             .or_default()
             .add(read_block_latency, has_merge);
         //col_measurement.measurements_overall.add(obs_latency, has_merge);
- 
-        //rocksdb_ctx.reset();
+
+        rocksdb_ctx.reset();
     }
 
     fn reset(&mut self) {
@@ -103,7 +107,7 @@ impl PerfContext {
 struct ColumnMeasurement {
     measurements_per_block_reads: BTreeMap<usize, Measurements>,
     //measurements_overall: Measurements,
-/*    block_cache: CacheUsage,*/
+    /*    block_cache: CacheUsage,*/
     /*bloom_mem: CacheUsage,*/
     /*bloom_sst: CacheUsage,*/
 }
@@ -112,7 +116,7 @@ impl ColumnMeasurement {
     fn default() -> Self {
         Self {
             measurements_per_block_reads: BTreeMap::new(),
-/*            measurements_overall: Measurements::default(),*/
+            /*            measurements_overall: Measurements::default(),*/
             /*block_cache: CacheUsage::default(),*/
             /*bloom_mem: CacheUsage::default(),*/
             /*bloom_sst: CacheUsage::default(),*/
@@ -442,10 +446,7 @@ impl Database for RocksDB {
             .map(DBSlice::from_rocksdb_slice);
         let obs_latency = Duration::from_secs_f64(timer.stop_and_record());
 
-        let mut rocksdb_ctx = rocksdb::perf::PerfContext::default();
-        rocksdb::perf::set_perf_stats(rocksdb::perf::PerfStatsLevel::EnableTime);
-        self.perf_context.lock().unwrap().record(col, obs_latency, &rocksdb_ctx);
-        rocksdb_ctx.reset();
+        self.perf_context.lock().unwrap().record(col, obs_latency);
 
         Ok(result)
     }
@@ -728,59 +729,59 @@ impl RocksDB {
             Some(measurement) => {
                 println!("Fill perf res: {:?}", measurement);
                 /*let state_read_block_latency =*/
-                    /*measurement.measurements_overall.avg_read_block_latency().as_micros() as i64;*/
+                /*measurement.measurements_overall.avg_read_block_latency().as_micros() as i64;*/
                 /*result.data.push((*/
-                    /*"rocksdb_perf_avg_read_block_latency".to_string(),*/
-                    /*vec![StatsValue::ColumnValue(DBCol::State, state_read_block_latency)],*/
+                /*"rocksdb_perf_avg_read_block_latency".to_string(),*/
+                /*vec![StatsValue::ColumnValue(DBCol::State, state_read_block_latency)],*/
                 /*));*/
 
                 /*let state_avg_obs_lat_per_block: Vec<StatsValue> = measurement*/
-                    /*.measurements_per_block_reads*/
-                    /*.iter()*/
-                    /*.map(|(block_count, measurement)| {*/
-                        /*StatsValue::BucketBlockCount(*/
-                            /*DBCol::State,*/
-                            /*block_count.to_string(),*/
-                            /*measurement.avg_read_block_latency().as_micros() as i64,*/
-                        /*)*/
-                    /*})*/
-                    /*.collect();*/
+                /*.measurements_per_block_reads*/
+                /*.iter()*/
+                /*.map(|(block_count, measurement)| {*/
+                /*StatsValue::BucketBlockCount(*/
+                /*DBCol::State,*/
+                /*block_count.to_string(),*/
+                /*measurement.avg_read_block_latency().as_micros() as i64,*/
+                /*)*/
+                /*})*/
+                /*.collect();*/
                 /*result.data.push((*/
-                    /*"rocksdb_perf_total_observed_latency_per_block".to_string(),*/
-                    /*state_avg_obs_lat_per_block,*/
+                /*"rocksdb_perf_total_observed_latency_per_block".to_string(),*/
+                /*state_avg_obs_lat_per_block,*/
                 /*));*/
 
                 /*let state_count_per_block: Vec<StatsValue> = measurement*/
-                    /*.measurements_per_block_reads*/
-                    /*.iter()*/
-                    /*.map(|(block_count, measurement)| {*/
-                        /*StatsValue::BucketBlockCount(*/
-                            /*DBCol::State,*/
-                            /*block_count.to_string(),*/
-                            /*measurement.count as i64,*/
-                        /*)*/
-                    /*})*/
-                    /*.collect();*/
+                /*.measurements_per_block_reads*/
+                /*.iter()*/
+                /*.map(|(block_count, measurement)| {*/
+                /*StatsValue::BucketBlockCount(*/
+                /*DBCol::State,*/
+                /*block_count.to_string(),*/
+                /*measurement.count as i64,*/
+                /*)*/
+                /*})*/
+                /*.collect();*/
                 /*result*/
-                    /*.data*/
-                    /*.push(("rocksdb_perf_count_per_block".to_string(), state_count_per_block));*/
+                /*.data*/
+                /*.push(("rocksdb_perf_count_per_block".to_string(), state_count_per_block));*/
 
                 /*let state_total_lat_per_block: Vec<StatsValue> = measurement*/
-                    /*.measurements_per_block_reads*/
-                    /*.iter()*/
-                    /*.map(|(block_count, measurement)| {*/
-                        /*StatsValue::BucketBlockCount(*/
-                            /*DBCol::State,*/
-                            /*block_count.to_string(),*/
-                            /*measurement.total_read_block_latency.as_micros() as i64,*/
-                        /*)*/
-                    /*})*/
-                    /*.collect();*/
+                /*.measurements_per_block_reads*/
+                /*.iter()*/
+                /*.map(|(block_count, measurement)| {*/
+                /*StatsValue::BucketBlockCount(*/
+                /*DBCol::State,*/
+                /*block_count.to_string(),*/
+                /*measurement.total_read_block_latency.as_micros() as i64,*/
+                /*)*/
+                /*})*/
+                /*.collect();*/
                 /*result.data.push((*/
-                    /*"rocksdb_perf_total_lat_per_block".to_string(),*/
-                    /*state_total_lat_per_block,*/
+                /*"rocksdb_perf_total_lat_per_block".to_string(),*/
+                /*state_total_lat_per_block,*/
                 /*));*/
- 
+
                 /*result.data.push(("rocksdb_perf_block_cache_hit".to_string(),*/
                 /*vec![StatsValue::ColumnValue(DBCol::State, measurement.block_cache.hits as i64)]));*/
 
