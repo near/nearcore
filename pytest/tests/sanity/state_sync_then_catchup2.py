@@ -203,17 +203,16 @@ def main():
 
     print_balances(nodes, account_ids)
 
-    for i in range(1):
-        # Send tokens and expect the transaction to fail.
-        latest_block_hash = boot_node.get_latest_block().hash_bytes
-        nonce1 = get_nonce_for_pk(boot_node, boot_node.signer_key.account_id, boot_node.signer_key.pk)
-        nonce1 += 1
-        tx = transaction.sign_payment_tx(boot_node.signer_key, sub_account_id, 1, nonce1, latest_block_hash)
-        logger.info(f'Sending a token from {boot_node.signer_key.account_id} to {sub_account_id} now')
-        result = boot_node.send_tx_and_wait(tx, 10)
-        assert 'result' in result and 'error' not in result, ('Expected "result" and no "error" in response, got: {}'.format(result))
+    # Send tokens and expect the transaction to fail.
+    latest_block_hash = boot_node.get_latest_block().hash_bytes
+    nonce1 = get_nonce_for_pk(boot_node, boot_node.signer_key.account_id, boot_node.signer_key.pk)
+    nonce1 += 1
+    tx = transaction.sign_payment_tx(boot_node.signer_key, sub_account_id, 1, nonce1, latest_block_hash)
+    logger.info(f'Sending a token from {boot_node.signer_key.account_id} to {sub_account_id} now')
+    result = boot_node.send_tx_and_wait(tx, 10)
+    assert 'result' in result and 'error' not in result, ('Expected "result" and no "error" in response, got: {}'.format(result))
 
-        print_balances(nodes, account_ids)
+    print_balances(nodes, account_ids)
 
     utils.wait_for_blocks(boot_node, target=int(5.5 * EPOCH_LENGTH))
 
