@@ -164,23 +164,68 @@ if __name__ == '__main__':
                                        help='''
     Runs the locust load test on each node.
     ''')
-    run_parser.add_argument('--master', type=str, required=True)
-    run_parser.add_argument('--workers', type=str, required=True)
-    run_parser.add_argument('--node-ip-port', type=str, required=True)
-    run_parser.add_argument('--funding-key', type=str, required=True)
-    run_parser.add_argument('--locustfile', type=str, default='ft.py')
-    run_parser.add_argument('--max-workers', type=int, default=16)
-    run_parser.add_argument('--web-ui', action='store_true')
-    run_parser.add_argument('--num-users', type=int)
-    run_parser.add_argument('--run-time', type=str)
+    run_parser.add_argument('--master',
+                            type=str,
+                            required=True,
+                            help='instance name of master node')
+    run_parser.add_argument(
+        '--workers',
+        type=str,
+        required=True,
+        help='comma-separated list of instance names of worker nodes')
+    run_parser.add_argument(
+        '--node-ip-port',
+        type=str,
+        required=True,
+        help='IP address and port of a node in the network under test')
+    run_parser.add_argument(
+        '--funding-key',
+        type=str,
+        required=True,
+        help=
+        'local path to a key file for the base account to be used in the test')
+    run_parser.add_argument(
+        '--locustfile',
+        type=str,
+        default='ft.py',
+        help=
+        'locustfile name in nearcore/pytest/tests/loadtest/locust/locustfiles')
+    run_parser.add_argument(
+        '--max-workers',
+        type=int,
+        default=16,
+        help='max number of workers the test should support')
+    run_parser.add_argument(
+        '--web-ui',
+        action='store_true',
+        help=
+        'if given, sets up a web UI to control the test, otherwise starts automatically'
+    )
+    run_parser.add_argument(
+        '--num-users',
+        type=int,
+        help=
+        'number of users to run the test with. Required unless --web-ui is given.'
+    )
+    run_parser.add_argument(
+        '--run-time',
+        type=str,
+        help=
+        'A string specifying the total run time of the test, passed to the locust --run-time argument. e.g. (300s, 20m, 3h, 1h30m, etc.)'
+    )
     run_parser.set_defaults(func=run_cmd)
 
     stop_parser = subparsers.add_parser('stop',
                                         help='''
     Stops the locust load test on each node.
     ''')
-    stop_parser.add_argument('--master', type=str)
-    stop_parser.add_argument('--workers', type=str)
+    stop_parser.add_argument('--master',
+                             type=str,
+                             help='instance name of master node')
+    stop_parser.add_argument(
+        '--workers',
+        type=str,
+        help='comma-separated list of instance names of worker nodes')
     stop_parser.set_defaults(func=stop_cmd)
 
     args = parser.parse_args()
