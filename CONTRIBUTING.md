@@ -63,7 +63,7 @@ Proposal](https://github.com/near/NEPs/blob/master/neps/nep-0001.md) process.
 All the contributions to `nearcore` happen via Pull Requests.  Please follow the
 following steps when creating a PR:
 
-1. Fork the `nearcore` repository and create a new branch there to do you work.
+1. Fork the `nearcore` repository and create a new branch there to do your work.
 2. The branch can contain any number of commits.  When merged, all commits will
    be squashed into a single commit.
 3. The changes should be thoroughly tested.  Please refer to [this
