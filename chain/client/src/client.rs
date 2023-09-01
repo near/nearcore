@@ -1943,6 +1943,7 @@ impl Client {
         is_forwarded: bool,
         check_only: bool,
     ) -> ProcessTxResponse {
+        tracing::info!(target: "debug-me", ?tx, is_forwarded, check_only, "process_tx");
         unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded, check_only), {
             let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
             warn!(target: "client", "I'm: {:?} Dropping tx: {:?}", me, tx);
@@ -1989,6 +1990,7 @@ impl Client {
         is_forwarded: bool,
         check_only: bool,
     ) -> Result<ProcessTxResponse, Error> {
+        tracing::info!(target: "debug-me", ?tx, is_forwarded, check_only, "process_tx_internal");
         let head = self.chain.head()?;
         let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
         let cur_block_header = self.chain.head_header()?;

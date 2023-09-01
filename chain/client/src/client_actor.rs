@@ -400,6 +400,7 @@ impl Handler<WithSpanContext<ProcessTxRequest>> for ClientActor {
         msg: WithSpanContext<ProcessTxRequest>,
         ctx: &mut Context<Self>,
     ) -> Self::Result {
+        tracing::info!(target: "debug-me", ?msg, "ProcessTxRequest");
         self.wrap(msg, ctx, "ProcessTxRequest", |this: &mut Self, msg| {
             let ProcessTxRequest { transaction, is_forwarded, check_only } = msg;
             this.client.process_tx(transaction, is_forwarded, check_only)

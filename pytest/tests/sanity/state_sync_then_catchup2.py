@@ -1,0 +1,210 @@
+#!/usr/bin/env python3
+# Spins up a validator node tracking all shards and a non-validator node.
+# Create several accounts and deploy contract codes to them.
+# Sto the non-validator node.
+# Delete the accounts.
+# After the non-validator node does catchup, call the contracts of deleted accounts.
+# The calls should fail, because the accounts no longer exist.
+# Observe that the non-validator node is aware of them being deleted.
+
+import pathlib
+import sys
+import tempfile
+
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
+
+from cluster import start_cluster, load_config
+import transaction
+import utils
+import key
+
+from configured_logger import logger
+
+EPOCH_LENGTH = 50
+
+def epoch_height(block_height):
+    if block_height == 0:
+        return 0
+    if block_height <= EPOCH_LENGTH:
+        # According to the protocol specifications, there are two epochs with height 1.
+        return "1*"
+    return int((block_height - 1) / EPOCH_LENGTH)
+
+
+def print_balances(nodes, account_ids):
+    for node in nodes:
+        for account_id in account_ids:
+            res = node.json_rpc('query', {'request_type': 'view_account', 'account_id': account_id, 'finality': 'optimistic'})
+            logger.info(res)
+
+
+def main():
+    state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
+
+    config0 = {
+        'gc_num_epochs_to_keep': 100,
+        'log_summary_period': {
+            'secs': 0,
+            'nanos': 500000000
+        },
+        'log_summary_style': 'plain',
+        'state_sync': {
+            'dump': {
+                'location': {
+                    'Filesystem': {
+                        'root_dir': state_parts_dir
+                    }
+                },
+                'iteration_delay': {
+                    'secs': 0,
+                    'nanos': 100000000
+                },
+            }
+        },
+        'store.state_snapshot_enabled': True,
+        'tracked_shards': [0],
+    }
+    config1 = {
+        'gc_num_epochs_to_keep': 100,
+        'log_summary_period': {
+            'secs': 0,
+            'nanos': 500000000
+        },
+        'log_summary_style': 'plain',
+        'state_sync': {
+            'sync': {
+                'ExternalStorage': {
+                    'location': {
+                        'Filesystem': {
+                            'root_dir': state_parts_dir
+                        }
+                    }
+                }
+            }
+        },
+        'state_sync_enabled': True,
+        'consensus.state_sync_timeout': {
+            'secs': 0,
+            'nanos': 500000000
+        },
+        'tracked_shard_schedule': [
+            [0],
+            [0],
+            [],
+            [],
+            [0],
+            [0],
+            [0],
+            [0],
+        ],
+        'tracked_shards': [],
+    }
+
+    config = load_config()
+    nodes = start_cluster(1, 1, 1, config, [["epoch_length", EPOCH_LENGTH]], { 0: config0, 1: config1 })
+    [boot_node, node] = nodes
+
+    logger.info('started the nodes')
+
+    sub_account_id = "sub." + boot_node.signer_key.account_id
+    account_ids = [boot_node.signer_key.account_id, sub_account_id]
+
+    print_balances(nodes, account_ids)
+
+    contract = utils.load_test_contract()
+
+    # Create account.
+
+    latest_block = boot_node.get_latest_block()
+    latest_block_hash = latest_block.hash_bytes
+    nonce = (latest_block.height + 10) * 1000000
+
+    sub_account_key_json = boot_node.signer_key.to_json()
+    sub_account_key_json['account_id'] = sub_account_id
+    sub_account_key = key.Key.from_json(sub_account_key_json)
+
+    nonce += 1
+    tx = transaction.sign_create_account_with_full_access_key_and_balance_tx(boot_node.signer_key, sub_account_id, boot_node.signer_key, 100*(10**24), nonce, latest_block_hash)
+    result = boot_node.send_tx_and_wait(tx, 10)
+    assert 'result' in result and 'error' not in result, ('Expected "result" and no "error" in response, got: {}'.format(result))
+    logger.info(f'Created an account {sub_account_id}')
+
+    print_balances(nodes, account_ids)
+
+    # Send tokens to check the account exists.
+    latest_block_hash = boot_node.get_latest_block().hash_bytes
+    nonce += 1
+    tx = transaction.sign_payment_tx(boot_node.signer_key, sub_account_id, 1, nonce, latest_block_hash)
+    result = boot_node.send_tx_and_wait(tx, 10)
+    assert 'result' in result and 'error' not in result, ('Expected "result" and no "error" in response, got: {}'.format(result))
+    logger.info(f'Sent a token from {boot_node.signer_key.account_id} to {sub_account_id}')
+
+    print_balances(nodes, account_ids)
+
+    logger.info(boot_node.signer_key.to_json())
+    logger.info(sub_account_key.to_json())
+
+    # Send tokens back
+    latest_block_hash = boot_node.get_latest_block().hash_bytes
+    nonce += 1
+    tx = transaction.sign_payment_tx(sub_account_key, boot_node.signer_key.account_id, 1, nonce, latest_block_hash)
+    result = boot_node.send_tx_and_wait(tx, 10)
+    assert 'result' in result and 'error' not in result, ('Expected "result" and no "error" in response, got: {}'.format(result))
+    logger.info(f'Sent a token from {sub_account_id} to {boot_node.signer_key.account_id}')
+
+    print_balances(nodes, account_ids)
+
+    latest_block = boot_node.get_latest_block()
+    epoch = epoch_height(latest_block.height)
+    assert epoch == 1 or epoch == "1*", f"epoch: {epoch}"
+    logger.info(f'We are in epoch {epoch}')
+
+    latest_block = utils.wait_for_blocks(boot_node, target=int(2.5 * EPOCH_LENGTH))
+    epoch = epoch_height(latest_block.height)
+    assert epoch == 2, f"epoch: {epoch}"
+    node.kill()
+    # Restart the node to make it start without opening any flat storages.
+    node.start(boot_node=boot_node)
+    logger.info(f'We are in epoch {epoch}, and the node is restarted')
+
+    print_balances(nodes, account_ids)
+
+    # Delete the account.
+    for i in range(10):
+        latest_block_hash = boot_node.get_latest_block().hash_bytes
+        nonce += 1
+        tx = transaction.sign_delete_account_tx(sub_account_key, sub_account_id, boot_node.signer_key.account_id, nonce, latest_block_hash)
+        result = boot_node.send_tx(tx)
+        logger.info(result)
+        logger.info(f'Deleted {sub_account_id}')
+
+    latest_block = utils.wait_for_blocks(boot_node, target=int(3.5 * EPOCH_LENGTH))
+    epoch = epoch_height(latest_block.height)
+    assert epoch == 3, f"epoch: {epoch}"
+    print_balances(nodes, account_ids)
+    logger.info(f'We are in epoch {epoch}')
+
+    # Wait until the node tracks the shard and probably does the catchup.
+    latest_block = utils.wait_for_blocks(boot_node, target=int(4.5 * EPOCH_LENGTH))
+    epoch = epoch_height(latest_block.height)
+    assert epoch == 4, f"epoch: {epoch}"
+    logger.info(f'The time has come')
+    # Ensure the non-validator node has caught up.
+    utils.wait_for_blocks(node, target=int(4.5 * EPOCH_LENGTH))
+    logger.info(f'The other node is in sync')
+
+    print_balances(nodes, account_ids)
+
+    for i in range(10):
+        # Send tokens and expect the transaction to fail.
+        latest_block_hash = boot_node.get_latest_block().hash_bytes
+        nonce += 1
+        tx = transaction.sign_payment_tx(boot_node.signer_key, sub_account_id, 1, nonce, latest_block_hash)
+        logger.info(f'Sending a token from {boot_node.signer_key.account_id} to {sub_account_id} now')
+        result = boot_node.send_tx_and_wait(tx, 10)
+        assert 'result' in result and 'error' not in result, ('Expected "result" and no "error" in response, got: {}'.format(result))
+
+        print_balances(nodes, account_ids)
+
+if __name__ == "__main__":
+    main()

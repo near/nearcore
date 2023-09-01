@@ -1181,6 +1181,7 @@ impl Runtime {
             "apply",
             num_transactions = transactions.len())
         .entered();
+        tracing::info!(target: "runtime", ?incoming_receipts, ?transactions, "apply");
 
         let mut prefetcher = TriePrefetcher::new_if_enabled(&trie);
         let mut state_update = TrieUpdate::new(trie);
