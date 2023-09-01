@@ -278,10 +278,10 @@ pub trait ChainStoreAccess {
                             let receiver_shard_id =
                                 account_id_to_shard_id(&receipt.receiver_id, &target_shard_layout);
                             if receiver_shard_id == target_shard_id {
-                                tracing::debug!(target:"store", receipt_id=?receipt.receipt_id, "including receipt");
+                                tracing::trace!(target:"store", receipt_id=?receipt.receipt_id, "including receipt");
                                 filtered_receipts.push(receipt);
                             } else {
-                                tracing::debug!(target:"store", receipt_id=?receipt.receipt_id, "excluding receipt");
+                                tracing::trace!(target:"store", receipt_id=?receipt.receipt_id, "excluding receipt");
                             }
                         }
                         // TODO(resharding) adjust the shard proof accordingly
