@@ -215,7 +215,10 @@ def main():
 
         print_balances(nodes, account_ids)
 
-    utils.wait_for_blocks(node, target=int(5.5 * EPOCH_LENGTH))
+    utils.wait_for_blocks(boot_node, target=int(5.5 * EPOCH_LENGTH))
+
+    latest_block = boot_node.get_latest_block()
+    assert latest_block.height < int(0.5 * EPOCH_LENGTH) + node.get_latest_block().height
 
 if __name__ == "__main__":
     main()
