@@ -58,8 +58,8 @@ impl PerfContext {
     // We call record for every read since rocksdb perf context is local for
     // every thread and because of that we cannot use single rocksdb perf 
     // context to get all data
-    fn record(&mut self, col: DBCol, obs_latency: Duration) {
-        let mut rocksdb_ctx = rocksdb::perf::PerfContext::default();
+    fn record(&mut self, col: DBCol, obs_latency: Duration, rocksdb_ctx: &rocksdb::perf::PerfContext) {
+        //let mut rocksdb_ctx = rocksdb::perf::PerfContext::default();
         let col_measurement =
             self.column_measurements.entry(col).or_default();
 
@@ -89,7 +89,7 @@ impl PerfContext {
             .add(read_block_latency, has_merge);
         //col_measurement.measurements_overall.add(obs_latency, has_merge);
  
-        rocksdb_ctx.reset();
+        //rocksdb_ctx.reset();
     }
 
     fn reset(&mut self) {
@@ -442,7 +442,10 @@ impl Database for RocksDB {
             .map(DBSlice::from_rocksdb_slice);
         let obs_latency = Duration::from_secs_f64(timer.stop_and_record());
 
-        self.perf_context.lock().unwrap().record(col, obs_latency);
+        let mut rocksdb_ctx = rocksdb::perf::PerfContext::default();
+        rocksdb::perf::set_perf_stats(rocksdb::perf::PerfStatsLevel::EnableTime);
+        self.perf_context.lock().unwrap().record(col, obs_latency, &rocksdb_ctx);
+        rocksdb_ctx.reset();
 
         Ok(result)
     }
