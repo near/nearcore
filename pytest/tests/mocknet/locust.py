@@ -62,9 +62,17 @@ def upload_key(node, filename):
                         switch_user='ubuntu')
 
 
-def run_master(args, node):
+def run_master(args, node, num_workers):
     upload_key(node, args.funding_key)
     cmd = f'/home/ubuntu/locust/venv/bin/python3 -m locust --web-port 3030 --master-bind-port 3000 -H {args.node_ip_port} -f locustfiles/{args.locustfile} --shard-layout-chain-id mainnet --funding-key=/home/ubuntu/locust/funding_key.json --max-workers {args.max_workers} --master'
+    if args.num_users is not None:
+        cmd += f' --users {args.num_users}'
+    if args.run_time is not None:
+        cmd += f' --run-time {args.run_time}'
+    if not args.web_ui:
+        cmd += f' --headless --expect-workers {num_workers}'
+
+    logger.info(f'running "{cmd}" on master node {node.instance_name}')
     cmd_utils.run_in_background(
         node,
         cmd,
@@ -98,7 +106,8 @@ def run_worker(args, node, master_ip):
     if master_ip != node.machine.ip:
         # if this node is also the master node, the key has already been uploaded
         upload_key(node, args.funding_key)
-        cmd += f'--master-host {master_ip}'
+        cmd += f' --master-host {master_ip}'
+    logger.info(f'running "{cmd}" on worker node {node.instance_name}')
     cmd_utils.run_in_background(
         node,
         cmd,
@@ -109,15 +118,22 @@ def run_worker(args, node, master_ip):
 
 
 def run_cmd(args):
+    if not args.web_ui and args.num_users is None:
+        sys.exit('unless you pass --web-ui, --num-users must be set')
+
     master, workers = parse_instsance_names(args)
 
-    run_master(args, master)
-    wait_master_inited(master)
+    run_master(args, master, len(workers))
+    if args.web_ui:
+        wait_master_inited(master)
     pmap(lambda n: run_worker(args, n, master.machine.ip), workers)
-    pmap(wait_worker_inited, workers)
-    logger.info(
-        f'all locust workers initialized. visit http://{master.machine.ip}:3030/ to start and control the test'
-    )
+    if args.web_ui:
+        pmap(wait_worker_inited, workers)
+        logger.info(
+            f'All locust workers initialized. Visit http://{master.machine.ip}:3030/ to start and control the test'
+        )
+    else:
+        logger.info('All workers started.')
 
 
 def stop_cmd(args):
@@ -153,6 +169,9 @@ if __name__ == '__main__':
     run_parser.add_argument('--funding-key', type=str, required=True)
     run_parser.add_argument('--locustfile', type=str, default='ft.py')
     run_parser.add_argument('--max-workers', type=int, default=16)
+    run_parser.add_argument('--web-ui', action='store_true')
+    run_parser.add_argument('--num-users', type=int)
+    run_parser.add_argument('--run-time', type=str)
     run_parser.set_defaults(func=run_cmd)
 
     stop_parser = subparsers.add_parser('stop',
