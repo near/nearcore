@@ -10,5 +10,5 @@ LINTS=(
   -D clippy::suspicious
   -D clippy::len_zero
 )
-
+sleep 30m
 cargo clippy --all-targets -- "${LINTS[@]}"
