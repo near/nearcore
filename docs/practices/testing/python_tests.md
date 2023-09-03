@@ -13,32 +13,6 @@ Nearcore itself has several features guarded by a
 that allows the python tests to invoke behaviors otherwise impossible to be
 exercised by an honest actor.
 
-# Basics
-
-The infrastructure is located in `{nearcore}/pytest/lib` and the tests themselves
-are in subdirectories of `{nearcore}/pytest/tests`. To prepare the local machine to
-run the tests you'd need python3 (python 3.7), and have several dependencies
-installed, for which we recommend using virtualenv:
-
-```
-cd pytest
-virtualenv .env --python=python3
-. .env/bin/activate
-pip install -r requirements.txt
-```
-
-The tests are expected to be ran from the `pytest` dir itself. For example, once
-the virtualenv is configured:
-
-```
-cd pytest
-. .env/bin/activate
-python tests/sanity/block_production.py
-```
-
-This will run the most basic tests that spin up a small cluster locally and wait
-until it produces several blocks.
-
 ## Compiling the client for tests
 
 The local tests by default expect the binary to be in the default location for a

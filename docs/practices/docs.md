@@ -77,6 +77,8 @@ The book is deployed via the
 This workflow runs mdBook and then deploys the result to
 [GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/about-github-pages).
 
+TODO: add test paragraph
+
 For internal docs, you often want to have pretty pictures. We don't currently
 have a recommended workflow, but here are some tips:
 

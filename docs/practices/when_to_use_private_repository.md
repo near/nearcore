@@ -14,6 +14,7 @@ Are you a security researcher? Please report security vulnerabilities to
 
 Limit usage of nearcore-private to sensitive issues that need to be kept confidential
 
+TODO: Input testing details
 
 ## Details
 

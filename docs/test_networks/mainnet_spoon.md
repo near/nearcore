@@ -115,10 +115,6 @@ the following in `~/test-chain-scratch/extra-records.json`:
 ]
 ```
 
-You'll want to include an access key here, otherwise you won't be able
-to do anything with the account. Note that here you can also add
-access keys for any mainnet account you want, so you'll be able to
-control it in the test chain.
 
 Now to make these changes to the genesis and records files, you can
 use the `neard amend-genesis` command like so:

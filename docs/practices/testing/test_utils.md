@@ -51,7 +51,7 @@ let store = create_test_store();
 ## EpochManager
 
 See usages of MockEpochManager. Note that this is deprecated. Try to use
-EpochManager itself wherever possible.
+EpochManager itself wherever possible. TODO: update w new epochmanager
 
 ## Runtime
 

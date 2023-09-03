@@ -18,7 +18,7 @@
 
 # Tests hierarchy
 
-In the NEAR Reference Client we largely split tests into three categories:
+In the NEAR Reference Client we largely split tests into three categories: (TODO: add new cats)
 
 1. **Relatively cheap sanity or fast fuzz tests:** It includes all the `#[test]`
    Rust tests not decorated by features. Our repo is configured in such a way
