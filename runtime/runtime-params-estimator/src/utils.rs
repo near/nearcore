@@ -122,7 +122,12 @@ pub(crate) fn fn_cost_count(
     ext_cost: ExtCosts,
     block_latency: usize,
 ) -> (GasCost, u64) {
-    let block_size = 20;
+    // Block size: 20 is a good number if you want to reduce the effect of
+    // constant-per-block overhead and the tx takes less than 50 Tgas to
+    // execute. It's hard-coded because the range of values supported depends on
+    // each estimation. For a check-only run, a single tx per block is faster
+    // and good enough.
+    let block_size = if ctx.config.accurate { 20 } else { 1 };
     let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
         let sender = tb.random_unused_account();
         tb.transaction_from_function_call(sender, method, Vec::new())
