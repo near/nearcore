@@ -4,7 +4,6 @@ use crate::{actions::execute_function_call, ext::RuntimeExt};
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::borsh::BorshDeserialize;
-use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ActionReceipt;
 use near_primitives::runtime::apply_state::ApplyState;
@@ -17,6 +16,7 @@ use near_primitives::views::{StateItem, ViewApplyState, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
 use near_store::{get_access_key, get_account, get_code, TrieUpdate};
 use near_vm_runner::logic::ReturnData;
+use near_vm_runner::ContractCode;
 use std::{str, sync::Arc, time::Instant};
 use tracing::debug;
 

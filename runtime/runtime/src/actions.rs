@@ -11,7 +11,6 @@ use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
-use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
@@ -38,6 +37,7 @@ use near_vm_runner::logic::errors::{
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::{VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
+use near_vm_runner::ContractCode;
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(

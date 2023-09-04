@@ -9,8 +9,7 @@ use crate::logic::Config;
 use crate::logic::{
     CompiledContractCache, External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome,
 };
-use crate::{imports, prepare};
-use near_primitives_core::contract::ContractCode;
+use crate::{imports, prepare, ContractCode};
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::types::ProtocolVersion;
 use std::borrow::Cow;

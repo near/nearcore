@@ -26,12 +26,12 @@ use crate::trie::{
 use crate::{metrics, PartialStorage, StorageError, Trie, TrieChanges};
 use borsh::BorshDeserialize;
 use near_primitives::challenge::PartialState;
-use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::is_contract_code_key;
 use near_primitives::types::{ShardId, StateRoot};
+use near_vm_runner::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
