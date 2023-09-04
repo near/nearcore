@@ -19,7 +19,6 @@
 use elastic_array::ElasticArray36;
 use std::cmp::*;
 use std::fmt;
-use std::fmt::Write;
 
 /// Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
 ///
@@ -203,20 +202,6 @@ impl<'a> NibbleSlice<'a> {
         // Ignore first element returned by `encode_nibbles` because it contains only
         // `is_leaf` info for even length.
         encoded[1..].to_vec()
-    }
-
-    // Converts the list of Nibbles to a readable string.
-    pub fn nibbles_to_string(prefix: &[u8]) -> String {
-        let (chunks, remainder) = stdx::as_chunks::<2, _>(prefix);
-        let mut result = chunks
-            .into_iter()
-            .map(|chunk| (chunk[0] * 16) + chunk[1])
-            .flat_map(|ch| std::ascii::escape_default(ch).map(char::from))
-            .collect::<String>();
-        if let Some(final_nibble) = remainder.first() {
-            write!(&mut result, "\\x{:x}_", final_nibble).unwrap();
-        }
-        result
     }
 }
 
