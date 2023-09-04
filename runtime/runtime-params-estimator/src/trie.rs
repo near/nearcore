@@ -75,7 +75,7 @@ pub(crate) fn read_node_from_accounting_cache(testbed: &mut Testbed) -> GasCost 
 
     // Worst-case
     // - L3 CPU cache is filled with dummy data before measuring
-    let spoil_l3 = true;
+    let spoil_l3 = testbed.config.accurate;
     // - Completely cold cache
     let warmups = 0;
     // - Single node read, no amortization possible
