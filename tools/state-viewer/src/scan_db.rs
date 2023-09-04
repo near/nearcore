@@ -20,7 +20,7 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata};
-use near_store::{DBCol, NibbleSlice, RawTrieNodeWithSize, Store, TrieChanges};
+use near_store::{DBCol, RawTrieNodeWithSize, Store, TrieChanges};
 use std::collections::HashSet;
 use std::fmt::Debug;
 use strum::IntoEnumIterator;
