@@ -1,11 +1,13 @@
 use near_primitives::runtime::{
     config::RuntimeConfig, config_store::RuntimeConfigStore, fees::RuntimeFeesConfig,
 };
-use near_primitives_core::{contract::ContractCode, types::Gas, version::ProtocolFeature};
+use near_primitives_core::types::Gas;
+use near_primitives_core::version::ProtocolFeature;
 use near_vm_runner::internal::VMKind;
 use near_vm_runner::logic::{
     mocks::mock_external::MockedExternal, ProtocolVersion, VMContext, VMOutcome,
 };
+use near_vm_runner::ContractCode;
 use std::{collections::HashSet, fmt::Write, sync::Arc};
 
 pub(crate) fn test_builder() -> TestBuilder {

@@ -1,5 +1,4 @@
 use crate::receipt_manager::ReceiptManager;
-use near_primitives::contract::ContractCode;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
@@ -12,6 +11,7 @@ use near_store::{get_code, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
+use near_vm_runner::ContractCode;
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,

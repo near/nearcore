@@ -2383,6 +2383,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-test-contracts",
+ "near-vm-runner",
  "nearcore",
  "tempfile",
 ]

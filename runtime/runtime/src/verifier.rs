@@ -572,9 +572,9 @@ mod tests {
     use crate::near_primitives::shard_layout::ShardUId;
 
     use super::*;
-    use crate::near_primitives::contract::ContractCode;
     use crate::near_primitives::trie_key::TrieKey;
     use near_store::{set, set_code};
+    use near_vm_runner::ContractCode;
 
     /// Initial balance used in tests.
     const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
