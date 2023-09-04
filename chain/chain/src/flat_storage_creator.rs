@@ -429,9 +429,7 @@ impl FlatStorageCreator {
     /// For each of tracked shards, either creates flat storage if it is already stored on DB,
     /// or starts migration to flat storage which updates DB in background and creates flat storage afterwards.
     pub fn new(
-        me: Option<&AccountId>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        shard_tracker: ShardTracker,
         runtime: Arc<dyn RuntimeAdapter>,
         chain_store: &ChainStore,
         num_threads: usize,
@@ -445,37 +443,30 @@ impl FlatStorageCreator {
         } else {
             return Ok(None);
         };
+        // Create flat storage for all shards.
+        // TODO(nikurt): Choose which shards need to open the flat storage.
         for shard_id in 0..num_shards {
             // The node applies transactions from the shards it cares about this and the next epoch.
-            if shard_tracker.care_about_shard(me, &chain_head.prev_block_hash, shard_id, true)
-                || shard_tracker.will_care_about_shard(
-                    me,
-                    &chain_head.prev_block_hash,
-                    shard_id,
-                    true,
-                )
-            {
-                let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &chain_head.epoch_id)?;
-                let status = flat_storage_manager.get_flat_storage_status(shard_uid);
+            let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &chain_head.epoch_id)?;
+            let status = flat_storage_manager.get_flat_storage_status(shard_uid);
 
-                match status {
-                    FlatStorageStatus::Ready(_) => {
-                        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
-                    }
-                    FlatStorageStatus::Empty | FlatStorageStatus::Creation(_) => {
-                        creation_needed = true;
-                        shard_creators.insert(
-                            shard_uid,
-                            FlatStorageShardCreator::new(
-                                shard_uid,
-                                chain_head.height,
-                                epoch_manager.clone(),
-                                runtime.clone(),
-                            ),
-                        );
-                    }
-                    FlatStorageStatus::Disabled => {}
+            match status {
+                FlatStorageStatus::Ready(_) => {
+                    flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
                 }
+                FlatStorageStatus::Empty | FlatStorageStatus::Creation(_) => {
+                    creation_needed = true;
+                    shard_creators.insert(
+                        shard_uid,
+                        FlatStorageShardCreator::new(
+                            shard_uid,
+                            chain_head.height,
+                            epoch_manager.clone(),
+                            runtime.clone(),
+                        ),
+                    );
+                }
+                FlatStorageStatus::Disabled => {}
             }
         }
 
