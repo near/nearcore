@@ -127,7 +127,7 @@ pub(crate) fn fn_cost_count(
     // execute. It's hard-coded because the range of values supported depends on
     // each estimation. For a check-only run, a single tx per block is faster
     // and good enough.
-    let block_size = if ctx.config.check_only { 1 } else { 20 };
+    let block_size = if ctx.config.accurate { 20 } else { 1 };
     let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
         let sender = tb.random_unused_account();
         tb.transaction_from_function_call(sender, method, Vec::new())

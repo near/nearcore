@@ -71,7 +71,7 @@ pub(crate) fn rocks_db_inserts_cost(config: &Config) -> GasCost {
     let db_config = &config.rocksdb_test_config;
     let data = input_data(db_config, INPUT_DATA_BUFFER_SIZE);
     let tmp_dir = tempfile::TempDir::new().expect("Failed to create directory for temp DB");
-    let db = new_test_db(&tmp_dir, &data, &db_config, config.check_only);
+    let db = new_test_db(&tmp_dir, &data, &db_config, config.accurate);
 
     if db_config.debug_rocksdb {
         eprintln!("# {:?}", db_config);
@@ -79,8 +79,8 @@ pub(crate) fn rocks_db_inserts_cost(config: &Config) -> GasCost {
         print_levels_info(&db);
     }
 
-    let setup_insertions = if config.check_only { 1 } else { db_config.setup_insertions };
-    let op_count = if config.check_only { 1 } else { db_config.op_count };
+    let setup_insertions = if config.accurate { db_config.setup_insertions } else { 1 };
+    let op_count = if config.accurate { db_config.op_count } else { 1 };
 
     let gas_counter = GasCost::measure(config.metric);
 
@@ -127,7 +127,7 @@ pub(crate) fn rocks_db_read_cost(config: &Config) -> GasCost {
     let db_config = &config.rocksdb_test_config;
     let tmp_dir = tempfile::TempDir::new().expect("Failed to create directory for temp DB");
     let data = input_data(db_config, INPUT_DATA_BUFFER_SIZE);
-    let db = new_test_db(&tmp_dir, &data, &db_config, config.check_only);
+    let db = new_test_db(&tmp_dir, &data, &db_config, config.accurate);
 
     if db_config.debug_rocksdb {
         eprintln!("# {:?}", db_config);
@@ -135,8 +135,8 @@ pub(crate) fn rocks_db_read_cost(config: &Config) -> GasCost {
         print_levels_info(&db);
     }
 
-    let setup_insertions = if config.check_only { 1 } else { db_config.setup_insertions };
-    let op_count = if config.check_only { 1 } else { db_config.op_count };
+    let setup_insertions = if config.accurate { db_config.setup_insertions } else { 1 };
+    let op_count = if config.accurate { db_config.op_count } else { 1 };
 
     let mut prng: XorShiftRng = rand::SeedableRng::seed_from_u64(SETUP_PRANDOM_SEED);
     let mut keys: Vec<usize> = iter::repeat_with(|| prng.gen()).take(setup_insertions).collect();
@@ -259,7 +259,7 @@ fn new_test_db(
     db_dir: impl AsRef<std::path::Path>,
     data: &[u8],
     db_config: &RocksDBTestConfig,
-    check_only: bool,
+    accurate: bool,
 ) -> DB {
     let mut opts = rocksdb::Options::default();
 
@@ -283,7 +283,7 @@ fn new_test_db(
     }
 
     let db = rocksdb::DB::open(&opts, db_dir).expect("Failed to create RocksDB");
-    let setup_insertions = if check_only { 1 } else { db_config.setup_insertions };
+    let setup_insertions = if accurate { db_config.setup_insertions } else { 1 };
 
     prandom_inserts(
         setup_insertions,
