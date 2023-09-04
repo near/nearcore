@@ -119,7 +119,9 @@ impl StatePartsSubCommand {
         let chain_id = &near_config.genesis.config.chain_id;
         let sys = actix::System::new();
         sys.block_on(async move {
-            let credentials_file =
+            let s3_credentials_file =
+                near_config.config.s3_credentials_file.clone().map(|file| home_dir.join(file));
+            let gcs_credentials_file =
                 near_config.config.s3_credentials_file.clone().map(|file| home_dir.join(file));
             match self {
                 StatePartsSubCommand::Load {
@@ -134,6 +136,7 @@ impl StatePartsSubCommand {
                         s3_bucket,
                         s3_region,
                         gcs_bucket,
+                        None,
                         None,
                         Mode::Readonly,
                     );
@@ -157,7 +160,8 @@ impl StatePartsSubCommand {
                         s3_bucket,
                         s3_region,
                         gcs_bucket,
-                        credentials_file,
+                        s3_credentials_file,
+                        gcs_credentials_file,
                         Mode::Readwrite,
                     );
                     dump_state_parts(
@@ -194,7 +198,8 @@ fn create_external_connection(
     bucket: Option<String>,
     region: Option<String>,
     gcs_bucket: Option<String>,
-    credentials_file: Option<PathBuf>,
+    s3_credentials_file: Option<PathBuf>,
+    gcs_credentials_file: Option<PathBuf>,
     mode: Mode,
 ) -> ExternalConnection {
     if let Some(root_dir) = root_dir {
@@ -202,13 +207,19 @@ fn create_external_connection(
     } else if let (Some(bucket), Some(region)) = (bucket, region) {
         let bucket = match mode {
             Mode::Readonly => create_bucket_readonly(&bucket, &region, Duration::from_secs(5)),
-            Mode::Readwrite => {
-                create_bucket_readwrite(&bucket, &region, Duration::from_secs(5), credentials_file)
-            }
+            Mode::Readwrite => create_bucket_readwrite(
+                &bucket,
+                &region,
+                Duration::from_secs(5),
+                s3_credentials_file,
+            ),
         }
         .expect("Failed to create an S3 bucket");
         ExternalConnection::S3 { bucket: Arc::new(bucket) }
     } else if let Some(bucket) = gcs_bucket {
+        if let Some(gcs_credentials_file) = gcs_credentials_file {
+            std::env::set_var("SERVICE_ACCOUNT", &gcs_credentials_file);
+        }
         ExternalConnection::GCS {
             gcs_client: Arc::new(cloud_storage::Client::default()),
             reqwest_client: Arc::new(reqwest::Client::default()),

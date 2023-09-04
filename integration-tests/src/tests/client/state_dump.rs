@@ -91,6 +91,7 @@ fn test_state_dump() {
             runtimes[0].clone(),
             Some("test0".parse().unwrap()),
             None,
+            None,
         )
         .unwrap();
 
@@ -212,6 +213,7 @@ fn run_state_sync_with_dumped_parts(
             shard_tracker.clone(),
             runtimes[0].clone(),
             Some("test0".parse().unwrap()),
+            None,
             None,
         )
         .unwrap();

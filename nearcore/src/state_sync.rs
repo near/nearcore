@@ -32,7 +32,8 @@ pub fn spawn_state_sync_dump(
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
     account_id: Option<AccountId>,
-    credentials_file: Option<PathBuf>,
+    s3_credentials_file: Option<PathBuf>,
+    gcs_credentials_file: Option<PathBuf>,
 ) -> anyhow::Result<Option<StateSyncDumpHandle>> {
     let dump_config = if let Some(dump_config) = client_config.state_sync.dump.clone() {
         dump_config
@@ -42,17 +43,30 @@ pub fn spawn_state_sync_dump(
         return Ok(None);
     };
     tracing::info!(target: "state_sync_dump", "Spawning the state sync dump loop");
+    println!("Spawning the state sync dump loop");
 
     let external = match dump_config.location {
         ExternalStorageLocation::S3 { bucket, region } => ExternalConnection::S3{
-            bucket: Arc::new(create_bucket_readwrite(&bucket, &region, Duration::from_secs(30), credentials_file).expect(
+            bucket: Arc::new(create_bucket_readwrite(&bucket, &region, Duration::from_secs(30), s3_credentials_file).expect(
                 "Failed to authenticate connection to S3. Please either provide AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or create a credentials file and link it in config.json as 's3_credentials_file'."))
         },
         ExternalStorageLocation::Filesystem { root_dir } => ExternalConnection::Filesystem { root_dir },
-        ExternalStorageLocation::GCS { bucket } => ExternalConnection::GCS {
-            gcs_client: Arc::new(cloud_storage::Client::default()),
-            reqwest_client: Arc::new(reqwest::Client::default()),
-            bucket },
+        ExternalStorageLocation::GCS { bucket } => {
+            if let Some(gcs_credentials_file) = gcs_credentials_file {
+                if let Ok(var) = std::env::var("SERVICE_ACCOUNT") {
+                    tracing::warn!(target: "state_sync_dump", "Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'gcs_credentials_file' in config.json overrides it to '{gcs_credentials_file:?}'");
+                    println!("Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'gcs_credentials_file' in config.json overrides it to '{gcs_credentials_file:?}'");
+                }
+                std::env::set_var("SERVICE_ACCOUNT", &gcs_credentials_file);
+                tracing::info!(target: "state_sync_dump", "Set the environment variable 'SERVICE_ACCOUNT' to '{gcs_credentials_file:?}'");
+                println!("Set the environment variable 'SERVICE_ACCOUNT' to '{gcs_credentials_file:?}'");
+            }
+            ExternalConnection::GCS {
+                gcs_client: Arc::new(cloud_storage::Client::default()),
+                reqwest_client: Arc::new(reqwest::Client::default()),
+                bucket
+            }
+        },
     };
 
     // Determine how many threads to start.
