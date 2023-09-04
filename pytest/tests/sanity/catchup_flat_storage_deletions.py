@@ -147,6 +147,15 @@ def main():
 
     print_balances(nodes, account_ids)
 
+    # Check that the lookup of a deleted account returns an error. Because it's deleted.
+    test_account_balance = node.json_rpc(
+        'query', {
+            'request_type': 'view_account',
+            'account_id': test_account_id,
+            'finality': 'optimistic'
+        })
+    assert 'error' in test_account_balance, test_account_balance
+
     # Send tokens.
     # The transaction will be accepted and will detect that the receiver account was deleted.
     latest_block_hash = boot_node.get_latest_block().hash_bytes
@@ -171,6 +180,8 @@ def main():
     )
     logger.info(
         f'The non-validator node is at block height {node_latest_block_height}')
+
+    # Check that the non-validator node is not stuck, and is in-sync.
     assert boot_node_latest_block_height < int(
         0.5 * EPOCH_LENGTH) + node_latest_block_height
 
