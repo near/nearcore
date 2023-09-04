@@ -1,0 +1,88 @@
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+table,
+th,
+td {
+    border: 1px solid black;
+}
+
+td {
+    text-align: left;
+    vertical-align: top;
+    padding: 8px;
+}
+
+th {
+    text-align: center;
+    vertical-align: center;
+    padding: 8px;
+    background-color: lightgrey;
+}
+
+tr.active {
+    background-color: #eff8bf;
+}
+
+.approval-skip {
+    background-color: yellow;
+}
+
+.approval-target-rollback {
+    background-color: red;
+}
+
+.approval-ok {
+    background-color: lightgreen;
+}
+
+.client-actor-delayed {
+    font-size: x-large;
+    font-weight: bold;
+}
+
+.validator-missing {
+    background-color: grey;
+}
+
+.validator-endorse {
+    background-color: lightgreen;
+}
+
+.validator-skip-0 {
+    background-color: #75f09e33;
+}
+
+.validator-skip-1 {
+    background-color: #ffce5633;
+}
+
+.validator-skip-2 {
+    background-color: #36a2eb33;
+}
+
+.validator-skip-3 {
+    background-color: #4bc0c033;
+}
+
+.validator-skip-4 {
+    background-color: #ff641e33;
+}
+
+.chunk-delay-orange {
+    color: orange;
+}
+
+.chunk-delay-red {
+    color: red;
+}
+
+.chunk-missing {
+    background-color: grey;
+}
+
+.block-missing {
+    background-color: grey;
+}
