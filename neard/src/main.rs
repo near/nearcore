@@ -2,6 +2,7 @@ mod cli;
 
 use self::cli::NeardCmd;
 use anyhow::Context;
+use near_o11y::metrics::exponential_buckets;
 use near_primitives::version::{Version, PROTOCOL_VERSION};
 use near_store::metadata::DB_VERSION;
 use nearcore::get_default_home;
@@ -35,6 +36,8 @@ static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(get_default_home);
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() -> anyhow::Result<()> {
+    println!("{:?}", exponential_buckets(0.001, 1.6, 20).unwrap());
+
     if env::var("RUST_BACKTRACE").is_err() {
         // Enable backtraces on panics by default.
         env::set_var("RUST_BACKTRACE", "1");
