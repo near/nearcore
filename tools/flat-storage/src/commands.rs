@@ -338,7 +338,7 @@ impl FlatStorageCommand {
 
             if near_primitives::hash::hash(&item_trie.1) != value_ref.hash {
                 println!(
-                    "Different ValueRef::hashfor key: {:?} in trie: {:?} vs flat storage: {:?}",
+                    "Different ValueRef::hash for key: {:?} in trie: {:?} vs flat storage: {:?}",
                     item_trie.0,
                     near_primitives::hash::hash(&item_trie.1),
                     value_ref.hash
