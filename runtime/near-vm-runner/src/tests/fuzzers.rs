@@ -4,10 +4,10 @@ use crate::logic::errors::FunctionCallError;
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::{Config, VMContext};
 use crate::runner::VMResult;
+use crate::ContractCode;
 use arbitrary::Arbitrary;
 use bolero::check;
 use core::fmt;
-use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::version::PROTOCOL_VERSION;
 

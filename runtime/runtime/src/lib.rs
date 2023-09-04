@@ -14,7 +14,6 @@ pub use near_crypto;
 pub use near_primitives;
 use near_primitives::account::Account;
 use near_primitives::checked_feature;
-use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::profile::ProfileDataV3;
@@ -49,6 +48,7 @@ use near_store::{set_access_key, set_code};
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::ReturnData;
 pub use near_vm_runner::with_ext_cost_counter;
+use near_vm_runner::ContractCode;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -2456,7 +2456,7 @@ mod tests {
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
 
-        let contract_code = near_primitives::contract::ContractCode::new(wasm_code, None);
+        let contract_code = near_vm_runner::ContractCode::new(wasm_code, None);
         let vm_kind = near_vm_runner::internal::VMKind::for_protocol_version(
             apply_state.current_protocol_version,
         );

@@ -13,7 +13,6 @@ use crate::block_header::{
 use crate::block_header::{BlockHeaderInnerRestV4, BlockHeaderV4};
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::checked_feature;
-use crate::contract::ContractCode;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, MerklePath};
@@ -45,6 +44,7 @@ use near_fmt::{AbbrBytes, Slice};
 use near_primitives_core::config::{ActionCosts, ExtCosts, ParameterCost};
 use near_primitives_core::runtime::fees::Fee;
 use near_vm_runner::logic::CompiledContractCache;
+use near_vm_runner::ContractCode;
 use num_rational::Rational32;
 use serde_with::base64::Base64;
 use serde_with::serde_as;

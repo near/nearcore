@@ -4,7 +4,7 @@ use crate::logic::errors::{CacheError, CompilationError, VMRunnerError};
 use crate::logic::types::PromiseResult;
 use crate::logic::{CompiledContractCache, External, VMContext, VMOutcome};
 use crate::vm_kind::VMKind;
-use near_primitives_core::contract::ContractCode;
+use crate::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::types::ProtocolVersion;
 

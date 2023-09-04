@@ -12,9 +12,8 @@ use crate::logic::{
 };
 use crate::prepare;
 use crate::runner::VMResult;
-use crate::{get_contract_cache_key, imports};
+use crate::{get_contract_cache_key, imports, ContractCode};
 use memoffset::offset_of;
-use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_vm_compiler_singlepass::Singlepass;
 use near_vm_engine::universal::{

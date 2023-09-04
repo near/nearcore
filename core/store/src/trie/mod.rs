@@ -14,7 +14,6 @@ pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::challenge::PartialState;
-use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
@@ -22,6 +21,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 pub use near_primitives::types::TrieNodesCount;
 use near_primitives::types::{StateRoot, StateRootNode};
+use near_vm_runner::ContractCode;
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
 use std::collections::HashMap;

@@ -11,8 +11,7 @@ use crate::logic::{
 use crate::memory::WasmerMemory;
 use crate::prepare;
 use crate::runner::VMResult;
-use crate::{get_contract_cache_key, imports};
-use near_primitives_core::contract::ContractCode;
+use crate::{get_contract_cache_key, imports, ContractCode};
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::types::ProtocolVersion;
 use wasmer_runtime::{ImportObject, Module};
