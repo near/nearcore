@@ -139,7 +139,7 @@ impl NightshadeRuntime {
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
             Ok(shard_layout.get_shard_uids())
         }) {
-            tracing::error!(target: "runtime", ?err, "Failed to check if a state snapshot exists");
+            tracing::warn!(target: "runtime", ?err, "Failed to check if a state snapshot exists");
         }
 
         let migration_data = Arc::new(load_migration_data(&genesis_config.chain_id));
@@ -734,32 +734,38 @@ impl RuntimeAdapter for NightshadeRuntime {
                 while let Some(tx) = iter.next() {
                     num_checked_transactions += 1;
                     // Verifying the transaction is on the same chain and hasn't expired yet.
-                    if chain_validate(&tx) {
-                        // Verifying the validity of the transaction based on the current state.
-                        match verify_and_charge_transaction(
-                            runtime_config,
-                            &mut state_update,
-                            gas_price,
-                            &tx,
-                            false,
-                            Some(next_block_height),
-                            current_protocol_version,
-                        ) {
-                            Ok(verification_result) => {
-                                state_update.commit(StateChangeCause::NotWritableToDisk);
-                                total_gas_burnt += verification_result.gas_burnt;
-                                total_size += tx.get_size();
-                                transactions.push(tx);
-                                break;
-                            }
-                            Err(RuntimeError::InvalidTxError(_err)) => {
-                                state_update.rollback();
-                            }
-                            Err(RuntimeError::StorageError(err)) => {
-                                return Err(Error::StorageError(err))
-                            }
-                            Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
+                    if !chain_validate(&tx) {
+                        tracing::debug!(target: "runtime", tx=?tx.get_hash(), "discarding transaction that failed chain validation");
+                        continue;
+                    }
+
+                    // Verifying the validity of the transaction based on the current state.
+                    match verify_and_charge_transaction(
+                        runtime_config,
+                        &mut state_update,
+                        gas_price,
+                        &tx,
+                        false,
+                        Some(next_block_height),
+                        current_protocol_version,
+                    ) {
+                        Ok(verification_result) => {
+                            tracing::debug!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation");
+                            state_update.commit(StateChangeCause::NotWritableToDisk);
+                            total_gas_burnt += verification_result.gas_burnt;
+                            total_size += tx.get_size();
+                            transactions.push(tx);
+                            break;
                         }
+                        Err(RuntimeError::InvalidTxError(err)) => {
+                            tracing::debug!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that is invalid");
+                            state_update.rollback();
+                        }
+                        Err(RuntimeError::StorageError(err)) => {
+                            tracing::debug!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction due to storage error");
+                            return Err(Error::StorageError(err));
+                        }
+                        Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
                     }
                 }
             } else {

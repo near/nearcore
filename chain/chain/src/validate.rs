@@ -93,14 +93,19 @@ pub fn validate_transactions_order(transactions: &[SignedTransaction]) -> bool {
     let mut batches: HashMap<(&AccountId, &PublicKey), usize> = HashMap::new();
     let mut current_batch = 1;
 
+    let _span = tracing::debug_span!(target: "chain", "validate_transactions_order").entered();
+
     for tx in transactions {
         let key = (&tx.transaction.signer_id, &tx.transaction.public_key);
+
+        tracing::debug!(target: "chain", ?key, tx=?tx.get_hash(), nonce=?tx.transaction.nonce, "tx");
 
         // Verifying nonce
         let nonce = tx.transaction.nonce;
         if let Some(last_nonce) = nonces.get(&key) {
             if nonce <= *last_nonce {
                 // Nonces should increase.
+                tracing::error!(target: "chain", "invalid nonce");
                 return false;
             }
         }
@@ -112,6 +117,7 @@ pub fn validate_transactions_order(transactions: &[SignedTransaction]) -> bool {
             current_batch += 1;
         } else if last_batch < current_batch - 1 {
             // The key was skipped in the previous batch
+            tracing::error!(target: "chain", "invalid batch");
             return false;
         }
         batches.insert(key, current_batch);

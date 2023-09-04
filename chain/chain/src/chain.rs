@@ -1635,6 +1635,7 @@ impl Chain {
                         &encoded_chunk,
                     )),
                 };
+                tracing::error!(target: "chain", ?shard_id, "invalid chunk proof - invalid chunk");
                 return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
             }
             let shard_id = shard_id as ShardId;
@@ -4007,6 +4008,7 @@ impl Chain {
                 merkle_proof: merkle_paths[shard_id as usize].clone(),
                 chunk: MaybeEncodedShardChunk::Decoded(chunk),
             };
+            tracing::error!(target: "chain", ?shard_id, "invalid chunk proof - invalid transactions order");
             return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
         }
 

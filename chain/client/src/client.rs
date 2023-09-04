@@ -345,9 +345,16 @@ impl Client {
         Ok(())
     }
 
-    pub fn remove_transactions_for_block(&mut self, me: AccountId, block: &Block) {
+    pub fn remove_transactions_for_block(
+        &mut self,
+        me: AccountId,
+        block: &Block,
+    ) -> Result<(), Error> {
+        let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
+
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_id as ShardId;
+            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
             if block.header().height() == chunk_header.height_included() {
                 if cares_about_shard_this_or_next_epoch(
                     Some(&me),
@@ -356,22 +363,29 @@ impl Client {
                     true,
                     &self.shard_tracker,
                 ) {
-                    self.sharded_tx_pool.remove_transactions(
-                        shard_id,
-                        // By now the chunk must be in store, otherwise the block would have been orphaned
-                        self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions(),
-                    );
+                    // By now the chunk must be in store, otherwise the block would have been orphaned
+                    let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
+                    let transactions = chunk.transactions();
+                    self.sharded_tx_pool.remove_transactions(shard_uid, transactions);
                 }
             }
         }
         for challenge in block.challenges().iter() {
             self.challenges.remove(&challenge.hash);
         }
+        Ok(())
     }
 
-    pub fn reintroduce_transactions_for_block(&mut self, me: AccountId, block: &Block) {
+    pub fn reintroduce_transactions_for_block(
+        &mut self,
+        me: AccountId,
+        block: &Block,
+    ) -> Result<(), Error> {
+        let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_id as ShardId;
+            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+
             if block.header().height() == chunk_header.height_included() {
                 if cares_about_shard_this_or_next_epoch(
                     Some(&me),
@@ -384,7 +398,7 @@ impl Client {
                     let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
                     let reintroduced_count = self
                         .sharded_tx_pool
-                        .reintroduce_transactions(shard_id, &chunk.transactions());
+                        .reintroduce_transactions(shard_uid, &chunk.transactions());
                     if reintroduced_count < chunk.transactions().len() {
                         debug!(target: "client", "Reintroduced {} transactions out of {}",
                                reintroduced_count, chunk.transactions().len());
@@ -395,6 +409,7 @@ impl Client {
         for challenge in block.challenges().iter() {
             self.challenges.insert(challenge.hash, challenge.clone());
         }
+        Ok(())
     }
 
     /// Check that this block height is not known yet.
@@ -900,12 +915,32 @@ impl Client {
     ) -> Result<Vec<SignedTransaction>, Error> {
         let Self { chain, sharded_tx_pool, epoch_manager, runtime_adapter: runtime, .. } = self;
 
-        let next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
+        let parent_hash = prev_block_header.hash();
+        let next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
         let protocol_version = epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let transactions = if let Some(mut iter) = sharded_tx_pool.get_pool_iterator(shard_id) {
-            let transaction_validity_period = chain.transaction_validity_period;
-            runtime.prepare_transactions(
+        let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(parent_hash)?;
+        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &next_epoch_id)?;
+        let parent_shard_uid = shard_layout.get_parent_shard_id_safe(shard_id);
+
+        tracing::trace!(target: "client", ?shard_uid, ?parent_shard_uid, "getting transactions from pool");
+
+        let transaction_validity_period = chain.transaction_validity_period;
+        let mut transactions = vec![];
+
+        let chain_validate = &mut |tx: &SignedTransaction| -> bool {
+            chain
+                .store()
+                .check_transaction_validity_period(
+                    prev_block_header,
+                    &tx.transaction.block_hash,
+                    transaction_validity_period,
+                )
+                .is_ok()
+        };
+
+        if let Some(mut iter) = sharded_tx_pool.get_pool_iterator(shard_uid) {
+            let prepared_transactions = runtime.prepare_transactions(
                 prev_block_header.gas_price(),
                 chunk_extra.gas_limit(),
                 &next_epoch_id,
@@ -916,28 +951,21 @@ impl Client {
                 // invalid transactions to be included.
                 prev_block_header.height() + 1,
                 &mut iter,
-                &mut |tx: &SignedTransaction| -> bool {
-                    chain
-                        .store()
-                        .check_transaction_validity_period(
-                            prev_block_header,
-                            &tx.transaction.block_hash,
-                            transaction_validity_period,
-                        )
-                        .is_ok()
-                },
+                chain_validate,
                 protocol_version,
-            )?
+            )?;
+
+            transactions.extend(prepared_transactions);
         } else {
-            vec![]
-        };
+            tracing::warn!(target: "client", ?shard_uid, "transaction pool missing")
+        }
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
-        let reintroduced_count = sharded_tx_pool.reintroduce_transactions(shard_id, &transactions);
-        if reintroduced_count < transactions.len() {
-            debug!(target: "client", "Reintroduced {} transactions out of {}",
-                   reintroduced_count, transactions.len());
+        let included_count = sharded_tx_pool.reintroduce_transactions(shard_uid, &transactions);
+        if included_count < transactions.len() {
+            debug!(target: "client", "Reintroduced {} transactions out of {}", included_count, transactions.len());
         }
+
         Ok(transactions)
     }
 
@@ -1500,6 +1528,24 @@ impl Client {
             if let Err(err) = self.send_network_chain_info() {
                 error!(target: "client", ?err, "Failed to update network chain info");
             }
+
+            if self.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap_or(false) {
+                tracing::debug!(target: "client", "boom next block is epoch start");
+                let new_shard_layout =
+                    self.epoch_manager.get_shard_layout_from_prev_block(&block_hash);
+                let old_shard_layout =
+                    self.epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash());
+                match (old_shard_layout, new_shard_layout) {
+                    (Ok(old_shard_layout), Ok(new_shard_layout)) => {
+                        if old_shard_layout != new_shard_layout {
+                            self.sharded_tx_pool.reshard(&old_shard_layout, &new_shard_layout);
+                        }
+                    }
+                    (old_shard_layout, new_shard_layout) => {
+                        tracing::warn!(target: "client", ?old_shard_layout, ?new_shard_layout, "failed to check if shard layout is changing");
+                    }
+                }
+            }
         }
 
         if let Some(validator_signer) = self.validator_signer.clone() {
@@ -1534,7 +1580,7 @@ impl Client {
             BlockStatus::Next => {
                 // If this block immediately follows the current tip, remove
                 // transactions from the txpool.
-                self.remove_transactions_for_block(validator_id, block);
+                self.remove_transactions_for_block(validator_id, block).unwrap_or_default();
             }
             BlockStatus::Fork => {
                 // If it's a fork, no need to reconcile transactions or produce chunks.
@@ -1572,14 +1618,16 @@ impl Client {
                 for to_reintroduce_hash in to_reintroduce {
                     if let Ok(block) = self.chain.get_block(&to_reintroduce_hash) {
                         let block = block.clone();
-                        self.reintroduce_transactions_for_block(validator_id.clone(), &block);
+                        self.reintroduce_transactions_for_block(validator_id.clone(), &block)
+                            .unwrap_or_default();
                     }
                 }
 
                 for to_remove_hash in to_remove {
                     if let Ok(block) = self.chain.get_block(&to_remove_hash) {
                         let block = block.clone();
-                        self.remove_transactions_for_block(validator_id.clone(), &block);
+                        self.remove_transactions_for_block(validator_id.clone(), &block)
+                            .unwrap_or_default();
                     }
                 }
             }
@@ -2021,8 +2069,9 @@ impl Client {
             self.shard_tracker.care_about_shard(me, &head.last_block_hash, shard_id, true);
         let will_care_about_shard =
             self.shard_tracker.will_care_about_shard(me, &head.last_block_hash, shard_id, true);
-        // TODO(resharding) will_care_about_shard should be called with the
-        // account shard id from the next epoch, in case shard layout changes
+
+        tracing::trace!(target: "client", ?shard_id, does_care=care_about_shard, will_care=will_care_about_shard, tx=?tx.get_hash(), tx_signer=?tx.transaction.signer_id, "Checking if does or will care about tx");
+
         if care_about_shard || will_care_about_shard {
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, &shard_uid) {
@@ -2050,19 +2099,19 @@ impl Client {
             } else {
                 // Transactions only need to be recorded if the node is a validator.
                 if me.is_some() {
-                    match self.sharded_tx_pool.insert_transaction(shard_id, tx.clone()) {
+                    match self.sharded_tx_pool.insert_transaction(shard_uid, tx.clone()) {
                         InsertTransactionResult::Success => {
-                            trace!(target: "client", shard_id, tx=?tx.get_hash(), "Recorded a transaction.");
+                            trace!(target: "client", ?shard_uid, tx=?tx.get_hash(), "Recorded a transaction.");
                         }
                         InsertTransactionResult::Duplicate => {
-                            trace!(target: "client", shard_id, tx=?tx.get_hash(), "Duplicate transaction, not forwarding it.");
+                            trace!(target: "client", ?shard_uid, tx=?tx.get_hash(), "Duplicate transaction, not forwarding it.");
                             return Ok(ProcessTxResponse::ValidTx);
                         }
                         InsertTransactionResult::NoSpaceLeft => {
                             if is_forwarded {
-                                trace!(target: "client", shard_id, tx=?tx.get_hash(), "Transaction pool is full, dropping the transaction.");
+                                trace!(target: "client", ?shard_uid, tx=?tx.get_hash(), "Transaction pool is full, dropping the transaction.");
                             } else {
-                                trace!(target: "client", shard_id, tx=?tx.get_hash(), "Transaction pool is full, trying to forward the transaction.");
+                                trace!(target: "client", ?shard_uid, tx=?tx.get_hash(), "Transaction pool is full, trying to forward the transaction.");
                             }
                         }
                     }

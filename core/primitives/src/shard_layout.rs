@@ -212,6 +212,22 @@ impl ShardLayout {
         Ok(parent_shard_id)
     }
 
+    pub fn get_parent_shard_id_safe(&self, shard_id: ShardId) -> Option<ShardUId> {
+        if shard_id > self.num_shards() {
+            return None;
+        }
+        let parent_shard_id = match self {
+            Self::V0(_) => return None,
+            Self::V1(v1) => match &v1.to_parent_shard_map {
+                // we can safely unwrap here because the construction of to_parent_shard_map guarantees
+                // that every shard has a parent shard
+                Some(to_parent_shard_map) => *to_parent_shard_map.get(shard_id as usize).unwrap(),
+                None => return None,
+            },
+        };
+        Some(ShardUId { version: self.version() - 1, shard_id: parent_shard_id as u32 })
+    }
+
     #[inline]
     pub fn version(&self) -> ShardVersion {
         match self {

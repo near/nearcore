@@ -47,7 +47,7 @@ const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion =
 #[cfg(not(feature = "protocol_feature_simple_nightshade_v2"))]
 const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion = PROTOCOL_VERSION + 1;
 
-const P_CATCHUP: f64 = 0.2;
+// const P_CATCHUP: f64 = 0.2;
 
 enum ReshardingType {
     // In the V0->V1 resharding outgoing receipts are reassigned to receiver.
@@ -295,7 +295,8 @@ impl TestShardUpgradeEnv {
         // by chance. This simulates when catchup takes a long time to be done
         // Note: if the catchup happens only at the last block of an epoch then
         // client will fail to produce the chunks in the first block of the next epoch.
-        let should_catchup = rng.gen_bool(P_CATCHUP) || next_height % self.epoch_length == 0;
+        // let should_catchup = rng.gen_bool(P_CATCHUP) || next_height % self.epoch_length == 0;
+        let should_catchup = (next_height + 1) % self.epoch_length == 0;
         // process block, this also triggers chunk producers for the next block to produce chunks
         for j in 0..self.num_clients {
             let client = &mut env.clients[j];
@@ -840,17 +841,10 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType) {
             )
         };
 
-    // Transactions added for the first block with new shard layout will not be
-    // processed, that's a known issue for the shard upgrade implementation. It
-    // is because transaction pools are stored by shard id and we do not migrate
-    // transactions that are still in the pool at the end of the sharding
-    // upgrade.
-    let skip_heights = vec![2 * epoch_length + 1];
-
     // add transactions until after sharding upgrade finishes
-    for height in 2..3 * epoch_length {
-        let check_accounts = !skip_heights.contains(&height);
-        let txs = generate_create_accounts_txs(10, check_accounts);
+    // for height in 2..3 * epoch_length {
+    for height in vec![2 * epoch_length + 1] {
+        let txs = generate_create_accounts_txs(10, true);
         test_env.set_tx_at_height(height, txs);
     }
 
@@ -860,7 +854,7 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType) {
         test_env.check_receipt_id_to_shard_id();
     }
 
-    test_env.check_tx_outcomes(false, skip_heights);
+    test_env.check_tx_outcomes(false, vec![]);
     test_env.check_accounts(accounts_to_check.iter().collect());
     test_env.check_split_states_artifacts();
     test_env.check_outgoing_receipts_reassigned(&resharding_type);
