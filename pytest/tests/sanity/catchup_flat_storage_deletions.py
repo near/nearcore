@@ -147,7 +147,8 @@ def main():
 
     print_balances(nodes, account_ids)
 
-    # Send tokens and expect the transaction to fail.
+    # Send tokens.
+    # The transaction will be accepted and will detect that the receiver account was deleted.
     latest_block_hash = boot_node.get_latest_block().hash_bytes
     nonce += 1
     tx = transaction.sign_payment_tx(boot_node.signer_key, test_account_id, 1,
