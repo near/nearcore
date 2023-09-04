@@ -6579,9 +6579,21 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 name = "state-parts-dump"
 version = "0.0.0"
 dependencies = [
+ "actix",
+ "anyhow",
+ "borsh 0.10.2",
+ "clap 4.2.4",
+ "cloud-storage",
+ "near-client",
+ "near-primitives",
+ "near-primitives-core",
+ "near-store",
+ "nearcore",
+ "rayon",
  "reqwest",
  "serde",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]
