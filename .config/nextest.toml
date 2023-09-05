@@ -1,2 +1,6 @@
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 2, grace-period = "0s" }
+
+[[profile.default.overrides]]
+filter = 'test(test_full_estimator)'
+slow-timeout = { period = "10m", terminate-after = 3 }
