@@ -222,15 +222,16 @@ pub trait ChainStoreAccess {
         last_chunk_height_included: BlockHeight,
     ) -> Result<Vec<ReceiptProofResponse>, Error> {
         let _span =
-            tracing::debug_span!(target: "store", "get_incoming_receipts_for_shard").entered();
+            tracing::debug_span!(target: "chain", "get_incoming_receipts_for_shard", ?shard_id, ?block_hash, last_chunk_height_included).entered();
 
         let mut ret = vec![];
-        let mut header = self.get_block_header(&block_hash)?;
 
         let target_shard_id = shard_id;
         let target_shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash)?;
 
         loop {
+            let header = self.get_block_header(&block_hash)?;
+
             if header.height() < last_chunk_height_included {
                 panic!("get_incoming_receipts_for_shard failed");
             }
@@ -246,7 +247,7 @@ pub trait ChainStoreAccess {
             if shard_layout != prev_shard_layout {
                 let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
                 tracing::debug!(
-                    target: "store",
+                    target: "chain",
                     version = shard_layout.version(),
                     prev_version = prev_shard_layout.version(),
                     shard_id,
@@ -260,44 +261,24 @@ pub trait ChainStoreAccess {
             match receipts_proofs {
                 Ok(receipt_proofs) => {
                     tracing::debug!(
-                        target: "store",
-                        ?shard_id,
-                        ?last_chunk_height_included,
-                        ?block_hash,
+                        target: "chain",
                         "found receipts from block with missing chunks",
                     );
 
-                    // If the shard layout changed we need to filter to make
-                    // sure we only include receipts where receiver belongs to
-                    // the target shard id in the target shard layout.
-                    let mut filtered_receipt_proofs = vec![];
-                    for receipt_proof in receipt_proofs.iter() {
-                        let mut filtered_receipts = vec![];
-                        let ReceiptProof(receipts, shard_proof) = receipt_proof.clone();
-                        for receipt in receipts {
-                            let receiver_shard_id =
-                                account_id_to_shard_id(&receipt.receiver_id, &target_shard_layout);
-                            if receiver_shard_id == target_shard_id {
-                                tracing::trace!(target:"store", receipt_id=?receipt.receipt_id, "including receipt");
-                                filtered_receipts.push(receipt);
-                            } else {
-                                tracing::trace!(target:"store", receipt_id=?receipt.receipt_id, "excluding receipt");
-                            }
-                        }
-                        // TODO(resharding) adjust the shard proof accordingly
-                        // currently this only matters for state sync
-                        let receipt_proof = ReceiptProof(filtered_receipts, shard_proof);
-                        filtered_receipt_proofs.push(receipt_proof);
-                    }
+                    // If the shard layout changed we need to filter receipts to
+                    // make sure we only include receipts where receiver belongs
+                    // to the target shard id in the target shard layout.
+                    let filtered_receipt_proofs = filter_incoming_receipts_for_shard(
+                        &target_shard_layout,
+                        target_shard_id,
+                        receipt_proofs,
+                    );
 
                     ret.push(ReceiptProofResponse(block_hash, filtered_receipt_proofs.into()));
                 }
                 Err(err) => {
                     tracing::debug!(
-                        target: "store",
-                        ?shard_id,
-                        ?last_chunk_height_included,
-                        ?block_hash,
+                        target: "chain",
                         ?err,
                         "could not find receipts from block with missing chunks"
                     );
@@ -312,7 +293,6 @@ pub trait ChainStoreAccess {
             }
 
             block_hash = *prev_hash;
-            header = self.get_block_header(&block_hash)?;
         }
 
         Ok(ret)
@@ -389,6 +369,36 @@ pub trait ChainStoreAccess {
             shard_id = epoch_manager.get_prev_shard_ids(&candidate_hash, vec![shard_id])?[0];
         }
     }
+}
+
+/// Given a vector of receipts return only the receipts that should be assigned
+/// to the target shard id in the target shard layout. Used when collecting the
+/// incoming receipts and the shard layout changed.
+fn filter_incoming_receipts_for_shard(
+    target_shard_layout: &ShardLayout,
+    target_shard_id: u64,
+    receipt_proofs: Arc<Vec<ReceiptProof>>,
+) -> Vec<ReceiptProof> {
+    let mut filtered_receipt_proofs = vec![];
+    for receipt_proof in receipt_proofs.iter() {
+        let mut filtered_receipts = vec![];
+        let ReceiptProof(receipts, shard_proof) = receipt_proof.clone();
+        for receipt in receipts {
+            let receiver_shard_id =
+                account_id_to_shard_id(&receipt.receiver_id, target_shard_layout);
+            if receiver_shard_id == target_shard_id {
+                tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id, "including receipt");
+                filtered_receipts.push(receipt);
+            } else {
+                tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id, "excluding receipt");
+            }
+        }
+        // TODO(resharding) adjust the shard proof accordingly
+        // currently this only matters for state sync
+        let receipt_proof = ReceiptProof(filtered_receipts, shard_proof);
+        filtered_receipt_proofs.push(receipt_proof);
+    }
+    filtered_receipt_proofs
 }
 
 /// All chain-related database operations.

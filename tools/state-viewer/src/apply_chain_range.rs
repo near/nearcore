@@ -192,7 +192,6 @@ fn apply_block_from_range(
             }
         };
 
-        // TODO(wacban) OK, has epoch manager handy
         let chain_store_update = ChainStoreUpdate::new(&mut chain_store);
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
