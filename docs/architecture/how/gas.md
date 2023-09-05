@@ -73,7 +73,7 @@ transaction. The transaction consists of a function call performing a cross
 contract call, hence two function calls in sequence. (Note: This diagram is
 heavily simplified, more accurate diagrams are further down.)
 
-![Very Simplified Gas Flow Diagram](https://user-images.githubusercontent.com/6342444/265536127-5934362f-18d1-4653-8dc6-e930af57ebc5.svg)
+![Very Simplified Gas Flow Diagram](https://github.com/near/nearcore/assets/6342444/f52c6e4b-6fca-4f61-8e6e-ac786076aa65)
 <!-- Editable source: https://github.com/near/nearcore/issues/7821#issuecomment-1705672850 -->
 
 ### Contract Reward
@@ -107,7 +107,7 @@ separately from other gas burning to enable this contract reward calculations.
 
 In the (still simplified) flow diagram, the contract reward looks like this. For brevity, `gas_burnt_for_function_call` in the diagram is denotes as `wasm fee`.
 
-![Slightly Simplified Gas Flow Diagram](https://user-images.githubusercontent.com/6342444/265536284-cc3cadf2-38cd-4b59-ab54-bcd9d4cad2e4.svg)
+![Slightly Simplified Gas Flow Diagram](https://github.com/near/nearcore/assets/6342444/32600ef0-1475-43af-b196-576317787578)
 <!-- Editable source: https://github.com/near/nearcore/issues/7821#issuecomment-1705673349 -->
 
 
@@ -196,7 +196,7 @@ out the updated formula for the effective purchase price at the top left and the
 resulting higher number.
 
 ![Complete Gas Flow
-Diagram](https://user-images.githubusercontent.com/6342444/265536398-fa80ccf1-679a-4d6c-8441-ea9dbf66c895.svg)
+Diagram](https://github.com/near/nearcore/assets/6342444/8341fb45-9beb-4808-8a89-8144fa075930)
 <!-- Editable source: https://github.com/near/nearcore/issues/7821#issuecomment-1705673807 -->
 
 
