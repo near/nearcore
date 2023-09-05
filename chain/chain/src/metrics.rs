@@ -6,7 +6,7 @@ use near_o11y::metrics::{
 use once_cell::sync::Lazy;
 
 fn processing_time_buckets() -> Vec<f64> {
-    let mut buckets = vec![0.05, 0.1, 0.25, 0.5];
+    let mut buckets = vec![0.01, 0.025, 0.05, 0.1, 0.25, 0.5];
     buckets.extend_from_slice(&exponential_buckets(1.0, 1.3, 12).unwrap());
     buckets
 }
