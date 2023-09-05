@@ -109,6 +109,13 @@ impl<'a> ConfigValidator<'a> {
                         }
                     }
                 }
+
+                if let Some(credentials_file) = &dump_config.credentials_file {
+                    if !credentials_file.exists() || !credentials_file.is_file() {
+                        let error_message = format!("'config.state_sync.dump.credentials_file' is provided but the specified file does not exist or is not a file.");
+                        self.validation_errors.push_config_semantics_error(error_message);
+                    }
+                }
             }
             match &state_sync.sync {
                 SyncConfig::Peers => {}

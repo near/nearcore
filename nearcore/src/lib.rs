@@ -369,8 +369,6 @@ pub fn start_with_config_and_synchronization(
         shard_tracker,
         runtime,
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
-        config.config.s3_credentials_file.map(|filename| home_dir.join(filename)),
-        config.config.gcs_credentials_file.map(|filename| home_dir.join(filename)),
     )?;
 
     let hot_store = storage.get_hot_store();

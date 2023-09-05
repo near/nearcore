@@ -63,6 +63,9 @@ pub(crate) enum StatePartsSubCommand {
         /// Dump part ids up to this part (exclusive).
         #[clap(long)]
         part_to: Option<u64>,
+        /// Location of a file with write permissions to the bucket.
+        #[clap(long)]
+        credentials_file: Option<PathBuf>,
         /// Select an epoch to work on.
         #[clap(subcommand)]
         epoch_selection: EpochSelection,
@@ -119,10 +122,6 @@ impl StatePartsSubCommand {
         let chain_id = &near_config.genesis.config.chain_id;
         let sys = actix::System::new();
         sys.block_on(async move {
-            let s3_credentials_file =
-                near_config.config.s3_credentials_file.clone().map(|file| home_dir.join(file));
-            let gcs_credentials_file =
-                near_config.config.s3_credentials_file.clone().map(|file| home_dir.join(file));
             match self {
                 StatePartsSubCommand::Load {
                     action,
@@ -136,7 +135,6 @@ impl StatePartsSubCommand {
                         s3_bucket,
                         s3_region,
                         gcs_bucket,
-                        None,
                         None,
                         Mode::Readonly,
                     );
@@ -154,14 +152,18 @@ impl StatePartsSubCommand {
                     )
                     .await
                 }
-                StatePartsSubCommand::Dump { part_from, part_to, epoch_selection } => {
+                StatePartsSubCommand::Dump {
+                    part_from,
+                    part_to,
+                    epoch_selection,
+                    credentials_file,
+                } => {
                     let external = create_external_connection(
                         root_dir,
                         s3_bucket,
                         s3_region,
                         gcs_bucket,
-                        s3_credentials_file,
-                        gcs_credentials_file,
+                        credentials_file,
                         Mode::Readwrite,
                     );
                     dump_state_parts(
@@ -198,8 +200,7 @@ fn create_external_connection(
     bucket: Option<String>,
     region: Option<String>,
     gcs_bucket: Option<String>,
-    s3_credentials_file: Option<PathBuf>,
-    gcs_credentials_file: Option<PathBuf>,
+    credentials_file: Option<PathBuf>,
     mode: Mode,
 ) -> ExternalConnection {
     if let Some(root_dir) = root_dir {
@@ -207,18 +208,15 @@ fn create_external_connection(
     } else if let (Some(bucket), Some(region)) = (bucket, region) {
         let bucket = match mode {
             Mode::Readonly => create_bucket_readonly(&bucket, &region, Duration::from_secs(5)),
-            Mode::Readwrite => create_bucket_readwrite(
-                &bucket,
-                &region,
-                Duration::from_secs(5),
-                s3_credentials_file,
-            ),
+            Mode::Readwrite => {
+                create_bucket_readwrite(&bucket, &region, Duration::from_secs(5), credentials_file)
+            }
         }
         .expect("Failed to create an S3 bucket");
         ExternalConnection::S3 { bucket: Arc::new(bucket) }
     } else if let Some(bucket) = gcs_bucket {
-        if let Some(gcs_credentials_file) = gcs_credentials_file {
-            std::env::set_var("SERVICE_ACCOUNT", &gcs_credentials_file);
+        if let Some(credentials_file) = credentials_file {
+            std::env::set_var("SERVICE_ACCOUNT", &credentials_file);
         }
         ExternalConnection::GCS {
             gcs_client: Arc::new(cloud_storage::Client::default()),
