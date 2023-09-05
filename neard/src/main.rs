@@ -37,7 +37,7 @@ static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() -> anyhow::Result<()> {
     let mut buckets = vec![0.05, 0.1, 0.25, 0.5];
-    buckets.extend_from_slice(&exponential_buckets(1.0, 1.3, 10).unwrap());
+    buckets.extend_from_slice(&exponential_buckets(1.0, 1.3, 12).unwrap());
     println!("{:?}", buckets);
 
     if env::var("RUST_BACKTRACE").is_err() {
