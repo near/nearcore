@@ -161,7 +161,7 @@ impl Measurements {
 
 impl fmt::Debug for Measurements {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f,
+        writeln!(f,
             "Measurements: samples: {}, total: {:?} zeros: {} avg: {:?}",
             self.samples,
             self.total_read_block_latency,
