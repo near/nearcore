@@ -1000,3 +1000,26 @@ pub enum SlashState {
     /// All other cases (tokens should be entirely slashed),
     Other,
 }
+
+#[cfg(feature = "new_epoch_sync")]
+pub mod epoch_sync {
+    use crate::block_header::BlockHeader;
+    use crate::types::validator_stake::ValidatorStake;
+    use borsh::{BorshDeserialize, BorshSerialize};
+
+    #[derive(BorshSerialize, BorshDeserialize)]
+    pub struct BlockHeaderPair {
+        pub header: BlockHeader,
+        pub last_finalised_header: BlockHeader,
+    }
+
+    /// Struct to keep all the info that is transferred for one epoch during Epoch Sync.
+    #[derive(BorshSerialize, BorshDeserialize)]
+    pub struct EpochSyncInfo {
+        /// None is only used for corner case of the first epoch
+        pub first: BlockHeaderPair,
+        pub last: BlockHeaderPair,
+        pub prev_last: BlockHeaderPair,
+        pub block_producers: Vec<ValidatorStake>,
+    }
+}

@@ -44,4 +44,6 @@ pub struct Config {
     pub drop_os_cache: bool,
     /// Use in-memory test DB, useful to avoid variance caused by DB.
     pub in_memory_db: bool,
+    /// If false, only runs a minimal check that's faster than trying to get accurate results.
+    pub accurate: bool,
 }

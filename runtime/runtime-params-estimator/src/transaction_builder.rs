@@ -72,12 +72,12 @@ impl TransactionBuilder {
         args: Vec<u8>,
     ) -> SignedTransaction {
         let receiver = sender.clone();
-        let actions = vec![Action::FunctionCall(FunctionCallAction {
+        let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: method.to_string(),
             args,
             gas: 10u64.pow(18),
             deposit: 0,
-        })];
+        }))];
         self.transaction_from_actions(sender, receiver, actions)
     }
 

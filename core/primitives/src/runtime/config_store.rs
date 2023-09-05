@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 macro_rules! include_config {
     ($file:expr) => {
-        include_str!(concat!("../../res/runtime_configs/", $file))
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/runtime_configs/", $file))
     };
 }
 
@@ -18,6 +18,7 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
+    (35, include_config!("35.yaml")),
     (42, include_config!("42.yaml")),
     (48, include_config!("48.yaml")),
     (49, include_config!("49.yaml")),
@@ -32,6 +33,8 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (59, include_config!("59.yaml")),
     (61, include_config!("61.yaml")),
     (62, include_config!("62.yaml")),
+    (63, include_config!("63.yaml")),
+    (129, include_config!("129.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
@@ -149,9 +152,38 @@ mod tests {
         LowerDataReceiptAndEcrecoverBaseCost, LowerStorageCost, LowerStorageKeyLimit,
     };
     use near_primitives_core::config::{ActionCosts, ExtCosts};
+    use std::collections::HashSet;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
     const RECEIPTS_DEPTH: u64 = 63;
+
+    #[test]
+    fn all_configs_are_specified() {
+        let file_versions =
+            std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/res/runtime_configs/"))
+                .expect("can open config directory");
+        let mut files = file_versions
+            .into_iter()
+            .map(|de| {
+                de.expect("direntry should read successfully")
+                    .path()
+                    .file_name()
+                    .expect("direntry should have a filename")
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect::<HashSet<_>>();
+
+        for (ver, _) in super::CONFIG_DIFFS {
+            assert!(files.remove(&format!("{ver}.yaml")), "{ver}.yaml file is missing?");
+        }
+
+        for file in files {
+            let Some((name, "yaml")) = file.rsplit_once(".") else { continue };
+            let Ok(version_num) = name.parse::<u32>() else { continue };
+            panic!("CONFIG_DIFFS does not contain reference to the {version_num}.yaml file!");
+        }
+    }
 
     #[test]
     fn test_max_prepaid_gas() {
@@ -231,8 +263,8 @@ mod tests {
         );
 
         let expected_config = {
-            let first_diff = CONFIG_DIFFS[0].1.parse().unwrap();
-            base_params.apply_diff(first_diff).unwrap();
+            base_params.apply_diff(CONFIG_DIFFS[0].1.parse().unwrap()).unwrap();
+            base_params.apply_diff(CONFIG_DIFFS[1].1.parse().unwrap()).unwrap();
             RuntimeConfig::new(&base_params).unwrap()
         };
         assert_eq!(**config, expected_config);
@@ -240,8 +272,7 @@ mod tests {
         let config = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert_eq!(config.fees.fee(ActionCosts::new_data_receipt_base).send_sir, 36_486_732_312);
         let expected_config = {
-            let second_diff = CONFIG_DIFFS[1].1.parse().unwrap();
-            base_params.apply_diff(second_diff).unwrap();
+            base_params.apply_diff(CONFIG_DIFFS[2].1.parse().unwrap()).unwrap();
             RuntimeConfig::new(&base_params).unwrap()
         };
         assert_eq!(config.as_ref(), &expected_config);

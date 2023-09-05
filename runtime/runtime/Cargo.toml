@@ -27,6 +27,7 @@ near-chain-configs.workspace = true
 near-crypto.workspace = true
 near-o11y.workspace = true
 near-primitives.workspace = true
+near-primitives-core.workspace = true
 near-store.workspace = true
 near-vm-runner.workspace = true
 
@@ -36,21 +37,23 @@ protocol_feature_restrict_tla = [
 ]
 nightly = [
   "nightly_protocol",
+  "protocol_feature_restrict_tla",
+  "protocol_feature_restrict_tla",
   "near-chain-configs/nightly",
   "near-o11y/nightly",
+  "near-primitives-core/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
   "near-vm-runner/nightly",
-  "protocol_feature_restrict_tla",
 ]
 default = []
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
   "near-o11y/nightly_protocol",
+  "near-primitives-core/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
   "near-vm-runner/nightly_protocol",
-  "protocol_feature_restrict_tla",
 ]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 

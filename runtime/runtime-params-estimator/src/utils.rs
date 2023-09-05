@@ -2,11 +2,12 @@ use crate::apply_block_cost;
 use crate::estimator_context::EstimatorContext;
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::TransactionBuilder;
+use near_primitives::config::ExtCosts;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_vm_runner::internal::VMKind;
-use near_vm_runner::logic::{ExtCosts, VMConfig};
+use near_vm_runner::logic::Config as VMConfig;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use rand_xorshift::XorShiftRng;
@@ -121,7 +122,12 @@ pub(crate) fn fn_cost_count(
     ext_cost: ExtCosts,
     block_latency: usize,
 ) -> (GasCost, u64) {
-    let block_size = 20;
+    // Block size: 20 is a good number if you want to reduce the effect of
+    // constant-per-block overhead and the tx takes less than 50 Tgas to
+    // execute. It's hard-coded because the range of values supported depends on
+    // each estimation. For a check-only run, a single tx per block is faster
+    // and good enough.
+    let block_size = if ctx.config.accurate { 20 } else { 1 };
     let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
         let sender = tb.random_unused_account();
         tb.transaction_from_function_call(sender, method, Vec::new())
@@ -295,12 +301,12 @@ pub(crate) fn fn_cost_in_contract(
 }
 
 fn function_call_action(method_name: String) -> Action {
-    Action::FunctionCall(FunctionCallAction {
+    Action::FunctionCall(Box::new(FunctionCallAction {
         method_name,
         args: Vec::new(),
         gas: 10u64.pow(15),
         deposit: 0,
-    })
+    }))
 }
 
 /// Takes a list of measurements of input blocks and returns the cost for a

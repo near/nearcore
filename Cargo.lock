@@ -2383,6 +2383,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-test-contracts",
+ "near-vm-runner",
  "nearcore",
  "tempfile",
 ]
@@ -2796,6 +2797,7 @@ dependencies = [
  "futures",
  "hex",
  "insta",
+ "itertools",
  "near-actix-test-utils",
  "near-async",
  "near-chain",
@@ -3470,6 +3472,7 @@ dependencies = [
  "ansi_term",
  "assert_matches",
  "borsh 0.10.2",
+ "bytesize",
  "chrono",
  "crossbeam-channel",
  "delay-detector",
@@ -3540,6 +3543,7 @@ dependencies = [
  "derive-enum-from-into",
  "derive_more",
  "futures",
+ "itertools",
  "lru",
  "near-async",
  "near-chain",
@@ -3718,6 +3722,7 @@ version = "0.0.0"
 dependencies = [
  "borsh 0.10.2",
  "chrono",
+ "itertools",
  "near-cache",
  "near-chain-configs",
  "near-chain-primitives",
@@ -3748,6 +3753,7 @@ dependencies = [
  "nearcore",
  "rayon",
  "tqdm",
+ "tracing",
 ]
 
 [[package]]
@@ -4119,6 +4125,7 @@ version = "0.0.0"
 dependencies = [
  "arbitrary",
  "assert_matches",
+ "base64 0.21.0",
  "bencher",
  "borsh 0.10.2",
  "bytesize",
@@ -4244,6 +4251,7 @@ dependencies = [
  "near-ping",
  "near-primitives",
  "once_cell",
+ "sha2 0.10.6",
  "tokio",
  "tracing",
 ]
@@ -4439,6 +4447,7 @@ dependencies = [
  "near-vm-compiler",
  "near-vm-compiler-singlepass",
  "near-vm-engine",
+ "near-vm-runner",
  "near-vm-types",
  "near-vm-vm",
  "once_cell",
@@ -4450,6 +4459,7 @@ dependencies = [
  "ripemd",
  "serde",
  "serde_json",
+ "serde_repr",
  "serde_with",
  "sha2 0.10.6",
  "sha3",
@@ -4717,6 +4727,7 @@ dependencies = [
  "near-crypto",
  "near-o11y",
  "near-primitives",
+ "near-primitives-core",
  "near-store",
  "near-test-contracts",
  "near-vm-runner",

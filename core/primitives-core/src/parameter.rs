@@ -145,6 +145,13 @@ pub enum Parameter {
     Wasmer2StackLimit,
     MaxLocalsPerContract,
     AccountIdValidityRulesVersion,
+
+    // Contract runtime features
+    #[strum(serialize = "disable_9393_fix")]
+    Disable9393Fix,
+    FlatStorageReads,
+    ImplicitAccountCreation,
+    FixContractLoadingCost,
 }
 
 #[derive(

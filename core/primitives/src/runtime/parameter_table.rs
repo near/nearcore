@@ -1,9 +1,10 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
 use near_primitives_core::account::id::ParseAccountError;
-use near_primitives_core::config::{ExtCostsConfig, ParameterCost, VMConfig};
+use near_primitives_core::config::{ExtCostsConfig, ParameterCost};
 use near_primitives_core::parameter::{FeeParameter, Parameter};
 use near_primitives_core::runtime::fees::{Fee, RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives_core::types::AccountId;
+use near_vm_runner::logic::{Config, StorageGetMode};
 use num_rational::Rational32;
 use std::collections::BTreeMap;
 
@@ -19,6 +20,7 @@ pub(crate) enum ParameterValue {
     // for u128, but this is currently impossible to express in YAML (see
     // `canonicalize_yaml_string`).
     String(String),
+    Flag(bool),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -70,6 +72,22 @@ impl TryFrom<&ParameterValue> for u128 {
                 ValueConversionError::ParseInt(err, std::any::type_name::<u128>(), value.clone())
             }),
             _ => Err(ValueConversionError::ParseType(std::any::type_name::<u128>(), value.clone())),
+        }
+    }
+}
+
+impl TryFrom<&ParameterValue> for bool {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+        match value {
+            ParameterValue::Flag(b) => Ok(*b),
+            ParameterValue::String(s) => match &**s {
+                "true" => Ok(true),
+                "false" => Ok(false),
+                _ => Err(ValueConversionError::ParseType("bool", value.clone())),
+            },
+            _ => Err(ValueConversionError::ParseType("bool", value.clone())),
         }
     }
 }
@@ -177,6 +195,7 @@ impl core::fmt::Display for ParameterValue {
                 )
             }
             ParameterValue::String(v) => write!(f, "{v}"),
+            ParameterValue::Flag(b) => write!(f, "{b:?}"),
         }
     }
 }
@@ -262,7 +281,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     num_extra_bytes_record: params.get(Parameter::StorageNumExtraBytesRecord)?,
                 },
             },
-            wasm_config: VMConfig {
+            wasm_config: Config {
                 ext_costs: ExtCostsConfig {
                     costs: enum_map::enum_map! {
                         cost => params.get(cost.param())?
@@ -270,8 +289,15 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 },
                 grow_mem_cost: params.get(Parameter::WasmGrowMemCost)?,
                 regular_op_cost: params.get(Parameter::WasmRegularOpCost)?,
+                disable_9393_fix: params.get(Parameter::Disable9393Fix)?,
                 limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits()))
                     .map_err(InvalidConfigError::InvalidYaml)?,
+                fix_contract_loading_cost: params.get(Parameter::FixContractLoadingCost)?,
+                storage_get_mode: match params.get(Parameter::FlatStorageReads)? {
+                    true => StorageGetMode::FlatStorage,
+                    false => StorageGetMode::Trie,
+                },
+                implicit_account_creation: params.get(Parameter::ImplicitAccountCreation)?,
             },
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params

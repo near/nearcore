@@ -646,27 +646,6 @@ impl PeerManagerActor {
         }
     }
 
-    /// Return whether the message is sent or not.
-    fn send_message_to_account_or_peer_or_hash(
-        &mut self,
-        target: &AccountOrPeerIdOrHash,
-        msg: RoutedMessageBody,
-    ) -> bool {
-        let target = match target {
-            AccountOrPeerIdOrHash::AccountId(account_id) => {
-                return self.state.send_message_to_account(&self.clock, account_id, msg);
-            }
-            AccountOrPeerIdOrHash::PeerId(it) => PeerIdOrHash::PeerId(it.clone()),
-            AccountOrPeerIdOrHash::Hash(it) => PeerIdOrHash::Hash(*it),
-        };
-
-        self.state.send_message_to_peer(
-            &self.clock,
-            tcp::Tier::T2,
-            self.state.sign_message(&self.clock, RawRoutedMessage { target, body: msg }),
-        )
-    }
-
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
         let tier1 = self.state.tier1.load();
         let tier2 = self.state.tier2.load();
@@ -789,9 +768,14 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::StateRequestHeader { shard_id, sync_hash, target } => {
-                if self.send_message_to_account_or_peer_or_hash(
-                    &target,
-                    RoutedMessageBody::StateRequestHeader(shard_id, sync_hash),
+                let peer_id = match target {
+                    AccountOrPeerIdOrHash::AccountId(_) => return NetworkResponses::RouteNotFound,
+                    AccountOrPeerIdOrHash::PeerId(peer_id) => peer_id,
+                    AccountOrPeerIdOrHash::Hash(_) => return NetworkResponses::RouteNotFound,
+                };
+                if self.state.tier2.send_message(
+                    peer_id,
+                    Arc::new(PeerMessage::StateRequestHeader(shard_id, sync_hash)),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -799,24 +783,14 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, target } => {
-                if self.send_message_to_account_or_peer_or_hash(
-                    &target,
-                    RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id),
-                ) {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
-                }
-            }
-            NetworkRequests::StateResponse { route_back, response } => {
-                let body = RoutedMessageBody::VersionedStateResponse(response);
-                if self.state.send_message_to_peer(
-                    &self.clock,
-                    tcp::Tier::T2,
-                    self.state.sign_message(
-                        &self.clock,
-                        RawRoutedMessage { target: PeerIdOrHash::Hash(route_back), body },
-                    ),
+                let peer_id = match target {
+                    AccountOrPeerIdOrHash::AccountId(_) => return NetworkResponses::RouteNotFound,
+                    AccountOrPeerIdOrHash::PeerId(peer_id) => peer_id,
+                    AccountOrPeerIdOrHash::Hash(_) => return NetworkResponses::RouteNotFound,
+                };
+                if self.state.tier2.send_message(
+                    peer_id,
+                    Arc::new(PeerMessage::StateRequestPart(shard_id, sync_hash, part_id)),
                 ) {
                     NetworkResponses::NoResponse
                 } else {

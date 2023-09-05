@@ -1,6 +1,8 @@
 #![doc = include_str!("../README.md")]
 
 mod cache;
+mod code;
+mod config;
 mod errors;
 mod features;
 mod imports;
@@ -24,8 +26,9 @@ mod wasmer_runner;
 mod wasmtime_runner;
 
 pub use crate::logic::with_ext_cost_counter;
-
 pub use cache::{get_contract_cache_key, precompile_contract, MockCompiledContractCache};
+pub use code::ContractCode;
+pub use config::ContractPrepareVersion;
 pub use runner::{run, VM};
 
 /// This is public for internal experimentation use only, and should otherwise be considered an

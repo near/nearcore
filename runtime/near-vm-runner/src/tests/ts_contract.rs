@@ -1,8 +1,8 @@
 use crate::logic::errors::{FunctionCallError, HostError};
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::types::ReturnData;
-use crate::logic::{External, StorageGetMode, VMConfig};
-use near_primitives_core::contract::ContractCode;
+use crate::logic::{Config, External, StorageGetMode};
+use crate::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 
 use crate::tests::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
@@ -10,7 +10,7 @@ use crate::vm_kind::VMKind;
 
 #[test]
 pub fn test_ts_contract() {
-    let config = VMConfig::test();
+    let config = Config::test();
     with_vm_variants(&config, |vm_kind: VMKind| {
         let code = ContractCode::new(near_test_contracts::ts_contract().to_vec(), None);
         let mut fake_external = MockedExternal::new();

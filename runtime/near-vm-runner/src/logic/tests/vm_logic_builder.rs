@@ -1,31 +1,26 @@
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::mocks::mock_memory::MockedMemory;
 use crate::logic::types::PromiseResult;
-use crate::logic::{MemSlice, VMConfig, VMContext, VMLogic};
+use crate::logic::{Config, MemSlice, VMContext, VMLogic};
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
-use near_primitives_core::types::ProtocolVersion;
-
-pub(super) const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
 
 pub(super) struct VMLogicBuilder {
     pub ext: MockedExternal,
-    pub config: VMConfig,
+    pub config: Config,
     pub fees_config: RuntimeFeesConfig,
     pub promise_results: Vec<PromiseResult>,
     pub memory: MockedMemory,
-    pub current_protocol_version: ProtocolVersion,
     pub context: VMContext,
 }
 
 impl Default for VMLogicBuilder {
     fn default() -> Self {
         VMLogicBuilder {
-            config: VMConfig::test(),
+            config: Config::test(),
             fees_config: RuntimeFeesConfig::test(),
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),
             promise_results: vec![],
-            current_protocol_version: LATEST_PROTOCOL_VERSION,
             context: get_context(),
         }
     }
@@ -35,31 +30,30 @@ impl VMLogicBuilder {
     pub fn view() -> Self {
         let mut builder = Self::default();
         let max_gas_burnt = builder.config.limit_config.max_gas_burnt;
-        builder.context.view_config = Some(crate::logic::ViewConfig { max_gas_burnt });
+        builder.context.view_config =
+            Some(near_primitives_core::config::ViewConfig { max_gas_burnt });
         builder
     }
 
     pub fn build(&mut self) -> TestVMLogic<'_> {
         let context = self.context.clone();
-        TestVMLogic::from(VMLogic::new_with_protocol_version(
+        TestVMLogic::from(VMLogic::new(
             &mut self.ext,
             context,
             &self.config,
             &self.fees_config,
             &self.promise_results,
             &mut self.memory,
-            self.current_protocol_version,
         ))
     }
 
     pub fn free() -> Self {
         VMLogicBuilder {
-            config: VMConfig::free(),
+            config: Config::free(),
             fees_config: RuntimeFeesConfig::free(),
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),
             promise_results: vec![],
-            current_protocol_version: LATEST_PROTOCOL_VERSION,
             context: get_context(),
         }
     }
@@ -154,7 +148,7 @@ impl TestVMLogic<'_> {
         assert_eq!(want, &got[..]);
     }
 
-    pub fn compute_outcome_and_distribute_gas(self) -> crate::logic::VMOutcome {
-        self.logic.compute_outcome_and_distribute_gas()
+    pub fn compute_outcome(self) -> crate::logic::VMOutcome {
+        self.logic.compute_outcome()
     }
 }

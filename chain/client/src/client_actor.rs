@@ -411,7 +411,7 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
     type Result = ();
 
     fn handle(&mut self, msg: WithSpanContext<BlockResponse>, ctx: &mut Context<Self>) {
-        self.wrap(msg,ctx,"BlockResponse",|this:&mut Self,msg|{
+        self.wrap(msg, ctx, "BlockResponse", |this: &mut Self, msg|{
             let BlockResponse{ block, peer_id, was_requested } = msg;
             let blocks_at_height = this
                 .client
@@ -499,7 +499,7 @@ impl Handler<WithSpanContext<StateResponse>> for ClientActor {
     type Result = ();
 
     fn handle(&mut self, msg: WithSpanContext<StateResponse>, ctx: &mut Context<Self>) {
-        self.wrap(msg,ctx,"StateResponse",|this,msg| {
+        self.wrap(msg, ctx, "StateResponse", |this, msg| {
             let StateResponse(state_response_info) = msg;
             let shard_id = state_response_info.shard_id();
             let hash = state_response_info.sync_hash();
@@ -557,6 +557,7 @@ impl Handler<WithSpanContext<SetNetworkInfo>> for ClientActor {
     type Result = ();
 
     fn handle(&mut self, msg: WithSpanContext<SetNetworkInfo>, ctx: &mut Context<Self>) {
+        // SetNetworkInfo is a large message. Avoid printing it at the `debug` verbosity.
         self.wrap(msg, ctx, "SetNetworkInfo", |this, msg| {
             let SetNetworkInfo(network_info) = msg;
             this.network_info = network_info;
@@ -610,6 +611,7 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<Status>, ctx: &mut Context<Self>) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _d = delay_detector::DelayDetector::new(|| "client status".into());
         self.check_triggers(ctx);
 
@@ -787,7 +789,7 @@ impl Handler<WithSpanContext<GetNetworkInfo>> for ClientActor {
 /// `ApplyChunksDoneMessage` is a message that signals the finishing of applying chunks of a block.
 /// Upon receiving this message, ClientActors knows that it's time to finish processing the blocks that
 /// just finished applying chunks.
-#[derive(actix::Message)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct ApplyChunksDoneMessage;
 
@@ -1465,30 +1467,21 @@ impl ClientActor {
     ///
     /// The selected block will always be the first block on a new epoch:
     /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
-    ///
-    /// To prevent syncing from a fork, we move `state_fetch_horizon` steps backwards and use that epoch.
-    /// Usually `state_fetch_horizon` is much less than the expected number of produced blocks on an epoch,
-    /// so this is only relevant on epoch boundaries.
     fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
         let header_head = self.client.chain.header_head()?;
-        let mut sync_hash = header_head.prev_block_hash;
-        for _ in 0..self.client.config.state_fetch_horizon {
-            sync_hash = *self.client.chain.get_block_header(&sync_hash)?.prev_hash();
-        }
-        let mut epoch_start_sync_hash =
+        let sync_hash = header_head.last_block_hash;
+        let epoch_start_sync_hash =
             StateSync::get_epoch_start_sync_hash(&mut self.client.chain, &sync_hash)?;
 
-        if &epoch_start_sync_hash == self.client.chain.genesis().hash() {
-            // If we are within `state_fetch_horizon` blocks of the second epoch, the sync hash will
-            // be the first block of the first epoch (or, the genesis block). Due to implementation
-            // details of the state sync, we can't state sync to the genesis block, so redo the
-            // search without going back `state_fetch_horizon` blocks.
-            epoch_start_sync_hash = StateSync::get_epoch_start_sync_hash(
-                &mut self.client.chain,
-                &header_head.last_block_hash,
-            )?;
-            assert_ne!(&epoch_start_sync_hash, self.client.chain.genesis().hash());
-        }
+        let genesis_hash = self.client.chain.genesis().hash();
+        tracing::debug!(
+            target: "sync",
+            ?header_head,
+            ?sync_hash,
+            ?epoch_start_sync_hash,
+            ?genesis_hash,
+            "find_sync_hash");
+        assert_ne!(&epoch_start_sync_hash, genesis_hash);
         Ok(epoch_start_sync_hash)
     }
 
@@ -1754,6 +1747,7 @@ impl Handler<WithSpanContext<ApplyStatePartsResponse>> for ClientActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
             sync.set_apply_result(msg.shard_id, msg.apply_result);
@@ -1772,6 +1766,7 @@ impl Handler<WithSpanContext<BlockCatchUpResponse>> for ClientActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         if let Some((_, _, blocks_catch_up_state)) =
             self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
         {
@@ -1792,6 +1787,7 @@ impl Handler<WithSpanContext<StateSplitResponse>> for ClientActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
             sync.set_split_result(msg.shard_id, msg.new_state_roots);
@@ -1839,7 +1835,8 @@ impl Handler<WithSpanContext<GetClientConfig>> for ClientActor {
         msg: WithSpanContext<GetClientConfig>,
         _: &mut Context<Self>,
     ) -> Self::Result {
-        let (_span, _msg) = handler_debug_span!(target: "client", msg);
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _d = delay_detector::DelayDetector::new(|| "client get client config".into());
 
         Ok(self.client.config.clone())

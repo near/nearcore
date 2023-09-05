@@ -8,10 +8,10 @@ pub(crate) mod test_builder;
 mod ts_contract;
 mod wasm_validation;
 
-use crate::logic::{VMConfig, VMContext};
-use crate::vm_kind::VMKind;
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-use near_primitives_core::config::ContractPrepareVersion;
+use crate::config::ContractPrepareVersion;
+use crate::logic::{Config, VMContext};
+use crate::vm_kind::VMKind;
 use near_primitives_core::types::ProtocolVersion;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
@@ -21,7 +21,7 @@ const PREDECESSOR_ACCOUNT_ID: &str = "carol";
 
 const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
 
-pub(crate) fn with_vm_variants(#[allow(unused)] cfg: &VMConfig, runner: impl Fn(VMKind) -> ()) {
+pub(crate) fn with_vm_variants(#[allow(unused)] cfg: &Config, runner: impl Fn(VMKind) -> ()) {
     #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
     runner(VMKind::Wasmer0);
 
@@ -55,19 +55,5 @@ fn create_context(input: Vec<u8>) -> VMContext {
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
-    }
-}
-
-/// Small helper to compute expected loading gas cost charged before loading.
-///
-/// Includes hard-coded value for runtime parameter values
-/// `wasm_contract_loading_base` and `wasm_contract_loading_bytes` which would
-/// have to be updated if they change in the future.
-#[allow(unused)]
-fn prepaid_loading_gas(bytes: usize) -> u64 {
-    if cfg!(feature = "protocol_feature_fix_contract_loading_cost") {
-        35_445_963 + bytes as u64 * 21_6750
-    } else {
-        0
     }
 }

@@ -14,11 +14,11 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
+use near_primitives::config::ActionCosts;
 use near_primitives::config::ExtCosts;
-use near_primitives::contract::ContractCode;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -27,6 +27,7 @@ use near_primitives::shard_layout::{
 };
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
@@ -45,6 +46,7 @@ use near_store::{
 };
 use near_vm_runner::logic::CompiledContractCache;
 use near_vm_runner::precompile_contract;
+use near_vm_runner::ContractCode;
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
@@ -549,7 +551,7 @@ impl NightshadeRuntime {
             .tries
             .get_trie_with_block_hash_for_shard_from_snapshot(shard_uid, *state_root, &prev_hash)
             .map_err(|err| Error::Other(err.to_string()))?;
-        let state_part = match snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, partial_state, nibbles_begin, nibbles_end, trie_with_state.storage.clone()) {
+        let state_part = match snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, partial_state, nibbles_begin, nibbles_end, &trie_with_state) {
             Ok(partial_state) => partial_state,
             Err(err) => {
                 error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part");
@@ -689,6 +691,30 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
+        // To avoid limiting the throughput of the network, we want to include enough receipts to
+        // saturate the capacity of the chunk even in case when all of these receipts end up using
+        // the smallest possible amount of gas, which is at least the cost of execution of action
+        // receipt.
+        // Currently, the min execution cost is ~100 GGas and the chunk capacity is 1 PGas, giving
+        // a bound of at most 10000 receipts processed in a chunk.
+        let delayed_receipts_indices: DelayedReceiptIndices =
+            near_store::get(&state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
+        let min_fee = runtime_config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
+        let new_receipt_count_limit = if min_fee > 0 {
+            // Round up to include at least one receipt.
+            let max_processed_receipts_in_chunk = (gas_limit + min_fee - 1) / min_fee;
+            // Allow at most 2 chunks worth of delayed receipts. This way under congestion,
+            // after processing a single chunk, we will still have at least 1 chunk worth of
+            // delayed receipts, ensuring the high throughput even if the next chunk producer
+            // does not include any receipts.
+            // This buffer size is a trade-off between the max queue size and system efficiency
+            // under congestion.
+            let delayed_receipt_count_limit = max_processed_receipts_in_chunk * 2;
+            delayed_receipt_count_limit.saturating_sub(delayed_receipts_indices.len()) as usize
+        } else {
+            usize::MAX
+        };
+
         // In general, we limit the number of transactions via send_fees.
         // However, as a second line of defense, we want to limit the byte size
         // of transaction as well. Rather than introducing a separate config for
@@ -700,7 +726,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             / (runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_write_value_byte)
                 + runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_read_value_byte));
 
-        while total_gas_burnt < transactions_gas_limit && total_size < size_limit {
+        while total_gas_burnt < transactions_gas_limit
+            && total_size < size_limit
+            && transactions.len() < new_receipt_count_limit
+        {
             if let Some(iter) = pool_iterator.next() {
                 while let Some(tx) = iter.next() {
                     num_checked_transactions += 1;
@@ -832,7 +861,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error> {
-        let trie = Trie::from_recorded_storage(partial_storage, *state_root);
+        let trie = Trie::from_recorded_storage(partial_storage, *state_root, true);
         self.process_state_update(
             trie,
             shard_id,
@@ -1048,28 +1077,40 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_hash: &CryptoHash,
         state_roots: HashMap<ShardUId, StateRoot>,
         next_epoch_shard_layout: &ShardLayout,
-        state_changes: StateChangesForSplitStates,
+        state_changes_for_split_states: StateChangesForSplitStates,
     ) -> Result<Vec<ApplySplitStateResult>, Error> {
-        let trie_changes = self.tries.apply_state_changes_to_split_states(
+        let trie_updates = self.tries.apply_state_changes_to_split_states(
             &state_roots,
-            state_changes,
+            state_changes_for_split_states,
             &|account_id| account_id_to_shard_uid(account_id, next_epoch_shard_layout),
         )?;
 
-        Ok(trie_changes
-            .into_iter()
-            .map(|(shard_uid, trie_changes)| ApplySplitStateResult {
+        let mut applied_split_state_results: Vec<_> = vec![];
+        for (shard_uid, trie_update) in trie_updates {
+            let (_, trie_changes, state_changes) = trie_update.finalize()?;
+            // All state changes that are related to split state should have StateChangeCause as Resharding
+            // We do not want to commit the state_changes from resharding as they are already handled while
+            // processing parent shard
+            debug_assert!(state_changes.iter().all(|raw_state_changes| raw_state_changes
+                .changes
+                .iter()
+                .all(|state_change| state_change.cause == StateChangeCause::Resharding)));
+            let new_root = trie_changes.new_root;
+            let wrapped_trie_changes = WrappedTrieChanges::new(
+                self.get_tries(),
                 shard_uid,
-                new_root: trie_changes.new_root,
-                trie_changes: WrappedTrieChanges::new(
-                    self.get_tries(),
-                    shard_uid,
-                    trie_changes,
-                    vec![],
-                    *block_hash,
-                ),
-            })
-            .collect())
+                trie_changes,
+                state_changes,
+                *block_hash,
+            );
+            applied_split_state_results.push(ApplySplitStateResult {
+                shard_uid,
+                new_root,
+                trie_changes: wrapped_trie_changes,
+            });
+        }
+
+        Ok(applied_split_state_results)
     }
 
     fn apply_state_part(
@@ -1298,7 +1339,7 @@ mod test {
             sender.validator_id().clone(),
             sender.validator_id().clone(),
             &*signer,
-            vec![Action::Stake(StakeAction { stake, public_key: sender.public_key() })],
+            vec![Action::Stake(Box::new(StakeAction { stake, public_key: sender.public_key() }))],
             // runtime does not validate block history
             CryptoHash::default(),
         )
@@ -1361,6 +1402,7 @@ mod test {
                             height,
                             prev_hash: *prev_block_hash,
                         },
+                        prev_block_with_changes: None,
                     },
                 };
                 let new_store_update = flat_storage.add_delta(delta).unwrap();
@@ -2667,13 +2709,13 @@ mod test {
             .runtime
             .get_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT, true)
             .unwrap();
-        assert!(trie.flat_storage_chunk_view.is_some());
+        assert!(trie.has_flat_storage_chunk_view());
 
         let trie = env
             .runtime
             .get_view_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT)
             .unwrap();
-        assert!(trie.flat_storage_chunk_view.is_none());
+        assert!(!trie.has_flat_storage_chunk_view());
     }
 
     /// Check that querying trie and flat state gives the same result.

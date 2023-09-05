@@ -15,12 +15,11 @@ pub use columns::DBCol;
 pub use db::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
     GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
-    LATEST_KNOWN_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
+    LATEST_KNOWN_KEY, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
 };
 use near_crypto::PublicKey;
 use near_fmt::{AbbrBytes, StorageKey};
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
@@ -28,6 +27,7 @@ pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, StateRoot};
 use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
+use near_vm_runner::ContractCode;
 
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics};
 pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
@@ -854,6 +854,17 @@ pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &[
     store_update
         .set_ser(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
         .expect("Borsh cannot fail");
+}
+
+fn option_to_not_found<T, F>(res: io::Result<Option<T>>, field_name: F) -> io::Result<T>
+where
+    F: std::string::ToString,
+{
+    match res {
+        Ok(Some(o)) => Ok(o),
+        Ok(None) => Err(io::Error::new(io::ErrorKind::NotFound, field_name.to_string())),
+        Err(e) => Err(e),
+    }
 }
 
 pub struct StoreCompiledContractCache {

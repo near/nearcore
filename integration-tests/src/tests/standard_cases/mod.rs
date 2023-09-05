@@ -35,7 +35,7 @@ use testlib::runtime_utils::{
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
 
 pub(crate) fn fee_helper(node: &impl Node) -> FeeHelper {
-    FeeHelper::new(RuntimeConfig::test().fees, node.genesis().config.min_gas_price)
+    FeeHelper::new(RuntimeConfig::test(), node.genesis().config.min_gas_price)
 }
 
 /// Adds given access key to the given account_id using signer2.
@@ -404,9 +404,9 @@ pub fn trying_to_create_implicit_account(node: impl Node) {
 
     let cost = fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
         + fee_helper.gas_to_balance(
-            fee_helper.cfg.fee(ActionCosts::create_account).send_fee(false)
+            fee_helper.cfg().fee(ActionCosts::create_account).send_fee(false)
                 + fee_helper
-                    .cfg
+                    .cfg()
                     .fee(near_primitives::config::ActionCosts::add_full_access_key)
                     .send_fee(false),
         );
@@ -1490,8 +1490,8 @@ fn check_trie_nodes_count(
 ///
 /// 1st receipt should count 6 db reads.
 /// 2nd and 3rd receipts should count 2 db and 4 memory reads, because for them first 4 nodes were already put into the
-/// chunk cache.
-pub fn test_chunk_nodes_cache_common_parent(node: impl Node, runtime_config: RuntimeConfig) {
+/// accounting cache.
+pub fn test_accounting_cache_common_parent(node: impl Node, runtime_config: RuntimeConfig) {
     let receipts: Vec<Receipt> = (0..3)
         .map(|i| {
             make_receipt(
@@ -1510,14 +1510,14 @@ pub fn test_chunk_nodes_cache_common_parent(node: impl Node, runtime_config: Run
     check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
 }
 
-/// This test is similar to `test_chunk_nodes_cache_common_parent` but checks another trie structure:
+/// This test is similar to `test_accounting_cache_common_parent` but checks another trie structure:
 ///
 ///                                                    --> (Value 1)
 /// (Extension) -> (Branch) -> (Extension) -> (Branch) |-> (Leaf) -> (Value 2)
 ///
 /// 1st receipt should count 5 db reads.
 /// 2nd receipt should count 2 db and 4 memory reads.
-pub fn test_chunk_nodes_cache_branch_value(node: impl Node, runtime_config: RuntimeConfig) {
+pub fn test_accounting_cache_branch_value(node: impl Node, runtime_config: RuntimeConfig) {
     let receipts: Vec<Receipt> = (0..2)
         .map(|i| {
             make_receipt(
@@ -1535,23 +1535,23 @@ pub fn test_chunk_nodes_cache_branch_value(node: impl Node, runtime_config: Runt
     check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
 }
 
-/// This test is similar to `test_chunk_nodes_cache_common_parent` but checks another trie structure:
+/// This test is similar to `test_accounting_cache_common_parent` but checks another trie structure:
 ///
 ///                                                     --> (Leaf) -> (Value 1)
 /// (Extension) -> (Branch) --> (Extension) -> (Branch) |-> (Leaf) -> (Value 2)
 ///                         |-> (Leaf) -> (Value 2)
 ///
-/// Here we check that chunk cache is enabled *only during function calls execution*.
+/// Here we check that accounting cache is enabled *only during function calls execution*.
 /// 1st receipt writes `Value 1` and should count 6 db reads.
 /// 2nd receipt deploys a new contract which *code* is the same as `Value 2`. But this value shouldn't be put into the
-/// chunk cache.
+/// accounting cache.
 /// 3rd receipt writes `Value 2` and should count 2 db and 4 memory reads.
 ///
-/// We have checked manually that if chunk cache mode is not disabled, then the following scenario happens:
-/// - 1st receipt enables chunk cache mode but doesn't disable it
-/// - 2nd receipt triggers insertion of `Value 2` into the chunk cache
-/// - 3rd receipt reads it from the chunk cache, so it incorrectly charges user for 1 db and 5 memory reads.
-pub fn test_chunk_nodes_cache_mode(node: impl Node, runtime_config: RuntimeConfig) {
+/// We have checked manually that if accounting cache mode is not disabled, then the following scenario happens:
+/// - 1st receipt enables accounting cache mode but doesn't disable it
+/// - 2nd receipt triggers insertion of `Value 2` into the accounting cache
+/// - 3rd receipt reads it from the accounting cache, so it incorrectly charges user for 1 db and 5 memory reads.
+pub fn test_accounting_cache_mode(node: impl Node, runtime_config: RuntimeConfig) {
     let receipts: Vec<Receipt> = vec![
         make_receipt(&node, vec![make_write_key_value_action(vec![1], vec![1])], bob_account()),
         make_receipt(

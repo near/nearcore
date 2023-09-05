@@ -4,18 +4,15 @@
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
+use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::{
     BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderInnerRestV3,
     BlockHeaderV1, BlockHeaderV2, BlockHeaderV3,
 };
-#[cfg(feature = "protocol_feature_block_header_v4")]
 use crate::block_header::{BlockHeaderInnerRestV4, BlockHeaderV4};
 use crate::challenge::{Challenge, ChallengesResult};
-#[cfg(feature = "protocol_feature_block_header_v4")]
 use crate::checked_feature;
-use crate::contract::ContractCode;
-use crate::delegate_action::{DelegateAction, SignedDelegateAction};
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, MerklePath};
@@ -44,9 +41,10 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
-use near_primitives_core::config::{ActionCosts, ExtCosts, ParameterCost, VMConfig};
+use near_primitives_core::config::{ActionCosts, ExtCosts, ParameterCost};
 use near_primitives_core::runtime::fees::Fee;
 use near_vm_runner::logic::CompiledContractCache;
+use near_vm_runner::ContractCode;
 use num_rational::Rational32;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -728,7 +726,6 @@ pub struct BlockHeaderView {
     pub hash: CryptoHash,
     pub prev_hash: CryptoHash,
     pub prev_state_root: CryptoHash,
-    #[cfg(feature = "protocol_feature_block_header_v4")]
     pub block_body_hash: Option<CryptoHash>,
     pub chunk_receipts_root: CryptoHash,
     pub chunk_headers_root: CryptoHash,
@@ -760,7 +757,7 @@ pub struct BlockHeaderView {
     pub next_bp_hash: CryptoHash,
     pub block_merkle_root: CryptoHash,
     pub epoch_sync_data_hash: Option<CryptoHash>,
-    pub approvals: Vec<Option<Signature>>,
+    pub approvals: Vec<Option<Box<Signature>>>,
     pub signature: Signature,
     pub latest_protocol_version: ProtocolVersion,
 }
@@ -775,7 +772,6 @@ impl From<BlockHeader> for BlockHeaderView {
             hash: *header.hash(),
             prev_hash: *header.prev_hash(),
             prev_state_root: *header.prev_state_root(),
-            #[cfg(feature = "protocol_feature_block_header_v4")]
             block_body_hash: header.block_body_hash(),
             chunk_receipts_root: *header.chunk_receipts_root(),
             chunk_headers_root: *header.chunk_headers_root(),
@@ -885,46 +881,7 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV2(Arc::new(header))
-        } else {
-            #[cfg(feature = "protocol_feature_block_header_v4")]
-            if checked_feature!(
-                "protocol_feature_block_header_v4",
-                BlockHeaderV4,
-                view.latest_protocol_version
-            ) {
-                let mut header = BlockHeaderV4 {
-                    prev_hash: view.prev_hash,
-                    inner_lite,
-                    inner_rest: BlockHeaderInnerRestV4 {
-                        block_body_hash: view.block_body_hash.unwrap_or_default(),
-                        chunk_receipts_root: view.chunk_receipts_root,
-                        chunk_headers_root: view.chunk_headers_root,
-                        chunk_tx_root: view.chunk_tx_root,
-                        challenges_root: view.challenges_root,
-                        random_value: view.random_value,
-                        validator_proposals: view
-                            .validator_proposals
-                            .into_iter()
-                            .map(Into::into)
-                            .collect(),
-                        chunk_mask: view.chunk_mask,
-                        gas_price: view.gas_price,
-                        block_ordinal: view.block_ordinal.unwrap_or(0),
-                        total_supply: view.total_supply,
-                        challenges_result: view.challenges_result,
-                        last_final_block: view.last_final_block,
-                        last_ds_final_block: view.last_ds_final_block,
-                        prev_height: view.prev_height.unwrap_or_default(),
-                        epoch_sync_data_hash: view.epoch_sync_data_hash,
-                        approvals: view.approvals.clone(),
-                        latest_protocol_version: view.latest_protocol_version,
-                    },
-                    signature: view.signature,
-                    hash: CryptoHash::default(),
-                };
-                header.init();
-                return BlockHeader::BlockHeaderV4(Arc::new(header));
-            }
+        } else if !checked_feature!("stable", BlockHeaderV4, view.latest_protocol_version) {
             let mut header = BlockHeaderV3 {
                 prev_hash: view.prev_hash,
                 inner_lite,
@@ -956,6 +913,39 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV3(Arc::new(header))
+        } else {
+            let mut header = BlockHeaderV4 {
+                prev_hash: view.prev_hash,
+                inner_lite,
+                inner_rest: BlockHeaderInnerRestV4 {
+                    block_body_hash: view.block_body_hash.unwrap_or_default(),
+                    chunk_receipts_root: view.chunk_receipts_root,
+                    chunk_headers_root: view.chunk_headers_root,
+                    chunk_tx_root: view.chunk_tx_root,
+                    challenges_root: view.challenges_root,
+                    random_value: view.random_value,
+                    validator_proposals: view
+                        .validator_proposals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                    chunk_mask: view.chunk_mask,
+                    gas_price: view.gas_price,
+                    block_ordinal: view.block_ordinal.unwrap_or(0),
+                    total_supply: view.total_supply,
+                    challenges_result: view.challenges_result,
+                    last_final_block: view.last_final_block,
+                    last_ds_final_block: view.last_ds_final_block,
+                    prev_height: view.prev_height.unwrap_or_default(),
+                    epoch_sync_data_hash: view.epoch_sync_data_hash,
+                    approvals: view.approvals.clone(),
+                    latest_protocol_version: view.latest_protocol_version,
+                },
+                signature: view.signature,
+                hash: CryptoHash::default(),
+            };
+            header.init();
+            BlockHeader::BlockHeaderV4(Arc::new(header))
         }
     }
 }
@@ -1241,31 +1231,28 @@ impl TryFrom<ActionView> for Action {
                 Action::DeployContract(DeployContractAction { code })
             }
             ActionView::FunctionCall { method_name, args, gas, deposit } => {
-                Action::FunctionCall(FunctionCallAction {
+                Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name,
                     args: args.into(),
                     gas,
                     deposit,
-                })
+                }))
             }
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
             ActionView::Stake { stake, public_key } => {
-                Action::Stake(StakeAction { stake, public_key })
+                Action::Stake(Box::new(StakeAction { stake, public_key }))
             }
             ActionView::AddKey { public_key, access_key } => {
-                Action::AddKey(AddKeyAction { public_key, access_key: access_key.into() })
+                Action::AddKey(Box::new(AddKeyAction { public_key, access_key: access_key.into() }))
             }
             ActionView::DeleteKey { public_key } => {
-                Action::DeleteKey(DeleteKeyAction { public_key })
+                Action::DeleteKey(Box::new(DeleteKeyAction { public_key }))
             }
             ActionView::DeleteAccount { beneficiary_id } => {
                 Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
             }
             ActionView::Delegate { delegate_action, signature } => {
-                Action::Delegate(SignedDelegateAction {
-                    delegate_action: delegate_action,
-                    signature,
-                })
+                Action::Delegate(Box::new(SignedDelegateAction { delegate_action, signature }))
             }
         })
     }
@@ -2024,7 +2011,7 @@ pub struct LightClientBlockView {
     pub inner_lite: BlockHeaderInnerLiteView,
     pub inner_rest_hash: CryptoHash,
     pub next_bps: Option<Vec<ValidatorStakeView>>,
-    pub approvals_after_next: Vec<Option<Signature>>,
+    pub approvals_after_next: Vec<Option<Box<Signature>>>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
@@ -2486,31 +2473,48 @@ pub struct VMConfigView {
     /// Gas cost of a regular operation.
     pub regular_op_cost: u32,
 
+    /// See [`VMConfig::disable_9393_fix`].
+    pub disable_9393_fix: bool,
+    /// See [`VMConfig::flat_storage_reads`].
+    pub storage_get_mode: near_vm_runner::logic::StorageGetMode,
+    /// See [`VMConfig::fix_contract_loading_cost`].
+    pub fix_contract_loading_cost: bool,
+    /// See [`VMConfig::implicit_account_creation`].
+    pub implicit_account_creation: bool,
+
     /// Describes limits for VM and Runtime.
     ///
     /// TODO: Consider changing this to `VMLimitConfigView` to avoid dependency
     /// on runtime.
-    pub limit_config: near_primitives_core::config::VMLimitConfig,
+    pub limit_config: near_vm_runner::logic::LimitConfig,
 }
 
-impl From<VMConfig> for VMConfigView {
-    fn from(config: VMConfig) -> Self {
+impl From<near_vm_runner::logic::Config> for VMConfigView {
+    fn from(config: near_vm_runner::logic::Config) -> Self {
         Self {
             ext_costs: ExtCostsConfigView::from(config.ext_costs),
             grow_mem_cost: config.grow_mem_cost,
             regular_op_cost: config.regular_op_cost,
+            disable_9393_fix: config.disable_9393_fix,
             limit_config: config.limit_config,
+            storage_get_mode: config.storage_get_mode,
+            fix_contract_loading_cost: config.fix_contract_loading_cost,
+            implicit_account_creation: config.implicit_account_creation,
         }
     }
 }
 
-impl From<VMConfigView> for VMConfig {
+impl From<VMConfigView> for near_vm_runner::logic::Config {
     fn from(view: VMConfigView) -> Self {
         Self {
             ext_costs: near_primitives_core::config::ExtCostsConfig::from(view.ext_costs),
             grow_mem_cost: view.grow_mem_cost,
             regular_op_cost: view.regular_op_cost,
+            disable_9393_fix: view.disable_9393_fix,
             limit_config: view.limit_config,
+            storage_get_mode: view.storage_get_mode,
+            fix_contract_loading_cost: view.fix_contract_loading_cost,
+            implicit_account_creation: view.implicit_account_creation,
         }
     }
 }

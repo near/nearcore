@@ -7,14 +7,13 @@ use crate::logic::errors::{
 use crate::logic::gas_counter::FastGasCounter;
 use crate::logic::types::{PromiseResult, ProtocolVersion};
 use crate::logic::{
-    CompiledContract, CompiledContractCache, External, MemSlice, MemoryLike, VMConfig, VMContext,
+    CompiledContract, CompiledContractCache, Config, External, MemSlice, MemoryLike, VMContext,
     VMLogic, VMOutcome,
 };
 use crate::prepare;
 use crate::runner::VMResult;
-use crate::{get_contract_cache_key, imports};
+use crate::{get_contract_cache_key, imports, ContractCode};
 use memoffset::offset_of;
-use near_primitives_core::contract::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use std::borrow::Cow;
 use std::hash::Hash;
@@ -231,12 +230,12 @@ pub(crate) fn wasmer2_vm_hash() -> u64 {
 pub(crate) type VMArtifact = Arc<wasmer_engine_universal::UniversalArtifact>;
 
 pub(crate) struct Wasmer2VM {
-    pub(crate) config: VMConfig,
+    pub(crate) config: Config,
     pub(crate) engine: UniversalEngine,
 }
 
 impl Wasmer2VM {
-    pub(crate) fn new_for_target(config: VMConfig, target: wasmer_compiler::Target) -> Self {
+    pub(crate) fn new_for_target(config: Config, target: wasmer_compiler::Target) -> Self {
         // We only support singlepass compiler at the moment.
         assert_eq!(WASMER2_CONFIG.compiler, WasmerCompiler::Singlepass);
         let compiler = Singlepass::new();
@@ -250,7 +249,7 @@ impl Wasmer2VM {
         }
     }
 
-    pub(crate) fn new(config: VMConfig) -> Self {
+    pub(crate) fn new(config: Config) -> Self {
         use wasmer_compiler::{CpuFeature, Target, Triple};
         let target_features = if cfg!(feature = "no_cpu_compatibility_checks") {
             let mut fs = CpuFeature::set();
@@ -580,21 +579,10 @@ impl crate::runner::VM for Wasmer2VM {
         // FIXME: this mostly duplicates the `run_module` method.
         // Note that we don't clone the actual backing memory, just increase the RC.
         let vmmemory = memory.vm();
-        let mut logic = VMLogic::new_with_protocol_version(
-            ext,
-            context,
-            &self.config,
-            fees_config,
-            promise_results,
-            &mut memory,
-            current_protocol_version,
-        );
+        let mut logic =
+            VMLogic::new(ext, context, &self.config, fees_config, promise_results, &mut memory);
 
-        let result = logic.before_loading_executable(
-            method_name,
-            current_protocol_version,
-            code.code().len(),
-        );
+        let result = logic.before_loading_executable(method_name, code.code().len());
         if let Err(e) = result {
             return Ok(VMOutcome::abort(logic, e));
         }
@@ -607,7 +595,7 @@ impl crate::runner::VM for Wasmer2VM {
             }
         };
 
-        let result = logic.after_loading_executable(current_protocol_version, code.code().len());
+        let result = logic.after_loading_executable(code.code().len());
         if let Err(e) = result {
             return Ok(VMOutcome::abort(logic, e));
         }
@@ -618,11 +606,7 @@ impl crate::runner::VM for Wasmer2VM {
             artifact.engine(),
         );
         if let Err(e) = get_entrypoint_index(&*artifact, method_name) {
-            return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
-                logic,
-                e,
-                current_protocol_version,
-            ));
+            return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e));
         }
         match self.run_method(&artifact, import, method_name)? {
             Ok(()) => Ok(VMOutcome::ok(logic)),
