@@ -105,7 +105,8 @@ How much contracts receive from execution depends on two things.
 During receipt execution, nearcore code tracks the `gas_burnt_for_function_call`
 separately from other gas burning to enable this contract reward calculations.
 
-In the (still simplified) flow diagram, the contract reward looks like this. For brevity, `gas_burnt_for_function_call` in the diagram is denotes as `wasm fee`.
+In the (still simplified) flow diagram, the contract reward looks like this.
+For brevity, `gas_burnt_for_function_call` in the diagram is denoted as `wasm fee`.
 
 ![Slightly Simplified Gas Flow Diagram](https://github.com/near/nearcore/assets/6342444/32600ef0-1475-43af-b196-576317787578)
 <!-- Editable source: https://github.com/near/nearcore/issues/7821#issuecomment-1705673349 -->
