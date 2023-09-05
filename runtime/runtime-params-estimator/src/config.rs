@@ -20,8 +20,6 @@ pub struct Config {
     pub iter_per_block: usize,
     /// Total active accounts.
     pub active_accounts: usize,
-    /// Number of the transactions in the block.
-    pub block_sizes: Vec<usize>,
     /// How many blocks behind the final head is assumed to be compared to the tip.
     pub finality_lag: usize,
     /// How many key-value pairs change per flat state delta.
