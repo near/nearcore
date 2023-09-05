@@ -36,10 +36,9 @@ static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(get_default_home);
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() -> anyhow::Result<()> {
-    println!(
-        "{:?}",
-        vec![0.05, 0.1, 0.25, 0.5].extend(&exponential_buckets(1.0, 1.3, 10).unwrap())
-    );
+    let mut buckets = vec![0.05, 0.1, 0.25, 0.5];
+    buckets.extend_from_slice(&exponential_buckets(1.0, 1.3, 10).unwrap());
+    println!("{:?}", buckets);
 
     if env::var("RUST_BACKTRACE").is_err() {
         // Enable backtraces on panics by default.
