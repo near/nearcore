@@ -12,6 +12,7 @@ use near_store::Trie;
 use std::time::Duration;
 use std::path::PathBuf;
 use std::sync::Arc;
+use anyhow::anyhow;
 
 pub struct StatePartsDumpCheck {
     chain_id: String,
@@ -25,9 +26,15 @@ pub struct StatePartsDumpCheck {
     gcs_bucket: Option<String>,
 }
 
-// instead of listing all subdirectories inside gcp/s3 bucket, the script can query near rpc endpoint for latest epoch_height
-// if the latest epoch_height > the last time we polled for epoch_height, and epoch_dump_check_progress = Done, then it means
-// the check for last epoch was done, and we should check for last epoch_height + 1.
+pub enum StatePartsDumpCheckStatus {
+    Done {
+        epoch_height: u64
+    },
+    WaitingForParts{
+        epoch_height: u64
+    },
+}
+
 impl StatePartsDumpCheck {
     pub fn new(
         chain_id: String,
@@ -52,8 +59,9 @@ impl StatePartsDumpCheck {
             gcs_bucket
         }
     }
-    pub async fn run(&self) -> anyhow::Result<()> {
-        // TODO: emit metric for epoch_height
+    
+    pub async fn run(&self) -> anyhow::Result<StatePartsDumpCheckStatus> {
+        crate::metrics::STATE_SYNC_DUMP_CHECK_EPOCH_HEIGHT.with_label_values(&[&self.shard_id.to_string()]).set(self.epoch_height as i64);
 
         let external = create_external_connection(
             self.root_dir.clone(),
@@ -63,24 +71,28 @@ impl StatePartsDumpCheck {
         );
 
         let directory_path = external_storage_location_directory(&self.chain_id, &self.epoch_id, self.epoch_height, self.shard_id);
-        let part_file_names = external.list_state_parts(self.shard_id, &directory_path).await.unwrap();
+        let part_file_names = external.list_state_parts(self.shard_id, &directory_path).await?;
+        // TODO: return error instead of assert!()
         assert!(!part_file_names.is_empty(), "Number of state parts is 0");
         let num_parts = part_file_names.len() as u64;
-        let total_required_parts = get_num_parts_from_filename(&part_file_names[0]).unwrap();
+        let total_required_parts = get_num_parts_from_filename(&part_file_names[0]).ok_or(anyhow!("get_num_parts_from_filename returned None"))?;
+        
+        crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_TOTAL.with_label_values(&[&self.shard_id.to_string()]).set(total_required_parts as i64);
+        crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_DUMPED.with_label_values(&[&self.shard_id.to_string()]).set(num_parts as i64);
+
         if num_parts < total_required_parts {
             println!("total state parts required: {} < number of parts already dumped: {}, waiting for all parts to be dumped", total_required_parts, num_parts);
-            return Ok(())
+            return Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height: self.epoch_height })
         } else if num_parts > total_required_parts{
-            println!("total state parts required: {} > number of parts already dumped: {}, something is seriously wrong", total_required_parts, num_parts);
-            // TODO: emit metric indicating that dumped parts > total required parts
-            return Ok(())
+            println!("total state parts required: {} > number of parts already dumped: {}, there are more dumped parts than total required, something is seriously wrong", total_required_parts, num_parts);
+            return Ok(StatePartsDumpCheckStatus::Done { epoch_height: self.epoch_height })
         }
-        
-        // only download and validate when all parts are dumped
+
         // TODO: run in parallel with rayon
         for part_id in 0..total_required_parts {
             if part_id == 0 {
-                // TODO: reset the metrics of valid parts and invalid parts count to zero
+                crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_VALID.with_label_values(&[&self.shard_id.to_string()]).set(0);
+                crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_INVALID.with_label_values(&[&self.shard_id.to_string()]).set(0);
             }
             let location = external_storage_location(
                 &self.chain_id,
@@ -90,21 +102,21 @@ impl StatePartsDumpCheck {
                 part_id,
                 num_parts,
             );
-            let part = external.get_part(self.shard_id, &location).await.unwrap();
+            let part = external.get_part(self.shard_id, &location).await?;
             let is_part_valid = validate_state_part(
                 &self.state_root,
                 PartId::new(part_id, num_parts),
                 &part
             );
             if is_part_valid {
-                // TODO: emit metric for valid parts
+                crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_VALID.with_label_values(&[&self.shard_id.to_string()]).inc();
                 println!("part {} is valid", part_id);
             } else {
-                // TODO: emit metric for non-valid parts
+                crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_INVALID.with_label_values(&[&self.shard_id.to_string()]).inc();
                 println!("part {} is invalid", part_id);
             }
         };
-        Ok(())
+        Ok(StatePartsDumpCheckStatus::Done { epoch_height: self.epoch_height })
     }
 }
 

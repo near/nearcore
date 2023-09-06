@@ -155,7 +155,6 @@ impl RpcClient {
             .send()?
             .json()?;
         let chunks = prev_epoch_last_block_response.result.chunks;
-        let epoch_id = prev_epoch_last_block_response.result.header.epoch_id;
         let state_root = &chunks[chunks.len() -1].prev_state_root;
         Ok(state_root.to_string())
     }
