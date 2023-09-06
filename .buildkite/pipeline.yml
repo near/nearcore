@@ -13,7 +13,7 @@ steps:
 
     agents:
       - "distro=amazonlinux"
-      - "queue=default-public"
+      - "queue=default"
 
   - label: "cargo test integration-tests*"
     command: |
@@ -23,7 +23,7 @@ steps:
 
     agents:
       - "distro=amazonlinux"
-      - "queue=default-public"
+      - "queue=default"
     branches: "!master"
 
   - label: "cargo test not integration-tests*"
@@ -34,7 +34,7 @@ steps:
 
     agents:
       - "distro=amazonlinux"
-      - "queue=default-public"
+      - "queue=default"
     branches: "!master"
 
   - label: "cargo test nightly integration-tests*"
@@ -45,7 +45,7 @@ steps:
 
     agents:
       - "distro=amazonlinux"
-      - "queue=default-public"
+      - "queue=default"
     branches: "!master"
 
   - label: "cargo test nightly not integration-tests*"
@@ -57,7 +57,7 @@ steps:
 
     agents:
       - "distro=amazonlinux"
-      - "queue=default-public"
+      - "queue=default"
     branches: "!master"
 
   - label: "sanity checks"
@@ -105,7 +105,7 @@ steps:
       fi >&2
     agents:
       - "distro=amazonlinux"
-      - "queue=default-public"
+      - "queue=default"
     branches: "!master"
 
   - label: "backward compatible"
@@ -120,7 +120,7 @@ steps:
     branches: "!master !beta !stable"
     agents:
       - "distro=amazonlinux"
-      - "queue=default-public"
+      - "queue=default"
 
   - label: "upgradable"
     command: |
@@ -131,7 +131,7 @@ steps:
     branches: "!master"
     agents:
       - "distro=amazonlinux"
-      - "queue=default-public"
+      - "queue=default"
 
   - label: "db migration"
     command: |
@@ -142,4 +142,4 @@ steps:
     branches: "!master !beta !stable"
     agents:
       - "distro=amazonlinux"
-      - "queue=default-public"
+      - "queue=default"
