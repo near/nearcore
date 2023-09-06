@@ -103,7 +103,7 @@ struct CliArgs {
     #[clap(long)]
     pub in_memory_db: bool,
     /// If false, only runs a minimal check that's faster than trying to get accurate results.
-    #[clap(long, default_value_t = false)]
+    #[clap(long, default_value_t = true, action = clap::ArgAction::Set)]
     pub accurate: bool,
     /// Extra configuration parameters for RocksDB specific estimations
     #[clap(flatten)]

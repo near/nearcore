@@ -3,8 +3,8 @@
 # spin up another node that tracks the shard, make sure that it can state sync into the first node
 
 import sys, time
-import base58
 import pathlib
+import tempfile
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -14,6 +14,9 @@ import utils
 
 EPOCH_LENGTH = 1000
 MAX_SYNC_WAIT = 120
+
+state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
+
 consensus_config0 = {
     "consensus": {
         "min_block_production_delay": {
@@ -21,19 +24,42 @@ consensus_config0 = {
             "nanos": 100000000
         }
     },
-    "state_sync_enabled": True,
+    "tracked_shards": [0],
     "store.state_snapshot_enabled": True,
+    "state_sync": {
+        "dump": {
+            "location": {
+                "Filesystem": {
+                    "root_dir": state_parts_dir
+                }
+            },
+            "iteration_delay": {
+                "secs": 0,
+                "nanos": 100000000
+            },
+        }
+    },
 }
 consensus_config1 = {
     "consensus": {
         "sync_step_period": {
             "secs": 0,
-            "nanos": 1000
+            "nanos": 200000000
         }
     },
     "tracked_shards": [0],
     "state_sync_enabled": True,
-    "store.state_snapshot_enabled": True,
+    "state_sync": {
+        "sync": {
+            "ExternalStorage": {
+                "location": {
+                    "Filesystem": {
+                        "root_dir": state_parts_dir
+                    }
+                }
+            }
+        }
+    }
 }
 nodes = start_cluster(
     1, 1, 1, None,

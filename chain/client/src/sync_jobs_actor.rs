@@ -64,15 +64,17 @@ impl SyncJobsActor {
     }
 
     /// Clears flat storage before applying state parts.
+    /// Returns whether the flat storage state was cleared.
     fn clear_flat_state(
         &mut self,
         msg: &ApplyStatePartsRequest,
-    ) -> Result<(), near_chain_primitives::error::Error> {
+    ) -> Result<bool, near_chain_primitives::error::Error> {
         let _span = tracing::debug_span!(target: "client", "clear_flat_state").entered();
         if let Some(flat_storage_manager) = msg.runtime_adapter.get_flat_storage_manager() {
-            flat_storage_manager.remove_flat_storage_for_shard(msg.shard_uid)?
+            Ok(flat_storage_manager.remove_flat_storage_for_shard(msg.shard_uid)?)
+        } else {
+            Ok(false)
         }
-        Ok(())
     }
 }
 
@@ -90,16 +92,25 @@ impl actix::Handler<WithSpanContext<ApplyStatePartsRequest>> for SyncJobsActor {
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let shard_id = msg.shard_uid.shard_id as ShardId;
-        if let Err(err) = self.clear_flat_state(&msg) {
-            self.client_addr.do_send(
-                ApplyStatePartsResponse {
-                    apply_result: Err(err),
-                    shard_id,
-                    sync_hash: msg.sync_hash,
-                }
-                .with_span_context(),
-            );
-            return;
+        match self.clear_flat_state(&msg) {
+            Err(err) => {
+                self.client_addr.do_send(
+                    ApplyStatePartsResponse {
+                        apply_result: Err(err),
+                        shard_id,
+                        sync_hash: msg.sync_hash,
+                    }
+                    .with_span_context(),
+                );
+                return;
+            }
+            Ok(false) => {
+                // Can't panic here, because that breaks many KvRuntime tests.
+                tracing::error!(target: "client", shard_uid = ?msg.shard_uid, "Failed to delete Flat State, but proceeding with applying state parts.");
+            }
+            Ok(true) => {
+                tracing::debug!(target: "client", shard_uid = ?msg.shard_uid, "Deleted all Flat State");
+            }
         }
 
         let result = self.apply_parts(&msg);

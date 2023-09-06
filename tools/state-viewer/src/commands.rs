@@ -62,6 +62,7 @@ pub(crate) fn apply_block(
         let chain_store_update = ChainStoreUpdate::new(chain_store);
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
+                epoch_manager,
                 shard_id,
                 block_hash,
                 prev_block.chunks()[shard_id as usize].height_included(),
