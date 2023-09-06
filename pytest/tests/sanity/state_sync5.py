@@ -20,16 +20,16 @@ EPOCH_LENGTH = 20
 state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
 
 node0_config = {
-    'state_sync': {
-        'dump': {
-            'location': {
-                'Filesystem': {
-                    'root_dir': state_parts_dir
+    "state_sync": {
+        "dump": {
+            "location": {
+                "Filesystem": {
+                    "root_dir": state_parts_dir
                 }
             },
-            'iteration_delay': {
-                'secs': 0,
-                'nanos': 100000000
+            "iteration_delay": {
+                "secs": 0,
+                "nanos": 100000000
             },
         }
     },
@@ -44,12 +44,12 @@ node1_config = {
         }
     },
     "tracked_shards": [0],
-    'state_sync': {
-        'sync': {
-            'ExternalStorage': {
-                'location': {
-                    'Filesystem': {
-                        'root_dir': state_parts_dir
+    "state_sync": {
+        "sync": {
+            "ExternalStorage": {
+                "location": {
+                    "Filesystem": {
+                        "root_dir": state_parts_dir
                     }
                 }
             }
@@ -57,6 +57,7 @@ node1_config = {
     },
     "state_sync_enabled": True,
 }
+
 nodes = start_cluster(
     1, 1, 1, None,
     [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10],

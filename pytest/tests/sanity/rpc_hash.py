@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 # Test computing block hash from data provided by JSON RPCs.
 
+import base58
 import hashlib
-import json
 import pathlib
 import sys
 import typing
 import unittest
-
-import base58
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 

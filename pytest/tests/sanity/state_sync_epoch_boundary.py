@@ -27,41 +27,41 @@ EPOCH_LENGTH = 30
 state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
 
 config0 = {
-    'state_sync': {
-        'dump': {
-            'location': {
-                'Filesystem': {
-                    'root_dir': state_parts_dir
+    "state_sync": {
+        "dump": {
+            "location": {
+                "Filesystem": {
+                    "root_dir": state_parts_dir
                 }
             },
-            'iteration_delay': {
-                'secs': 0,
-                'nanos': 100000000
+            "iteration_delay": {
+                "secs": 0,
+                "nanos": 100000000
             },
         }
     },
-    'store.state_snapshot_enabled': True,
-    'tracked_shards': [0],
+    "store.state_snapshot_enabled": True,
+    "tracked_shards": [0],
 }
 config1 = {
-    'state_sync': {
-        'sync': {
-            'ExternalStorage': {
-                'location': {
-                    'Filesystem': {
-                        'root_dir': state_parts_dir
+    "state_sync": {
+        "sync": {
+            "ExternalStorage": {
+                "location": {
+                    "Filesystem": {
+                        "root_dir": state_parts_dir
                     }
                 }
             }
         }
     },
-    'state_sync_enabled': True,
-    'consensus.state_sync_timeout': {
-        'secs': 0,
-        'nanos': 500000000
+    "state_sync_enabled": True,
+    "consensus.state_sync_timeout": {
+        "secs": 0,
+        "nanos": 500000000
     },
-    'tracked_shard_schedule': [[0], [0], [1], [1]],
-    'tracked_shards': [],
+    "tracked_shard_schedule": [[0], [0], [1], [1]],
+    "tracked_shards": [],
 }
 
 config = load_config()

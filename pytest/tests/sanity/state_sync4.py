@@ -23,21 +23,21 @@ EPOCH_LENGTH = 10
 state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
 
 node0_config = {
-    'state_sync': {
-        'dump': {
-            'location': {
-                'Filesystem': {
-                    'root_dir': state_parts_dir
+    "state_sync": {
+        "dump": {
+            "location": {
+                "Filesystem": {
+                    "root_dir": state_parts_dir
                 }
             },
-            'iteration_delay': {
-                'secs': 0,
-                'nanos': 100000000
+            "iteration_delay": {
+                "secs": 0,
+                "nanos": 100000000
             },
         }
     },
     "tracked_shards": [0],
-    "store.state_snapshot_enabled": True
+    "store.state_snapshot_enabled": True,
 }
 node1_config = {
     "consensus": {

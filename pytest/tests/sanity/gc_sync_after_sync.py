@@ -31,12 +31,12 @@ node_config_sync = {
         }
     },
     "tracked_shards": [0],
-    'state_sync': {
-        'sync': {
-            'ExternalStorage': {
-                'location': {
-                    'Filesystem': {
-                        'root_dir': state_parts_dir
+    "state_sync": {
+        "sync": {
+            "ExternalStorage": {
+                "location": {
+                    "Filesystem": {
+                        "root_dir": state_parts_dir
                     }
                 }
             }
@@ -46,16 +46,16 @@ node_config_sync = {
 }
 node_config_dump = {
     "tracked_shards": [0],
-    'state_sync': {
-        'dump': {
-            'location': {
-                'Filesystem': {
-                    'root_dir': state_parts_dir
+    "state_sync": {
+        "dump": {
+            "location": {
+                "Filesystem": {
+                    "root_dir": state_parts_dir
                 }
             },
-            'iteration_delay': {
-                'secs': 0,
-                'nanos': 100000000
+            "iteration_delay": {
+                "secs": 0,
+                "nanos": 100000000
             },
         }
     },
