@@ -3981,13 +3981,15 @@ impl Chain {
         })?;
         // we can't use hash from the current block here yet because the incoming receipts
         // for this block is not stored yet
-        let mut receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
-        let receipt_proof_response = &self.store().get_incoming_receipts_for_shard(
+        let new_receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
+        let old_receipts = &self.store().get_incoming_receipts_for_shard(
             shard_id,
             *prev_hash,
             prev_chunk_height_included,
         )?;
-        receipts.extend(collect_receipts_from_response(receipt_proof_response));
+        let old_receipts = collect_receipts_from_response(old_receipts);
+        let receipts = [new_receipts, old_receipts].concat();
+
         let chunk = self.get_chunk_clone_from_header(&chunk_header.clone())?;
 
         let transactions = chunk.transactions();

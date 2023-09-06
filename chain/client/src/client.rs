@@ -2014,7 +2014,7 @@ impl Client {
             .validate_tx(gas_price, None, tx, true, &epoch_id, protocol_version)
             .expect("no storage errors")
         {
-            debug!(target: "client", "Invalid tx during basic validation: {:?}", err);
+            debug!(target: "client", tx=?tx.get_hash(), "Invalid tx during basic validation: {:?}", err);
             return Ok(ProcessTxResponse::InvalidTx(err));
         }
 
@@ -2024,6 +2024,8 @@ impl Client {
             self.shard_tracker.care_about_shard(me, &head.last_block_hash, shard_id, true);
         let will_care_about_shard =
             self.shard_tracker.will_care_about_shard(me, &head.last_block_hash, shard_id, true);
+        // TODO(resharding) will_care_about_shard should be called with the
+        // account shard id from the next epoch, in case shard layout changes
         if care_about_shard || will_care_about_shard {
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, &shard_uid) {
@@ -2053,17 +2055,17 @@ impl Client {
                 if me.is_some() {
                     match self.sharded_tx_pool.insert_transaction(shard_id, tx.clone()) {
                         InsertTransactionResult::Success => {
-                            trace!(target: "client", shard_id, "Recorded a transaction.");
+                            trace!(target: "client", shard_id, tx=?tx.get_hash(), "Recorded a transaction.");
                         }
                         InsertTransactionResult::Duplicate => {
-                            trace!(target: "client", shard_id, "Duplicate transaction, not forwarding it.");
+                            trace!(target: "client", shard_id, tx=?tx.get_hash(), "Duplicate transaction, not forwarding it.");
                             return Ok(ProcessTxResponse::ValidTx);
                         }
                         InsertTransactionResult::NoSpaceLeft => {
                             if is_forwarded {
-                                trace!(target: "client", shard_id, "Transaction pool is full, dropping the transaction.");
+                                trace!(target: "client", shard_id, tx=?tx.get_hash(), "Transaction pool is full, dropping the transaction.");
                             } else {
-                                trace!(target: "client", shard_id, "Transaction pool is full, trying to forward the transaction.");
+                                trace!(target: "client", shard_id, tx=?tx.get_hash(), "Transaction pool is full, trying to forward the transaction.");
                             }
                         }
                     }
@@ -2075,7 +2077,7 @@ impl Client {
                 //   forward to current epoch validators,
                 //   possibly forward to next epoch validators
                 if self.active_validator(shard_id)? {
-                    trace!(target: "client", account = ?me, shard_id, is_forwarded, "Recording a transaction.");
+                    trace!(target: "client", account = ?me, shard_id, tx=?tx.get_hash(), is_forwarded, "Recording a transaction.");
                     metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
 
                     if !is_forwarded {
@@ -2083,12 +2085,12 @@ impl Client {
                     }
                     Ok(ProcessTxResponse::ValidTx)
                 } else if !is_forwarded {
-                    trace!(target: "client", shard_id, "Forwarding a transaction.");
+                    trace!(target: "client", shard_id, tx=?tx.get_hash(), "Forwarding a transaction.");
                     metrics::TRANSACTION_RECEIVED_NON_VALIDATOR.inc();
                     self.forward_tx(&epoch_id, tx)?;
                     Ok(ProcessTxResponse::RequestRouted)
                 } else {
-                    trace!(target: "client", shard_id, "Non-validator received a forwarded transaction, dropping it.");
+                    trace!(target: "client", shard_id, tx=?tx.get_hash(), "Non-validator received a forwarded transaction, dropping it.");
                     metrics::TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED.inc();
                     Ok(ProcessTxResponse::NoResponse)
                 }

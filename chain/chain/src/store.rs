@@ -233,12 +233,33 @@ pub trait ChainStoreAccess {
                 break;
             }
 
-            let prev_hash = *header.prev_hash();
+            let receipts = self.get_incoming_receipts(&block_hash, shard_id);
+            match receipts {
+                Ok(receipt_proofs) => {
+                    tracing::debug!(
+                        ?shard_id,
+                        ?last_chunk_height_included,
+                        ?block_hash,
+                        "get_incoming_receipts_for_shard found receipts from block with missing chunk"
+                    );
+                    ret.push(ReceiptProofResponse(block_hash, receipt_proofs));
+                }
+                Err(err) => {
+                    tracing::debug!(
+                        ?shard_id,
+                        ?last_chunk_height_included,
+                        ?block_hash,
+                        ?err,
+                        "get_incoming_receipts_for_shard could not find receipts from block with missing chunk"
+                    );
 
-            if let Ok(receipt_proofs) = self.get_incoming_receipts(&block_hash, shard_id) {
-                ret.push(ReceiptProofResponse(block_hash, receipt_proofs));
-            } else {
-                ret.push(ReceiptProofResponse(block_hash, Arc::new(vec![])));
+                    // This can happen when all chunks are missing in a block
+                    // and then we can safely assume that there aren't any
+                    // incoming receipts. It would be nicer to explicitly check
+                    // that condition rather than relying on errors when reading
+                    // from the db.
+                    ret.push(ReceiptProofResponse(block_hash, Arc::new(vec![])));
+                }
             }
 
             // TODO(resharding)
@@ -246,7 +267,7 @@ pub trait ChainStoreAccess {
             // layout is different and handle that
             // one idea would be to do shard_id := parent(shard_id) but remember to
             // deduplicate the receipts as well
-            block_hash = prev_hash;
+            block_hash = *header.prev_hash();
         }
 
         Ok(ret)
@@ -1237,7 +1258,7 @@ impl ChainStoreAccess for ChainStore {
                 &self.incoming_receipts,
                 &get_block_shard_id(block_hash, shard_id),
             ),
-            format_args!("INCOMING RECEIPT: {}", block_hash),
+            format_args!("INCOMING RECEIPT: {} {}", block_hash, shard_id),
         )
     }
 
