@@ -25,6 +25,7 @@ use std::sync::Arc;
 // know of a block containing the target chunk
 fn get_incoming_receipts(
     chain_store: &mut ChainStore,
+    epoch_manager: &EpochManagerHandle,
     chunk_hash: &ChunkHash,
     shard_id: u64,
     target_height: u64,
@@ -65,6 +66,7 @@ fn get_incoming_receipts(
     }
     let mut responses = vec![ReceiptProofResponse(CryptoHash::default(), Arc::new(receipt_proofs))];
     responses.extend_from_slice(&chain_store.store_update().get_incoming_receipts_for_shard(
+        epoch_manager,
         shard_id,
         *prev_hash,
         prev_height_included,
@@ -102,6 +104,7 @@ pub(crate) fn apply_chunk(
     let gas_price = prev_block.header().gas_price();
     let receipts = get_incoming_receipts(
         chain_store,
+        epoch_manager,
         &chunk_hash,
         shard_id,
         target_height,
