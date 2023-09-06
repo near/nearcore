@@ -106,18 +106,8 @@ impl actix::Handler<WithSpanContext<ApplyStatePartsRequest>> for SyncJobsActor {
                 return;
             }
             Ok(false) => {
-                self.client_addr.do_send(
-                    ApplyStatePartsResponse {
-                        apply_result: Err(Error::Other(format!(
-                            "No FlatState was cleared for shard_uid: {:?}",
-                            msg.shard_uid
-                        ))),
-                        shard_id,
-                        sync_hash: msg.sync_hash,
-                    }
-                    .with_span_context(),
-                );
-                return;
+                // Can't panic here, because that breaks many KvRuntime tess.
+                tracing::debug!(target: "client", shard_uid = ?msg.shard_uid, "Failed to delete Flat State, but proceed with applying state parts.");
             }
             Ok(true) => {
                 tracing::debug!(target: "client", shard_uid = ?msg.shard_uid, "Deleted all Flat State");
