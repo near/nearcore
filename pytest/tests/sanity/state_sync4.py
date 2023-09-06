@@ -4,8 +4,10 @@
 # Check that the second node doesn't crash (with trie node missing)
 # during state sync.
 
-import sys, time, base58
 import pathlib
+import sys
+import tempfile
+import time
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -18,9 +20,24 @@ import utils
 MAX_SYNC_WAIT = 30
 EPOCH_LENGTH = 10
 
+state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
+
 node0_config = {
-    "state_sync_enabled": True,
-    "store.state_snapshot_enabled": True,
+    'state_sync': {
+        'dump': {
+            'location': {
+                'Filesystem': {
+                    'root_dir': state_parts_dir
+                }
+            },
+            'iteration_delay': {
+                'secs': 0,
+                'nanos': 100000000
+            },
+        }
+    },
+    "tracked_shards": [0],
+    "store.state_snapshot_enabled": True
 }
 node1_config = {
     "consensus": {
@@ -31,8 +48,8 @@ node1_config = {
     },
     "tracked_shards": [0],
     "state_sync_enabled": True,
-    "store.state_snapshot_enabled": True,
 }
+
 nodes = start_cluster(
     1, 1, 1, None,
     [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10],

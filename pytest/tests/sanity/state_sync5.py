@@ -5,13 +5,13 @@
 
 import sys, time, base58
 import pathlib
-import tempfile
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster, Key
 from configured_logger import logger
 from transaction import sign_payment_tx
+import tempfile
 import utils
 
 MAX_SYNC_WAIT = 30
@@ -20,22 +20,21 @@ EPOCH_LENGTH = 20
 state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
 
 node0_config = {
-    "tracked_shards": [0],
-    "state_sync_enabled": True,
-    "store.state_snapshot_enabled": True,
-    "state_sync": {
-        "dump": {
-            "location": {
-                "Filesystem": {
-                    "root_dir": state_parts_dir
+    'state_sync': {
+        'dump': {
+            'location': {
+                'Filesystem': {
+                    'root_dir': state_parts_dir
                 }
             },
-            "iteration_delay": {
-                "secs": 0,
-                "nanos": 100000000
+            'iteration_delay': {
+                'secs': 0,
+                'nanos': 100000000
             },
         }
-    }
+    },
+    "tracked_shards": [0],
+    "store.state_snapshot_enabled": True
 }
 node1_config = {
     "consensus": {
@@ -45,19 +44,18 @@ node1_config = {
         }
     },
     "tracked_shards": [0],
-    "state_sync_enabled": True,
-    "store.state_snapshot_enabled": True,
-    "state_sync": {
-        "sync": {
-            "ExternalStorage": {
-                "location": {
-                    "Filesystem": {
-                        "root_dir": state_parts_dir
+    'state_sync': {
+        'sync': {
+            'ExternalStorage': {
+                'location': {
+                    'Filesystem': {
+                        'root_dir': state_parts_dir
                     }
                 }
             }
         }
-    }
+    },
+    "state_sync_enabled": True,
 }
 nodes = start_cluster(
     1, 1, 1, None,

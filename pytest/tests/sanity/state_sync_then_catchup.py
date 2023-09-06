@@ -174,6 +174,8 @@ def main():
                          1,
                          boot_node=boot_node)
     logger.info('started node1')
+    # State sync makes the storage look inconsistent.
+    node1.stop_checking_store()
 
     contract = utils.load_test_contract()
 

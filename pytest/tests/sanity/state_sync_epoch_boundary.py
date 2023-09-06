@@ -22,17 +22,11 @@ import utils
 
 from configured_logger import logger
 
-EPOCH_LENGTH = 50
+EPOCH_LENGTH = 30
 
 state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
 
 config0 = {
-    'gc_num_epochs_to_keep': 100,
-    'log_summary_period': {
-        'secs': 0,
-        'nanos': 500000000
-    },
-    'log_summary_style': 'plain',
     'state_sync': {
         'dump': {
             'location': {
@@ -50,12 +44,6 @@ config0 = {
     'tracked_shards': [0],
 }
 config1 = {
-    'gc_num_epochs_to_keep': 100,
-    'log_summary_period': {
-        'secs': 0,
-        'nanos': 500000000
-    },
-    'log_summary_style': 'plain',
     'state_sync': {
         'sync': {
             'ExternalStorage': {
@@ -72,13 +60,12 @@ config1 = {
         'secs': 0,
         'nanos': 500000000
     },
-    'tracked_shard_schedule': [[0, 2, 3], [0, 2, 3], [0, 1], [0, 1], [0, 1],
-                               [0, 1]],
+    'tracked_shard_schedule': [[0], [0], [1], [1]],
     'tracked_shards': [],
 }
 
 config = load_config()
-near_root, node_dirs = init_cluster(1, 1, 4, config,
+near_root, node_dirs = init_cluster(1, 1, 2, config,
                                     [["epoch_length", EPOCH_LENGTH]], {
                                         0: config0,
                                         1: config1
@@ -87,6 +74,8 @@ near_root, node_dirs = init_cluster(1, 1, 4, config,
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0)
 logger.info('started boot_node')
 node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node=boot_node)
+# State sync makes the storage look inconsistent.
+node1.stop_checking_store()
 logger.info('started node1')
 
 contract = utils.load_test_contract()
@@ -192,4 +181,8 @@ node1.start(boot_node=boot_node)
 node1_height = node1.get_latest_block().height
 logger.info(f'started node1@{node1_height}')
 
-nonce, keys = random_workload_until(int(EPOCH_LENGTH * 3.1), nonce, keys, node1)
+nonce, keys = random_workload_until(int(EPOCH_LENGTH * 3.9), nonce, keys,
+                                    boot_node)
+boot_node_height = boot_node.get_latest_block().height
+node1_height = node1.get_latest_block().height
+assert node1_height + int(EPOCH_LENGTH * 0.5) >= boot_node_height

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Spins up a node, waits until sharding is upgraded and spins up another node.
+# Spins up 2 nodes, waits until sharding is upgraded and spins up another node.
 # Check that the node can't be started because it cannot state sync to the epoch
 # after the sharding upgrade.
 
@@ -16,10 +16,13 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import init_cluster, spin_up_node, load_config, get_binary_protocol_version
 from configured_logger import logger
 import requests
+import tempfile
 import utils
 
 EPOCH_LENGTH = 10
 START_AT_BLOCK = int(EPOCH_LENGTH * 2.5)
+
+state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
 
 V1_PROTOCOL_VERSION = 48
 V2_PROTOCOL_VERSION = 135
@@ -121,21 +124,59 @@ near_root, node_dirs = init_cluster(
     client_config_changes={
         0: {
             "tracked_shards": [0],
-            "state_sync_enabled": True,
             "store.state_snapshot_enabled": True,
+            'state_sync': {
+                'dump': {
+                    'location': {
+                        'Filesystem': {
+                            'root_dir': state_parts_dir
+                        }
+                    },
+                    'iteration_delay': {
+                        'secs': 0,
+                        'nanos': 100000000
+                    },
+                }
+            },
         },
         1: {
             "tracked_shards": [0],
-            "state_sync_enabled": True,
             "store.state_snapshot_enabled": True,
+            'state_sync': {
+                'dump': {
+                    'location': {
+                        'Filesystem': {
+                            'root_dir': state_parts_dir
+                        }
+                    },
+                    'iteration_delay': {
+                        'secs': 0,
+                        'nanos': 100000000
+                    },
+                }
+            },
         },
         2: {
             "tracked_shards": [0],
             "consensus": {
                 "block_fetch_horizon": EPOCH_LENGTH * 2,
+                "sync_step_period": {
+                    "secs": 0,
+                    "nanos": 200000000
+                }
+            },
+            'state_sync': {
+                'sync': {
+                    'ExternalStorage': {
+                        'location': {
+                            'Filesystem': {
+                                'root_dir': state_parts_dir
+                            }
+                        }
+                    }
+                }
             },
             "state_sync_enabled": True,
-            "store.state_snapshot_enabled": True,
         }
     },
 )

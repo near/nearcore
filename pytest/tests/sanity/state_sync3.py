@@ -24,42 +24,41 @@ consensus_config0 = {
             "nanos": 100000000
         }
     },
-    "tracked_shards": [0],
-    "store.state_snapshot_enabled": True,
-    "state_sync": {
-        "dump": {
-            "location": {
-                "Filesystem": {
-                    "root_dir": state_parts_dir
+    'state_sync': {
+        'dump': {
+            'location': {
+                'Filesystem': {
+                    'root_dir': state_parts_dir
                 }
             },
-            "iteration_delay": {
-                "secs": 0,
-                "nanos": 100000000
+            'iteration_delay': {
+                'secs': 0,
+                'nanos': 100000000
             },
         }
     },
+    "store.state_snapshot_enabled": True,
 }
 consensus_config1 = {
     "consensus": {
         "sync_step_period": {
             "secs": 0,
-            "nanos": 200000000
+            "nanos": 1000
         }
     },
     "tracked_shards": [0],
-    "state_sync_enabled": True,
-    "state_sync": {
-        "sync": {
-            "ExternalStorage": {
-                "location": {
-                    "Filesystem": {
-                        "root_dir": state_parts_dir
+    'state_sync': {
+        'sync': {
+            'ExternalStorage': {
+                'location': {
+                    'Filesystem': {
+                        'root_dir': state_parts_dir
                     }
                 }
             }
         }
-    }
+    },
+    "state_sync_enabled": True,
 }
 nodes = start_cluster(
     1, 1, 1, None,
