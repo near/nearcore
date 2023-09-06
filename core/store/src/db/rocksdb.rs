@@ -759,7 +759,7 @@ impl RocksDB {
                         StatsValue::BucketBlockCount(
                             DBCol::State,
                             block_count.to_string(),
-                            measurement.avg_read_block_latency().as_micros() as i64,
+                            measurement.total_read_block_latency.as_micros() as i64
                         )
                     })
                     .collect();
