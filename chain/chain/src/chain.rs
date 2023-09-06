@@ -2925,8 +2925,10 @@ impl Chain {
             },
         };
 
-        // Getting all existing incoming_receipts from prev_chunk height to the new epoch.
+        // Getting all existing incoming_receipts from prev_chunk height to the
+        // new epoch.
         let incoming_receipts_proofs = self.store.get_incoming_receipts_for_shard(
+            self.epoch_manager.as_ref(),
             shard_id,
             sync_hash,
             prev_chunk_height_included,
@@ -3983,6 +3985,7 @@ impl Chain {
         // for this block is not stored yet
         let new_receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
         let old_receipts = &self.store().get_incoming_receipts_for_shard(
+            self.epoch_manager.as_ref(),
             shard_id,
             *prev_hash,
             prev_chunk_height_included,

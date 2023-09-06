@@ -1142,14 +1142,10 @@ fn test_shard_layout_upgrade_incoming_receipts_impl_v1() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V1);
 }
 
-// TODO(resharding) This test is currently broken because handling of incoming
-// receipts doesn't work for the V2 resharding. It should be fixed and the test
-// can be enabled then.
 // TODO(resharding) Add another test like this but drop more chunks and at
 // random. The _missing_chunks tests below test only the case when all chunks
 // are missing in block but can likely be adjusted for this case.
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
-#[ignore]
 #[test]
 fn test_shard_layout_upgrade_incoming_receipts_impl_v2() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2);
