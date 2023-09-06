@@ -446,6 +446,7 @@ fn sync_state_dump() {
                 location: Filesystem { root_dir: dump_dir.path().to_path_buf() },
                 restart_dump_for_shards: None,
                 iteration_delay: Some(Duration::from_millis(100)),
+                credentials_file: None,
             });
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
@@ -698,6 +699,13 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 let store = rt.store();
 
                 let shard_id = msg.shard_uid.shard_id as ShardId;
+
+                assert!(rt
+                    .get_flat_storage_manager()
+                    .unwrap()
+                    .remove_flat_storage_for_shard(msg.shard_uid)
+                    .unwrap());
+
                 for part_id in 0..msg.num_parts {
                     let key = StatePartKey(msg.sync_hash, shard_id, part_id).try_to_vec().unwrap();
                     let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();

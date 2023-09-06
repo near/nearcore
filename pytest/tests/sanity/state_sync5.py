@@ -5,6 +5,7 @@
 
 import sys, time, base58
 import pathlib
+import tempfile
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -16,9 +17,25 @@ import utils
 MAX_SYNC_WAIT = 30
 EPOCH_LENGTH = 20
 
+state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
+
 node0_config = {
+    "tracked_shards": [0],
     "state_sync_enabled": True,
-    "store.state_snapshot_enabled": True
+    "store.state_snapshot_enabled": True,
+    "state_sync": {
+        "dump": {
+            "location": {
+                "Filesystem": {
+                    "root_dir": state_parts_dir
+                }
+            },
+            "iteration_delay": {
+                "secs": 0,
+                "nanos": 100000000
+            },
+        }
+    }
 }
 node1_config = {
     "consensus": {
@@ -29,7 +46,18 @@ node1_config = {
     },
     "tracked_shards": [0],
     "state_sync_enabled": True,
-    "store.state_snapshot_enabled": True
+    "store.state_snapshot_enabled": True,
+    "state_sync": {
+        "sync": {
+            "ExternalStorage": {
+                "location": {
+                    "Filesystem": {
+                        "root_dir": state_parts_dir
+                    }
+                }
+            }
+        }
+    }
 }
 nodes = start_cluster(
     1, 1, 1, None,
