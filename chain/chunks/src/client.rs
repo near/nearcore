@@ -72,7 +72,6 @@ impl ShardedTransactionPool {
     /// This seed is used to randomize the transaction pool.
     /// For better security we want the seed to different in each shard.
     /// For testing purposes we want it to be the reproducible and derived from the `self.rng_seed` and `shard_id`
-    /// TODO Make sure that the usage of this method is still deterministic.
     fn random_seed(base_seed: &RngSeed, shard_id: ShardId) -> RngSeed {
         let mut res = *base_seed;
         res[0] = shard_id as u8;
@@ -113,7 +112,7 @@ impl ShardedTransactionPool {
     /// It works by emptying the pools for old shard uids and re-inserting the
     /// transactions back to the pool with the new shard uids.
     pub fn reshard(&mut self, old_shard_layout: &ShardLayout, new_shard_layout: &ShardLayout) {
-        tracing::info!(
+        tracing::debug!(
             target: "client",
             old_shard_layout_version = old_shard_layout.version(),
             new_shard_layout_version = new_shard_layout.version(),
@@ -126,14 +125,11 @@ impl ShardedTransactionPool {
 
         let old_shard_uids = old_shard_layout.get_shard_uids();
         for old_shard_uid in old_shard_uids {
-            let mut iter = if let Some(iter) = self.get_pool_iterator(old_shard_uid) {
-                iter
-            } else {
-                continue;
-            };
-            while let Some(group) = iter.next() {
-                while let Some(tx) = group.next() {
-                    transactions.push(tx);
+            if let Some(mut iter) = self.get_pool_iterator(old_shard_uid) {
+                while let Some(group) = iter.next() {
+                    while let Some(tx) = group.next() {
+                        transactions.push(tx);
+                    }
                 }
             }
         }

@@ -47,7 +47,7 @@ const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion =
 #[cfg(not(feature = "protocol_feature_simple_nightshade_v2"))]
 const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion = PROTOCOL_VERSION + 1;
 
-// const P_CATCHUP: f64 = 0.2;
+const P_CATCHUP: f64 = 0.2;
 
 enum ReshardingType {
     // In the V0->V1 resharding outgoing receipts are reassigned to receiver.
@@ -295,8 +295,7 @@ impl TestShardUpgradeEnv {
         // by chance. This simulates when catchup takes a long time to be done
         // Note: if the catchup happens only at the last block of an epoch then
         // client will fail to produce the chunks in the first block of the next epoch.
-        // let should_catchup = rng.gen_bool(P_CATCHUP) || next_height % self.epoch_length == 0;
-        let should_catchup = (next_height + 1) % self.epoch_length == 0;
+        let should_catchup = rng.gen_bool(P_CATCHUP) || next_height % self.epoch_length == 0;
         // process block, this also triggers chunk producers for the next block to produce chunks
         for j in 0..self.num_clients {
             let client = &mut env.clients[j];
@@ -449,13 +448,8 @@ impl TestShardUpgradeEnv {
     /// This functions checks that the outcomes of all transactions and associated receipts
     /// have successful status
     /// If `allow_not_started` is true, allow transactions status to be NotStarted
-    /// Skips checking transactions added at `skip_heights`
     /// Return successful transaction hashes
-    fn check_tx_outcomes(
-        &mut self,
-        allow_not_started: bool,
-        skip_heights: Vec<BlockHeight>,
-    ) -> Vec<CryptoHash> {
+    fn check_tx_outcomes(&mut self, allow_not_started: bool) -> Vec<CryptoHash> {
         tracing::debug!(target: "test", "checking tx outcomes");
         let env = &mut self.env;
         let head = env.clients[0].chain.head().unwrap();
@@ -467,10 +461,8 @@ impl TestShardUpgradeEnv {
             .unwrap();
         let mut txs_to_check = vec![];
         txs_to_check.extend(&self.init_txs);
-        for (height, txs) in self.txs_by_height.iter() {
-            if !skip_heights.contains(height) {
-                txs_to_check.extend(txs);
-            }
+        for (_, txs) in self.txs_by_height.iter() {
+            txs_to_check.extend(txs);
         }
 
         let mut successful_txs = Vec::new();
@@ -842,8 +834,7 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType) {
         };
 
     // add transactions until after sharding upgrade finishes
-    // for height in 2..3 * epoch_length {
-    for height in vec![2 * epoch_length + 1] {
+    for height in 2..3 * epoch_length {
         let txs = generate_create_accounts_txs(10, true);
         test_env.set_tx_at_height(height, txs);
     }
@@ -854,7 +845,7 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType) {
         test_env.check_receipt_id_to_shard_id();
     }
 
-    test_env.check_tx_outcomes(false, vec![]);
+    test_env.check_tx_outcomes(false);
     test_env.check_accounts(accounts_to_check.iter().collect());
     test_env.check_split_states_artifacts();
     test_env.check_outgoing_receipts_reassigned(&resharding_type);
@@ -1062,7 +1053,7 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(resharding_type: Reshardi
         test_env.check_receipt_id_to_shard_id();
     }
 
-    let successful_txs = test_env.check_tx_outcomes(false, vec![2 * epoch_length + 1]);
+    let successful_txs = test_env.check_tx_outcomes(false);
     let new_accounts =
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
 
@@ -1115,11 +1106,7 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(resharding_type: ReshardingT
         test_env.check_receipt_id_to_shard_id();
     }
 
-    // TODO(resharding) get rid of skip_heights
-    // - 2 * epoch_length is skipped because we miss a chunk in that block and
-    // we lose the transaction pool during resharding. fix that
-    let skip_heights = vec![2 * epoch_length, 2 * epoch_length + 1];
-    let successful_txs = test_env.check_tx_outcomes(false, skip_heights);
+    let successful_txs = test_env.check_tx_outcomes(false);
     let new_accounts =
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
 
@@ -1187,7 +1174,7 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
         test_env.check_receipt_id_to_shard_id();
     }
 
-    let successful_txs = test_env.check_tx_outcomes(true, vec![2 * epoch_length + 1]);
+    let successful_txs = test_env.check_tx_outcomes(true);
     let new_accounts: Vec<_> =
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
     test_env.check_accounts(new_accounts);

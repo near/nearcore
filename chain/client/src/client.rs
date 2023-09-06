@@ -70,6 +70,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
 use near_store::metadata::DbKind;
+use near_store::ShardUId;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -351,7 +352,6 @@ impl Client {
         block: &Block,
     ) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
-
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_id as ShardId;
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
@@ -808,7 +808,8 @@ impl Client {
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
         let prev_block_header = self.chain.get_block_header(&prev_block_hash)?;
-        let transactions = self.prepare_transactions(shard_id, &chunk_extra, &prev_block_header)?;
+        let transactions =
+            self.prepare_transactions(shard_uid, &chunk_extra, &prev_block_header)?;
         let transactions = transactions;
         #[cfg(feature = "test_features")]
         let transactions = Self::maybe_insert_invalid_transaction(
@@ -909,38 +910,19 @@ impl Client {
     /// Prepares an ordered list of valid transactions from the pool up the limits.
     fn prepare_transactions(
         &mut self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         chunk_extra: &ChunkExtra,
         prev_block_header: &BlockHeader,
     ) -> Result<Vec<SignedTransaction>, Error> {
         let Self { chain, sharded_tx_pool, epoch_manager, runtime_adapter: runtime, .. } = self;
 
-        let parent_hash = prev_block_header.hash();
-        let next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
+        let shard_id = shard_uid.shard_id as ShardId;
+        let next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(parent_hash)?;
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &next_epoch_id)?;
-        let parent_shard_uid = shard_layout.get_parent_shard_id_safe(shard_id);
-
-        tracing::trace!(target: "client", ?shard_uid, ?parent_shard_uid, "getting transactions from pool");
-
-        let transaction_validity_period = chain.transaction_validity_period;
-        let mut transactions = vec![];
-
-        let chain_validate = &mut |tx: &SignedTransaction| -> bool {
-            chain
-                .store()
-                .check_transaction_validity_period(
-                    prev_block_header,
-                    &tx.transaction.block_hash,
-                    transaction_validity_period,
-                )
-                .is_ok()
-        };
-
-        if let Some(mut iter) = sharded_tx_pool.get_pool_iterator(shard_uid) {
-            let prepared_transactions = runtime.prepare_transactions(
+        let transactions = if let Some(mut iter) = sharded_tx_pool.get_pool_iterator(shard_uid) {
+            let transaction_validity_period = chain.transaction_validity_period;
+            runtime.prepare_transactions(
                 prev_block_header.gas_price(),
                 chunk_extra.gas_limit(),
                 &next_epoch_id,
@@ -951,21 +933,28 @@ impl Client {
                 // invalid transactions to be included.
                 prev_block_header.height() + 1,
                 &mut iter,
-                chain_validate,
+                &mut |tx: &SignedTransaction| -> bool {
+                    chain
+                        .store()
+                        .check_transaction_validity_period(
+                            prev_block_header,
+                            &tx.transaction.block_hash,
+                            transaction_validity_period,
+                        )
+                        .is_ok()
+                },
                 protocol_version,
-            )?;
-
-            transactions.extend(prepared_transactions);
+            )?
         } else {
-            tracing::warn!(target: "client", ?shard_uid, "transaction pool missing")
-        }
+            vec![]
+        };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
-        let included_count = sharded_tx_pool.reintroduce_transactions(shard_uid, &transactions);
-        if included_count < transactions.len() {
-            debug!(target: "client", "Reintroduced {} transactions out of {}", included_count, transactions.len());
+        let reintroduced_count = sharded_tx_pool.reintroduce_transactions(shard_uid, &transactions);
+        if reintroduced_count < transactions.len() {
+            debug!(target: "client", "Reintroduced {} transactions out of {}",
+                   reintroduced_count, transactions.len());
         }
-
         Ok(transactions)
     }
 
@@ -1529,8 +1518,9 @@ impl Client {
                 error!(target: "client", ?err, "Failed to update network chain info");
             }
 
+            // If the next block is the first of the next epoch and the shard
+            // layout is changing we need to reshard the transaction pool.
             if self.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap_or(false) {
-                tracing::debug!(target: "client", "boom next block is epoch start");
                 let new_shard_layout =
                     self.epoch_manager.get_shard_layout_from_prev_block(&block_hash);
                 let old_shard_layout =
@@ -2069,9 +2059,8 @@ impl Client {
             self.shard_tracker.care_about_shard(me, &head.last_block_hash, shard_id, true);
         let will_care_about_shard =
             self.shard_tracker.will_care_about_shard(me, &head.last_block_hash, shard_id, true);
-
-        tracing::trace!(target: "client", ?shard_id, does_care=care_about_shard, will_care=will_care_about_shard, tx=?tx.get_hash(), tx_signer=?tx.transaction.signer_id, "Checking if does or will care about tx");
-
+        // TODO(resharding) will_care_about_shard should be called with the
+        // account shard id from the next epoch, in case shard layout changes
         if care_about_shard || will_care_about_shard {
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, &shard_uid) {
