@@ -226,12 +226,9 @@ impl Client {
             chain_config.clone(),
             make_state_snapshot_callback,
         )?;
-        let me = validator_signer.as_ref().map(|x| x.validator_id().clone());
         // Create flat storage or initiate migration to flat storage.
         let flat_storage_creator = FlatStorageCreator::new(
-            me.as_ref(),
             epoch_manager.clone(),
-            shard_tracker.clone(),
             runtime_adapter.clone(),
             chain.store(),
             chain_config.background_migration_threads,

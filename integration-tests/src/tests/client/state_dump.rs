@@ -337,6 +337,11 @@ fn run_state_sync_with_dumped_parts(
         let runtime_client_1 = Arc::clone(&env.clients[1].runtime_adapter);
         let runtime_client_0 = Arc::clone(&env.clients[0].runtime_adapter);
         let client_0_store = runtime_client_0.store();
+        assert!(runtime_client_1
+            .get_flat_storage_manager()
+            .unwrap()
+            .remove_flat_storage_for_shard(ShardUId::single_shard())
+            .unwrap());
 
         for part_id in 0..num_parts {
             let key = StatePartKey(sync_hash, 0, part_id).try_to_vec().unwrap();
