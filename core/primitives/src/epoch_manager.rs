@@ -906,7 +906,7 @@ pub mod epoch_info {
                 }
                 Self::V3(v3) => {
                     let protocol_version = self.protocol_version();
-                    let seed = Self::chunk_produce_seed(protocol_version, height, v3, shard_id);
+                    let seed = Self::chunk_produce_seed(protocol_version, v3, height, shard_id);
                     let shard_id = shard_id as usize;
                     let sample = v3.chunk_producers_sampler[shard_id].sample(seed);
                     v3.chunk_producers_settlement[shard_id][sample]
@@ -923,10 +923,10 @@ pub mod epoch_info {
         }
 
         fn chunk_produce_seed(
-            protocol_version: u32,
-            height: u64,
+            protocol_version: ProtocolVersion,
             epoch_info_v3: &EpochInfoV3,
-            shard_id: u64,
+            height: BlockHeight,
+            shard_id: ShardId,
         ) -> [u8; 32] {
             if checked_feature!("stable", SynchronizeBlockChunkProduction, protocol_version)
                 && !checked_feature!("stable", ChunkOnlyProducers, protocol_version)

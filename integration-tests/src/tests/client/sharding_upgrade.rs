@@ -57,14 +57,14 @@ enum ReshardingType {
     V2,
 }
 
-fn get_target_protocol_version(resharding_type: &ReshardingType) -> u32 {
+fn get_target_protocol_version(resharding_type: &ReshardingType) -> ProtocolVersion {
     match resharding_type {
         ReshardingType::V1 => SIMPLE_NIGHTSHADE_PROTOCOL_VERSION,
         ReshardingType::V2 => SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION,
     }
 }
 
-fn get_genesis_protocol_version(resharding_type: &ReshardingType) -> u32 {
+fn get_genesis_protocol_version(resharding_type: &ReshardingType) -> ProtocolVersion {
     match resharding_type {
         ReshardingType::V1 => SIMPLE_NIGHTSHADE_PROTOCOL_VERSION - 1,
         ReshardingType::V2 => SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION - 1,
@@ -116,14 +116,14 @@ struct TestShardUpgradeEnv {
 /// Can be probabilistic, predefined based on height and shard id or both.
 struct DropChunkCondition {
     probability: f64,
-    by_height_shard_id: HashSet<(u64, ShardId)>,
+    by_height_shard_id: HashSet<(BlockHeight, ShardId)>,
 }
 
 impl DropChunkCondition {
     fn should_drop_chunk(
         &self,
         rng: &mut rand::rngs::ThreadRng,
-        height: u64,
+        height: BlockHeight,
         shard_ids: &Vec<ShardId>,
     ) -> bool {
         if rng.gen_bool(self.probability) {
@@ -224,8 +224,7 @@ impl TestShardUpgradeEnv {
     /// also checks that all accounts in initial_accounts are intact
     ///
     /// please also see the step_impl for changing the protocol version
-    fn step(&mut self, p_drop_chunk: f64) {
-        let drop_chunk_condition = DropChunkCondition::with_probability(p_drop_chunk);
+    fn step(&mut self, drop_chunk_condition: &DropChunkCondition) {
         self.step_impl(
             &drop_chunk_condition,
             SIMPLE_NIGHTSHADE_PROTOCOL_VERSION,
@@ -282,9 +281,10 @@ impl TestShardUpgradeEnv {
             block
         };
 
-        // mapping from the chunk producer account id to the list of chunks that
-        // it should produce at the next height
-        let mut chunk_producer_to_shard_id: HashMap<AccountId, Vec<u64>> = HashMap::new();
+        // Mapping from the chunk producer account id to the list of chunks that
+        // it should produce. When processing block at height `next_height` the
+        // chunk producers will produce chunks at height `next_height + 1`.
+        let mut chunk_producer_to_shard_id: HashMap<AccountId, Vec<ShardId>> = HashMap::new();
         for shard_id in 0..block.chunks().len() {
             let shard_id = shard_id as ShardId;
             let validator_id = get_chunk_producer(env, &block, shard_id);
@@ -453,7 +453,7 @@ impl TestShardUpgradeEnv {
     fn check_tx_outcomes(
         &mut self,
         allow_not_started: bool,
-        skip_heights: Vec<u64>,
+        skip_heights: Vec<BlockHeight>,
     ) -> Vec<CryptoHash> {
         tracing::debug!(target: "test", "checking tx outcomes");
         let env = &mut self.env;
@@ -632,8 +632,8 @@ fn get_chunk_producer(env: &TestEnv, block: &Block, shard_id: ShardId) -> Accoun
 
 fn check_outgoing_receipts_reassigned_impl(
     client: &Client,
-    shard_id: u64,
-    last_height_included: u64,
+    shard_id: ShardId,
+    last_height_included: BlockHeight,
     resharding_type: &ReshardingType,
 ) {
     let chain = &client.chain;
@@ -854,8 +854,9 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType) {
         test_env.set_tx_at_height(height, txs);
     }
 
+    let drop_chunk_condition = DropChunkCondition::new();
     for _ in 1..4 * epoch_length {
-        test_env.step_impl(&DropChunkCondition::new(), target_protocol_version, &resharding_type);
+        test_env.step_impl(&drop_chunk_condition, target_protocol_version, &resharding_type);
         test_env.check_receipt_id_to_shard_id();
     }
 
@@ -1061,8 +1062,9 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(resharding_type: Reshardi
     let (mut test_env, new_accounts) =
         setup_test_env_with_cross_contract_txs(epoch_length, genesis_protocol_version);
 
+    let drop_chunk_condition = DropChunkCondition::new();
     for _ in 1..5 * epoch_length {
-        test_env.step_impl(&DropChunkCondition::new(), target_protocol_version, &resharding_type);
+        test_env.step_impl(&drop_chunk_condition, target_protocol_version, &resharding_type);
         test_env.check_receipt_id_to_shard_id();
     }
 
@@ -1169,12 +1171,14 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
 
     // randomly dropping chunks at the first few epochs when sharding splits happens
     // make sure initial txs (deploy smart contracts) are processed succesfully
+    let drop_chunk_condition = DropChunkCondition::new();
     for _ in 1..3 {
-        test_env.step(0.);
+        test_env.step(&drop_chunk_condition);
     }
 
+    let drop_chunk_condition = DropChunkCondition::with_probability(p_missing);
     for _ in 3..3 * epoch_length {
-        test_env.step(p_missing);
+        test_env.step(&drop_chunk_condition);
         let last_height = test_env.env.clients[0].chain.head().unwrap().height;
         for height in last_height - 3..=last_height {
             test_env.check_next_block_with_new_chunk(height);
@@ -1183,8 +1187,9 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
     }
 
     // make sure all included transactions finished processing
+    let drop_chunk_condition = DropChunkCondition::new();
     for _ in 3 * epoch_length..5 * epoch_length {
-        test_env.step(0.);
+        test_env.step(&drop_chunk_condition);
         let last_height = test_env.env.clients[0].chain.head().unwrap().height;
         for height in last_height - 3..=last_height {
             test_env.check_next_block_with_new_chunk(height);
