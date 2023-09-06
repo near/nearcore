@@ -2658,6 +2658,11 @@ fn test_catchup_gas_price_change() {
         let store = rt.store();
 
         let shard_id = msg.shard_uid.shard_id as ShardId;
+        assert!(rt
+            .get_flat_storage_manager()
+            .unwrap()
+            .remove_flat_storage_for_shard(msg.shard_uid)
+            .unwrap());
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, shard_id, part_id).try_to_vec().unwrap();
             let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();

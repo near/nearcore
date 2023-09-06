@@ -227,14 +227,18 @@ impl FlatStorageManager {
         flat_storages.get(&shard_uid).cloned()
     }
 
-    pub fn remove_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
+    /// Removes FlatStorage object from FlatStorageManager.
+    /// If FlatStorageManager did have that object, then removes all information about Flat State and returns Ok(true).
+    /// Otherwise does nothing and returns Ok(false).
+    pub fn remove_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<bool, StorageError> {
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
 
         if let Some(flat_store) = flat_storages.remove(&shard_uid) {
             flat_store.clear_state()?;
+            Ok(true)
+        } else {
+            Ok(false)
         }
-
-        Ok(())
     }
 
     /// Updates `move_head_enabled` for all shards and returns whether it succeeded.
