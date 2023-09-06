@@ -447,6 +447,7 @@ fn sync_state_dump() {
                 location: Filesystem { root_dir: dump_dir.path().to_path_buf() },
                 restart_dump_for_shards: None,
                 iteration_delay: Some(Duration::from_millis(500)),
+                credentials_file: None,
             });
             near1.config.store.state_snapshot_enabled = true;
             near1.config.store.state_snapshot_compaction_enabled = false;
