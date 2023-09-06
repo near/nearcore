@@ -106,7 +106,7 @@ impl actix::Handler<WithSpanContext<ApplyStatePartsRequest>> for SyncJobsActor {
             }
             Ok(false) => {
                 // Can't panic here, because that breaks many KvRuntime tests.
-                tracing::debug!(target: "client", shard_uid = ?msg.shard_uid, "Failed to delete Flat State, but proceed with applying state parts.");
+                tracing::error!(target: "client", shard_uid = ?msg.shard_uid, "Failed to delete Flat State, but proceeding with applying state parts.");
             }
             Ok(true) => {
                 tracing::debug!(target: "client", shard_uid = ?msg.shard_uid, "Deleted all Flat State");
