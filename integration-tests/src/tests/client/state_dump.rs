@@ -81,6 +81,7 @@ fn test_state_dump() {
             location: Filesystem { root_dir: root_dir.path().to_path_buf() },
             restart_dump_for_shards: None,
             iteration_delay: Some(Duration::ZERO),
+            credentials_file: None,
         });
 
         let _state_sync_dump_handle = spawn_state_sync_dump(
@@ -90,7 +91,6 @@ fn test_state_dump() {
             shard_tracker.clone(),
             runtimes[0].clone(),
             Some("test0".parse().unwrap()),
-            None,
         )
         .unwrap();
 
@@ -204,6 +204,7 @@ fn run_state_sync_with_dumped_parts(
             location: Filesystem { root_dir: root_dir.path().to_path_buf() },
             restart_dump_for_shards: None,
             iteration_delay: Some(Duration::ZERO),
+            credentials_file: None,
         });
         let _state_sync_dump_handle = spawn_state_sync_dump(
             &config,
@@ -212,7 +213,6 @@ fn run_state_sync_with_dumped_parts(
             shard_tracker.clone(),
             runtimes[0].clone(),
             Some("test0".parse().unwrap()),
-            None,
         )
         .unwrap();
 
