@@ -6,7 +6,6 @@ use near_chain::chain::{
 };
 use near_chain::resharding::StateSplitRequest;
 use near_chain::Chain;
-use near_chain_primitives::Error;
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::StatePartKey;
@@ -106,7 +105,7 @@ impl actix::Handler<WithSpanContext<ApplyStatePartsRequest>> for SyncJobsActor {
                 return;
             }
             Ok(false) => {
-                // Can't panic here, because that breaks many KvRuntime tess.
+                // Can't panic here, because that breaks many KvRuntime tests.
                 tracing::debug!(target: "client", shard_uid = ?msg.shard_uid, "Failed to delete Flat State, but proceed with applying state parts.");
             }
             Ok(true) => {
