@@ -1,4 +1,7 @@
-use near_chain::{types::EpochManagerAdapter, validate::validate_chunk_proofs, Chain, ChainStore};
+use near_chain::{
+    blocking_io_actor::BlockingIoActor, types::EpochManagerAdapter,
+    validate::validate_chunk_proofs, Chain, ChainStore,
+};
 use near_chunks_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::{
@@ -216,12 +219,34 @@ pub fn persist_chunk(
     partial_chunk: PartialEncodedChunk,
     shard_chunk: Option<ShardChunk>,
     store: &mut ChainStore,
+    blocking_io_actor: actix::Addr<BlockingIoActor>,
 ) -> Result<(), Error> {
     let mut update = store.store_update();
     update.save_partial_chunk(partial_chunk);
     if let Some(shard_chunk) = shard_chunk {
         update.save_chunk(shard_chunk);
     }
-    update.commit()?;
+    update.commit_async(blocking_io_actor)?;
+    // update.commit()?;
     Ok(())
 }
+
+// pub fn persist_chunk_async(
+//     partial_chunk: PartialEncodedChunk,
+//     shard_chunk: Option<ShardChunk>,
+//     store: &mut ChainStore,
+//     blocking_io_actor: actix::Addr<BlockingIoActor>,
+// ) -> Result<(), Error> {
+//     let mut update = store.store_update();
+//     update.save_partial_chunk(partial_chunk);
+//     if let Some(shard_chunk) = shard_chunk {
+//         update.save_chunk(shard_chunk);
+//     }
+//     // TODO: do we need to wait or is persisting async okay?
+//     actix::Arbiter::current().spawn(async {
+//         // TODO: error handling
+//         update.commit_async(blocking_io_actor).await.unwrap();
+//     });
+//     // update.commit()?;
+//     Ok(())
+// }

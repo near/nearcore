@@ -9,9 +9,11 @@ use crate::sync::epoch::EpochSync;
 use crate::sync::header::HeaderSync;
 use crate::sync::state::{StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
+use actix::SyncArbiter;
 use actix_rt::ArbiterHandle;
 use lru::LruCache;
 use near_async::messaging::{CanSend, Sender};
+use near_chain::blocking_io_actor::BlockingIoActor;
 use near_chain::chain::VerifyBlockHashAndSignatureResult;
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
@@ -162,6 +164,9 @@ pub struct Client {
     tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
     /// Used when it is needed to create flat storage in background for some shards.
     flat_storage_creator: Option<FlatStorageCreator>,
+
+    /// Actor address for IO operations that may block for a long time.
+    blocking_io_actor: actix::Addr<BlockingIoActor>,
 }
 
 impl Client {
@@ -286,6 +291,11 @@ impl Client {
             validator_signer.clone(),
             doomslug_threshold_mode,
         );
+
+        // TODO: How to set this number? How does it relate to other io threads?
+        let todo_io_threads = 4;
+        let blocking_io_actor = SyncArbiter::start(todo_io_threads, || BlockingIoActor);
+
         Ok(Self {
             #[cfg(feature = "test_features")]
             adv_produce_blocks: false,
@@ -328,6 +338,7 @@ impl Client {
             chunk_production_info: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
             tier1_accounts_cache: None,
             flat_storage_creator,
+            blocking_io_actor,
         })
     }
 
@@ -1324,8 +1335,28 @@ impl Client {
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header, StaticClock::utc());
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), partial_chunk.shard_id());
-        persist_chunk(partial_chunk, shard_chunk, self.chain.mut_store())
-            .expect("Could not persist chunk");
+
+        persist_chunk(
+            partial_chunk,
+            shard_chunk,
+            self.chain.mut_store(),
+            self.blocking_io_actor.clone(),
+        )
+        .expect("Could not persist chunk");
+
+        // let blocking_io_actor = self.blocking_io_actor.clone();
+        // actix::Arbiter::current().spawn(async {
+        //     let store: &mut near_chain::ChainStore = self.chain.mut_store();
+        //     let mut update = store.store_update();
+        //     update.save_partial_chunk(partial_chunk);
+        //     if let Some(shard_chunk) = shard_chunk {
+        //         update.save_chunk(shard_chunk);
+        //     }
+        //     // TODO: do we need to wait or is persisting async okay?
+        //     // TODO: error handling
+        //     update.commit_async(blocking_io_actor).await.expect("Could not persist chunk");
+        // });
+
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.
@@ -1679,7 +1710,12 @@ impl Client {
             self.epoch_manager.as_ref(),
             &self.shard_tracker,
         )?;
-        persist_chunk(partial_chunk.clone(), Some(shard_chunk), self.chain.mut_store())?;
+        persist_chunk(
+            partial_chunk.clone(),
+            Some(shard_chunk),
+            self.chain.mut_store(),
+            self.blocking_io_actor.clone(),
+        )?;
         self.on_chunk_header_ready_for_inclusion(encoded_chunk.cloned_header(), validator_id);
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
             partial_chunk,

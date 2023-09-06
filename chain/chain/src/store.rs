@@ -8,6 +8,7 @@ use near_cache::CellLruCache;
 
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::Tip;
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 use near_primitives::checked_feature;
@@ -50,6 +51,7 @@ use near_store::{
     LATEST_KNOWN_KEY, TAIL_KEY,
 };
 
+use crate::blocking_io_actor::{BlockingIoActor, BlockingIoActorMessage};
 use crate::byzantine_assert;
 use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
@@ -3252,9 +3254,30 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(store_update)
     }
 
+    pub fn commit_async(
+        mut self,
+        blocking_io_actor: actix::Addr<BlockingIoActor>,
+    ) -> Result<(), Error> {
+        let store_update = self.finalize()?;
+        let msg = BlockingIoActorMessage::CommitStoreUpdate(store_update);
+        let future = async move {
+            let mailbox_result = blocking_io_actor.send(msg.with_span_context()).await;
+            // TODO: do we need to handle the mailbox error?
+            // TODO: do we need to handle the IO error?
+            mailbox_result.unwrap().unwrap();
+        };
+        actix::Arbiter::current().spawn(future);
+        // TODO: do we need to wait or is persisting async okay?
+        self.update_caches()
+    }
+
     pub fn commit(mut self) -> Result<(), Error> {
         let store_update = self.finalize()?;
         store_update.commit()?;
+        self.update_caches()
+    }
+
+    fn update_caches(mut self) -> Result<(), Error> {
         let ChainStoreCacheUpdate {
             blocks,
             headers,

@@ -16,7 +16,7 @@ use crate::info::{display_sync_status, InfoHelper};
 use crate::sync::state::{StateSync, StateSyncResult};
 use crate::sync_jobs_actor::{create_sync_job_scheduler, SyncJobsActor};
 use crate::{metrics, StatusResponse};
-use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
+use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, SyncArbiter};
 use actix_rt::ArbiterHandle;
 use chrono::{DateTime, Utc};
 use near_async::messaging::{CanSend, Sender};
