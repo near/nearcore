@@ -781,7 +781,7 @@ impl RocksDB {
                     })
                     .collect();
                 result.data.push((
-                    "rocksdb_perf_total_observed_latency_per_block".to_string(),
+                    "rocksdb_perf_avg_observed_latency_per_block".to_string(),
                     state_avg_obs_lat_per_block,
                 ));
 
