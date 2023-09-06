@@ -362,7 +362,9 @@ pub fn start_with_config_and_synchronization(
             None
         };
 
-    let credentials_file = config.config.s3_credentials_file;
+    if config.config.s3_credentials_file.is_none() {
+        tracing::warn!("'s3_credentials_file' option is present but it will be ignored. Use 'state_sync.dump.credentials_file' instead.")
+    }
     let state_sync_dump_handle = spawn_state_sync_dump(
         &config.client_config,
         chain_genesis,
@@ -370,7 +372,6 @@ pub fn start_with_config_and_synchronization(
         shard_tracker,
         runtime,
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
-        credentials_file.map(|filename| home_dir.join(filename)),
     )?;
 
     let hot_store = storage.get_hot_store();

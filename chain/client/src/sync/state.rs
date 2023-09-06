@@ -180,7 +180,7 @@ impl StateSync {
                 num_concurrent_requests_during_catchup,
             }) => {
                 let external = match location {
-                    ExternalStorageLocation::S3 { bucket, region } => {
+                    ExternalStorageLocation::S3 { bucket, region, .. } => {
                         let bucket = create_bucket_readonly(&bucket, &region, timeout);
                         if let Err(err) = bucket {
                             panic!("Failed to create an S3 bucket: {}", err);
@@ -190,7 +190,7 @@ impl StateSync {
                     ExternalStorageLocation::Filesystem { root_dir } => {
                         ExternalConnection::Filesystem { root_dir: root_dir.clone() }
                     }
-                    ExternalStorageLocation::GCS { bucket } => ExternalConnection::GCS {
+                    ExternalStorageLocation::GCS { bucket, .. } => ExternalConnection::GCS {
                         gcs_client: Arc::new(cloud_storage::Client::default()),
                         reqwest_client: Arc::new(reqwest::Client::default()),
                         bucket: bucket.clone(),

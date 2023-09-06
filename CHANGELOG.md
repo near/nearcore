@@ -16,6 +16,7 @@
 * The default config now enables TIER1 outbound connections by default. [#9349](https://github.com/near/nearcore/pull/9349)
 * State Sync from GCS is available for experimental use. [#9398](https://github.com/near/nearcore/pull/9398)
 * Add config option `tx_routing_height_horizon` to configure how many chunk producers are notified about the tx. [#10251](https://github.com/near/nearcore/pull/10251)
+* Add config options `state_sync.dump.credentials_file` to configure pro-active state part production for State Sync. [#9487](https://github.com/near/nearcore/pull/9487)
 
 ## 1.35.0
 

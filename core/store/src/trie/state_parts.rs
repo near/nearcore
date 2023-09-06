@@ -156,7 +156,7 @@ impl Trie {
         let boundaries_read_duration = boundaries_read_timer.stop_and_record();
         let recorded_trie = recording_trie.recorded_storage().unwrap();
 
-        tracing::info!(
+        tracing::debug!(
             target: "state-parts",
             idx,
             total,
@@ -274,7 +274,7 @@ impl Trie {
         let state_part_num_nodes = trie_values.len();
         let in_memory_created_nodes =
             trie_values.iter().filter(|entry| !disk_read_hashes.contains(&hash(*entry))).count();
-        tracing::info!(
+        tracing::debug!(
             target: "state-parts",
             ?part_id,
             values_ref = value_refs.len(),
