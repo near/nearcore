@@ -2,7 +2,6 @@ mod cli;
 
 use self::cli::NeardCmd;
 use anyhow::Context;
-use near_o11y::metrics::exponential_buckets;
 use near_primitives::version::{Version, PROTOCOL_VERSION};
 use near_store::metadata::DB_VERSION;
 use nearcore::get_default_home;
