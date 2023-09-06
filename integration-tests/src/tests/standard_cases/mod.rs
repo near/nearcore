@@ -674,12 +674,17 @@ pub fn test_create_top_level_account(node: impl Node) {
         "0x5e97870f263700f46aa00d967821199b9bc5a120",
         "0x0000000000000000000000000000000000000000",
         "alice",
-        "thisisaveryverylongtoplevelaccount"
+        "thisisaveryverylongtoplevelaccount",
     ];
     for (_, id) in top_level_accounts.iter().enumerate() {
         let new_account_id = id.parse::<AccountId>().unwrap();
         let transaction_result = node_user
-            .create_account(account_id.clone(), new_account_id.clone(), node.signer().public_key(), 0)
+            .create_account(
+                account_id.clone(),
+                new_account_id.clone(),
+                node.signer().public_key(),
+                0,
+            )
             .unwrap();
         assert_eq!(
             transaction_result.status,

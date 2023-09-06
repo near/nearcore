@@ -1688,14 +1688,14 @@ mod test {
         );
         // test1 doubles stake and the new account stakes the same, so test2 will be kicked out.`
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE * 2);
-        let new_account = AccountId::try_from(format!("test{}", num_nodes + 1)).unwrap();
+        let new_account: AccountId = "test.test1".parse().unwrap();
         let new_validator = create_test_signer(new_account.as_str());
         let new_signer =
             InMemorySigner::from_seed(new_account.clone(), KeyType::ED25519, new_account.as_ref());
         let create_account_transaction = SignedTransaction::create_account(
             2,
             block_producers[0].validator_id().clone(),
-            new_account,
+            new_account.clone(),
             TESTING_INIT_STAKE * 3,
             new_signer.public_key(),
             &signer,
@@ -1741,7 +1741,7 @@ mod test {
                 .iter()
                 .map(|x| (x.0.account_id().clone(), x.1))
                 .collect::<HashMap<_, _>>(),
-            vec![("test3".parse().unwrap(), false), ("test1".parse().unwrap(), false)]
+            vec![(new_account.clone(), false), ("test1".parse().unwrap(), false)]
                 .into_iter()
                 .collect::<HashMap<_, _>>()
         );
@@ -1758,7 +1758,7 @@ mod test {
             (test2_acc.amount, test2_acc.locked),
             (TESTING_INIT_BALANCE - test2_stake_amount, test2_stake_amount)
         );
-        let test3_acc = env.view_account(&"test3".parse().unwrap());
+        let test3_acc = env.view_account(&new_account);
         // Got 3 * X, staking 2 * X of them.
         assert_eq!(
             (test3_acc.amount, test3_acc.locked),

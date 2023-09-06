@@ -229,7 +229,7 @@ fn run_state_sync_with_dumped_parts(
                 let tx = SignedTransaction::create_account(
                     1,
                     "test0".parse().unwrap(),
-                    "test_account".parse().unwrap(),
+                    "test_account.test0".parse().unwrap(),
                     NEAR_BASE,
                     signer.public_key(),
                     &signer,
@@ -256,7 +256,7 @@ fn run_state_sync_with_dumped_parts(
                 &head.prev_block_hash,
                 &head.last_block_hash,
                 head_block.header().epoch_id(),
-                &QueryRequest::ViewAccount { account_id: "test_account".parse().unwrap() },
+                &QueryRequest::ViewAccount { account_id: "test_account.test0".parse().unwrap() },
             )
             .unwrap();
         assert_matches!(response.kind, QueryResponseKind::ViewAccount(_));
@@ -360,7 +360,7 @@ fn run_state_sync_with_dumped_parts(
             &synced_block_tip.prev_block_hash,
             &synced_block_tip.last_block_hash,
             synced_block_header.epoch_id(),
-            &QueryRequest::ViewAccount { account_id: "test_account".parse().unwrap() },
+            &QueryRequest::ViewAccount { account_id: "test_account.test0".parse().unwrap() },
         );
 
         if is_final_block_in_new_epoch {

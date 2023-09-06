@@ -2296,10 +2296,11 @@ fn test_data_reset_before_state_sync() {
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
+    let new_account_id: AccountId = "test_account.test0".parse().unwrap();
     let tx = SignedTransaction::create_account(
         1,
         "test0".parse().unwrap(),
-        "test_account".parse().unwrap(),
+        new_account_id.clone(),
         NEAR_BASE,
         signer.public_key(),
         &signer,
@@ -2322,7 +2323,7 @@ fn test_data_reset_before_state_sync() {
             &head.prev_block_hash,
             &head.last_block_hash,
             head_block.header().epoch_id(),
-            &QueryRequest::ViewAccount { account_id: "test_account".parse().unwrap() },
+            &QueryRequest::ViewAccount { account_id: new_account_id.clone() },
         )
         .unwrap();
     assert_matches!(response.kind, QueryResponseKind::ViewAccount(_));
@@ -2336,7 +2337,7 @@ fn test_data_reset_before_state_sync() {
         &head.prev_block_hash,
         &head.last_block_hash,
         head_block.header().epoch_id(),
-        &QueryRequest::ViewAccount { account_id: "test_account".parse().unwrap() },
+        &QueryRequest::ViewAccount { account_id: new_account_id },
     );
     // TODO(#3742): ViewClient still has data in cache by current design.
     assert!(response.is_ok());

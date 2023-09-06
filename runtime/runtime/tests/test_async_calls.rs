@@ -596,14 +596,18 @@ fn test_simple_transfer() {
 
 #[test]
 fn test_create_account_with_transfer_and_full_key() {
-    let group = RuntimeGroup::new(3, 2, near_test_contracts::rs_contract());
+    let group = RuntimeGroup::new_with_account_ids(
+        vec!["near_0".parse().unwrap(), "near_1".parse().unwrap(), "test.near_1".parse().unwrap()],
+        2,
+        near_test_contracts::rs_contract(),
+    );
     let signer_sender = group.signers[0].clone();
     let signer_receiver = group.signers[1].clone();
     let signer_new_account = group.signers[2].clone();
 
     let data = serde_json::json!([
         {"batch_create": {
-            "account_id": "near_2",
+            "account_id": "test.near_1",
         }, "id": 0 },
         {"action_create_account": {
             "promise_index": 0,
@@ -648,7 +652,7 @@ fn test_create_account_with_transfer_and_full_key() {
                         assert_eq!(function_call_action.deposit, 0);
                      }
                      => [r1, ref0] );
-    assert_receipts!(group, "near_1" => r1 @ "near_2",
+    assert_receipts!(group, "near_1" => r1 @ "test.near_1",
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::CreateAccount(CreateAccountAction{}), {},
@@ -669,14 +673,18 @@ fn test_create_account_with_transfer_and_full_key() {
 
 #[test]
 fn test_account_factory() {
-    let group = RuntimeGroup::new(3, 2, near_test_contracts::rs_contract());
+    let group = RuntimeGroup::new_with_account_ids(
+        vec!["near_0".parse().unwrap(), "near_1".parse().unwrap(), "test.near_1".parse().unwrap()],
+        2,
+        near_test_contracts::rs_contract(),
+    );
     let signer_sender = group.signers[0].clone();
     let signer_receiver = group.signers[1].clone();
     let signer_new_account = group.signers[2].clone();
 
     let data = serde_json::json!([
         {"batch_create": {
-            "account_id": "near_2",
+            "account_id": "test.near_1",
         }, "id": 0 },
         {"action_create_account": {
             "promise_index": 0,
@@ -715,7 +723,7 @@ fn test_account_factory() {
 
         {"then": {
         "promise_index": 0,
-        "account_id": "near_2",
+        "account_id": "test.near_1",
         "method_name": "call_promise",
         "arguments": [
             {"create": {
@@ -762,11 +770,11 @@ fn test_account_factory() {
                      => [r1, r2, ref0] );
 
     let data_id;
-    assert_receipts!(group, "near_1" => r1 @ "near_2",
+    assert_receipts!(group, "near_1" => r1 @ "test.near_1",
                      ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}), {
                         assert_eq!(output_data_receivers.len(), 1);
                         data_id = output_data_receivers[0].data_id;
-                        assert_eq!(output_data_receivers[0].receiver_id.as_ref(), "near_2");
+                        assert_eq!(output_data_receivers[0].receiver_id.as_ref(), "test.near_1");
                      },
                      actions,
                      a0, Action::CreateAccount(CreateAccountAction{}), {},
@@ -790,7 +798,7 @@ fn test_account_factory() {
                         assert_eq!(function_call_action.deposit, 0);
                      }
                      => [r3, ref1] );
-    assert_receipts!(group, "near_1" => r2 @ "near_2",
+    assert_receipts!(group, "near_1" => r2 @ "test.near_1",
                      ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}), {
                         assert_eq!(input_data_ids, &[data_id]);
                      },
@@ -800,7 +808,7 @@ fn test_account_factory() {
                         assert_eq!(function_call_action.deposit, 0);
                      }
                      => [r4, ref2] );
-    assert_receipts!(group, "near_2" => r3 @ "near_0",
+    assert_receipts!(group, "test.near_1" => r3 @ "near_0",
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(function_call_action), {
@@ -808,7 +816,7 @@ fn test_account_factory() {
                         assert_eq!(function_call_action.deposit, 0);
                      }
                      => [ref3] );
-    assert_receipts!(group, "near_2" => r4 @ "near_1",
+    assert_receipts!(group, "test.near_1" => r4 @ "near_1",
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(function_call_action), {
@@ -826,14 +834,23 @@ fn test_account_factory() {
 
 #[test]
 fn test_create_account_add_key_call_delete_key_delete_account() {
-    let group = RuntimeGroup::new(4, 3, near_test_contracts::rs_contract());
+    let group = RuntimeGroup::new_with_account_ids(
+        vec![
+            "near_0".parse().unwrap(),
+            "near_1".parse().unwrap(),
+            "near_2".parse().unwrap(),
+            "test.near_1".parse().unwrap(),
+        ],
+        3,
+        near_test_contracts::rs_contract(),
+    );
     let signer_sender = group.signers[0].clone();
     let signer_receiver = group.signers[1].clone();
     let signer_new_account = group.signers[2].clone();
 
     let data = serde_json::json!([
         {"batch_create": {
-            "account_id": "near_3",
+            "account_id": "test.near_1",
         }, "id": 0 },
         {"action_create_account": {
             "promise_index": 0,
@@ -906,7 +923,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                         assert_eq!(function_call_action.deposit, 0);
                      }
                      => [r1, ref0] );
-    assert_receipts!(group, "near_1" => r1 @ "near_3",
+    assert_receipts!(group, "near_1" => r1 @ "test.near_1",
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::CreateAccount(CreateAccountAction{}), {},
@@ -933,7 +950,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                      }
                      => [r2, r3, ref1] );
 
-    assert_receipts!(group, "near_3" => r2 @ "near_0",
+    assert_receipts!(group, "test.near_1" => r2 @ "near_0",
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(function_call_action), {
