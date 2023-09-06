@@ -13,7 +13,7 @@ steps:
 
     agents:
       - "distro=amazonlinux"
-      - "queue=default-public"
+      - "queue=default"
 
   - label: "cargo test integration-tests*"
     command: |
