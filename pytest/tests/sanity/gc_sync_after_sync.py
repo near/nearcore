@@ -3,38 +3,33 @@
 # sufficient number of blocks. Restart the stopped node and check that it can
 # still sync. Repeat. Then check all old data is removed.
 
-import sys, time
 import pathlib
+import sys
+import tempfile
+import time
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
-swap_nodes = False
-if "swap_nodes" in sys.argv:
-    swap_nodes = True  # swap nodes 0 and 1 after first sync
+swap_nodes = ("swap_nodes" in sys.argv)  # swap nodes 0 and 1 after first sync
 
 from cluster import start_cluster
 from configured_logger import logger
+import state_sync_lib
 import utils
 
-TARGET_HEIGHT1 = 60
-TARGET_HEIGHT2 = 170
-TARGET_HEIGHT3 = 250
+EPOCH_LENGTH = 20
+NUM_GC_EPOCHS = 2
+# The gaps need to be longer than NUM_GC_EPOCHS epochs for the garbage collection to kick in.
+TARGET_HEIGHT1 = EPOCH_LENGTH * (NUM_GC_EPOCHS + 1)
+TARGET_HEIGHT2 = EPOCH_LENGTH * 2 * (NUM_GC_EPOCHS + 1)
+TARGET_HEIGHT3 = EPOCH_LENGTH * 3 * (NUM_GC_EPOCHS + 1)
 
-node1_config = {
-    "consensus": {
-        "block_fetch_horizon": 20,
-        "block_header_fetch_horizon": 20
-    },
-    # Enabling explicitly state sync, default value is False
-    "state_sync_enabled": True
-}
+node_config = state_sync_lib.get_state_sync_config_combined()
+node_config["gc_num_epochs_to_keep"] = NUM_GC_EPOCHS
 
 nodes = start_cluster(
-    4,
-    0,
-    1,
-    None,
-    [["epoch_length", 10],
+    4, 0, 1, None,
+    [["epoch_length", EPOCH_LENGTH],
      ["validators", 0, "amount", "12500000000000000000000000000000"],
      [
          "records", 0, "Account", "account", "locked",
@@ -47,13 +42,7 @@ nodes = start_cluster(
      ["block_producer_kickout_threshold", 40],
      ["chunk_producer_kickout_threshold", 40], ["num_block_producer_seats", 10],
      ["num_block_producer_seats_per_shard", [10]]],
-    {
-        0: {
-            # we need to enable it for swap nodes case
-            "state_sync_enabled": True
-        },
-        1: node1_config
-    })
+    {x: node_config for x in range(4)})
 
 logger.info('Kill node 1')
 nodes[1].kill()
@@ -81,6 +70,8 @@ time.sleep(3)
 
 node1_height, _ = utils.wait_for_blocks(nodes[1], target=node0_height)
 
+logger.info(f'node0_height: {node0_height}, node1_height: {node1_height}')
+
 # all fresh data should be synced
 blocks_count = 0
 for height in range(node1_height - 10, node1_height):
@@ -96,7 +87,7 @@ time.sleep(1)
 
 # all old data should be GCed
 blocks_count = 0
-for height in range(1, 30):
+for height in range(1, EPOCH_LENGTH * 3):
     logger.info(f'Check old block at height {height}')
     block0 = nodes[0].json_rpc('block', [height], timeout=15)
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
@@ -108,7 +99,7 @@ assert blocks_count == 0
 
 # all data after first sync should be GCed
 blocks_count = 0
-for height in range(60, 80):
+for height in range(TARGET_HEIGHT1, TARGET_HEIGHT1 + 10):
     logger.info(f'Check block after first sync at height {height}')
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
     if 'result' in block1:
@@ -117,7 +108,7 @@ assert blocks_count == 0
 
 # all data before second sync should be GCed
 blocks_count = 0
-for height in range(130, 150):
+for height in range(TARGET_HEIGHT2, TARGET_HEIGHT2 + 10):
     logger.info(f'Check block before second sync at height {height}')
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
     if 'result' in block1:
