@@ -1,8 +1,15 @@
 use near_o11y::metrics::{
-    exponential_buckets, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_gauge, Histogram, HistogramVec, IntCounter, IntGauge,
+    exponential_buckets, try_create_histogram, try_create_histogram_vec,
+    try_create_histogram_with_buckets, try_create_int_counter, try_create_int_gauge, Histogram,
+    HistogramVec, IntCounter, IntGauge,
 };
 use once_cell::sync::Lazy;
+
+fn processing_time_buckets() -> Vec<f64> {
+    let mut buckets = vec![0.01, 0.025, 0.05, 0.1, 0.25, 0.5];
+    buckets.extend_from_slice(&exponential_buckets(1.0, 1.3, 12).unwrap());
+    buckets
+}
 
 pub static BLOCK_PROCESSING_ATTEMPTS_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
@@ -16,15 +23,18 @@ pub static BLOCK_PROCESSED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
         .unwrap()
 });
 pub static BLOCK_PROCESSING_TIME: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram("near_block_processing_time", "Time taken to process blocks successfully, from when a block is ready to be processed till when the processing is finished. Measures only the time taken by the successful attempts of block processing")
-        .unwrap()
+    try_create_histogram_with_buckets(
+        "near_block_processing_time", 
+        "Time taken to process blocks successfully, from when a block is ready to be processed till when the processing is finished. Measures only the time taken by the successful attempts of block processing", 
+        processing_time_buckets()
+    ).unwrap()
 });
 pub static APPLYING_CHUNKS_TIME: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_applying_chunks_time",
         "Time taken to apply chunks per shard",
         &["shard_id"],
-        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
+        Some(processing_time_buckets()),
     )
     .unwrap()
 });
