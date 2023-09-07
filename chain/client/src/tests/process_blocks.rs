@@ -26,7 +26,7 @@ fn test_not_process_height_twice() {
 
     let proposals =
         vec![ValidatorStake::new("test1".parse().unwrap(), PublicKey::empty(KeyType::ED25519), 0)];
-    duplicate_block.mut_header().get_mut().inner_rest.validator_proposals = proposals;
+    duplicate_block.mut_header().get_mut().inner_rest.prev_validator_proposals = proposals;
     duplicate_block.mut_header().resign(&validator_signer);
     let dup_block_hash = *duplicate_block.hash();
     // we should have dropped the block before we even tried to process it, so the result should be ok
@@ -76,8 +76,8 @@ fn test_bad_shard_id() {
     chunks[0] = ShardChunkHeader::V3(modified_chunk);
     block.mut_header().get_mut().inner_rest.chunk_headers_root =
         Block::compute_chunk_headers_root(&chunks).0;
-    block.mut_header().get_mut().inner_rest.chunk_receipts_root =
-        Block::compute_chunk_receipts_root(&chunks);
+    block.mut_header().get_mut().inner_rest.prev_chunk_outgoing_receipts_root =
+        Block::compute_chunk_prev_outgoing_receipts_root(&chunks);
     block.set_chunks(chunks);
     block.mut_header().get_mut().inner_rest.block_body_hash =
         block.compute_block_body_hash().unwrap();

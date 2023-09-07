@@ -1568,7 +1568,7 @@ impl Chain {
             .iter()
             .filter(|chunk| block_height == chunk.height_included())
             .flat_map(|chunk| chunk.prev_validator_proposals())
-            .zip_longest(block.header().validator_proposals())
+            .zip_longest(block.header().prev_validator_proposals())
         {
             match pair {
                 itertools::EitherOrBoth::Both(cp, hp) => {
@@ -2961,7 +2961,7 @@ impl Chain {
                     .push(RootProof(root_proof, block_receipts_proofs[from_shard_id].clone()));
 
                 // Make sure we send something reasonable.
-                assert_eq!(block_header.chunk_receipts_root(), &block_receipts_root);
+                assert_eq!(block_header.prev_chunk_outgoing_receipts_root(), &block_receipts_root);
                 assert!(verify_path(root_proof, proof, &receipts_hash));
                 assert!(verify_path(
                     block_receipts_root,
@@ -3233,7 +3233,11 @@ impl Chain {
                     return Err(Error::Other("set_shard_state failed: invalid proofs".into()));
                 }
                 // 4f. Proving the outgoing_receipts_root matches that in the block
-                if !verify_path(*block_header.chunk_receipts_root(), block_proof, root) {
+                if !verify_path(
+                    *block_header.prev_chunk_outgoing_receipts_root(),
+                    block_proof,
+                    root,
+                ) {
                     byzantine_assert!(false);
                     return Err(Error::Other("set_shard_state failed: invalid proofs".into()));
                 }
