@@ -7,7 +7,7 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
     let mut balance_burnt = 0;
     for chunk in block.chunks().iter() {
         if chunk.height_included() == block.header().height() {
-            balance_burnt += chunk.balance_burnt();
+            balance_burnt += chunk.prev_balance_burnt();
         }
     }
     block.set_chunks(chunk_headers.clone());

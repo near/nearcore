@@ -1970,7 +1970,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 .transactions
                 .insert(transaction.get_hash(), Arc::new(transaction.clone()));
         }
-        for receipt in chunk.receipts() {
+        for receipt in chunk.prev_outgoing_receipts() {
             self.chain_store_cache_update
                 .receipts
                 .insert(receipt.receipt_id, Arc::new(receipt.clone()));
@@ -2224,7 +2224,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 for transaction in chunk.transactions() {
                     self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
                 }
-                for receipt in chunk.receipts() {
+                for receipt in chunk.prev_outgoing_receipts() {
                     self.gc_col(DBCol::Receipts, receipt.get_hash().as_bytes());
                 }
 
@@ -2550,7 +2550,7 @@ impl<'a> ChainStoreUpdate<'a> {
             for transaction in chunk.transactions() {
                 self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
             }
-            for receipt in chunk.receipts() {
+            for receipt in chunk.prev_outgoing_receipts() {
                 self.gc_col(DBCol::Receipts, receipt.get_hash().as_bytes());
             }
 
@@ -3041,7 +3041,7 @@ impl<'a> ChainStoreUpdate<'a> {
             }
 
             // Increase receipt refcounts for all included receipts
-            for receipt in chunk.receipts().iter() {
+            for receipt in chunk.prev_outgoing_receipts().iter() {
                 let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
                 store_update.increment_refcount(
                     DBCol::Receipts,

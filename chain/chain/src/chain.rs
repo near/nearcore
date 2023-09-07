@@ -1567,7 +1567,7 @@ impl Chain {
             .chunks()
             .iter()
             .filter(|chunk| block_height == chunk.height_included())
-            .flat_map(|chunk| chunk.validator_proposals())
+            .flat_map(|chunk| chunk.prev_validator_proposals())
             .zip_longest(block.header().validator_proposals())
         {
             match pair {
@@ -2944,7 +2944,7 @@ impl Chain {
                 &block
                     .chunks()
                     .iter()
-                    .map(|chunk| chunk.outgoing_receipts_root())
+                    .map(|chunk| chunk.prev_outgoing_receipts_root())
                     .collect::<Vec<CryptoHash>>(),
             );
 
@@ -2956,7 +2956,7 @@ impl Chain {
                 let receipts_hash = CryptoHash::hash_borsh(ReceiptList(shard_id, receipts));
                 let from_shard_id = *from_shard_id as usize;
 
-                let root_proof = block.chunks()[from_shard_id].outgoing_receipts_root();
+                let root_proof = block.chunks()[from_shard_id].prev_outgoing_receipts_root();
                 root_proofs_cur
                     .push(RootProof(root_proof, block_receipts_proofs[from_shard_id].clone()));
 
@@ -4031,7 +4031,7 @@ impl Chain {
         };
 
         let chunk_inner = chunk.cloned_header().take_inner();
-        let gas_limit = chunk_inner.gas_limit();
+        let gas_limit = chunk_inner.prev_gas_limit();
 
         // This variable is responsible for checking to which block we can apply receipts previously lost in apply_chunks
         // (see https://github.com/near/nearcore/pull/4248/)
@@ -4069,7 +4069,7 @@ impl Chain {
                 &block_hash,
                 &receipts,
                 chunk.transactions(),
-                chunk_inner.validator_proposals(),
+                chunk_inner.prev_validator_proposals(),
                 gas_price,
                 gas_limit,
                 &challenges_result,
@@ -5610,7 +5610,7 @@ impl<'a> ChainUpdate<'a> {
         };
 
         let chunk_header = chunk.cloned_header();
-        let gas_limit = chunk_header.gas_limit();
+        let gas_limit = chunk_header.prev_gas_limit();
         // This is set to false because the value is only relevant
         // during protocol version RestoreReceiptsAfterFixApplyChunks.
         // TODO(nikurt): Determine the value correctly.
@@ -5625,7 +5625,7 @@ impl<'a> ChainUpdate<'a> {
             block_header.hash(),
             &receipts,
             chunk.transactions(),
-            chunk_header.validator_proposals(),
+            chunk_header.prev_validator_proposals(),
             gas_price,
             gas_limit,
             block_header.challenges_result(),

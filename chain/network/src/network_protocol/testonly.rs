@@ -190,7 +190,7 @@ pub fn make_chunk_parts(chunk: ShardChunk) -> Vec<PartialEncodedChunkPart> {
     let (parts, _) = EncodedShardChunk::encode_transaction_receipts(
         &mut rs,
         chunk.transactions().to_vec(),
-        &chunk.receipts(),
+        &chunk.prev_outgoing_receipts(),
     )
     .unwrap();
     let mut content = EncodedShardChunkBody { parts };

@@ -245,10 +245,10 @@ impl Block {
         let mut gas_limit = 0;
         for chunk in chunks.iter() {
             if chunk.height_included() == height {
-                validator_proposals.extend(chunk.validator_proposals());
-                gas_used += chunk.gas_used();
-                gas_limit += chunk.gas_limit();
-                balance_burnt += chunk.balance_burnt();
+                validator_proposals.extend(chunk.prev_validator_proposals());
+                gas_used += chunk.prev_gas_used();
+                gas_limit += chunk.prev_gas_limit();
+                balance_burnt += chunk.prev_balance_burnt();
                 chunk_mask.push(true);
             } else {
                 chunk_mask.push(false);
@@ -341,7 +341,7 @@ impl Block {
 
         for chunk in self.chunks().iter() {
             if chunk.height_included() == self.header().height() {
-                balance_burnt += chunk.balance_burnt();
+                balance_burnt += chunk.prev_balance_burnt();
             }
         }
 
@@ -421,7 +421,7 @@ impl Block {
         merklize(
             &chunks
                 .into_iter()
-                .map(|chunk| chunk.outgoing_receipts_root())
+                .map(|chunk| chunk.prev_outgoing_receipts_root())
                 .collect::<Vec<CryptoHash>>(),
         )
         .0
@@ -447,8 +447,10 @@ impl Block {
     pub fn compute_outcome_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
         chunks: T,
     ) -> CryptoHash {
-        merklize(&chunks.into_iter().map(|chunk| chunk.outcome_root()).collect::<Vec<CryptoHash>>())
-            .0
+        merklize(
+            &chunks.into_iter().map(|chunk| chunk.prev_outcome_root()).collect::<Vec<CryptoHash>>(),
+        )
+        .0
     }
 
     pub fn compute_challenges_root(challenges: &Challenges) -> CryptoHash {
@@ -461,7 +463,7 @@ impl Block {
     ) -> Gas {
         chunks.into_iter().fold(0, |acc, chunk| {
             if chunk.height_included() == height {
-                acc + chunk.gas_used()
+                acc + chunk.prev_gas_used()
             } else {
                 acc
             }
@@ -474,7 +476,7 @@ impl Block {
     ) -> Gas {
         chunks.into_iter().fold(0, |acc, chunk| {
             if chunk.height_included() == height {
-                acc + chunk.gas_limit()
+                acc + chunk.prev_gas_limit()
             } else {
                 acc
             }

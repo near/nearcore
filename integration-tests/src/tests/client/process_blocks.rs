@@ -1293,8 +1293,8 @@ fn test_bad_orphan() {
             let chunk = &mut block.body.chunks[0].get_mut();
 
             match &mut chunk.inner {
-                ShardChunkHeaderInner::V1(inner) => inner.outcome_root = CryptoHash([1; 32]),
-                ShardChunkHeaderInner::V2(inner) => inner.outcome_root = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V1(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V2(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
             }
             chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }
@@ -2759,7 +2759,7 @@ fn test_block_execution_outcomes() {
     let next_block = env.clients[0].chain.get_block_by_height(3).unwrap();
     let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap();
     assert!(next_chunk.transactions().is_empty());
-    assert!(next_chunk.receipts().is_empty());
+    assert!(next_chunk.prev_outgoing_receipts().is_empty());
     let execution_outcomes_from_block = env.clients[0]
         .chain
         .store()
@@ -2896,7 +2896,7 @@ fn test_delayed_receipt_count_limit() {
         let block = env.clients[0].chain.get_block_by_height(height).unwrap();
         let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap();
         // These checks are useful to ensure that we didn't mess up the test setup.
-        assert!(chunk.receipts().len() <= 1);
+        assert!(chunk.prev_outgoing_receipts().len() <= 1);
         assert!(chunk.transactions().len() <= 5);
 
         // Because all transactions are in the transactions pool, this means we have not included

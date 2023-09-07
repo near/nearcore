@@ -1047,21 +1047,21 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
         ChunkHeaderView {
             chunk_hash: hash.0,
             prev_block_hash: *inner.prev_block_hash(),
-            outcome_root: *inner.outcome_root(),
+            outcome_root: *inner.prev_outcome_root(),
             prev_state_root: *inner.prev_state_root(),
             encoded_merkle_root: *inner.encoded_merkle_root(),
             encoded_length: inner.encoded_length(),
             height_created: inner.height_created(),
             height_included,
             shard_id: inner.shard_id(),
-            gas_used: inner.gas_used(),
-            gas_limit: inner.gas_limit(),
+            gas_used: inner.prev_gas_used(),
+            gas_limit: inner.prev_gas_limit(),
             rent_paid: 0,
             validator_reward: 0,
-            balance_burnt: inner.balance_burnt(),
-            outgoing_receipts_root: *inner.outgoing_receipts_root(),
+            balance_burnt: inner.prev_balance_burnt(),
+            outgoing_receipts_root: *inner.prev_outgoing_receipts_root(),
             tx_root: *inner.tx_root(),
-            validator_proposals: inner.validator_proposals().map(Into::into).collect(),
+            validator_proposals: inner.prev_validator_proposals().map(Into::into).collect(),
             signature,
         }
     }
@@ -1073,17 +1073,21 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
             inner: ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
                 prev_block_hash: view.prev_block_hash,
                 prev_state_root: view.prev_state_root,
-                outcome_root: view.outcome_root,
+                prev_outcome_root: view.outcome_root,
                 encoded_merkle_root: view.encoded_merkle_root,
                 encoded_length: view.encoded_length,
                 height_created: view.height_created,
                 shard_id: view.shard_id,
-                gas_used: view.gas_used,
-                gas_limit: view.gas_limit,
-                balance_burnt: view.balance_burnt,
-                outgoing_receipts_root: view.outgoing_receipts_root,
+                prev_gas_used: view.gas_used,
+                prev_gas_limit: view.gas_limit,
+                prev_balance_burnt: view.balance_burnt,
+                prev_outgoing_receipts_root: view.outgoing_receipts_root,
                 tx_root: view.tx_root,
-                validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
+                prev_validator_proposals: view
+                    .validator_proposals
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
             }),
             height_included: view.height_included,
             signature: view.signature,
@@ -1126,13 +1130,13 @@ impl ChunkView {
                 author,
                 header: ShardChunkHeader::V1(chunk.header).into(),
                 transactions: chunk.transactions.into_iter().map(Into::into).collect(),
-                receipts: chunk.receipts.into_iter().map(Into::into).collect(),
+                receipts: chunk.prev_outgoing_receipts.into_iter().map(Into::into).collect(),
             },
             ShardChunk::V2(chunk) => Self {
                 author,
                 header: chunk.header.into(),
                 transactions: chunk.transactions.into_iter().map(Into::into).collect(),
-                receipts: chunk.receipts.into_iter().map(Into::into).collect(),
+                receipts: chunk.prev_outgoing_receipts.into_iter().map(Into::into).collect(),
             },
         }
     }

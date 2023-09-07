@@ -55,21 +55,21 @@ fn test_bad_shard_id() {
     let mut chunks: Vec<_> = block.chunks().iter().cloned().collect();
     // modify chunk 0 to have shard_id 1
     let chunk = chunks.get(0).unwrap();
-    let outgoing_receipts_root = chunks.get(1).unwrap().outgoing_receipts_root();
+    let outgoing_receipts_root = chunks.get(1).unwrap().prev_outgoing_receipts_root();
     let mut modified_chunk = ShardChunkHeaderV3::new(
         *chunk.prev_block_hash(),
         chunk.prev_state_root(),
-        chunk.outcome_root(),
+        chunk.prev_outcome_root(),
         chunk.encoded_merkle_root(),
         chunk.encoded_length(),
         2,
         1,
-        chunk.gas_used(),
-        chunk.gas_limit(),
-        chunk.balance_burnt(),
+        chunk.prev_gas_used(),
+        chunk.prev_gas_limit(),
+        chunk.prev_balance_burnt(),
         outgoing_receipts_root,
         chunk.tx_root(),
-        chunk.validator_proposals().collect(),
+        chunk.prev_validator_proposals().collect(),
         &validator_signer,
     );
     modified_chunk.height_included = 2;
