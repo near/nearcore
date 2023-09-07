@@ -12,15 +12,23 @@ transaction object, we write `SignedTransaction`._
 
 The topic is split into several sections.
 
-1. [Buying Gas](#buying-gas-for-a-transaction): How are NEAR tokens converted to gas?
+1. [Gas Flow](#gas-flow)
+    - [Buying Gas](#buying-gas-for-a-transaction): How are NEAR tokens converted to gas?
+    - [Burning Gas](#burning-gas): Who receives burnt tokens?
+    - [Contract Reward](#contract-reward): How smart contract earn a reward.
 2. [Gas Price](#gas-price): 
     - [Block-Level Gas Price](#block-level-gas-price): How the block-level gas price is determined.
     - [Pessimistic Gas Price](#pessimistic-gas-price): How worst-case gas pricing is estimated.
     - [Effective Gas Purchase Cost](#effective-gas-purchase-cost): The cost paid for a receipt.
 3. [Tracking Gas](#tracking-gas-in-receipts): How the system keeps track of purchased gas during the transaction execution.
 
+## Gas Flow
 
-## Buying Gas for a Transaction
+On the highest level, gas is bought by the signer, burnt during execution, and
+contracts receive a part of the burnt gas as a reward. We will discuss each step
+in more details.
+
+### Buying Gas for a Transaction
 
 A signer pays all the gas required for a transaction upfront. However, there is
 no explicit act of buying gas. Instead, the fee is subtracted directly in NEAR
@@ -45,6 +53,64 @@ An alternative implementation would instead charge the gas at every receipt,
 instead of once at the start. However, remember that the execution may happen on
 a different shard than the signer account. Therefore we cannot access the
 signer's balance while executing.
+
+### Burning Gas
+
+Buying gas immediately removes a part of the signer's tokens from the total
+supply. However, the equivalent value in gas still exists in the form of the
+receipt and the unused gas will be converted back to tokens as a refund.
+
+The gas spent on execution on the other hand is burnt and removed from total
+supply forever. Unlike gas in other chains, none of it goes to validators. This
+is roughly equivalent to the base fee burning mechanism which Ethereum added in
+[EIP-1559](https://eips.ethereum.org/EIPS/eip-1559). But in Near Protocol, the
+entire fee is burnt because there is no [priority
+fee](https://ethereum.org/en/developers/docs/gas/#priority-fee) that Ethereum
+pays out to validators.
+
+The following diagram shows how gas flows through the execution of a
+transaction. The transaction consists of a function call performing a cross
+contract call, hence two function calls in sequence. (Note: This diagram is
+heavily simplified, more accurate diagrams are further down.)
+
+![Very Simplified Gas Flow Diagram](https://github.com/near/nearcore/assets/6342444/f52c6e4b-6fca-4f61-8e6e-ac786076aa65)
+<!-- Editable source: https://github.com/near/nearcore/issues/7821#issuecomment-1705672850 -->
+
+### Contract Reward
+
+A rather unique property of Near Protocol is that a part of the gas fee goes to
+the contract owner. This "smart contract gets paid" model is pretty much the
+opposite design choice from the "smart contract pays" model that for example
+[Cycles in the Internet
+Computer](https://internetcomputer.org/docs/current/developer-docs/gas-cost#details-cost-of-compute-and-storage-transactions-on-the-internet-computer)
+implement.
+
+The idea is that it gives contract developers a source of income and hence an
+incentive to create useful contracts that are commonly used. But there are also
+downsides, such as when implementing a free meta-transaction relayer one has to
+be careful not to be susceptible to faucet-draining attacks where an attacker
+extracts funds from the relayer by making calls to a contract they own.
+
+How much contracts receive from execution depends on two things. 
+
+1. How much gas is burnt on the function call execution itself. That is, only
+   the gas taken from the `attached_gas` of a function call is considered for
+   contract rewards. The base fees paid for creating the receipt, including the
+   `action_function_call` fee, are burnt 100%.
+2. The remainder of the burnt gas is multiplied by the runtime configuration
+   parameter
+   [`burnt_gas_reward`](https://github.com/near/nearcore/blob/master/core/primitives/res/runtime_configs/parameters.snap#L5C5-L5C5)
+   which currently is at 30%.
+
+During receipt execution, nearcore code tracks the `gas_burnt_for_function_call`
+separately from other gas burning to enable this contract reward calculations.
+
+In the (still simplified) flow diagram, the contract reward looks like this.
+For brevity, `gas_burnt_for_function_call` in the diagram is denoted as `wasm fee`.
+
+![Slightly Simplified Gas Flow Diagram](https://github.com/near/nearcore/assets/6342444/32600ef0-1475-43af-b196-576317787578)
+<!-- Editable source: https://github.com/near/nearcore/issues/7821#issuecomment-1705673349 -->
+
 
 ## Gas Price
 
@@ -124,6 +190,16 @@ The deducted tokens are the sum of these two parts. If the account has
 insufficient balance to pay for this pessimistic pricing, it will fail with a
 `NotEnoughBalance` error, with the required balance included in the error
 message.
+
+Inserting the pessimistic gas pricing into the flow diagram, we finally have a
+complete picture. Note how an additional refund receipt is required. Also, check
+out the updated formula for the effective purchase price at the top left and the
+resulting higher number.
+
+![Complete Gas Flow
+Diagram](https://github.com/near/nearcore/assets/6342444/8341fb45-9beb-4808-8a89-8144fa075930)
+<!-- Editable source: https://github.com/near/nearcore/issues/7821#issuecomment-1705673807 -->
+
 
 ## Tracking Gas in Receipts
 
