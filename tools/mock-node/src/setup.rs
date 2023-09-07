@@ -157,8 +157,7 @@ pub fn setup_mock_node(
             let epoch_start_height =
                 mock_network_epoch_manager.get_epoch_start_height(&hash).unwrap();
             panic!(
-                "start height must be the last block of an epoch, try using {} instead.\
-                 Note that this hopes that the last block includes new chunks for all shards.",
+                "start height must be the last block of an epoch, try using {} instead.",
                 epoch_start_height - 1
             );
         }
