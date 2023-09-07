@@ -20,7 +20,7 @@ import requests
 import state_sync_lib
 import utils
 
-EPOCH_LENGTH = 10
+EPOCH_LENGTH = 20
 START_AT_BLOCK = int(EPOCH_LENGTH * 2.5)
 
 V1_PROTOCOL_VERSION = 48
@@ -130,12 +130,9 @@ started = time.time()
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0)
 node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node=boot_node)
 
-ctx = utils.TxContext([0, 0], [boot_node, node1])
-
 utils.wait_for_blocks(boot_node, target=START_AT_BLOCK)
 
 node2 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node=boot_node)
-tracker = utils.LogTracker(node2)
 time.sleep(3)
 
 try:
