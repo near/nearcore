@@ -192,8 +192,7 @@ pub fn setup_mock_node(
             tracing::info!(target: "mock_node", ?shard_id, ?state_root, num_parts, "Preparing state for a shard");
 
             (0..num_parts)
-                .into_iter()
-                // .into_par_iter()
+                .into_par_iter()
                 .try_for_each(|part_id| -> anyhow::Result<()> {
                     let _span = tracing::debug_span!(
                         target: "mock_node",
