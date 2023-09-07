@@ -17,7 +17,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import init_cluster, spin_up_node, load_config, get_binary_protocol_version
 from configured_logger import logger
 import requests
-import state_sync
+import state_sync_lib
 import utils
 
 EPOCH_LENGTH = 10
@@ -114,7 +114,7 @@ config = load_config()
 binary_protocol_version = get_binary_protocol_version(config)
 assert binary_protocol_version is not None
 
-node_config = state_sync.get_state_sync_config_combined()
+node_config = state_sync_lib.get_state_sync_config_combined()
 
 near_root, node_dirs = init_cluster(
     num_nodes=2,

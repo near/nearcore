@@ -51,7 +51,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config
 from populate import genesis_populate_all, copy_genesis
-import state_sync
+import state_sync_lib
 from utils import LogTracker
 
 logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG)
@@ -63,7 +63,7 @@ else:
     additional_accounts = 200000
 
 config = load_config()
-node_config = state_sync.get_state_sync_config_combined()
+node_config = state_sync_lib.get_state_sync_config_combined()
 near_root, node_dirs = init_cluster(
     1, 2, 1,
     config, [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],

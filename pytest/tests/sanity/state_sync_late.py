@@ -25,14 +25,14 @@ assert mode in ['notx', 'onetx', 'manytx']
 
 from cluster import init_cluster, spin_up_node, load_config
 from configured_logger import logger
-import state_sync
+import state_sync_lib
 import utils
 
 START_AT_BLOCK = 75
 TIMEOUT = 150 + START_AT_BLOCK * 10
 
 config = load_config()
-node_config = state_sync.get_state_sync_config_combined()
+node_config = state_sync_lib.get_state_sync_config_combined()
 
 near_root, node_dirs = init_cluster(
     2, 1, 1, config,

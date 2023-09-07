@@ -12,7 +12,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
-import state_sync
+import state_sync_lib
 import utils
 
 fcntl.fcntl(1, fcntl.F_SETFL, 0)  # no cache when execute from nightly runner
@@ -21,7 +21,7 @@ BLOCKS = 105  # should be enough to trigger state sync for node 1 later, see com
 
 nightly = len(sys.argv) > 1
 
-node_config = state_sync.get_state_sync_config_combined()
+node_config = state_sync_lib.get_state_sync_config_combined()
 
 nodes = start_cluster(
     2, 0, 2, None, [["minimum_validators_per_shard", 2], ["epoch_length", 10],

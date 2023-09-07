@@ -11,7 +11,7 @@ import sys
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster, load_config
-import state_sync
+import state_sync_lib
 import transaction
 import utils
 
@@ -44,7 +44,7 @@ def print_balances(nodes, account_ids):
 
 
 def main():
-    node_config_dump, node_config_sync = state_sync.get_state_sync_configs_pair(
+    node_config_dump, node_config_sync = state_sync_lib.get_state_sync_configs_pair(
     )
     # The schedule means that the node tracks all shards all the time except for epoch heights 2 and 3.
     # Those epochs correspond to block heights [EPOCH_LENGTH * 2 + 1, EPOCH_LENGTH * 4].

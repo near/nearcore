@@ -16,14 +16,15 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config, apply_config_changes
 import account
-import state_sync
+import state_sync_lib
 import transaction
 
 from configured_logger import logger
 
 EPOCH_LENGTH = 30
 
-(node_config_dump, node_config_sync) = state_sync.get_state_sync_configs_pair()
+(node_config_dump,
+ node_config_sync) = state_sync_lib.get_state_sync_configs_pair()
 node_config_sync["tracked_shards"] = []
 node_config_sync["tracked_shard_schedule"] = [[0], [0], [1], [1]]
 

@@ -10,7 +10,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
-import state_sync
+import state_sync_lib
 import utils
 
 EPOCH_LENGTH = 30
@@ -18,7 +18,7 @@ TARGET_HEIGHT = int(EPOCH_LENGTH * 2.5)
 AFTER_SYNC_HEIGHT = EPOCH_LENGTH * 10
 TIMEOUT = 300
 
-node_config = state_sync.get_state_sync_config_combined().update({
+node_config = state_sync_lib.get_state_sync_config_combined().update({
     # We're generating 150 blocks here - lower the min production delay to speed
     # up the test running time a little.
     "consensus.min_block_production_delay": {

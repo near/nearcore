@@ -14,17 +14,15 @@ swap_nodes = ("swap_nodes" in sys.argv)  # swap nodes 0 and 1 after first sync
 
 from cluster import start_cluster
 from configured_logger import logger
-import state_sync
+import state_sync_lib
 import utils
-
-state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
 
 EPOCH_LENGTH = 10
 TARGET_HEIGHT1 = EPOCH_LENGTH * 4
 TARGET_HEIGHT2 = EPOCH_LENGTH * 8
 TARGET_HEIGHT3 = EPOCH_LENGTH * 12
 
-node_config = state_sync.get_state_sync_config_combined()
+node_config = state_sync_lib.get_state_sync_config_combined()
 
 nodes = start_cluster(
     4, 0, 1, None,

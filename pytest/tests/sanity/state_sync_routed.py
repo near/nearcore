@@ -20,7 +20,7 @@ import time
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
 from cluster import init_cluster, spin_up_node, load_config
-import state_sync
+import state_sync_lib
 import utils
 
 if len(sys.argv) < 3:
@@ -34,7 +34,7 @@ START_AT_BLOCK = int(sys.argv[2])
 TIMEOUT = 150 + START_AT_BLOCK * 10
 
 config = load_config()
-node_config = state_sync.get_state_sync_config_combined()
+node_config = state_sync_lib.get_state_sync_config_combined()
 
 near_root, node_dirs = init_cluster(
     2, 3, 1, config,

@@ -10,13 +10,14 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
-import state_sync
+import state_sync_lib
 import utils
 
 EPOCH_LENGTH = 1000
 MAX_SYNC_WAIT = 120
 
-(node_config_dump, node_config_sync) = state_sync.get_state_sync_configs_pair()
+(node_config_dump,
+ node_config_sync) = state_sync_lib.get_state_sync_configs_pair()
 node_config_dump["consensus.min_block_production_delay"] = {
     "secs": 0,
     "nanos": 100000000

@@ -10,13 +10,13 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
-import state_sync
+import state_sync_lib
 import utils
 
 BLOCK_WAIT = 40
 EPOCH_LENGTH = 80
 
-node_config = state_sync.get_state_sync_config_combined()
+node_config = state_sync_lib.get_state_sync_config_combined()
 
 nodes = start_cluster(
     4, 0, 1, None,

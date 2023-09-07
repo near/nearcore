@@ -15,13 +15,14 @@ from cluster import start_cluster
 from configured_logger import logger
 from key import Key
 from transaction import sign_staking_tx, sign_create_account_with_full_access_key_and_balance_tx
-import state_sync
+import state_sync_lib
 import utils
 
 MAX_SYNC_WAIT = 30
 EPOCH_LENGTH = 10
 
-(node_config_dump, node_config_sync) = state_sync.get_state_sync_configs_pair()
+(node_config_dump,
+ node_config_sync) = state_sync_lib.get_state_sync_configs_pair()
 
 nodes = start_cluster(
     1, 1, 1, None,
