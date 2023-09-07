@@ -78,11 +78,6 @@ struct CliArgs {
     /// Spawn a bash shell inside a docker container for debugging purposes.
     #[clap(long)]
     docker_shell: bool,
-    /// If docker is also set, run estimator in the fully production setting to get usable cost
-    /// table. See runtime-params-estimator/emu-cost/README.md for more details.
-    /// Works only with enabled docker, because precise computations without it doesn't make sense.
-    #[clap(long)]
-    full: bool,
     /// Drop OS cache before measurements for better IO accuracy. Requires sudo.
     #[clap(long)]
     drop_os_cache: bool,
@@ -210,7 +205,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
     if cli_args.docker {
         main_docker(
             &state_dump_path,
-            cli_args.full,
+            cli_args.accurate,
             cli_args.docker_shell,
             cli_args.json_output,
             cli_args.debug,
@@ -292,7 +287,6 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         warmup_iters_per_block,
         iter_per_block,
         active_accounts,
-        block_sizes: vec![],
         finality_lag: cli_args.finality_lag,
         fs_keys_per_delta: cli_args.fs_keys_per_delta,
         state_dump_path: state_dump_path,
@@ -380,7 +374,7 @@ fn main_docker(
         let _binary_name = args.next();
         while let Some(arg) = args.next() {
             match arg.as_str() {
-                "--docker" | "--full" => continue,
+                "--docker" => continue,
                 "--additional-accounts-num" | "--home" => {
                     args.next();
                     continue;
@@ -522,7 +516,6 @@ mod tests {
             costs: Some(costs),
             docker: false,
             docker_shell: false,
-            full: false,
             drop_os_cache: false,
             debug: true,
             json_output: false,
