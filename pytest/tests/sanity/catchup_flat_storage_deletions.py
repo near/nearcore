@@ -7,11 +7,11 @@
 
 import pathlib
 import sys
-import tempfile
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster, load_config
+import state_sync
 import transaction
 import utils
 
@@ -44,62 +44,22 @@ def print_balances(nodes, account_ids):
 
 
 def main():
-    state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
-
-    config0 = {
-        'state_sync': {
-            'dump': {
-                'location': {
-                    'Filesystem': {
-                        'root_dir': state_parts_dir
-                    }
-                },
-                'iteration_delay': {
-                    'secs': 0,
-                    'nanos': 100000000
-                },
-            }
-        },
-        'store.state_snapshot_enabled': True,
-        'tracked_shards': [0]  # Track all shards.
-    }
-    config1 = {
-        'log_summary_period': {
-            'secs': 0,
-            'nanos': 500000000
-        },
-        'log_summary_style': 'plain',
-        'state_sync': {
-            'sync': {
-                'ExternalStorage': {
-                    'location': {
-                        'Filesystem': {
-                            'root_dir': state_parts_dir
-                        }
-                    }
-                }
-            }
-        },
-        'state_sync_enabled': True,
-        'consensus.state_sync_timeout': {
-            'secs': 0,
-            'nanos': 500000000
-        },
-        # The schedule means that the node tracks all shards all the time except for epoch heights 2 and 3.
-        # Those epochs correspond to block heights [EPOCH_LENGTH * 2 + 1, EPOCH_LENGTH * 4].
-        'tracked_shard_schedule': [
-            [0],  # epoch_height = 0 and 4
-            [0],  # epoch_height = 1* and 1 and 5
-            [],  # epoch_height = 2
-            [],  # epoch_height = 3
-        ],
-        'tracked_shards': [],
-    }
+    node_config_dump, node_config_sync = state_sync.get_state_sync_configs_pair(
+    )
+    # The schedule means that the node tracks all shards all the time except for epoch heights 2 and 3.
+    # Those epochs correspond to block heights [EPOCH_LENGTH * 2 + 1, EPOCH_LENGTH * 4].
+    node_config_sync["tracked_shard_schedule"] = [
+        [0],  # epoch_height = 0 and 4
+        [0],  # epoch_height = 1* and 1 and 5
+        [],  # epoch_height = 2
+        [],  # epoch_height = 3
+    ]
+    node_config_sync["tracked_shards"] = []
 
     config = load_config()
     nodes = start_cluster(1, 1, 1, config, [["epoch_length", EPOCH_LENGTH]], {
-        0: config0,
-        1: config1
+        0: node_config_dump,
+        1: node_config_sync
     })
     [boot_node, node] = nodes
 

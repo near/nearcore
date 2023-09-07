@@ -11,64 +11,27 @@
 import pathlib
 import random
 import sys
-import tempfile
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config, apply_config_changes
 import account
+import state_sync
 import transaction
-import utils
 
 from configured_logger import logger
 
 EPOCH_LENGTH = 30
 
-state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
-
-config0 = {
-    "state_sync": {
-        "dump": {
-            "location": {
-                "Filesystem": {
-                    "root_dir": state_parts_dir
-                }
-            },
-            "iteration_delay": {
-                "secs": 0,
-                "nanos": 100000000
-            },
-        }
-    },
-    "store.state_snapshot_enabled": True,
-    "tracked_shards": [0],
-}
-config1 = {
-    "state_sync": {
-        "sync": {
-            "ExternalStorage": {
-                "location": {
-                    "Filesystem": {
-                        "root_dir": state_parts_dir
-                    }
-                }
-            }
-        }
-    },
-    "state_sync_enabled": True,
-    "consensus.state_sync_timeout": {
-        "secs": 0,
-        "nanos": 500000000
-    },
-    "tracked_shard_schedule": [[0], [0], [1], [1]],
-    "tracked_shards": [],
-}
+(node_config_dump, node_config_sync) = state_sync.get_state_sync_configs_pair()
+node_config_sync["tracked_shards"] = []
+node_config_sync["tracked_shard_schedule"] = [[0], [0], [1], [1]]
 
 config = load_config()
 near_root, node_dirs = init_cluster(1, 1, 2, config,
                                     [["epoch_length", EPOCH_LENGTH]], {
-                                        0: config0,
-                                        1: config1
+                                        0: node_config_dump,
+                                        1: node_config_sync
                                     })
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0)

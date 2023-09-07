@@ -14,6 +14,7 @@ swap_nodes = ("swap_nodes" in sys.argv)  # swap nodes 0 and 1 after first sync
 
 from cluster import start_cluster
 from configured_logger import logger
+import state_sync
 import utils
 
 state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
@@ -23,44 +24,7 @@ TARGET_HEIGHT1 = EPOCH_LENGTH * 4
 TARGET_HEIGHT2 = EPOCH_LENGTH * 8
 TARGET_HEIGHT3 = EPOCH_LENGTH * 12
 
-node_config_sync = {
-    "consensus": {
-        "sync_step_period": {
-            "secs": 0,
-            "nanos": 200000000
-        }
-    },
-    "tracked_shards": [0],
-    "state_sync": {
-        "sync": {
-            "ExternalStorage": {
-                "location": {
-                    "Filesystem": {
-                        "root_dir": state_parts_dir
-                    }
-                }
-            }
-        }
-    },
-    "state_sync_enabled": True,
-}
-node_config_dump = {
-    "tracked_shards": [0],
-    "state_sync": {
-        "dump": {
-            "location": {
-                "Filesystem": {
-                    "root_dir": state_parts_dir
-                }
-            },
-            "iteration_delay": {
-                "secs": 0,
-                "nanos": 100000000
-            },
-        }
-    },
-    "store.state_snapshot_enabled": True
-}
+node_config = state_sync.get_state_sync_config_combined()
 
 nodes = start_cluster(
     4, 0, 1, None,
@@ -76,12 +40,8 @@ nodes = start_cluster(
      ], ['total_supply', "4925000000000000000000000000000000"],
      ["block_producer_kickout_threshold", 40],
      ["chunk_producer_kickout_threshold", 40], ["num_block_producer_seats", 10],
-     ["num_block_producer_seats_per_shard", [10]]], {
-         0: node_config_sync,
-         1: node_config_sync,
-         2: node_config_dump,
-         3: node_config_dump,
-     })
+     ["num_block_producer_seats_per_shard", [10]]],
+    {x: node_config for x in range(4)})
 
 logger.info('Kill node 1')
 nodes[1].kill()

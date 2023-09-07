@@ -8,21 +8,20 @@
 # resharding from V0 (1 shard) to V1 (4 shards) or from V1 (4 shards) to V2 (5
 # shards).
 
-import sys, time
 import pathlib
+import sys
+import time
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config, get_binary_protocol_version
 from configured_logger import logger
 import requests
-import tempfile
+import state_sync
 import utils
 
 EPOCH_LENGTH = 10
 START_AT_BLOCK = int(EPOCH_LENGTH * 2.5)
-
-state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
 
 V1_PROTOCOL_VERSION = 48
 V2_PROTOCOL_VERSION = 135
@@ -115,70 +114,15 @@ config = load_config()
 binary_protocol_version = get_binary_protocol_version(config)
 assert binary_protocol_version is not None
 
+node_config = state_sync.get_state_sync_config_combined()
+
 near_root, node_dirs = init_cluster(
     num_nodes=2,
     num_observers=1,
     num_shards=4,
     config=config,
     genesis_config_changes=get_genesis_config_changes(binary_protocol_version),
-    client_config_changes={
-        0: {
-            "tracked_shards": [0],
-            "store.state_snapshot_enabled": True,
-            "state_sync": {
-                "dump": {
-                    "location": {
-                        "Filesystem": {
-                            "root_dir": state_parts_dir
-                        }
-                    },
-                    "iteration_delay": {
-                        "secs": 0,
-                        "nanos": 100000000
-                    },
-                }
-            },
-        },
-        1: {
-            "tracked_shards": [0],
-            "store.state_snapshot_enabled": True,
-            "state_sync": {
-                "dump": {
-                    "location": {
-                        "Filesystem": {
-                            "root_dir": state_parts_dir
-                        }
-                    },
-                    "iteration_delay": {
-                        "secs": 0,
-                        "nanos": 100000000
-                    },
-                }
-            },
-        },
-        2: {
-            "tracked_shards": [0],
-            "consensus": {
-                "block_fetch_horizon": EPOCH_LENGTH * 2,
-                "sync_step_period": {
-                    "secs": 0,
-                    "nanos": 200000000
-                }
-            },
-            "state_sync": {
-                "sync": {
-                    "ExternalStorage": {
-                        "location": {
-                            "Filesystem": {
-                                "root_dir": state_parts_dir
-                            }
-                        }
-                    }
-                }
-            },
-            "state_sync_enabled": True,
-        }
-    },
+    client_config_changes={x: node_config for x in range(3)},
 )
 
 started = time.time()

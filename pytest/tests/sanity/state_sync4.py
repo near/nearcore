@@ -15,47 +15,20 @@ from cluster import start_cluster
 from configured_logger import logger
 from key import Key
 from transaction import sign_staking_tx, sign_create_account_with_full_access_key_and_balance_tx
+import state_sync
 import utils
 
 MAX_SYNC_WAIT = 30
 EPOCH_LENGTH = 10
 
-state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
-
-node0_config = {
-    "state_sync": {
-        "dump": {
-            "location": {
-                "Filesystem": {
-                    "root_dir": state_parts_dir
-                }
-            },
-            "iteration_delay": {
-                "secs": 0,
-                "nanos": 100000000
-            },
-        }
-    },
-    "tracked_shards": [0],
-    "store.state_snapshot_enabled": True,
-}
-node1_config = {
-    "consensus": {
-        "sync_step_period": {
-            "secs": 0,
-            "nanos": 100
-        }
-    },
-    "tracked_shards": [0],
-    "state_sync_enabled": True,
-}
+(node_config_dump, node_config_sync) = state_sync.get_state_sync_configs_pair()
 
 nodes = start_cluster(
     1, 1, 1, None,
     [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10],
      ["chunk_producer_kickout_threshold", 10]], {
-         0: node0_config,
-         1: node1_config,
+         0: node_config_dump,
+         1: node_config_sync,
      })
 time.sleep(2)
 nodes[1].kill()
