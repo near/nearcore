@@ -310,7 +310,7 @@ mod tests {
         // first set up a network with only one validator and generate some blocks
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        let epoch_length = 30;
+        let epoch_length = 50;
         genesis.config.epoch_length = epoch_length;
         let mut near_config =
             load_test_config("test0", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
