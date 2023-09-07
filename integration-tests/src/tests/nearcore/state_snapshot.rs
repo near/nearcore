@@ -186,6 +186,9 @@ fn delete_content_at_path(path: &str) -> std::io::Result<()> {
 }
 
 #[test]
+// Runs a validator node.
+// Makes a state snapshot after processing every block. Each block contains a
+// transaction creating an account.
 fn test_make_state_snapshot() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
@@ -242,7 +245,10 @@ fn test_make_state_snapshot() {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         blocks.push(block.clone());
         env.process_block(0, block.clone(), Provenance::PRODUCED);
-        assert!(verify_make_snapshot(&state_snapshot_test_env, *block.hash(), &block).is_ok());
+        assert_eq!(
+            format!("{:?}", Ok::<(), anyhow::Error>(())),
+            format!("{:?}", verify_make_snapshot(&state_snapshot_test_env, *block.hash(), &block))
+        );
     }
 
     // check that if the entry in DBCol::STATE_SNAPSHOT_KEY was missing while snapshot file exists, an overwrite of snapshot can succeed
@@ -250,7 +256,13 @@ fn test_make_state_snapshot() {
     let head = env.clients[0].chain.head().unwrap();
     let head_block_hash = head.last_block_hash;
     let head_block = env.clients[0].chain.get_block(&head_block_hash).unwrap();
-    assert!(verify_make_snapshot(&state_snapshot_test_env, head_block_hash, &head_block).is_ok());
+    assert_eq!(
+        format!("{:?}", Ok::<(), anyhow::Error>(())),
+        format!(
+            "{:?}",
+            verify_make_snapshot(&state_snapshot_test_env, head_block_hash, &head_block)
+        )
+    );
 
     // check that if the snapshot is deleted from file system while there's entry in DBCol::STATE_SNAPSHOT_KEY and write lock is nonempty, making a snpashot of the same hash will not write to the file system
     let snapshot_hash = head.last_block_hash;
@@ -261,8 +273,12 @@ fn test_make_state_snapshot() {
         &state_snapshot_test_env.state_snapshot_subdir,
     );
     delete_content_at_path(snapshot_path.to_str().unwrap()).unwrap();
-    assert!(
-        verify_make_snapshot(&state_snapshot_test_env, head.last_block_hash, &head_block).is_err()
+    assert_ne!(
+        format!("{:?}", Ok::<(), anyhow::Error>(())),
+        format!(
+            "{:?}",
+            verify_make_snapshot(&state_snapshot_test_env, head.last_block_hash, &head_block)
+        )
     );
     if let Ok(entries) = std::fs::read_dir(snapshot_path) {
         assert_eq!(entries.count(), 0);
