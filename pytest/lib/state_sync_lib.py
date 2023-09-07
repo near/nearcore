@@ -2,6 +2,15 @@ import pathlib
 import tempfile
 
 
+def approximate_epoch_height(block_height, epoch_length):
+    if block_height == 0:
+        return 0
+    if block_height <= epoch_length:
+        # According to the protocol specifications, there are two epochs with height 1.
+        return "1*"
+    return int((block_height - 1) / epoch_length)
+
+
 def get_state_sync_configs_pair():
     state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / "state_parts")
 

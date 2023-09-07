@@ -815,6 +815,7 @@ def apply_config_changes(node_dir, client_config_change):
     # when None.
     allowed_missing_configs = (
         'archive',
+        'consensus.min_block_production_delay',
         'consensus.state_sync_timeout',
         'log_summary_period',
         'max_gas_burnt_view',

@@ -18,6 +18,7 @@ from cluster import init_cluster, spin_up_node, load_config, apply_config_change
 import account
 import state_sync_lib
 import transaction
+import utils
 
 from configured_logger import logger
 
@@ -59,15 +60,6 @@ assert 'result' in result and 'error' not in result, (
     'Expected "result" and no "error" in response, got: {}'.format(result))
 
 
-def epoch_height(block_height):
-    if block_height == 0:
-        return 0
-    if block_height <= EPOCH_LENGTH:
-        # According to the protocol specifications, there are two epochs with height 1.
-        return "1*"
-    return int((block_height - 1) / EPOCH_LENGTH)
-
-
 # Generates traffic for all possible shards.
 # Assumes that `test0`, `test1`, `near` all belong to different shards.
 def random_workload_until(target, nonce, keys, target_node):
@@ -80,7 +72,9 @@ def random_workload_until(target, nonce, keys, target_node):
         if height > target:
             break
         if height != last_height:
-            logger.info(f'@{height}, epoch_height: {epoch_height(height)}')
+            logger.info(
+                f'@{height}, epoch_height: {state_sync_lib.approximate_epoch_height(height, EPOCH_LENGTH)}'
+            )
             last_height = height
 
         last_block_hash = boot_node.get_latest_block().hash_bytes

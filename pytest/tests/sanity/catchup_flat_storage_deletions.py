@@ -20,15 +20,6 @@ from configured_logger import logger
 EPOCH_LENGTH = 10
 
 
-def epoch_height(block_height):
-    if block_height == 0:
-        return 0
-    if block_height <= EPOCH_LENGTH:
-        # According to the protocol specifications, there are two epochs with height 1.
-        return "1*"
-    return int((block_height - 1) / EPOCH_LENGTH)
-
-
 def print_balances(nodes, account_ids):
     for node in nodes:
         for account_id in account_ids:
@@ -75,7 +66,8 @@ def main():
 
     latest_block = utils.wait_for_blocks(boot_node,
                                          target=int(2.5 * EPOCH_LENGTH))
-    epoch = epoch_height(latest_block.height)
+    epoch = state_sync_lib.approximate_epoch_height(latest_block.height,
+                                                    EPOCH_LENGTH)
     assert epoch == 2, f"epoch: {epoch}"
     node.kill()
     # Restart the node to make it start without opening any flat storages.
@@ -97,7 +89,8 @@ def main():
     # Wait until the node tracks the shard and probably does the catchup.
     latest_block = utils.wait_for_blocks(boot_node,
                                          target=int(4.5 * EPOCH_LENGTH))
-    epoch = epoch_height(latest_block.height)
+    epoch = state_sync_lib.approximate_epoch_height(latest_block.height,
+                                                    EPOCH_LENGTH)
     assert epoch == 4, f"epoch: {epoch}"
     logger.info(f'We are in epoch {epoch}')
 
@@ -136,7 +129,7 @@ def main():
     boot_node_latest_block_height = boot_node.get_latest_block().height
     node_latest_block_height = node.get_latest_block().height
     logger.info(
-        f'The validator node is at block height {boot_node_latest_block_height} in epoch {epoch_height(boot_node_latest_block_height)}'
+        f'The validator node is at block height {boot_node_latest_block_height} in epoch {state_sync_lib.approximate_epoch_height(boot_node_latest_block_height, EPOCH_LENGTH)}'
     )
     logger.info(
         f'The non-validator node is at block height {node_latest_block_height}')

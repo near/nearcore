@@ -26,15 +26,6 @@ from configured_logger import logger
 EPOCH_LENGTH = 50
 
 
-def epoch_height(block_height):
-    if block_height == 0:
-        return 0
-    if block_height <= EPOCH_LENGTH:
-        # According to the protocol specifications, there are two epochs with height 1.
-        return "1*"
-    return int((block_height - 1) / EPOCH_LENGTH)
-
-
 def random_u64():
     return bytes(random.randint(0, 255) for _ in range(8))
 
@@ -51,7 +42,9 @@ def random_workload_until(target, nonce, keys, node0, node1, target_node):
         if height > target:
             break
         if height != last_height:
-            logger.info(f'@{height}, epoch_height: {epoch_height(height)}')
+            logger.info(
+                f'@{height}, epoch_height: {state_sync_lib.approximate_epoch_height(height, EPOCH_LENGTH)}'
+            )
             last_height = height
 
         last_block_hash = node0.get_latest_block().hash_bytes
