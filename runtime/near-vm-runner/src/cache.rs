@@ -3,11 +3,15 @@ use crate::logic::errors::{CacheError, CompilationError};
 use crate::logic::{CompiledContract, CompiledContractCache, ProtocolVersion, VMConfig};
 use crate::vm_kind::VMKind;
 use borsh::BorshSerialize;
+use near_o11y::metrics::{try_create_counter, try_create_int_counter};
 use near_primitives_core::contract::ContractCode;
 use near_primitives_core::hash::CryptoHash;
+use once_cell::sync::Lazy;
+use prometheus::{Counter, IntCounter};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 #[derive(Debug, Clone, BorshSerialize)]
 enum ContractCacheKey {
@@ -108,8 +112,39 @@ pub fn precompile_contract(
     };
     let key = get_contract_cache_key(code, vm_kind, config);
     // Check if we already cached with such a key.
-    if cache.has(&key).map_err(CacheError::ReadError)? {
+    let time_before_lookup = Instant::now();
+    let cached = cache.has(&key).map_err(CacheError::ReadError)?;
+    CONTRACT_PRECOMPILATION_CACHE_LOOKUP_TIME_MS
+        .inc_by(time_before_lookup.elapsed().as_secs_f64() * 1000.0);
+    CONTRACT_PRECOMPILATION_NUMBER_OF_LOOKUPS.inc();
+
+    if cached {
         return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
     }
+    CONTRACT_PRECOMPILATIONS_NOT_ALREADY_IN_CACHE.inc();
     runtime.precompile(code, cache)
 }
+
+pub static CONTRACT_PRECOMPILATIONS_NOT_ALREADY_IN_CACHE: Lazy<IntCounter> = Lazy::new(|| {
+    try_create_int_counter(
+        "contract_recompilations_not_already_in_cache",
+        "Number of times a contract was recompiled because it was not already in the cache",
+    )
+    .unwrap()
+});
+
+pub static CONTRACT_PRECOMPILATION_CACHE_LOOKUP_TIME_MS: Lazy<Counter> = Lazy::new(|| {
+    try_create_counter(
+        "contract_precompilation_cache_lookup_time_ms",
+        "Milliseconds spent looking up a contract in the precompilation cache",
+    )
+    .unwrap()
+});
+
+pub static CONTRACT_PRECOMPILATION_NUMBER_OF_LOOKUPS: Lazy<IntCounter> = Lazy::new(|| {
+    try_create_int_counter(
+        "contract_precompilation_number_of_lookups",
+        "Number of times a contract was looked up in the precompilation cache",
+    )
+    .unwrap()
+});

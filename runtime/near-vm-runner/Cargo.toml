@@ -24,6 +24,7 @@ memoffset.workspace = true
 once_cell.workspace = true
 parity-wasm.workspace = true
 prefix-sum-vec.workspace = true
+prometheus.workspace = true
 ripemd.workspace = true
 serde.workspace = true
 serde_with.workspace = true
@@ -38,6 +39,7 @@ wasmtime = { workspace = true, optional = true }
 
 near-crypto.workspace = true
 near-primitives-core.workspace = true
+near-o11y.workspace = true
 
 # Old versions of pwasm-utils we need to preserve backwards compatibility under
 # old protocol versions.
