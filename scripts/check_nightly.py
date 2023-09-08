@@ -5,6 +5,8 @@ Scans all Rust source files looking for expensive tests and than makes sure that
 they are all referenced in NayDuck test list files (the nightly/*.txt files).
 Returns with success if that's the case; with failure otherwise.
 
+Adding lines to test verification script
+
 An expensive test is one which is marked with expensive_tests feature as
 follows:
 
