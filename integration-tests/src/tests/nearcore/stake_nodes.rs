@@ -44,6 +44,7 @@ fn init_test_staking(
     enable_rewards: bool,
     minimum_stake_divisor: u64,
     state_snapshot_enabled: bool,
+    track_all_shards: bool,
 ) -> Vec<TestNode> {
     init_integration_logger();
 
@@ -70,6 +71,9 @@ fn init_test_staking(
         // Disable state snapshots, because they don't work with epochs that are too short.
         // And they are not needed in these tests.
         config.config.store.state_snapshot_enabled = state_snapshot_enabled;
+        if track_all_shards {
+            config.config.tracked_shards = vec![0];
+        }
         if i != 0 {
             config.network_config.peer_store.boot_nodes =
                 convert_boot_nodes(vec![("near.0", *first_node)]);
@@ -115,6 +119,7 @@ fn test_stake_nodes() {
                 10,
                 false,
                 10,
+                false,
                 false,
             );
 
@@ -200,6 +205,7 @@ fn test_validator_kickout() {
                 15,
                 false,
                 (TESTING_INIT_STAKE / NEAR_BASE) as u64 + 1,
+                false,
                 false,
             );
             let mut rng = rand::thread_rng();
@@ -333,6 +339,11 @@ fn test_validator_kickout() {
 
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
+/// Starts 4 nodes, genesis has 2 validator seats.
+/// Node1 unstakes, Node2 stakes.
+/// Submit the transactions via Node1 and Node2.
+/// Poll `/status` until you see the change of validator assignments.
+/// Afterwards check that `locked` amount on accounts Node1 and Node2 are 0 and TESTING_INIT_STAKE.
 fn test_validator_join() {
     heavy_test(|| {
         let num_nodes = 4;
@@ -349,6 +360,7 @@ fn test_validator_join() {
                 30,
                 false,
                 10,
+                true,
                 true,
             );
             let signer = Arc::new(InMemorySigner::from_seed(
@@ -510,6 +522,7 @@ fn test_inflation() {
                 epoch_length,
                 true,
                 10,
+                false,
                 false,
             );
             let initial_total_supply = test_nodes[0].config.genesis.config.total_supply;

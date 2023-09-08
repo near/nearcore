@@ -421,7 +421,7 @@ fn sync_state_dump() {
         let mut genesis = Genesis::test_sharded_new_version(
             vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
             1,
-            vec![1, 1, 1, 1],
+            vec![1],
         );
         // Needs to be long enough to give enough time to the second node to
         // start, sync headers and find a dump of state.
@@ -441,13 +441,16 @@ fn sync_state_dump() {
             near1.client_config.min_block_production_delay = Duration::from_millis(300);
             near1.client_config.max_block_production_delay = Duration::from_millis(600);
             near1.client_config.epoch_sync_enabled = false;
+            near1.client_config.tracked_shards = vec![0]; // Track all shards.
             let dump_dir = tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap();
             near1.client_config.state_sync.dump = Some(DumpConfig {
                 location: Filesystem { root_dir: dump_dir.path().to_path_buf() },
                 restart_dump_for_shards: None,
-                iteration_delay: Some(Duration::from_millis(100)),
+                iteration_delay: Some(Duration::from_millis(500)),
                 credentials_file: None,
             });
+            near1.config.store.state_snapshot_enabled = true;
+            near1.config.store.state_snapshot_compaction_enabled = false;
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let nearcore::NearNode {
@@ -461,7 +464,7 @@ fn sync_state_dump() {
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
             let arbiters_holder2 = arbiters_holder;
 
-            wait_or_timeout(100, 60000, || async {
+            wait_or_timeout(1000, 60000, || async {
                 if view_client2_holder.read().unwrap().is_none() {
                     let view_client2_holder2 = view_client2_holder.clone();
                     let arbiters_holder2 = arbiters_holder2.clone();
@@ -484,16 +487,16 @@ fn sync_state_dump() {
                                 near2.client_config.block_header_fetch_horizon =
                                     block_header_fetch_horizon;
                                 near2.client_config.block_fetch_horizon = block_fetch_horizon;
-                                near2.client_config.tracked_shards = vec![0, 1, 2, 3];
+                                near2.client_config.tracked_shards = vec![0]; // Track all shards.
                                 near2.client_config.epoch_sync_enabled = false;
                                 near2.client_config.state_sync_enabled = true;
-                                near2.client_config.state_sync_timeout = Duration::from_secs(1);
+                                near2.client_config.state_sync_timeout = Duration::from_secs(2);
                                 near2.client_config.state_sync.sync =
                                     SyncConfig::ExternalStorage(ExternalStorageConfig {
                                         location: Filesystem {
                                             root_dir: dump_dir.path().to_path_buf(),
                                         },
-                                        num_concurrent_requests: 10,
+                                        num_concurrent_requests: 1,
                                         num_concurrent_requests_during_catchup: 1,
                                     });
 

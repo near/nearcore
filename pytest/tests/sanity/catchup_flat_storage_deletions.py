@@ -7,26 +7,17 @@
 
 import pathlib
 import sys
-import tempfile
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster, load_config
+import state_sync_lib
 import transaction
 import utils
 
 from configured_logger import logger
 
 EPOCH_LENGTH = 10
-
-
-def epoch_height(block_height):
-    if block_height == 0:
-        return 0
-    if block_height <= EPOCH_LENGTH:
-        # According to the protocol specifications, there are two epochs with height 1.
-        return "1*"
-    return int((block_height - 1) / EPOCH_LENGTH)
 
 
 def print_balances(nodes, account_ids):
@@ -44,62 +35,22 @@ def print_balances(nodes, account_ids):
 
 
 def main():
-    state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
-
-    config0 = {
-        'state_sync': {
-            'dump': {
-                'location': {
-                    'Filesystem': {
-                        'root_dir': state_parts_dir
-                    }
-                },
-                'iteration_delay': {
-                    'secs': 0,
-                    'nanos': 100000000
-                },
-            }
-        },
-        'store.state_snapshot_enabled': True,
-        'tracked_shards': [0]  # Track all shards.
-    }
-    config1 = {
-        'log_summary_period': {
-            'secs': 0,
-            'nanos': 500000000
-        },
-        'log_summary_style': 'plain',
-        'state_sync': {
-            'sync': {
-                'ExternalStorage': {
-                    'location': {
-                        'Filesystem': {
-                            'root_dir': state_parts_dir
-                        }
-                    }
-                }
-            }
-        },
-        'state_sync_enabled': True,
-        'consensus.state_sync_timeout': {
-            'secs': 0,
-            'nanos': 500000000
-        },
-        # The schedule means that the node tracks all shards all the time except for epoch heights 2 and 3.
-        # Those epochs correspond to block heights [EPOCH_LENGTH * 2 + 1, EPOCH_LENGTH * 4].
-        'tracked_shard_schedule': [
-            [0],  # epoch_height = 0 and 4
-            [0],  # epoch_height = 1* and 1 and 5
-            [],  # epoch_height = 2
-            [],  # epoch_height = 3
-        ],
-        'tracked_shards': [],
-    }
+    node_config_dump, node_config_sync = state_sync_lib.get_state_sync_configs_pair(
+    )
+    # The schedule means that the node tracks all shards all the time except for epoch heights 2 and 3.
+    # Those epochs correspond to block heights [EPOCH_LENGTH * 2 + 1, EPOCH_LENGTH * 4].
+    node_config_sync["tracked_shard_schedule"] = [
+        [0],  # epoch_height = 0 and 4
+        [0],  # epoch_height = 1* and 1 and 5
+        [],  # epoch_height = 2
+        [],  # epoch_height = 3
+    ]
+    node_config_sync["tracked_shards"] = []
 
     config = load_config()
     nodes = start_cluster(1, 1, 1, config, [["epoch_length", EPOCH_LENGTH]], {
-        0: config0,
-        1: config1
+        0: node_config_dump,
+        1: node_config_sync
     })
     [boot_node, node] = nodes
 
@@ -115,7 +66,8 @@ def main():
 
     latest_block = utils.wait_for_blocks(boot_node,
                                          target=int(2.5 * EPOCH_LENGTH))
-    epoch = epoch_height(latest_block.height)
+    epoch = state_sync_lib.approximate_epoch_height(latest_block.height,
+                                                    EPOCH_LENGTH)
     assert epoch == 2, f"epoch: {epoch}"
     node.kill()
     # Restart the node to make it start without opening any flat storages.
@@ -137,7 +89,8 @@ def main():
     # Wait until the node tracks the shard and probably does the catchup.
     latest_block = utils.wait_for_blocks(boot_node,
                                          target=int(4.5 * EPOCH_LENGTH))
-    epoch = epoch_height(latest_block.height)
+    epoch = state_sync_lib.approximate_epoch_height(latest_block.height,
+                                                    EPOCH_LENGTH)
     assert epoch == 4, f"epoch: {epoch}"
     logger.info(f'We are in epoch {epoch}')
 
@@ -176,7 +129,7 @@ def main():
     boot_node_latest_block_height = boot_node.get_latest_block().height
     node_latest_block_height = node.get_latest_block().height
     logger.info(
-        f'The validator node is at block height {boot_node_latest_block_height} in epoch {epoch_height(boot_node_latest_block_height)}'
+        f'The validator node is at block height {boot_node_latest_block_height} in epoch {state_sync_lib.approximate_epoch_height(boot_node_latest_block_height, EPOCH_LENGTH)}'
     )
     logger.info(
         f'The non-validator node is at block height {node_latest_block_height}')

@@ -24,26 +24,21 @@ assert mode in ['notx', 'onetx', 'manytx']
 
 from cluster import init_cluster, spin_up_node, load_config
 from configured_logger import logger
+import state_sync_lib
 import utils
 
 START_AT_BLOCK = int(sys.argv[2])
 TIMEOUT = 150 + START_AT_BLOCK * 10
 
 config = load_config()
-node_config = {
-    "tracked_shards": [0],
-    "state_sync_enabled": True,
-    "store.state_snapshot_enabled": True,
-}
+
+node_config = state_sync_lib.get_state_sync_config_combined()
 
 near_root, node_dirs = init_cluster(
     2, 1, 1, config,
     [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
-     ["block_producer_kickout_threshold", 80]], {
-         0: node_config,
-         1: node_config,
-         2: node_config,
-     })
+     ["block_producer_kickout_threshold", 80]],
+    {x: node_config for x in range(3)})
 
 started = time.time()
 

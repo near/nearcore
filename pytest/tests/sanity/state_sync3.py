@@ -10,63 +10,27 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
+import state_sync_lib
 import utils
 
 EPOCH_LENGTH = 1000
 MAX_SYNC_WAIT = 120
 
+(node_config_dump,
+ node_config_sync) = state_sync_lib.get_state_sync_configs_pair()
+node_config_dump["consensus.min_block_production_delay"] = {
+    "secs": 0,
+    "nanos": 100000000
+}
+
 state_parts_dir = str(pathlib.Path(tempfile.gettempdir()) / 'state_parts')
 
-consensus_config0 = {
-    "consensus": {
-        "min_block_production_delay": {
-            "secs": 0,
-            "nanos": 100000000
-        }
-    },
-    "tracked_shards": [0],
-    "store.state_snapshot_enabled": True,
-    "state_sync": {
-        "dump": {
-            "location": {
-                "Filesystem": {
-                    "root_dir": state_parts_dir
-                }
-            },
-            "iteration_delay": {
-                "secs": 0,
-                "nanos": 100000000
-            },
-        }
-    },
-}
-consensus_config1 = {
-    "consensus": {
-        "sync_step_period": {
-            "secs": 0,
-            "nanos": 200000000
-        }
-    },
-    "tracked_shards": [0],
-    "state_sync_enabled": True,
-    "state_sync": {
-        "sync": {
-            "ExternalStorage": {
-                "location": {
-                    "Filesystem": {
-                        "root_dir": state_parts_dir
-                    }
-                }
-            }
-        }
-    }
-}
 nodes = start_cluster(
     1, 1, 1, None,
     [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10],
      ["chunk_producer_kickout_threshold", 10]], {
-         0: consensus_config0,
-         1: consensus_config1
+         0: node_config_dump,
+         1: node_config_sync,
      })
 time.sleep(2)
 nodes[1].kill()

@@ -119,6 +119,7 @@ pub fn setup_mock_node(
     let parent_span = tracing::debug_span!(target: "mock_node", "setup_mock_node").entered();
     let (mock_network_epoch_manager, mock_network_shard_tracker, mock_network_runtime) =
         setup_runtime(network_home_dir, &config, false);
+    tracing::info!(target: "mock_node", ?network_home_dir, "Setup network runtime");
 
     let chain_genesis = ChainGenesis::new(&config.genesis);
 
@@ -127,6 +128,7 @@ pub fn setup_mock_node(
         tracing::info!(target: "mock_node", "Preparing client data dir to be able to start at the specified start height {}", client_start_height);
         let (client_epoch_manager, _, client_runtime) =
             setup_runtime(client_home_dir, &config, in_memory_storage);
+        tracing::info!(target: "mock_node", ?client_home_dir, "Setup client runtime");
         let mut chain_store = ChainStore::new(
             client_runtime.store().clone(),
             config.genesis.config.genesis_height,
@@ -140,11 +142,7 @@ pub fn setup_mock_node(
 
         let network_tail_height = network_chain_store.tail().unwrap();
         let network_head_height = network_chain_store.head().unwrap().height;
-        tracing::info!(target: "mock_node",
-              "network data chain tail height {} head height {}",
-              network_tail_height,
-              network_head_height,
-        );
+        tracing::info!(target: "mock_node", network_tail_height, network_head_height, "network data chain");
         assert!(
             client_start_height <= network_head_height
                 && client_start_height >= network_tail_height,
@@ -154,11 +152,12 @@ pub fn setup_mock_node(
             network_head_height
         );
         let hash = network_chain_store.get_block_hash_by_height(client_start_height).unwrap();
+        tracing::info!(target: "mock_node", "Checking whether the given start height is the last block of an epoch.");
         if !mock_network_epoch_manager.is_next_block_epoch_start(&hash).unwrap() {
             let epoch_start_height =
                 mock_network_epoch_manager.get_epoch_start_height(&hash).unwrap();
             panic!(
-                "start height must be the last block of an epoch, try using {} instead",
+                "start height must be the last block of an epoch, try using {} instead.",
                 epoch_start_height - 1
             );
         }
@@ -184,13 +183,13 @@ pub fn setup_mock_node(
         let block = network_chain_store.get_block(&hash).unwrap();
         let prev_hash = *block.header().prev_hash();
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
-            tracing::info!(target: "mock_node", "Preparing state for shard {}", shard_id);
             let shard_id = shard_id as u64;
             let state_root = chunk_header.prev_state_root();
             let state_root_node =
                 mock_network_runtime.get_state_root_node(shard_id, &hash, &state_root).unwrap();
             let num_parts = get_num_state_parts(state_root_node.memory_usage);
             let finished_parts_count = Arc::new(AtomicUsize::new(0));
+            tracing::info!(target: "mock_node", ?shard_id, ?state_root, num_parts, "Preparing state for a shard");
 
             (0..num_parts)
                 .into_par_iter()
@@ -296,11 +295,13 @@ mod tests {
     use std::sync::{Arc, RwLock};
     use std::time::Duration;
 
-    // Just a test to test that the basic mocknet setup works
-    // This test first starts a localnet with one validator node that generates 20 blocks
-    // to generate a chain history
-    // then start a mock network with this chain history and test that
-    // the client in the mock network can catch up these 20 blocks
+    // Test the basic mocknet setup.
+    // This test first starts a localnet with one validator node that generates 2 epochs of blocks
+    // to generate a chain history.
+    // Then start a mock network with this chain history and test that the client in the mock network can catch up these 2 epochs.
+    // The localnet needs to have state snapshots enabled. It copies state from
+    // one instance to another by using the state sync mechanism, which relies
+    // on the flat storage snapshots.
     #[cfg_attr(not(feature = "mock_node"), ignore)]
     #[test]
     fn test_mock_node_basic() {
@@ -309,13 +310,13 @@ mod tests {
         // first set up a network with only one validator and generate some blocks
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        let epoch_length = 40;
+        let epoch_length = 50;
         genesis.config.epoch_length = epoch_length;
         let mut near_config =
             load_test_config("test0", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
         near_config.client_config.min_num_peers = 0;
-        near_config.config.state_sync_enabled = Some(true);
         near_config.config.store.state_snapshot_enabled = true;
+        near_config.config.tracked_shards = vec![0]; // Track all shards.
 
         let dir = tempfile::Builder::new().prefix("test0").tempdir().unwrap();
         let path1 = dir.path();
@@ -373,8 +374,16 @@ mod tests {
                                 *nonce.write().unwrap() = next_nonce + 1;
                             }
 
-                            if block.header.height >= epoch_length * 2 + 2 {
-                                tracing::info!(block_height = ?block.header.height, expected = epoch_length * 2 + 2, "Time to stop");
+                            // This is the flaky part.
+                            // The node needs to stop as late into an epoch as
+                            // possible without going over into the next epoch.
+                            let expected_height = epoch_length * 3 - 5;
+                            if block.header.height >= expected_height {
+                                tracing::info!(
+                                    block_height = block.header.height,
+                                    expected_height,
+                                    "Time to stop"
+                                );
                                 System::current().stop()
                             }
                         }
@@ -382,6 +391,8 @@ mod tests {
                     });
                     spawn_interruptible(actor);
                 }),
+                // Keep this number low to ensure the node is stopped late in
+                // the epoch without going into the next epoch.
                 100,
                 60000,
             )
@@ -394,12 +405,11 @@ mod tests {
         let mut near_config1 = load_test_config("", tcp::ListenerAddr::reserve_for_test(), genesis);
         near_config1.client_config.min_num_peers = 1;
         near_config1.client_config.tracked_shards = vec![0]; // Track all shards.
-        near_config1.config.state_sync_enabled = Some(true);
         near_config1.config.store.state_snapshot_enabled = true;
-        near_config1.config.store.state_snapshot_compaction_enabled = false;
         let network_config = MockNetworkConfig::with_delay(Duration::from_millis(10));
 
         let client_start_height = {
+            tracing::info!(target: "mock_node", store_path = ?dir.path(), "Opening the created store to get client_start_height");
             let store = near_store::NodeStorage::opener(
                 dir.path(),
                 near_config1.config.archive,
@@ -419,9 +429,11 @@ mod tests {
             let network_head_hash = chain_store.head().unwrap().last_block_hash;
             let last_epoch_start_height =
                 epoch_manager.get_epoch_start_height(&network_head_hash).unwrap();
+            tracing::info!(target: "mock_node", ?network_head_hash, last_epoch_start_height);
             // Needs to be the last block of an epoch.
             last_epoch_start_height - 1
         };
+        tracing::info!(target: "mock_node", client_start_height);
 
         run_actix(async {
             let MockNode { rpc_client, .. } = setup_mock_node(
