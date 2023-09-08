@@ -31,7 +31,7 @@ use near_store::test_utils::{gen_account, gen_unique_accounts};
 use nearcore::config::GenesisExt;
 use nearcore::NEAR_BASE;
 use rand::seq::{IteratorRandom, SliceRandom};
-use rand::{thread_rng, Rng, SeedableRng};
+use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use tracing::debug;
@@ -106,7 +106,7 @@ struct DropChunkCondition {
 impl DropChunkCondition {
     fn should_drop_chunk(
         &self,
-        rng: &mut rand::rngs::ThreadRng,
+        rng: &mut StdRng,
         height: BlockHeight,
         shard_ids: &Vec<ShardId>,
     ) -> bool {
@@ -249,7 +249,6 @@ impl TestShardUpgradeEnv {
         resharding_type: &ReshardingType,
     ) {
         let env = &mut self.env;
-        let mut rng = thread_rng();
         let head = env.clients[0].chain.head().unwrap();
         let next_height = head.height + 1;
         let expected_num_shards =
@@ -297,9 +296,8 @@ impl TestShardUpgradeEnv {
 
         // Make sure that catchup is done before the end of each epoch, but when it is done is
         // by chance. This simulates when catchup takes a long time to be done
-        // Note: if the catchup happens only at the last block of an epoch then
-        // client will fail to produce the chunks in the first block of the next epoch.
-        let should_catchup = rng.gen_bool(P_CATCHUP) || next_height % self.epoch_length == 0;
+        let should_catchup =
+            self.rng.gen_bool(P_CATCHUP) || (next_height + 1) % self.epoch_length == 0;
         // process block, this also triggers chunk producers for the next block to produce chunks
         for j in 0..self.num_clients {
             let client = &mut env.clients[j];
@@ -310,7 +308,7 @@ impl TestShardUpgradeEnv {
                 .cloned()
                 .unwrap_or_default();
             let should_produce_chunk =
-                !drop_chunk_condition.should_drop_chunk(&mut rng, next_height + 1, &shard_ids);
+                !drop_chunk_condition.should_drop_chunk(&mut self.rng, next_height + 1, &shard_ids);
             tracing::info!(target: "test", ?next_height, ?should_produce_chunk, ?shard_ids, "should produce chunk");
 
             // Here we don't just call self.clients[i].process_block_sync_with_produce_chunk_options
@@ -821,19 +819,6 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_se
     let mut all_accounts: HashSet<_> = test_env.initial_accounts.clone().into_iter().collect();
     let mut accounts_to_check: Vec<_> = vec![];
     let initial_accounts = test_env.initial_accounts.clone();
-    // let generate_create_accounts_txs: &mut dyn FnMut(usize, bool) -> Vec<SignedTransaction> =
-    //     &mut |max_size: usize, check_accounts: bool| -> Vec<SignedTransaction> {
-    //         generate_create_accounts_txs(
-    //             &mut test_env.rng,
-    //             genesis_hash,
-    //             &initial_accounts,
-    //             &mut accounts_to_check,
-    //             &mut all_accounts,
-    //             &mut nonce,
-    //             max_size,
-    //             check_accounts,
-    //         )
-    //     };
 
     // add transactions until after sharding upgrade finishes
     for height in 2..3 * epoch_length {
@@ -878,10 +863,154 @@ fn test_shard_layout_upgrade_simple_v2() {
 const GAS_1: u64 = 300_000_000_000_000;
 const GAS_2: u64 = GAS_1 / 3;
 
+/// Return test_env and a map from tx hash to the new account that will be added by this transaction
+fn setup_test_env_with_cross_contract_txs(
+    test_env: &mut TestShardUpgradeEnv,
+    epoch_length: u64,
+) -> HashMap<CryptoHash, AccountId> {
+    let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
+    // Use test0, test1 and two random accounts to deploy contracts because we want accounts on
+    // different shards.
+    let indices = (4..test_env.initial_accounts.len()).choose_multiple(&mut test_env.rng, 2);
+    let contract_accounts = vec![
+        test_env.initial_accounts[0].clone(),
+        test_env.initial_accounts[1].clone(),
+        test_env.initial_accounts[indices[0]].clone(),
+        test_env.initial_accounts[indices[1]].clone(),
+    ];
+    let init_txs = contract_accounts
+        .iter()
+        .map(|account_id| {
+            let signer = InMemorySigner::from_seed(
+                account_id.clone(),
+                KeyType::ED25519,
+                &account_id.to_string(),
+            );
+            SignedTransaction::from_actions(
+                1,
+                account_id.clone(),
+                account_id.clone(),
+                &signer,
+                vec![Action::DeployContract(DeployContractAction {
+                    code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
+                })],
+                genesis_hash,
+            )
+        })
+        .collect();
+    test_env.set_init_tx(init_txs);
+
+    let mut nonce = 100;
+    let mut all_accounts: HashSet<_> = test_env.initial_accounts.clone().into_iter().collect();
+    let mut new_accounts = HashMap::new();
+
+    // add a bunch of transactions before the two epoch boundaries
+    for height in vec![
+        epoch_length - 2,
+        epoch_length - 1,
+        epoch_length,
+        2 * epoch_length - 2,
+        2 * epoch_length - 1,
+        2 * epoch_length,
+    ] {
+        let txs = generate_cross_contract_txs(
+            &mut test_env.rng,
+            genesis_hash,
+            &contract_accounts,
+            &mut all_accounts,
+            &mut new_accounts,
+            &mut nonce,
+            5,
+            8,
+        );
+
+        test_env.set_tx_at_height(height, txs);
+    }
+
+    // adds some transactions after sharding change finishes
+    // but do not add too many because I want all transactions to
+    // finish processing before epoch 5
+    for height in 2 * epoch_length + 1..3 * epoch_length {
+        if test_env.rng.gen_bool(0.3) {
+            let txs = generate_cross_contract_txs(
+                &mut test_env.rng,
+                genesis_hash,
+                &contract_accounts,
+                &mut all_accounts,
+                &mut new_accounts,
+                &mut nonce,
+                5,
+                8,
+            );
+            test_env.set_tx_at_height(height, txs);
+        }
+    }
+
+    new_accounts
+}
+
+fn generate_cross_contract_txs(
+    rng: &mut StdRng,
+    genesis_hash: CryptoHash,
+    contract_accounts: &Vec<AccountId>,
+    all_accounts: &mut HashSet<AccountId>,
+    new_accounts: &mut HashMap<CryptoHash, AccountId>,
+    nonce: &mut u64,
+    min_size: usize,
+    max_size: usize,
+) -> Vec<SignedTransaction> {
+    let size = rng.gen_range(min_size..max_size + 1);
+    let mut transactions = vec![];
+    for _ in 0..size {
+        if let Some(tx) = generate_cross_contract_tx(
+            rng,
+            genesis_hash,
+            contract_accounts,
+            all_accounts,
+            new_accounts,
+            nonce,
+        ) {
+            transactions.push(tx);
+        }
+    }
+    transactions
+}
+
+fn generate_cross_contract_tx(
+    rng: &mut StdRng,
+    genesis_hash: CryptoHash,
+    contract_accounts: &Vec<AccountId>,
+    all_accounts: &mut HashSet<AccountId>,
+    new_accounts: &mut HashMap<CryptoHash, AccountId>,
+    nonce: &mut u64,
+) -> Option<SignedTransaction> {
+    let account_id = gen_account(rng, b"abcdefghijkmn");
+    if !all_accounts.insert(account_id.clone()) {
+        return None;
+    }
+    *nonce += 1;
+    // randomly shuffle contract accounts
+    // so that transactions are send to different shards
+    let mut contract_accounts = contract_accounts.clone();
+    contract_accounts.shuffle(rng);
+    let tx = gen_cross_contract_tx_impl(
+        &contract_accounts[0],
+        &contract_accounts[1],
+        &contract_accounts[2],
+        &contract_accounts[3],
+        &account_id,
+        *nonce,
+        &genesis_hash,
+    );
+    new_accounts.insert(tx.get_hash(), account_id);
+    tracing::trace!(target: "test", ?tx, "generated tx");
+    Some(tx)
+}
+
 // create a transaction signed by `account0` and calls a contract on `account1`
 // the contract creates a promise that executes a cross contract call on "account2"
 // then executes another contract call on "account3" that creates a new account
-fn gen_cross_contract_transaction(
+fn gen_cross_contract_tx_impl(
     account0: &AccountId,
     account1: &AccountId,
     account2: &AccountId,
@@ -939,101 +1068,6 @@ fn gen_cross_contract_transaction(
         }))],
         *block_hash,
     )
-}
-
-/// Return test_env and a map from tx hash to the new account that will be added by this transaction
-fn setup_test_env_with_cross_contract_txs(
-    test_env: &mut TestShardUpgradeEnv,
-    epoch_length: u64,
-) -> HashMap<CryptoHash, AccountId> {
-    let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
-    // Use test0, test1 and two random accounts to deploy contracts because we want accounts on
-    // different shards.
-    let indices = (4..test_env.initial_accounts.len()).choose_multiple(&mut test_env.rng, 2);
-    let contract_accounts = vec![
-        test_env.initial_accounts[0].clone(),
-        test_env.initial_accounts[1].clone(),
-        test_env.initial_accounts[indices[0]].clone(),
-        test_env.initial_accounts[indices[1]].clone(),
-    ];
-    test_env.set_init_tx(
-        contract_accounts
-            .iter()
-            .map(|account_id| {
-                let signer = InMemorySigner::from_seed(
-                    account_id.clone(),
-                    KeyType::ED25519,
-                    &account_id.to_string(),
-                );
-                SignedTransaction::from_actions(
-                    1,
-                    account_id.clone(),
-                    account_id.clone(),
-                    &signer,
-                    vec![Action::DeployContract(DeployContractAction {
-                        code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
-                    })],
-                    genesis_hash,
-                )
-            })
-            .collect(),
-    );
-
-    let mut nonce = 100;
-    let mut all_accounts: HashSet<_> = test_env.initial_accounts.clone().into_iter().collect();
-    let mut new_accounts = HashMap::new();
-    let generate_txs: &mut dyn FnMut(usize, usize) -> Vec<SignedTransaction> =
-        &mut |min_size: usize, max_size: usize| -> Vec<SignedTransaction> {
-            let mut rng = thread_rng();
-            let size = rng.gen_range(min_size..max_size + 1);
-            std::iter::repeat_with(|| loop {
-                let account_id = gen_account(&mut rng, b"abcdefghijkmn");
-                if all_accounts.insert(account_id.clone()) {
-                    nonce += 1;
-                    // randomly shuffle contract accounts
-                    // so that transactions are send to different shards
-                    let mut contract_accounts = contract_accounts.clone();
-                    contract_accounts.shuffle(&mut rng);
-                    let tx = gen_cross_contract_transaction(
-                        &contract_accounts[0],
-                        &contract_accounts[1],
-                        &contract_accounts[2],
-                        &contract_accounts[3],
-                        &account_id,
-                        nonce,
-                        &genesis_hash,
-                    );
-                    new_accounts.insert(tx.get_hash(), account_id);
-                    tracing::trace!(target: "test", ?tx, "generated tx");
-                    return tx;
-                }
-            })
-            .take(size)
-            .collect()
-        };
-
-    // add a bunch of transactions before the two epoch boundaries
-    for height in vec![
-        epoch_length - 2,
-        epoch_length - 1,
-        epoch_length,
-        2 * epoch_length - 2,
-        2 * epoch_length - 1,
-        2 * epoch_length,
-    ] {
-        test_env.set_tx_at_height(height, generate_txs(5, 8));
-    }
-
-    // adds some transactions after sharding change finishes
-    // but do not add too many because I want all transactions to
-    // finish processing before epoch 5
-    for height in 2 * epoch_length + 1..3 * epoch_length {
-        if test_env.rng.gen_bool(0.3) {
-            test_env.set_tx_at_height(height, generate_txs(5, 8));
-        }
-    }
-
-    new_accounts
 }
 
 // Test cross contract calls
