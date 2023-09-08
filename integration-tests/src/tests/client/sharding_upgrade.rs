@@ -31,7 +31,7 @@ use near_store::test_utils::{gen_account, gen_unique_accounts};
 use nearcore::config::GenesisExt;
 use nearcore::NEAR_BASE;
 use rand::seq::{IteratorRandom, SliceRandom};
-use rand::{Rng, SeedableRng};
+use rand::{Rng, RngCore, SeedableRng};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use tracing::debug;
@@ -185,6 +185,7 @@ impl TestShardUpgradeEnv {
             (0..num_validators).map(|i| format!("test{}", i).parse().unwrap()).collect();
         let other_accounts = gen_unique_accounts(&mut rng, num_init_accounts, num_init_accounts);
         let initial_accounts = [validators, other_accounts].concat();
+        tracing::info!(?initial_accounts, "boom initial accounts");
         let genesis = setup_genesis(
             epoch_length,
             num_validators as u64,
@@ -1019,7 +1020,7 @@ fn generate_cross_contract_tx(
         &genesis_hash,
     );
     new_accounts.insert(tx.get_hash(), account_id);
-    tracing::trace!(target: "test", ?tx, "generated tx");
+    tracing::trace!(target: "test", tx=?tx.get_hash(), contract_accounts=?contract_accounts[..4], "generated tx");
     Some(tx)
 }
 
@@ -1262,3 +1263,31 @@ fn test_shard_layout_upgrade_missing_chunks_high_missing_prob() {
 }
 
 // TODO(resharding) add a test with missing blocks
+
+#[test]
+
+fn am_i_crazy() {
+    let rng_seed = 42;
+    let mut rng1: StdRng = SeedableRng::seed_from_u64(rng_seed);
+    let mut rng2: StdRng = SeedableRng::seed_from_u64(rng_seed);
+
+    assert_eq!(rng1.next_u64(), rng2.next_u64());
+
+    let alphabet = b"abc";
+
+    assert_eq!(gen_account(&mut rng1, alphabet), gen_account(&mut rng2, alphabet));
+
+    let accounts1 = near_store::test_utils::gen_accounts_from_alphabet(&mut rng1, 3, 5, alphabet);
+    let accounts2 = near_store::test_utils::gen_accounts_from_alphabet(&mut rng2, 3, 5, alphabet);
+    assert_eq!(accounts1, accounts2);
+
+    let accounts1 = accounts1.into_iter().collect::<HashSet<_>>();
+    let accounts2 = accounts2.into_iter().collect::<HashSet<_>>();
+    assert_eq!(accounts1, accounts2);
+
+    let accounts1: Vec<_> = accounts1.into_iter().collect();
+    let accounts2: Vec<_> = accounts2.into_iter().collect();
+    assert_eq!(accounts1, accounts2);
+
+    // assert_eq!(gen_unique_accounts(&mut rng1, 5, 10), gen_unique_accounts(&mut rng2, 5, 10));
+}
