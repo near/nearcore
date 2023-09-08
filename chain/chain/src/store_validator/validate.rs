@@ -341,7 +341,7 @@ pub(crate) fn chunk_tx_exists(
         let tx_hash = tx.get_hash();
         sv.inner.tx_refcount.entry(tx_hash).and_modify(|x| *x += 1).or_insert(1);
     }
-    for receipt in shard_chunk.receipts().iter() {
+    for receipt in shard_chunk.prev_outgoing_receipts().iter() {
         sv.inner.receipt_refcount.entry(receipt.get_hash()).and_modify(|x| *x += 1).or_insert(1);
     }
     for tx in shard_chunk.transactions().iter() {
