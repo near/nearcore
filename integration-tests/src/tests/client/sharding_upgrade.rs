@@ -863,6 +863,22 @@ fn test_shard_layout_upgrade_simple_v2() {
 const GAS_1: u64 = 300_000_000_000_000;
 const GAS_2: u64 = GAS_1 / 3;
 
+fn create_test_env_for_cross_contract_test(
+    genesis_protocol_version: ProtocolVersion,
+    epoch_length: u64,
+    rng_seed: u64,
+) -> TestShardUpgradeEnv {
+    TestShardUpgradeEnv::new(
+        epoch_length,
+        4,
+        4,
+        100,
+        Some(100_000_000_000_000),
+        genesis_protocol_version,
+        rng_seed,
+    )
+}
+
 /// Return test_env and a map from tx hash to the new account that will be added by this transaction
 fn setup_test_env_with_cross_contract_txs(
     test_env: &mut TestShardUpgradeEnv,
@@ -1083,15 +1099,8 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(
     let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
     let target_protocol_version = get_target_protocol_version(&resharding_type);
 
-    let mut test_env = TestShardUpgradeEnv::new(
-        epoch_length,
-        4,
-        4,
-        100,
-        Some(100_000_000_000_000),
-        genesis_protocol_version,
-        rng_seed,
-    );
+    let mut test_env =
+        create_test_env_for_cross_contract_test(genesis_protocol_version, epoch_length, rng_seed);
 
     let new_accounts = setup_test_env_with_cross_contract_txs(&mut test_env, epoch_length);
 
@@ -1136,15 +1145,8 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(
     let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
     let target_protocol_version = get_target_protocol_version(&resharding_type);
 
-    let mut test_env = TestShardUpgradeEnv::new(
-        epoch_length,
-        4,
-        4,
-        100,
-        Some(100_000_000_000_000),
-        genesis_protocol_version,
-        rng_seed,
-    );
+    let mut test_env =
+        create_test_env_for_cross_contract_test(genesis_protocol_version, epoch_length, rng_seed);
 
     let new_accounts = setup_test_env_with_cross_contract_txs(&mut test_env, epoch_length);
 
@@ -1202,15 +1204,8 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64, rng_seed: u64) {
     let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
     let epoch_length = 10;
 
-    let mut test_env = TestShardUpgradeEnv::new(
-        epoch_length,
-        4,
-        4,
-        100,
-        Some(100_000_000_000_000),
-        genesis_protocol_version,
-        rng_seed,
-    );
+    let mut test_env =
+        create_test_env_for_cross_contract_test(genesis_protocol_version, epoch_length, rng_seed);
 
     // setup
     let new_accounts = setup_test_env_with_cross_contract_txs(&mut test_env, epoch_length);
