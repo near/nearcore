@@ -875,7 +875,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                             .mut_header()
                                             .get_mut()
                                             .inner_rest
-                                            .validator_proposals = proposals;
+                                            .prev_validator_proposals = proposals;
                                         block_mut.mut_header().resign(&validator_signer1);
                                     }
                                 }
@@ -1293,8 +1293,8 @@ fn test_bad_orphan() {
             let chunk = &mut block.body.chunks[0].get_mut();
 
             match &mut chunk.inner {
-                ShardChunkHeaderInner::V1(inner) => inner.outcome_root = CryptoHash([1; 32]),
-                ShardChunkHeaderInner::V2(inner) => inner.outcome_root = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V1(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V2(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
             }
             chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }
@@ -1394,8 +1394,8 @@ fn test_bad_chunk_mask() {
                 Block::compute_chunk_headers_root(&chunk_headers).0;
             block.mut_header().get_mut().inner_rest.chunk_tx_root =
                 Block::compute_chunk_tx_root(&chunk_headers);
-            block.mut_header().get_mut().inner_rest.chunk_receipts_root =
-                Block::compute_chunk_receipts_root(&chunk_headers);
+            block.mut_header().get_mut().inner_rest.prev_chunk_outgoing_receipts_root =
+                Block::compute_chunk_prev_outgoing_receipts_root(&chunk_headers);
             block.mut_header().get_mut().inner_lite.prev_state_root =
                 Block::compute_state_root(&chunk_headers);
             block.mut_header().get_mut().inner_rest.chunk_mask = vec![true, false];
@@ -2472,12 +2472,12 @@ fn test_validate_chunk_extra() {
             Block::compute_chunk_headers_root(&chunk_headers).0;
         block.mut_header().get_mut().inner_rest.chunk_tx_root =
             Block::compute_chunk_tx_root(&chunk_headers);
-        block.mut_header().get_mut().inner_rest.chunk_receipts_root =
-            Block::compute_chunk_receipts_root(&chunk_headers);
+        block.mut_header().get_mut().inner_rest.prev_chunk_outgoing_receipts_root =
+            Block::compute_chunk_prev_outgoing_receipts_root(&chunk_headers);
         block.mut_header().get_mut().inner_lite.prev_state_root =
             Block::compute_state_root(&chunk_headers);
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
-        block.mut_header().get_mut().inner_lite.outcome_root =
+        block.mut_header().get_mut().inner_lite.prev_outcome_root =
             Block::compute_outcome_root(block.chunks().iter());
         block.mut_header().get_mut().inner_rest.block_body_hash =
             block.compute_block_body_hash().unwrap();
@@ -2759,7 +2759,7 @@ fn test_block_execution_outcomes() {
     let next_block = env.clients[0].chain.get_block_by_height(3).unwrap();
     let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap();
     assert!(next_chunk.transactions().is_empty());
-    assert!(next_chunk.receipts().is_empty());
+    assert!(next_chunk.prev_outgoing_receipts().is_empty());
     let execution_outcomes_from_block = env.clients[0]
         .chain
         .store()
@@ -2896,7 +2896,7 @@ fn test_delayed_receipt_count_limit() {
         let block = env.clients[0].chain.get_block_by_height(height).unwrap();
         let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap();
         // These checks are useful to ensure that we didn't mess up the test setup.
-        assert!(chunk.receipts().len() <= 1);
+        assert!(chunk.prev_outgoing_receipts().len() <= 1);
         assert!(chunk.transactions().len() <= 5);
 
         // Because all transactions are in the transactions pool, this means we have not included
@@ -3231,8 +3231,8 @@ fn test_fork_receipt_ids() {
             Block::compute_chunk_headers_root(&chunk_headers).0;
         block.mut_header().get_mut().inner_rest.chunk_tx_root =
             Block::compute_chunk_tx_root(&chunk_headers);
-        block.mut_header().get_mut().inner_rest.chunk_receipts_root =
-            Block::compute_chunk_receipts_root(&chunk_headers);
+        block.mut_header().get_mut().inner_rest.prev_chunk_outgoing_receipts_root =
+            Block::compute_chunk_prev_outgoing_receipts_root(&chunk_headers);
         block.mut_header().get_mut().inner_lite.prev_state_root =
             Block::compute_state_root(&chunk_headers);
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
@@ -3278,8 +3278,8 @@ fn test_fork_execution_outcome() {
             Block::compute_chunk_headers_root(&chunk_headers).0;
         block.mut_header().get_mut().inner_rest.chunk_tx_root =
             Block::compute_chunk_tx_root(&chunk_headers);
-        block.mut_header().get_mut().inner_rest.chunk_receipts_root =
-            Block::compute_chunk_receipts_root(&chunk_headers);
+        block.mut_header().get_mut().inner_rest.prev_chunk_outgoing_receipts_root =
+            Block::compute_chunk_prev_outgoing_receipts_root(&chunk_headers);
         block.mut_header().get_mut().inner_lite.prev_state_root =
             Block::compute_state_root(&chunk_headers);
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
