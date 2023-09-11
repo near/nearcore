@@ -6726,7 +6726,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "style"
+name = "style-tests"
 version = "0.1.0"
 dependencies = [
  "tempfile",
