@@ -15,6 +15,7 @@ The topic is split into several sections.
 1. [Gas Flow](#gas-flow)
     - [Buying Gas](#buying-gas-for-a-transaction): How are NEAR tokens converted to gas?
     - [Burning Gas](#burning-gas): Who receives burnt tokens?
+    - [Gas in Contract Calls](#gas-in-contract-calls): How is gas attached to calls?
     - [Contract Reward](#contract-reward): How smart contract earn a reward.
 2. [Gas Price](#gas-price): 
     - [Block-Level Gas Price](#block-level-gas-price): How the block-level gas price is determined.
@@ -75,6 +76,58 @@ heavily simplified, more accurate diagrams are further down.)
 
 ![Very Simplified Gas Flow Diagram](https://github.com/near/nearcore/assets/6342444/f52c6e4b-6fca-4f61-8e6e-ac786076aa65)
 <!-- Editable source: https://github.com/near/nearcore/issues/7821#issuecomment-1705672850 -->
+
+### Gas in Contract Calls
+
+A function call has a fixed gas cost to be initiated. Then the execution itself
+draws gas from the `attached_gas`, sometimes also called `prepaid_gas`, until it
+reaches zero, at which point the function call aborts with a `GasExceeded`
+error. No changes are persisted on chain.
+
+(*Note on naming: If you see `prepaid_fee: Balance` in the nearcore code base,
+this is NOT only the fee for `prepaid_gas`. It also includes prepaid fees for
+other gas costs. However, `prepaid_gas: Gas` is used the same in the code base
+as described in this document.*)
+
+Attaching gas to function calls is the primary way for end-users and contract
+developers to interact with gas. All other gas fees are implicitly computed and
+are hidden from the users except for the fact that the equivalent in tokens is
+removed from their account balance.
+
+To attach gas, the signer sets the gas field of the function call action.
+Wallets and CLI tools expose this to the users in different ways. Usually just
+as a `gas` field, which makes users believe this is the maximum gas the
+transaction will consume. Which is not true, the maximum is the specified number
+plus the fixed base cost.
+
+Contract developers also have to pick the attached gas values when their
+contract calls another contract. They cannot buy additional gas, they have to
+work with the unspent gas attached to the current call. They can check how much
+gas is left by subtracting the `used_gas()` from the `prepaid_gas()` host
+function results. But they cannot use all the available gas, since that would
+prevent the current function call from executing to the end.
+
+The gas attached to a function can be at most `max_total_prepaid_gas`, which is
+300 Tgas since the mainnet launch. Note that this limit is per
+`SignedTransaction`, not per function call. In other words, batched function
+calls share this limit.
+
+There is also a limit to how much single call can burn, `max_gas_burnt`, which
+used to be 200 Tgas but has been increased to 300 Tgas in protocol version 52.
+(Note: When attaching gas to an outgoing function call, this is not counted as
+gas burnt.) However, given a call can never burn more than was attached anyway,
+this second limit is obsolete with the current configuration where the two limits
+are equal.
+
+Since protocol version 53, with the stabilization of
+[NEP-264](https://github.com/near/NEPs/blob/master/neps/nep-0264.md), contract
+developers do not have to specify the absolute amount of gas to attach to calls.
+`promise_batch_action_function_call_weight` allows to specify a ratio of unspent
+gas that is computed after the current call has finished. This allows attaching
+100% of unspent gas to a call. If there are multiple calls, this allows
+attaching an equal fraction to each, or any other split as defined by the weight
+per call.
+
 
 ### Contract Reward
 
