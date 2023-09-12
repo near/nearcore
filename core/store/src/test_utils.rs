@@ -135,7 +135,7 @@ pub fn test_populate_store_rc(store: &Store, data: &[(DBCol, Vec<u8>, Vec<u8>)])
     update.commit().expect("db commit failed");
 }
 
-pub fn gen_accounts_from_alphabet(
+fn gen_accounts_from_alphabet(
     rng: &mut impl Rng,
     min_size: usize,
     max_size: usize,

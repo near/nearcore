@@ -185,7 +185,6 @@ impl TestShardUpgradeEnv {
             (0..num_validators).map(|i| format!("test{}", i).parse().unwrap()).collect();
         let other_accounts = gen_unique_accounts(&mut rng, num_init_accounts, num_init_accounts);
         let initial_accounts = [validators, other_accounts].concat();
-        tracing::info!(?initial_accounts, "boom initial accounts");
         let genesis = setup_genesis(
             epoch_length,
             num_validators as u64,
@@ -857,8 +856,20 @@ fn test_shard_layout_upgrade_simple_v1() {
 
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
-fn test_shard_layout_upgrade_simple_v2() {
+fn test_shard_layout_upgrade_simple_v2_seed_42() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 42);
+}
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_simple_v2_seed_43() {
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 43);
+}
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_simple_v2_seed_44() {
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44);
 }
 
 const GAS_1: u64 = 300_000_000_000_000;
@@ -1020,7 +1031,7 @@ fn generate_cross_contract_tx(
         &genesis_hash,
     );
     new_accounts.insert(tx.get_hash(), account_id);
-    tracing::trace!(target: "test", tx=?tx.get_hash(), contract_accounts=?contract_accounts[..4], "generated tx");
+    tracing::trace!(target: "test", tx=?tx.get_hash(), "generated tx");
     Some(tx)
 }
 
@@ -1131,8 +1142,24 @@ fn test_shard_layout_upgrade_cross_contract_calls_v1() {
 // This test case tests postponed receipts and delayed receipts
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
-fn test_shard_layout_upgrade_cross_contract_calls_v2() {
+fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_42() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 42);
+}
+
+// Test cross contract calls
+// This test case tests postponed receipts and delayed receipts
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_43() {
+    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 43);
+}
+
+// Test cross contract calls
+// This test case tests postponed receipts and delayed receipts
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_44() {
+    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 44);
 }
 
 fn test_shard_layout_upgrade_incoming_receipts_impl(
@@ -1191,8 +1218,20 @@ fn test_shard_layout_upgrade_incoming_receipts_impl_v1() {
 // are missing in block but can likely be adjusted for this case.
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
-fn test_shard_layout_upgrade_incoming_receipts_impl_v2() {
+fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_42() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 42);
+}
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_43() {
+    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 43);
+}
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_44() {
+    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 44);
 }
 
 // Test cross contract calls
