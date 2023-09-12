@@ -298,6 +298,10 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     false => StorageGetMode::Trie,
                 },
                 implicit_account_creation: params.get(Parameter::ImplicitAccountCreation)?,
+                math_extension: params.get(Parameter::MathExtension)?,
+                ed25519_verify: params.get(Parameter::Ed25519Verify)?,
+                alt_bn128: params.get(Parameter::AltBn128)?,
+                function_call_weight: params.get(Parameter::FunctionCallWeight)?,
             },
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params

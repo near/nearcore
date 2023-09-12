@@ -34,7 +34,7 @@ pub struct VMLogic<'a> {
     /// Part of Context API and Economics API that was extracted from the receipt.
     context: VMContext,
     /// All gas and economic parameters required during contract execution.
-    config: &'a Config,
+    pub(crate) config: &'a Config,
     /// Fees for creating (async) actions on runtime.
     fees_config: &'a RuntimeFeesConfig,
     /// If this method execution is invoked directly as a callback by one or more contract calls the

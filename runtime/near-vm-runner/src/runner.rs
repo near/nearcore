@@ -68,16 +68,8 @@ pub fn run(
         .runtime(wasm_config.clone())
         .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
 
-    let outcome = runtime.run(
-        code,
-        method_name,
-        ext,
-        context,
-        fees_config,
-        promise_results,
-        current_protocol_version,
-        cache,
-    )?;
+    let outcome =
+        runtime.run(code, method_name, ext, context, fees_config, promise_results, cache)?;
 
     span.record("burnt_gas", &outcome.burnt_gas);
     Ok(outcome)
@@ -106,7 +98,6 @@ pub trait VM {
         context: VMContext,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
-        current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
     ) -> VMResult;
 

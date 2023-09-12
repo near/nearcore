@@ -176,6 +176,10 @@ expression: config_view
     "storage_get_mode": "FlatStorage",
     "fix_contract_loading_cost": true,
     "implicit_account_creation": true,
+    "math_extension": true,
+    "ed25519_verify": true,
+    "alt_bn128": true,
+    "function_call_weight": true,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
       "max_stack_height": 262144,
