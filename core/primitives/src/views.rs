@@ -2844,7 +2844,7 @@ mod tests {
     #[cfg(not(feature = "nightly"))]
     use crate::transaction::ExecutionMetadata;
     #[cfg(not(feature = "nightly"))]
-    use near_primitives_core::profile::{ProfileDataV2, ProfileDataV3};
+    use near_vm_runner::{ProfileDataV2, ProfileDataV3};
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
