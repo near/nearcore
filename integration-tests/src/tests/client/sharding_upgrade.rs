@@ -448,13 +448,8 @@ impl TestShardUpgradeEnv {
     /// This functions checks that the outcomes of all transactions and associated receipts
     /// have successful status
     /// If `allow_not_started` is true, allow transactions status to be NotStarted
-    /// Skips checking transactions added at `skip_heights`
     /// Return successful transaction hashes
-    fn check_tx_outcomes(
-        &mut self,
-        allow_not_started: bool,
-        skip_heights: Vec<BlockHeight>,
-    ) -> Vec<CryptoHash> {
+    fn check_tx_outcomes(&mut self, allow_not_started: bool) -> Vec<CryptoHash> {
         tracing::debug!(target: "test", "checking tx outcomes");
         let env = &mut self.env;
         let head = env.clients[0].chain.head().unwrap();
@@ -466,10 +461,8 @@ impl TestShardUpgradeEnv {
             .unwrap();
         let mut txs_to_check = vec![];
         txs_to_check.extend(&self.init_txs);
-        for (height, txs) in self.txs_by_height.iter() {
-            if !skip_heights.contains(height) {
-                txs_to_check.extend(txs);
-            }
+        for (_, txs) in self.txs_by_height.iter() {
+            txs_to_check.extend(txs);
         }
 
         let mut successful_txs = Vec::new();
@@ -840,17 +833,9 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType) {
             )
         };
 
-    // Transactions added for the first block with new shard layout will not be
-    // processed, that's a known issue for the shard upgrade implementation. It
-    // is because transaction pools are stored by shard id and we do not migrate
-    // transactions that are still in the pool at the end of the sharding
-    // upgrade.
-    let skip_heights = vec![2 * epoch_length + 1];
-
     // add transactions until after sharding upgrade finishes
     for height in 2..3 * epoch_length {
-        let check_accounts = !skip_heights.contains(&height);
-        let txs = generate_create_accounts_txs(10, check_accounts);
+        let txs = generate_create_accounts_txs(10, true);
         test_env.set_tx_at_height(height, txs);
     }
 
@@ -860,7 +845,7 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType) {
         test_env.check_receipt_id_to_shard_id();
     }
 
-    test_env.check_tx_outcomes(false, skip_heights);
+    test_env.check_tx_outcomes(false);
     test_env.check_accounts(accounts_to_check.iter().collect());
     test_env.check_split_states_artifacts();
     test_env.check_outgoing_receipts_reassigned(&resharding_type);
@@ -1068,7 +1053,7 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(resharding_type: Reshardi
         test_env.check_receipt_id_to_shard_id();
     }
 
-    let successful_txs = test_env.check_tx_outcomes(false, vec![2 * epoch_length + 1]);
+    let successful_txs = test_env.check_tx_outcomes(false);
     let new_accounts =
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
 
@@ -1121,11 +1106,7 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(resharding_type: ReshardingT
         test_env.check_receipt_id_to_shard_id();
     }
 
-    // TODO(resharding) get rid of skip_heights
-    // - 2 * epoch_length is skipped because we miss a chunk in that block and
-    // we lose the transaction pool during resharding. fix that
-    let skip_heights = vec![2 * epoch_length, 2 * epoch_length + 1];
-    let successful_txs = test_env.check_tx_outcomes(false, skip_heights);
+    let successful_txs = test_env.check_tx_outcomes(false);
     let new_accounts =
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
 
@@ -1193,7 +1174,7 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
         test_env.check_receipt_id_to_shard_id();
     }
 
-    let successful_txs = test_env.check_tx_outcomes(true, vec![2 * epoch_length + 1]);
+    let successful_txs = test_env.check_tx_outcomes(true);
     let new_accounts: Vec<_> =
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
     test_env.check_accounts(new_accounts);
