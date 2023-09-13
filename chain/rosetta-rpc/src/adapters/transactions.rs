@@ -263,8 +263,10 @@ impl<'a> RosettaTransactions<'a> {
     ) -> crate::errors::Result<&mut crate::models::Transaction> {
         let transaction_identifier = fungible_token_event.receipt_id;
         let related_transactions = self.exec_to_rx.get_related(transaction_identifier);
-        let tx = self.map.entry(transaction_identifier.to_string()).or_insert_with_key(|_hash| {
-            crate::models::Transaction {
+        let tx = self
+            .map
+            .entry(crate::models::TransactionIdentifier::receipt(&transaction_identifier).hash)
+            .or_insert_with_key(|_hash| crate::models::Transaction {
                 transaction_identifier: crate::models::TransactionIdentifier::receipt(
                     &transaction_identifier,
                 ),
@@ -273,8 +275,7 @@ impl<'a> RosettaTransactions<'a> {
                 metadata: crate::models::TransactionMetadata {
                     type_: crate::models::TransactionType::Transaction,
                 },
-            }
-        });
+            });
         Ok(tx)
     }
 }

@@ -328,11 +328,8 @@ async fn block_transaction_details(
 async fn account_balance(
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
-    currencies: web::Data<Option<Vec<models::Currency>>>,
     body: Json<models::AccountBalanceRequest>,
 ) -> Result<Json<models::AccountBalanceResponse>, models::Error> {
-    let config_currencies = currencies;
-
     let Json(models::AccountBalanceRequest {
         network_identifier,
         block_identifier,
@@ -405,29 +402,7 @@ async fn account_balance(
                 let ft_balance = crate::adapters::nep141::get_fungible_token_balance_for_account(
                     &view_client_addr,
                     &block.header,
-                    &currency
-                        .clone()
-                        .metadata
-                        .or_else(|| {
-                            // retrieve contract address from global config if not provided in query
-                            config_currencies.as_ref().clone().and_then(|currencies| {
-                                currencies.iter().find_map(|c| {
-                                    if c.symbol == currency.symbol {
-                                        c.metadata.clone()
-                                    } else {
-                                        None
-                                    }
-                                })
-                            })
-                        })
-                        .ok_or_else(|| {
-                            errors::ErrorKind::NotFound(format!(
-                                "Unknown currency `{}`, try providing the contract address",
-                                currency.symbol
-                            ))
-                        })?
-                        .contract_address
-                        .clone(),
+                    &currency.clone().metadata.unwrap().contract_address.clone(),
                     &account_identifier_for_ft,
                 )
                 .await?;
