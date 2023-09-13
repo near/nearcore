@@ -283,6 +283,8 @@ impl StateSync {
         if epoch_manager.get_shard_layout(&prev_epoch_id)?
             != epoch_manager.get_shard_layout(&epoch_id)?
         {
+            // This error message is used in tests to ensure node exists for the
+            // correct reason. When changing it please also update the tests.
             panic!("cannot sync to the first epoch after sharding upgrade. Please wait for the next epoch or find peers that are more up to date");
         }
         let split_states = epoch_manager.will_shard_layout_change(&prev_hash)?;
