@@ -212,9 +212,8 @@ pick up configuration from the `.style.yapf` file.
 - The nayduck tests often rely on utilities
 located in pytest/lib and are imported using the following statement:
 `sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))`
-In order to make VSCode see that import you can add this path to the extra
-paths config in the settings file. In order to do so add the following
-into the settings file:
+In order to make VSCode see that import you can add this path to the python
+extra paths config. In order to do so add the following into the settings file:
 ```
     "python.analysis.extraPaths": [
         "pytest/lib"
