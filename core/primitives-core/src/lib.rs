@@ -5,7 +5,6 @@ pub mod account;
 pub mod config;
 pub mod hash;
 pub mod parameter;
-pub mod profile;
 pub mod runtime;
 pub mod serialize;
 pub mod types;

@@ -133,7 +133,7 @@ impl NodeStorage {
             None
         };
 
-        Self { hot_storage: hot_storage, cold_storage: cold_db }
+        Self { hot_storage, cold_storage: cold_db }
     }
 
     /// Initialises an opener for a new temporary test store.

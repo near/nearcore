@@ -1,7 +1,6 @@
 #![no_main]
 
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::internal::VMKind;
 use near_vm_runner::logic::errors::FunctionCallError;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
@@ -35,7 +34,6 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMOutcome {
         context,
         &fees,
         &promise_results,
-        PROTOCOL_VERSION,
         None,
     );
 

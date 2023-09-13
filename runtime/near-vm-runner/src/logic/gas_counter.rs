@@ -1,10 +1,10 @@
 use super::errors::{HostError, VMLogicError};
 use super::TrieNodesCount;
+use crate::ProfileDataV3;
 use near_primitives_core::config::ExtCosts::read_cached_trie_node;
 use near_primitives_core::config::ExtCosts::touching_trie_node;
 use near_primitives_core::{
     config::{ActionCosts, ExtCosts, ExtCostsConfig},
-    profile::ProfileDataV3,
     types::Gas,
 };
 use std::collections::HashMap;

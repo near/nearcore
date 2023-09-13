@@ -34,6 +34,18 @@ pub struct Config {
     /// Enable the `ImplicitAccountCreation` protocol feature.
     pub implicit_account_creation: bool,
 
+    /// Enable the host functions added by the `MathExtension` protocol feature.
+    pub math_extension: bool,
+
+    /// Enable the host functions added by the `Ed25519Verify` protocol feature.
+    pub ed25519_verify: bool,
+
+    /// Enable the host functions added by the `AltBn128` protocol feature.
+    pub alt_bn128: bool,
+
+    /// Enable the `FunctionCallWeight` protocol feature.
+    pub function_call_weight: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }
@@ -173,6 +185,10 @@ impl Config {
             fix_contract_loading_cost: cfg!(feature = "protocol_feature_fix_contract_loading_cost"),
             storage_get_mode: StorageGetMode::FlatStorage,
             implicit_account_creation: true,
+            math_extension: true,
+            ed25519_verify: true,
+            alt_bn128: true,
+            function_call_weight: true,
         }
     }
 
@@ -199,6 +215,10 @@ impl Config {
             fix_contract_loading_cost: cfg!(feature = "protocol_feature_fix_contract_loading_cost"),
             storage_get_mode: StorageGetMode::FlatStorage,
             implicit_account_creation: true,
+            math_extension: true,
+            ed25519_verify: true,
+            alt_bn128: true,
+            function_call_weight: true,
         }
     }
 }

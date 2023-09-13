@@ -99,7 +99,6 @@ use near_primitives::transaction::{
     DeployContractAction, SignedTransaction, StakeAction, TransferAction,
 };
 use near_primitives::types::AccountId;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::logic::Config as VMConfig;
 use near_vm_runner::ContractCode;
@@ -885,7 +884,6 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
                 context,
                 &fees,
                 &promise_results,
-                PROTOCOL_VERSION,
                 Some(&cache),
             )
             .expect("fatal_error");

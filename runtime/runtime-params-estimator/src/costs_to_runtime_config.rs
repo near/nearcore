@@ -40,6 +40,10 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
             storage_get_mode: StorageGetMode::FlatStorage,
             fix_contract_loading_cost: false,
             implicit_account_creation: true,
+            math_extension: true,
+            ed25519_verify: true,
+            alt_bn128: true,
+            function_call_weight: true,
         },
         account_creation_config: AccountCreationConfig::default(),
     };

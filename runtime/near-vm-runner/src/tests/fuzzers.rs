@@ -126,7 +126,6 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
         context,
         &fees,
         &promise_results,
-        PROTOCOL_VERSION,
         None,
     );
 

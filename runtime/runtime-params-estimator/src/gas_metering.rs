@@ -150,7 +150,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
                 fake_context.clone(),
                 &fees,
                 &promise_results,
-                PROTOCOL_VERSION,
                 cache,
             )
             .expect("fatal_error");
@@ -171,7 +170,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
                 fake_context.clone(),
                 &fees,
                 &promise_results,
-                PROTOCOL_VERSION,
                 cache,
             )
             .expect("fatal_error");
@@ -189,7 +187,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
                 fake_context.clone(),
                 &fees,
                 &promise_results,
-                PROTOCOL_VERSION,
                 cache,
             )
             .expect("fatal_error");
@@ -207,7 +204,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
                 fake_context.clone(),
                 &fees,
                 &promise_results,
-                PROTOCOL_VERSION,
                 cache,
             )
             .expect("fatal_error");
