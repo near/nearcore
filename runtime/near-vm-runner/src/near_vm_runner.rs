@@ -394,7 +394,7 @@ impl NearVM {
                     Result<VMArtifact, CompilationError>,
                 >,
             > = once_cell::sync::Lazy::new(|| {
-                near_cache::SyncLruCache::new(crate::cache::CACHE_SIZE)
+                near_cache::SyncLruCache::new(128)
             });
             MEM_CACHE.get_or_try_put(key, |_key| compile_or_read_from_cache())
         };

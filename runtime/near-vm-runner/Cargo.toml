@@ -38,6 +38,7 @@ wasmtime = { workspace = true, optional = true }
 
 near-crypto.workspace = true
 near-primitives-core.workspace = true
+near-cache.workspace = true
 
 # Old versions of pwasm-utils we need to preserve backwards compatibility under
 # old protocol versions.
