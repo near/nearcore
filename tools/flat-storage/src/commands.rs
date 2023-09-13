@@ -408,7 +408,7 @@ impl FlatStorageCommand {
             Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadWriteExisting);
 
         let shard_uid = ShardUId { version: cmd.version, shard_id: cmd.shard_id as u32 };
-        let flat_storage_manager = runtime.get_flat_storage_manager().unwrap();
+        let flat_storage_manager = runtime.get_flat_storage_manager();
         flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
         let header = chain_store.get_block_header_by_height(cmd.new_flat_head_height)?;
