@@ -560,7 +560,7 @@ impl Inner {
             return None;
         }
 
-        tracing::debug!(target: "routing", "Routing distances have changed; reconstucting distance vector");
+        tracing::debug!(target: "routing", "Routing distances have changed; reconstructing distance vector");
 
         let distance_vector = self.construct_distance_vector_message(&distances)?;
 
