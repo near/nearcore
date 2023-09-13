@@ -20,8 +20,6 @@ pub struct Config {
     pub iter_per_block: usize,
     /// Total active accounts.
     pub active_accounts: usize,
-    /// Number of the transactions in the block.
-    pub block_sizes: Vec<usize>,
     /// How many blocks behind the final head is assumed to be compared to the tip.
     pub finality_lag: usize,
     /// How many key-value pairs change per flat state delta.
@@ -44,4 +42,6 @@ pub struct Config {
     pub drop_os_cache: bool,
     /// Use in-memory test DB, useful to avoid variance caused by DB.
     pub in_memory_db: bool,
+    /// If false, only runs a minimal check that's faster than trying to get accurate results.
+    pub accurate: bool,
 }

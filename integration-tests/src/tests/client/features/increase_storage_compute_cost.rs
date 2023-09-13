@@ -236,8 +236,8 @@ fn assert_compute_limit_reached(
         &mut nonce,
     );
     let chunk_header = old_chunk.cloned_header();
-    let gas_burnt = chunk_header.gas_used();
-    let gas_limit: u64 = chunk_header.gas_limit();
+    let gas_burnt = chunk_header.prev_gas_used();
+    let gas_limit: u64 = chunk_header.prev_gas_limit();
     assert!(
         gas_burnt >= gas_limit,
         "should saturate gas limit, only burnt {gas_burnt} when limit was {gas_limit}"
@@ -257,8 +257,8 @@ fn assert_compute_limit_reached(
         &mut nonce,
     );
 
-    let old_receipts_num = old_chunk.receipts().len();
-    let new_receipts_num = new_chunk.receipts().len();
+    let old_receipts_num = old_chunk.prev_outgoing_receipts().len();
+    let new_receipts_num = new_chunk.prev_outgoing_receipts().len();
     if uses_storage {
         assert!(
             new_receipts_num < old_receipts_num,
@@ -345,7 +345,11 @@ fn produce_saturated_chunk(
     // chunk with transactions accepted but not yet executed
     {
         let chunk = chunk_info(env, tip.height + 2);
-        assert_eq!(0, chunk.receipts().len(), "First chunk should only include transactions");
+        assert_eq!(
+            0,
+            chunk.prev_outgoing_receipts().len(),
+            "First chunk should only include transactions"
+        );
         assert_eq!(
             num_transactions as usize,
             chunk.transactions().len(),
@@ -357,7 +361,7 @@ fn produce_saturated_chunk(
         let chunk = chunk_info(env, tip.height + 3);
         assert_eq!(
             num_transactions as usize,
-            chunk.receipts().len(),
+            chunk.prev_outgoing_receipts().len(),
             "Second chunk should include all receipts"
         );
         assert_eq!(0, chunk.transactions().len(), "Second chunk shouldn't have new transactions");
@@ -365,7 +369,7 @@ fn produce_saturated_chunk(
         // Note: Receipts are included in chunk, but executed are
         // transactions from previous chunk, so the gas here is for
         // transactions -> receipt conversion.
-        let gas_burnt = chunk.cloned_header().gas_used();
+        let gas_burnt = chunk.cloned_header().prev_gas_used();
         let want_gas_per_tx = config.fees.fee(ActionCosts::new_action_receipt).send_not_sir
             + config.fees.fee(ActionCosts::function_call_base).send_not_sir
             + config.fees.fee(ActionCosts::function_call_byte).send_not_sir * msg_len;
@@ -380,10 +384,10 @@ fn produce_saturated_chunk(
         let chunk: std::sync::Arc<ShardChunk> = chunk_info(env, tip.height + 4);
         assert_ne!(
             num_transactions as usize,
-            chunk.receipts().len(),
+            chunk.prev_outgoing_receipts().len(),
             "Not all receipts should fit in a single chunk"
         );
-        assert_ne!(0, chunk.receipts().len(), "No receipts executed");
+        assert_ne!(0, chunk.prev_outgoing_receipts().len(), "No receipts executed");
         chunk
     };
 

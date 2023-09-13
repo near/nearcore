@@ -28,26 +28,26 @@ impl ShardChunkHeaderInner {
     }
 
     #[inline]
-    pub fn gas_limit(&self) -> Gas {
+    pub fn prev_gas_limit(&self) -> Gas {
         match self {
-            Self::V1(inner) => inner.gas_limit,
-            Self::V2(inner) => inner.gas_limit,
+            Self::V1(inner) => inner.prev_gas_limit,
+            Self::V2(inner) => inner.prev_gas_limit,
         }
     }
 
     #[inline]
-    pub fn gas_used(&self) -> Gas {
+    pub fn prev_gas_used(&self) -> Gas {
         match self {
-            Self::V1(inner) => inner.gas_used,
-            Self::V2(inner) => inner.gas_used,
+            Self::V1(inner) => inner.prev_gas_used,
+            Self::V2(inner) => inner.prev_gas_used,
         }
     }
 
     #[inline]
-    pub fn validator_proposals(&self) -> ValidatorStakeIter {
+    pub fn prev_validator_proposals(&self) -> ValidatorStakeIter {
         match self {
-            Self::V1(inner) => ValidatorStakeIter::v1(&inner.validator_proposals),
-            Self::V2(inner) => ValidatorStakeIter::new(&inner.validator_proposals),
+            Self::V1(inner) => ValidatorStakeIter::v1(&inner.prev_validator_proposals),
+            Self::V2(inner) => ValidatorStakeIter::new(&inner.prev_validator_proposals),
         }
     }
 
@@ -68,10 +68,10 @@ impl ShardChunkHeaderInner {
     }
 
     #[inline]
-    pub fn outcome_root(&self) -> &CryptoHash {
+    pub fn prev_outcome_root(&self) -> &CryptoHash {
         match self {
-            Self::V1(inner) => &inner.outcome_root,
-            Self::V2(inner) => &inner.outcome_root,
+            Self::V1(inner) => &inner.prev_outcome_root,
+            Self::V2(inner) => &inner.prev_outcome_root,
         }
     }
 
@@ -92,18 +92,18 @@ impl ShardChunkHeaderInner {
     }
 
     #[inline]
-    pub fn balance_burnt(&self) -> Balance {
+    pub fn prev_balance_burnt(&self) -> Balance {
         match self {
-            Self::V1(inner) => inner.balance_burnt,
-            Self::V2(inner) => inner.balance_burnt,
+            Self::V1(inner) => inner.prev_balance_burnt,
+            Self::V2(inner) => inner.prev_balance_burnt,
         }
     }
 
     #[inline]
-    pub fn outgoing_receipts_root(&self) -> &CryptoHash {
+    pub fn prev_outgoing_receipts_root(&self) -> &CryptoHash {
         match self {
-            Self::V1(inner) => &inner.outgoing_receipts_root,
-            Self::V2(inner) => &inner.outgoing_receipts_root,
+            Self::V1(inner) => &inner.prev_outgoing_receipts_root,
+            Self::V2(inner) => &inner.prev_outgoing_receipts_root,
         }
     }
 
@@ -121,25 +121,25 @@ pub struct ShardChunkHeaderInnerV1 {
     /// Previous block hash.
     pub prev_block_hash: CryptoHash,
     pub prev_state_root: StateRoot,
-    /// Root of the outcomes from execution transactions and results.
-    pub outcome_root: CryptoHash,
+    /// Root of the outcomes from execution transactions and results of the previous chunk.
+    pub prev_outcome_root: CryptoHash,
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
     pub height_created: BlockHeight,
     /// Shard index.
     pub shard_id: ShardId,
-    /// Gas used in this chunk.
-    pub gas_used: Gas,
-    /// Gas limit voted by validators.
-    pub gas_limit: Gas,
-    /// Total balance burnt in previous chunk
-    pub balance_burnt: Balance,
-    /// Outgoing receipts merkle root.
-    pub outgoing_receipts_root: CryptoHash,
+    /// Gas used in the previous chunk.
+    pub prev_gas_used: Gas,
+    /// Gas limit voted by validators in the previous chunk.
+    pub prev_gas_limit: Gas,
+    /// Total balance burnt in the previous chunk.
+    pub prev_balance_burnt: Balance,
+    /// Previous chunk's outgoing receipts merkle root.
+    pub prev_outgoing_receipts_root: CryptoHash,
     /// Tx merkle root.
     pub tx_root: CryptoHash,
-    /// Validator proposals.
-    pub validator_proposals: Vec<ValidatorStakeV1>,
+    /// Validator proposals from the previous chunk.
+    pub prev_validator_proposals: Vec<ValidatorStakeV1>,
 }
 
 // V1 -> V2: Use versioned ValidatorStake structure in proposals
@@ -148,23 +148,23 @@ pub struct ShardChunkHeaderInnerV2 {
     /// Previous block hash.
     pub prev_block_hash: CryptoHash,
     pub prev_state_root: StateRoot,
-    /// Root of the outcomes from execution transactions and results.
-    pub outcome_root: CryptoHash,
+    /// Root of the outcomes from execution transactions and results of the previous chunk.
+    pub prev_outcome_root: CryptoHash,
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
     pub height_created: BlockHeight,
     /// Shard index.
     pub shard_id: ShardId,
-    /// Gas used in this chunk.
-    pub gas_used: Gas,
-    /// Gas limit voted by validators.
-    pub gas_limit: Gas,
-    /// Total balance burnt in previous chunk
-    pub balance_burnt: Balance,
-    /// Outgoing receipts merkle root.
-    pub outgoing_receipts_root: CryptoHash,
+    /// Gas used in the previous chunk.
+    pub prev_gas_used: Gas,
+    /// Gas limit voted by validators in the previous chunk.
+    pub prev_gas_limit: Gas,
+    /// Total balance burnt in the previous chunk.
+    pub prev_balance_burnt: Balance,
+    /// Previous chunk's outgoing receipts merkle root.
+    pub prev_outgoing_receipts_root: CryptoHash,
     /// Tx merkle root.
     pub tx_root: CryptoHash,
-    /// Validator proposals.
-    pub validator_proposals: Vec<ValidatorStake>,
+    /// Validator proposals from the previous chunk.
+    pub prev_validator_proposals: Vec<ValidatorStake>,
 }

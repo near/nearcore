@@ -54,7 +54,7 @@ slower. You will need to install `docker` to run this command.
 ```bash
 cargo run --release -p runtime-params-estimator --features required -- \
     --accounts-num 20000 --additional-accounts-num 2000000 \
-    --iters 3 --warmup-iters 1 --metric icount --docker --full \
+    --iters 3 --warmup-iters 1 --metric icount --docker \
     --costs=ActionReceiptCreation,ActionTransfer,ActionCreateAccount,ActionFunctionCallBase
 ```
 

@@ -1567,8 +1567,8 @@ impl Chain {
             .chunks()
             .iter()
             .filter(|chunk| block_height == chunk.height_included())
-            .flat_map(|chunk| chunk.validator_proposals())
-            .zip_longest(block.header().validator_proposals())
+            .flat_map(|chunk| chunk.prev_validator_proposals())
+            .zip_longest(block.header().prev_validator_proposals())
         {
             match pair {
                 itertools::EitherOrBoth::Both(cp, hp) => {
@@ -2925,8 +2925,10 @@ impl Chain {
             },
         };
 
-        // Getting all existing incoming_receipts from prev_chunk height to the new epoch.
+        // Getting all existing incoming_receipts from prev_chunk height to the
+        // new epoch.
         let incoming_receipts_proofs = self.store.get_incoming_receipts_for_shard(
+            self.epoch_manager.as_ref(),
             shard_id,
             sync_hash,
             prev_chunk_height_included,
@@ -2942,7 +2944,7 @@ impl Chain {
                 &block
                     .chunks()
                     .iter()
-                    .map(|chunk| chunk.outgoing_receipts_root())
+                    .map(|chunk| chunk.prev_outgoing_receipts_root())
                     .collect::<Vec<CryptoHash>>(),
             );
 
@@ -2954,12 +2956,12 @@ impl Chain {
                 let receipts_hash = CryptoHash::hash_borsh(ReceiptList(shard_id, receipts));
                 let from_shard_id = *from_shard_id as usize;
 
-                let root_proof = block.chunks()[from_shard_id].outgoing_receipts_root();
+                let root_proof = block.chunks()[from_shard_id].prev_outgoing_receipts_root();
                 root_proofs_cur
                     .push(RootProof(root_proof, block_receipts_proofs[from_shard_id].clone()));
 
                 // Make sure we send something reasonable.
-                assert_eq!(block_header.chunk_receipts_root(), &block_receipts_root);
+                assert_eq!(block_header.prev_chunk_outgoing_receipts_root(), &block_receipts_root);
                 assert!(verify_path(root_proof, proof, &receipts_hash));
                 assert!(verify_path(
                     block_receipts_root,
@@ -3231,7 +3233,11 @@ impl Chain {
                     return Err(Error::Other("set_shard_state failed: invalid proofs".into()));
                 }
                 // 4f. Proving the outgoing_receipts_root matches that in the block
-                if !verify_path(*block_header.chunk_receipts_root(), block_proof, root) {
+                if !verify_path(
+                    *block_header.prev_chunk_outgoing_receipts_root(),
+                    block_proof,
+                    root,
+                ) {
                     byzantine_assert!(false);
                     return Err(Error::Other("set_shard_state failed: invalid proofs".into()));
                 }
@@ -3981,13 +3987,16 @@ impl Chain {
         })?;
         // we can't use hash from the current block here yet because the incoming receipts
         // for this block is not stored yet
-        let mut receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
-        let receipt_proof_response = &self.store().get_incoming_receipts_for_shard(
+        let new_receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
+        let old_receipts = &self.store().get_incoming_receipts_for_shard(
+            self.epoch_manager.as_ref(),
             shard_id,
             *prev_hash,
             prev_chunk_height_included,
         )?;
-        receipts.extend(collect_receipts_from_response(receipt_proof_response));
+        let old_receipts = collect_receipts_from_response(old_receipts);
+        let receipts = [new_receipts, old_receipts].concat();
+
         let chunk = self.get_chunk_clone_from_header(&chunk_header.clone())?;
 
         let transactions = chunk.transactions();
@@ -4026,7 +4035,7 @@ impl Chain {
         };
 
         let chunk_inner = chunk.cloned_header().take_inner();
-        let gas_limit = chunk_inner.gas_limit();
+        let gas_limit = chunk_inner.prev_gas_limit();
 
         // This variable is responsible for checking to which block we can apply receipts previously lost in apply_chunks
         // (see https://github.com/near/nearcore/pull/4248/)
@@ -4064,7 +4073,7 @@ impl Chain {
                 &block_hash,
                 &receipts,
                 chunk.transactions(),
-                chunk_inner.validator_proposals(),
+                chunk_inner.prev_validator_proposals(),
                 gas_price,
                 gas_limit,
                 &challenges_result,
@@ -5605,7 +5614,7 @@ impl<'a> ChainUpdate<'a> {
         };
 
         let chunk_header = chunk.cloned_header();
-        let gas_limit = chunk_header.gas_limit();
+        let gas_limit = chunk_header.prev_gas_limit();
         // This is set to false because the value is only relevant
         // during protocol version RestoreReceiptsAfterFixApplyChunks.
         // TODO(nikurt): Determine the value correctly.
@@ -5620,7 +5629,7 @@ impl<'a> ChainUpdate<'a> {
             block_header.hash(),
             &receipts,
             chunk.transactions(),
-            chunk_header.validator_proposals(),
+            chunk_header.prev_validator_proposals(),
             gas_price,
             gas_limit,
             block_header.challenges_result(),

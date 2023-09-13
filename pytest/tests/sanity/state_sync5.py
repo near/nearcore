@@ -10,33 +10,22 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster, Key
 from configured_logger import logger
+import state_sync_lib
 from transaction import sign_payment_tx
 import utils
 
 MAX_SYNC_WAIT = 30
 EPOCH_LENGTH = 20
 
-node0_config = {
-    "state_sync_enabled": True,
-    "store.state_snapshot_enabled": True
-}
-node1_config = {
-    "consensus": {
-        "sync_step_period": {
-            "secs": 0,
-            "nanos": 200000000
-        }
-    },
-    "tracked_shards": [0],
-    "state_sync_enabled": True,
-    "store.state_snapshot_enabled": True
-}
+(node_config_dump,
+ node_config_sync) = state_sync_lib.get_state_sync_configs_pair()
+
 nodes = start_cluster(
     1, 1, 1, None,
     [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10],
      ["chunk_producer_kickout_threshold", 10]], {
-         0: node0_config,
-         1: node1_config,
+         0: node_config_dump,
+         1: node_config_sync,
      })
 time.sleep(2)
 nodes[1].kill()

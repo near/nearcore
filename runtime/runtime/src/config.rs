@@ -1,12 +1,11 @@
 //! Settings of the parameters of the runtime.
 
-use near_vm_runner::logic::ActionCosts;
+use near_primitives::account::AccessKeyPermission;
+use near_primitives::errors::IntegerOverflowError;
+use near_primitives_core::config::ActionCosts;
 use num_bigint::BigUint;
 use num_traits::cast::ToPrimitive;
 use num_traits::pow::Pow;
-
-use near_primitives::account::AccessKeyPermission;
-use near_primitives::errors::IntegerOverflowError;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 pub use near_primitives::num_rational::Rational32;
 pub use near_primitives::runtime::config::RuntimeConfig;

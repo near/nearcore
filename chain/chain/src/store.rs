@@ -216,11 +216,18 @@ pub trait ChainStoreAccess {
     /// so the receipts from these blocks are propagated
     fn get_incoming_receipts_for_shard(
         &self,
-        shard_id: ShardId,
+        epoch_manager: &dyn EpochManagerAdapter,
+        mut shard_id: ShardId,
         mut block_hash: CryptoHash,
         last_chunk_height_included: BlockHeight,
     ) -> Result<Vec<ReceiptProofResponse>, Error> {
+        let _span =
+            tracing::debug_span!(target: "chain", "get_incoming_receipts_for_shard", ?shard_id, ?block_hash, last_chunk_height_included).entered();
+
         let mut ret = vec![];
+
+        let target_shard_id = shard_id;
+        let target_shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash)?;
 
         loop {
             let header = self.get_block_header(&block_hash)?;
@@ -233,24 +240,64 @@ pub trait ChainStoreAccess {
                 break;
             }
 
-            let prev_hash = *header.prev_hash();
+            let prev_hash = header.prev_hash();
+            let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash)?;
+            let prev_shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_hash)?;
 
-            if let Ok(receipt_proofs) = self.get_incoming_receipts(&block_hash, shard_id) {
-                ret.push(ReceiptProofResponse(block_hash, receipt_proofs));
-            } else {
-                ret.push(ReceiptProofResponse(block_hash, Arc::new(vec![])));
+            if shard_layout != prev_shard_layout {
+                let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
+                tracing::debug!(
+                    target: "chain",
+                    version = shard_layout.version(),
+                    prev_version = prev_shard_layout.version(),
+                    shard_id,
+                    parent_shard_id,
+                    "crossing epoch boundary with shard layout change, updating shard id"
+                );
+                shard_id = parent_shard_id;
             }
 
-            // TODO(resharding)
-            // when crossing the epoch boundary we should check if the shard
-            // layout is different and handle that
-            // one idea would be to do shard_id := parent(shard_id) but remember to
-            // deduplicate the receipts as well
-            block_hash = prev_hash;
+            let receipts_proofs = self.get_incoming_receipts(&block_hash, shard_id);
+            match receipts_proofs {
+                Ok(receipt_proofs) => {
+                    tracing::debug!(
+                        target: "chain",
+                        "found receipts from block with missing chunks",
+                    );
+
+                    // If the shard layout changed we need to filter receipts to
+                    // make sure we only include receipts where receiver belongs
+                    // to the target shard id in the target shard layout.
+                    let filtered_receipt_proofs = filter_incoming_receipts_for_shard(
+                        &target_shard_layout,
+                        target_shard_id,
+                        receipt_proofs,
+                    );
+
+                    ret.push(ReceiptProofResponse(block_hash, filtered_receipt_proofs.into()));
+                }
+                Err(err) => {
+                    tracing::debug!(
+                        target: "chain",
+                        ?err,
+                        "could not find receipts from block with missing chunks"
+                    );
+
+                    // This can happen when all chunks are missing in a block
+                    // and then we can safely assume that there aren't any
+                    // incoming receipts. It would be nicer to explicitly check
+                    // that condition rather than relying on errors when reading
+                    // from the db.
+                    ret.push(ReceiptProofResponse(block_hash, Arc::new(vec![])));
+                }
+            }
+
+            block_hash = *prev_hash;
         }
 
         Ok(ret)
     }
+
     /// Returns whether the block with the given hash was challenged
     fn is_block_challenged(&self, hash: &CryptoHash) -> Result<bool, Error>;
 
@@ -322,6 +369,36 @@ pub trait ChainStoreAccess {
             shard_id = epoch_manager.get_prev_shard_ids(&candidate_hash, vec![shard_id])?[0];
         }
     }
+}
+
+/// Given a vector of receipts return only the receipts that should be assigned
+/// to the target shard id in the target shard layout. Used when collecting the
+/// incoming receipts and the shard layout changed.
+fn filter_incoming_receipts_for_shard(
+    target_shard_layout: &ShardLayout,
+    target_shard_id: u64,
+    receipt_proofs: Arc<Vec<ReceiptProof>>,
+) -> Vec<ReceiptProof> {
+    let mut filtered_receipt_proofs = vec![];
+    for receipt_proof in receipt_proofs.iter() {
+        let mut filtered_receipts = vec![];
+        let ReceiptProof(receipts, shard_proof) = receipt_proof.clone();
+        for receipt in receipts {
+            let receiver_shard_id =
+                account_id_to_shard_id(&receipt.receiver_id, target_shard_layout);
+            if receiver_shard_id == target_shard_id {
+                tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id, "including receipt");
+                filtered_receipts.push(receipt);
+            } else {
+                tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id, "excluding receipt");
+            }
+        }
+        // TODO(resharding) adjust the shard proof accordingly
+        // currently this only matters for state sync
+        let receipt_proof = ReceiptProof(filtered_receipts, shard_proof);
+        filtered_receipt_proofs.push(receipt_proof);
+    }
+    filtered_receipt_proofs
 }
 
 /// All chain-related database operations.
@@ -1237,7 +1314,7 @@ impl ChainStoreAccess for ChainStore {
                 &self.incoming_receipts,
                 &get_block_shard_id(block_hash, shard_id),
             ),
-            format_args!("INCOMING RECEIPT: {}", block_hash),
+            format_args!("INCOMING RECEIPT: {} {}", block_hash, shard_id),
         )
     }
 
@@ -1893,7 +1970,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 .transactions
                 .insert(transaction.get_hash(), Arc::new(transaction.clone()));
         }
-        for receipt in chunk.receipts() {
+        for receipt in chunk.prev_outgoing_receipts() {
             self.chain_store_cache_update
                 .receipts
                 .insert(receipt.receipt_id, Arc::new(receipt.clone()));
@@ -2147,7 +2224,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 for transaction in chunk.transactions() {
                     self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
                 }
-                for receipt in chunk.receipts() {
+                for receipt in chunk.prev_outgoing_receipts() {
                     self.gc_col(DBCol::Receipts, receipt.get_hash().as_bytes());
                 }
 
@@ -2473,7 +2550,7 @@ impl<'a> ChainStoreUpdate<'a> {
             for transaction in chunk.transactions() {
                 self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
             }
-            for receipt in chunk.receipts() {
+            for receipt in chunk.prev_outgoing_receipts() {
                 self.gc_col(DBCol::Receipts, receipt.get_hash().as_bytes());
             }
 
@@ -2964,7 +3041,7 @@ impl<'a> ChainStoreUpdate<'a> {
             }
 
             // Increase receipt refcounts for all included receipts
-            for receipt in chunk.receipts().iter() {
+            for receipt in chunk.prev_outgoing_receipts().iter() {
                 let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
                 store_update.increment_refcount(
                     DBCol::Receipts,

@@ -195,6 +195,7 @@ fn apply_block_from_range(
         let chain_store_update = ChainStoreUpdate::new(&mut chain_store);
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
+                epoch_manager,
                 shard_id,
                 block_hash,
                 prev_block.chunks()[shard_id as usize].height_included(),
@@ -236,9 +237,9 @@ fn apply_block_from_range(
                 block.hash(),
                 &receipts,
                 chunk.transactions(),
-                chunk_inner.validator_proposals(),
+                chunk_inner.prev_validator_proposals(),
                 prev_block.header().gas_price(),
-                chunk_inner.gas_limit(),
+                chunk_inner.prev_gas_limit(),
                 block.header().challenges_result(),
                 *block.header().random_value(),
                 true,

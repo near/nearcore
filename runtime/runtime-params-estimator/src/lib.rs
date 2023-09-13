@@ -92,16 +92,16 @@ use gas_cost::{LeastSquaresTolerance, NonNegativeTolerance};
 use gas_metering::gas_metering_cost;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
-use near_primitives::contract::ContractCode;
+use near_primitives::config::ExtCosts;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, SignedTransaction, StakeAction, TransferAction,
 };
 use near_primitives::types::AccountId;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
-use near_vm_runner::logic::{ExtCosts, VMConfig};
+use near_vm_runner::logic::Config as VMConfig;
+use near_vm_runner::ContractCode;
 use near_vm_runner::MockCompiledContractCache;
 use serde_json::json;
 use utils::{
@@ -884,7 +884,6 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
                 context,
                 &fees,
                 &promise_results,
-                PROTOCOL_VERSION,
                 Some(&cache),
             )
             .expect("fatal_error");

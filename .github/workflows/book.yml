@@ -31,6 +31,8 @@ jobs:
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     needs: book
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     steps:
