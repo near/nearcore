@@ -131,14 +131,12 @@ utils.wait_for_blocks(boot_node, target=START_AT_BLOCK)
 node2 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node=boot_node)
 time.sleep(3)
 
-
 try:
     logger.info("Checking node2 status. It should not be running.")
     status = node2.get_status()
     sys.exit("node 2 successfully started while it should fail")
 except requests.exceptions.ConnectionError:
     pass
-
 
 logger.info("Checking node2 exit reason.")
 node2_correct_exit_reason = False
