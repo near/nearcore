@@ -194,3 +194,10 @@ max_promises_per_function_call_action: 1_024
 max_number_input_data_dependencies: 128
 
 disable_9393_fix: false
+flat_storage_reads: false
+implicit_account_creation: false
+fix_contract_loading_cost: false
+math_extension: false
+ed25519_verify: false
+alt_bn128: false
+function_call_weight: false

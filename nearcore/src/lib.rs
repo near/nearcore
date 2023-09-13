@@ -354,7 +354,6 @@ pub fn start_with_config_and_synchronization(
             config.client_config.client_background_migration_threads,
         );
 
-    let credentials_file = config.config.s3_credentials_file;
     let state_sync_dump_handle = spawn_state_sync_dump(
         &config.client_config,
         chain_genesis,
@@ -362,7 +361,6 @@ pub fn start_with_config_and_synchronization(
         shard_tracker,
         runtime,
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
-        credentials_file.map(|filename| home_dir.join(filename)),
     )?;
 
     let hot_store = storage.get_hot_store();

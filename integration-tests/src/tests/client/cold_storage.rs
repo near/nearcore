@@ -122,12 +122,12 @@ fn test_storage_after_commit_of_cold_update() {
                     "test0".parse().unwrap(),
                     "test0".parse().unwrap(),
                     &signer,
-                    vec![Action::FunctionCall(FunctionCallAction {
+                    vec![Action::FunctionCall(Box::new(FunctionCallAction {
                         method_name: "write_random_value".to_string(),
                         args: vec![],
                         gas: 100_000_000_000_000,
                         deposit: 0,
-                    })],
+                    }))],
                     last_hash,
                 );
                 assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);

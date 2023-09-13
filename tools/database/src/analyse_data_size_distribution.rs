@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::{panic, println};
 use strum::IntoEnumIterator;
 
-use crate::utils::open_rocksdb;
+use crate::utils::{open_rocksdb, resolve_column};
 
 #[derive(Parser)]
 pub(crate) struct AnalyseDataSizeDistributionCommand {
@@ -19,10 +19,6 @@ pub(crate) struct AnalyseDataSizeDistributionCommand {
     /// Number of count sizes to output
     #[arg(short, long, default_value_t = 100)]
     top_k: usize,
-}
-
-fn resolve_db_col(col: &str) -> Option<DBCol> {
-    DBCol::iter().filter(|db_col| <&str>::from(db_col) == col).next()
 }
 
 #[derive(Clone)]
@@ -186,19 +182,17 @@ fn read_all_pairs(db: &RocksDB, col_families: &Vec<DBCol>) -> DataSizeDistributi
     DataSizeDistribution::new(key_sizes, value_sizes, column_families)
 }
 
-fn get_column_families(input_col: &Option<String>) -> Vec<DBCol> {
+fn get_column_families(input_col: &Option<String>) -> anyhow::Result<Vec<DBCol>> {
     match input_col {
-        Some(column_name) => {
-            vec![resolve_db_col(&column_name).unwrap()]
-        }
-        None => DBCol::iter().collect(),
+        Some(column_name) => Ok(vec![resolve_column(column_name)?]),
+        None => Ok(DBCol::iter().collect()),
     }
 }
 
 impl AnalyseDataSizeDistributionCommand {
     pub(crate) fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
         let db = open_rocksdb(home, near_store::Mode::ReadOnly)?;
-        let column_families = get_column_families(&self.column);
+        let column_families = get_column_families(&self.column)?;
         let results = read_all_pairs(&db, &column_families);
         results.print_results(self.top_k);
 

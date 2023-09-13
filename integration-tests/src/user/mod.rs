@@ -144,12 +144,12 @@ pub trait User {
         self.sign_and_commit_actions(
             signer_id,
             contract_id,
-            vec![Action::FunctionCall(FunctionCallAction {
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: method_name.to_string(),
                 args,
                 gas,
                 deposit,
-            })],
+            }))],
         )
     }
 
@@ -166,7 +166,10 @@ pub trait User {
             vec![
                 Action::CreateAccount(CreateAccountAction {}),
                 Action::Transfer(TransferAction { deposit: amount }),
-                Action::AddKey(AddKeyAction { public_key, access_key: AccessKey::full_access() }),
+                Action::AddKey(Box::new(AddKeyAction {
+                    public_key,
+                    access_key: AccessKey::full_access(),
+                })),
             ],
         )
     }
@@ -180,7 +183,7 @@ pub trait User {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
-            vec![Action::AddKey(AddKeyAction { public_key, access_key })],
+            vec![Action::AddKey(Box::new(AddKeyAction { public_key, access_key }))],
         )
     }
 
@@ -192,7 +195,7 @@ pub trait User {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
-            vec![Action::DeleteKey(DeleteKeyAction { public_key })],
+            vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key }))],
         )
     }
 
@@ -207,8 +210,8 @@ pub trait User {
             signer_id.clone(),
             signer_id,
             vec![
-                Action::DeleteKey(DeleteKeyAction { public_key: old_public_key }),
-                Action::AddKey(AddKeyAction { public_key: new_public_key, access_key }),
+                Action::DeleteKey(Box::new(DeleteKeyAction { public_key: old_public_key })),
+                Action::AddKey(Box::new(AddKeyAction { public_key: new_public_key, access_key })),
             ],
         )
     }
@@ -243,7 +246,7 @@ pub trait User {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
-            vec![Action::Stake(StakeAction { stake, public_key })],
+            vec![Action::Stake(Box::new(StakeAction { stake, public_key }))],
         )
     }
 
@@ -280,7 +283,7 @@ pub trait User {
         self.sign_and_commit_actions(
             relayer_id,
             signer_id,
-            vec![Action::Delegate(signed_delegate_action)],
+            vec![Action::Delegate(Box::new(signed_delegate_action))],
         )
     }
 }

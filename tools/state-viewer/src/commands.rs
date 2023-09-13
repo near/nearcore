@@ -58,6 +58,7 @@ pub(crate) fn apply_block(
         let chain_store_update = ChainStoreUpdate::new(chain_store);
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
+                epoch_manager,
                 shard_id,
                 block_hash,
                 prev_block.chunks()[shard_id as usize].height_included(),
@@ -84,9 +85,9 @@ pub(crate) fn apply_block(
                 block.hash(),
                 &receipts,
                 chunk.transactions(),
-                chunk_inner.validator_proposals(),
+                chunk_inner.prev_validator_proposals(),
                 prev_block.header().gas_price(),
-                chunk_inner.gas_limit(),
+                chunk_inner.prev_gas_limit(),
                 block.header().challenges_result(),
                 *block.header().random_value(),
                 true,
@@ -523,7 +524,7 @@ pub(crate) fn check_apply_block_result(
     let height = block.header().height();
     let block_hash = block.header().hash();
     let new_chunk_extra =
-        resulting_chunk_extra(apply_result, block.chunks()[shard_id as usize].gas_limit());
+        resulting_chunk_extra(apply_result, block.chunks()[shard_id as usize].prev_gas_limit());
     println!(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
         shard_id, height, &new_chunk_extra,
@@ -627,7 +628,7 @@ pub(crate) fn print_chain(
                                     "{}: {} {: >3} Tgas {: >10}",
                                     shard_id,
                                     format_hash(chunk_hash.0, show_full_hashes),
-                                    chunk.cloned_header().gas_used() / (1_000_000_000_000),
+                                    chunk.cloned_header().prev_gas_used() / (1_000_000_000_000),
                                     chunk_producer
                                 ));
                             } else {

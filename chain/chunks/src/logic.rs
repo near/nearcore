@@ -81,7 +81,7 @@ pub fn make_outgoing_receipts_proofs(
 
     let hashes = Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout);
     let (root, proofs) = merklize(&hashes);
-    assert_eq!(chunk_header.outgoing_receipts_root(), root);
+    assert_eq!(chunk_header.prev_outgoing_receipts_root(), root);
 
     let mut receipts_by_shard =
         Chain::group_receipts_by_shard(outgoing_receipts.to_vec(), &shard_layout);
@@ -118,13 +118,15 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts<'a>(
         })
         .cloned()
         .collect();
-    let receipts = receipts
+    let mut receipts: Vec<_> = receipts
         .filter(|receipt| {
             cares_about_shard
                 || need_receipt(prev_block_hash, receipt.1.to_shard_id, me, shard_tracker)
         })
         .cloned()
         .collect();
+    // Make sure the receipts are in a deterministic order.
+    receipts.sort();
     match header.clone() {
         ShardChunkHeader::V1(header) => {
             PartialEncodedChunk::V1(PartialEncodedChunkV1 { header, parts, receipts })
@@ -153,11 +155,10 @@ pub fn decode_encoded_chunk(
         })
     {
         debug!(target: "chunks", "Reconstructed and decoded chunk {}, encoded length was {}, num txs: {}, I'm {:?}", chunk_hash.0, encoded_chunk.encoded_length(), shard_chunk.transactions().len(), me);
-
         let partial_chunk = create_partial_chunk(
             encoded_chunk,
             merkle_paths,
-            shard_chunk.receipts().to_vec(),
+            shard_chunk.prev_outgoing_receipts().to_vec(),
             me,
             epoch_manager,
             shard_tracker,

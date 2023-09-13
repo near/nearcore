@@ -64,13 +64,12 @@ fn calc_total_supply(env: &mut TestEnv) -> u128 {
 fn test_burn_mint() {
     let genesis = build_genesis();
     let mut env = setup_env(&genesis);
-    let transaction_costs = env.clients[0]
+    let config = env.clients[0]
         .runtime_adapter
         .get_protocol_config(&EpochId::default())
         .unwrap()
-        .runtime_config
-        .fees;
-    let fee_helper = FeeHelper::new(transaction_costs, genesis.config.min_gas_price);
+        .runtime_config;
+    let fee_helper = FeeHelper::new(config, genesis.config.min_gas_price);
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let initial_total_supply = env.chain_genesis.total_supply;
     let genesis_hash = *env.clients[0].chain.genesis().hash();
@@ -118,11 +117,11 @@ fn test_burn_mint() {
         // supply + 1% of protocol rewards + 3/4 * 9% of validator rewards.
         initial_total_supply + epoch_total_reward * 775 / 1000 - half_transfer_cost
     );
-    assert_eq!(block3.chunks()[0].balance_burnt(), half_transfer_cost);
+    assert_eq!(block3.chunks()[0].prev_balance_burnt(), half_transfer_cost);
     // Block 4: subtract 2nd part of transfer.
     let block4 = env.clients[0].chain.get_block_by_height(4).unwrap();
     assert_eq!(block4.header().total_supply(), block3.header().total_supply() - half_transfer_cost);
-    assert_eq!(block4.chunks()[0].balance_burnt(), half_transfer_cost);
+    assert_eq!(block4.chunks()[0].prev_balance_burnt(), half_transfer_cost);
     // Check that Protocol Treasury account got it's 1% as well.
     assert_eq!(env.query_balance("near".parse().unwrap()), near_balance + epoch_total_reward / 10);
     // Block 5: reward from previous block.

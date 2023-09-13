@@ -606,17 +606,21 @@ impl ShardsManager {
             },
         );
 
-        if !mark_only {
-            let fetch_from_archival = chunk_needs_to_be_fetched_from_archival(
+        if mark_only {
+            debug!(target: "chunks", height, shard_id, ?chunk_hash, "Marked the chunk as being requested but did not send the request yet.");
+            return;
+        }
+
+        let fetch_from_archival = chunk_needs_to_be_fetched_from_archival(
                 &ancestor_hash, &self.chain_header_head.last_block_hash,
             self.epoch_manager.as_ref()).unwrap_or_else(|err| {
                 error!(target: "chunks", "Error during requesting partial encoded chunk. Cannot determine whether to request from an archival node, defaulting to not: {}", err);
                 false
             });
-            let old_block = self.chain_header_head.last_block_hash != prev_block_hash
-                && self.chain_header_head.prev_block_hash != prev_block_hash;
+        let old_block = self.chain_header_head.last_block_hash != prev_block_hash
+            && self.chain_header_head.prev_block_hash != prev_block_hash;
 
-            let should_wait_for_chunk_forwarding =
+        let should_wait_for_chunk_forwarding =
                 self.should_wait_for_chunk_forwarding(&ancestor_hash, chunk_header.shard_id(), chunk_header.height_created()+1).unwrap_or_else(|_| {
                     // ancestor_hash must be accepted because we don't request missing chunks through this
                     // this function for orphans
@@ -625,30 +629,27 @@ impl ShardsManager {
                     false
                 });
 
-            // If chunks forwarding is enabled,
-            // we purposely do not send chunk request messages right away for new blocks. Such requests
-            // will eventually be sent because of the `resend_chunk_requests` loop. However,
-            // we want to give some time for any `PartialEncodedChunkForward` messages to arrive
-            // before we send requests.
-            if !should_wait_for_chunk_forwarding || fetch_from_archival || old_block {
-                debug!(target: "chunks", height, shard_id, ?chunk_hash, "Requesting.");
-                let request_result = self.request_partial_encoded_chunk(
-                    height,
-                    &ancestor_hash,
-                    shard_id,
-                    &chunk_hash,
-                    false,
-                    old_block,
-                    fetch_from_archival,
-                );
-                if let Err(err) = request_result {
-                    error!(target: "chunks", "Error during requesting partial encoded chunk: {}", err);
-                }
-            } else {
-                debug!(target: "chunks",should_wait_for_chunk_forwarding, fetch_from_archival, old_block,  "Delaying the chunk request.");
+        // If chunks forwarding is enabled,
+        // we purposely do not send chunk request messages right away for new blocks. Such requests
+        // will eventually be sent because of the `resend_chunk_requests` loop. However,
+        // we want to give some time for any `PartialEncodedChunkForward` messages to arrive
+        // before we send requests.
+        if !should_wait_for_chunk_forwarding || fetch_from_archival || old_block {
+            debug!(target: "chunks", height, shard_id, ?chunk_hash, "Requesting.");
+            let request_result = self.request_partial_encoded_chunk(
+                height,
+                &ancestor_hash,
+                shard_id,
+                &chunk_hash,
+                false,
+                old_block,
+                fetch_from_archival,
+            );
+            if let Err(err) = request_result {
+                error!(target: "chunks", "Error during requesting partial encoded chunk: {}", err);
             }
         } else {
-            debug!(target: "chunks", height, shard_id, ?chunk_hash, "Marked the chunk as being requested but did not send the request yet.");
+            debug!(target: "chunks",should_wait_for_chunk_forwarding, fetch_from_archival, old_block,  "Delaying the chunk request.");
         }
     }
 
@@ -792,7 +793,19 @@ impl ShardsManager {
     /// Finds the parts and receipt proofs asked for in the request, and returns a response
     /// containing whatever was found. See comment for PartialEncodedChunkResponseSource for
     /// an explanation of that part of the return value.
+    /// Ensures the receipts in the response are in a deterministic order.
     fn prepare_partial_encoded_chunk_response(
+        &mut self,
+        request: PartialEncodedChunkRequestMsg,
+    ) -> (PartialEncodedChunkResponseSource, PartialEncodedChunkResponseMsg) {
+        let (src, mut response_msg) = self.prepare_partial_encoded_chunk_response_unsorted(request);
+        // Note that the PartialChunks column is a write-once column, and needs
+        // the values to be deterministic.
+        response_msg.receipts.sort();
+        (src, response_msg)
+    }
+
+    fn prepare_partial_encoded_chunk_response_unsorted(
         &mut self,
         request: PartialEncodedChunkRequestMsg,
     ) -> (PartialEncodedChunkResponseSource, PartialEncodedChunkResponseMsg) {
@@ -919,7 +932,7 @@ impl ShardsManager {
 
         // Get outgoing receipts for the chunk and construct vector of their
         // proofs.
-        let outgoing_receipts = chunk.receipts();
+        let outgoing_receipts = chunk.prev_outgoing_receipts();
         let present_receipts: HashMap<ShardId, _> = match make_outgoing_receipts_proofs(
             &header,
             &outgoing_receipts,
@@ -1416,13 +1429,17 @@ impl ShardsManager {
             let shard_id = proof.1.to_shard_id;
             let ReceiptProof(shard_receipts, receipt_proof) = proof;
             let receipt_hash = CryptoHash::hash_borsh(ReceiptList(shard_id, shard_receipts));
-            if !verify_path(header.outgoing_receipts_root(), &receipt_proof.proof, &receipt_hash) {
+            if !verify_path(
+                header.prev_outgoing_receipts_root(),
+                &receipt_proof.proof,
+                &receipt_hash,
+            ) {
                 byzantine_assert!(false);
                 return Err(Error::ChainError(near_chain::Error::InvalidReceiptsProof));
             }
         }
 
-        // 2. Consider it valid; mergeparts and receipts included in the partial encoded chunk
+        // 2. Consider it valid; merge parts and receipts included in the partial encoded chunk
         // into chunk cache
         let new_part_ords =
             self.encoded_chunks.merge_in_partial_encoded_chunk(partial_encoded_chunk);
@@ -1790,16 +1807,16 @@ impl ShardsManager {
     pub fn create_encoded_shard_chunk(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
-        outcome_root: CryptoHash,
+        prev_outcome_root: CryptoHash,
         height: u64,
         shard_id: ShardId,
-        gas_used: Gas,
-        gas_limit: Gas,
-        balance_burnt: Balance,
-        validator_proposals: Vec<ValidatorStake>,
+        prev_gas_used: Gas,
+        prev_gas_limit: Gas,
+        prev_balance_burnt: Balance,
+        prev_validator_proposals: Vec<ValidatorStake>,
         transactions: Vec<SignedTransaction>,
-        outgoing_receipts: &[Receipt],
-        outgoing_receipts_root: CryptoHash,
+        prev_outgoing_receipts: &[Receipt],
+        prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         signer: &dyn ValidatorSigner,
         rs: &mut ReedSolomonWrapper,
@@ -1808,18 +1825,18 @@ impl ShardsManager {
         EncodedShardChunk::new(
             prev_block_hash,
             prev_state_root,
-            outcome_root,
+            prev_outcome_root,
             height,
             shard_id,
             rs,
-            gas_used,
-            gas_limit,
-            balance_burnt,
+            prev_gas_used,
+            prev_gas_limit,
+            prev_balance_burnt,
             tx_root,
-            validator_proposals,
+            prev_validator_proposals,
             transactions,
-            outgoing_receipts,
-            outgoing_receipts_root,
+            prev_outgoing_receipts,
+            prev_outgoing_receipts_root,
             signer,
             protocol_version,
         )

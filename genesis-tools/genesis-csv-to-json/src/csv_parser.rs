@@ -258,12 +258,12 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
                 gas_price,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
-                actions: vec![Action::FunctionCall(FunctionCallAction {
+                actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "init".to_string(),
                     args,
                     gas: INIT_GAS,
                     deposit: 0,
-                })],
+                }))],
             }),
         };
         res.push(StateRecord::PostponedReceipt(Box::new(receipt)));

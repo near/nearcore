@@ -1565,8 +1565,8 @@ impl Chain {
             .chunks()
             .iter()
             .filter(|chunk| block_height == chunk.height_included())
-            .flat_map(|chunk| chunk.validator_proposals())
-            .zip_longest(block.header().validator_proposals())
+            .flat_map(|chunk| chunk.prev_validator_proposals())
+            .zip_longest(block.header().prev_validator_proposals())
         {
             match pair {
                 itertools::EitherOrBoth::Both(cp, hp) => {
@@ -1709,17 +1709,18 @@ impl Chain {
         let mut receipt_proofs_by_shard_id = HashMap::new();
 
         for chunk_header in block.chunks().iter() {
-            if chunk_header.height_included() == height {
-                let partial_encoded_chunk =
-                    self.store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
-                for receipt in partial_encoded_chunk.receipts().iter() {
-                    let ReceiptProof(_, shard_proof) = receipt;
-                    let ShardProof { from_shard_id: _, to_shard_id, proof: _ } = shard_proof;
-                    receipt_proofs_by_shard_id
-                        .entry(*to_shard_id)
-                        .or_insert_with(Vec::new)
-                        .push(receipt.clone());
-                }
+            if chunk_header.height_included() != height {
+                continue;
+            }
+            let partial_encoded_chunk =
+                self.store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
+            for receipt in partial_encoded_chunk.receipts().iter() {
+                let ReceiptProof(_, shard_proof) = receipt;
+                let ShardProof { to_shard_id, .. } = shard_proof;
+                receipt_proofs_by_shard_id
+                    .entry(*to_shard_id)
+                    .or_insert_with(Vec::new)
+                    .push(receipt.clone());
             }
         }
         // sort the receipts deterministically so the order that they will be processed is deterministic
@@ -2708,8 +2709,16 @@ impl Chain {
         parent_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> bool {
-        let will_shard_layout_change =
-            epoch_manager.will_shard_layout_change(parent_hash).unwrap_or(false);
+        let result = epoch_manager.will_shard_layout_change(parent_hash);
+        let will_shard_layout_change = match result {
+            Ok(will_shard_layout_change) => will_shard_layout_change,
+            Err(err) => {
+                // TODO(resharding) This is a problem, if this happens the node
+                // will not perform resharding and fall behind the network.
+                tracing::error!(target: "chain", ?err, "failed to check if shard layout will change");
+                false
+            }
+        };
         // if shard layout will change the next epoch, we should catch up the shard regardless
         // whether we already have the shard's state this epoch, because we need to generate
         // new states for shards split from the current shard for the next epoch
@@ -2913,8 +2922,10 @@ impl Chain {
             },
         };
 
-        // Getting all existing incoming_receipts from prev_chunk height to the new epoch.
+        // Getting all existing incoming_receipts from prev_chunk height to the
+        // new epoch.
         let incoming_receipts_proofs = self.store.get_incoming_receipts_for_shard(
+            self.epoch_manager.as_ref(),
             shard_id,
             sync_hash,
             prev_chunk_height_included,
@@ -2930,7 +2941,7 @@ impl Chain {
                 &block
                     .chunks()
                     .iter()
-                    .map(|chunk| chunk.outgoing_receipts_root())
+                    .map(|chunk| chunk.prev_outgoing_receipts_root())
                     .collect::<Vec<CryptoHash>>(),
             );
 
@@ -2942,12 +2953,12 @@ impl Chain {
                 let receipts_hash = CryptoHash::hash_borsh(ReceiptList(shard_id, receipts));
                 let from_shard_id = *from_shard_id as usize;
 
-                let root_proof = block.chunks()[from_shard_id].outgoing_receipts_root();
+                let root_proof = block.chunks()[from_shard_id].prev_outgoing_receipts_root();
                 root_proofs_cur
                     .push(RootProof(root_proof, block_receipts_proofs[from_shard_id].clone()));
 
                 // Make sure we send something reasonable.
-                assert_eq!(block_header.chunk_receipts_root(), &block_receipts_root);
+                assert_eq!(block_header.prev_chunk_outgoing_receipts_root(), &block_receipts_root);
                 assert!(verify_path(root_proof, proof, &receipts_hash));
                 assert!(verify_path(
                     block_receipts_root,
@@ -3219,7 +3230,11 @@ impl Chain {
                     return Err(Error::Other("set_shard_state failed: invalid proofs".into()));
                 }
                 // 4f. Proving the outgoing_receipts_root matches that in the block
-                if !verify_path(*block_header.chunk_receipts_root(), block_proof, root) {
+                if !verify_path(
+                    *block_header.prev_chunk_outgoing_receipts_root(),
+                    block_proof,
+                    root,
+                ) {
                     byzantine_assert!(false);
                     return Err(Error::Other("set_shard_state failed: invalid proofs".into()));
                 }
@@ -3967,14 +3982,16 @@ impl Chain {
         })?;
         // we can't use hash from the current block here yet because the incoming receipts
         // for this block is not stored yet
-        let mut receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
-        receipts.extend(collect_receipts_from_response(
-            &self.store().get_incoming_receipts_for_shard(
-                shard_id,
-                *prev_hash,
-                prev_chunk_height_included,
-            )?,
-        ));
+        let new_receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
+        let old_receipts = &self.store().get_incoming_receipts_for_shard(
+            self.epoch_manager.as_ref(),
+            shard_id,
+            *prev_hash,
+            prev_chunk_height_included,
+        )?;
+        let old_receipts = collect_receipts_from_response(old_receipts);
+        let receipts = [new_receipts, old_receipts].concat();
+
         let chunk = self.get_chunk_clone_from_header(&chunk_header.clone())?;
 
         let transactions = chunk.transactions();
@@ -4013,7 +4030,7 @@ impl Chain {
         };
 
         let chunk_inner = chunk.cloned_header().take_inner();
-        let gas_limit = chunk_inner.gas_limit();
+        let gas_limit = chunk_inner.prev_gas_limit();
 
         // This variable is responsible for checking to which block we can apply receipts previously lost in apply_chunks
         // (see https://github.com/near/nearcore/pull/4248/)
@@ -4051,7 +4068,7 @@ impl Chain {
                 &block_hash,
                 &receipts,
                 chunk.transactions(),
-                chunk_inner.validator_proposals(),
+                chunk_inner.prev_validator_proposals(),
                 gas_price,
                 gas_limit,
                 &challenges_result,
@@ -5054,8 +5071,16 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<(), Error> {
         let block_hash = block.hash();
         let prev_hash = block.header().prev_hash();
+        let height = block.header().height();
         match apply_results_or_state_changes {
-            ApplySplitStateResultOrStateChanges::ApplySplitStateResults(results) => {
+            ApplySplitStateResultOrStateChanges::ApplySplitStateResults(mut results) => {
+                tracing::debug!(target: "resharding", height, ?shard_uid, "process_split_state apply");
+
+                // Sort the results so that the gas reassignment is deterministic.
+                results.sort_unstable_by_key(|r| r.shard_uid);
+                // Drop the mutability as we no longer need it.
+                let results = results;
+
                 // Split validator_proposals, gas_burnt, balance_burnt to each split shard
                 // and store the chunk extra for split shards
                 // Note that here we do not split outcomes by the new shard layout, we simply store
@@ -5072,12 +5097,12 @@ impl<'a> ChainUpdate<'a> {
 
                 let mut validator_proposals_by_shard: HashMap<_, Vec<_>> = HashMap::new();
                 for validator_proposal in chunk_extra.validator_proposals() {
-                    let shard_id = account_id_to_shard_uid(
+                    let shard_uid = account_id_to_shard_uid(
                         validator_proposal.account_id(),
                         &next_epoch_shard_layout,
                     );
                     validator_proposals_by_shard
-                        .entry(shard_id)
+                        .entry(shard_uid)
                         .or_default()
                         .push(validator_proposal);
                 }
@@ -5086,21 +5111,49 @@ impl<'a> ChainUpdate<'a> {
                     .get_split_shard_uids(shard_uid.shard_id())
                     .unwrap_or_else(|| panic!("invalid shard layout {:?}", next_epoch_shard_layout))
                     .len() as NumShards;
+
                 let total_gas_used = chunk_extra.gas_used();
                 let total_balance_burnt = chunk_extra.balance_burnt();
-                let gas_res = total_gas_used % num_split_shards;
+
+                // The gas remainder, the split shards will be reassigned one
+                // unit each until its depleted.
+                let mut gas_res = total_gas_used % num_split_shards;
+                // The gas quotient, the split shards will be reassigned the
+                // full value each.
                 let gas_split = total_gas_used / num_split_shards;
-                let balance_res = (total_balance_burnt % num_split_shards as u128) as NumShards;
+
+                // The balance remainder, the split shards will be reassigned one
+                // unit each until its depleted.
+                let mut balance_res = (total_balance_burnt % num_split_shards as u128) as NumShards;
+                // The balance quotient, the split shards will be reassigned the
+                // full value each.
                 let balance_split = total_balance_burnt / (num_split_shards as u128);
+
                 let gas_limit = chunk_extra.gas_limit();
                 let outcome_root = *chunk_extra.outcome_root();
 
                 let mut sum_gas_used = 0;
                 let mut sum_balance_burnt = 0;
+
+                // The gas and balance distribution assumes that we have a result for every split shard.
+                // TODO(resharding) make sure that is the case.
+                assert_eq!(num_split_shards, results.len() as u64);
+
                 for result in results {
-                    let shard_id = result.shard_uid.shard_id();
-                    let gas_burnt = gas_split + if shard_id < gas_res { 1 } else { 0 };
-                    let balance_burnt = balance_split + if shard_id < balance_res { 1 } else { 0 };
+                    let gas_burnt = if gas_res > 0 {
+                        gas_res -= 1;
+                        gas_split + 1
+                    } else {
+                        gas_split
+                    };
+
+                    let balance_burnt = if balance_res > 0 {
+                        balance_res -= 1;
+                        balance_split + 1
+                    } else {
+                        balance_split
+                    };
+
                     let new_chunk_extra = ChunkExtra::new(
                         &result.new_root,
                         outcome_root,
@@ -5136,6 +5189,7 @@ impl<'a> ChainUpdate<'a> {
                 assert_eq!(sum_balance_burnt, total_balance_burnt);
             }
             ApplySplitStateResultOrStateChanges::StateChangesForSplitStates(state_changes) => {
+                tracing::debug!(target: "resharding", height, ?shard_uid, "process_split_state store");
                 self.chain_store_update.add_state_changes_for_split_states(
                     *block_hash,
                     shard_uid.shard_id(),
@@ -5555,7 +5609,7 @@ impl<'a> ChainUpdate<'a> {
         };
 
         let chunk_header = chunk.cloned_header();
-        let gas_limit = chunk_header.gas_limit();
+        let gas_limit = chunk_header.prev_gas_limit();
         // This is set to false because the value is only relevant
         // during protocol version RestoreReceiptsAfterFixApplyChunks.
         // TODO(nikurt): Determine the value correctly.
@@ -5570,7 +5624,7 @@ impl<'a> ChainUpdate<'a> {
             block_header.hash(),
             &receipts,
             chunk.transactions(),
-            chunk_header.validator_proposals(),
+            chunk_header.prev_validator_proposals(),
             gas_price,
             gas_limit,
             block_header.challenges_result(),

@@ -1,9 +1,10 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
 use near_primitives_core::account::id::ParseAccountError;
-use near_primitives_core::config::{ExtCostsConfig, ParameterCost, VMConfig};
+use near_primitives_core::config::{ExtCostsConfig, ParameterCost};
 use near_primitives_core::parameter::{FeeParameter, Parameter};
 use near_primitives_core::runtime::fees::{Fee, RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives_core::types::AccountId;
+use near_vm_runner::logic::{Config, StorageGetMode};
 use num_rational::Rational32;
 use std::collections::BTreeMap;
 
@@ -280,7 +281,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     num_extra_bytes_record: params.get(Parameter::StorageNumExtraBytesRecord)?,
                 },
             },
-            wasm_config: VMConfig {
+            wasm_config: Config {
                 ext_costs: ExtCostsConfig {
                     costs: enum_map::enum_map! {
                         cost => params.get(cost.param())?
@@ -291,6 +292,16 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 disable_9393_fix: params.get(Parameter::Disable9393Fix)?,
                 limit_config: serde_yaml::from_value(params.yaml_map(Parameter::vm_limits()))
                     .map_err(InvalidConfigError::InvalidYaml)?,
+                fix_contract_loading_cost: params.get(Parameter::FixContractLoadingCost)?,
+                storage_get_mode: match params.get(Parameter::FlatStorageReads)? {
+                    true => StorageGetMode::FlatStorage,
+                    false => StorageGetMode::Trie,
+                },
+                implicit_account_creation: params.get(Parameter::ImplicitAccountCreation)?,
+                math_extension: params.get(Parameter::MathExtension)?,
+                ed25519_verify: params.get(Parameter::Ed25519Verify)?,
+                alt_bn128: params.get(Parameter::AltBn128)?,
+                function_call_weight: params.get(Parameter::FunctionCallWeight)?,
             },
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params

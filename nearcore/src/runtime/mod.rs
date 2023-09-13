@@ -14,8 +14,8 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
+use near_primitives::config::ActionCosts;
 use near_primitives::config::ExtCosts;
-use near_primitives::contract::ContractCode;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
@@ -44,8 +44,9 @@ use near_store::{
     ApplyStatePartResult, DBCol, PartialStorage, ShardTries, StateSnapshotConfig, Store,
     StoreCompiledContractCache, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
-use near_vm_runner::logic::{ActionCosts, CompiledContractCache};
+use near_vm_runner::logic::CompiledContractCache;
 use near_vm_runner::precompile_contract;
+use near_vm_runner::ContractCode;
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
@@ -56,7 +57,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 pub mod errors;
 
@@ -775,7 +776,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         match result {
             Ok(gc_stop_height) => gc_stop_height,
             Err(error) => {
-                error!(target: "runtime", "Error when getting the gc stop height. This error may naturally occur after the gc_num_epochs_to_keep config is increased. It should disappear as soon as the node builds up all epochs it wants. Error: {}", error);
+                info!(target: "runtime", "Error when getting the gc stop height. This error may naturally occur after the gc_num_epochs_to_keep config is increased. It should disappear as soon as the node builds up all epochs it wants. Error: {}", error);
                 self.genesis_config.genesis_height
             }
         }
@@ -1336,7 +1337,7 @@ mod test {
             sender.validator_id().clone(),
             sender.validator_id().clone(),
             &*signer,
-            vec![Action::Stake(StakeAction { stake, public_key: sender.public_key() })],
+            vec![Action::Stake(Box::new(StakeAction { stake, public_key: sender.public_key() }))],
             // runtime does not validate block history
             CryptoHash::default(),
         )

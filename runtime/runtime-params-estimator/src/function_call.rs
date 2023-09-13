@@ -1,13 +1,13 @@
 use crate::config::{Config, GasMetric};
 use crate::gas_cost::{GasCost, LeastSquaresTolerance};
 use crate::vm_estimator::create_context;
-use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::types::ProtocolVersion;
 use near_store::StoreCompiledContractCache;
 use near_vm_runner::internal::VMKind;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::logic::CompiledContractCache;
+use near_vm_runner::ContractCode;
 use std::fmt::Write;
 
 /// Estimates linear cost curve for a function call execution cost per byte of
@@ -86,7 +86,6 @@ fn compute_function_call_cost(
                 fake_context.clone(),
                 &fees,
                 &promise_results,
-                protocol_version,
                 cache,
             )
             .expect("fatal error");
@@ -103,7 +102,6 @@ fn compute_function_call_cost(
                 fake_context.clone(),
                 &fees,
                 &promise_results,
-                protocol_version,
                 cache,
             )
             .expect("fatal_error");

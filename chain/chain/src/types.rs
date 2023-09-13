@@ -89,7 +89,11 @@ pub struct ApplySplitStateResult {
 // otherwise, it simply returns the state changes needed to be applied to split states
 #[derive(Debug)]
 pub enum ApplySplitStateResultOrStateChanges {
+    /// Immediately apply the split state result.
+    /// Happens during IsCaughtUp and CatchingUp
     ApplySplitStateResults(Vec<ApplySplitStateResult>),
+    /// Store the split state results so that they can be applied later.
+    /// Happens during NotCaughtUp.
     StateChangesForSplitStates(StateChangesForSplitStates),
 }
 

@@ -466,7 +466,7 @@ impl ClientActor {
                                     chunk.shard_id(),
                                 )
                                 .ok(),
-                            gas_used: chunk.gas_used(),
+                            gas_used: chunk.prev_gas_used(),
                             processing_time_ms: CryptoHashTimer::get_timer_value(
                                 chunk.chunk_hash().0,
                             )

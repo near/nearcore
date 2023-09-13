@@ -78,11 +78,6 @@ struct CliArgs {
     /// Spawn a bash shell inside a docker container for debugging purposes.
     #[clap(long)]
     docker_shell: bool,
-    /// If docker is also set, run estimator in the fully production setting to get usable cost
-    /// table. See runtime-params-estimator/emu-cost/README.md for more details.
-    /// Works only with enabled docker, because precise computations without it doesn't make sense.
-    #[clap(long)]
-    full: bool,
     /// Drop OS cache before measurements for better IO accuracy. Requires sudo.
     #[clap(long)]
     drop_os_cache: bool,
@@ -102,6 +97,9 @@ struct CliArgs {
     /// Use in-memory test DB, useful to avoid variance caused by DB.
     #[clap(long)]
     pub in_memory_db: bool,
+    /// If false, only runs a minimal check that's faster than trying to get accurate results.
+    #[clap(long, default_value_t = true, action = clap::ArgAction::Set)]
+    pub accurate: bool,
     /// Extra configuration parameters for RocksDB specific estimations
     #[clap(flatten)]
     db_test_config: RocksDBTestConfig,
@@ -207,7 +205,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
     if cli_args.docker {
         main_docker(
             &state_dump_path,
-            cli_args.full,
+            cli_args.accurate,
             cli_args.docker_shell,
             cli_args.json_output,
             cli_args.debug,
@@ -289,7 +287,6 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         warmup_iters_per_block,
         iter_per_block,
         active_accounts,
-        block_sizes: vec![],
         finality_lag: cli_args.finality_lag,
         fs_keys_per_delta: cli_args.fs_keys_per_delta,
         state_dump_path: state_dump_path,
@@ -301,6 +298,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         json_output: cli_args.json_output,
         drop_os_cache: cli_args.drop_os_cache,
         in_memory_db: cli_args.in_memory_db,
+        accurate: cli_args.accurate,
     };
     let cost_table = runtime_params_estimator::run(config);
     Ok(Some(cost_table))
@@ -376,7 +374,7 @@ fn main_docker(
         let _binary_name = args.next();
         while let Some(arg) = args.next() {
             match arg.as_str() {
-                "--docker" | "--full" => continue,
+                "--docker" => continue,
                 "--additional-accounts-num" | "--home" => {
                     args.next();
                     continue;
@@ -518,7 +516,6 @@ mod tests {
             costs: Some(costs),
             docker: false,
             docker_shell: false,
-            full: false,
             drop_os_cache: false,
             debug: true,
             json_output: false,
@@ -527,6 +524,7 @@ mod tests {
             in_memory_db: false,
             db_test_config: clap::Parser::parse_from(std::iter::empty::<std::ffi::OsString>()),
             sub_cmd: None,
+            accurate: true, // we run a small number of estimations, no need to take more shortcuts
         };
         run_estimation(args).unwrap();
     }
