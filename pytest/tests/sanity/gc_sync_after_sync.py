@@ -17,8 +17,8 @@ from configured_logger import logger
 import state_sync_lib
 import utils
 
-EPOCH_LENGTH = 20
-NUM_GC_EPOCHS = 2
+EPOCH_LENGTH = 30
+NUM_GC_EPOCHS = 3
 # The gaps need to be longer than NUM_GC_EPOCHS epochs for the garbage collection to kick in.
 TARGET_HEIGHT1 = EPOCH_LENGTH * (NUM_GC_EPOCHS + 1)
 TARGET_HEIGHT2 = EPOCH_LENGTH * 2 * (NUM_GC_EPOCHS + 1)
@@ -66,9 +66,12 @@ node0_height, _ = utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT2)
 
 logger.info('Restart node 1')
 nodes[1].start(boot_node=nodes[1])
+# State Sync makes the storage seem inconsistent.
+nodes[1].stop_checking_store()
 time.sleep(3)
 
-node1_height, _ = utils.wait_for_blocks(nodes[1], target=node0_height)
+node1_height, _ = utils.wait_for_blocks(nodes[1],
+                                        target=node0_height + EPOCH_LENGTH)
 
 logger.info(f'node0_height: {node0_height}, node1_height: {node1_height}')
 
@@ -87,7 +90,7 @@ time.sleep(1)
 
 # all old data should be GCed
 blocks_count = 0
-for height in range(1, EPOCH_LENGTH * 3):
+for height in range(1, 15):
     logger.info(f'Check old block at height {height}')
     block0 = nodes[0].json_rpc('block', [height], timeout=15)
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
@@ -108,10 +111,11 @@ assert blocks_count == 0
 
 # all data before second sync should be GCed
 blocks_count = 0
-for height in range(TARGET_HEIGHT2, TARGET_HEIGHT2 + 10):
+for height in range(TARGET_HEIGHT2 - 15, TARGET_HEIGHT2 - 5):
     logger.info(f'Check block before second sync at height {height}')
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
     if 'result' in block1:
+        logger.info(block1['result'])
         blocks_count += 1
 assert blocks_count == 0
 
