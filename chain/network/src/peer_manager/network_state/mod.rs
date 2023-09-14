@@ -333,11 +333,11 @@ impl NetworkState {
                     this.add_edges(&clock, vec![edge.clone()])
                         .await
                         .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
+                    // Insert to the local connection pool
+                    this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
                     // Update the V2 routing table
                     this.update_routes(&clock, NetworkTopologyChange::PeerConnected(peer_info.id.clone(), edge.clone()))
                         .await.map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
-                    // Insert to the local connection pool
-                    this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
                     // Write to the peer store
                     this.peer_store.peer_connected(&clock, peer_info);
                 }

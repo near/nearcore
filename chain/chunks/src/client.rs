@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use actix::Message;
 
+use near_pool::types::PoolIterator;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
+use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout, ShardUId};
 use near_primitives::{
     epoch_manager::RngSeed,
     sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader},
@@ -31,7 +33,7 @@ pub enum ShardsManagerResponse {
 }
 
 pub struct ShardedTransactionPool {
-    tx_pools: HashMap<ShardId, TransactionPool>,
+    tx_pools: HashMap<ShardUId, TransactionPool>,
 
     /// Useful to make tests deterministic and reproducible,
     /// while keeping the security of randomization of transactions in pool
@@ -47,21 +49,21 @@ impl ShardedTransactionPool {
         Self { tx_pools: HashMap::new(), rng_seed, pool_size_limit }
     }
 
-    pub fn get_pool_iterator(&mut self, shard_id: ShardId) -> Option<PoolIteratorWrapper<'_>> {
-        self.tx_pools.get_mut(&shard_id).map(|pool| pool.pool_iterator())
+    pub fn get_pool_iterator(&mut self, shard_uid: ShardUId) -> Option<PoolIteratorWrapper<'_>> {
+        self.tx_pools.get_mut(&shard_uid).map(|pool| pool.pool_iterator())
     }
 
     /// Tries to insert the transaction into the pool for a given shard.
     pub fn insert_transaction(
         &mut self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         tx: SignedTransaction,
     ) -> InsertTransactionResult {
-        self.pool_for_shard(shard_id).insert_transaction(tx)
+        self.pool_for_shard(shard_uid).insert_transaction(tx)
     }
 
-    pub fn remove_transactions(&mut self, shard_id: ShardId, transactions: &[SignedTransaction]) {
-        if let Some(pool) = self.tx_pools.get_mut(&shard_id) {
+    pub fn remove_transactions(&mut self, shard_uid: ShardUId, transactions: &[SignedTransaction]) {
+        if let Some(pool) = self.tx_pools.get_mut(&shard_uid) {
             pool.remove_transactions(transactions)
         }
     }
@@ -77,12 +79,12 @@ impl ShardedTransactionPool {
         res
     }
 
-    fn pool_for_shard(&mut self, shard_id: ShardId) -> &mut TransactionPool {
-        self.tx_pools.entry(shard_id).or_insert_with(|| {
+    fn pool_for_shard(&mut self, shard_uid: ShardUId) -> &mut TransactionPool {
+        self.tx_pools.entry(shard_uid).or_insert_with(|| {
             TransactionPool::new(
-                Self::random_seed(&self.rng_seed, shard_id),
+                Self::random_seed(&self.rng_seed, shard_uid.shard_id()),
                 self.pool_size_limit,
-                &shard_id.to_string(),
+                &shard_uid.to_string(),
             )
         })
     }
@@ -91,11 +93,11 @@ impl ShardedTransactionPool {
     /// that were added or are already present in the pool.
     pub fn reintroduce_transactions(
         &mut self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         transactions: &[SignedTransaction],
     ) -> usize {
         let mut reintroduced_count = 0;
-        let pool = self.pool_for_shard(shard_id);
+        let pool = self.pool_for_shard(shard_uid);
         for tx in transactions {
             reintroduced_count += match pool.insert_transaction(tx.clone()) {
                 InsertTransactionResult::Success | InsertTransactionResult::Duplicate => 1,
@@ -104,11 +106,58 @@ impl ShardedTransactionPool {
         }
         reintroduced_count
     }
+
+    /// Migrate all of the transactions in the pool from the old shard layout to
+    /// the new shard layout.
+    /// It works by emptying the pools for old shard uids and re-inserting the
+    /// transactions back to the pool with the new shard uids.
+    pub fn reshard(&mut self, old_shard_layout: &ShardLayout, new_shard_layout: &ShardLayout) {
+        tracing::debug!(
+            target: "client",
+            old_shard_layout_version = old_shard_layout.version(),
+            new_shard_layout_version = new_shard_layout.version(),
+            "resharding the transaction pool"
+        );
+        debug_assert!(old_shard_layout != new_shard_layout);
+        debug_assert!(old_shard_layout.version() + 1 == new_shard_layout.version());
+
+        let mut transactions = vec![];
+
+        let old_shard_uids = old_shard_layout.get_shard_uids();
+        for old_shard_uid in old_shard_uids {
+            if let Some(mut iter) = self.get_pool_iterator(old_shard_uid) {
+                while let Some(group) = iter.next() {
+                    while let Some(tx) = group.next() {
+                        transactions.push(tx);
+                    }
+                }
+            }
+        }
+
+        for tx in transactions {
+            let signer_id = &tx.transaction.signer_id;
+            let new_shard_uid = account_id_to_shard_uid(&signer_id, new_shard_layout);
+            self.insert_transaction(new_shard_uid, tx);
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use near_primitives::epoch_manager::RngSeed;
+    use std::{collections::HashMap, str::FromStr};
+
+    use near_crypto::{InMemorySigner, KeyType};
+    use near_o11y::testonly::init_test_logger;
+    use near_pool::types::PoolIterator;
+    use near_primitives::{
+        epoch_manager::RngSeed,
+        hash::CryptoHash,
+        shard_layout::{account_id_to_shard_uid, ShardLayout},
+        transaction::SignedTransaction,
+        types::AccountId,
+    };
+    use near_store::ShardUId;
+    use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 
     use crate::client::ShardedTransactionPool;
 
@@ -131,5 +180,96 @@ mod tests {
         assert_ne!(seed256, seed1000);
         assert_ne!(seed256, seed1000000);
         assert_ne!(seed1000, seed1000000);
+    }
+
+    #[test]
+    fn test_transaction_pool_resharding() {
+        init_test_logger();
+        let old_shard_layout = ShardLayout::get_simple_nightshade_layout();
+        let new_shard_layout = ShardLayout::get_simple_nightshade_layout_v2();
+
+        let mut pool = ShardedTransactionPool::new(TEST_SEED, None);
+
+        let mut shard_id_to_accounts = HashMap::new();
+        shard_id_to_accounts.insert(0, vec!["aaa", "abcd", "a-a-a-a-a"]);
+        shard_id_to_accounts.insert(1, vec!["aurora"]);
+        shard_id_to_accounts.insert(2, vec!["aurora-0", "bob", "kkk"]);
+        // this shard is split, make sure there are accounts for both shards 3' and 4'
+        shard_id_to_accounts.insert(3, vec!["mmm", "rrr", "sweat", "ttt", "www", "zzz"]);
+
+        let deposit = 222;
+
+        let mut rng: StdRng = SeedableRng::seed_from_u64(42);
+
+        // insert some transactions using the old shard layout
+
+        let n = 100;
+        tracing::info!("inserting {n} transactions into the pool using the old shard layout");
+        for i in 0..n {
+            let num_shards = old_shard_layout.num_shards();
+            let signer_shard_id = rng.gen_range(0..num_shards);
+            let receiver_shard_id = rng.gen_range(0..num_shards);
+            let nonce = i as u64;
+
+            let signer_id = *shard_id_to_accounts[&signer_shard_id].choose(&mut rng).unwrap();
+            let signer_id = AccountId::from_str(signer_id).unwrap();
+
+            let receiver_id = *shard_id_to_accounts[&receiver_shard_id].choose(&mut rng).unwrap();
+            let receiver_id = AccountId::from_str(receiver_id).unwrap();
+
+            let signer = InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, "seed");
+
+            let tx = SignedTransaction::send_money(
+                nonce,
+                signer_id.clone(),
+                receiver_id.clone(),
+                &signer,
+                deposit,
+                CryptoHash::default(),
+            );
+
+            let shard_uid =
+                ShardUId { shard_id: signer_shard_id as u32, version: old_shard_layout.version() };
+            pool.insert_transaction(shard_uid, tx);
+        }
+
+        // reshard
+
+        tracing::info!("resharding the pool");
+        pool.reshard(&old_shard_layout, &new_shard_layout);
+
+        // check the pool is correctly resharded
+
+        tracing::info!("checking the pool after resharding");
+        {
+            let num_shards = new_shard_layout.num_shards();
+            for shard_id in 0..num_shards {
+                let shard_id = shard_id as u32;
+                let shard_uid = ShardUId { shard_id, version: new_shard_layout.version() };
+                let pool = pool.pool_for_shard(shard_uid);
+                let pool_len = pool.len();
+                tracing::debug!("checking shard_uid {shard_uid:?}, the pool len is {pool_len}");
+                assert_ne!(pool.len(), 0);
+            }
+
+            let mut total = 0;
+            for shard_id in 0..num_shards {
+                let shard_id = shard_id as u32;
+                let shard_uid = ShardUId { shard_id, version: new_shard_layout.version() };
+                let mut pool_iter = pool.get_pool_iterator(shard_uid).unwrap();
+                while let Some(group) = pool_iter.next() {
+                    while let Some(tx) = group.next() {
+                        total += 1;
+                        let account_id = tx.transaction.signer_id;
+                        let tx_shard_uid = account_id_to_shard_uid(&account_id, &new_shard_layout);
+                        tracing::debug!("checking {account_id:?}:{tx_shard_uid} in {shard_uid}");
+                        assert_eq!(shard_uid, tx_shard_uid);
+                    }
+                }
+            }
+
+            assert_eq!(total, n);
+        }
+        tracing::info!("finished");
     }
 }
