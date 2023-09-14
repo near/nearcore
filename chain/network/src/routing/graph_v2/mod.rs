@@ -647,12 +647,12 @@ impl GraphV2 {
     }
 
     /// Logs the given batch of updates and the results from processing them.
-    fn write_event_logs(&self, updates: &Vec<NetworkTopologyChange>, oks: &Vec<bool>) {
-        for index in 0..updates.len() {
-            if oks[index] {
-                tracing::debug!(target: "routing", "Processed event {:?}", updates[index]);
+    fn write_event_logs(updates: &Vec<NetworkTopologyChange>, oks: &Vec<bool>) {
+        for (update, &ok) in updates.iter().zip(oks) {
+            if ok {
+                tracing::debug!(target: "routing", "Processed event {:?}", update);
             } else {
-                tracing::debug!(target: "routing", "Rejected invalid distance vector {:?}", updates[index]);
+                tracing::debug!(target: "routing", "Rejected invalid distance vector {:?}", update);
             }
         }
     }
@@ -674,8 +674,8 @@ impl GraphV2 {
     ) -> (Option<network_protocol::DistanceVector>, Vec<bool>) {
         tracing::debug!(
             target: "routing",
-            "Processing a batch of {} network topology changes",
-            updates.len()
+            length = updates.len(),
+            "Processing a batch of network topology changes",
         );
 
         // TODO(saketh): Consider whether we can move this to rayon.
@@ -691,7 +691,7 @@ impl GraphV2 {
                     .map(|update| inner.handle_network_change(&clock, update))
                     .collect();
 
-                this.write_event_logs(&updates, &oks);
+                Self::write_event_logs(&updates, &oks);
 
                 let (next_hops, to_broadcast) =
                     inner.compute_routes(&clock, &this.unreliable_peers.load());
