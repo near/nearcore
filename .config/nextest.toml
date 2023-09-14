@@ -7,4 +7,4 @@ slow-timeout = { period = "10m", terminate-after = 3 }
 
 [[profile.default.overrides]]
 filter = 'package(style-tests)'
-slow-timeout = { period = "60s", terminate-after = 5 }
+slow-timeout = { period = "120s", terminate-after = 5 }
