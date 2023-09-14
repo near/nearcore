@@ -1167,6 +1167,9 @@ mod tests {
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
 
+        let flat_storage_manager = tries.get_flat_storage_manager();
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+
         // Get correct state part using trie without flat storage.
         let trie_without_flat = tries.get_view_trie_for_shard(shard_uid, root);
         let state_part = trie_without_flat

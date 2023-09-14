@@ -339,7 +339,6 @@ fn run_state_sync_with_dumped_parts(
         let client_0_store = runtime_client_0.store();
         assert!(runtime_client_1
             .get_flat_storage_manager()
-            .unwrap()
             .remove_flat_storage_for_shard(ShardUId::single_shard())
             .unwrap());
 

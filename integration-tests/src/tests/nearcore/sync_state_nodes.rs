@@ -705,7 +705,6 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
 
                 assert!(rt
                     .get_flat_storage_manager()
-                    .unwrap()
                     .remove_flat_storage_for_shard(msg.shard_uid)
                     .unwrap());
 
