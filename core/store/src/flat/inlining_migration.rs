@@ -334,17 +334,7 @@ mod tests {
             vec![5],
         ];
         populate_flat_store(&store, shard_uid, &values);
-
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
-        let mut store_update = store.store_update();
-        flat_storage_manager.set_flat_storage_for_genesis(
-            &mut store_update,
-            shard_uid,
-            &CryptoHash::default(),
-            0,
-        );
-        store_update.commit().unwrap();
-        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+        let flat_storage_manager = create_flat_storage_for_genesis(&store, shard_uid);
         inline_flat_state_values(
             store.clone(),
             &flat_storage_manager,
@@ -385,17 +375,7 @@ mod tests {
             vec![5],
         ];
         populate_flat_store(&store, shard_uid, &values);
-
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
-        let mut store_update = store.store_update();
-        flat_storage_manager.set_flat_storage_for_genesis(
-            &mut store_update,
-            shard_uid,
-            &CryptoHash::default(),
-            0,
-        );
-        store_update.commit().unwrap();
-        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+        let flat_storage_manager = create_flat_storage_for_genesis(&store, shard_uid);
         // Lock flat head.
         assert!(flat_storage_manager.set_flat_state_updates_mode(false));
         // Start a separate thread that should block waiting for the flat head.
@@ -434,17 +414,7 @@ mod tests {
             vec![5],
         ];
         populate_flat_store(&store, shard_uid, &values);
-
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
-        let mut store_update = store.store_update();
-        flat_storage_manager.set_flat_storage_for_genesis(
-            &mut store_update,
-            shard_uid,
-            &CryptoHash::default(),
-            0,
-        );
-        store_update.commit().unwrap();
-        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+        let flat_storage_manager = create_flat_storage_for_genesis(&store, shard_uid);
         // Lock flat head.
         assert!(flat_storage_manager.set_flat_state_updates_mode(false));
         // Start a separate thread that should block waiting for the flat head.
@@ -476,6 +446,20 @@ mod tests {
             store_update.set(DBCol::FlatState, &fs_key, &fs_value);
         }
         store_update.commit().unwrap();
+    }
+
+    fn create_flat_storage_for_genesis(store: &Store, shard_uid: ShardUId) -> FlatStorageManager {
+        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let mut store_update = store.store_update();
+        flat_storage_manager.set_flat_storage_for_genesis(
+            &mut store_update,
+            shard_uid,
+            &CryptoHash::default(),
+            0,
+        );
+        store_update.commit().unwrap();
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+        flat_storage_manager
     }
 
     fn count_inlined_values(store: &Store) -> u64 {
