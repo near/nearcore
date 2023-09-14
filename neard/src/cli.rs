@@ -559,9 +559,7 @@ impl RunCmd {
             if let Some(handle) = state_sync_dump_handle {
                 handle.stop()
             }
-            if let Some(handle) = flat_state_migration_handle {
-                handle.stop();
-            }
+            flat_state_migration_handle.stop();
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);

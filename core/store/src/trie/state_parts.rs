@@ -514,12 +514,13 @@ mod tests {
 
     use near_primitives::hash::{hash, CryptoHash};
 
-    use crate::test_utils::{create_tries, gen_changes, test_populate_trie};
+    use crate::test_utils::{
+        create_tries, create_tries_with_flat_storage, gen_changes, test_populate_trie,
+    };
     use crate::trie::iterator::CrumbStatus;
     use crate::trie::{TrieRefcountChange, ValueHandle};
 
     use super::*;
-    use crate::flat::{store_helper, BlockInfo, FlatStorageReadyStatus, FlatStorageStatus};
     use crate::{DBCol, TrieCachingStorage};
     use near_primitives::shard_layout::ShardUId;
 
@@ -1136,7 +1137,7 @@ mod tests {
     fn get_trie_nodes_for_part_with_flat_storage() {
         let value_len = 1000usize;
 
-        let tries = create_tries();
+        let tries = create_tries_with_flat_storage();
         let shard_uid = ShardUId::single_shard();
         let block_hash = CryptoHash::default();
         let part_id = PartId::new(1, 3);
@@ -1157,13 +1158,6 @@ mod tests {
         let changes_for_trie = state_items.iter().cloned().map(|(k, v)| (k, Some(v)));
         let trie_changes = trie.update(changes_for_trie).unwrap();
         let mut store_update = tries.store_update();
-        store_helper::set_flat_storage_status(
-            &mut store_update,
-            shard_uid,
-            FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                flat_head: BlockInfo::genesis(block_hash, 0),
-            }),
-        );
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
 
