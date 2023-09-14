@@ -8,6 +8,7 @@ use crate::validator_signer::ValidatorSigner;
 use crate::version::{ProtocolFeature, ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
+use near_fmt::AbbrBytes;
 use reed_solomon_erasure::galois_8::{Field, ReedSolomon};
 use reed_solomon_erasure::ReconstructShard;
 use std::cmp::Ordering;
@@ -617,11 +618,21 @@ impl Ord for ReceiptProof {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialEq)]
 pub struct PartialEncodedChunkPart {
     pub part_ord: u64,
     pub part: Box<[u8]>,
     pub merkle_proof: MerklePath,
+}
+
+impl std::fmt::Debug for PartialEncodedChunkPart {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PartialEncodedChunkPart")
+            .field("part_ord", &self.part_ord)
+            .field("part", &format_args!("{}", AbbrBytes(self.part.as_ref())))
+            .field("merkle_proof", &self.merkle_proof)
+            .finish()
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
