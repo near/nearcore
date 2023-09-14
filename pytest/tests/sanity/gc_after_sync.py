@@ -3,8 +3,8 @@
 # sufficient number of blocks. Restart the stopped node and check that it can
 # still sync. Then check all old data is removed.
 
-import sys
 import pathlib
+import sys
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -13,19 +13,19 @@ from configured_logger import logger
 import state_sync_lib
 import utils
 
-EPOCH_LENGTH = 30
+EPOCH_LENGTH = 20
 TARGET_HEIGHT = int(EPOCH_LENGTH * 2.5)
 AFTER_SYNC_HEIGHT = EPOCH_LENGTH * 10
 TIMEOUT = 300
 
-node_config = state_sync_lib.get_state_sync_config_combined().update({
-    # We're generating 150 blocks here - lower the min production delay to speed
-    # up the test running time a little.
-    "consensus.min_block_production_delay": {
-        "secs": 0,
-        "nanos": 100000000
-    },
-})
+node_config = state_sync_lib.get_state_sync_config_combined()
+# We're generating many blocks here - lower the min production delay to speed
+# up the test running time a little.
+node_config["consensus.min_block_production_delay"] = {
+    "secs": 0,
+    "nanos": 100000000
+}
+node_config["consensus.block_fetch_horizon"] = 1
 
 nodes = start_cluster(
     4, 0, 1,

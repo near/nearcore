@@ -269,7 +269,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: StateRoot,
     ) -> Result<Trie, Error>;
 
-    fn get_flat_storage_manager(&self) -> Option<FlatStorageManager>;
+    fn get_flat_storage_manager(&self) -> FlatStorageManager;
 
     /// Validates a given signed transaction.
     /// If the state root is given, then the verification will use the account. Otherwise it will

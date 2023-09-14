@@ -41,23 +41,6 @@ impl FlatStorageManager {
         Self(Arc::new(FlatStorageManagerInner { store, flat_storages: Default::default() }))
     }
 
-    pub fn test(store: Store, shard_uids: &[ShardUId], flat_head: CryptoHash) -> Self {
-        let mut flat_storages = HashMap::default();
-        for shard_uid in shard_uids {
-            let mut store_update = store.store_update();
-            store_helper::set_flat_storage_status(
-                &mut store_update,
-                *shard_uid,
-                FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                    flat_head: BlockInfo::genesis(flat_head, 0),
-                }),
-            );
-            store_update.commit().expect("failed to set flat storage status");
-            flat_storages.insert(*shard_uid, FlatStorage::new(store.clone(), *shard_uid).unwrap());
-        }
-        Self(Arc::new(FlatStorageManagerInner { store, flat_storages: Mutex::new(flat_storages) }))
-    }
-
     /// When a node starts from an empty database, this function must be called to ensure
     /// information such as flat head is set up correctly in the database.
     /// Note that this function is different from `create_flat_storage_for_shard`,

@@ -401,9 +401,10 @@ impl FlatStorageShardCreator {
                         );
                         store_update.commit()?;
                         info!(target: "chain", %shard_id, %flat_head, %height, "Garbage collected {gc_count} deltas");
-                        if let Some(manager) = self.runtime.get_flat_storage_manager() {
-                            manager.create_flat_storage_for_shard(shard_uid).unwrap();
-                        }
+                        self.runtime
+                            .get_flat_storage_manager()
+                            .create_flat_storage_for_shard(shard_uid)
+                            .unwrap();
                         info!(target: "chain", %shard_id, %flat_head, %height, "Flat storage creation done");
                     }
                 }
@@ -437,11 +438,7 @@ impl FlatStorageCreator {
         let num_shards = epoch_manager.num_shards(&chain_head.epoch_id)?;
         let mut shard_creators: HashMap<ShardUId, FlatStorageShardCreator> = HashMap::new();
         let mut creation_needed = false;
-        let flat_storage_manager = if let Some(manager) = runtime.get_flat_storage_manager() {
-            manager
-        } else {
-            return Ok(None);
-        };
+        let flat_storage_manager = runtime.get_flat_storage_manager();
         // Create flat storage for all shards.
         // TODO(nikurt): Choose which shards need to open the flat storage.
         for shard_id in 0..num_shards {

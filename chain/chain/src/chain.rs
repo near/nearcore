@@ -684,21 +684,19 @@ impl Chain {
                 // Set the root block of flat state to be the genesis block. Later, when we
                 // init FlatStorages, we will read the from this column in storage, so it
                 // must be set here.
-                if let Some(flat_storage_manager) = runtime_adapter.get_flat_storage_manager() {
-                    let genesis_epoch_id = genesis.header().epoch_id();
-                    let mut tmp_store_update = store_update.store().store_update();
-                    for shard_uid in
-                        epoch_manager.get_shard_layout(genesis_epoch_id)?.get_shard_uids()
-                    {
-                        flat_storage_manager.set_flat_storage_for_genesis(
-                            &mut tmp_store_update,
-                            shard_uid,
-                            genesis.hash(),
-                            genesis.header().height(),
-                        )
-                    }
-                    store_update.merge(tmp_store_update);
+                let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
+                let genesis_epoch_id = genesis.header().epoch_id();
+                let mut tmp_store_update = store_update.store().store_update();
+                for shard_uid in epoch_manager.get_shard_layout(genesis_epoch_id)?.get_shard_uids()
+                {
+                    flat_storage_manager.set_flat_storage_for_genesis(
+                        &mut tmp_store_update,
+                        shard_uid,
+                        genesis.hash(),
+                        genesis.header().height(),
+                    )
                 }
+                store_update.merge(tmp_store_update);
 
                 info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
 
@@ -2342,9 +2340,8 @@ impl Chain {
 
             if need_flat_storage_update {
                 let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
-                if let Some(manager) = self.runtime_adapter.get_flat_storage_manager() {
-                    manager.update_flat_storage_for_shard(shard_uid, &block)?;
-                }
+                let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+                flat_storage_manager.update_flat_storage_for_shard(shard_uid, &block)?;
             }
         }
 
@@ -3352,32 +3349,31 @@ impl Chain {
             let epoch_id = block_header.epoch_id();
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
 
-            if let Some(flat_storage_manager) = self.runtime_adapter.get_flat_storage_manager() {
-                // Flat storage must not exist at this point because leftover keys corrupt its state.
-                assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
+            let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+            // Flat storage must not exist at this point because leftover keys corrupt its state.
+            assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
 
-                let flat_head_hash = *chunk.prev_block();
-                let flat_head_header = self.get_block_header(&flat_head_hash)?;
-                let flat_head_prev_hash = *flat_head_header.prev_hash();
-                let flat_head_height = flat_head_header.height();
+            let flat_head_hash = *chunk.prev_block();
+            let flat_head_header = self.get_block_header(&flat_head_hash)?;
+            let flat_head_prev_hash = *flat_head_header.prev_hash();
+            let flat_head_height = flat_head_header.height();
 
-                tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
+            tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
 
-                let mut store_update = self.runtime_adapter.store().store_update();
-                store_helper::set_flat_storage_status(
-                    &mut store_update,
-                    shard_uid,
-                    FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                        flat_head: near_store::flat::BlockInfo {
-                            hash: flat_head_hash,
-                            prev_hash: flat_head_prev_hash,
-                            height: flat_head_height,
-                        },
-                    }),
-                );
-                store_update.commit()?;
-                flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
-            }
+            let mut store_update = self.runtime_adapter.store().store_update();
+            store_helper::set_flat_storage_status(
+                &mut store_update,
+                shard_uid,
+                FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                    flat_head: near_store::flat::BlockInfo {
+                        hash: flat_head_hash,
+                        prev_hash: flat_head_prev_hash,
+                        height: flat_head_height,
+                    },
+                }),
+            );
+            store_update.commit()?;
+            flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
         }
 
         let mut height = shard_state_header.chunk_height_included();
@@ -3518,9 +3514,8 @@ impl Chain {
                 true,
             ) {
                 let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
-                if let Some(manager) = self.runtime_adapter.get_flat_storage_manager() {
-                    manager.update_flat_storage_for_shard(shard_uid, &block)?;
-                }
+                let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+                flat_storage_manager.update_flat_storage_for_shard(shard_uid, &block)?;
             }
         }
 
@@ -5170,19 +5165,18 @@ impl<'a> ChainUpdate<'a> {
                     sum_gas_used += gas_burnt;
                     sum_balance_burnt += balance_burnt;
 
-                    if let Some(manager) = self.runtime_adapter.get_flat_storage_manager() {
-                        // TODO(#9430): Support manager.save_flat_state_changes and manager.update_flat_storage_for_shard
-                        // functions to be a part of the same chain_store_update
-                        let store_update = manager.save_flat_state_changes(
-                            *block_hash,
-                            *prev_hash,
-                            block.header().height(),
-                            result.shard_uid,
-                            result.trie_changes.state_changes(),
-                        )?;
-                        manager.update_flat_storage_for_shard(*shard_uid, block)?;
-                        self.chain_store_update.merge(store_update);
-                    }
+                    // TODO(#9430): Support manager.save_flat_state_changes and manager.update_flat_storage_for_shard
+                    // functions to be a part of the same chain_store_update
+                    let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+                    let store_update = flat_storage_manager.save_flat_state_changes(
+                        *block_hash,
+                        *prev_hash,
+                        block.header().height(),
+                        result.shard_uid,
+                        result.trie_changes.state_changes(),
+                    )?;
+                    flat_storage_manager.update_flat_storage_for_shard(*shard_uid, block)?;
+                    self.chain_store_update.merge(store_update);
 
                     self.chain_store_update.save_chunk_extra(
                         block_hash,
@@ -5239,16 +5233,17 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.total_balance_burnt,
                     ),
                 );
-                if let Some(manager) = self.runtime_adapter.get_flat_storage_manager() {
-                    let store_update = manager.save_flat_state_changes(
-                        *block_hash,
-                        *prev_hash,
-                        height,
-                        shard_uid,
-                        apply_result.trie_changes.state_changes(),
-                    )?;
-                    self.chain_store_update.merge(store_update);
-                }
+
+                let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+                let store_update = flat_storage_manager.save_flat_state_changes(
+                    *block_hash,
+                    *prev_hash,
+                    height,
+                    shard_uid,
+                    apply_result.trie_changes.state_changes(),
+                )?;
+                self.chain_store_update.merge(store_update);
+
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
                 self.chain_store_update.save_outgoing_receipt(
                     block_hash,
@@ -5276,16 +5271,16 @@ impl<'a> ChainUpdate<'a> {
                 let mut new_extra = ChunkExtra::clone(&old_extra);
                 *new_extra.state_root_mut() = apply_result.new_root;
 
-                if let Some(manager) = self.runtime_adapter.get_flat_storage_manager() {
-                    let store_update = manager.save_flat_state_changes(
-                        *block_hash,
-                        *prev_hash,
-                        height,
-                        shard_uid,
-                        apply_result.trie_changes.state_changes(),
-                    )?;
-                    self.chain_store_update.merge(store_update);
-                }
+                let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+                let store_update = flat_storage_manager.save_flat_state_changes(
+                    *block_hash,
+                    *prev_hash,
+                    height,
+                    shard_uid,
+                    apply_result.trie_changes.state_changes(),
+                )?;
+                self.chain_store_update.merge(store_update);
+
                 self.chain_store_update.save_chunk_extra(block_hash, &shard_uid, new_extra);
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
 
@@ -5646,16 +5641,15 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_chunk(chunk);
 
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
-        if let Some(manager) = self.runtime_adapter.get_flat_storage_manager() {
-            let store_update = manager.save_flat_state_changes(
-                *block_header.hash(),
-                *chunk_header.prev_block_hash(),
-                chunk_header.height_included(),
-                shard_uid,
-                apply_result.trie_changes.state_changes(),
-            )?;
-            self.chain_store_update.merge(store_update);
-        }
+        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        let store_update = flat_storage_manager.save_flat_state_changes(
+            *block_header.hash(),
+            *chunk_header.prev_block_hash(),
+            chunk_header.height_included(),
+            shard_uid,
+            apply_result.trie_changes.state_changes(),
+        )?;
+        self.chain_store_update.merge(store_update);
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
         let chunk_extra = ChunkExtra::new(
@@ -5735,16 +5729,15 @@ impl<'a> ChainUpdate<'a> {
             Default::default(),
             true,
         )?;
-        if let Some(manager) = self.runtime_adapter.get_flat_storage_manager() {
-            let store_update = manager.save_flat_state_changes(
-                *block_header.hash(),
-                *prev_block_header.hash(),
-                height,
-                shard_uid,
-                apply_result.trie_changes.state_changes(),
-            )?;
-            self.chain_store_update.merge(store_update);
-        }
+        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        let store_update = flat_storage_manager.save_flat_state_changes(
+            *block_header.hash(),
+            *prev_block_header.hash(),
+            height,
+            shard_uid,
+            apply_result.trie_changes.state_changes(),
+        )?;
+        self.chain_store_update.merge(store_update);
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
 
         let mut new_chunk_extra = ChunkExtra::clone(&chunk_extra);

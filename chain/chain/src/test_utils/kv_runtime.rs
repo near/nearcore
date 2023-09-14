@@ -42,8 +42,8 @@ use near_primitives::views::{
     QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
 };
 use near_store::{
-    set_genesis_state_roots, DBCol, PartialStorage, ShardTries, Store, StoreUpdate, Trie,
-    TrieChanges, WrappedTrieChanges,
+    set_genesis_hash, set_genesis_state_roots, DBCol, PartialStorage, ShardTries, Store,
+    StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
 use crate::types::{ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter};
@@ -359,6 +359,7 @@ impl KeyValueRuntime {
         let mut store_update = store.store_update();
         let genesis_roots: Vec<CryptoHash> = (0..num_shards).map(|_| Trie::EMPTY_ROOT).collect();
         set_genesis_state_roots(&mut store_update, &genesis_roots);
+        set_genesis_hash(&mut store_update, &CryptoHash::default());
         store_update.commit().expect("Store failed on genesis intialization");
 
         Arc::new(KeyValueRuntime {
@@ -964,8 +965,8 @@ impl RuntimeAdapter for KeyValueRuntime {
             .get_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }, state_root))
     }
 
-    fn get_flat_storage_manager(&self) -> Option<near_store::flat::FlatStorageManager> {
-        None
+    fn get_flat_storage_manager(&self) -> near_store::flat::FlatStorageManager {
+        self.tries.get_flat_storage_manager()
     }
 
     fn get_view_trie_for_shard(
