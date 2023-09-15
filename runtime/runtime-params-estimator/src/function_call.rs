@@ -86,7 +86,6 @@ fn compute_function_call_cost(
                 fake_context.clone(),
                 &fees,
                 &promise_results,
-                protocol_version,
                 cache,
             )
             .expect("fatal error");
@@ -103,7 +102,6 @@ fn compute_function_call_cost(
                 fake_context.clone(),
                 &fees,
                 &promise_results,
-                protocol_version,
                 cache,
             )
             .expect("fatal_error");

@@ -337,11 +337,10 @@ impl Chain {
         };
 
         // create flat storage for child shards
-        if let Some(flat_storage_manager) = self.runtime_adapter.get_flat_storage_manager() {
-            for shard_uid in child_shard_uids {
-                let store = self.runtime_adapter.store().clone();
-                set_flat_storage_state(store, &flat_storage_manager, **shard_uid, prev_block_info)?;
-            }
+        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        for shard_uid in child_shard_uids {
+            let store = self.runtime_adapter.store().clone();
+            set_flat_storage_state(store, &flat_storage_manager, **shard_uid, prev_block_info)?;
         }
         Ok(())
     }

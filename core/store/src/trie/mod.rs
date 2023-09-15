@@ -472,7 +472,7 @@ impl Trie {
             storage,
             root,
             flat_storage_chunk_view,
-            accounting_cache: accounting_cache,
+            accounting_cache,
             recorder: None,
             skip_accounting_cache_for_trie_nodes: false,
         }

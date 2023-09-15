@@ -31,6 +31,7 @@ pub struct GraphConfigV2 {
     pub prune_edges_after: Option<time::Duration>,
 }
 
+#[derive(Debug)]
 pub enum NetworkTopologyChange {
     PeerConnected(PeerId, Edge),
     PeerDisconnected(PeerId),
@@ -38,6 +39,7 @@ pub enum NetworkTopologyChange {
 }
 
 /// Locally stored properties of a received network_protocol::DistanceVector message
+#[derive(Debug)]
 struct PeerDistances {
     /// Advertised distances indexed by the local EdgeCache's peer to id mapping.
     pub distance: Vec<Option<u32>>,
@@ -554,8 +556,11 @@ impl Inner {
         distances: HashMap<PeerId, u32>,
     ) -> Option<network_protocol::DistanceVector> {
         if self.my_distances == distances {
+            tracing::debug!(target: "routing", "No change to routing distances after processing network updates");
             return None;
         }
+
+        tracing::debug!(target: "routing", "Routing distances have changed; reconstructing distance vector");
 
         let distance_vector = self.construct_distance_vector_message(&distances)?;
 
@@ -590,6 +595,13 @@ impl Inner {
         metrics::EDGE_TOTAL.set(self.edge_cache.known_edges_ct() as i64);
 
         (next_hops, to_broadcast)
+    }
+
+    /// Logs the state of the routing table
+    pub(crate) fn log_state(&self) {
+        tracing::debug!(target: "routing", "My distances: {:?}", self.my_distances);
+        tracing::debug!(target: "routing", "Peer labels: {:?}", self.edge_cache.p2id);
+        tracing::debug!(target: "routing", "Peer distance vectors: {:?}", self.peer_distances);
     }
 }
 
@@ -634,6 +646,17 @@ impl GraphV2 {
         self.unreliable_peers.store(Arc::new(unreliable_peers));
     }
 
+    /// Logs the given batch of updates and the results from processing them.
+    fn write_event_logs(updates: &Vec<NetworkTopologyChange>, oks: &Vec<bool>) {
+        for (update, &ok) in updates.iter().zip(oks) {
+            if ok {
+                tracing::debug!(target: "routing", "Processed event {:?}", update);
+            } else {
+                tracing::debug!(target: "routing", "Rejected invalid distance vector {:?}", update);
+            }
+        }
+    }
+
     /// Accepts and processes a batch of NetworkTopologyChanges.
     /// Each update is verified and, if valid, the advertised distances are stored.
     /// After all updates are processed, recomputes the local node's next hop table.
@@ -649,6 +672,12 @@ impl GraphV2 {
         clock: &time::Clock,
         updates: Vec<NetworkTopologyChange>,
     ) -> (Option<network_protocol::DistanceVector>, Vec<bool>) {
+        tracing::debug!(
+            target: "routing",
+            length = updates.len(),
+            "Processing a batch of network topology changes",
+        );
+
         // TODO(saketh): Consider whether we can move this to rayon.
         let this = self.clone();
         let clock = clock.clone();
@@ -657,15 +686,19 @@ impl GraphV2 {
             .spawn_blocking(move || {
                 let mut inner = this.inner.lock();
 
-                let oks = updates
+                let oks: Vec<bool> = updates
                     .iter()
                     .map(|update| inner.handle_network_change(&clock, update))
                     .collect();
+
+                Self::write_event_logs(&updates, &oks);
 
                 let (next_hops, to_broadcast) =
                     inner.compute_routes(&clock, &this.unreliable_peers.load());
 
                 this.routing_table.update(next_hops.into());
+
+                inner.log_state();
 
                 (to_broadcast, oks)
             })

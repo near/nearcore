@@ -207,7 +207,7 @@ pub struct NearNode {
     pub state_sync_dump_handle: Option<StateSyncDumpHandle>,
     /// A handle to control background flat state values inlining migration.
     /// Needed temporarily, will be removed after the migration is completed.
-    pub flat_state_migration_handle: Option<FlatStateValuesInliningMigrationHandle>,
+    pub flat_state_migration_handle: FlatStateValuesInliningMigrationHandle,
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
@@ -293,9 +293,9 @@ pub fn start_with_config_and_synchronization(
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let state_snapshot_actor = if config.config.store.state_snapshot_enabled {
-        runtime.get_flat_storage_manager().map(|flat_storage_manager| {
-            Arc::new(StateSnapshotActor::new(flat_storage_manager, runtime.get_tries()).start())
-        })
+        let state_snapshot_actor =
+            StateSnapshotActor::new(runtime.get_flat_storage_manager(), runtime.get_tries());
+        Some(Arc::new(state_snapshot_actor.start()))
     } else {
         None
     };
@@ -310,18 +310,15 @@ pub fn start_with_config_and_synchronization(
         config.client_config.clone(),
         adv.clone(),
     );
-    let make_state_snapshot_callback =
-        if let (Some(flat_storage_manager), Some(state_snapshot_actor)) =
-            (runtime.get_flat_storage_manager(), state_snapshot_actor)
-        {
-            Some(get_make_snapshot_callback(
-                state_snapshot_actor,
-                flat_storage_manager,
-                config.config.store.state_snapshot_compaction_enabled,
-            ))
-        } else {
-            None
-        };
+    let make_state_snapshot_callback = if let Some(state_snapshot_actor) = state_snapshot_actor {
+        Some(get_make_snapshot_callback(
+            state_snapshot_actor,
+            runtime.get_flat_storage_manager(),
+            config.config.store.state_snapshot_compaction_enabled,
+        ))
+    } else {
+        None
+    };
     let (client_actor, client_arbiter_handle) = start_client(
         config.client_config.clone(),
         chain_genesis.clone(),
@@ -351,16 +348,11 @@ pub fn start_with_config_and_synchronization(
     shards_manager_adapter.bind(shards_manager_actor);
 
     let flat_state_migration_handle =
-        if let Some(flat_storage_manager) = runtime.get_flat_storage_manager() {
-            let handle = FlatStateValuesInliningMigrationHandle::start_background_migration(
-                storage.get_hot_store(),
-                flat_storage_manager,
-                config.client_config.client_background_migration_threads,
-            );
-            Some(handle)
-        } else {
-            None
-        };
+        FlatStateValuesInliningMigrationHandle::start_background_migration(
+            storage.get_hot_store(),
+            runtime.get_flat_storage_manager(),
+            config.client_config.client_background_migration_threads,
+        );
 
     let state_sync_dump_handle = spawn_state_sync_dump(
         &config.client_config,

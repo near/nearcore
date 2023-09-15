@@ -1,7 +1,7 @@
 //! Tests that `CompiledContractCache` is working correctly. Currently testing only wasmer code, so disabled outside of x86_64
 #![cfg(target_arch = "x86_64")]
 
-use super::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
+use super::{create_context, with_vm_variants};
 use crate::internal::VMKind;
 use crate::logic::errors::VMRunnerError;
 use crate::logic::mocks::mock_external::MockedExternal;
@@ -96,7 +96,6 @@ fn make_cached_contract_call_vm(
         context,
         &fees,
         &promise_results,
-        LATEST_PROTOCOL_VERSION,
         Some(cache),
     )
 }

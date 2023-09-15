@@ -70,7 +70,6 @@ pub struct NightshadeRuntime {
     store: Store,
     tries: ShardTries,
     trie_viewer: TrieViewer,
-    flat_storage_manager: FlatStorageManager,
     pub runtime: Runtime,
     epoch_manager: Arc<EpochManagerHandle>,
     migration_data: Arc<MigrationData>,
@@ -130,7 +129,7 @@ impl NightshadeRuntime {
             store.clone(),
             trie_config,
             &genesis_config.shard_layout.get_shard_uids(),
-            flat_storage_manager.clone(),
+            flat_storage_manager,
             state_snapshot_config,
         );
         if let Err(err) = tries.maybe_open_state_snapshot(|prev_block_hash: CryptoHash| {
@@ -151,7 +150,6 @@ impl NightshadeRuntime {
             runtime,
             trie_viewer,
             epoch_manager,
-            flat_storage_manager,
             migration_data,
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
         })
@@ -607,8 +605,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(self.tries.get_view_trie_for_shard(shard_uid, state_root))
     }
 
-    fn get_flat_storage_manager(&self) -> Option<FlatStorageManager> {
-        Some(self.flat_storage_manager.clone())
+    fn get_flat_storage_manager(&self) -> FlatStorageManager {
+        self.tries.get_flat_storage_manager()
     }
 
     fn validate_tx(
@@ -734,32 +732,38 @@ impl RuntimeAdapter for NightshadeRuntime {
                 while let Some(tx) = iter.next() {
                     num_checked_transactions += 1;
                     // Verifying the transaction is on the same chain and hasn't expired yet.
-                    if chain_validate(&tx) {
-                        // Verifying the validity of the transaction based on the current state.
-                        match verify_and_charge_transaction(
-                            runtime_config,
-                            &mut state_update,
-                            gas_price,
-                            &tx,
-                            false,
-                            Some(next_block_height),
-                            current_protocol_version,
-                        ) {
-                            Ok(verification_result) => {
-                                state_update.commit(StateChangeCause::NotWritableToDisk);
-                                total_gas_burnt += verification_result.gas_burnt;
-                                total_size += tx.get_size();
-                                transactions.push(tx);
-                                break;
-                            }
-                            Err(RuntimeError::InvalidTxError(_err)) => {
-                                state_update.rollback();
-                            }
-                            Err(RuntimeError::StorageError(err)) => {
-                                return Err(Error::StorageError(err))
-                            }
-                            Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
+                    if !chain_validate(&tx) {
+                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction that failed chain validation");
+                        continue;
+                    }
+
+                    // Verifying the validity of the transaction based on the current state.
+                    match verify_and_charge_transaction(
+                        runtime_config,
+                        &mut state_update,
+                        gas_price,
+                        &tx,
+                        false,
+                        Some(next_block_height),
+                        current_protocol_version,
+                    ) {
+                        Ok(verification_result) => {
+                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation");
+                            state_update.commit(StateChangeCause::NotWritableToDisk);
+                            total_gas_burnt += verification_result.gas_burnt;
+                            total_size += tx.get_size();
+                            transactions.push(tx);
+                            break;
                         }
+                        Err(RuntimeError::InvalidTxError(err)) => {
+                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that is invalid");
+                            state_update.rollback();
+                        }
+                        Err(RuntimeError::StorageError(err)) => {
+                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction due to storage error");
+                            return Err(Error::StorageError(err));
+                        }
+                        Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
                     }
                 }
             } else {
@@ -1390,9 +1394,8 @@ mod test {
 
             let shard_uid =
                 self.epoch_manager.shard_id_to_uid(shard_id, &EpochId::default()).unwrap();
-            if let Some(flat_storage) = self
-                .get_flat_storage_manager()
-                .and_then(|manager| manager.get_flat_storage_for_shard(shard_uid))
+            if let Some(flat_storage) =
+                self.get_flat_storage_manager().get_flat_storage_for_shard(shard_uid)
             {
                 let delta = FlatStateDelta {
                     changes: flat_state_changes,
@@ -1490,24 +1493,23 @@ mod test {
 
             // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
             // and use a mock chain, so we need to initialize flat storage manually.
-            if let Some(flat_storage_manager) = runtime.get_flat_storage_manager() {
-                for shard_uid in
-                    epoch_manager.get_shard_layout(&EpochId::default()).unwrap().get_shard_uids()
-                {
-                    let mut store_update = store.store_update();
-                    flat_storage_manager.set_flat_storage_for_genesis(
-                        &mut store_update,
-                        shard_uid,
-                        &genesis_hash,
-                        0,
-                    );
-                    store_update.commit().unwrap();
-                    assert!(matches!(
-                        flat_storage_manager.get_flat_storage_status(shard_uid),
-                        near_store::flat::FlatStorageStatus::Ready(_)
-                    ));
-                    flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
-                }
+            let flat_storage_manager = runtime.get_flat_storage_manager();
+            for shard_uid in
+                epoch_manager.get_shard_layout(&EpochId::default()).unwrap().get_shard_uids()
+            {
+                let mut store_update = store.store_update();
+                flat_storage_manager.set_flat_storage_for_genesis(
+                    &mut store_update,
+                    shard_uid,
+                    &genesis_hash,
+                    0,
+                );
+                store_update.commit().unwrap();
+                assert!(matches!(
+                    flat_storage_manager.get_flat_storage_status(shard_uid),
+                    near_store::flat::FlatStorageStatus::Ready(_)
+                ));
+                flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             }
 
             epoch_manager

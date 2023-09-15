@@ -394,7 +394,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         vec![],
         vec![],
         &[],
-        last_block.chunks()[0].outgoing_receipts_root(),
+        last_block.chunks()[0].prev_outgoing_receipts_root(),
         CryptoHash::default(),
         &validator_signer,
         &mut rs,

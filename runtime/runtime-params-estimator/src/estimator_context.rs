@@ -14,8 +14,8 @@ use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::flat::{
-    BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
-    FlatStorageManager,
+    store_helper, BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
+    FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
 };
 use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
@@ -70,17 +70,26 @@ impl<'c> EstimatorContext<'c> {
         assert!(!roots.is_empty(), "No state roots found.");
         let root = roots[0];
 
-        // Create ShardTries with relevant settings adjusted for estimator.
-        let shard_uids = [ShardUId { shard_id: 0, version: 0 }];
-        let mut trie_config = near_store::TrieConfig::default();
-        trie_config.enable_receipt_prefetching = true;
+        let shard_uid = ShardUId::single_shard();
+        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let mut store_update = store.store_update();
+        store_helper::set_flat_storage_status(
+            &mut store_update,
+            shard_uid,
+            FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                flat_head: BlockInfo::genesis(CryptoHash::hash_borsh(0usize), 0),
+            }),
+        );
+        store_update.commit().unwrap();
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
 
-        let flat_head = CryptoHash::hash_borsh(0usize);
-        let flat_storage_manager = FlatStorageManager::test(store.clone(), &shard_uids, flat_head);
-        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uids[0]).unwrap();
+        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
         self.generate_deltas(&flat_storage);
 
-        let tries = ShardTries::new(store.clone(), trie_config, &shard_uids, flat_storage_manager);
+        // Create ShardTries with relevant settings adjusted for estimator.
+        let mut trie_config = near_store::TrieConfig::default();
+        trie_config.enable_receipt_prefetching = true;
+        let tries = ShardTries::new(store.clone(), trie_config, &[shard_uid], flat_storage_manager);
 
         Testbed {
             config: self.config,

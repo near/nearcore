@@ -22,8 +22,8 @@ pub struct BlockHeaderInnerLite {
     pub next_epoch_id: EpochId,
     /// Root hash of the state at the previous block.
     pub prev_state_root: MerkleHash,
-    /// Root of the outcomes of transactions and receipts.
-    pub outcome_root: MerkleHash,
+    /// Root of the outcomes of transactions and receipts from the previous chunks.
+    pub prev_outcome_root: MerkleHash,
     /// Timestamp at which the block was built (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
     pub timestamp: u64,
     /// Hash of the next epoch block producers set
@@ -34,8 +34,8 @@ pub struct BlockHeaderInnerLite {
 
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerRest {
-    /// Root hash of the chunk receipts in the given block.
-    pub chunk_receipts_root: MerkleHash,
+    /// Root hash of the previous chunks' outgoing receipts in the given block.
+    pub prev_chunk_outgoing_receipts_root: MerkleHash,
     /// Root hash of the chunk headers in the given block.
     pub chunk_headers_root: MerkleHash,
     /// Root hash of the chunk transactions in the given block.
@@ -46,8 +46,8 @@ pub struct BlockHeaderInnerRest {
     pub challenges_root: MerkleHash,
     /// The output of the randomness beacon
     pub random_value: CryptoHash,
-    /// Validator proposals.
-    pub validator_proposals: Vec<ValidatorStakeV1>,
+    /// Validator proposals from the previous chunks.
+    pub prev_validator_proposals: Vec<ValidatorStakeV1>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
@@ -72,8 +72,8 @@ pub struct BlockHeaderInnerRest {
 /// Remove `chunks_included` from V1
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerRestV2 {
-    /// Root hash of the chunk receipts in the given block.
-    pub chunk_receipts_root: MerkleHash,
+    /// Root hash of the previous chunks' outgoing receipts in the given block.
+    pub prev_chunk_outgoing_receipts_root: MerkleHash,
     /// Root hash of the chunk headers in the given block.
     pub chunk_headers_root: MerkleHash,
     /// Root hash of the chunk transactions in the given block.
@@ -82,8 +82,8 @@ pub struct BlockHeaderInnerRestV2 {
     pub challenges_root: MerkleHash,
     /// The output of the randomness beacon
     pub random_value: CryptoHash,
-    /// Validator proposals.
-    pub validator_proposals: Vec<ValidatorStakeV1>,
+    /// Validator proposals from the previous chunks.
+    pub prev_validator_proposals: Vec<ValidatorStakeV1>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
@@ -111,8 +111,8 @@ pub struct BlockHeaderInnerRestV2 {
 /// Use new `ValidatorStake` struct
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerRestV3 {
-    /// Root hash of the chunk receipts in the given block.
-    pub chunk_receipts_root: MerkleHash,
+    /// Root hash of the previous chunks' outgoing receipts in the given block.
+    pub prev_chunk_outgoing_receipts_root: MerkleHash,
     /// Root hash of the chunk headers in the given block.
     pub chunk_headers_root: MerkleHash,
     /// Root hash of the chunk transactions in the given block.
@@ -121,8 +121,8 @@ pub struct BlockHeaderInnerRestV3 {
     pub challenges_root: MerkleHash,
     /// The output of the randomness beacon
     pub random_value: CryptoHash,
-    /// Validator proposals.
-    pub validator_proposals: Vec<ValidatorStake>,
+    /// Validator proposals from the previous chunks.
+    pub prev_validator_proposals: Vec<ValidatorStake>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
@@ -156,8 +156,8 @@ pub struct BlockHeaderInnerRestV3 {
 pub struct BlockHeaderInnerRestV4 {
     /// Hash of block body
     pub block_body_hash: CryptoHash,
-    /// Root hash of the chunk receipts in the given block.
-    pub chunk_receipts_root: MerkleHash,
+    /// Root hash of the previous chunks' outgoing receipts in the given block.
+    pub prev_chunk_outgoing_receipts_root: MerkleHash,
     /// Root hash of the chunk headers in the given block.
     pub chunk_headers_root: MerkleHash,
     /// Root hash of the chunk transactions in the given block.
@@ -166,8 +166,8 @@ pub struct BlockHeaderInnerRestV4 {
     pub challenges_root: MerkleHash,
     /// The output of the randomness beacon
     pub random_value: CryptoHash,
-    /// Validator proposals.
-    pub validator_proposals: Vec<ValidatorStake>,
+    /// Validator proposals from the previous chunks.
+    pub prev_validator_proposals: Vec<ValidatorStake>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
@@ -409,14 +409,14 @@ impl BlockHeader {
         prev_hash: CryptoHash,
         block_body_hash: CryptoHash,
         prev_state_root: MerkleHash,
-        chunk_receipts_root: MerkleHash,
+        prev_chunk_outgoing_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
         outcome_root: MerkleHash,
         timestamp: u64,
         challenges_root: MerkleHash,
         random_value: CryptoHash,
-        validator_proposals: Vec<ValidatorStake>,
+        prev_validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
         block_ordinal: NumBlocks,
         epoch_id: EpochId,
@@ -438,7 +438,7 @@ impl BlockHeader {
             epoch_id,
             next_epoch_id,
             prev_state_root,
-            outcome_root,
+            prev_outcome_root: outcome_root,
             timestamp,
             next_bp_hash,
             block_merkle_root,
@@ -453,13 +453,16 @@ impl BlockHeader {
         if next_epoch_protocol_version <= 29 {
             let chunks_included = chunk_mask.iter().map(|val| *val as u64).sum::<u64>();
             let inner_rest = BlockHeaderInnerRest {
-                chunk_receipts_root,
+                prev_chunk_outgoing_receipts_root,
                 chunk_headers_root,
                 chunk_tx_root,
                 chunks_included,
                 challenges_root,
                 random_value,
-                validator_proposals: validator_proposals.into_iter().map(|v| v.into_v1()).collect(),
+                prev_validator_proposals: prev_validator_proposals
+                    .into_iter()
+                    .map(|v| v.into_v1())
+                    .collect(),
                 chunk_mask,
                 gas_price,
                 total_supply,
@@ -483,12 +486,15 @@ impl BlockHeader {
             }))
         } else if this_epoch_protocol_version <= last_header_v2_version {
             let inner_rest = BlockHeaderInnerRestV2 {
-                chunk_receipts_root,
+                prev_chunk_outgoing_receipts_root,
                 chunk_headers_root,
                 chunk_tx_root,
                 challenges_root,
                 random_value,
-                validator_proposals: validator_proposals.into_iter().map(|v| v.into_v1()).collect(),
+                prev_validator_proposals: prev_validator_proposals
+                    .into_iter()
+                    .map(|v| v.into_v1())
+                    .collect(),
                 chunk_mask,
                 gas_price,
                 total_supply,
@@ -512,12 +518,12 @@ impl BlockHeader {
             }))
         } else if !crate::checked_feature!("stable", BlockHeaderV4, this_epoch_protocol_version) {
             let inner_rest = BlockHeaderInnerRestV3 {
-                chunk_receipts_root,
+                prev_chunk_outgoing_receipts_root,
                 chunk_headers_root,
                 chunk_tx_root,
                 challenges_root,
                 random_value,
-                validator_proposals,
+                prev_validator_proposals,
                 chunk_mask,
                 gas_price,
                 block_ordinal,
@@ -545,12 +551,12 @@ impl BlockHeader {
         } else {
             let inner_rest = BlockHeaderInnerRestV4 {
                 block_body_hash,
-                chunk_receipts_root,
+                prev_chunk_outgoing_receipts_root,
                 chunk_headers_root,
                 chunk_tx_root,
                 challenges_root,
                 random_value,
-                validator_proposals,
+                prev_validator_proposals,
                 chunk_mask,
                 gas_price,
                 block_ordinal,
@@ -583,7 +589,7 @@ impl BlockHeader {
         height: BlockHeight,
         state_root: MerkleHash,
         block_body_hash: CryptoHash,
-        chunk_receipts_root: MerkleHash,
+        prev_chunk_outgoing_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
         num_shards: u64,
@@ -599,7 +605,7 @@ impl BlockHeader {
             epoch_id: EpochId::default(),
             next_epoch_id: EpochId::default(),
             prev_state_root: state_root,
-            outcome_root: CryptoHash::default(),
+            prev_outcome_root: CryptoHash::default(),
             timestamp: to_timestamp(timestamp),
             next_bp_hash,
             block_merkle_root: CryptoHash::default(),
@@ -608,13 +614,13 @@ impl BlockHeader {
             crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
         if genesis_protocol_version <= 29 {
             let inner_rest = BlockHeaderInnerRest {
-                chunk_receipts_root,
+                prev_chunk_outgoing_receipts_root,
                 chunk_headers_root,
                 chunk_tx_root,
                 chunks_included,
                 challenges_root,
                 random_value: CryptoHash::default(),
-                validator_proposals: vec![],
+                prev_validator_proposals: vec![],
                 chunk_mask: vec![],
                 gas_price: initial_gas_price,
                 total_supply: initial_total_supply,
@@ -638,12 +644,12 @@ impl BlockHeader {
             }))
         } else if genesis_protocol_version <= last_header_v2_version {
             let inner_rest = BlockHeaderInnerRestV2 {
-                chunk_receipts_root,
+                prev_chunk_outgoing_receipts_root,
                 chunk_headers_root,
                 chunk_tx_root,
                 challenges_root,
                 random_value: CryptoHash::default(),
-                validator_proposals: vec![],
+                prev_validator_proposals: vec![],
                 chunk_mask: vec![true; chunks_included as usize],
                 gas_price: initial_gas_price,
                 total_supply: initial_total_supply,
@@ -667,12 +673,12 @@ impl BlockHeader {
             }))
         } else if !crate::checked_feature!("stable", BlockHeaderV4, genesis_protocol_version) {
             let inner_rest = BlockHeaderInnerRestV3 {
-                chunk_receipts_root,
+                prev_chunk_outgoing_receipts_root,
                 chunk_headers_root,
                 chunk_tx_root,
                 challenges_root,
                 random_value: CryptoHash::default(),
-                validator_proposals: vec![],
+                prev_validator_proposals: vec![],
                 chunk_mask: vec![true; chunks_included as usize],
                 block_ordinal: 1, // It is guaranteed that Chain has the only Block which is Genesis
                 gas_price: initial_gas_price,
@@ -699,13 +705,13 @@ impl BlockHeader {
             }))
         } else {
             let inner_rest = BlockHeaderInnerRestV4 {
-                chunk_receipts_root,
+                prev_chunk_outgoing_receipts_root,
                 chunk_headers_root,
                 chunk_tx_root,
                 challenges_root,
                 block_body_hash,
                 random_value: CryptoHash::default(),
-                validator_proposals: vec![],
+                prev_validator_proposals: vec![],
                 chunk_mask: vec![true; chunks_included as usize],
                 block_ordinal: 1, // It is guaranteed that Chain has the only Block which is Genesis
                 gas_price: initial_gas_price,
@@ -814,12 +820,20 @@ impl BlockHeader {
     }
 
     #[inline]
-    pub fn chunk_receipts_root(&self) -> &MerkleHash {
+    pub fn prev_chunk_outgoing_receipts_root(&self) -> &MerkleHash {
         match self {
-            BlockHeader::BlockHeaderV1(header) => &header.inner_rest.chunk_receipts_root,
-            BlockHeader::BlockHeaderV2(header) => &header.inner_rest.chunk_receipts_root,
-            BlockHeader::BlockHeaderV3(header) => &header.inner_rest.chunk_receipts_root,
-            BlockHeader::BlockHeaderV4(header) => &header.inner_rest.chunk_receipts_root,
+            BlockHeader::BlockHeaderV1(header) => {
+                &header.inner_rest.prev_chunk_outgoing_receipts_root
+            }
+            BlockHeader::BlockHeaderV2(header) => {
+                &header.inner_rest.prev_chunk_outgoing_receipts_root
+            }
+            BlockHeader::BlockHeaderV3(header) => {
+                &header.inner_rest.prev_chunk_outgoing_receipts_root
+            }
+            BlockHeader::BlockHeaderV4(header) => {
+                &header.inner_rest.prev_chunk_outgoing_receipts_root
+            }
         }
     }
 
@@ -871,10 +885,10 @@ impl BlockHeader {
     #[inline]
     pub fn outcome_root(&self) -> &MerkleHash {
         match self {
-            BlockHeader::BlockHeaderV1(header) => &header.inner_lite.outcome_root,
-            BlockHeader::BlockHeaderV2(header) => &header.inner_lite.outcome_root,
-            BlockHeader::BlockHeaderV3(header) => &header.inner_lite.outcome_root,
-            BlockHeader::BlockHeaderV4(header) => &header.inner_lite.outcome_root,
+            BlockHeader::BlockHeaderV1(header) => &header.inner_lite.prev_outcome_root,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_lite.prev_outcome_root,
+            BlockHeader::BlockHeaderV3(header) => &header.inner_lite.prev_outcome_root,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_lite.prev_outcome_root,
         }
     }
 
@@ -899,19 +913,19 @@ impl BlockHeader {
     }
 
     #[inline]
-    pub fn validator_proposals(&self) -> ValidatorStakeIter {
+    pub fn prev_validator_proposals(&self) -> ValidatorStakeIter {
         match self {
             BlockHeader::BlockHeaderV1(header) => {
-                ValidatorStakeIter::v1(&header.inner_rest.validator_proposals)
+                ValidatorStakeIter::v1(&header.inner_rest.prev_validator_proposals)
             }
             BlockHeader::BlockHeaderV2(header) => {
-                ValidatorStakeIter::v1(&header.inner_rest.validator_proposals)
+                ValidatorStakeIter::v1(&header.inner_rest.prev_validator_proposals)
             }
             BlockHeader::BlockHeaderV3(header) => {
-                ValidatorStakeIter::new(&header.inner_rest.validator_proposals)
+                ValidatorStakeIter::new(&header.inner_rest.prev_validator_proposals)
             }
             BlockHeader::BlockHeaderV4(header) => {
-                ValidatorStakeIter::new(&header.inner_rest.validator_proposals)
+                ValidatorStakeIter::new(&header.inner_rest.prev_validator_proposals)
             }
         }
     }

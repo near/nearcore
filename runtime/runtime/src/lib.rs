@@ -16,7 +16,6 @@ use near_primitives::account::Account;
 use near_primitives::checked_feature;
 use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::profile::ProfileDataV3;
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
 };
@@ -49,6 +48,7 @@ use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::ReturnData;
 pub use near_vm_runner::with_ext_cost_counter;
 use near_vm_runner::ContractCode;
+use near_vm_runner::ProfileDataV3;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

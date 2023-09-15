@@ -152,6 +152,10 @@ pub enum Parameter {
     FlatStorageReads,
     ImplicitAccountCreation,
     FixContractLoadingCost,
+    MathExtension,
+    Ed25519Verify,
+    AltBn128,
+    FunctionCallWeight,
 }
 
 #[derive(
