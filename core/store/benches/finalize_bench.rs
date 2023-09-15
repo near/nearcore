@@ -6,7 +6,7 @@
 //!
 //! Since this is done on the hot path, whereas the actual commit can often be
 //! done in a different thread, we have this benchmark to test the speed.
-//! 
+//!
 //! Right now, the module only contains test for `ShardChunk` and
 //! `PartialEncodedChunk`. These have been observed to become quite large and
 //! have ab impact on the overall client performance.
@@ -170,7 +170,7 @@ fn create_shard_chunk(
         chunk_hash: chunk_hash.clone(),
         header: create_chunk_header(0, 0),
         transactions,
-        receipts,
+        prev_outgoing_receipts: receipts,
     })
 }
 
