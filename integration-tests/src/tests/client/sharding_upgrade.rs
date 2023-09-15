@@ -2,6 +2,7 @@ use borsh::BorshSerialize;
 use near_client::{Client, ProcessTxResponse};
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives_core::num_rational::Rational32;
+use rand::rngs::StdRng;
 
 use crate::tests::client::process_blocks::set_block_protocol_version;
 use assert_matches::assert_matches;
@@ -30,7 +31,7 @@ use near_store::test_utils::{gen_account, gen_unique_accounts};
 use nearcore::config::GenesisExt;
 use nearcore::NEAR_BASE;
 use rand::seq::{IteratorRandom, SliceRandom};
-use rand::{thread_rng, Rng};
+use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use tracing::debug;
@@ -95,23 +96,6 @@ fn get_expected_shards_num(
     };
 }
 
-/// Test environment prepared for testing the sharding upgrade.
-/// Epoch 0, blocks 1-5  : genesis shard layout
-/// Epoch 1, blocks 6-10 : genesis shard layout, state split happens
-/// Epoch 2: blocks 10-15: target shard layout, shard layout is upgraded
-/// Epoch 3: blocks 16-20: target shard layout,
-///
-/// Note: if the test is extended to more epochs, garbage collection will
-/// kick in and delete data that is checked at the end of the test.
-struct TestShardUpgradeEnv {
-    env: TestEnv,
-    initial_accounts: Vec<AccountId>,
-    init_txs: Vec<SignedTransaction>,
-    txs_by_height: BTreeMap<u64, Vec<SignedTransaction>>,
-    epoch_length: u64,
-    num_clients: usize,
-}
-
 /// The condition that determines if a chunk should be produced of dropped.
 /// Can be probabilistic, predefined based on height and shard id or both.
 struct DropChunkCondition {
@@ -122,7 +106,7 @@ struct DropChunkCondition {
 impl DropChunkCondition {
     fn should_drop_chunk(
         &self,
-        rng: &mut rand::rngs::ThreadRng,
+        rng: &mut StdRng,
         height: BlockHeight,
         shard_ids: &Vec<ShardId>,
     ) -> bool {
@@ -168,6 +152,24 @@ impl DropChunkCondition {
     }
 }
 
+/// Test environment prepared for testing the sharding upgrade.
+/// Epoch 0, blocks 1-5  : genesis shard layout
+/// Epoch 1, blocks 6-10 : genesis shard layout, state split happens
+/// Epoch 2: blocks 10-15: target shard layout, shard layout is upgraded
+/// Epoch 3: blocks 16-20: target shard layout,
+///
+/// Note: if the test is extended to more epochs, garbage collection will
+/// kick in and delete data that is checked at the end of the test.
+struct TestShardUpgradeEnv {
+    env: TestEnv,
+    initial_accounts: Vec<AccountId>,
+    init_txs: Vec<SignedTransaction>,
+    txs_by_height: BTreeMap<u64, Vec<SignedTransaction>>,
+    epoch_length: u64,
+    num_clients: usize,
+    rng: StdRng,
+}
+
 impl TestShardUpgradeEnv {
     fn new(
         epoch_length: u64,
@@ -176,8 +178,9 @@ impl TestShardUpgradeEnv {
         num_init_accounts: usize,
         gas_limit: Option<u64>,
         genesis_protocol_version: ProtocolVersion,
+        rng_seed: u64,
     ) -> Self {
-        let mut rng = thread_rng();
+        let mut rng = SeedableRng::seed_from_u64(rng_seed);
         let validators: Vec<AccountId> =
             (0..num_validators).map(|i| format!("test{}", i).parse().unwrap()).collect();
         let other_accounts = gen_unique_accounts(&mut rng, num_init_accounts, num_init_accounts);
@@ -205,6 +208,7 @@ impl TestShardUpgradeEnv {
             num_clients,
             init_txs: vec![],
             txs_by_height: BTreeMap::new(),
+            rng,
         }
     }
 
@@ -245,7 +249,6 @@ impl TestShardUpgradeEnv {
         resharding_type: &ReshardingType,
     ) {
         let env = &mut self.env;
-        let mut rng = thread_rng();
         let head = env.clients[0].chain.head().unwrap();
         let next_height = head.height + 1;
         let expected_num_shards =
@@ -293,9 +296,8 @@ impl TestShardUpgradeEnv {
 
         // Make sure that catchup is done before the end of each epoch, but when it is done is
         // by chance. This simulates when catchup takes a long time to be done
-        // Note: if the catchup happens only at the last block of an epoch then
-        // client will fail to produce the chunks in the first block of the next epoch.
-        let should_catchup = rng.gen_bool(P_CATCHUP) || next_height % self.epoch_length == 0;
+        let should_catchup =
+            self.rng.gen_bool(P_CATCHUP) || (next_height + 1) % self.epoch_length == 0;
         // process block, this also triggers chunk producers for the next block to produce chunks
         for j in 0..self.num_clients {
             let client = &mut env.clients[j];
@@ -306,7 +308,7 @@ impl TestShardUpgradeEnv {
                 .cloned()
                 .unwrap_or_default();
             let should_produce_chunk =
-                !drop_chunk_condition.should_drop_chunk(&mut rng, next_height + 1, &shard_ids);
+                !drop_chunk_condition.should_drop_chunk(&mut self.rng, next_height + 1, &shard_ids);
             tracing::info!(target: "test", ?next_height, ?should_produce_chunk, ?shard_ids, "should produce chunk");
 
             // Here we don't just call self.clients[i].process_block_sync_with_produce_chunk_options
@@ -754,7 +756,7 @@ fn setup_genesis(
 }
 
 fn generate_create_accounts_txs(
-    mut rng: &mut rand::rngs::ThreadRng,
+    mut rng: &mut StdRng,
     genesis_hash: CryptoHash,
     initial_accounts: &Vec<AccountId>,
     accounts_to_check: &mut Vec<AccountId>,
@@ -799,19 +801,17 @@ fn generate_create_accounts_txs(
     .collect()
 }
 
-fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType) {
+fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_seed: u64) {
     init_test_logger();
     tracing::info!(target: "test", "test_shard_layout_upgrade_simple_impl starting");
 
     let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
     let target_protocol_version = get_target_protocol_version(&resharding_type);
 
-    let mut rng = thread_rng();
-
     // setup
     let epoch_length = 5;
     let mut test_env =
-        TestShardUpgradeEnv::new(epoch_length, 2, 2, 100, None, genesis_protocol_version);
+        TestShardUpgradeEnv::new(epoch_length, 2, 2, 100, None, genesis_protocol_version, rng_seed);
     test_env.set_init_tx(vec![]);
 
     let mut nonce = 100;
@@ -819,23 +819,20 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType) {
     let mut all_accounts: HashSet<_> = test_env.initial_accounts.clone().into_iter().collect();
     let mut accounts_to_check: Vec<_> = vec![];
     let initial_accounts = test_env.initial_accounts.clone();
-    let generate_create_accounts_txs: &mut dyn FnMut(usize, bool) -> Vec<SignedTransaction> =
-        &mut |max_size: usize, check_accounts: bool| -> Vec<SignedTransaction> {
-            generate_create_accounts_txs(
-                &mut rng,
-                genesis_hash,
-                &initial_accounts,
-                &mut accounts_to_check,
-                &mut all_accounts,
-                &mut nonce,
-                max_size,
-                check_accounts,
-            )
-        };
 
     // add transactions until after sharding upgrade finishes
     for height in 2..3 * epoch_length {
-        let txs = generate_create_accounts_txs(10, true);
+        let txs = generate_create_accounts_txs(
+            &mut test_env.rng,
+            genesis_hash,
+            &initial_accounts,
+            &mut accounts_to_check,
+            &mut all_accounts,
+            &mut nonce,
+            10,
+            true,
+        );
+
         test_env.set_tx_at_height(height, txs);
     }
 
@@ -854,22 +851,194 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType) {
 
 #[test]
 fn test_shard_layout_upgrade_simple_v1() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V1);
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V1, 42);
 }
 
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
-fn test_shard_layout_upgrade_simple_v2() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V2);
+fn test_shard_layout_upgrade_simple_v2_seed_42() {
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 42);
+}
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_simple_v2_seed_43() {
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 43);
+}
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_simple_v2_seed_44() {
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44);
 }
 
 const GAS_1: u64 = 300_000_000_000_000;
 const GAS_2: u64 = GAS_1 / 3;
 
+fn create_test_env_for_cross_contract_test(
+    genesis_protocol_version: ProtocolVersion,
+    epoch_length: u64,
+    rng_seed: u64,
+) -> TestShardUpgradeEnv {
+    TestShardUpgradeEnv::new(
+        epoch_length,
+        4,
+        4,
+        100,
+        Some(100_000_000_000_000),
+        genesis_protocol_version,
+        rng_seed,
+    )
+}
+
+/// Return test_env and a map from tx hash to the new account that will be added by this transaction
+fn setup_test_env_with_cross_contract_txs(
+    test_env: &mut TestShardUpgradeEnv,
+    epoch_length: u64,
+) -> HashMap<CryptoHash, AccountId> {
+    let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
+    // Use test0, test1 and two random accounts to deploy contracts because we want accounts on
+    // different shards.
+    let indices = (4..test_env.initial_accounts.len()).choose_multiple(&mut test_env.rng, 2);
+    let contract_accounts = vec![
+        test_env.initial_accounts[0].clone(),
+        test_env.initial_accounts[1].clone(),
+        test_env.initial_accounts[indices[0]].clone(),
+        test_env.initial_accounts[indices[1]].clone(),
+    ];
+    let init_txs = contract_accounts
+        .iter()
+        .map(|account_id| {
+            let signer = InMemorySigner::from_seed(
+                account_id.clone(),
+                KeyType::ED25519,
+                &account_id.to_string(),
+            );
+            SignedTransaction::from_actions(
+                1,
+                account_id.clone(),
+                account_id.clone(),
+                &signer,
+                vec![Action::DeployContract(DeployContractAction {
+                    code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
+                })],
+                genesis_hash,
+            )
+        })
+        .collect();
+    test_env.set_init_tx(init_txs);
+
+    let mut nonce = 100;
+    let mut all_accounts: HashSet<_> = test_env.initial_accounts.clone().into_iter().collect();
+    let mut new_accounts = HashMap::new();
+
+    // add a bunch of transactions before the two epoch boundaries
+    for height in vec![
+        epoch_length - 2,
+        epoch_length - 1,
+        epoch_length,
+        2 * epoch_length - 2,
+        2 * epoch_length - 1,
+        2 * epoch_length,
+    ] {
+        let txs = generate_cross_contract_txs(
+            &mut test_env.rng,
+            genesis_hash,
+            &contract_accounts,
+            &mut all_accounts,
+            &mut new_accounts,
+            &mut nonce,
+            5,
+            8,
+        );
+
+        test_env.set_tx_at_height(height, txs);
+    }
+
+    // adds some transactions after sharding change finishes
+    // but do not add too many because I want all transactions to
+    // finish processing before epoch 5
+    for height in 2 * epoch_length + 1..3 * epoch_length {
+        if test_env.rng.gen_bool(0.3) {
+            let txs = generate_cross_contract_txs(
+                &mut test_env.rng,
+                genesis_hash,
+                &contract_accounts,
+                &mut all_accounts,
+                &mut new_accounts,
+                &mut nonce,
+                5,
+                8,
+            );
+            test_env.set_tx_at_height(height, txs);
+        }
+    }
+
+    new_accounts
+}
+
+fn generate_cross_contract_txs(
+    rng: &mut StdRng,
+    genesis_hash: CryptoHash,
+    contract_accounts: &Vec<AccountId>,
+    all_accounts: &mut HashSet<AccountId>,
+    new_accounts: &mut HashMap<CryptoHash, AccountId>,
+    nonce: &mut u64,
+    min_size: usize,
+    max_size: usize,
+) -> Vec<SignedTransaction> {
+    let size = rng.gen_range(min_size..max_size + 1);
+    let mut transactions = vec![];
+    for _ in 0..size {
+        if let Some(tx) = generate_cross_contract_tx(
+            rng,
+            genesis_hash,
+            contract_accounts,
+            all_accounts,
+            new_accounts,
+            nonce,
+        ) {
+            transactions.push(tx);
+        }
+    }
+    transactions
+}
+
+fn generate_cross_contract_tx(
+    rng: &mut StdRng,
+    genesis_hash: CryptoHash,
+    contract_accounts: &Vec<AccountId>,
+    all_accounts: &mut HashSet<AccountId>,
+    new_accounts: &mut HashMap<CryptoHash, AccountId>,
+    nonce: &mut u64,
+) -> Option<SignedTransaction> {
+    let account_id = gen_account(rng, b"abcdefghijkmn");
+    if !all_accounts.insert(account_id.clone()) {
+        return None;
+    }
+    *nonce += 1;
+    // randomly shuffle contract accounts
+    // so that transactions are send to different shards
+    let mut contract_accounts = contract_accounts.clone();
+    contract_accounts.shuffle(rng);
+    let tx = gen_cross_contract_tx_impl(
+        &contract_accounts[0],
+        &contract_accounts[1],
+        &contract_accounts[2],
+        &contract_accounts[3],
+        &account_id,
+        *nonce,
+        &genesis_hash,
+    );
+    new_accounts.insert(tx.get_hash(), account_id);
+    tracing::trace!(target: "test", tx=?tx.get_hash(), "generated tx");
+    Some(tx)
+}
+
 // create a transaction signed by `account0` and calls a contract on `account1`
 // the contract creates a promise that executes a cross contract call on "account2"
 // then executes another contract call on "account3" that creates a new account
-fn gen_cross_contract_transaction(
+fn gen_cross_contract_tx_impl(
     account0: &AccountId,
     account1: &AccountId,
     account2: &AccountId,
@@ -929,114 +1098,12 @@ fn gen_cross_contract_transaction(
     )
 }
 
-/// Return test_env and a map from tx hash to the new account that will be added by this transaction
-fn setup_test_env_with_cross_contract_txs(
-    epoch_length: u64,
-    genesis_protocol_version: ProtocolVersion,
-) -> (TestShardUpgradeEnv, HashMap<CryptoHash, AccountId>) {
-    let mut test_env = TestShardUpgradeEnv::new(
-        epoch_length,
-        4,
-        4,
-        100,
-        Some(100_000_000_000_000),
-        genesis_protocol_version,
-    );
-    let mut rng = thread_rng();
-
-    let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
-    // Use test0, test1 and two random accounts to deploy contracts because we want accounts on
-    // different shards.
-    let indices = (4..test_env.initial_accounts.len()).choose_multiple(&mut rng, 2);
-    let contract_accounts = vec![
-        test_env.initial_accounts[0].clone(),
-        test_env.initial_accounts[1].clone(),
-        test_env.initial_accounts[indices[0]].clone(),
-        test_env.initial_accounts[indices[1]].clone(),
-    ];
-    test_env.set_init_tx(
-        contract_accounts
-            .iter()
-            .map(|account_id| {
-                let signer = InMemorySigner::from_seed(
-                    account_id.clone(),
-                    KeyType::ED25519,
-                    &account_id.to_string(),
-                );
-                SignedTransaction::from_actions(
-                    1,
-                    account_id.clone(),
-                    account_id.clone(),
-                    &signer,
-                    vec![Action::DeployContract(DeployContractAction {
-                        code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
-                    })],
-                    genesis_hash,
-                )
-            })
-            .collect(),
-    );
-
-    let mut nonce = 100;
-    let mut all_accounts: HashSet<_> = test_env.initial_accounts.clone().into_iter().collect();
-    let mut new_accounts = HashMap::new();
-    let generate_txs: &mut dyn FnMut(usize, usize) -> Vec<SignedTransaction> =
-        &mut |min_size: usize, max_size: usize| -> Vec<SignedTransaction> {
-            let mut rng = thread_rng();
-            let size = rng.gen_range(min_size..max_size + 1);
-            std::iter::repeat_with(|| loop {
-                let account_id = gen_account(&mut rng, b"abcdefghijkmn");
-                if all_accounts.insert(account_id.clone()) {
-                    nonce += 1;
-                    // randomly shuffle contract accounts
-                    // so that transactions are send to different shards
-                    let mut contract_accounts = contract_accounts.clone();
-                    contract_accounts.shuffle(&mut rng);
-                    let tx = gen_cross_contract_transaction(
-                        &contract_accounts[0],
-                        &contract_accounts[1],
-                        &contract_accounts[2],
-                        &contract_accounts[3],
-                        &account_id,
-                        nonce,
-                        &genesis_hash,
-                    );
-                    new_accounts.insert(tx.get_hash(), account_id);
-                    tracing::trace!(target: "test", ?tx, "generated tx");
-                    return tx;
-                }
-            })
-            .take(size)
-            .collect()
-        };
-
-    // add a bunch of transactions before the two epoch boundaries
-    for height in vec![
-        epoch_length - 2,
-        epoch_length - 1,
-        epoch_length,
-        2 * epoch_length - 2,
-        2 * epoch_length - 1,
-        2 * epoch_length,
-    ] {
-        test_env.set_tx_at_height(height, generate_txs(5, 8));
-    }
-
-    // adds some transactions after sharding change finishes
-    // but do not add too many because I want all transactions to
-    // finish processing before epoch 5
-    for height in 2 * epoch_length + 1..3 * epoch_length {
-        if rng.gen_bool(0.3) {
-            test_env.set_tx_at_height(height, generate_txs(5, 8));
-        }
-    }
-
-    (test_env, new_accounts)
-}
-
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
-fn test_shard_layout_upgrade_cross_contract_calls_impl(resharding_type: ReshardingType) {
+fn test_shard_layout_upgrade_cross_contract_calls_impl(
+    resharding_type: ReshardingType,
+    rng_seed: u64,
+) {
     init_test_logger();
 
     // setup
@@ -1044,8 +1111,10 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(resharding_type: Reshardi
     let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
     let target_protocol_version = get_target_protocol_version(&resharding_type);
 
-    let (mut test_env, new_accounts) =
-        setup_test_env_with_cross_contract_txs(epoch_length, genesis_protocol_version);
+    let mut test_env =
+        create_test_env_for_cross_contract_test(genesis_protocol_version, epoch_length, rng_seed);
+
+    let new_accounts = setup_test_env_with_cross_contract_txs(&mut test_env, epoch_length);
 
     let drop_chunk_condition = DropChunkCondition::new();
     for _ in 1..5 * epoch_length {
@@ -1066,18 +1135,37 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(resharding_type: Reshardi
 // This test case tests postponed receipts and delayed receipts
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls_v1() {
-    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V1);
+    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V1, 42);
 }
 
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
-fn test_shard_layout_upgrade_cross_contract_calls_v2() {
-    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2);
+fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_42() {
+    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 42);
 }
 
-fn test_shard_layout_upgrade_incoming_receipts_impl(resharding_type: ReshardingType) {
+// Test cross contract calls
+// This test case tests postponed receipts and delayed receipts
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_43() {
+    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 43);
+}
+
+// Test cross contract calls
+// This test case tests postponed receipts and delayed receipts
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_44() {
+    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 44);
+}
+
+fn test_shard_layout_upgrade_incoming_receipts_impl(
+    resharding_type: ReshardingType,
+    rng_seed: u64,
+) {
     init_test_logger();
 
     // setup
@@ -1085,8 +1173,10 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(resharding_type: ReshardingT
     let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
     let target_protocol_version = get_target_protocol_version(&resharding_type);
 
-    let (mut test_env, new_accounts) =
-        setup_test_env_with_cross_contract_txs(epoch_length, genesis_protocol_version);
+    let mut test_env =
+        create_test_env_for_cross_contract_test(genesis_protocol_version, epoch_length, rng_seed);
+
+    let new_accounts = setup_test_env_with_cross_contract_txs(&mut test_env, epoch_length);
 
     // Drop one of the chunks in the last block before switching to the new
     // shard layout.
@@ -1120,7 +1210,7 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(resharding_type: ReshardingT
 // receipts at all.
 #[test]
 fn test_shard_layout_upgrade_incoming_receipts_impl_v1() {
-    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V1);
+    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V1, 42);
 }
 
 // TODO(resharding) Add another test like this but drop more chunks and at
@@ -1128,23 +1218,37 @@ fn test_shard_layout_upgrade_incoming_receipts_impl_v1() {
 // are missing in block but can likely be adjusted for this case.
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
-fn test_shard_layout_upgrade_incoming_receipts_impl_v2() {
-    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2);
+fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_42() {
+    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 42);
+}
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_43() {
+    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 43);
+}
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_44() {
+    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 44);
 }
 
 // Test cross contract calls
 // This test case tests when there are missing chunks in the produced blocks
 // This is to test that all the chunk management logic in sharding split is correct
-fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
+fn test_shard_layout_upgrade_missing_chunks(p_missing: f64, rng_seed: u64) {
     init_test_logger();
 
     let resharding_type = ReshardingType::V1;
     let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
+    let epoch_length = 10;
+
+    let mut test_env =
+        create_test_env_for_cross_contract_test(genesis_protocol_version, epoch_length, rng_seed);
 
     // setup
-    let epoch_length = 10;
-    let (mut test_env, new_accounts) =
-        setup_test_env_with_cross_contract_txs(epoch_length, genesis_protocol_version);
+    let new_accounts = setup_test_env_with_cross_contract_txs(&mut test_env, epoch_length);
 
     // randomly dropping chunks at the first few epochs when sharding splits happens
     // make sure initial txs (deploy smart contracts) are processed succesfully
@@ -1184,17 +1288,17 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
 
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_low_missing_prob() {
-    test_shard_layout_upgrade_missing_chunks(0.1);
+    test_shard_layout_upgrade_missing_chunks(0.1, 42);
 }
 
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob() {
-    test_shard_layout_upgrade_missing_chunks(0.5);
+    test_shard_layout_upgrade_missing_chunks(0.5, 42);
 }
 
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_high_missing_prob() {
-    test_shard_layout_upgrade_missing_chunks(0.9);
+    test_shard_layout_upgrade_missing_chunks(0.9, 42);
 }
 
 // TODO(resharding) add a test with missing blocks

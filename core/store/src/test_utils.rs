@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use near_primitives::state::{FlatStateValue, ValueRef};
@@ -183,8 +183,11 @@ pub fn gen_account(rng: &mut impl Rng, alphabet: &[u8]) -> AccountId {
 
 pub fn gen_unique_accounts(rng: &mut impl Rng, min_size: usize, max_size: usize) -> Vec<AccountId> {
     let alphabet = b"abcdefghijklmn";
-    let accounts = gen_accounts_from_alphabet(rng, min_size, max_size, alphabet);
-    accounts.into_iter().collect::<HashSet<_>>().into_iter().collect()
+    let mut accounts = gen_accounts_from_alphabet(rng, min_size, max_size, alphabet);
+    accounts.sort();
+    accounts.dedup();
+    accounts.shuffle(rng);
+    accounts
 }
 
 pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
