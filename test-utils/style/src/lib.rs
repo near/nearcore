@@ -50,7 +50,7 @@ fn clippy() {
     let cargo = std::env::var_os("CARGO").unwrap_or(OsString::from("cargo"));
     let mut cmd = Command::new(cargo);
     cargo_env(&mut cmd);
-    cmd.args(&["clippy", "--all-targets", "--"]);
+    cmd.args(&["clippy", "--all-targets", "--all-features", "--"]);
     cmd.args(&[
         "-Aclippy::all",
         "-Dclippy::clone_on_copy",
@@ -69,5 +69,14 @@ fn deny() {
     let mut cmd = Command::new(cargo);
     cargo_env(&mut cmd);
     cmd.args(&["deny", "--all-features", "check", "bans"]);
+    ensure_success(cmd);
+}
+
+#[test]
+fn themis() {
+    let cargo = std::env::var_os("CARGO").unwrap_or(OsString::from("cargo"));
+    let mut cmd = Command::new(cargo);
+    cargo_env(&mut cmd);
+    cmd.args(&["run", "-p", "themis"]);
     ensure_success(cmd);
 }

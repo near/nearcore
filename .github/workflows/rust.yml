@@ -15,6 +15,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [nayduck, macOS-m1]
+        include:
+          - os: nayduck
+            flags: "--features nightly,test_features,mock_node"
     timeout-minutes: 60
 
     steps:

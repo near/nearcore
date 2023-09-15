@@ -24,7 +24,7 @@ fn generate_transactions(last_hash: &CryptoHash, h: BlockHeight) -> Vec<SignedTr
             vec![Action::DeployContract(DeployContractAction {
                 code: near_test_contracts::rs_contract().to_vec(),
             })],
-            last_hash.clone(),
+            *last_hash,
         ));
     }
 
@@ -40,7 +40,7 @@ fn generate_transactions(last_hash: &CryptoHash, h: BlockHeight) -> Vec<SignedTr
                 gas: 100_000_000_000_000,
                 deposit: 0,
             }))],
-            last_hash.clone(),
+            *last_hash,
         ));
     }
 
@@ -51,7 +51,7 @@ fn generate_transactions(last_hash: &CryptoHash, h: BlockHeight) -> Vec<SignedTr
             "test1".parse().unwrap(),
             &signer,
             1,
-            last_hash.clone(),
+            *last_hash,
         ));
     }
     txs

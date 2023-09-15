@@ -6727,10 +6727,7 @@ dependencies = [
 
 [[package]]
 name = "style-tests"
-version = "0.1.0"
-dependencies = [
- "tempfile",
-]
+version = "0.0.0"
 
 [[package]]
 name = "subtle"

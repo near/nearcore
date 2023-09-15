@@ -1,9 +1,7 @@
 [package]
 name = "style-tests"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2021"
 publish = false
 description = "An entry point for miscelaneous (stylistic) workspace-wide tests"
-
-[dependencies]
-tempfile.workspace = true
+authors = ["Near Inc <hello@nearprotocol.com>"]
