@@ -209,7 +209,7 @@ impl Chain {
         });
 
         RESHARDING_STATUS
-            .with_label_values(&[&shard_id.to_string()])
+            .with_label_values(&[&shard_uid.to_string()])
             .set(ReshardingStatus::Scheduled.into());
 
         Ok(())
