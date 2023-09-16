@@ -17,3 +17,4 @@ mod lower_storage_key_limit;
 mod nearvm;
 mod restore_receipts_after_fix_apply_chunks;
 mod zero_balance_account;
+mod restrict_tla;

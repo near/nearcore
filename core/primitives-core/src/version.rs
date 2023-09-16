@@ -120,6 +120,8 @@ pub enum ProtocolFeature {
     RejectBlocksWithOutdatedProtocolVersions,
     #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
     SimpleNightshadeV2,
+    #[cfg(feature = "protocol_feature_restrict_tla")]
+    RestrictTla
 }
 
 impl ProtocolFeature {
@@ -173,6 +175,8 @@ impl ProtocolFeature {
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
             ProtocolFeature::SimpleNightshadeV2 => 135,
+            #[cfg(feature = "protocol_feature_restrict_tla")]
+            ProtocolFeature::RestrictTla => 139,
         }
     }
 }
@@ -185,7 +189,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 63;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    138
+    139
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION
