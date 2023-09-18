@@ -9,7 +9,7 @@ use once_cell::sync::Lazy;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Deref;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use std::{io, println};
 use strum::IntoEnumIterator;
@@ -112,18 +112,6 @@ struct ColumnMeasurement {
     bloom_sst: CacheUsage,
 }
 
-impl ColumnMeasurement {
-    fn default() -> Self {
-        Self {
-            measurements_per_block_reads: BTreeMap::new(),
-            measurements_overall: Measurements::default(),
-            block_cache: CacheUsage::default(),
-            bloom_mem: CacheUsage::default(),
-            bloom_sst: CacheUsage::default(),
-        }
-    }
-}
-
 #[derive(Debug, Default)]
 struct CacheUsage {
     pub hits: u64,
@@ -196,7 +184,7 @@ pub struct RocksDB {
     // counting total sum of max_open_files.
     _instance_tracker: instance_tracker::InstanceTracker,
 
-    perf_context: Arc<Mutex<PerfContext>>,
+    perf_context: Option<Arc<Mutex<PerfContext>>>,
 }
 
 // DB was already Send+Sync. cf and read_options are const pointers using only functions in
@@ -259,13 +247,18 @@ impl RocksDB {
             .map_err(other_error)?;
         let (db, db_opt) = Self::open_db(path, store_config, mode, temp, columns)?;
         let cf_handles = Self::get_cf_handles(&db, columns);
-        rocksdb::perf::set_perf_stats(rocksdb::perf::PerfStatsLevel::EnableTime);
+        
+        let perf_context = if temp == Temperature::Perf {
+             Some(Arc::new(Mutex::new(PerfContext::new())))
+        } else {
+            None
+        };
         Ok(Self {
             db,
             db_opt,
             cf_handles,
             _instance_tracker: counter,
-            perf_context: Arc::new(Mutex::new(PerfContext::new())),
+            perf_context: perf_context
         })
     }
 
@@ -463,7 +456,9 @@ impl Database for RocksDB {
             .map(DBSlice::from_rocksdb_slice);
         let obs_latency = Duration::from_secs_f64(timer.stop_and_record());
 
-        self.perf_context.lock().unwrap().record(col, obs_latency);
+        if let Some(perf_ctx) = &self.perf_context {
+            perf_ctx.lock().unwrap().record(col, obs_latency);
+        }
 
         Ok(result)
     }
@@ -561,8 +556,11 @@ impl Database for RocksDB {
         self.get_cf_statistics(&mut result);
 
         // Get all measurements from RocksDB perf
-        self.fill_perf_data(&mut result);
-
+        if let Some(perf_ctx) = &self.perf_context {
+            let mut perf_ctx_guard = perf_ctx.lock().unwrap();
+            self.fill_perf_data(&mut result, &mut perf_ctx_guard);
+        }
+        
         if result.data.is_empty() {
             None
         } else {
@@ -739,10 +737,9 @@ impl RocksDB {
     }
 
     /// Fills results with rocksdb perf data
-    fn fill_perf_data(&self, result: &mut StoreStatistics) {
-        let mut perf_data = self.perf_context.lock().unwrap();
+    fn fill_perf_data(&self, result: &mut StoreStatistics, perf_context: &mut MutexGuard<PerfContext>) {
 
-        match perf_data.column_measurements.get(&DBCol::State) {
+        match perf_context.column_measurements.get(&DBCol::State) {
             Some(measurement) => {
                 // add read block latency
                 let state_read_block_latency =
@@ -846,7 +843,7 @@ impl RocksDB {
             }
             None => {}
         }
-        perf_data.reset();
+        perf_context.reset();
     }
 }
 

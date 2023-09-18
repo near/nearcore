@@ -61,14 +61,17 @@ pub use crate::opener::{
 
 /// Specifies temperature of a storage.
 ///
-/// Since currently only hot storage is implemented, this has only one variant.
-/// In the future, certain parts of the code may need to access hot or cold
-/// storage.  Specifically, querying an old block will require reading it from
-/// the cold storage.
+/// Currently supports three versions of mode:
+/// - Hot => this mode is intented when having multiple data, which is being inserted, read and
+/// deleted
+/// - Cold => this mode is intented for huge amoutns of data where no deletions are expected
+/// - Perf => this mode only serves to track perf data of RocksDB and report metrics to Prometheus
+/// it runs RocksDB in Hot mode
 #[derive(Clone, Copy, Debug, Eq, PartialEq, strum::IntoStaticStr)]
 pub enum Temperature {
     Hot,
     Cold,
+    Perf,
 }
 
 impl FromStr for Temperature {
@@ -231,7 +234,7 @@ impl NodeStorage {
     /// This method panics if trying to access cold store but it wasn't configured.
     pub fn into_inner(self, temp: Temperature) -> Arc<dyn Database> {
         match temp {
-            Temperature::Hot => self.hot_storage,
+            Temperature::Hot | Temperature::Perf => self.hot_storage,
             Temperature::Cold => self.cold_storage.unwrap(),
         }
     }
