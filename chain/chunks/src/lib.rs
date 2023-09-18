@@ -932,7 +932,7 @@ impl ShardsManager {
 
         // Get outgoing receipts for the chunk and construct vector of their
         // proofs.
-        let outgoing_receipts = chunk.receipts();
+        let outgoing_receipts = chunk.prev_outgoing_receipts();
         let present_receipts: HashMap<ShardId, _> = match make_outgoing_receipts_proofs(
             &header,
             &outgoing_receipts,
@@ -1429,7 +1429,11 @@ impl ShardsManager {
             let shard_id = proof.1.to_shard_id;
             let ReceiptProof(shard_receipts, receipt_proof) = proof;
             let receipt_hash = CryptoHash::hash_borsh(ReceiptList(shard_id, shard_receipts));
-            if !verify_path(header.outgoing_receipts_root(), &receipt_proof.proof, &receipt_hash) {
+            if !verify_path(
+                header.prev_outgoing_receipts_root(),
+                &receipt_proof.proof,
+                &receipt_hash,
+            ) {
                 byzantine_assert!(false);
                 return Err(Error::ChainError(near_chain::Error::InvalidReceiptsProof));
             }
@@ -1803,16 +1807,16 @@ impl ShardsManager {
     pub fn create_encoded_shard_chunk(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
-        outcome_root: CryptoHash,
+        prev_outcome_root: CryptoHash,
         height: u64,
         shard_id: ShardId,
-        gas_used: Gas,
-        gas_limit: Gas,
-        balance_burnt: Balance,
-        validator_proposals: Vec<ValidatorStake>,
+        prev_gas_used: Gas,
+        prev_gas_limit: Gas,
+        prev_balance_burnt: Balance,
+        prev_validator_proposals: Vec<ValidatorStake>,
         transactions: Vec<SignedTransaction>,
-        outgoing_receipts: &[Receipt],
-        outgoing_receipts_root: CryptoHash,
+        prev_outgoing_receipts: &[Receipt],
+        prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         signer: &dyn ValidatorSigner,
         rs: &mut ReedSolomonWrapper,
@@ -1821,18 +1825,18 @@ impl ShardsManager {
         EncodedShardChunk::new(
             prev_block_hash,
             prev_state_root,
-            outcome_root,
+            prev_outcome_root,
             height,
             shard_id,
             rs,
-            gas_used,
-            gas_limit,
-            balance_burnt,
+            prev_gas_used,
+            prev_gas_limit,
+            prev_balance_burnt,
             tx_root,
-            validator_proposals,
+            prev_validator_proposals,
             transactions,
-            outgoing_receipts,
-            outgoing_receipts_root,
+            prev_outgoing_receipts,
+            prev_outgoing_receipts_root,
             signer,
             protocol_version,
         )

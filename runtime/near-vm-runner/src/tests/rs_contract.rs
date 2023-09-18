@@ -10,8 +10,8 @@ use std::mem::size_of;
 
 use crate::runner::VMResult;
 use crate::tests::{
-    create_context, with_vm_variants, CURRENT_ACCOUNT_ID, LATEST_PROTOCOL_VERSION,
-    PREDECESSOR_ACCOUNT_ID, SIGNER_ACCOUNT_ID, SIGNER_ACCOUNT_PK,
+    create_context, with_vm_variants, CURRENT_ACCOUNT_ID, PREDECESSOR_ACCOUNT_ID,
+    SIGNER_ACCOUNT_ID, SIGNER_ACCOUNT_PK,
 };
 use crate::vm_kind::VMKind;
 
@@ -60,7 +60,6 @@ pub fn test_read_write() {
             context,
             &fees,
             &promise_results,
-            LATEST_PROTOCOL_VERSION,
             None,
         );
         assert_run_result(result, 0);
@@ -73,7 +72,6 @@ pub fn test_read_write() {
             context,
             &fees,
             &promise_results,
-            LATEST_PROTOCOL_VERSION,
             None,
         );
         assert_run_result(result, 20);
@@ -127,7 +125,7 @@ fn run_test_ext(
     let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
 
     let outcome = runtime
-        .run(&code, method, &mut fake_external, context, &fees, &[], LATEST_PROTOCOL_VERSION, None)
+        .run(&code, method, &mut fake_external, context, &fees, &[], None)
         .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 
     assert_eq!(outcome.profile.action_gas(), 0);
@@ -233,16 +231,7 @@ pub fn test_out_of_memory() {
 
         let promise_results = vec![];
         let result = runtime
-            .run(
-                &code,
-                "out_of_memory",
-                &mut fake_external,
-                context,
-                &fees,
-                &promise_results,
-                LATEST_PROTOCOL_VERSION,
-                None,
-            )
+            .run(&code, "out_of_memory", &mut fake_external, context, &fees, &promise_results, None)
             .expect("execution failed");
         assert_eq!(
             result.aborted,
@@ -281,7 +270,6 @@ fn attach_unspent_gas_but_use_all_gas() {
                 context.clone(),
                 &fees,
                 &[],
-                LATEST_PROTOCOL_VERSION,
                 None,
             )
             .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));

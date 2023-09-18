@@ -223,7 +223,7 @@ impl FlatStorageCommand {
 
         // TODO: there should be a method that 'loads' the current flat storage state based on Storage.
         let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &tip.epoch_id)?;
-        let flat_storage_manager = rw_hot_runtime.get_flat_storage_manager().unwrap();
+        let flat_storage_manager = rw_hot_runtime.get_flat_storage_manager();
         flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
         flat_storage_manager.remove_flat_storage_for_shard(shard_uid)?;
         Ok(())
@@ -301,7 +301,7 @@ impl FlatStorageCommand {
         let tip = chain_store.final_head()?;
 
         let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &tip.epoch_id)?;
-        hot_runtime.get_flat_storage_manager().unwrap().create_flat_storage_for_shard(shard_uid)?;
+        hot_runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid)?;
 
         let trie = hot_runtime.get_view_trie_for_shard(cmd.shard_id, &head_hash, *state_root)?;
 
@@ -408,7 +408,7 @@ impl FlatStorageCommand {
             Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadWriteExisting);
 
         let shard_uid = ShardUId { version: cmd.version, shard_id: cmd.shard_id as u32 };
-        let flat_storage_manager = runtime.get_flat_storage_manager().unwrap();
+        let flat_storage_manager = runtime.get_flat_storage_manager();
         flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
         let header = chain_store.get_block_header_by_height(cmd.new_flat_head_height)?;

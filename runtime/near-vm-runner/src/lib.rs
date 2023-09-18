@@ -13,6 +13,7 @@ mod memory;
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 mod near_vm_runner;
 pub mod prepare;
+mod profile;
 mod runner;
 #[cfg(test)]
 mod tests;
@@ -29,6 +30,8 @@ pub use crate::logic::with_ext_cost_counter;
 pub use cache::{get_contract_cache_key, precompile_contract, MockCompiledContractCache};
 pub use code::ContractCode;
 pub use config::ContractPrepareVersion;
+pub use profile::ProfileDataV2;
+pub use profile::ProfileDataV3;
 pub use runner::{run, VM};
 
 /// This is public for internal experimentation use only, and should otherwise be considered an

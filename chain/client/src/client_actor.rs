@@ -1283,8 +1283,8 @@ impl ClientActor {
             if included {
                 self.info_helper.chunk_processed(
                     chunk.shard_id(),
-                    chunk.gas_used(),
-                    chunk.balance_burnt(),
+                    chunk.prev_gas_used(),
+                    chunk.prev_balance_burnt(),
                 );
             } else {
                 self.info_helper.chunk_skipped(chunk.shard_id());

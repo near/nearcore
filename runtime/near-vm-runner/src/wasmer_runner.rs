@@ -13,7 +13,6 @@ use crate::prepare;
 use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports, ContractCode};
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
-use near_primitives_core::types::ProtocolVersion;
 use wasmer_runtime::{ImportObject, Module};
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), FunctionCallError> {
@@ -351,7 +350,6 @@ impl crate::runner::VM for Wasmer0VM {
         context: VMContext,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
-        current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
         if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
@@ -402,8 +400,7 @@ impl crate::runner::VM for Wasmer0VM {
             return Ok(VMOutcome::abort(logic, e));
         }
 
-        let import_object =
-            imports::wasmer::build(memory_copy, &mut logic, current_protocol_version);
+        let import_object = imports::wasmer::build(memory_copy, &mut logic);
 
         if let Err(e) = check_method(&module, method_name) {
             return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e));

@@ -949,7 +949,7 @@ impl Handler<WithSpanContext<GetExecutionOutcome>> for ViewClientActor {
                         .get_block(&h)?
                         .chunks()
                         .iter()
-                        .map(|header| header.outcome_root())
+                        .map(|header| header.prev_outcome_root())
                         .collect::<Vec<_>>();
                     if target_shard_id >= (outcome_roots.len() as u64) {
                         return Err(GetExecutionOutcomeError::InconsistentState {

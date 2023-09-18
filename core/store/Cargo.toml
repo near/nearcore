@@ -48,6 +48,8 @@ near-vm-runner.workspace = true
 assert_matches.workspace = true
 bencher.workspace = true
 insta.workspace = true
+near-chain.workspace = true
+near-chunks.workspace = true
 rand.workspace = true
 thiserror.workspace = true
 
@@ -57,6 +59,10 @@ harness = false
 
 [[bench]]
 name = "store_bench"
+harness = false
+
+[[bench]]
+name = "finalize_bench"
 harness = false
 
 [features]

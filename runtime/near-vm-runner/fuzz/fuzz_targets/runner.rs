@@ -27,15 +27,6 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMOutcome {
     vm_kind
         .runtime(config)
         .unwrap()
-        .run(
-            code,
-            &method_name,
-            &mut fake_external,
-            context,
-            &fees,
-            &promise_results,
-            PROTOCOL_VERSION,
-            None,
-        )
+        .run(code, &method_name, &mut fake_external, context, &fees, &promise_results, None)
         .unwrap_or_else(|err| panic!("fatal error: {err:?}"))
 }

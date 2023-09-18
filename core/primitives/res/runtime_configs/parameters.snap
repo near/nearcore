@@ -167,4 +167,8 @@ disable_9393_fix                        false
 flat_storage_reads                      true
 implicit_account_creation               true
 fix_contract_loading_cost               true
+math_extension                          true
+ed25519_verify                          true
+alt_bn128                               true
+function_call_weight                    true
 
