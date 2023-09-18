@@ -26,6 +26,7 @@ pub use {tracing, tracing_appender, tracing_subscriber};
 pub mod context;
 mod io_tracer;
 pub mod log_config;
+mod log_counter;
 pub mod macros;
 pub mod metrics;
 pub mod testonly;
@@ -49,6 +50,9 @@ macro_rules! io_trace {
 static LOG_LAYER_RELOAD_HANDLE: OnceCell<reload::Handle<EnvFilter, Registry>> = OnceCell::new();
 static OTLP_LAYER_RELOAD_HANDLE: OnceCell<reload::Handle<LevelFilter, LogLayer<Registry>>> =
     OnceCell::new();
+static LOG_COUNTING_LAYER_RELOAD_HANDLE: OnceCell<
+    reload::Handle<log_counter::LogCounter, TracingLayer<LogLayer<Registry>>>,
+> = OnceCell::new();
 
 type LogLayer<Inner> = Layered<
     Filtered<
@@ -110,17 +114,27 @@ pub struct DefaultSubscriberGuard<S> {
 }
 
 // Doesn't define WARN and ERROR, because the highest verbosity of spans is INFO.
-#[derive(Copy, Clone, Debug, Default, clap::ValueEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    clap::ValueEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    strum::AsRefStr,
+)]
 pub enum OpenTelemetryLevel {
     #[default]
     OFF,
+    ERROR,
+    WARN,
     INFO,
     DEBUG,
     TRACE,
 }
 
 /// Configures exporter of span and trace data.
-// Currently empty, but more fields will be added in the future.
 #[derive(Debug, Default, clap::Parser)]
 pub struct Options {
     /// Enables export of span data using opentelemetry exporters.
@@ -282,6 +296,8 @@ where
 pub fn get_opentelemetry_filter(opentelemetry_level: OpenTelemetryLevel) -> LevelFilter {
     match opentelemetry_level {
         OpenTelemetryLevel::OFF => LevelFilter::OFF,
+        OpenTelemetryLevel::ERROR => LevelFilter::ERROR,
+        OpenTelemetryLevel::WARN => LevelFilter::WARN,
         OpenTelemetryLevel::INFO => LevelFilter::INFO,
         OpenTelemetryLevel::DEBUG => LevelFilter::DEBUG,
         OpenTelemetryLevel::TRACE => LevelFilter::TRACE,
@@ -342,6 +358,7 @@ pub fn default_subscriber(
     };
 
     let subscriber = tracing_subscriber::registry();
+    let subscriber = subscriber.with(log_counter::LogCounter::default());
     let subscriber = add_simple_log_layer(
         env_filter,
         make_writer,
@@ -420,6 +437,11 @@ pub async fn default_subscriber_with_opentelemetry(
     OTLP_LAYER_RELOAD_HANDLE
         .set(handle)
         .unwrap_or_else(|_| panic!("Failed to set OTLP Layer Filter"));
+
+    let (subscriber, handle) = log_counter::add_log_counting_layer(subscriber).await;
+    LOG_COUNTING_LAYER_RELOAD_HANDLE
+        .set(handle)
+        .unwrap_or_else(|_| panic!("Failed to set Log Counting Layer"));
 
     #[allow(unused_mut)]
     let mut io_trace_guard = None;
