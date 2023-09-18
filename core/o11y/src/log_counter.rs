@@ -2,9 +2,9 @@ use crate::metrics::try_create_int_counter_vec;
 use crate::OpenTelemetryLevel;
 use once_cell::sync::Lazy;
 use prometheus::{IntCounter, IntCounterVec};
-use tracing_subscriber::layer::{Context, Layered, SubscriberExt};
+use tracing_subscriber::layer::{Context, Layered};
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::{reload, Layer};
+use tracing_subscriber::Layer;
 
 pub(crate) static LOG_COUNTER: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
@@ -24,19 +24,7 @@ pub(crate) static LOG_WITH_LOCATION_COUNTER: Lazy<IntCounterVec> = Lazy::new(|| 
     .unwrap()
 });
 
-type LogCountingLayer<Inner> = Layered<reload::Layer<LogCounter, Inner>, Inner>;
-
-/// Constructs a LogCounter layer which keeps tracks of the number of messages
-/// emitted per severity level, and their line-of-code location.
-pub(crate) async fn add_log_counting_layer<S>(
-    subscriber: S,
-) -> (LogCountingLayer<S>, reload::Handle<LogCounter, S>)
-where
-    S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
-{
-    let (layer, handle) = reload::Layer::<LogCounter, S>::new(LogCounter::default());
-    (subscriber.with(layer), handle)
-}
+pub(crate) type LogCountingLayer<Inner> = Layered<LogCounter, Inner>;
 
 /// A tracing Layer that updates prometheus metrics based on the metadata of log events.
 pub(crate) struct LogCounter {

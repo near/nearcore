@@ -47,11 +47,11 @@ macro_rules! io_trace {
     ($($fields:tt)*) => {};
 }
 
-static LOG_LAYER_RELOAD_HANDLE: OnceCell<reload::Handle<EnvFilter, Registry>> = OnceCell::new();
-static OTLP_LAYER_RELOAD_HANDLE: OnceCell<reload::Handle<LevelFilter, LogLayer<Registry>>> =
-    OnceCell::new();
-static LOG_COUNTING_LAYER_RELOAD_HANDLE: OnceCell<
-    reload::Handle<log_counter::LogCounter, TracingLayer<LogLayer<Registry>>>,
+static LOG_LAYER_RELOAD_HANDLE: OnceCell<
+    reload::Handle<EnvFilter, log_counter::LogCountingLayer<Registry>>,
+> = OnceCell::new();
+static OTLP_LAYER_RELOAD_HANDLE: OnceCell<
+    reload::Handle<LevelFilter, LogLayer<log_counter::LogCountingLayer<Registry>>>,
 > = OnceCell::new();
 
 type LogLayer<Inner> = Layered<
@@ -412,6 +412,10 @@ pub async fn default_subscriber_with_opentelemetry(
     let (writer, writer_guard) = tracing_appender::non_blocking(lined_stderr);
 
     let subscriber = tracing_subscriber::registry();
+    // Installs LogCounter as the top layer.
+    // This layer will see all messages even if some of them will be filtered
+    // out and not printed.
+    let subscriber = subscriber.with(log_counter::LogCounter::default());
 
     set_default_otlp_level(options);
 
@@ -437,11 +441,6 @@ pub async fn default_subscriber_with_opentelemetry(
     OTLP_LAYER_RELOAD_HANDLE
         .set(handle)
         .unwrap_or_else(|_| panic!("Failed to set OTLP Layer Filter"));
-
-    let (subscriber, handle) = log_counter::add_log_counting_layer(subscriber).await;
-    LOG_COUNTING_LAYER_RELOAD_HANDLE
-        .set(handle)
-        .unwrap_or_else(|_| panic!("Failed to set Log Counting Layer"));
 
     #[allow(unused_mut)]
     let mut io_trace_guard = None;
