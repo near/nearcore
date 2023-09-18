@@ -38,7 +38,9 @@ where
     (subscriber.with(layer), handle)
 }
 
+/// A tracing Layer that updates prometheus metrics based on the metadata of log events.
 pub(crate) struct LogCounter {
+    // Initializes individual counters as a performance optimization.
     error_metric: IntCounter,
     warn_metric: IntCounter,
     info_metric: IntCounter,
@@ -47,6 +49,7 @@ pub(crate) struct LogCounter {
 }
 
 impl LogCounter {
+    /// Increments a counter for every log message.
     fn count_log(&self, level: &tracing::Level) {
         match level {
             &tracing::Level::ERROR => self.error_metric.inc(),
@@ -57,16 +60,19 @@ impl LogCounter {
         };
     }
 
+    /// Increments a counter with target and LoC for high severity messages.
     fn count_log_with_loc(&self, level: &tracing::Level, target: &str, location: &str) {
         match level {
             &tracing::Level::ERROR | &tracing::Level::WARN => LOG_WITH_LOCATION_COUNTER
                 .with_label_values(&[&level.as_str(), target, location])
                 .inc(),
-            // Avoid polluting memory by not retaining LoC of low-severity messages.
+            // Retaining LoC for low-severity messages can lead to excessive memory usage.
+            // Therefore, only record LoC for high severity log messages.
             _ => {}
         };
     }
 
+    // Event names are usually "event path/to/file.rs:123". Strip the prefix.
     fn parse_loc<'a>(&'a self, name: &'a str) -> &'a str {
         if let Some((_, loc)) = name.split_once("event ") {
             loc
