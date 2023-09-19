@@ -1,5 +1,4 @@
 use crate::metrics::try_create_int_counter_vec;
-use crate::OpenTelemetryLevel;
 use once_cell::sync::Lazy;
 use prometheus::{IntCounter, IntCounterVec};
 use tracing_subscriber::layer::{Context, Layered};
@@ -19,7 +18,7 @@ pub(crate) static LOG_WITH_LOCATION_COUNTER: Lazy<IntCounterVec> = Lazy::new(|| 
     try_create_int_counter_vec(
         "near_log_msg_with_loc_total",
         "Number of messages logged at various log levels wth target and location",
-        &["level", "target", "location"],
+        &["level", "target", "file", "line"],
     )
     .unwrap()
 });
@@ -49,35 +48,37 @@ impl LogCounter {
     }
 
     /// Increments a counter with target and LoC for high severity messages.
-    fn count_log_with_loc(&self, level: &tracing::Level, target: &str, location: &str) {
+    fn count_log_with_loc(
+        &self,
+        level: &tracing::Level,
+        target: &str,
+        file: Option<&str>,
+        line: Option<u32>,
+    ) {
         match level {
             &tracing::Level::ERROR | &tracing::Level::WARN => LOG_WITH_LOCATION_COUNTER
-                .with_label_values(&[&level.as_str(), target, location])
+                .with_label_values(&[
+                    &level.as_str(),
+                    target,
+                    file.unwrap_or(""),
+                    &line.map_or("".to_string(), |x| x.to_string()),
+                ])
                 .inc(),
             // Retaining LoC for low-severity messages can lead to excessive memory usage.
             // Therefore, only record LoC for high severity log messages.
             _ => {}
         };
     }
-
-    // Event names are usually "event path/to/file.rs:123". Strip the prefix.
-    fn parse_loc<'a>(&'a self, name: &'a str) -> &'a str {
-        if let Some((_, loc)) = name.split_once("event ") {
-            loc
-        } else {
-            name
-        }
-    }
 }
 
 impl Default for LogCounter {
     fn default() -> Self {
         Self {
-            error_metric: LOG_COUNTER.with_label_values(&[&OpenTelemetryLevel::ERROR.as_ref()]),
-            warn_metric: LOG_COUNTER.with_label_values(&[&OpenTelemetryLevel::WARN.as_ref()]),
-            info_metric: LOG_COUNTER.with_label_values(&[&OpenTelemetryLevel::INFO.as_ref()]),
-            debug_metric: LOG_COUNTER.with_label_values(&[&OpenTelemetryLevel::DEBUG.as_ref()]),
-            trace_metric: LOG_COUNTER.with_label_values(&[&OpenTelemetryLevel::TRACE.as_ref()]),
+            error_metric: LOG_COUNTER.with_label_values(&["error"]),
+            warn_metric: LOG_COUNTER.with_label_values(&["warn"]),
+            info_metric: LOG_COUNTER.with_label_values(&["info"]),
+            debug_metric: LOG_COUNTER.with_label_values(&["debug"]),
+            trace_metric: LOG_COUNTER.with_label_values(&["trace"]),
         }
     }
 }
@@ -91,7 +92,8 @@ where
         self.count_log(level);
 
         let target = event.metadata().target();
-        let loc = self.parse_loc(event.metadata().name());
-        self.count_log_with_loc(level, target, loc);
+        let file = event.metadata().file();
+        let line = event.metadata().line();
+        self.count_log_with_loc(level, target, file, line);
     }
 }

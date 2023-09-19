@@ -114,21 +114,10 @@ pub struct DefaultSubscriberGuard<S> {
 }
 
 // Doesn't define WARN and ERROR, because the highest verbosity of spans is INFO.
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Default,
-    clap::ValueEnum,
-    serde::Serialize,
-    serde::Deserialize,
-    strum::AsRefStr,
-)]
+#[derive(Copy, Clone, Debug, Default, clap::ValueEnum, serde::Serialize, serde::Deserialize)]
 pub enum OpenTelemetryLevel {
     #[default]
     OFF,
-    ERROR,
-    WARN,
     INFO,
     DEBUG,
     TRACE,
@@ -296,8 +285,6 @@ where
 pub fn get_opentelemetry_filter(opentelemetry_level: OpenTelemetryLevel) -> LevelFilter {
     match opentelemetry_level {
         OpenTelemetryLevel::OFF => LevelFilter::OFF,
-        OpenTelemetryLevel::ERROR => LevelFilter::ERROR,
-        OpenTelemetryLevel::WARN => LevelFilter::WARN,
         OpenTelemetryLevel::INFO => LevelFilter::INFO,
         OpenTelemetryLevel::DEBUG => LevelFilter::DEBUG,
         OpenTelemetryLevel::TRACE => LevelFilter::TRACE,
@@ -412,9 +399,7 @@ pub async fn default_subscriber_with_opentelemetry(
     let (writer, writer_guard) = tracing_appender::non_blocking(lined_stderr);
 
     let subscriber = tracing_subscriber::registry();
-    // Installs LogCounter as the top layer.
-    // This layer will see all messages even if some of them will be filtered
-    // out and not printed.
+    // Installs LogCounter as the innermost layer.
     let subscriber = subscriber.with(log_counter::LogCounter::default());
 
     set_default_otlp_level(options);
