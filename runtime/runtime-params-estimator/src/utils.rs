@@ -6,8 +6,8 @@ use near_primitives::config::ExtCosts;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-use near_vm_runner::internal::VMKind;
 use near_vm_runner::logic::Config as VMConfig;
+use near_vm_runner::VMKind;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use rand_xorshift::XorShiftRng;

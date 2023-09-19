@@ -37,17 +37,24 @@ impl RuntimeConfig {
     }
 
     pub fn test() -> Self {
+        let config_store = super::config_store::RuntimeConfigStore::new(None);
+        let wasm_config =
+            near_vm_runner::logic::Config::clone(&config_store.get_config(!0).wasm_config);
         RuntimeConfig {
             fees: RuntimeFeesConfig::test(),
-            wasm_config: near_vm_runner::logic::Config::test(),
+            wasm_config,
             account_creation_config: AccountCreationConfig::default(),
         }
     }
 
     pub fn free() -> Self {
+        let config_store = super::config_store::RuntimeConfigStore::new(None);
+        let mut wasm_config =
+            near_vm_runner::logic::Config::clone(&config_store.get_config(!0).wasm_config);
+        wasm_config.make_free();
         Self {
             fees: RuntimeFeesConfig::free(),
-            wasm_config: near_vm_runner::logic::Config::free(),
+            wasm_config,
             account_creation_config: AccountCreationConfig::default(),
         }
     }

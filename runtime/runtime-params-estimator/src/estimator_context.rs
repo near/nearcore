@@ -123,10 +123,11 @@ impl<'c> EstimatorContext<'c> {
             max_actions_per_receipt: u64::MAX,
             max_promises_per_function_call_action: u64::MAX,
             max_number_input_data_dependencies: u64::MAX,
+            max_length_storage_key: u64::MAX,
 
             max_total_prepaid_gas: u64::MAX,
 
-            ..LimitConfig::test()
+            ..runtime_config.wasm_config.limit_config
         };
         runtime_config.account_creation_config.min_allowed_top_level_account_length = 0;
 

@@ -49,7 +49,11 @@ impl VMLogicBuilder {
 
     pub fn free() -> Self {
         VMLogicBuilder {
-            config: Config::free(),
+            config: {
+                let mut config = Config::test();
+                config.make_free();
+                config
+            },
             fees_config: RuntimeFeesConfig::free(),
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),

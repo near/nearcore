@@ -2477,6 +2477,8 @@ pub struct VMConfigView {
     /// Gas cost of a regular operation.
     pub regular_op_cost: u32,
 
+    /// See [`VMConfig::vm_kind`].
+    pub vm_kind: near_vm_runner::VMKind,
     /// See [`VMConfig::disable_9393_fix`].
     pub disable_9393_fix: bool,
     /// See [`VMConfig::flat_storage_reads`].
@@ -2516,6 +2518,7 @@ impl From<near_vm_runner::logic::Config> for VMConfigView {
             ed25519_verify: config.ed25519_verify,
             alt_bn128: config.alt_bn128,
             function_call_weight: config.function_call_weight,
+            vm_kind: config.vm_kind,
         }
     }
 }
@@ -2535,6 +2538,7 @@ impl From<VMConfigView> for near_vm_runner::logic::Config {
             ed25519_verify: view.ed25519_verify,
             alt_bn128: view.alt_bn128,
             function_call_weight: view.function_call_weight,
+            vm_kind: view.vm_kind,
         }
     }
 }
