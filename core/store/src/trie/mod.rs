@@ -41,7 +41,7 @@ mod prefetching_trie_storage;
 mod raw_node;
 mod shard_tries;
 pub mod split_state;
-mod state_parts;
+pub mod state_parts;
 mod trie_recording;
 mod trie_storage;
 #[cfg(test)]

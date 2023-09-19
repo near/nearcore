@@ -1,11 +1,11 @@
-use crate::metrics::{
-    ReshardingStatus, RESHARDING_BATCH_COUNT, RESHARDING_BATCH_SIZE, RESHARDING_STATUS,
-};
 /// Implementation for all resharding logic.
 /// StateSplitRequest and StateSplitResponse are exchanged across the client_actor and SyncJobsActor.
 /// build_state_for_split_shards_preprocessing and build_state_for_split_shards_postprocessing are handled
 /// by the client_actor while the heavy resharding build_state_for_split_shards is done by SyncJobsActor
 /// so as to not affect client.
+use crate::metrics::{
+    ReshardingStatus, RESHARDING_BATCH_COUNT, RESHARDING_BATCH_SIZE, RESHARDING_STATUS,
+};
 use crate::Chain;
 use itertools::Itertools;
 use near_chain_primitives::error::Error;
@@ -20,6 +20,7 @@ use near_store::flat::{
     store_helper, BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
 };
 use near_store::split_state::get_delayed_receipts;
+use near_store::trie::state_parts::LAST_STATE_PART_BOUNDARY;
 use near_store::{ShardTries, ShardUId, Store, Trie, TrieDBStorage, TrieStorage};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
@@ -86,26 +87,60 @@ fn get_checked_account_id_to_shard_uid_fn(
     }
 }
 
+// store_helper::iter_flat_state_entries(shard_uid, &store, None, None).map(
+//     move |entry| -> (Vec<u8>, Vec<u8>) {
+//         let (key, value) = entry.unwrap();
+//         let value = match value {
+//             FlatStateValue::Ref(ref_value) => {
+//                 trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()
+//             }
+//             FlatStateValue::Inlined(inline_value) => inline_value,
+//         };
+//         (key, value)
+//     },
+// )
+
 // Return iterate over flat storage to get key, value. Used later in the get_trie_update_batch function.
 // TODO(#9436): This isn't completely correct. We need to get the flat storage iterator based off a
 // particular block, specifically, the last block of the previous epoch.
 fn get_flat_storage_iter<'a>(
+    // epoch_manager: &dyn EpochManagerAdapter,
+    // runtime: &dyn RuntimeAdapter,
+    tries: &'a ShardTries,
     store: &'a Store,
     shard_uid: ShardUId,
+    state_root: StateRoot,
+    sync_hash: &CryptoHash,
 ) -> impl Iterator<Item = (Vec<u8>, Vec<u8>)> + 'a {
     let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
-    store_helper::iter_flat_state_entries(shard_uid, &store, None, None).map(
-        move |entry| -> (Vec<u8>, Vec<u8>) {
-            let (key, value) = entry.unwrap();
-            let value = match value {
-                FlatStateValue::Ref(ref_value) => {
-                    trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()
-                }
-                FlatStateValue::Inlined(inline_value) => inline_value,
-            };
-            (key, value)
-        },
-    )
+
+    let trie = tries
+        .get_trie_with_block_hash_for_shard_from_snapshot(shard_uid, state_root, sync_hash)
+        .unwrap();
+
+    let iter = trie.iter_flat_state_entries(vec![], LAST_STATE_PART_BOUNDARY.to_vec()).unwrap();
+    let iter = iter.map(move |entry| -> (Vec<u8>, Vec<u8>) {
+        let (key, value) = entry.unwrap();
+        let value = match value {
+            FlatStateValue::Ref(ref_value) => {
+                trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()
+            }
+            FlatStateValue::Inlined(inline_value) => inline_value,
+        };
+        (key, value)
+    });
+    iter
+    // let iter = trie.
+    // let trie = tries.get_trie_for_shard(shard_uid, state_root);
+
+    // let get_shard_uids_fn = |prev_block_hash: CryptoHash| {
+    //     let epoch_id = epoch_manager.get_epoch_id(&prev_block_hash)?;
+    //     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+    //     Ok(shard_layout.get_shard_uids())
+    // };
+    // let state_snapshot = tries.maybe_open_state_snapshot(get_shard_uids_fn).unwrap();
+
+    // panic!();
 }
 
 // Format of the trie key, value pair that is used in tries.add_values_to_split_states() function
@@ -267,10 +302,17 @@ impl Chain {
     // TODO(#9446) After implementing iterator at specific head, shift to build_state_for_split_shards_impl_v2
     #[allow(dead_code)]
     fn build_state_for_split_shards_impl_v2(
+        self,
         state_split_request: StateSplitRequest,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-        let StateSplitRequest { tries, shard_uid, state_root, next_epoch_shard_layout, .. } =
-            state_split_request;
+        let StateSplitRequest {
+            tries,
+            sync_hash,
+            shard_uid,
+            state_root,
+            next_epoch_shard_layout,
+            ..
+        } = state_split_request;
         let store = tries.get_store();
 
         let shard_id = shard_uid.shard_id();
@@ -289,7 +331,7 @@ impl Chain {
         let checked_account_id_to_shard_uid =
             get_checked_account_id_to_shard_uid_fn(shard_uid, new_shards, next_epoch_shard_layout);
 
-        let mut iter = get_flat_storage_iter(&store, shard_uid);
+        let mut iter = get_flat_storage_iter(&tries, &store, shard_uid, state_root, &sync_hash);
         while let Some(batch) = get_trie_update_batch(&mut iter) {
             let TrieUpdateBatch { entries, size } = batch;
             // TODO(#9435): This is highly inefficient as for each key in the batch, we are parsing the account_id

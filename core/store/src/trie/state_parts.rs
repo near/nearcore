@@ -38,7 +38,7 @@ use std::sync::Arc;
 
 /// Trie key in nibbles corresponding to the right boundary for the last state part.
 /// Guaranteed to be bigger than any existing trie key.
-const LAST_STATE_PART_BOUNDARY: &[u8; 1] = &[16];
+pub const LAST_STATE_PART_BOUNDARY: &[u8; 1] = &[16];
 
 impl Trie {
     /// Descends into node corresponding to `part_id`-th boundary node if state
@@ -89,7 +89,7 @@ impl Trie {
     /// Helper to create iterator over flat storage entries corresponding to
     /// its head, shard for which trie was created and the range of keys given
     /// in nibbles.
-    fn iter_flat_state_entries<'a>(
+    pub fn iter_flat_state_entries<'a>(
         &'a self,
         nibbles_begin: Vec<u8>,
         nibbles_end: Vec<u8>,
