@@ -3,6 +3,7 @@ use near_client::{Client, ProcessTxResponse};
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives_core::num_rational::Rational32;
 use rand::rngs::StdRng;
+use tempfile::TempDir;
 
 use crate::tests::client::process_blocks::set_block_protocol_version;
 use assert_matches::assert_matches;
@@ -167,6 +168,7 @@ struct TestShardUpgradeEnv {
     txs_by_height: BTreeMap<u64, Vec<SignedTransaction>>,
     epoch_length: u64,
     num_clients: usize,
+    _home_dir: TempDir,
     rng: StdRng,
 }
 
@@ -192,13 +194,24 @@ impl TestShardUpgradeEnv {
             gas_limit,
             genesis_protocol_version,
         );
+
+        let stores = vec![];
+        for i in 0..num_clients {
+            let home_dir = tempfile::tempdir().unwrap();
+            let store = NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
+                .open()
+                .unwrap()
+                .get_hot_store();
+        }
+
         let chain_genesis = ChainGenesis::new(&genesis);
         let env = TestEnv::builder(chain_genesis)
             .clients_count(num_clients)
             .validator_seats(num_validators)
             .real_epoch_managers(&genesis.config)
-            .nightshade_runtimes(&genesis)
+            .nightshade_runtimes_with_home_dir(&genesis, home_dir.path())
             .track_all_shards()
+            .use_state_snapshots()
             .build();
         assert_eq!(env.validators.len(), num_validators);
         Self {
@@ -208,6 +221,7 @@ impl TestShardUpgradeEnv {
             num_clients,
             init_txs: vec![],
             txs_by_height: BTreeMap::new(),
+            _home_dir: home_dir,
             rng,
         }
     }

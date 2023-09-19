@@ -588,11 +588,23 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     checkpoint_base_path: &std::path::Path,
     columns_to_keep: Option<Vec<DBCol>>,
 ) -> Result<NodeStorage, StoreOpenerError> {
+    tracing::info!(target: "state_snapshot", ?checkpoint_base_path, "checkpoint_hot_storage_and_cleanup_columns");
     let _span =
         tracing::info_span!(target: "state_snapshot", "checkpoint_hot_storage_and_cleanup_columns")
             .entered();
     let checkpoint_path = checkpoint_base_path.join("data");
-    std::fs::create_dir_all(&checkpoint_base_path)?;
+    // let checkpoint_absolute_path = checkpoint_path.canonicalize()?;
+
+    // tracing::info!(target: "state_snapshot", ?checkpoint_path, ?checkpoint_absolute_path, "checkpoint_hot_storage_and_cleanup_columns");
+    match std::fs::create_dir_all(&checkpoint_base_path) {
+        Ok(()) => {
+            tracing::info!(target: "state_snapshot", "create dir all ok");
+        }
+        Err(err) => {
+            tracing::info!(target: "state_snapshot", ?err, "create dir all err");
+            return Err(err.into());
+        }
+    };
 
     hot_store
         .storage

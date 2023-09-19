@@ -13,10 +13,16 @@ pub trait TestEnvNightshadeSetupExt {
         genesis: &Genesis,
         runtime_configs: Vec<RuntimeConfigStore>,
     ) -> Self;
+    fn nightshade_runtimes_with_home_dir(self, genesis: &Genesis, home_dir: &Path) -> Self;
 }
 
 impl TestEnvNightshadeSetupExt for TestEnvBuilder {
     fn nightshade_runtimes(self, genesis: &Genesis) -> Self {
+        let home_dir = Path::new("../../../..");
+        self.nightshade_runtimes_with_home_dir(genesis, home_dir)
+    }
+
+    fn nightshade_runtimes_with_home_dir(self, genesis: &Genesis, home_dir: &Path) -> Self {
         let (builder, stores, epoch_managers) =
             self.internal_ensure_epoch_managers_for_nightshade_runtime();
         let runtimes = stores
@@ -26,7 +32,6 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                 // TODO: It's not ideal to initialize genesis state with the nightshade runtime here for tests
                 // Tests that don't use nightshade runtime have genesis initialized in kv_runtime.
                 // We should instead try to do this while configuring store.
-                let home_dir = Path::new("../../../..");
                 initialize_genesis_state(store.clone(), genesis, Some(home_dir));
                 NightshadeRuntime::test(home_dir, store, &genesis.config, epoch_manager)
                     as Arc<dyn RuntimeAdapter>

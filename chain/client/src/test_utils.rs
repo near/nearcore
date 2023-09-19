@@ -1760,7 +1760,12 @@ impl TestEnvBuilder {
                     let runtime = runtime.clone();
                     let snapshot : MakeSnapshotCallback = Arc::new(move |prev_block_hash, shard_uids, block| {
                         tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
-                        runtime.get_tries().make_state_snapshot(&prev_block_hash, &shard_uids, &block).unwrap();
+                        match runtime.get_tries().make_state_snapshot(&prev_block_hash, &shard_uids, &block) {
+                            Ok(()) => {}
+                            Err(err) => {
+                                tracing::error!(target: "state_snapshot", ?err, "Failed to make state snapshot");
+                            }
+                        };
                     });
                     Some(snapshot)
                 } else {

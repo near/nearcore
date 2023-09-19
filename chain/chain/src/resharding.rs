@@ -100,49 +100,6 @@ fn get_checked_account_id_to_shard_uid_fn(
 //     },
 // )
 
-// Return iterate over flat storage to get key, value. Used later in the get_trie_update_batch function.
-// TODO(#9436): This isn't completely correct. We need to get the flat storage iterator based off a
-// particular block, specifically, the last block of the previous epoch.
-fn get_flat_storage_iter<'a>(
-    // epoch_manager: &dyn EpochManagerAdapter,
-    // runtime: &dyn RuntimeAdapter,
-    tries: &'a ShardTries,
-    store: &'a Store,
-    shard_uid: ShardUId,
-    state_root: StateRoot,
-    sync_hash: &CryptoHash,
-) -> impl Iterator<Item = (Vec<u8>, Vec<u8>)> + 'a {
-    let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
-
-    let trie = tries
-        .get_trie_with_block_hash_for_shard_from_snapshot(shard_uid, state_root, sync_hash)
-        .unwrap();
-
-    let iter = trie.iter_flat_state_entries(vec![], LAST_STATE_PART_BOUNDARY.to_vec()).unwrap();
-    let iter = iter.map(move |entry| -> (Vec<u8>, Vec<u8>) {
-        let (key, value) = entry.unwrap();
-        let value = match value {
-            FlatStateValue::Ref(ref_value) => {
-                trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()
-            }
-            FlatStateValue::Inlined(inline_value) => inline_value,
-        };
-        (key, value)
-    });
-    iter
-    // let iter = trie.
-    // let trie = tries.get_trie_for_shard(shard_uid, state_root);
-
-    // let get_shard_uids_fn = |prev_block_hash: CryptoHash| {
-    //     let epoch_id = epoch_manager.get_epoch_id(&prev_block_hash)?;
-    //     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-    //     Ok(shard_layout.get_shard_uids())
-    // };
-    // let state_snapshot = tries.maybe_open_state_snapshot(get_shard_uids_fn).unwrap();
-
-    // panic!();
-}
-
 // Format of the trie key, value pair that is used in tries.add_values_to_split_states() function
 type TrieEntry = (Vec<u8>, Option<Vec<u8>>);
 
@@ -255,11 +212,12 @@ impl Chain {
     ) -> StateSplitResponse {
         let shard_id = state_split_request.shard_uid.shard_id();
         let sync_hash = state_split_request.sync_hash;
-        let new_state_roots = Self::build_state_for_split_shards_impl(state_split_request);
+        let new_state_roots = Self::build_state_for_split_shards_impl_v2(state_split_request);
         StateSplitResponse { shard_id, sync_hash, new_state_roots }
     }
 
     // TODO(#9446) remove function when shifting to flat storage iteration for resharding
+    #[allow(dead_code)]
     fn build_state_for_split_shards_impl(
         state_split_request: StateSplitRequest,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
@@ -302,7 +260,6 @@ impl Chain {
     // TODO(#9446) After implementing iterator at specific head, shift to build_state_for_split_shards_impl_v2
     #[allow(dead_code)]
     fn build_state_for_split_shards_impl_v2(
-        self,
         state_split_request: StateSplitRequest,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         let StateSplitRequest {
@@ -331,7 +288,23 @@ impl Chain {
         let checked_account_id_to_shard_uid =
             get_checked_account_id_to_shard_uid_fn(shard_uid, new_shards, next_epoch_shard_layout);
 
-        let mut iter = get_flat_storage_iter(&tries, &store, shard_uid, state_root, &sync_hash);
+        let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
+        let trie = tries
+            .get_trie_with_block_hash_for_shard_from_snapshot(shard_uid, state_root, &sync_hash)
+            .unwrap();
+
+        let iter = trie.iter_flat_state_entries(vec![], LAST_STATE_PART_BOUNDARY.to_vec()).unwrap();
+        let iter = iter.map(move |entry| -> (Vec<u8>, Vec<u8>) {
+            let (key, value) = entry.unwrap();
+            let value = match value {
+                FlatStateValue::Ref(ref_value) => {
+                    trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()
+                }
+                FlatStateValue::Inlined(inline_value) => inline_value,
+            };
+            (key, value)
+        });
+        let mut iter = iter;
         while let Some(batch) = get_trie_update_batch(&mut iter) {
             let TrieUpdateBatch { entries, size } = batch;
             // TODO(#9435): This is highly inefficient as for each key in the batch, we are parsing the account_id

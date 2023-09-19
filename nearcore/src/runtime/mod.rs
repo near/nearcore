@@ -93,6 +93,7 @@ impl NightshadeRuntime {
         } else {
             StateSnapshotConfig::Disabled
         };
+        tracing::info!(target: "state_snapshot", ?state_snapshot_config);
         Self::new(
             store,
             &config.genesis.config,
@@ -162,6 +163,14 @@ impl NightshadeRuntime {
         epoch_manager: Arc<EpochManagerHandle>,
         runtime_config_store: RuntimeConfigStore,
     ) -> Arc<Self> {
+        let state_snapshot_config = StateSnapshotConfig::Enabled {
+            home_dir: home_dir.to_path_buf(),
+            hot_store_path: PathBuf::from("data"),
+            state_snapshot_subdir: PathBuf::from("state_snapshot"),
+            compaction_enabled: false,
+        };
+        tracing::info!(target: "state_snapshot", ?state_snapshot_config);
+
         Self::new(
             store,
             genesis_config,
@@ -171,12 +180,7 @@ impl NightshadeRuntime {
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
-            StateSnapshotConfig::Enabled {
-                home_dir: home_dir.to_path_buf(),
-                hot_store_path: PathBuf::from("data"),
-                state_snapshot_subdir: PathBuf::from("state_snapshot"),
-                compaction_enabled: false,
-            },
+            state_snapshot_config,
         )
     }
 
