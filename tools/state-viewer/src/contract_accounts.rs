@@ -531,7 +531,7 @@ mod tests {
     #[test]
     fn test_simple_summary() {
         let trie_data = vec![contract_tuple("alice.near", 100), contract_tuple("bob.near", 200)];
-        let (store, trie) = create_store_and_trie(&[], &[], trie_data);
+        let (store, trie) = create_store_and_trie([].into_iter(), &[], trie_data);
 
         let filter = full_filter();
         let summary = ContractAccount::in_tries(vec![trie], &filter)
@@ -600,7 +600,8 @@ mod tests {
         ];
 
         let trie_data = vec![contract_tuple("alice.near", 100), contract_tuple("bob.near", 200)];
-        let (store, trie) = create_store_and_trie(&store_data, &store_data_rc, trie_data);
+        let (store, trie) =
+            create_store_and_trie(store_data.into_iter(), &store_data_rc, trie_data);
 
         let filter = full_filter();
         let summary = ContractAccount::in_tries(vec![trie], &filter)
@@ -622,12 +623,12 @@ mod tests {
 
     /// Create an in-memory trie with the key-value pairs.
     fn create_trie(initial: Vec<(Vec<u8>, Option<Vec<u8>>)>) -> Trie {
-        create_store_and_trie(&[], &[], initial).1
+        create_store_and_trie([].into_iter(), &[], initial).1
     }
 
     /// Create an in-memory store + trie with key-value pairs for each.
     fn create_store_and_trie(
-        store_data: &[(DBCol, Vec<u8>, Vec<u8>)],
+        store_data: impl Iterator<Item = (DBCol, Vec<u8>, Vec<u8>)>,
         store_data_rc: &[(DBCol, Vec<u8>, Vec<u8>)],
         trie_data: Vec<(Vec<u8>, Option<Vec<u8>>)>,
     ) -> (Store, Trie) {

@@ -51,7 +51,7 @@ impl<'a> BatchedStoreUpdate<'a> {
         self.total_size_written += entry_size as u64;
         let update = self.store_update.as_mut().unwrap();
         if insert {
-            update.insert(col, key.as_ref(), &value_bytes);
+            update.insert(col, key.to_vec(), value_bytes);
         } else {
             update.set(col, key.as_ref(), &value_bytes);
         }
