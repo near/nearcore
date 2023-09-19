@@ -615,103 +615,89 @@ impl RocksDB {
         perf_context: &mut MutexGuard<PerfContext>,
     ) {
         for col in perf_context.measured_columns.iter() {
-            match perf_context.column_measurements.get(&col) {
-                Some(measurement) => {
-                    // add read block latency
-                    let state_read_block_latency =
-                        measurement.measurements_overall.avg_read_block_latency().as_micros()
-                            as i64;
-                    result.data.push((
-                        "rocksdb_perf_avg_read_block_latency".to_string(),
-                        vec![StatsValue::ColumnValue(col.clone(), state_read_block_latency)],
-                    ));
+            if let Some(measurement) = perf_context.column_measurements.get(&col) {
+                // add read block latency
+                let col_read_block_latency =
+                    measurement.measurements_overall.avg_read_block_latency().as_micros() as i64;
+                result.data.push((
+                    "rocksdb_perf_avg_read_block_latency".to_string(),
+                    vec![StatsValue::ColumnValue(col.clone(), col_read_block_latency)],
+                ));
 
-                    let state_total_obs_lat_per_block: Vec<StatsValue> = measurement
-                        .measurements_per_block_reads
-                        .iter()
-                        .map(|(block_count, measurement)| {
-                            StatsValue::BucketBlockCount(
-                                col.clone(),
-                                block_count.to_string(),
-                                measurement.total_read_block_latency.as_micros() as i64,
-                            )
-                        })
-                        .collect();
-                    result.data.push((
-                        "rocksdb_perf_total_observed_latency_per_block".to_string(),
-                        state_total_obs_lat_per_block,
-                    ));
+                let col_total_obs_lat_per_block: Vec<StatsValue> = measurement
+                    .measurements_per_block_reads
+                    .iter()
+                    .map(|(block_count, measurement)| {
+                        StatsValue::BucketBlockCount(
+                            col.clone(),
+                            block_count.to_string(),
+                            measurement.total_read_block_latency.as_micros() as i64,
+                        )
+                    })
+                    .collect();
+                result.data.push((
+                    "rocksdb_perf_total_observed_latency_per_block".to_string(),
+                    col_total_obs_lat_per_block,
+                ));
 
-                    let state_count_per_block: Vec<StatsValue> = measurement
-                        .measurements_per_block_reads
-                        .iter()
-                        .map(|(block_count, measurement)| {
-                            StatsValue::BucketBlockCount(
-                                col.clone(),
-                                block_count.to_string(),
-                                measurement.samples as i64,
-                            )
-                        })
-                        .collect();
+                let col_count_per_block: Vec<StatsValue> = measurement
+                    .measurements_per_block_reads
+                    .iter()
+                    .map(|(block_count, measurement)| {
+                        StatsValue::BucketBlockCount(
+                            col.clone(),
+                            block_count.to_string(),
+                            measurement.samples as i64,
+                        )
+                    })
+                    .collect();
+                result
+                    .data
+                    .push(("rocksdb_perf_count_per_block".to_string(), col_count_per_block));
+
+                let col_total_lat_per_block: Vec<StatsValue> = measurement
+                    .measurements_per_block_reads
+                    .iter()
+                    .map(|(block_count, measurement)| {
+                        StatsValue::BucketBlockCount(
+                            col.clone(),
+                            block_count.to_string(),
+                            measurement.total_read_block_latency.as_micros() as i64,
+                        )
+                    })
+                    .collect();
+                result.data.push((
+                    "rocksdb_perf_total_lat_per_block".to_string(),
+                    col_total_lat_per_block,
+                ));
+
+                let mut add_cache_measurements_to_results = |stat_name, stat_value| {
                     result
                         .data
-                        .push(("rocksdb_perf_count_per_block".to_string(), state_count_per_block));
+                        .push((stat_name, vec![StatsValue::ColumnValue(col.clone(), stat_value)]));
+                };
 
-                    let state_total_lat_per_block: Vec<StatsValue> = measurement
-                        .measurements_per_block_reads
-                        .iter()
-                        .map(|(block_count, measurement)| {
-                            StatsValue::BucketBlockCount(
-                                col.clone(),
-                                block_count.to_string(),
-                                measurement.total_read_block_latency.as_micros() as i64,
-                            )
-                        })
-                        .collect();
-                    result.data.push((
-                        "rocksdb_perf_total_lat_per_block".to_string(),
-                        state_total_lat_per_block,
-                    ));
-
-                    result.data.push((
-                        "rocksdb_perf_block_cache_hit".to_string(),
-                        vec![StatsValue::ColumnValue(
-                            col.clone(),
-                            measurement.block_cache.hits as i64,
-                        )],
-                    ));
-
-                    result.data.push((
-                        "rocksdb_perf_bloom_sst_hit".to_string(),
-                        vec![StatsValue::ColumnValue(
-                            col.clone(),
-                            measurement.bloom_mem.hits as i64,
-                        )],
-                    ));
-                    result.data.push((
-                        "rocksdb_perf_bloom_sst_miss".to_string(),
-                        vec![StatsValue::ColumnValue(
-                            col.clone(),
-                            measurement.bloom_mem.miss as i64,
-                        )],
-                    ));
-
-                    result.data.push((
-                        "rocksdb_perf_bloom_sst_hit".to_string(),
-                        vec![StatsValue::ColumnValue(
-                            col.clone(),
-                            measurement.bloom_sst.hits as i64,
-                        )],
-                    ));
-                    result.data.push((
-                        "rocksdb_perf_bloom_sst_hit".to_string(),
-                        vec![StatsValue::ColumnValue(
-                            col.clone(),
-                            measurement.bloom_sst.hits as i64,
-                        )],
-                    ));
-                }
-                None => {}
+                // Add cache stats
+                add_cache_measurements_to_results(
+                    "rocksdb_perf_block_cache_hit".to_string(),
+                    measurement.block_cache.hits as i64,
+                );
+                add_cache_measurements_to_results(
+                    "rocksdb_perf_bloom_mem_hit".to_string(),
+                    measurement.bloom_mem.hits as i64,
+                );
+                add_cache_measurements_to_results(
+                    "rocksdb_perf_bloom_mem_miss".to_string(),
+                    measurement.bloom_mem.miss as i64,
+                );
+                add_cache_measurements_to_results(
+                    "rocksdb_perf_bloom_sst_hit".to_string(),
+                    measurement.bloom_sst.hits as i64,
+                );
+                add_cache_measurements_to_results(
+                    "rocksdb_perf_bloom_sst_miss".to_string(),
+                    measurement.bloom_sst.miss as i64,
+                );
             }
         }
         perf_context.reset();

@@ -7,10 +7,10 @@ pub(crate) mod rocksdb;
 mod colddb;
 mod splitdb;
 
+mod perf;
 pub mod refcount;
 mod slice;
 mod testdb;
-mod perf;
 
 mod database_tests;
 

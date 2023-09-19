@@ -1,6 +1,6 @@
+use crate::DBCol;
 use core::fmt;
 use std::collections::{BTreeMap, HashMap};
-use crate::DBCol;
 use std::time::Duration;
 
 pub struct PerfContext {
@@ -37,7 +37,7 @@ impl PerfContext {
             .add_hits(rocksdb_ctx.metric(rocksdb::PerfMetric::BloomSstHitCount));
         col_measurement
             .bloom_sst
-            .add_hits(rocksdb_ctx.metric(rocksdb::PerfMetric::BloomSstMissCount));
+            .add_miss(rocksdb_ctx.metric(rocksdb::PerfMetric::BloomSstMissCount));
 
         // Add block latencies measurements
         let block_read_cnt = rocksdb_ctx.metric(rocksdb::PerfMetric::BlockReadCount) as usize;
@@ -127,4 +127,3 @@ impl fmt::Debug for Measurements {
         )
     }
 }
-
