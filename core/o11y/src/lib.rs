@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![deny(clippy::arithmetic_side_effects)]
 
+use crate::delay_detector::DelayDetectorLayer;
 pub use context::*;
 use near_crypto::PublicKey;
 use near_primitives_core::types::AccountId;
@@ -24,6 +25,7 @@ pub use {tracing, tracing_appender, tracing_subscriber};
 
 /// Custom tracing subscriber implementation that produces IO traces.
 pub mod context;
+mod delay_detector;
 mod io_tracer;
 pub mod log_config;
 mod log_counter;
@@ -366,6 +368,8 @@ pub fn default_subscriber(
         sub
     }));
 
+    let subscriber = subscriber.with(DelayDetectorLayer::default());
+
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),
         local_subscriber_guard: None,
@@ -438,6 +442,8 @@ pub async fn default_subscriber_with_opentelemetry(
         io_trace_guard = Some(guard);
         sub
     }));
+
+    let subscriber = subscriber.with(DelayDetectorLayer::default());
 
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),
