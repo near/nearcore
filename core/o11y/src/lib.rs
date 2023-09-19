@@ -26,6 +26,7 @@ pub use {tracing, tracing_appender, tracing_subscriber};
 pub mod context;
 mod io_tracer;
 pub mod log_config;
+mod log_counter;
 pub mod macros;
 pub mod metrics;
 pub mod testonly;
@@ -46,9 +47,12 @@ macro_rules! io_trace {
     ($($fields:tt)*) => {};
 }
 
-static LOG_LAYER_RELOAD_HANDLE: OnceCell<reload::Handle<EnvFilter, Registry>> = OnceCell::new();
-static OTLP_LAYER_RELOAD_HANDLE: OnceCell<reload::Handle<LevelFilter, LogLayer<Registry>>> =
-    OnceCell::new();
+static LOG_LAYER_RELOAD_HANDLE: OnceCell<
+    reload::Handle<EnvFilter, log_counter::LogCountingLayer<Registry>>,
+> = OnceCell::new();
+static OTLP_LAYER_RELOAD_HANDLE: OnceCell<
+    reload::Handle<LevelFilter, LogLayer<log_counter::LogCountingLayer<Registry>>>,
+> = OnceCell::new();
 
 type LogLayer<Inner> = Layered<
     Filtered<
@@ -120,7 +124,6 @@ pub enum OpenTelemetryLevel {
 }
 
 /// Configures exporter of span and trace data.
-// Currently empty, but more fields will be added in the future.
 #[derive(Debug, Default, clap::Parser)]
 pub struct Options {
     /// Enables export of span data using opentelemetry exporters.
@@ -342,6 +345,7 @@ pub fn default_subscriber(
     };
 
     let subscriber = tracing_subscriber::registry();
+    let subscriber = subscriber.with(log_counter::LogCounter::default());
     let subscriber = add_simple_log_layer(
         env_filter,
         make_writer,
@@ -395,6 +399,8 @@ pub async fn default_subscriber_with_opentelemetry(
     let (writer, writer_guard) = tracing_appender::non_blocking(lined_stderr);
 
     let subscriber = tracing_subscriber::registry();
+    // Installs LogCounter as the innermost layer.
+    let subscriber = subscriber.with(log_counter::LogCounter::default());
 
     set_default_otlp_level(options);
 
