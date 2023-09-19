@@ -73,6 +73,7 @@ fn init_test_staking(
         config.config.store.state_snapshot_enabled = state_snapshot_enabled;
         if track_all_shards {
             config.config.tracked_shards = vec![0];
+            config.client_config.tracked_shards = vec![0];
         }
         if i != 0 {
             config.network_config.peer_store.boot_nodes =
@@ -360,7 +361,7 @@ fn test_validator_join() {
                 30,
                 false,
                 10,
-                true,
+                false,
                 true,
             );
             let signer = Arc::new(InMemorySigner::from_seed(
