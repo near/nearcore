@@ -654,7 +654,7 @@ mod tests {
         let mut store_update = node_storage.get_hot_store().store_update();
         for column in columns {
             for key in &keys {
-                store_update.insert(column, key, &vec![42]);
+                store_update.insert(column, key.clone(), vec![42]);
             }
         }
         store_update.commit().unwrap();

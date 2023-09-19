@@ -812,7 +812,7 @@ mod tests {
 
         let mut store_update = store.store_update();
         for key in &keys {
-            store_update.insert(column, key, &vec![42]);
+            store_update.insert(column, key.clone(), vec![42]);
         }
         store_update.commit().unwrap();
 

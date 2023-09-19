@@ -36,7 +36,7 @@ use rand::prelude::SliceRandom;
 
 /// `ShardChunk` -> `StoreUpdate::insert_ser`.
 ///
-/// ~10ms or faster for ~24MB receipts
+/// ~6ms or faster for ~24MB receipts
 fn benchmark_write_shard_chunk(bench: &mut Bencher) {
     let transactions = vec![];
     let receipts = create_benchmark_receipts();
@@ -57,7 +57,7 @@ fn benchmark_write_shard_chunk(bench: &mut Bencher) {
 
 /// `PartialEncodedChunk` -> `StoreUpdate::insert_ser`.
 ///
-/// ~130ms for ~24MB receipts
+/// ~70ms for ~24MB receipts
 fn benchmark_write_partial_encoded_chunk(bench: &mut Bencher) {
     let transactions = vec![];
     let receipts = create_benchmark_receipts();
