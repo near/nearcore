@@ -277,7 +277,7 @@ impl Chain {
 
         RESHARDING_STATUS
             .with_label_values(&[&shard_uid.shard_id.to_string()])
-            .set(ReshardingStatus::Finished.into());
+            .set(ReshardingStatus::BuildingState.into());
 
         let new_shards = next_epoch_shard_layout
             .get_split_shard_uids(shard_id)
@@ -354,7 +354,7 @@ impl Chain {
     fn initialize_flat_storage(
         &self,
         prev_hash: &CryptoHash,
-        child_shard_uids: &Vec<ShardUId>,
+        child_shard_uids: &[ShardUId],
     ) -> Result<(), Error> {
         let prev_block_header = self.get_block_header(prev_hash)?;
         let prev_block_info = BlockInfo {

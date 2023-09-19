@@ -165,11 +165,11 @@ pub(crate) enum ReshardingStatus {
     Finished,
 }
 
-impl Into<i64> for ReshardingStatus {
+impl From<ReshardingStatus> for i64 {
     /// Converts status to integer to export to prometheus later.
     /// Cast inside enum does not work because it is not fieldless.
-    fn into(self) -> i64 {
-        match self {
+    fn from(value: ReshardingStatus) -> Self {
+        match value {
             ReshardingStatus::Scheduled => 0,
             ReshardingStatus::BuildingState => 1,
             ReshardingStatus::Finished => 2,
@@ -181,7 +181,7 @@ pub(crate) static RESHARDING_BATCH_COUNT: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_resharding_batch_count",
         "The number of batches committed to the db.",
-        &["shard_id"],
+        &["shard_uid"],
     )
     .unwrap()
 });
@@ -190,7 +190,7 @@ pub(crate) static RESHARDING_BATCH_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_resharding_batch_size",
         "The size of batches committed to the db.",
-        &["shard_id"],
+        &["shard_uid"],
     )
     .unwrap()
 });
@@ -199,7 +199,7 @@ pub(crate) static RESHARDING_STATUS: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_resharding_status",
         "The status of the resharding process.",
-        &["shard_id"],
+        &["shard_uid"],
     )
     .unwrap()
 });
