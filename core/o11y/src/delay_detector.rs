@@ -16,9 +16,9 @@ const MAX_BUSY_DURATION_NS: u64 = 500000000; // 0.5 sec
 pub(crate) static LONG_SPAN_HISTOGRAM: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_long_span_elapsed",
-        "Distribution of the duration of spans wth long duration",
-        &["name", "level", "target", "file", "line"],
-        Some(exponential_buckets(1.0, 1.2, 30).unwrap()),
+        "Distribution of the duration of spans with long duration",
+        &["name", "level", "target"],
+        Some(exponential_buckets(1.0, 1.6, 10).unwrap()),
     )
     .unwrap()
 });
@@ -84,7 +84,7 @@ where
                     "Span duration too long: {busy_sec:.2}s. Idle time: {idle_sec:.2}s. {level}: {target}: {name}. {file}:{line}",
                 );
                 LONG_SPAN_HISTOGRAM
-                    .with_label_values(&[name, level.as_str(), target, file, &line])
+                    .with_label_values(&[name, level.as_str(), target])
                     .observe(busy_sec);
             }
         }
