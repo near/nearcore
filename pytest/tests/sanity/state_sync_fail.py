@@ -62,7 +62,6 @@ def append_shard_layout_config_changes(
             "avg_hidden_validator_seats_per_shard",
             [0, 0, 0, 0],
         ])
-        print(genesis_config_changes)
         return
 
     if binary_protocol_version >= V1_PROTOCOL_VERSION:
@@ -84,7 +83,6 @@ def append_shard_layout_config_changes(
             "avg_hidden_validator_seats_per_shard",
             [0],
         ])
-        print(genesis_config_changes)
         return
 
     assert False
@@ -103,8 +101,6 @@ def get_genesis_config_changes(binary_protocol_version):
         binary_protocol_version,
         genesis_config_changes,
     )
-
-    print(genesis_config_changes)
 
     return genesis_config_changes
 
@@ -136,7 +132,22 @@ node2 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node=boot_node)
 time.sleep(3)
 
 try:
+    logger.info("Checking node2 status. It should not be running.")
     status = node2.get_status()
     sys.exit("node 2 successfully started while it should fail")
 except requests.exceptions.ConnectionError:
     pass
+
+logger.info("Checking node2 exit reason.")
+node2_correct_exit_reason = False
+node2_stderr_path = pathlib.Path(node2.node_dir) / 'stderr'
+with open(node2_stderr_path) as stderr_file:
+    for line in stderr_file:
+        if "cannot sync to the first epoch after sharding upgrade" in line:
+            logger.info("Found the correct exit reason in node2 stderr.")
+            node2_correct_exit_reason = True
+            break
+
+assert node2_correct_exit_reason
+
+logger.info("Test finished.")
