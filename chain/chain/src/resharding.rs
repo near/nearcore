@@ -276,7 +276,7 @@ impl Chain {
         let shard_id = shard_uid.shard_id();
 
         RESHARDING_STATUS
-            .with_label_values(&[&shard_uid.shard_id.to_string()])
+            .with_label_values(&[&shard_uid.to_string()])
             .set(ReshardingStatus::BuildingState.into());
 
         let new_shards = next_epoch_shard_layout
@@ -340,7 +340,7 @@ impl Chain {
 
         for shard_uid in child_shard_uids {
             RESHARDING_STATUS
-                .with_label_values(&[&shard_uid.shard_id.to_string()])
+                .with_label_values(&[&shard_uid.to_string()])
                 .set(ReshardingStatus::Finished.into());
         }
 
