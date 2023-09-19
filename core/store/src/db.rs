@@ -10,6 +10,7 @@ mod splitdb;
 pub mod refcount;
 mod slice;
 mod testdb;
+mod perf;
 
 mod database_tests;
 
