@@ -507,6 +507,7 @@ impl RunCmd {
             }
         }
 
+        info!("Perf db in before move {}", near_config.config.perf_db);
         let (tx_crash, mut rx_crash) = broadcast::channel::<()>(16);
         let (tx_config_update, rx_config_update) =
             broadcast::channel::<Result<UpdateableConfigs, Arc<UpdateableConfigLoaderError>>>(16);
