@@ -31,10 +31,16 @@ fn setup_runtime(
     let store = if in_memory_storage {
         create_test_store()
     } else {
-        near_store::NodeStorage::opener(home_dir, config.config.archive, &config.config.store, None, false)
-            .open()
-            .unwrap()
-            .get_hot_store()
+        near_store::NodeStorage::opener(
+            home_dir,
+            config.config.archive,
+            &config.config.store,
+            None,
+            false,
+        )
+        .open()
+        .unwrap()
+        .get_hot_store()
     };
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
     let shard_tracker =

@@ -212,7 +212,8 @@ impl<'a> StoreOpener<'a> {
     ) -> Self {
         Self {
             hot: DBOpener::new(home_dir, config, Temperature::Hot, perf_db),
-            cold: cold_config.map(|config| DBOpener::new(home_dir, config, Temperature::Cold, perf_db)),
+            cold: cold_config
+                .map(|config| DBOpener::new(home_dir, config, Temperature::Cold, perf_db)),
             archive: archive,
             migrator: None,
         }
@@ -490,11 +491,16 @@ impl<'a> DBOpener<'a> {
     ///
     /// The path to the database is resolved based on the path in config with
     /// given home_dir as base directory for resolving relative paths.
-    fn new(home_dir: &std::path::Path, config: &'a StoreConfig, temp: Temperature, perf_db: bool) -> Self {
+    fn new(
+        home_dir: &std::path::Path,
+        config: &'a StoreConfig,
+        temp: Temperature,
+        perf_db: bool,
+    ) -> Self {
         let path = if temp == Temperature::Hot { "data" } else { "cold-data" };
         let path = config.path.as_deref().unwrap_or(std::path::Path::new(path));
         let path = home_dir.join(path);
-        Self { path, config, temp , perf_db }
+        Self { path, config, temp, perf_db }
     }
 
     /// Returns version and kind of the database or `None` if it doesn’t exist.

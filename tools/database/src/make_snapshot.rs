@@ -68,9 +68,10 @@ mod tests {
         }
 
         let node_storage = opener.open_in_mode(Mode::ReadOnly).unwrap();
-        let snapshot_node_storage = NodeStorage::opener(&destination, false, &store_config, None, false)
-            .open_in_mode(Mode::ReadOnly)
-            .unwrap();
+        let snapshot_node_storage =
+            NodeStorage::opener(&destination, false, &store_config, None, false)
+                .open_in_mode(Mode::ReadOnly)
+                .unwrap();
         for key in keys {
             let exists_original = node_storage.get_hot_store().exists(DBCol::Block, &key).unwrap();
             let exists_snapshot =

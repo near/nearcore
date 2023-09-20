@@ -93,7 +93,8 @@ impl Snapshot {
             return Err(SnapshotError::AlreadyExists(snapshot_path));
         }
 
-        let db = super::RocksDB::open(db_path, config, crate::Mode::ReadWriteExisting, temp, false)?;
+        let db =
+            super::RocksDB::open(db_path, config, crate::Mode::ReadWriteExisting, temp, false)?;
         let cp = Checkpoint::new(&db.db).map_err(super::into_other)?;
         cp.create_checkpoint(&snapshot_path)?;
 

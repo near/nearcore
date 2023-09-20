@@ -129,6 +129,7 @@ impl RocksDB {
         let cf_handles = Self::get_cf_handles(&db, columns);
 
         let perf_context = if perf_db {
+            tracing::info!("Turning in additional metric tracking for RocksDB");
             Some(Arc::new(Mutex::new(PerfContext::new(PERF_TRACKED_COLUMNS))))
         } else {
             None
@@ -587,7 +588,8 @@ impl RocksDB {
         // to read the version without modifying the database before we figure
         // out if there are any necessary migrations to perform.
         let cols = [DBCol::DbVersion];
-        let db = Self::open_with_columns(path, config, Mode::ReadOnly, Temperature::Hot, &cols, false)?;
+        let db =
+            Self::open_with_columns(path, config, Mode::ReadOnly, Temperature::Hot, &cols, false)?;
         Some(metadata::DbMetadata::read(&db)).transpose()
     }
 

@@ -34,7 +34,7 @@ impl ChangeDbKindCommand {
             near_config.config.archive,
             &near_config.config.store,
             near_config.config.cold_store.as_ref(),
-            near_config.config.perf_db
+            near_config.config.perf_db,
         );
 
         let storage = opener.open()?;

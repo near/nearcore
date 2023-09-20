@@ -301,10 +301,15 @@ pub(crate) async fn start(
     blocks_sink: mpsc::Sender<StreamerMessage>,
 ) {
     info!(target: INDEXER, "Starting Streamer...");
-    let indexer_db_path =
-        near_store::NodeStorage::opener(&indexer_config.home_dir, archive, &store_config, None, false)
-            .path()
-            .join("indexer");
+    let indexer_db_path = near_store::NodeStorage::opener(
+        &indexer_config.home_dir,
+        archive,
+        &store_config,
+        None,
+        false,
+    )
+    .path()
+    .join("indexer");
 
     // TODO: implement proper error handling
     let db = DB::open_default(indexer_db_path).unwrap();
