@@ -490,11 +490,9 @@ impl RunCmd {
         if self.max_gas_burnt_view.is_some() {
             near_config.client_config.max_gas_burnt_view = self.max_gas_burnt_view;
         }
-        info!("Perf db as arg: {}", self.perf_db);
         if self.perf_db {
             near_config.client_config.perf_db = true;
         }
-        info!("Perf db as client_config: {}", near_config.client_config.perf_db);
 
         #[cfg(feature = "sandbox")]
         {
@@ -509,7 +507,6 @@ impl RunCmd {
             }
         }
 
-        info!("Perf db in before move {}", near_config.config.perf_db);
         let (tx_crash, mut rx_crash) = broadcast::channel::<()>(16);
         let (tx_config_update, rx_config_update) =
             broadcast::channel::<Result<UpdateableConfigs, Arc<UpdateableConfigLoaderError>>>(16);
@@ -531,14 +528,12 @@ impl RunCmd {
             .await
             .global();
 
-            info!("Perf db in nearcore::NearNode1 {}", near_config.config.perf_db);
             let updateable_configs = nearcore::dyn_config::read_updateable_configs(home_dir)
                 .unwrap_or_else(|e| panic!("Error reading dynamic configs: {:#}", e));
             let mut updateable_config_loader =
                 UpdateableConfigLoader::new(updateable_configs.clone(), tx_config_update);
             let config_updater = ConfigUpdater::new(rx_config_update);
 
-            info!("Perf db in nearcore::NearNode2 {}", near_config.config.perf_db);
             let nearcore::NearNode {
                 rpc_servers,
                 cold_store_loop_handle,

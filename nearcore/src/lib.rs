@@ -77,7 +77,7 @@ pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Re
         near_config.client_config.archive,
         &near_config.config.store,
         near_config.config.cold_store.as_ref(),
-        near_config.config.perf_db,
+        near_config.client_config.perf_db,
     )
     .with_migrator(&migrator);
     let storage = match opener.open() {
@@ -223,7 +223,6 @@ pub fn start_with_config_and_synchronization(
     shutdown_signal: Option<broadcast::Sender<()>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
-    info!("Perf db in start_with_config_and_synchronization is {}", config.config.perf_db);
     let storage = open_storage(home_dir, &mut config)?;
     let db_metrics_arbiter = if config.client_config.enable_statistics_export {
         let period = config.client_config.log_summary_period;
