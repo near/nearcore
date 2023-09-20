@@ -2450,6 +2450,7 @@ pub fn run_catchup(
             catchup_done = false;
         }
         for msg in state_split_messages.write().unwrap().drain(..) {
+            tracing::debug!(target: "test", ?msg);
             let response = Chain::build_state_for_split_shards(msg);
             if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&response.sync_hash) {
                 // We are doing catchup

@@ -664,7 +664,7 @@ impl Trie {
             };
             let state_record = StateRecord::from_raw_key_value(key.clone(), value);
 
-            writeln!(f, "{} {state_record:?}", key_string).expect("write failed");
+            writeln!(f, "boom {} {state_record:?}", key_string).expect("write failed");
         }
     }
 

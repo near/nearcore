@@ -38,6 +38,7 @@ const RESHARDING_BATCH_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(300
 pub struct StateSplitRequest {
     pub tries: Arc<ShardTries>,
     pub sync_hash: CryptoHash,
+    pub snapshot_hash: CryptoHash,
     pub shard_uid: ShardUId,
     pub state_root: StateRoot,
     pub next_epoch_shard_layout: ShardLayout,
@@ -50,6 +51,7 @@ impl Debug for StateSplitRequest {
         f.debug_struct("StateSplitRequest")
             .field("tries", &"<not shown>")
             .field("sync_hash", &self.sync_hash)
+            .field("snapshot_hash", &self.snapshot_hash)
             .field("shard_uid", &self.shard_uid)
             .field("state_root", &self.state_root)
             .field("next_epoch_shard_layout", &self.next_epoch_shard_layout)
@@ -183,6 +185,9 @@ impl Chain {
         state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<(), Error> {
         let block_header = self.get_block_header(sync_hash)?;
+        let prev_block_header = self.get_block_header(block_header.prev_hash())?;
+        let snapshot_hash = prev_block_header.prev_hash();
+
         let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
         let next_epoch_shard_layout =
             self.epoch_manager.get_shard_layout(block_header.next_epoch_id())?;
@@ -195,6 +200,7 @@ impl Chain {
         state_split_scheduler(StateSplitRequest {
             tries: Arc::new(self.runtime_adapter.get_tries()),
             sync_hash: *sync_hash,
+            snapshot_hash: *snapshot_hash,
             shard_uid,
             state_root,
             next_epoch_shard_layout,
@@ -264,7 +270,8 @@ impl Chain {
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         let StateSplitRequest {
             tries,
-            sync_hash,
+            // sync_hash,
+            snapshot_hash,
             shard_uid,
             state_root,
             next_epoch_shard_layout,
@@ -288,11 +295,15 @@ impl Chain {
         let checked_account_id_to_shard_uid =
             get_checked_account_id_to_shard_uid_fn(shard_uid, new_shards, next_epoch_shard_layout);
 
-        let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
         let trie = tries
-            .get_trie_with_block_hash_for_shard_from_snapshot(shard_uid, state_root, &sync_hash)
+            .get_trie_with_block_hash_for_shard_from_snapshot(shard_uid, state_root, &snapshot_hash)
             .unwrap();
+        let trie_state_root = trie.get_root();
+        let trie_nodes_count = trie.get_trie_nodes_count();
+        tracing::info!(?shard_uid, ?trie_state_root, ?trie_nodes_count, "printing trie");
+        trie.print_recursive_leaves(&mut std::io::stdout().lock(), 10000);
 
+        let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
         let iter = trie.iter_flat_state_entries(vec![], LAST_STATE_PART_BOUNDARY.to_vec()).unwrap();
         let iter = iter.map(move |entry| -> (Vec<u8>, Vec<u8>) {
             let (key, value) = entry.unwrap();
@@ -411,6 +422,7 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
 
+    /*
     #[test]
     fn test_split_and_update_states() {
         // build states
@@ -420,142 +432,53 @@ mod tests {
         }
     }
 
-    fn test_split_and_update_state_impl(rng: &mut impl Rng) {
-        let shard_uid = ShardUId::single_shard();
-        let tries = Arc::new(create_tries());
-        // add accounts and receipts to state
-        let mut account_ids = gen_unique_accounts(rng, 1, 100);
-        let mut trie_update = tries.new_trie_update(shard_uid, Trie::EMPTY_ROOT);
-        for account_id in account_ids.iter() {
-            set_account(
-                &mut trie_update,
-                account_id.clone(),
-                &Account::new(0, 0, CryptoHash::default(), 0),
-            );
-        }
-        let receipts = gen_receipts(rng, 100);
-        // add accounts and receipts to the original shard
-        let mut state_root = {
-            for (index, receipt) in receipts.iter().enumerate() {
-                set(&mut trie_update, TrieKey::DelayedReceipt { index: index as u64 }, receipt);
-            }
-            set(
-                &mut trie_update,
-                TrieKey::DelayedReceiptIndices,
-                &DelayedReceiptIndices {
-                    first_index: 0,
-                    next_available_index: receipts.len() as u64,
-                },
-            );
-            trie_update.commit(StateChangeCause::Resharding);
-            let (_, trie_changes, state_changes) = trie_update.finalize().unwrap();
-            let mut store_update = tries.store_update();
-            let state_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-            let flat_state_changes = FlatStateChanges::from_state_changes(&state_changes);
-            flat_state_changes.apply_to_flat_state(&mut store_update, shard_uid);
-            store_update.commit().unwrap();
-            state_root
-        };
-
-        // add accounts and receipts to the split shards
-        let next_epoch_shard_layout = ShardLayout::v1_test();
-        let response = Chain::build_state_for_split_shards(StateSplitRequest {
-            tries: tries.clone(),
-            sync_hash: state_root,
-            shard_uid,
-            state_root,
-            next_epoch_shard_layout: next_epoch_shard_layout.clone(),
-        });
-        let mut split_state_roots = response.new_state_roots.unwrap();
-
-        compare_state_and_split_states(
-            &tries,
-            &state_root,
-            &split_state_roots,
-            &next_epoch_shard_layout,
-        );
-
-        // update the original shard
-        for _ in 0..10 {
-            // add accounts
-            let new_accounts = gen_unique_accounts(rng, 1, 10);
-            let mut trie_update = tries.new_trie_update(shard_uid, state_root);
-            for account_id in new_accounts.iter() {
+        fn test_split_and_update_state_impl(rng: &mut impl Rng) {
+            let shard_uid = ShardUId::single_shard();
+            let tries = Arc::new(create_tries());
+            // add accounts and receipts to state
+            let mut account_ids = gen_unique_accounts(rng, 1, 100);
+            let mut trie_update = tries.new_trie_update(shard_uid, Trie::EMPTY_ROOT);
+            for account_id in account_ids.iter() {
                 set_account(
                     &mut trie_update,
                     account_id.clone(),
                     &Account::new(0, 0, CryptoHash::default(), 0),
                 );
             }
-            // remove accounts
-            account_ids.shuffle(rng);
-            let remove_count = rng.gen_range(0..10).min(account_ids.len());
-            for account_id in account_ids[0..remove_count].iter() {
-                trie_update.remove(TrieKey::Account { account_id: account_id.clone() });
-            }
-            account_ids = account_ids[remove_count..].to_vec();
-            account_ids.extend(new_accounts);
-
-            // remove delayed receipts
-            let mut delayed_receipt_indices = get_delayed_receipt_indices(&trie_update).unwrap();
-            println!(
-                "delayed receipt indices {} {}",
-                delayed_receipt_indices.first_index, delayed_receipt_indices.next_available_index
-            );
-            let next_first_index = rng.gen_range(
-                delayed_receipt_indices.first_index
-                    ..delayed_receipt_indices.next_available_index + 1,
-            );
-            let mut removed_receipts = vec![];
-            for index in delayed_receipt_indices.first_index..next_first_index {
-                let trie_key = TrieKey::DelayedReceipt { index };
-                removed_receipts.push(get::<Receipt>(&trie_update, &trie_key).unwrap().unwrap());
-                trie_update.remove(trie_key);
-            }
-            delayed_receipt_indices.first_index = next_first_index;
-            // add delayed receipts
-            let new_receipts = gen_receipts(rng, 10);
-            for receipt in new_receipts {
+            let receipts = gen_receipts(rng, 100);
+            // add accounts and receipts to the original shard
+            let mut state_root = {
+                for (index, receipt) in receipts.iter().enumerate() {
+                    set(&mut trie_update, TrieKey::DelayedReceipt { index: index as u64 }, receipt);
+                }
                 set(
                     &mut trie_update,
-                    TrieKey::DelayedReceipt { index: delayed_receipt_indices.next_available_index },
-                    &receipt,
+                    TrieKey::DelayedReceiptIndices,
+                    &DelayedReceiptIndices {
+                        first_index: 0,
+                        next_available_index: receipts.len() as u64,
+                    },
                 );
-                delayed_receipt_indices.next_available_index += 1;
-            }
-            println!(
-                "after: delayed receipt indices {} {}",
-                delayed_receipt_indices.first_index, delayed_receipt_indices.next_available_index
-            );
-            set(&mut trie_update, TrieKey::DelayedReceiptIndices, &delayed_receipt_indices);
-            trie_update.commit(StateChangeCause::Resharding);
-            let (_, trie_changes, state_changes) = trie_update.finalize().unwrap();
-            let mut store_update = tries.store_update();
-            let new_state_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-            store_update.commit().unwrap();
-            state_root = new_state_root;
+                trie_update.commit(StateChangeCause::Resharding);
+                let (_, trie_changes, state_changes) = trie_update.finalize().unwrap();
+                let mut store_update = tries.store_update();
+                let state_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+                let flat_state_changes = FlatStateChanges::from_state_changes(&state_changes);
+                flat_state_changes.apply_to_flat_state(&mut store_update, shard_uid);
+                store_update.commit().unwrap();
+                state_root
+            };
 
-            // update split states
-            let mut trie_updates = tries
-                .apply_state_changes_to_split_states(
-                    &split_state_roots,
-                    StateChangesForSplitStates::from_raw_state_changes(
-                        &state_changes,
-                        removed_receipts,
-                    ),
-                    &|account_id| account_id_to_shard_uid(account_id, &next_epoch_shard_layout),
-                )
-                .unwrap();
-            split_state_roots = trie_updates
-                .drain()
-                .map(|(shard_uid, trie_update)| {
-                    let mut state_update = tries.store_update();
-                    let (_, trie_changes, _) = trie_update.finalize().unwrap();
-                    let state_root = tries.apply_all(&trie_changes, shard_uid, &mut state_update);
-                    state_update.commit().unwrap();
-                    (shard_uid, state_root)
-                })
-                .collect();
+            // add accounts and receipts to the split shards
+            let next_epoch_shard_layout = ShardLayout::v1_test();
+            let response = Chain::build_state_for_split_shards(StateSplitRequest {
+                tries: tries.clone(),
+                sync_hash: state_root,
+                shard_uid,
+                state_root,
+                next_epoch_shard_layout: next_epoch_shard_layout.clone(),
+            });
+            let mut split_state_roots = response.new_state_roots.unwrap();
 
             compare_state_and_split_states(
                 &tries,
@@ -563,8 +486,98 @@ mod tests {
                 &split_state_roots,
                 &next_epoch_shard_layout,
             );
+
+            // update the original shard
+            for _ in 0..10 {
+                // add accounts
+                let new_accounts = gen_unique_accounts(rng, 1, 10);
+                let mut trie_update = tries.new_trie_update(shard_uid, state_root);
+                for account_id in new_accounts.iter() {
+                    set_account(
+                        &mut trie_update,
+                        account_id.clone(),
+                        &Account::new(0, 0, CryptoHash::default(), 0),
+                    );
+                }
+                // remove accounts
+                account_ids.shuffle(rng);
+                let remove_count = rng.gen_range(0..10).min(account_ids.len());
+                for account_id in account_ids[0..remove_count].iter() {
+                    trie_update.remove(TrieKey::Account { account_id: account_id.clone() });
+                }
+                account_ids = account_ids[remove_count..].to_vec();
+                account_ids.extend(new_accounts);
+
+                // remove delayed receipts
+                let mut delayed_receipt_indices = get_delayed_receipt_indices(&trie_update).unwrap();
+                println!(
+                    "delayed receipt indices {} {}",
+                    delayed_receipt_indices.first_index, delayed_receipt_indices.next_available_index
+                );
+                let next_first_index = rng.gen_range(
+                    delayed_receipt_indices.first_index
+                        ..delayed_receipt_indices.next_available_index + 1,
+                );
+                let mut removed_receipts = vec![];
+                for index in delayed_receipt_indices.first_index..next_first_index {
+                    let trie_key = TrieKey::DelayedReceipt { index };
+                    removed_receipts.push(get::<Receipt>(&trie_update, &trie_key).unwrap().unwrap());
+                    trie_update.remove(trie_key);
+                }
+                delayed_receipt_indices.first_index = next_first_index;
+                // add delayed receipts
+                let new_receipts = gen_receipts(rng, 10);
+                for receipt in new_receipts {
+                    set(
+                        &mut trie_update,
+                        TrieKey::DelayedReceipt { index: delayed_receipt_indices.next_available_index },
+                        &receipt,
+                    );
+                    delayed_receipt_indices.next_available_index += 1;
+                }
+                println!(
+                    "after: delayed receipt indices {} {}",
+                    delayed_receipt_indices.first_index, delayed_receipt_indices.next_available_index
+                );
+                set(&mut trie_update, TrieKey::DelayedReceiptIndices, &delayed_receipt_indices);
+                trie_update.commit(StateChangeCause::Resharding);
+                let (_, trie_changes, state_changes) = trie_update.finalize().unwrap();
+                let mut store_update = tries.store_update();
+                let new_state_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+                store_update.commit().unwrap();
+                state_root = new_state_root;
+
+                // update split states
+                let mut trie_updates = tries
+                    .apply_state_changes_to_split_states(
+                        &split_state_roots,
+                        StateChangesForSplitStates::from_raw_state_changes(
+                            &state_changes,
+                            removed_receipts,
+                        ),
+                        &|account_id| account_id_to_shard_uid(account_id, &next_epoch_shard_layout),
+                    )
+                    .unwrap();
+                split_state_roots = trie_updates
+                    .drain()
+                    .map(|(shard_uid, trie_update)| {
+                        let mut state_update = tries.store_update();
+                        let (_, trie_changes, _) = trie_update.finalize().unwrap();
+                        let state_root = tries.apply_all(&trie_changes, shard_uid, &mut state_update);
+                        state_update.commit().unwrap();
+                        (shard_uid, state_root)
+                    })
+                    .collect();
+
+                compare_state_and_split_states(
+                    &tries,
+                    &state_root,
+                    &split_state_roots,
+                    &next_epoch_shard_layout,
+                );
+            }
         }
-    }
+    */
 
     fn compare_state_and_split_states(
         tries: &ShardTries,

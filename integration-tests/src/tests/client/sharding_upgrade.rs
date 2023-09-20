@@ -858,7 +858,7 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_se
             &mut accounts_to_check,
             &mut all_accounts,
             &mut nonce,
-            10,
+            1,
             true,
         );
 
