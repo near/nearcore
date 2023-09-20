@@ -72,7 +72,7 @@ pub fn get_default_home() -> PathBuf {
 /// being opened.
 pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result<NodeStorage> {
     let migrator = migrations::Migrator::new(near_config);
-    println!("in nearcore/runtime/lib.rs perf_db {}", near_config.config.perf_db);
+    info!("in nearcore/runtime/lib.rs perf_db {}", near_config.config.perf_db);
     let opener = NodeStorage::opener(
         home_dir,
         near_config.client_config.archive,

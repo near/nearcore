@@ -493,7 +493,7 @@ impl RunCmd {
         if self.perf_db {
             near_config.client_config.perf_db = true;
         }
-        println!("Perf db in cli.rs: {}", self.perf_db);
+        info!("Perf db in cli.rs: {}", self.perf_db);
 
         #[cfg(feature = "sandbox")]
         {
