@@ -1,3 +1,6 @@
+use crate::metrics::{
+    ReshardingStatus, RESHARDING_BATCH_COUNT, RESHARDING_BATCH_SIZE, RESHARDING_STATUS,
+};
 /// Implementation for all resharding logic.
 /// StateSplitRequest and StateSplitResponse are exchanged across the client_actor and SyncJobsActor.
 /// build_state_for_split_shards_preprocessing and build_state_for_split_shards_postprocessing are handled
@@ -108,12 +111,16 @@ fn get_flat_storage_iter<'a>(
 // Format of the trie key, value pair that is used in tries.add_values_to_split_states() function
 type TrieEntry = (Vec<u8>, Option<Vec<u8>>);
 
+struct TrieUpdateBatch {
+    entries: Vec<TrieEntry>,
+    size: u64,
+}
+
 // Function to return batches of trie key, value pairs from flat storage iter. We return None at the end of iter.
 // The batch size is roughly RESHARDING_BATCH_MEMORY_LIMIT (300 MB)
-// TODO(#9434) Add metrics for resharding progress
 fn get_trie_update_batch(
     iter: &mut impl Iterator<Item = (Vec<u8>, Vec<u8>)>,
-) -> Option<Vec<TrieEntry>> {
+) -> Option<TrieUpdateBatch> {
     let mut size: u64 = 0;
     let mut entries = Vec::new();
     while let Some((key, value)) = iter.next() {
@@ -126,7 +133,7 @@ fn get_trie_update_batch(
     if entries.is_empty() {
         None
     } else {
-        Some(entries)
+        Some(TrieUpdateBatch { entries, size })
     }
 }
 
@@ -201,6 +208,10 @@ impl Chain {
             next_epoch_shard_layout,
         });
 
+        RESHARDING_STATUS
+            .with_label_values(&[&shard_uid.to_string()])
+            .set(ReshardingStatus::Scheduled.into());
+
         Ok(())
     }
 
@@ -263,6 +274,11 @@ impl Chain {
         let store = tries.get_store();
 
         let shard_id = shard_uid.shard_id();
+
+        RESHARDING_STATUS
+            .with_label_values(&[&shard_uid.to_string()])
+            .set(ReshardingStatus::BuildingState.into());
+
         let new_shards = next_epoch_shard_layout
             .get_split_shard_uids(shard_id)
             .ok_or(Error::InvalidShardId(shard_id))?;
@@ -275,15 +291,20 @@ impl Chain {
 
         let mut iter = get_flat_storage_iter(&store, shard_uid);
         while let Some(batch) = get_trie_update_batch(&mut iter) {
+            let TrieUpdateBatch { entries, size } = batch;
             // TODO(#9435): This is highly inefficient as for each key in the batch, we are parsing the account_id
             // A better way would be to use the boundary account to construct the from and to key range for flat storage iterator
             let (store_update, new_state_roots) = tries.add_values_to_split_states(
                 &state_roots,
-                batch,
+                entries,
                 &checked_account_id_to_shard_uid,
             )?;
             state_roots = new_state_roots;
             store_update.commit()?;
+            RESHARDING_BATCH_COUNT.with_label_values(&[shard_uid.to_string().as_str()]).inc();
+            RESHARDING_BATCH_SIZE
+                .with_label_values(&[shard_uid.to_string().as_str()])
+                .add(size as i64)
         }
 
         state_roots = apply_delayed_receipts(
@@ -305,7 +326,7 @@ impl Chain {
         let block_header = self.get_block_header(sync_hash)?;
         let prev_hash = block_header.prev_hash();
 
-        let child_shard_uids = state_roots.keys().collect_vec();
+        let child_shard_uids = state_roots.keys().cloned().collect_vec();
         self.initialize_flat_storage(&prev_hash, &child_shard_uids)?;
 
         let mut chain_store_update = self.mut_store().store_update();
@@ -317,6 +338,12 @@ impl Chain {
         }
         chain_store_update.commit()?;
 
+        for shard_uid in child_shard_uids {
+            RESHARDING_STATUS
+                .with_label_values(&[&shard_uid.to_string()])
+                .set(ReshardingStatus::Finished.into());
+        }
+
         Ok(())
     }
 
@@ -327,7 +354,7 @@ impl Chain {
     fn initialize_flat_storage(
         &self,
         prev_hash: &CryptoHash,
-        child_shard_uids: &[&ShardUId],
+        child_shard_uids: &[ShardUId],
     ) -> Result<(), Error> {
         let prev_block_header = self.get_block_header(prev_hash)?;
         let prev_block_info = BlockInfo {
@@ -340,7 +367,7 @@ impl Chain {
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         for shard_uid in child_shard_uids {
             let store = self.runtime_adapter.store().clone();
-            set_flat_storage_state(store, &flat_storage_manager, **shard_uid, prev_block_info)?;
+            set_flat_storage_state(store, &flat_storage_manager, *shard_uid, prev_block_info)?;
         }
         Ok(())
     }
