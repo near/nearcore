@@ -1,7 +1,11 @@
 use borsh::BorshSerialize;
+use near_chain::types::RuntimeAdapter;
 use near_client::{Client, ProcessTxResponse};
+use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives_core::num_rational::Rational32;
+use near_store::genesis::initialize_genesis_state;
+use near_store::{NodeStorage, Store};
 use rand::rngs::StdRng;
 use tempfile::TempDir;
 
@@ -30,14 +34,12 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryRequest};
 use near_store::test_utils::{gen_account, gen_unique_accounts};
 use nearcore::config::GenesisExt;
-use nearcore::NEAR_BASE;
+use nearcore::{NightshadeRuntime, NEAR_BASE};
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use tracing::debug;
-
-use super::utils::TestEnvNightshadeSetupExt;
 
 const SIMPLE_NIGHTSHADE_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshade.protocol_version();
@@ -168,7 +170,7 @@ struct TestShardUpgradeEnv {
     txs_by_height: BTreeMap<u64, Vec<SignedTransaction>>,
     epoch_length: u64,
     num_clients: usize,
-    _home_dir: TempDir,
+    _home_dirs: Vec<TempDir>,
     rng: StdRng,
 }
 
@@ -195,21 +197,34 @@ impl TestShardUpgradeEnv {
             genesis_protocol_version,
         );
 
-        let stores = vec![];
-        for i in 0..num_clients {
-            let home_dir = tempfile::tempdir().unwrap();
-            let store = NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
+        let env_objects = (0..num_clients).map(|_|{
+            let tmp_dir = tempfile::tempdir().unwrap();
+            // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
+            // same configuration as in production.
+            let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
                 .open()
                 .unwrap()
                 .get_hot_store();
-        }
+            initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
+            let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+            let runtime =
+                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
+                    as Arc<dyn RuntimeAdapter>;
+            (tmp_dir, store, epoch_manager, runtime)
+        }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
+
+        let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
+        let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();
+        let runtimes = env_objects.iter().map(|x| x.3.clone()).collect::<Vec<_>>();
+        let home_dirs = env_objects.into_iter().map(|x| x.0).collect::<Vec<_>>();
 
         let chain_genesis = ChainGenesis::new(&genesis);
         let env = TestEnv::builder(chain_genesis)
             .clients_count(num_clients)
+            .stores(stores)
             .validator_seats(num_validators)
-            .real_epoch_managers(&genesis.config)
-            .nightshade_runtimes_with_home_dir(&genesis, home_dir.path())
+            .epoch_managers(epoch_managers)
+            .runtimes(runtimes)
             .track_all_shards()
             .use_state_snapshots()
             .build();
@@ -221,7 +236,7 @@ impl TestShardUpgradeEnv {
             num_clients,
             init_txs: vec![],
             txs_by_height: BTreeMap::new(),
-            _home_dir: home_dir,
+            _home_dirs: home_dirs,
             rng,
         }
     }
