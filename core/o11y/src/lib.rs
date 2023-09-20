@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![deny(clippy::arithmetic_side_effects)]
 
-use crate::span_duration_logger::SpanDurationLogger;
 pub use context::*;
 pub use env_filter::{BuildEnvFilterError, EnvFilterBuilder};
 pub use opentelemetry::OpenTelemetryLevel;

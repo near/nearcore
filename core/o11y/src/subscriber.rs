@@ -2,6 +2,7 @@ use crate::opentelemetry::add_opentelemetry_layer;
 use crate::reload::{
     set_default_otlp_level, set_log_layer_handle, set_otlp_layer_handle, LogLayer, SimpleLogLayer,
 };
+use crate::span_duration_logger::SpanDurationLogger;
 use crate::{log_counter, OpenTelemetryLevel};
 use near_crypto::PublicKey;
 use near_primitives_core::types::AccountId;
@@ -224,6 +225,8 @@ pub fn default_subscriber(
         sub
     }));
 
+    let subscriber = subscriber.with(SpanDurationLogger::default());
+
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),
         local_subscriber_guard: None,
@@ -286,6 +289,8 @@ pub async fn default_subscriber_with_opentelemetry(
         io_trace_guard = Some(guard);
         sub
     }));
+
+    let subscriber = subscriber.with(SpanDurationLogger::default());
 
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),
