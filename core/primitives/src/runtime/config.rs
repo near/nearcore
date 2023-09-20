@@ -4,6 +4,7 @@ use crate::runtime::fees::RuntimeFeesConfig;
 use crate::runtime::parameter_table::ParameterTable;
 use crate::types::AccountId;
 use near_primitives_core::types::Balance;
+use near_primitives_core::version::PROTOCOL_VERSION;
 
 use super::parameter_table::InvalidConfigError;
 
@@ -38,8 +39,9 @@ impl RuntimeConfig {
 
     pub fn test() -> Self {
         let config_store = super::config_store::RuntimeConfigStore::new(None);
-        let wasm_config =
-            near_vm_runner::logic::Config::clone(&config_store.get_config(!0).wasm_config);
+        let wasm_config = near_vm_runner::logic::Config::clone(
+            &config_store.get_config(PROTOCOL_VERSION).wasm_config,
+        );
         RuntimeConfig {
             fees: RuntimeFeesConfig::test(),
             wasm_config,
@@ -49,8 +51,9 @@ impl RuntimeConfig {
 
     pub fn free() -> Self {
         let config_store = super::config_store::RuntimeConfigStore::new(None);
-        let mut wasm_config =
-            near_vm_runner::logic::Config::clone(&config_store.get_config(!0).wasm_config);
+        let mut wasm_config = near_vm_runner::logic::Config::clone(
+            &config_store.get_config(PROTOCOL_VERSION).wasm_config,
+        );
         wasm_config.make_free();
         Self {
             fees: RuntimeFeesConfig::free(),

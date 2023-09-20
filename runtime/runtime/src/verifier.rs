@@ -568,7 +568,7 @@ mod tests {
 
     fn test_limit_config() -> LimitConfig {
         let store = near_primitives::runtime::config_store::RuntimeConfigStore::test();
-        store.get_config(!0).wasm_config.limit_config.clone()
+        store.get_config(PROTOCOL_VERSION).wasm_config.limit_config.clone()
     }
 
     fn setup_common(

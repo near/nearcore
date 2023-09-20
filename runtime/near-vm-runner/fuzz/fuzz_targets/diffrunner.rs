@@ -20,7 +20,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMOutcome {
     let mut context = create_context(vec![]);
     context.prepaid_gas = 10u64.pow(14);
     let config_store = RuntimeConfigStore::new(None);
-    let config = config_store.get_config(!0);
+    let config = config_store.get_config(PROTOCOL_VERSION);
     let fees = &config.fees;
     let mut wasm_config = config.wasm_config.clone();
     wasm_config.limit_config.contract_prepare_version =

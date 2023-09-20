@@ -7,6 +7,7 @@ use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{Action, DeployContractAction};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use near_vm_runner::VMKind;
 use nearcore::config::GenesisExt;
 
@@ -23,7 +24,7 @@ fn test_deploy_cost_increased() {
     let old_protocol_version = new_protocol_version - 1;
 
     let config_store = RuntimeConfigStore::new(None);
-    let config = &config_store.get_config(!0).wasm_config;
+    let config = &config_store.get_config(PROTOCOL_VERSION).wasm_config;
     let contract_size = 1024 * 1024;
     let test_contract = near_test_contracts::sized_contract(contract_size);
     // Run code through preparation for validation. (Deploying will succeed either way).

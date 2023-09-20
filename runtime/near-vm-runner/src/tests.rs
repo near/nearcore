@@ -12,6 +12,7 @@ mod wasm_validation;
 use crate::config::ContractPrepareVersion;
 use crate::logic::{Config, VMContext};
 use crate::vm_kind::VMKind;
+use near_primitives_core::version::PROTOCOL_VERSION;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -25,7 +26,7 @@ impl crate::logic::Config {
         use near_vm_runner::logic::StorageGetMode as ExtStorageGetMode;
         use near_vm_runner::VMKind as ExtVMKind;
         let store = near_primitives::runtime::config_store::RuntimeConfigStore::test();
-        let config = store.get_config(!0).wasm_config.clone();
+        let config = store.get_config(PROTOCOL_VERSION).wasm_config.clone();
         Self {
             ext_costs: config.ext_costs,
             grow_mem_cost: config.grow_mem_cost,

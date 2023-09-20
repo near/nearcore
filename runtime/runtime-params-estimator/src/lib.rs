@@ -100,6 +100,7 @@ use near_primitives::transaction::{
     DeployContractAction, SignedTransaction, StakeAction, TransferAction,
 };
 use near_primitives::types::AccountId;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::ContractCode;
 use near_vm_runner::MockCompiledContractCache;
@@ -712,7 +713,7 @@ fn contract_compile_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost, Ga
 
 fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
     let config_store = RuntimeConfigStore::new(None);
-    let vm_config = config_store.get_config(!0).wasm_config.clone();
+    let vm_config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let small_code = generate_data_only_contract(0, &vm_config);
     let large_code = generate_data_only_contract(bytesize::mb(4u64) as usize, &vm_config);
     let small_code_len = small_code.len();
@@ -726,7 +727,7 @@ fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
 /// Base cost for a fn call action, without receipt creation or contract loading.
 fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
     let config_store = RuntimeConfigStore::new(None);
-    let vm_config = config_store.get_config(!0).wasm_config.clone();
+    let vm_config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let n_actions = 100;
     let code = generate_data_only_contract(0, &vm_config);
     // This returns a cost without block/transaction/receipt overhead.
@@ -785,7 +786,7 @@ fn contract_loading_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCo
 }
 fn function_call_per_storage_byte(ctx: &mut EstimatorContext) -> GasCost {
     let config_store = RuntimeConfigStore::new(None);
-    let vm_config = config_store.get_config(!0).wasm_config.clone();
+    let vm_config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let n_actions = 5;
 
     let small_code = generate_data_only_contract(0, &vm_config);
@@ -874,7 +875,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
     let code = ContractCode::new(code.to_vec(), None);
     let mut fake_external = MockedExternal::new();
     let config_store = RuntimeConfigStore::new(None);
-    let config = config_store.get_config(!0).wasm_config.clone();
+    let config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];
     let cache = MockCompiledContractCache::default();
