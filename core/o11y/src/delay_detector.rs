@@ -11,7 +11,7 @@ use tracing_subscriber::Layer;
 #[derive(Default)]
 pub(crate) struct DelayDetectorLayer {}
 
-const MAX_BUSY_DURATION_NS: u64 = 500000000; // 0.5 sec
+const MAX_BUSY_DURATION_NS: u64 = 1000000000; // 1.0 sec
 
 pub(crate) static SPAN_DURATIONS: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
