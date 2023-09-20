@@ -23,7 +23,6 @@ use crate::{metrics, DoomslugThresholdMode};
 use borsh::BorshSerialize;
 use chrono::Duration;
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use delay_detector::DelayDetector;
 use itertools::Itertools;
 use lru::LruCache;
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
@@ -940,7 +939,7 @@ impl Chain {
         tries: ShardTries,
         gc_config: &near_chain_configs::GCConfig,
     ) -> Result<(), Error> {
-        let _d = DelayDetector::new(|| "GC".into());
+        let _span = tracing::debug_span!(target: "chain", "clear_data").entered();
 
         let head = self.store.head()?;
         let tail = self.store.tail()?;
@@ -1028,7 +1027,7 @@ impl Chain {
     ///
     /// `gc_height_limit` limits how many heights will the function process.
     pub fn clear_archive_data(&mut self, gc_height_limit: BlockHeightDelta) -> Result<(), Error> {
-        let _d = DelayDetector::new(|| "GC".into());
+        let _span = tracing::debug_span!(target: "chain", "clear_archive_data").entered();
 
         let head = self.store.head()?;
         let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash);

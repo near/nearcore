@@ -67,7 +67,6 @@ members = [
     "test-utils/testlib",
     "tools/database",
     "tools/chainsync-loadtest",
-    "tools/delay-detector",
     "tools/fork-network",
     "tools/indexer/example",
     "tools/mirror",
@@ -130,7 +129,6 @@ crossbeam-channel = "0.5"
 crossbeam-queue = "0.3.8"
 csv = "1.2.1"
 curve25519-dalek = "3"
-delay-detector = { path = "tools/delay-detector" }
 derive-enum-from-into = "0.1.1"
 derive_more = "0.99.9"
 dirs = "4"

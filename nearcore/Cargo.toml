@@ -67,8 +67,6 @@ near-vm-runner.workspace = true
 node-runtime.workspace = true
 near-config-utils.workspace = true
 
-delay-detector.workspace = true
-
 [dev-dependencies]
 bencher.workspace = true
 primitive-types.workspace = true
@@ -105,7 +103,6 @@ no_cache = [
   "near-chain/no_cache",
   "near-epoch-manager/no_cache",
 ]
-delay_detector = ["near-client/delay_detector", "delay-detector/delay_detector"]
 rosetta_rpc = ["near-rosetta-rpc"]
 json_rpc = ["near-jsonrpc", "near-jsonrpc-primitives"]
 protocol_feature_fix_staking_threshold = [
