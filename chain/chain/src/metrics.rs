@@ -1,7 +1,7 @@
 use near_o11y::metrics::{
     exponential_buckets, try_create_histogram, try_create_histogram_vec,
-    try_create_histogram_with_buckets, try_create_int_counter, try_create_int_gauge, Histogram,
-    HistogramVec, IntCounter, IntGauge,
+    try_create_histogram_with_buckets, try_create_int_counter, try_create_int_gauge,
+    try_create_int_gauge_vec, Histogram, HistogramVec, IntCounter, IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
 
@@ -152,6 +152,54 @@ pub(crate) static LARGEST_FINAL_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_largest_final_height",
         "Largest height for which we saw a block containing 1/2 endorsements in it",
+    )
+    .unwrap()
+});
+
+pub(crate) enum ReshardingStatus {
+    /// The StateSplitRequest was send to the SyncJobsActor.
+    Scheduled,
+    /// The SyncJobsActor is performing the resharding.
+    BuildingState,
+    /// The resharding is finished.
+    Finished,
+}
+
+impl From<ReshardingStatus> for i64 {
+    /// Converts status to integer to export to prometheus later.
+    /// Cast inside enum does not work because it is not fieldless.
+    fn from(value: ReshardingStatus) -> Self {
+        match value {
+            ReshardingStatus::Scheduled => 0,
+            ReshardingStatus::BuildingState => 1,
+            ReshardingStatus::Finished => 2,
+        }
+    }
+}
+
+pub(crate) static RESHARDING_BATCH_COUNT: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_resharding_batch_count",
+        "The number of batches committed to the db.",
+        &["shard_uid"],
+    )
+    .unwrap()
+});
+
+pub(crate) static RESHARDING_BATCH_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_resharding_batch_size",
+        "The size of batches committed to the db.",
+        &["shard_uid"],
+    )
+    .unwrap()
+});
+
+pub(crate) static RESHARDING_STATUS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_resharding_status",
+        "The status of the resharding process.",
+        &["shard_uid"],
     )
     .unwrap()
 });
