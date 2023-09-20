@@ -490,9 +490,11 @@ impl RunCmd {
         if self.max_gas_burnt_view.is_some() {
             near_config.client_config.max_gas_burnt_view = self.max_gas_burnt_view;
         }
+        info!("Perf db as arg: {}", self.perf_db);
         if self.perf_db {
             near_config.client_config.perf_db = true;
         }
+        info!("Perf db as client_config: {}", near_config.client_config.perf_db);
 
         #[cfg(feature = "sandbox")]
         {
