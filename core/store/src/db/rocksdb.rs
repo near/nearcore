@@ -129,7 +129,7 @@ impl RocksDB {
         let cf_handles = Self::get_cf_handles(&db, columns);
 
         let perf_context = if perf_db {
-            tracing::info!("Turning in additional metric tracking for RocksDB");
+            tracing::info!("Tracking perf metrics for RocksDB");
             Some(Arc::new(Mutex::new(PerfContext::new(PERF_TRACKED_COLUMNS))))
         } else {
             None
