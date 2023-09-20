@@ -11,10 +11,10 @@ use tracing_subscriber::Layer;
 #[derive(Default)]
 pub(crate) struct SpanDurationLogger {}
 
-pub(crate) static SPAN_DURATIONS: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static SPAN_BUSY_DURATIONS: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_span_duration",
-        "Distribution of the duration of spans with long duration",
+        "near_span_busy_duration",
+        "Busy duration of spans",
         &["name", "level", "target"],
         // Cover the range from 0.01s to 10s.
         // Keep the number of buckets small to limit the memory usage.
@@ -99,12 +99,12 @@ where
                 let name = span.name();
                 let level = span.metadata().level();
                 let target = span.metadata().target();
-                SPAN_DURATIONS
+                SPAN_BUSY_DURATIONS
                     .with_label_values(&[name, level.as_str(), target])
                     .observe(timings.busy.as_secs_f64());
 
-                const MAX_SPAN_DURATION_SEC: u64 = 1;
-                if timings.busy > Duration::from_secs(MAX_SPAN_DURATION_SEC) {
+                const MAX_SPAN_BUSY_DURATION_SEC: u64 = 1;
+                if timings.busy > Duration::from_secs(MAX_SPAN_BUSY_DURATION_SEC) {
                     tracing::debug!(
                         target: "span_duration_logger",
                         busy = ?timings.busy,
