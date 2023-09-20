@@ -1,7 +1,8 @@
 #![no_main]
 
+use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::{runtime::config::RuntimeConfig, version::PROTOCOL_VERSION};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::logic::VMOutcome;
 use near_vm_runner::ContractCode;
