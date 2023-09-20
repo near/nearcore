@@ -535,6 +535,7 @@ impl RunCmd {
                 UpdateableConfigLoader::new(updateable_configs.clone(), tx_config_update);
             let config_updater = ConfigUpdater::new(rx_config_update);
 
+            info!("Perf db in nearcore::NearNode {}", near_config.config.perf_db);
             let nearcore::NearNode {
                 rpc_servers,
                 cold_store_loop_handle,

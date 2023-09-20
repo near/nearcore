@@ -224,6 +224,7 @@ pub fn start_with_config_and_synchronization(
     shutdown_signal: Option<broadcast::Sender<()>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
+    info!("Perf db in start_with_config_and_synchronization is {}", config.config.perf_db);
     let storage = open_storage(home_dir, &mut config)?;
     let db_metrics_arbiter = if config.client_config.enable_statistics_export {
         let period = config.client_config.log_summary_period;
