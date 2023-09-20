@@ -130,15 +130,25 @@ pub(crate) fn produce_blocks_from_height(
     produce_blocks_from_height_with_protocol_version(env, blocks_number, height, PROTOCOL_VERSION)
 }
 
-pub(crate) fn create_account(env: &mut TestEnv, old_account_id: AccountId, new_account_id: AccountId, epoch_length: u64, height: BlockHeight, protocol_version: ProtocolVersion) -> CryptoHash {
+#[allow(unused)]
+pub(crate) fn create_account(
+    env: &mut TestEnv,
+    old_account_id: AccountId,
+    new_account_id: AccountId,
+    epoch_length: u64,
+    height: BlockHeight,
+    protocol_version: ProtocolVersion,
+) -> CryptoHash {
     let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
-    let signer =
-        InMemorySigner::from_seed(old_account_id.clone(), KeyType::ED25519, old_account_id.as_ref());
-    
+    let signer = InMemorySigner::from_seed(
+        old_account_id.clone(),
+        KeyType::ED25519,
+        old_account_id.as_ref(),
+    );
 
     let tx = SignedTransaction::create_account(
         height,
-        old_account_id.clone(),
+        old_account_id,
         new_account_id,
         10u128.pow(24),
         signer.public_key(),

@@ -10,14 +10,12 @@ use near_primitives_core::version::PROTOCOL_VERSION;
 use nearcore::config::GenesisExt;
 
 #[test]
-#[ignore]
 fn test_create_top_level_accounts() {
     let epoch_length: BlockHeight = 5;
     let account: AccountId = "test0".parse().unwrap();
     let mut genesis = Genesis::test(vec![account.clone()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = PROTOCOL_VERSION;
-    println!("genesis protocol version: {}", genesis.config.protocol_version);
     let runtime_config = near_primitives::runtime::config_store::RuntimeConfigStore::new(None);
     let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
         .real_epoch_managers(&genesis.config)
@@ -31,14 +29,14 @@ fn test_create_top_level_accounts() {
         "alice",
         "thisisaveryverylongtoplevelaccount",
     ];
-    for (_, id) in top_level_accounts.iter().enumerate() {
+    for (index, id) in top_level_accounts.iter().enumerate() {
         let new_account_id = id.parse::<AccountId>().unwrap();
         let tx_hash = create_account(
             &mut env,
             account.clone(),
             new_account_id.clone(),
             epoch_length,
-            1,
+            1 + index as u64 * epoch_length,
             PROTOCOL_VERSION,
         );
         let transaction_result =

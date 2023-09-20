@@ -121,7 +121,7 @@ pub enum ProtocolFeature {
     #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
     SimpleNightshadeV2,
     #[cfg(feature = "protocol_feature_restrict_tla")]
-    RestrictTla
+    RestrictTla,
 }
 
 impl ProtocolFeature {
