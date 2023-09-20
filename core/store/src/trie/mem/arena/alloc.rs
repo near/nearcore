@@ -1,4 +1,10 @@
+use near_o11y::metrics::IntGauge;
+
+use super::metrics::MEM_TRIE_ARENA_ACTIVE_ALLOCS_COUNT;
 use super::{ArenaMemory, ArenaSliceMut};
+use crate::trie::mem::arena::metrics::{
+    MEM_TRIE_ARENA_ACTIVE_ALLOCS_BYTES, MEM_TRIE_ARENA_MEMORY_USAGE_BYTES,
+};
 
 /// Simple bump allocator with freelists. Allocations are rounded up to its
 /// allocation class, so that deallocated memory can be reused by a similarly
@@ -6,6 +12,9 @@ use super::{ArenaMemory, ArenaSliceMut};
 pub struct Allocator {
     freelists: [usize; NUM_ALLOCATION_CLASSES],
     next_ptr: usize,
+    active_allocs_bytes_gauge: IntGauge,
+    active_allocs_count_gauge: IntGauge,
+    memory_usage_gauge: IntGauge,
 }
 
 const MAX_ALLOC_SIZE: usize = 16 * 1024;
@@ -39,13 +48,23 @@ const fn allocation_size(size_class: usize) -> usize {
 const NUM_ALLOCATION_CLASSES: usize = allocation_class(MAX_ALLOC_SIZE) + 1;
 
 impl Allocator {
-    pub fn new() -> Self {
-        Self { freelists: [usize::MAX; NUM_ALLOCATION_CLASSES], next_ptr: 0 }
+    pub fn new(name: String) -> Self {
+        Self {
+            freelists: [usize::MAX; NUM_ALLOCATION_CLASSES],
+            next_ptr: 0,
+            active_allocs_bytes_gauge: MEM_TRIE_ARENA_ACTIVE_ALLOCS_BYTES
+                .with_label_values(&[&name]),
+            active_allocs_count_gauge: MEM_TRIE_ARENA_ACTIVE_ALLOCS_COUNT
+                .with_label_values(&[&name]),
+            memory_usage_gauge: MEM_TRIE_ARENA_MEMORY_USAGE_BYTES.with_label_values(&[&name]),
+        }
     }
 
     /// Allocates a slice of the given size in the arena.
     pub fn allocate<'a>(&mut self, arena: &'a mut ArenaMemory, size: usize) -> ArenaSliceMut<'a> {
         assert!(size <= MAX_ALLOC_SIZE, "Cannot allocate {} bytes", size);
+        self.active_allocs_bytes_gauge.add(size as i64);
+        self.active_allocs_count_gauge.inc();
         let size_class = allocation_class(size);
         let allocation_size = allocation_size(size_class);
         if self.freelists[size_class] == usize::MAX {
@@ -60,6 +79,7 @@ impl Allocator {
             }
             let ptr = self.next_ptr;
             self.next_ptr += allocation_size;
+            self.memory_usage_gauge.set(self.next_ptr as i64);
             arena.slice_mut(ptr, size)
         } else {
             let pos = self.freelists[size_class];
@@ -71,11 +91,18 @@ impl Allocator {
     /// Deallocates the given slice from the arena; the slice's `pos` and `len`
     /// must be the same as an allocation that was returned earlier.
     pub fn deallocate(&mut self, arena: &mut ArenaMemory, pos: usize, len: usize) {
+        self.active_allocs_bytes_gauge.sub(len as i64);
+        self.active_allocs_count_gauge.dec();
         let size_class = allocation_class(len);
         arena
             .slice_mut(pos, allocation_size(size_class))
             .write_usize_at(0, self.freelists[size_class]);
         self.freelists[size_class] = pos;
+    }
+
+    /// For testing.
+    pub fn num_active_allocs(&self) -> usize {
+        self.active_allocs_count_gauge.get() as usize
     }
 }
 
@@ -89,7 +116,7 @@ mod test {
 
     #[test]
     fn test_allocate_deallocate() {
-        let mut arena = Arena::new(10000);
+        let mut arena = Arena::new(10000, "".to_owned());
         // Repeatedly allocate and deallocate; we should not run out of memory.
         for i in 0..1000 {
             let mut slices = Vec::new();

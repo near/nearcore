@@ -8,7 +8,7 @@ use near_primitives::state::{FlatStateValue, ValueRef};
 
 #[test]
 fn test_basic_leaf_node_inlined() {
-    let mut arena = Arena::new(1024);
+    let mut arena = Arena::new(1024, "".to_owned());
     let node = MemTrieNodeId::new(
         &mut arena,
         InputMemTrieNode::Leaf {
@@ -40,7 +40,7 @@ fn test_basic_leaf_node_inlined() {
 
 #[test]
 fn test_basic_leaf_node_ref() {
-    let mut arena = Arena::new(1024);
+    let mut arena = Arena::new(1024, "".to_owned());
     let test_hash = hash(&[5, 6, 7, 8, 9]);
     let node = MemTrieNodeId::new(
         &mut arena,
@@ -73,7 +73,7 @@ fn test_basic_leaf_node_ref() {
 
 #[test]
 fn test_basic_leaf_node_empty_extension_empty_value() {
-    let mut arena = Arena::new(1024);
+    let mut arena = Arena::new(1024, "".to_owned());
     let node = MemTrieNodeId::new(
         &mut arena,
         InputMemTrieNode::Leaf {
@@ -102,7 +102,7 @@ fn test_basic_leaf_node_empty_extension_empty_value() {
 
 #[test]
 fn test_basic_extension_node() {
-    let mut arena = Arena::new(1024);
+    let mut arena = Arena::new(1024, "".to_owned());
     let child = MemTrieNodeId::new(
         &mut arena,
         InputMemTrieNode::Leaf {
@@ -150,7 +150,7 @@ fn branch_array(children: Vec<(usize, MemTrieNodeId)>) -> [Option<MemTrieNodeId>
 
 #[test]
 fn test_basic_branch_node() {
-    let mut arena = Arena::new(1024);
+    let mut arena = Arena::new(1024, "".to_owned());
     let child1 = MemTrieNodeId::new(
         &mut arena,
         InputMemTrieNode::Leaf {
@@ -220,7 +220,7 @@ fn test_basic_branch_node() {
 
 #[test]
 fn test_basic_branch_with_value_node() {
-    let mut arena = Arena::new(1024);
+    let mut arena = Arena::new(1024, "".to_owned());
     let child1 = MemTrieNodeId::new(
         &mut arena,
         InputMemTrieNode::Leaf {
