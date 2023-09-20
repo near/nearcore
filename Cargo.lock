@@ -2087,7 +2087,7 @@ dependencies = [
  "chrono",
  "clap 4.2.4",
  "insta",
- "nix 0.24.3",
+ "nix 0.26.4",
  "reqwest",
  "rusqlite",
  "serde",

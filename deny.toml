@@ -37,10 +37,6 @@ deny = [
 ]
 
 skip = [
-    { name = "clap", version = "=2.34.0" },
-    # criterion uses clap=2.34.0 which relies on an older textwrap
-    { name = "textwrap", version = "=0.11.0" },
-
     # wasmer 0.17 and wasmtime 0.17 use conflicting versions of those
     { name = "wasmparser", version = "=0.51.4" },
     # wasmer 0.17 and wasmtime 0.17 uses older versions of some crates
@@ -165,4 +161,8 @@ skip = [
     # cloud-storage
     { name = "base64", version = "=0.12.3" },
     { name = "num-bigint", version = "=0.2.6" },
+
+    # mmap-rs depends on nix and memoffset of different versions
+    { name = "memoffset", version = "=0.7.1" },
+    { name = "nix", version = "=0.24.3" }
 ]
