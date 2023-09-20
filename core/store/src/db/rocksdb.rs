@@ -93,9 +93,10 @@ impl RocksDB {
         store_config: &StoreConfig,
         mode: Mode,
         temp: Temperature,
+        perf_db: bool,
     ) -> io::Result<Self> {
         let columns: Vec<DBCol> = DBCol::iter().collect();
-        Self::open_with_columns(path, store_config, mode, temp, &columns)
+        Self::open_with_columns(path, store_config, mode, temp, &columns, perf_db)
     }
 
     /// Opens the database with given set of column families configured.
@@ -120,13 +121,14 @@ impl RocksDB {
         mode: Mode,
         temp: Temperature,
         columns: &[DBCol],
+        perf_db: bool,
     ) -> io::Result<Self> {
         let counter = instance_tracker::InstanceTracker::try_new(store_config.max_open_files)
             .map_err(other_error)?;
         let (db, db_opt) = Self::open_db(path, store_config, mode, temp, columns)?;
         let cf_handles = Self::get_cf_handles(&db, columns);
 
-        let perf_context = if temp == Temperature::Perf {
+        let perf_context = if perf_db {
             Some(Arc::new(Mutex::new(PerfContext::new(PERF_TRACKED_COLUMNS))))
         } else {
             None
@@ -585,7 +587,7 @@ impl RocksDB {
         // to read the version without modifying the database before we figure
         // out if there are any necessary migrations to perform.
         let cols = [DBCol::DbVersion];
-        let db = Self::open_with_columns(path, config, Mode::ReadOnly, Temperature::Hot, &cols)?;
+        let db = Self::open_with_columns(path, config, Mode::ReadOnly, Temperature::Hot, &cols, false)?;
         Some(metadata::DbMetadata::read(&db)).transpose()
     }
 
@@ -651,9 +653,7 @@ impl RocksDB {
                         )
                     })
                     .collect();
-                result
-                    .data
-                    .push(("rocksdb_perf_count_per_block".to_string(), col_count_per_block));
+                result.data.push(("rocksdb_perf_count_per_block".to_string(), col_count_per_block));
 
                 let col_total_lat_per_block: Vec<StatsValue> = measurement
                     .measurements_per_block_reads

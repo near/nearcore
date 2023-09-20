@@ -154,6 +154,7 @@ impl FlatStorageCommand {
             near_config.config.archive,
             &near_config.config.store,
             None,
+            false,
         );
 
         match &self.subcmd {
@@ -368,6 +369,7 @@ impl FlatStorageCommand {
                     false,
                     &near_config.config.store,
                     None,
+                    false,
                 );
                 let write_node_storage = write_opener.open_in_mode(Mode::Create).unwrap();
                 let write_store = write_node_storage.get_hot_store();

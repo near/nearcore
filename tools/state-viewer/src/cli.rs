@@ -109,6 +109,7 @@ impl StateViewerSubCommand {
             near_config.config.archive,
             &near_config.config.store,
             cold_config,
+            false,
         );
 
         let storage = store_opener.open_in_mode(mode).unwrap();

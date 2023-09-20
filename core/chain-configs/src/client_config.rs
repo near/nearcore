@@ -267,8 +267,10 @@ pub struct ClientConfig {
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
     pub transaction_pool_size_limit: Option<u64>,
-    // Allows more detailed logging, for example a list of orphaned blocks.
+    /// Allows more detailed logging, for example a list of orphaned blocks.
     pub enable_multiline_logging: bool,
+    /// If set the node will collect additional RocksDB perf stats
+    pub perf_db: bool,
 }
 
 impl ClientConfig {
@@ -281,6 +283,7 @@ impl ClientConfig {
         save_trie_changes: bool,
         epoch_sync_enabled: bool,
         state_sync_enabled: bool,
+        perf_db: bool,
     ) -> Self {
         assert!(
             archive || save_trie_changes,
@@ -344,6 +347,7 @@ impl ClientConfig {
             state_snapshot_every_n_blocks: None,
             transaction_pool_size_limit: None,
             enable_multiline_logging: false,
+            perf_db: perf_db,
         }
     }
 }

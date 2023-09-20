@@ -256,6 +256,7 @@ pub fn setup(
         true,
         epoch_sync_enabled,
         state_sync_enabled,
+        false,
     );
 
     let adv = crate::adversarial::Controls::default();
@@ -377,6 +378,7 @@ pub fn setup_only_view(
         true,
         epoch_sync_enabled,
         state_sync_enabled,
+        false,
     );
 
     let adv = crate::adversarial::Controls::default();
@@ -1174,6 +1176,7 @@ pub fn setup_client_with_runtime(
         save_trie_changes,
         true,
         true,
+        false,
     );
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(

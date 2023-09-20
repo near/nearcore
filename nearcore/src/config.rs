@@ -352,6 +352,8 @@ pub struct Config {
     pub transaction_pool_size_limit: Option<u64>,
     /// If a node needs to upload state parts to S3
     pub s3_credentials_file: Option<String>,
+    /// If set on the node will collect RocksDB perf metrics
+    pub perf_db: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -393,6 +395,7 @@ impl Default for Config {
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
             s3_credentials_file: None,
             enable_multiline_logging: None,
+            perf_db: false,
         }
     }
 }
@@ -691,6 +694,7 @@ impl NearConfig {
                 state_snapshot_every_n_blocks: None,
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
                 enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),
+                perf_db: config.perf_db,
             },
             network_config: NetworkConfig::new(
                 config.network,

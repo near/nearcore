@@ -15,7 +15,7 @@ impl MakeSnapshotCommand {
         archive: bool,
         store_config: &StoreConfig,
     ) -> anyhow::Result<()> {
-        let opener = NodeStorage::opener(home_dir, archive, store_config, None);
+        let opener = NodeStorage::opener(home_dir, archive, store_config, None, false);
         let node_storage = opener.open_in_mode(Mode::ReadWriteExisting)?;
         checkpoint_hot_storage_and_cleanup_columns(
             &node_storage.get_hot_store(),
@@ -37,7 +37,7 @@ mod tests {
     fn test() {
         let home_dir = tempfile::tempdir().unwrap();
         let store_config = StoreConfig::test_config();
-        let opener = NodeStorage::opener(home_dir.path(), false, &store_config, None);
+        let opener = NodeStorage::opener(home_dir.path(), false, &store_config, None, false);
 
         let keys = vec![vec![0], vec![1], vec![2], vec![3]];
 
@@ -68,7 +68,7 @@ mod tests {
         }
 
         let node_storage = opener.open_in_mode(Mode::ReadOnly).unwrap();
-        let snapshot_node_storage = NodeStorage::opener(&destination, false, &store_config, None)
+        let snapshot_node_storage = NodeStorage::opener(&destination, false, &store_config, None, false)
             .open_in_mode(Mode::ReadOnly)
             .unwrap();
         for key in keys {

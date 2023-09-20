@@ -190,6 +190,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
             near_config.config.archive,
             &near_config.config.store,
             None,
+            false,
         )
         .open()
         .unwrap()

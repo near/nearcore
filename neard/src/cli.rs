@@ -420,6 +420,9 @@ pub(super) struct RunCmd {
     /// configuration will be taken.
     #[clap(long)]
     max_gas_burnt_view: Option<Gas>,
+    /// If set the node will also collect RocksDB perf level statistics
+    #[clap(long)]
+    perf_db: bool,
 }
 
 impl RunCmd {
@@ -486,6 +489,9 @@ impl RunCmd {
         }
         if self.max_gas_burnt_view.is_some() {
             near_config.client_config.max_gas_burnt_view = self.max_gas_burnt_view;
+        }
+        if self.perf_db {
+            near_config.client_config.perf_db = true;
         }
 
         #[cfg(feature = "sandbox")]

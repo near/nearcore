@@ -479,6 +479,7 @@ fn open_db<P: AsRef<Path>>(home: P, config: &NearConfig) -> anyhow::Result<DB> {
         config.config.archive,
         &config.config.store,
         None,
+        false,
     )
     .path()
     .join("mirror");

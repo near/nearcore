@@ -118,8 +118,9 @@ impl NodeStorage {
         archive: bool,
         config: &'a StoreConfig,
         cold_config: Option<&'a StoreConfig>,
+        perf_db: bool,
     ) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, archive, config, cold_config)
+        StoreOpener::new(home_dir, archive, config, cold_config, perf_db)
     }
 
     /// Constructs new object backed by given database.
@@ -150,7 +151,7 @@ impl NodeStorage {
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
         static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = StoreOpener::new(dir.path(), false, &CONFIG, None);
+        let opener = StoreOpener::new(dir.path(), false, &CONFIG, None, false);
         (dir, opener)
     }
 

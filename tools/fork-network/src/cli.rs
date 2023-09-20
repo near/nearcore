@@ -73,6 +73,7 @@ impl ForkNetworkCommand {
             near_config.config.archive,
             &near_config.config.store,
             None,
+            false,
         );
 
         let store_path =

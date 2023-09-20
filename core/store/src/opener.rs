@@ -196,6 +196,9 @@ struct DBOpener<'a> {
     /// counted column.  It’s important that the value is correct.  RPC and
     /// Archive databases are considered hot.
     temp: Temperature,
+
+    /// RocksDB additional perf metrics tracking
+    perf_db: bool,
 }
 
 impl<'a> StoreOpener<'a> {
@@ -205,10 +208,11 @@ impl<'a> StoreOpener<'a> {
         archive: bool,
         config: &'a StoreConfig,
         cold_config: Option<&'a StoreConfig>,
+        perf_db: bool,
     ) -> Self {
         Self {
-            hot: DBOpener::new(home_dir, config, Temperature::Hot),
-            cold: cold_config.map(|config| DBOpener::new(home_dir, config, Temperature::Cold)),
+            hot: DBOpener::new(home_dir, config, Temperature::Hot, perf_db),
+            cold: cold_config.map(|config| DBOpener::new(home_dir, config, Temperature::Cold, perf_db)),
             archive: archive,
             migrator: None,
         }
@@ -486,11 +490,11 @@ impl<'a> DBOpener<'a> {
     ///
     /// The path to the database is resolved based on the path in config with
     /// given home_dir as base directory for resolving relative paths.
-    fn new(home_dir: &std::path::Path, config: &'a StoreConfig, temp: Temperature) -> Self {
+    fn new(home_dir: &std::path::Path, config: &'a StoreConfig, temp: Temperature, perf_db: bool) -> Self {
         let path = if temp == Temperature::Hot { "data" } else { "cold-data" };
         let path = config.path.as_deref().unwrap_or(std::path::Path::new(path));
         let path = home_dir.join(path);
-        Self { path, config, temp }
+        Self { path, config, temp , perf_db }
     }
 
     /// Returns version and kind of the database or `None` if it doesn’t exist.
@@ -522,7 +526,7 @@ impl<'a> DBOpener<'a> {
     ///
     /// Use [`Self::create`] to create a new database.
     fn open(&self, mode: Mode, want_version: DbVersion) -> std::io::Result<(RocksDB, DbMetadata)> {
-        let db = RocksDB::open(&self.path, &self.config, mode, self.temp)?;
+        let db = RocksDB::open(&self.path, &self.config, mode, self.temp, self.perf_db)?;
         let metadata = DbMetadata::read(&db)?;
         if want_version != metadata.version {
             let msg = format!("unexpected DbVersion {}; expected {want_version}", metadata.version);
@@ -537,13 +541,13 @@ impl<'a> DBOpener<'a> {
     /// This is only suitable when creating the database or setting the version
     /// and kind for the first time.
     fn open_unsafe(&self, mode: Mode) -> std::io::Result<RocksDB> {
-        let db = RocksDB::open(&self.path, &self.config, mode, self.temp)?;
+        let db = RocksDB::open(&self.path, &self.config, mode, self.temp, self.perf_db)?;
         Ok(db)
     }
 
     /// Creates a new database.
     fn create(&self) -> std::io::Result<RocksDB> {
-        RocksDB::open(&self.path, &self.config, Mode::Create, self.temp)
+        RocksDB::open(&self.path, &self.config, Mode::Create, self.temp, self.perf_db)
     }
 
     /// Creates a new snapshot for the database.
@@ -605,7 +609,7 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     let mut config = StoreConfig::default();
     config.path = Some(checkpoint_path);
     let archive = hot_store.get_db_kind()? == Some(DbKind::Archive);
-    let opener = StoreOpener::new(checkpoint_base_path, archive, &config, None);
+    let opener = StoreOpener::new(checkpoint_base_path, archive, &config, None, false);
     let node_storage = opener.open_in_mode(Mode::ReadWriteExisting)?;
 
     if let Some(columns_to_keep) = columns_to_keep {
