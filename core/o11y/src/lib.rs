@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![deny(clippy::arithmetic_side_effects)]
 
-use crate::delay_detector::DelayDetectorLayer;
+use crate::span_duration_logger::SpanDurationLogger;
 pub use context::*;
 pub use env_filter::{BuildEnvFilterError, EnvFilterBuilder};
 pub use opentelemetry::OpenTelemetryLevel;
@@ -14,7 +14,6 @@ pub use {tracing, tracing_appender, tracing_subscriber};
 
 /// Custom tracing subscriber implementation that produces IO traces.
 pub mod context;
-mod delay_detector;
 mod env_filter;
 mod io_tracer;
 pub mod log_config;
@@ -23,6 +22,7 @@ pub mod macros;
 pub mod metrics;
 mod opentelemetry;
 mod reload;
+mod span_duration_logger;
 mod subscriber;
 pub mod testonly;
 
