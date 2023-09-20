@@ -493,7 +493,6 @@ impl RunCmd {
         if self.perf_db {
             near_config.client_config.perf_db = true;
         }
-        info!("Perf db in cli.rs: {}", self.perf_db);
 
         #[cfg(feature = "sandbox")]
         {
@@ -529,13 +528,14 @@ impl RunCmd {
             .await
             .global();
 
+            info!("Perf db in nearcore::NearNode1 {}", near_config.config.perf_db);
             let updateable_configs = nearcore::dyn_config::read_updateable_configs(home_dir)
                 .unwrap_or_else(|e| panic!("Error reading dynamic configs: {:#}", e));
             let mut updateable_config_loader =
                 UpdateableConfigLoader::new(updateable_configs.clone(), tx_config_update);
             let config_updater = ConfigUpdater::new(rx_config_update);
 
-            info!("Perf db in nearcore::NearNode {}", near_config.config.perf_db);
+            info!("Perf db in nearcore::NearNode2 {}", near_config.config.perf_db);
             let nearcore::NearNode {
                 rpc_servers,
                 cold_store_loop_handle,
