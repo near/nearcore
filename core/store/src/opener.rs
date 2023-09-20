@@ -129,8 +129,6 @@ fn get_default_kind(archive: bool, temp: Temperature) -> DbKind {
     match (temp, archive) {
         (Temperature::Hot, false) => DbKind::RPC,
         (Temperature::Hot, true) => DbKind::Archive,
-        (Temperature::Perf, false) => DbKind::RPC,
-        (Temperature::Perf, true) => DbKind::Archive,
         (Temperature::Cold, _) => DbKind::Cold,
     }
 }

@@ -71,7 +71,6 @@ pub use crate::opener::{
 pub enum Temperature {
     Hot,
     Cold,
-    Perf,
 }
 
 impl FromStr for Temperature {
@@ -235,7 +234,7 @@ impl NodeStorage {
     /// This method panics if trying to access cold store but it wasn't configured.
     pub fn into_inner(self, temp: Temperature) -> Arc<dyn Database> {
         match temp {
-            Temperature::Hot | Temperature::Perf => self.hot_storage,
+            Temperature::Hot => self.hot_storage,
             Temperature::Cold => self.cold_storage.unwrap(),
         }
     }
