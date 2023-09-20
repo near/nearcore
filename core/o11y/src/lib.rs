@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![deny(clippy::arithmetic_side_effects)]
 
-use crate::delay_detector::DelayDetectorLayer;
+use crate::span_duration_logger::SpanDurationLogger;
 pub use context::*;
 use near_crypto::PublicKey;
 use near_primitives_core::types::AccountId;
@@ -25,12 +25,12 @@ pub use {tracing, tracing_appender, tracing_subscriber};
 
 /// Custom tracing subscriber implementation that produces IO traces.
 pub mod context;
-mod delay_detector;
 mod io_tracer;
 pub mod log_config;
 mod log_counter;
 pub mod macros;
 pub mod metrics;
+mod span_duration_logger;
 pub mod testonly;
 
 /// Produce a tracing-event for target "io_tracer" that will be consumed by the
@@ -368,7 +368,7 @@ pub fn default_subscriber(
         sub
     }));
 
-    let subscriber = subscriber.with(DelayDetectorLayer::default());
+    let subscriber = subscriber.with(SpanDurationLogger::default());
 
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),
@@ -443,7 +443,7 @@ pub async fn default_subscriber_with_opentelemetry(
         sub
     }));
 
-    let subscriber = subscriber.with(DelayDetectorLayer::default());
+    let subscriber = subscriber.with(SpanDurationLogger::default());
 
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),

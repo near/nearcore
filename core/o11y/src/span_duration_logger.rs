@@ -9,7 +9,7 @@ use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;
 
 #[derive(Default)]
-pub(crate) struct DelayDetectorLayer {}
+pub(crate) struct SpanDurationLogger {}
 
 const MAX_BUSY_DURATION_NS: u64 = 1000000000; // 1.0 sec
 
@@ -20,14 +20,20 @@ pub(crate) static SPAN_DURATIONS: Lazy<HistogramVec> = Lazy::new(|| {
         &["name", "level", "target"],
         // Cover the range from 0.01s to 10s.
         // Keep the number of buckets small to limit the memory usage.
-        Some(exponential_buckets(0.01, 2.15443469, 10).unwrap()),
+        Some(exponential_buckets(0.01, 10f64.powf(1. / 3.), 10).unwrap()),
     )
     .unwrap()
 });
 
+// Keeps track of the time a span existed and was entered.
+// The time since creation of a span is `idle + busy`.
 struct Timings {
+    /// The time a span existed but wasn't entered.
     idle: u64,
+    /// Measures the time spent in the span, i.e. between enter() and exit().
+    /// Note that a span may be entered and exited multiple times.
     busy: u64,
+    /// Instant of a last event: creation, enter, exit.
     last: Instant,
 }
 
@@ -41,7 +47,7 @@ impl Timings {
 // computes the durations of spans, and the worst that can happen is a span
 // duration getting reported in a wrong bucket.
 #[allow(clippy::arithmetic_side_effects)]
-impl<S> Layer<S> for DelayDetectorLayer
+impl<S> Layer<S> for SpanDurationLogger
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
 {
