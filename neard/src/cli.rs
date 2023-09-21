@@ -178,8 +178,14 @@ impl NeardOpts {
     pub fn verbose_target(&self) -> Option<&str> {
         match self.verbose {
             None => None,
-            Some(None) => Some(""),
-            Some(Some(ref target)) => Some(target.as_str()),
+            Some(None) => {
+                tracing::error!(target: "neard", "--verbose flag is deprecated, please use RUST_LOG or log_config.json instead.");
+                Some("")
+            }
+            Some(Some(ref target)) => {
+                tracing::error!(target: "neard", "--verbose flag is deprecated, please use RUST_LOG or log_config.json instead.");
+                Some(target.as_str())
+            }
         }
     }
 }
