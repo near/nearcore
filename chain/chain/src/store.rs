@@ -1201,7 +1201,11 @@ impl ChainStoreAccess for ChainStore {
     }
 
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        self.store.exists(DBCol::Chunks, h.as_ref()).map_err(|e| e.into())
+        if self.chunks.get(h.as_ref()).is_some() {
+            Ok(true)
+        } else {
+            self.store.exists(DBCol::Chunks, h.as_ref()).map_err(|e| e.into())
+        }
     }
 
     /// Get previous header.
@@ -3009,7 +3013,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         let mut chunk_hashes_by_height: HashMap<BlockHeight, HashSet<ChunkHash>> = HashMap::new();
         for (chunk_hash, chunk) in self.chain_store_cache_update.chunks.iter() {
-            if self.chain_store.get_chunk(chunk_hash).is_ok() {
+            if self.chain_store.chunk_exists(chunk_hash)? {
                 // No need to add same Chunk once again
                 continue;
             }
