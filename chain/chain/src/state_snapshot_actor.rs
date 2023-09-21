@@ -6,6 +6,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_store::flat::FlatStorageManager;
 use near_store::ShardTries;
 use std::sync::Arc;
+use near_performance_metrics_macros::perf;
 
 /// Runs tasks related to state snapshots.
 pub struct StateSnapshotActor {
@@ -44,6 +45,7 @@ struct CompactSnapshotRequest {}
 impl actix::Handler<WithSpanContext<MakeSnapshotRequest>> for StateSnapshotActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<MakeSnapshotRequest>,
@@ -76,6 +78,7 @@ impl actix::Handler<WithSpanContext<MakeSnapshotRequest>> for StateSnapshotActor
 impl actix::Handler<WithSpanContext<CompactSnapshotRequest>> for StateSnapshotActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<CompactSnapshotRequest>,

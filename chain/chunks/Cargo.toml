@@ -36,6 +36,7 @@ near-o11y.workspace = true
 near-chain.workspace = true
 near-pool.workspace = true
 near-performance-metrics.workspace = true
+near-performance-metrics-macros.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
