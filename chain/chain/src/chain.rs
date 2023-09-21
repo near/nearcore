@@ -3005,6 +3005,8 @@ impl Chain {
                     state_root_node,
                 })
             }
+
+            ShardChunk::V3(_) => todo!("#9535"),
         };
         Ok(shard_state_header)
     }
