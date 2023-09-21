@@ -156,6 +156,7 @@ pub enum Parameter {
     Ed25519Verify,
     AltBn128,
     FunctionCallWeight,
+    VmKind,
 }
 
 #[derive(

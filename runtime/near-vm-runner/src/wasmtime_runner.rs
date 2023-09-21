@@ -1,5 +1,4 @@
 use crate::errors::{ContractPrecompilatonResult, IntoVMError};
-use crate::internal::VMKind;
 use crate::logic::errors::{
     CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMLogicError,
     VMRunnerError, WasmTrap,
@@ -9,6 +8,7 @@ use crate::logic::Config;
 use crate::logic::{
     CompiledContractCache, External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome,
 };
+use crate::VMKind;
 use crate::{imports, prepare, ContractCode};
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use std::borrow::Cow;

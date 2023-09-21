@@ -6,3 +6,4 @@ contract_prepare_version: { old: 1, new: 2 }
 
 # There was a bug for a short period of time that we need to reproduce...
 disable_9393_fix: { old: false, new: true }
+vm_kind: { old: Wasmer2, new: NearVm }

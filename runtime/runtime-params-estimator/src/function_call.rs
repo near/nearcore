@@ -4,10 +4,10 @@ use crate::vm_estimator::create_context;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::types::ProtocolVersion;
 use near_store::StoreCompiledContractCache;
-use near_vm_runner::internal::VMKind;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::logic::CompiledContractCache;
 use near_vm_runner::ContractCode;
+use near_vm_runner::VMKind;
 use std::fmt::Write;
 
 /// Estimates linear cost curve for a function call execution cost per byte of

@@ -5,6 +5,7 @@ use near_primitives_core::parameter::{FeeParameter, Parameter};
 use near_primitives_core::runtime::fees::{Fee, RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives_core::types::AccountId;
 use near_vm_runner::logic::{Config, StorageGetMode};
+use near_vm_runner::VMKind;
 use num_rational::Rational32;
 use std::collections::BTreeMap;
 
@@ -36,6 +37,9 @@ pub(crate) enum ValueConversionError {
 
     #[error("expected an account id, but could not parse it from `{1}`")]
     ParseAccountId(#[source] ParseAccountError, String),
+
+    #[error("expected a VM kind, but could not parse it from `{1}`")]
+    ParseVmKind(#[source] strum::ParseError, String),
 }
 
 macro_rules! implement_conversion_to {
@@ -158,6 +162,21 @@ impl TryFrom<&ParameterValue> for AccountId {
     fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
         let value: &str = value.try_into()?;
         value.parse().map_err(|err| ValueConversionError::ParseAccountId(err, value.to_string()))
+    }
+}
+
+impl TryFrom<&ParameterValue> for VMKind {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+        match value {
+            ParameterValue::String(v) => {
+                v.parse().map_err(|e| ValueConversionError::ParseVmKind(e, value.to_string()))
+            }
+            _ => {
+                Err(ValueConversionError::ParseType(std::any::type_name::<VMKind>(), value.clone()))
+            }
+        }
     }
 }
 
@@ -287,6 +306,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                         cost => params.get(cost.param())?
                     },
                 },
+                vm_kind: params.get(Parameter::VmKind)?,
                 grow_mem_cost: params.get(Parameter::WasmGrowMemCost)?,
                 regular_op_cost: params.get(Parameter::WasmRegularOpCost)?,
                 disable_9393_fix: params.get(Parameter::Disable9393Fix)?,

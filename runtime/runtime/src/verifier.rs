@@ -535,22 +535,6 @@ fn truncate_string(s: &str, limit: usize) -> String {
     unreachable!()
 }
 
-#[test]
-fn test_truncate_string() {
-    fn check(input: &str, limit: usize, want: &str) {
-        let got = truncate_string(input, limit);
-        assert_eq!(got, want)
-    }
-    check("", 10, "");
-    check("hello", 0, "");
-    check("hello", 2, "he");
-    check("hello", 4, "hell");
-    check("hello", 5, "hello");
-    check("hello", 6, "hello");
-    check("hello", 10, "hello");
-    check("привет", 3, "п");
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -581,6 +565,11 @@ mod tests {
 
     /// One NEAR, divisible by 10^24.
     const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
+
+    fn test_limit_config() -> LimitConfig {
+        let store = near_primitives::runtime::config_store::RuntimeConfigStore::test();
+        store.get_config(PROTOCOL_VERSION).wasm_config.limit_config.clone()
+    }
 
     fn setup_common(
         initial_balance: Balance,
@@ -1488,7 +1477,7 @@ mod tests {
 
     #[test]
     fn test_validate_receipt_valid() {
-        let limit_config = LimitConfig::test();
+        let limit_config = test_limit_config();
         validate_receipt(
             &limit_config,
             &Receipt::new_balance_refund(&alice_account(), 10),
@@ -1499,7 +1488,7 @@ mod tests {
 
     #[test]
     fn test_validate_action_receipt_too_many_input_deps() {
-        let mut limit_config = LimitConfig::test();
+        let mut limit_config = test_limit_config();
         limit_config.max_number_input_data_dependencies = 1;
         assert_eq!(
             validate_action_receipt(
@@ -1526,7 +1515,7 @@ mod tests {
 
     #[test]
     fn test_validate_data_receipt_valid() {
-        let limit_config = LimitConfig::test();
+        let limit_config = test_limit_config();
         validate_data_receipt(
             &limit_config,
             &DataReceipt { data_id: CryptoHash::default(), data: None },
@@ -1542,7 +1531,7 @@ mod tests {
 
     #[test]
     fn test_validate_data_receipt_too_much_data() {
-        let mut limit_config = LimitConfig::test();
+        let mut limit_config = test_limit_config();
         let data = b"hello".to_vec();
         limit_config.max_length_returned_data = data.len() as u64 - 1;
         assert_eq!(
@@ -1562,13 +1551,13 @@ mod tests {
 
     #[test]
     fn test_validate_actions_empty() {
-        let limit_config = LimitConfig::test();
+        let limit_config = test_limit_config();
         validate_actions(&limit_config, &[], PROTOCOL_VERSION).expect("empty actions");
     }
 
     #[test]
     fn test_validate_actions_valid_function_call() {
-        let limit_config = LimitConfig::test();
+        let limit_config = test_limit_config();
         validate_actions(
             &limit_config,
             &[Action::FunctionCall(Box::new(FunctionCallAction {
@@ -1584,7 +1573,7 @@ mod tests {
 
     #[test]
     fn test_validate_actions_too_much_gas() {
-        let mut limit_config = LimitConfig::test();
+        let mut limit_config = test_limit_config();
         limit_config.max_total_prepaid_gas = 220;
         assert_eq!(
             validate_actions(
@@ -1612,7 +1601,7 @@ mod tests {
 
     #[test]
     fn test_validate_actions_gas_overflow() {
-        let mut limit_config = LimitConfig::test();
+        let mut limit_config = test_limit_config();
         limit_config.max_total_prepaid_gas = 220;
         assert_eq!(
             validate_actions(
@@ -1640,7 +1629,7 @@ mod tests {
 
     #[test]
     fn test_validate_actions_num_actions() {
-        let mut limit_config = LimitConfig::test();
+        let mut limit_config = test_limit_config();
         limit_config.max_actions_per_receipt = 1;
         assert_eq!(
             validate_actions(
@@ -1661,7 +1650,7 @@ mod tests {
 
     #[test]
     fn test_validate_delete_must_be_final() {
-        let mut limit_config = LimitConfig::test();
+        let mut limit_config = test_limit_config();
         limit_config.max_actions_per_receipt = 3;
         assert_eq!(
             validate_actions(
@@ -1681,7 +1670,7 @@ mod tests {
 
     #[test]
     fn test_validate_delete_must_work_if_its_final() {
-        let mut limit_config = LimitConfig::test();
+        let mut limit_config = test_limit_config();
         limit_config.max_actions_per_receipt = 3;
         assert_eq!(
             validate_actions(
@@ -1703,7 +1692,7 @@ mod tests {
     #[test]
     fn test_validate_action_valid_create_account() {
         validate_action(
-            &LimitConfig::test(),
+            &test_limit_config(),
             &Action::CreateAccount(CreateAccountAction {}),
             PROTOCOL_VERSION,
         )
@@ -1713,7 +1702,7 @@ mod tests {
     #[test]
     fn test_validate_action_valid_function_call() {
         validate_action(
-            &LimitConfig::test(),
+            &test_limit_config(),
             &Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
@@ -1729,7 +1718,7 @@ mod tests {
     fn test_validate_action_invalid_function_call_zero_gas() {
         assert_eq!(
             validate_action(
-                &LimitConfig::test(),
+                &test_limit_config(),
                 &Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "new".to_string(),
                     args: vec![],
@@ -1746,7 +1735,7 @@ mod tests {
     #[test]
     fn test_validate_action_valid_transfer() {
         validate_action(
-            &LimitConfig::test(),
+            &test_limit_config(),
             &Action::Transfer(TransferAction { deposit: 10 }),
             PROTOCOL_VERSION,
         )
@@ -1756,7 +1745,7 @@ mod tests {
     #[test]
     fn test_validate_action_valid_stake() {
         validate_action(
-            &LimitConfig::test(),
+            &test_limit_config(),
             &Action::Stake(Box::new(StakeAction {
                 stake: 100,
                 public_key: "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7".parse().unwrap(),
@@ -1770,7 +1759,7 @@ mod tests {
     fn test_validate_action_invalid_staking_key() {
         assert_eq!(
             validate_action(
-                &LimitConfig::test(),
+                &test_limit_config(),
                 &Action::Stake(Box::new(StakeAction {
                     stake: 100,
                     public_key: PublicKey::empty(KeyType::ED25519),
@@ -1787,7 +1776,7 @@ mod tests {
     #[test]
     fn test_validate_action_valid_add_key_full_permission() {
         validate_action(
-            &LimitConfig::test(),
+            &test_limit_config(),
             &Action::AddKey(Box::new(AddKeyAction {
                 public_key: PublicKey::empty(KeyType::ED25519),
                 access_key: AccessKey::full_access(),
@@ -1800,7 +1789,7 @@ mod tests {
     #[test]
     fn test_validate_action_valid_add_key_function_call() {
         validate_action(
-            &LimitConfig::test(),
+            &test_limit_config(),
             &Action::AddKey(Box::new(AddKeyAction {
                 public_key: PublicKey::empty(KeyType::ED25519),
                 access_key: AccessKey {
@@ -1820,7 +1809,7 @@ mod tests {
     #[test]
     fn test_validate_action_valid_delete_key() {
         validate_action(
-            &LimitConfig::test(),
+            &test_limit_config(),
             &Action::DeleteKey(Box::new(DeleteKeyAction {
                 public_key: PublicKey::empty(KeyType::ED25519),
             })),
@@ -1832,7 +1821,7 @@ mod tests {
     #[test]
     fn test_validate_action_valid_delete_account() {
         validate_action(
-            &LimitConfig::test(),
+            &test_limit_config(),
             &Action::DeleteAccount(DeleteAccountAction { beneficiary_id: alice_account() }),
             PROTOCOL_VERSION,
         )
@@ -1857,7 +1846,7 @@ mod tests {
         };
         assert_eq!(
             validate_actions(
-                &LimitConfig::test(),
+                &test_limit_config(),
                 &[
                     Action::Delegate(Box::new(signed_delegate_action.clone())),
                     Action::Delegate(Box::new(signed_delegate_action.clone())),
@@ -1868,7 +1857,7 @@ mod tests {
         );
         assert_eq!(
             validate_actions(
-                &&LimitConfig::test(),
+                &&test_limit_config(),
                 &[Action::Delegate(Box::new(signed_delegate_action.clone())),],
                 PROTOCOL_VERSION,
             ),
@@ -1876,7 +1865,7 @@ mod tests {
         );
         assert_eq!(
             validate_actions(
-                &LimitConfig::test(),
+                &test_limit_config(),
                 &[
                     Action::CreateAccount(CreateAccountAction {}),
                     Action::Delegate(Box::new(signed_delegate_action)),
@@ -1885,5 +1874,21 @@ mod tests {
             ),
             Ok(()),
         );
+    }
+
+    #[test]
+    fn test_truncate_string() {
+        fn check(input: &str, limit: usize, want: &str) {
+            let got = truncate_string(input, limit);
+            assert_eq!(got, want)
+        }
+        check("", 10, "");
+        check("hello", 0, "");
+        check("hello", 2, "he");
+        check("hello", 4, "hell");
+        check("hello", 5, "hello");
+        check("hello", 6, "hello");
+        check("hello", 10, "hello");
+        check("привет", 3, "п");
     }
 }
