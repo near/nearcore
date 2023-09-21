@@ -3,7 +3,7 @@ use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::fees::{Fee, RuntimeFeesConfig};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_runner::logic::{Config as VMConfig, StorageGetMode};
+use near_vm_runner::logic::Config as VMConfig;
 use node_runtime::config::RuntimeConfig;
 
 use anyhow::Context;
@@ -35,15 +35,8 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
             ext_costs: ext_costs_config(cost_table)?,
             grow_mem_cost: 1,
             regular_op_cost: u32::try_from(regular_op_cost).unwrap(),
-            disable_9393_fix: false,
             limit_config: vm_limit_config,
-            storage_get_mode: StorageGetMode::FlatStorage,
-            fix_contract_loading_cost: false,
-            implicit_account_creation: true,
-            math_extension: true,
-            ed25519_verify: true,
-            alt_bn128: true,
-            function_call_weight: true,
+            ..latest_runtime_config.wasm_config
         },
         account_creation_config: AccountCreationConfig::default(),
     };

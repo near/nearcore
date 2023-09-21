@@ -61,7 +61,8 @@ fn test_max_register_size() {
 #[test]
 fn test_max_register_memory_limit() {
     let mut logic_builder = VMLogicBuilder::free();
-    let config = Config::free();
+    let mut config = Config::test();
+    config.make_free();
     logic_builder.config = config.clone();
     let mut logic = logic_builder.build();
 

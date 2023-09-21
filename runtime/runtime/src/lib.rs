@@ -345,7 +345,6 @@ impl Runtime {
                     account_id,
                     deploy_contract,
                     apply_state,
-                    apply_state.current_protocol_version,
                 )?;
             }
             Action::FunctionCall(function_call) => {
@@ -1179,6 +1178,7 @@ impl Runtime {
         let _span = tracing::debug_span!(
             target: "runtime",
             "apply",
+            protocol_version = apply_state.current_protocol_version,
             num_transactions = transactions.len())
         .entered();
 
@@ -2457,14 +2457,8 @@ mod tests {
         store_update.commit().unwrap();
 
         let contract_code = near_vm_runner::ContractCode::new(wasm_code, None);
-        let vm_kind = near_vm_runner::internal::VMKind::for_protocol_version(
-            apply_state.current_protocol_version,
-        );
-        let key = near_vm_runner::get_contract_cache_key(
-            &contract_code,
-            vm_kind,
-            &apply_state.config.wasm_config,
-        );
+        let key =
+            near_vm_runner::get_contract_cache_key(&contract_code, &apply_state.config.wasm_config);
         apply_state
             .cache
             .unwrap()

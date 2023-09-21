@@ -111,12 +111,6 @@ near_vm = [
     "near-vm-vm"
 ]
 
-# Force usage of a specific wasm vm irrespective of protocol version.
-force_wasmer0 = ["wasmer0_vm"]
-force_wasmtime = ["wasmtime_vm"]
-force_wasmer2 = ["wasmer2_vm"]
-force_near_vm = ["near_vm"]
-
 no_cpu_compatibility_checks = []
 
 no_cache = []
