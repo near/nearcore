@@ -3,11 +3,11 @@ use near_primitives::runtime::{
 };
 use near_primitives_core::types::Gas;
 use near_primitives_core::version::ProtocolFeature;
-use near_vm_runner::internal::VMKind;
 use near_vm_runner::logic::{
     mocks::mock_external::MockedExternal, ProtocolVersion, VMContext, VMOutcome,
 };
 use near_vm_runner::ContractCode;
+use near_vm_runner::VMKind;
 use std::{collections::HashSet, fmt::Write, sync::Arc};
 
 pub(crate) fn test_builder() -> TestBuilder {

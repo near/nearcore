@@ -1,6 +1,5 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::imports::near_vm::NearVmImports;
-use crate::internal::VMKind;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
@@ -12,6 +11,7 @@ use crate::logic::{
 };
 use crate::prepare;
 use crate::runner::VMResult;
+use crate::VMKind;
 use crate::{get_contract_cache_key, imports, ContractCode};
 use memoffset::offset_of;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
@@ -217,7 +217,7 @@ impl NearVmConfig {
 //  major version << 6
 //  minor version
 const VM_CONFIG: NearVmConfig = NearVmConfig {
-    seed: (2 << 29) | (2 << 6) | 0,
+    seed: (2 << 29) | (2 << 6) | 1,
     engine: NearVmEngine::Universal,
     compiler: NearVmCompiler::Singlepass,
 };
@@ -323,7 +323,7 @@ impl NearVM {
         cache: Option<&dyn CompiledContractCache>,
     ) -> Result<Result<UniversalExecutable, CompilationError>, CacheError> {
         let executable_or_error = self.compile_uncached(code);
-        let key = get_contract_cache_key(code, VMKind::NearVm, &self.config);
+        let key = get_contract_cache_key(code, &self.config);
 
         if let Some(cache) = cache {
             let record = match &executable_or_error {
@@ -352,7 +352,7 @@ impl NearVM {
         // re-parse invalid code (invalid code, in a sense, is a normal
         // outcome). And `cache`, being a database, can fail with an `io::Error`.
         let _span = tracing::debug_span!(target: "vm", "NearVM::compile_and_load").entered();
-        let key = get_contract_cache_key(code, VMKind::NearVm, &self.config);
+        let key = get_contract_cache_key(code, &self.config);
         let cache_record = cache
             .map(|cache| cache.get(&key))
             .transpose()

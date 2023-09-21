@@ -1,6 +1,6 @@
-use crate::internal::VMKind;
 use crate::logic::errors::PrepareError;
 use crate::logic::Config;
+use crate::VMKind;
 use finite_wasm::wasmparser as wp;
 use wasm_encoder::{Encode, Section, SectionId};
 
@@ -362,8 +362,8 @@ impl<'a> wp::VisitOperator<'a> for SimpleGasCostCfg {
 
 #[cfg(test)]
 mod test {
-    use crate::internal::VMKind;
     use crate::logic::{Config, ContractPrepareVersion};
+    use crate::VMKind;
 
     #[test]
     fn v2_preparation_wasmtime_generates_valid_contract() {

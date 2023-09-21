@@ -1,11 +1,12 @@
 #![no_main]
 
-use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_vm_runner::internal::VMKind;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::logic::errors::FunctionCallError;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
-use near_vm_runner::logic::{Config, VMOutcome};
+use near_vm_runner::logic::VMOutcome;
 use near_vm_runner::ContractCode;
+use near_vm_runner::VMKind;
 use near_vm_runner_fuzz::{create_context, find_entry_point, ArbitraryModule};
 
 libfuzzer_sys::fuzz_target!(|module: ArbitraryModule| {
@@ -19,20 +20,22 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMOutcome {
     let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
     context.prepaid_gas = 10u64.pow(14);
-    let mut config = Config::test();
-    config.limit_config.contract_prepare_version =
+    let config_store = RuntimeConfigStore::new(None);
+    let config = config_store.get_config(PROTOCOL_VERSION);
+    let fees = &config.fees;
+    let mut wasm_config = config.wasm_config.clone();
+    wasm_config.limit_config.contract_prepare_version =
         near_vm_runner::logic::ContractPrepareVersion::V2;
-    let fees = RuntimeFeesConfig::test();
 
     let promise_results = vec![];
 
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
-    let res = vm_kind.runtime(config).unwrap().run(
+    let res = vm_kind.runtime(wasm_config).unwrap().run(
         code,
         &method_name,
         &mut fake_external,
         context,
-        &fees,
+        fees,
         &promise_results,
         None,
     );

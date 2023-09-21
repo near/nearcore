@@ -148,10 +148,10 @@ pub fn test_populate_flat_storage(
 }
 
 /// Insert values to non-reference-counted columns in the store.
-pub fn test_populate_store(store: &Store, data: &[(DBCol, Vec<u8>, Vec<u8>)]) {
+pub fn test_populate_store(store: &Store, data: impl Iterator<Item = (DBCol, Vec<u8>, Vec<u8>)>) {
     let mut update = store.store_update();
     for (column, key, value) in data {
-        update.insert(*column, key, value);
+        update.insert(column, key, value);
     }
     update.commit().expect("db commit failed");
 }

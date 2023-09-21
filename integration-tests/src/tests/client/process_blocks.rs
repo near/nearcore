@@ -3612,7 +3612,6 @@ mod contract_precompilation_tests {
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_primitives::views::ViewApplyState;
     use near_store::{Store, StoreCompiledContractCache, TrieUpdate};
-    use near_vm_runner::internal::VMKind;
     use near_vm_runner::logic::CompiledContractCache;
     use near_vm_runner::{get_contract_cache_key, ContractCode};
     use node_runtime::state_viewer::TrieViewer;
@@ -3696,7 +3695,6 @@ mod contract_precompilation_tests {
         let mut caches: Vec<StoreCompiledContractCache> =
             stores.iter().map(StoreCompiledContractCache::new).collect();
         let contract_code = ContractCode::new(wasm_code.clone(), None);
-        let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
         let epoch_id = env.clients[0]
             .chain
             .get_block_by_height(height - 1)
@@ -3705,7 +3703,7 @@ mod contract_precompilation_tests {
             .epoch_id()
             .clone();
         let runtime_config = env.get_runtime_config(0, epoch_id);
-        let key = get_contract_cache_key(&contract_code, vm_kind, &runtime_config.wasm_config);
+        let key = get_contract_cache_key(&contract_code, &runtime_config.wasm_config);
         for i in 0..num_clients {
             caches[i]
                 .get(&key)
@@ -3821,7 +3819,6 @@ mod contract_precompilation_tests {
 
         let caches: Vec<StoreCompiledContractCache> =
             stores.iter().map(StoreCompiledContractCache::new).collect();
-        let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
         let epoch_id = env.clients[0]
             .chain
             .get_block_by_height(height - 1)
@@ -3832,12 +3829,10 @@ mod contract_precompilation_tests {
         let runtime_config = env.get_runtime_config(0, epoch_id);
         let tiny_contract_key = get_contract_cache_key(
             &ContractCode::new(tiny_wasm_code.clone(), None),
-            vm_kind,
             &runtime_config.wasm_config,
         );
         let test_contract_key = get_contract_cache_key(
             &ContractCode::new(wasm_code.clone(), None),
-            vm_kind,
             &runtime_config.wasm_config,
         );
 
@@ -3932,10 +3927,8 @@ mod contract_precompilation_tests {
             .epoch_id()
             .clone();
         let runtime_config = env.get_runtime_config(0, epoch_id);
-        let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
         let contract_key = get_contract_cache_key(
             &ContractCode::new(wasm_code.clone(), None),
-            vm_kind,
             &runtime_config.wasm_config,
         );
 

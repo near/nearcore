@@ -27,6 +27,7 @@ mod wasmer_runner;
 mod wasmtime_runner;
 
 pub use crate::logic::with_ext_cost_counter;
+pub use crate::vm_kind::VMKind;
 pub use cache::{get_contract_cache_key, precompile_contract, MockCompiledContractCache};
 pub use code::ContractCode;
 pub use config::ContractPrepareVersion;
@@ -38,6 +39,5 @@ pub use runner::{run, VM};
 /// implementation detail of `near-vm-runner`.
 #[doc(hidden)]
 pub mod internal {
-    pub use crate::vm_kind::VMKind;
     pub use wasmparser;
 }
