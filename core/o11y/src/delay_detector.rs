@@ -11,16 +11,14 @@ use tracing_subscriber::Layer;
 #[derive(Default)]
 pub(crate) struct DelayDetectorLayer {}
 
-const MAX_BUSY_DURATION_NS: u64 = 1000000000; // 1.0 sec
+const MAX_BUSY_DURATION_NS: u64 = 500000000; // 0.5 sec
 
-pub(crate) static SPAN_DURATIONS: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static LONG_SPAN_HISTOGRAM: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_span_duration",
-        "Distribution of the duration of spans with long duration",
-        &["name", "level", "target"],
-        // Cover the range from 0.01s to 10s.
-        // Keep the number of buckets small to limit the memory usage.
-        Some(exponential_buckets(0.01, 2.15443469, 10).unwrap()),
+        "near_long_span_elapsed",
+        "Distribution of the duration of spans wth long duration",
+        &["name", "level", "target", "file", "line"],
+        Some(exponential_buckets(1.0, 1.2, 30).unwrap()),
     )
     .unwrap()
 });
@@ -37,10 +35,6 @@ impl Timings {
     }
 }
 
-// Allow arithmetic side effects, because this is not a critical code. It
-// computes the durations of spans, and the worst that can happen is a span
-// duration getting reported in a wrong bucket.
-#[allow(clippy::arithmetic_side_effects)]
 impl<S> Layer<S> for DelayDetectorLayer
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
@@ -77,19 +71,21 @@ where
         if let Some(Timings { busy, mut idle, last }) = extensions.get::<Timings>() {
             idle += (Instant::now() - *last).as_nanos() as u64;
 
-            let name = span.name();
-            let level = span.metadata().level();
-            let target = span.metadata().target();
-            let busy_sec = *busy as f64 * 1e-9;
-            SPAN_DURATIONS.with_label_values(&[name, level.as_str(), target]).observe(busy_sec);
-            if *busy > MAX_BUSY_DURATION_NS {
+            if busy > &MAX_BUSY_DURATION_NS {
+                let level = span.metadata().level();
+                let target = span.metadata().target();
                 let file = span.metadata().file().unwrap_or("");
                 let line = span.metadata().line().map_or("".to_string(), |x| x.to_string());
+                let name = span.name();
 
+                let busy_sec = *busy as f64 * 1e-9;
                 let idle_sec = idle as f64 * 1e-9;
-                tracing::debug!(target: "delay_detector",
+                tracing::warn!(target: "delay_detector",
                     "Span duration too long: {busy_sec:.2}s. Idle time: {idle_sec:.2}s. {level}: {target}: {name}. {file}:{line}",
                 );
+                LONG_SPAN_HISTOGRAM
+                    .with_label_values(&[name, level.as_str(), target, file, &line])
+                    .observe(busy_sec);
             }
         }
     }
