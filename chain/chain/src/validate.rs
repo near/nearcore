@@ -10,9 +10,7 @@ use near_primitives::challenge::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
-use near_primitives::sharding::{
-    ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkHeaderV2, ShardChunkHeaderV3,
-};
+use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, Nonce};
@@ -29,21 +27,10 @@ pub fn validate_chunk_proofs(
     chunk: &ShardChunk,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<bool, Error> {
-    let correct_chunk_hash = match chunk {
-        ShardChunk::V1(chunk) => ShardChunkHeaderV1::compute_hash(&chunk.header.inner),
-        ShardChunk::V2(chunk) => match &chunk.header {
-            ShardChunkHeader::V1(header) => ShardChunkHeaderV1::compute_hash(&header.inner),
-            ShardChunkHeader::V2(header) => ShardChunkHeaderV2::compute_hash(&header.inner),
-            ShardChunkHeader::V3(header) => ShardChunkHeaderV3::compute_hash(&header.inner),
-        },
-    };
-
-    let header_hash = match chunk {
-        ShardChunk::V1(chunk) => chunk.header.chunk_hash(),
-        ShardChunk::V2(chunk) => chunk.header.chunk_hash(),
-    };
+    let correct_chunk_hash = chunk.compute_header_hash();
 
     // 1. Checking chunk.header.hash
+    let header_hash = chunk.header_hash();
     if header_hash != correct_chunk_hash {
         byzantine_assert!(false);
         return Ok(false);
@@ -70,11 +57,8 @@ pub fn validate_chunk_proofs(
         return Ok(receipts.is_empty() && outgoing_receipts_root == CryptoHash::default());
     } else {
         let shard_layout = {
-            let prev_block_hash = match chunk {
-                ShardChunk::V1(chunk) => &chunk.header.inner.prev_block_hash,
-                ShardChunk::V2(chunk) => chunk.header.prev_block_hash(),
-            };
-            epoch_manager.get_shard_layout_from_prev_block(prev_block_hash)?
+            let prev_block_hash = chunk.prev_block_hash();
+            epoch_manager.get_shard_layout_from_prev_block(&prev_block_hash)?
         };
         let outgoing_receipts_hashes = Chain::build_receipts_hashes(receipts, &shard_layout);
         let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
