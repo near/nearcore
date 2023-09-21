@@ -254,7 +254,7 @@ impl NightshadeRuntime {
         is_first_block_with_chunk_of_version: bool,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyTransactionResult, Error> {
-        let _span = tracing::debug_span!(target: "runtime", "process_state_update").entered();
+        let _span = tracing::debug_span!(target: "runtime", "psu").entered();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
             let epoch_manager = self.epoch_manager.read();
@@ -545,7 +545,12 @@ impl NightshadeRuntime {
         // TODO: Make it impossible for the snapshot data to be deleted while the snapshot is in use.
         let snapshot_trie = self
             .tries
-            .get_trie_with_block_hash_for_shard_from_snapshot(shard_uid, *state_root, &prev_hash)
+            .get_trie_with_block_hash_for_shard_from_snapshot(
+                shard_uid,
+                *state_root,
+                &prev_hash,
+                &prev_hash,
+            )
             .map_err(|err| Error::Other(err.to_string()))?;
         let state_part = match snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, partial_state, nibbles_begin, nibbles_end, &trie_with_state) {
             Ok(partial_state) => partial_state,

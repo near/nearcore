@@ -1070,10 +1070,10 @@ mod tests {
         let mut trie_values_missing = trie_values.clone();
         trie_values_missing.remove(num_trie_values / 2);
         let wrong_state_part = PartialState::TrieValues(trie_values_missing);
-        assert_eq!(
+        assert!(matches!(
             Trie::validate_state_part(&root, part_id, wrong_state_part),
-            Err(StorageError::MissingTrieValue)
-        );
+            Err(StorageError::MissingTrieValue(_))
+        ));
 
         // Add extra value to the state part, check that validation fails.
         let mut trie_values_extra = trie_values.clone();
@@ -1176,7 +1176,7 @@ mod tests {
 
         let view_chunk_trie =
             tries.get_trie_with_block_hash_for_shard(shard_uid, root, &block_hash, true);
-        assert_eq!(
+        assert_matches!(
             view_chunk_trie.get_trie_nodes_for_part_with_flat_storage(
                 part_id,
                 partial_state,
@@ -1184,7 +1184,7 @@ mod tests {
                 nibbles_end,
                 &trie_without_flat,
             ),
-            Err(StorageError::MissingTrieValue)
+            Err(StorageError::MissingTrieValue(_))
         );
 
         // Fill flat storage and check that state part creation succeeds.
@@ -1219,9 +1219,9 @@ mod tests {
         store_update.decrement_refcount(DBCol::State, &store_key);
         store_update.commit().unwrap();
 
-        assert_eq!(
+        assert_matches!(
             trie_without_flat.get_trie_nodes_for_part_without_flat_storage(part_id),
-            Err(StorageError::MissingTrieValue)
+            Err(StorageError::MissingTrieValue(_))
         );
         assert_eq!(
             view_chunk_trie.get_trie_nodes_for_part_with_flat_storage(
@@ -1242,7 +1242,7 @@ mod tests {
         delta.apply_to_flat_state(&mut store_update, shard_uid);
         store_update.commit().unwrap();
 
-        assert_eq!(
+        assert_matches!(
             view_chunk_trie.get_trie_nodes_for_part_with_flat_storage(
                 part_id,
                 partial_state,
@@ -1250,7 +1250,7 @@ mod tests {
                 nibbles_end,
                 &trie_without_flat,
             ),
-            Err(StorageError::MissingTrieValue)
+            Err(StorageError::MissingTrieValue(_))
         );
     }
 }

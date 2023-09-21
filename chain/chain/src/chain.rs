@@ -2073,7 +2073,7 @@ impl Chain {
         let block_height = block.header().height();
         let _span = tracing::debug_span!(
             target: "chain",
-            "start_process_block_impl",
+            "spbi",
             height = block_height)
         .entered();
         // 0) Before we proceed with any further processing, we first check that the block
@@ -5817,8 +5817,7 @@ pub fn do_apply_chunks(
     work: Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send>>,
 ) -> Vec<Result<ApplyChunkResult, Error>> {
     let parent_span =
-        tracing::debug_span!(target: "chain", "do_apply_chunks", block_height, %block_hash)
-            .entered();
+        tracing::debug_span!(target: "chain", "dac", block_height, %block_hash).entered();
     work.into_par_iter()
         .map(|task| {
             // As chunks can be processed in parallel, make sure they are all tracked as children of

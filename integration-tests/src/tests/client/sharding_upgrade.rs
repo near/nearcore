@@ -1,4 +1,5 @@
 use borsh::BorshSerialize;
+use itertools::Itertools;
 use near_chain::types::RuntimeAdapter;
 use near_client::{Client, ProcessTxResponse};
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
@@ -310,6 +311,10 @@ impl TestShardUpgradeEnv {
             let mut block = block_producer_client.produce_block(next_height).unwrap().unwrap();
             set_block_protocol_version(&mut block, block_producer.clone(), protocol_version);
 
+            let state_roots =
+                block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect_vec();
+            tracing::debug!(target: "test", height=block.header().height(), hash=?block.hash(), ?state_roots, "Produced block.");
+
             block
         };
 
@@ -344,7 +349,7 @@ impl TestShardUpgradeEnv {
             // because we want to call run_catchup before finish processing this block. This simulates
             // that catchup and block processing run in parallel.
             let block = MaybeValidated::from(block.clone());
-            client.start_process_block(block, Provenance::NONE, Arc::new(|_| {})).unwrap();
+            client.start_process_block(block.clone(), Provenance::NONE, Arc::new(|_| {})).unwrap();
             if should_catchup {
                 run_catchup(client, &[]).unwrap();
             }
@@ -353,6 +358,16 @@ impl TestShardUpgradeEnv {
                     client.postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
+            if j == 0 {
+                let runtime = &client.runtime_adapter;
+                let state_root = block.chunks().get(0).unwrap().prev_state_root();
+                let prev_hash = block.header().prev_hash();
+                let trie = runtime.get_trie_for_shard(0, prev_hash, state_root, true).unwrap();
+                // let tries = runtime.trie
+                tracing::info!(?state_root, ?prev_hash, "printing trie at height {next_height}");
+                trie.print_recursive_leaves(10000);
+            }
+
             if should_catchup {
                 run_catchup(&mut env.clients[j], &[]).unwrap();
             }
@@ -838,9 +853,9 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_se
     let target_protocol_version = get_target_protocol_version(&resharding_type);
 
     // setup
-    let epoch_length = 5;
+    let epoch_length = 10;
     let mut test_env =
-        TestShardUpgradeEnv::new(epoch_length, 2, 2, 100, None, genesis_protocol_version, rng_seed);
+        TestShardUpgradeEnv::new(epoch_length, 2, 2, 0, None, genesis_protocol_version, rng_seed);
     test_env.set_init_tx(vec![]);
 
     let mut nonce = 100;
@@ -850,7 +865,11 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_se
     let initial_accounts = test_env.initial_accounts.clone();
 
     // add transactions until after sharding upgrade finishes
-    for height in 2..3 * epoch_length {
+    // for height in 2..3 * epoch_length {
+    for height in vec![9] {
+        // if height == 9 {
+        //     continue;
+        // }
         let txs = generate_create_accounts_txs(
             &mut test_env.rng,
             genesis_hash,

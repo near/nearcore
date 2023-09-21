@@ -880,10 +880,10 @@ pub(crate) fn view_trie_leaves(
     state_root_hash: CryptoHash,
     shard_id: u32,
     shard_version: u32,
-    max_depth: u32,
+    _max_depth: u32,
 ) -> anyhow::Result<()> {
-    let trie = get_trie(store, state_root_hash, shard_id, shard_version);
-    trie.print_recursive_leaves(&mut std::io::stdout().lock(), max_depth);
+    let _trie = get_trie(store, state_root_hash, shard_id, shard_version);
+    // trie.print_recursive_leaves(&mut std::io::stdout().lock(), max_depth);
     Ok(())
 }
 

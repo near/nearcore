@@ -1293,14 +1293,14 @@ impl Runtime {
          -> Result<_, RuntimeError> {
             let _span = tracing::debug_span!(
                 target: "runtime",
-                "process_receipt",
+                "pr",
                 receipt_id = %receipt.receipt_id,
                 predecessor = %receipt.predecessor_id,
                 receiver = %receipt.receiver_id,
                 id = %receipt.receipt_id,
             )
             .entered();
-            let node_counter_before = state_update.trie().get_trie_nodes_count();
+            let _node_counter_before = state_update.trie().get_trie_nodes_count();
             let result = self.process_receipt(
                 state_update,
                 apply_state,
@@ -1310,8 +1310,9 @@ impl Runtime {
                 &mut stats,
                 epoch_info_provider,
             );
-            let node_counter_after = state_update.trie().get_trie_nodes_count();
-            tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
+            let _node_counter_after = state_update.trie().get_trie_nodes_count();
+            // tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
+            tracing::trace!(target: "runtime", "");
 
             if let Some(outcome_with_id) = result? {
                 *total_gas_burnt =

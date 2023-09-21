@@ -639,11 +639,13 @@ impl Trie {
     // Prints the trie leaves starting from the state root node, up to max_depth depth.
     // This method can only iterate starting from the root node and it only prints the
     // leaf nodes but it shows output in more human friendly way.
-    pub fn print_recursive_leaves(&self, f: &mut dyn std::io::Write, max_depth: u32) {
+    // pub fn print_recursive_leaves(&self, _f: &mut dyn std::io::Write, max_depth: u32) {
+    pub fn print_recursive_leaves(&self, max_depth: u32) {
         let iter = match self.iter_with_max_depth(max_depth as usize) {
             Ok(iter) => iter,
             Err(err) => {
-                writeln!(f, "Error when getting the trie iterator: {}", err).expect("write failed");
+                // writeln!(f, "Error when getting the trie iterator: {}", err).expect("write failed");
+                tracing::warn!("printing trie Error when getting the trie iterator: {}", err);
                 return;
             }
         };
@@ -651,20 +653,26 @@ impl Trie {
             let (key, value) = match node {
                 Ok((key, value)) => (key, value),
                 Err(err) => {
-                    writeln!(f, "Failed to iterate node with error: {err}").expect("write failed");
+                    tracing::warn!("printing trie Failed to iterate node with error: {err}");
+                    // writeln!(f, "Failed to iterate node with error: {err}").expect("write failed");
                     continue;
                 }
             };
 
             // Try to parse the key in UTF8 which works only for the simplest keys (e.g. account),
             // or get whitespace padding instead.
-            let key_string = match str::from_utf8(&key) {
-                Ok(value) => String::from(value),
-                Err(_) => " ".repeat(key.len()),
-            };
+            // let key_string = match str::from_utf8(&key) {
+            //     Ok(value) => String::from(value),
+            //     Err(_) => " ".repeat(key.len()),
+            // };
             let state_record = StateRecord::from_raw_key_value(key.clone(), value);
-
-            writeln!(f, "boom {} {state_record:?}", key_string).expect("write failed");
+            if let Some(state_record) = state_record.clone() {
+                if state_record.get_type_string() != "Account" {
+                    continue;
+                }
+            }
+            tracing::info!("printing trie {state_record:?}");
+            // writeln!(f, "boom {} {state_record:?}", key_string).expect("write failed");
         }
     }
 
@@ -1118,13 +1126,12 @@ pub mod estimator {
 
 #[cfg(test)]
 mod tests {
-    use rand::Rng;
-
     use crate::test_utils::{
         create_test_store, create_tries, create_tries_complex, gen_changes, simplify_changes,
         test_populate_trie,
     };
     use crate::DBCol;
+    use rand::Rng;
 
     use super::*;
 
@@ -1459,7 +1466,7 @@ mod tests {
 
         assert_eq!(trie3.get(b"dog"), Ok(Some(b"puppy".to_vec())));
         assert_eq!(trie3.get(b"horse"), Ok(Some(b"stallion".to_vec())));
-        assert_eq!(trie3.get(b"doge"), Err(StorageError::MissingTrieValue));
+        assert!(matches!(trie3.get(b"doge"), Err(StorageError::MissingTrieValue(_))));
     }
 
     #[test]

@@ -13,6 +13,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
+use near_primitives::state_record::StateRecord;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, StateRoot};
@@ -33,12 +34,13 @@ const RESHARDING_BATCH_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(300
 /// StateSplitRequest has all the information needed to start a resharding job. This message is sent
 /// from ClientActor to SyncJobsActor. We do not want to stall the ClientActor with a long running
 /// resharding job. The SyncJobsActor is helpful for handling such long running jobs.
-#[derive(actix::Message)]
+#[derive(actix::Message, Clone)]
 #[rtype(result = "()")]
 pub struct StateSplitRequest {
     pub tries: Arc<ShardTries>,
     pub sync_hash: CryptoHash,
-    pub snapshot_hash: CryptoHash,
+    pub prev_hash: CryptoHash,
+    pub prev_prev_hash: CryptoHash,
     pub shard_uid: ShardUId,
     pub state_root: StateRoot,
     pub next_epoch_shard_layout: ShardLayout,
@@ -48,10 +50,10 @@ pub struct StateSplitRequest {
 // and many fields.
 impl Debug for StateSplitRequest {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // TODO
         f.debug_struct("StateSplitRequest")
             .field("tries", &"<not shown>")
             .field("sync_hash", &self.sync_hash)
-            .field("snapshot_hash", &self.snapshot_hash)
             .field("shard_uid", &self.shard_uid)
             .field("state_root", &self.state_root)
             .field("next_epoch_shard_layout", &self.next_epoch_shard_layout)
@@ -185,8 +187,10 @@ impl Chain {
         state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<(), Error> {
         let block_header = self.get_block_header(sync_hash)?;
+        let prev_hash = block_header.prev_hash();
+
         let prev_block_header = self.get_block_header(block_header.prev_hash())?;
-        let snapshot_hash = prev_block_header.prev_hash();
+        let prev_prev_hash = prev_block_header.prev_hash();
 
         let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
         let next_epoch_shard_layout =
@@ -194,13 +198,13 @@ impl Chain {
         assert_ne!(shard_layout, next_epoch_shard_layout);
 
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let prev_hash = block_header.prev_hash();
         let state_root = *self.get_chunk_extra(&prev_hash, &shard_uid)?.state_root();
 
         state_split_scheduler(StateSplitRequest {
             tries: Arc::new(self.runtime_adapter.get_tries()),
             sync_hash: *sync_hash,
-            snapshot_hash: *snapshot_hash,
+            prev_hash: *prev_hash,
+            prev_prev_hash: *prev_prev_hash,
             shard_uid,
             state_root,
             next_epoch_shard_layout,
@@ -218,8 +222,52 @@ impl Chain {
     ) -> StateSplitResponse {
         let shard_id = state_split_request.shard_uid.shard_id();
         let sync_hash = state_split_request.sync_hash;
-        let new_state_roots = Self::build_state_for_split_shards_impl_v2(state_split_request);
-        StateSplitResponse { shard_id, sync_hash, new_state_roots }
+        let new_state_roots_v1 =
+            Self::build_state_for_split_shards_impl(state_split_request.clone());
+        let new_state_roots_v2 =
+            Self::build_state_for_split_shards_impl_v2(state_split_request.clone());
+
+        if let (Ok(v1), Ok(v2)) = (new_state_roots_v1.as_ref(), new_state_roots_v2.as_ref()) {
+            assert_eq!(v1, v2);
+        }
+
+        StateSplitResponse { shard_id, sync_hash, new_state_roots: new_state_roots_v2 }
+    }
+
+    fn print_flat_storage(
+        store: &Store,
+        flat_storage_manager: &FlatStorageManager,
+        shard_uid: &ShardUId,
+        block_hash: &CryptoHash,
+    ) {
+        tracing::debug!(target: "state_snapshot", ?shard_uid, "printing flat storage 2");
+
+        let chunk_view = flat_storage_manager.chunk_view(*shard_uid, *block_hash);
+        if let Some(chunk_view) = chunk_view {
+            let trie_storage = TrieDBStorage::new(store.clone(), *shard_uid);
+
+            for item in chunk_view.iter_flat_state_entries(None, None) {
+                if let Ok((key, value)) = item {
+                    let value = match value {
+                        FlatStateValue::Ref(ref_value) => {
+                            trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()
+                        }
+                        FlatStateValue::Inlined(inline_value) => inline_value,
+                    };
+                    let state_record = StateRecord::from_raw_key_value(key, value);
+                    if let Some(state_record) = state_record.clone() {
+                        if state_record.get_type_string() != "Account" {
+                            continue;
+                        }
+                    }
+                    tracing::debug!(target: "state_snapshot", "printing flat storage 2 {state_record:?}");
+                } else {
+                    tracing::debug!(target: "state_snapshot", "printing flat storage 2 failed");
+                }
+            }
+        } else {
+            tracing::warn!(target: "state_snapshot", block_hash=?block_hash, ?shard_uid, "printing flat storage 2 failed to get chunk view");
+        }
     }
 
     // TODO(#9446) remove function when shifting to flat storage iteration for resharding
@@ -263,15 +311,13 @@ impl Chain {
         Ok(state_roots)
     }
 
-    // TODO(#9446) After implementing iterator at specific head, shift to build_state_for_split_shards_impl_v2
-    #[allow(dead_code)]
     fn build_state_for_split_shards_impl_v2(
         state_split_request: StateSplitRequest,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         let StateSplitRequest {
             tries,
-            // sync_hash,
-            snapshot_hash,
+            prev_hash,
+            prev_prev_hash,
             shard_uid,
             state_root,
             next_epoch_shard_layout,
@@ -296,12 +342,32 @@ impl Chain {
             get_checked_account_id_to_shard_uid_fn(shard_uid, new_shards, next_epoch_shard_layout);
 
         let trie = tries
-            .get_trie_with_block_hash_for_shard_from_snapshot(shard_uid, state_root, &snapshot_hash)
+            .get_trie_with_block_hash_for_shard_from_snapshot(
+                shard_uid,
+                state_root,
+                &prev_prev_hash,
+                &prev_prev_hash,
+                // &prev_hash,
+            )
             .unwrap();
         let trie_state_root = trie.get_root();
-        let trie_nodes_count = trie.get_trie_nodes_count();
-        tracing::info!(?shard_uid, ?trie_state_root, ?trie_nodes_count, "printing trie");
-        trie.print_recursive_leaves(&mut std::io::stdout().lock(), 10000);
+        tracing::info!(
+            ?shard_uid,
+            ?prev_hash,
+            snapshot_block_hash=?prev_prev_hash,
+            trie_block_hash=?prev_hash,
+            ?state_root,
+            ?trie_state_root,
+            "printing trie from snapshot"
+        );
+
+        {
+            let (store, flat_storage_manager) = tries.get_state_snapshot(&prev_prev_hash).unwrap();
+
+            Self::print_flat_storage(&store, &flat_storage_manager, &shard_uid, &prev_prev_hash);
+        }
+
+        // trie.print_recursive_leaves(10000);
 
         let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
         let iter = trie.iter_flat_state_entries(vec![], LAST_STATE_PART_BOUNDARY.to_vec()).unwrap();
@@ -313,6 +379,8 @@ impl Chain {
                 }
                 FlatStateValue::Inlined(inline_value) => inline_value,
             };
+            let state_record = StateRecord::from_raw_key_value(key.clone(), value.clone());
+            tracing::debug!(?shard_uid, "printing flat storage iter {state_record:?}");
             (key, value)
         });
         let mut iter = iter;
@@ -401,6 +469,8 @@ impl Chain {
 
 #[cfg(test)]
 mod tests {
+    /*
+
     use super::StateSplitRequest;
     use crate::Chain;
     use near_primitives::account::Account;
@@ -422,7 +492,6 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
 
-    /*
     #[test]
     fn test_split_and_update_states() {
         // build states
@@ -577,7 +646,6 @@ mod tests {
                 );
             }
         }
-    */
 
     fn compare_state_and_split_states(
         tries: &ShardTries,
@@ -636,4 +704,5 @@ mod tests {
             .filter(|(key, _)| parse_account_id_from_raw_key(key).unwrap().is_some())
             .collect()
     }
+    */
 }
