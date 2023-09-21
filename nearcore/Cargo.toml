@@ -173,11 +173,6 @@ nightly_protocol = [
   "node-runtime/nightly_protocol",
 ]
 
-# Force usage of a specific wasm vm irrespective of protocol version.
-force_wasmer2 = ["near-vm-runner/force_wasmer2"]
-force_wasmer0 = ["near-vm-runner/force_wasmer0"]
-force_wasmtime = ["near-vm-runner/force_wasmtime"]
-
 sandbox = [
   "near-client/sandbox",
   "node-runtime/sandbox",

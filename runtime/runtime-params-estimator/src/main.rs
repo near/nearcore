@@ -3,9 +3,8 @@
 use anyhow::Context;
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::RuntimeConfigView;
-use near_vm_runner::internal::VMKind;
+use near_vm_runner::VMKind;
 use replay::ReplayCmd;
 use runtime_params_estimator::config::{Config, GasMetric};
 use runtime_params_estimator::{
@@ -61,7 +60,7 @@ struct CliArgs {
     #[clap(long, default_value = "time", value_parser(["icount", "time"]))]
     metric: String,
     /// Which VM to test.
-    #[clap(long, value_enum, default_value_t = VMKind::for_protocol_version(PROTOCOL_VERSION))]
+    #[clap(long, value_enum, default_value_t = VMKind::NearVm)]
     vm_kind: VMKind,
     /// Render existing `costs.txt` as `RuntimeConfig`.
     #[clap(long)]
@@ -510,7 +509,7 @@ mod tests {
             fs_keys_per_delta: 1,
             skip_build_test_contract: false,
             metric: "time".to_owned(),
-            vm_kind: VMKind::for_protocol_version(PROTOCOL_VERSION),
+            vm_kind: VMKind::NearVm,
             costs_file: None,
             compare_to: None,
             costs: Some(costs),
