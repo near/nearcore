@@ -11,6 +11,7 @@ use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::account::AccessKey;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -645,7 +646,8 @@ impl ChunkForwardingOptimizationTestData {
                 self.env.shards_manager(&account_id).send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
                         partial_encoded_chunk.into(),
-                    ),
+                    )
+                    .with_span_context(),
                 );
             }
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
@@ -666,7 +668,8 @@ impl ChunkForwardingOptimizationTestData {
                 }
                 self.num_part_ords_forwarded += forward.parts.len();
                 self.env.shards_manager(&account_id).send(
-                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward),
+                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward)
+                        .with_span_context(),
                 );
             }
             _ => {
