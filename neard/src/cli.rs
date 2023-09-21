@@ -177,17 +177,10 @@ struct NeardOpts {
 impl NeardOpts {
     // TODO(nikurt): Delete in 1.38 or later.
     pub fn verbose_target(&self) -> Option<&str> {
-        match self.verbose {
-            None => None,
-            Some(None) => {
-                tracing::error!(target: "neard", "--verbose flag is deprecated, please use RUST_LOG or log_config.json instead.");
-                Some("")
-            }
-            Some(Some(ref target)) => {
-                tracing::error!(target: "neard", "--verbose flag is deprecated, please use RUST_LOG or log_config.json instead.");
-                Some(target.as_str())
-            }
-        }
+        self.verbose.as_ref().map(|inner| {
+            tracing::error!(target: "neard", "--verbose flag is deprecated, please use RUST_LOG or log_config.json instead.");
+            inner.as_ref().map_or("", String::as_str)
+        })
     }
 }
 
