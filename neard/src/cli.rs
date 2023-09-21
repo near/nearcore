@@ -175,6 +175,7 @@ struct NeardOpts {
 }
 
 impl NeardOpts {
+    // TODO(nikurt): Delete in 1.38 or later.
     pub fn verbose_target(&self) -> Option<&str> {
         match self.verbose {
             None => None,
