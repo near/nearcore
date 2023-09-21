@@ -403,6 +403,14 @@ impl ShardChunkHeader {
             ShardChunkHeader::V3(_) => BLOCK_HEADER_V3_VERSION <= version,
         }
     }
+
+    pub fn compute_hash(&self) -> ChunkHash {
+        match self {
+            ShardChunkHeader::V1(header) => ShardChunkHeaderV1::compute_hash(&header.inner),
+            ShardChunkHeader::V2(header) => ShardChunkHeaderV2::compute_hash(&header.inner),
+            ShardChunkHeader::V3(header) => ShardChunkHeaderV3::compute_hash(&header.inner),
+        }
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, Eq, PartialEq, Clone, Debug, Default)]
@@ -651,10 +659,20 @@ pub struct ShardChunkV2 {
     pub prev_outgoing_receipts: Vec<Receipt>,
 }
 
+// V2 -> V3: Switch to post-state-root
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+pub struct ShardChunkV3 {
+    pub chunk_hash: ChunkHash,
+    pub header: ShardChunkHeader,
+    pub transactions: Vec<SignedTransaction>,
+    pub outgoing_receipts: Vec<Receipt>,
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub enum ShardChunk {
     V1(ShardChunkV1),
     V2(ShardChunkV2),
+    V3(ShardChunkV3),
 }
 
 impl ShardChunk {
@@ -676,6 +694,11 @@ impl ShardChunk {
                 transactions: chunk.transactions,
                 prev_outgoing_receipts: chunk.prev_outgoing_receipts,
             })),
+            Self::V3(chunk) => Some(ShardChunk::V3(ShardChunkV3 {
+                chunk_hash: header.chunk_hash(),
+                header,
+                ..chunk
+            })),
         }
     }
 
@@ -683,6 +706,7 @@ impl ShardChunk {
         match self {
             Self::V1(chunk) => chunk.header.height_included = height,
             Self::V2(chunk) => *chunk.header.height_included_mut() = height,
+            Self::V3(chunk) => *chunk.header.height_included_mut() = height,
         }
     }
 
@@ -691,6 +715,7 @@ impl ShardChunk {
         match self {
             Self::V1(chunk) => chunk.header.height_included,
             Self::V2(chunk) => chunk.header.height_included(),
+            Self::V3(chunk) => chunk.header.height_included(),
         }
     }
 
@@ -699,6 +724,7 @@ impl ShardChunk {
         match self {
             Self::V1(chunk) => chunk.header.inner.height_created,
             Self::V2(chunk) => chunk.header.height_created(),
+            Self::V3(chunk) => chunk.header.height_created(),
         }
     }
 
@@ -707,6 +733,7 @@ impl ShardChunk {
         match &self {
             ShardChunk::V1(chunk) => &chunk.header.inner.prev_block_hash,
             ShardChunk::V2(chunk) => chunk.header.prev_block_hash(),
+            ShardChunk::V3(chunk) => chunk.header.prev_block_hash(),
         }
     }
 
@@ -715,6 +742,7 @@ impl ShardChunk {
         match self {
             Self::V1(chunk) => chunk.header.inner.prev_state_root,
             Self::V2(chunk) => chunk.header.prev_state_root(),
+            Self::V3(chunk) => chunk.header.prev_state_root(),
         }
     }
 
@@ -723,6 +751,7 @@ impl ShardChunk {
         match self {
             Self::V1(chunk) => chunk.header.inner.tx_root,
             Self::V2(chunk) => chunk.header.tx_root(),
+            Self::V3(chunk) => chunk.header.tx_root(),
         }
     }
 
@@ -731,6 +760,7 @@ impl ShardChunk {
         match self {
             Self::V1(chunk) => chunk.header.inner.prev_outgoing_receipts_root,
             Self::V2(chunk) => chunk.header.prev_outgoing_receipts_root(),
+            Self::V3(chunk) => chunk.header.prev_outgoing_receipts_root(),
         }
     }
 
@@ -739,6 +769,7 @@ impl ShardChunk {
         match self {
             Self::V1(chunk) => chunk.header.inner.shard_id,
             Self::V2(chunk) => chunk.header.shard_id(),
+            Self::V3(chunk) => chunk.header.shard_id(),
         }
     }
 
@@ -747,6 +778,7 @@ impl ShardChunk {
         match self {
             Self::V1(chunk) => chunk.chunk_hash.clone(),
             Self::V2(chunk) => chunk.chunk_hash.clone(),
+            Self::V3(chunk) => chunk.chunk_hash.clone(),
         }
     }
 
@@ -755,6 +787,9 @@ impl ShardChunk {
         match self {
             Self::V1(chunk) => &chunk.prev_outgoing_receipts,
             Self::V2(chunk) => &chunk.prev_outgoing_receipts,
+            Self::V3(_) => {
+                panic!("post-state-root chunk does not contain previous chunk's outgoing receipts")
+            }
         }
     }
 
@@ -763,6 +798,25 @@ impl ShardChunk {
         match self {
             Self::V1(chunk) => &chunk.transactions,
             Self::V2(chunk) => &chunk.transactions,
+            Self::V3(chunk) => &chunk.transactions,
+        }
+    }
+
+    #[inline]
+    pub fn header_hash(&self) -> ChunkHash {
+        match self {
+            Self::V1(chunk) => chunk.header.chunk_hash(),
+            Self::V2(chunk) => chunk.header.chunk_hash(),
+            Self::V3(chunk) => chunk.header.chunk_hash(),
+        }
+    }
+
+    #[inline]
+    pub fn prev_block_hash(&self) -> CryptoHash {
+        match self {
+            Self::V1(chunk) => chunk.header.inner.prev_block_hash,
+            Self::V2(chunk) => *chunk.header.prev_block_hash(),
+            Self::V3(chunk) => *chunk.header.prev_block_hash(),
         }
     }
 
@@ -771,6 +825,7 @@ impl ShardChunk {
         match self {
             Self::V1(chunk) => ShardChunkHeader::V1(chunk.header),
             Self::V2(chunk) => chunk.header,
+            Self::V3(chunk) => chunk.header,
         }
     }
 
@@ -778,6 +833,15 @@ impl ShardChunk {
         match self {
             Self::V1(chunk) => ShardChunkHeader::V1(chunk.header.clone()),
             Self::V2(chunk) => chunk.header.clone(),
+            Self::V3(chunk) => chunk.header.clone(),
+        }
+    }
+
+    pub fn compute_header_hash(&self) -> ChunkHash {
+        match self {
+            Self::V1(chunk) => ShardChunkHeaderV1::compute_hash(&chunk.header.inner),
+            Self::V2(chunk) => chunk.header.compute_hash(),
+            Self::V3(chunk) => chunk.header.compute_hash(),
         }
     }
 }
