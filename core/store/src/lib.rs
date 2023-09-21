@@ -1109,3 +1109,23 @@ mod tests {
         );
     }
 }
+
+pub struct PrintTimeOnDrop {
+    msg: &'static str,
+    start: std::time::Instant,
+}
+
+impl PrintTimeOnDrop {
+    pub fn new(msg: &'static str) -> Self {
+        Self { msg, start: std::time::Instant::now() }
+    }
+}
+
+impl Drop for PrintTimeOnDrop {
+    fn drop(&mut self) {
+        let elapsed = self.start.elapsed();
+        if elapsed.as_micros() > 1 {
+            tracing::warn!(target: "chain", " {} took: {:?}.\n", self.msg, elapsed)
+        }
+    }
+}

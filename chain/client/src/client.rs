@@ -166,7 +166,7 @@ pub struct Client {
     flat_storage_creator: Option<FlatStorageCreator>,
 
     /// Actor address for IO operations that may block for a long time.
-    blocking_io_actor: actix::Addr<BlockingIoActor>,
+    pub blocking_io_actor: actix::Addr<BlockingIoActor>,
 }
 
 impl Client {
@@ -213,6 +213,10 @@ impl Client {
         rng_seed: RngSeed,
         make_state_snapshot_callback: Option<MakeSnapshotCallback>,
     ) -> Result<Self, Error> {
+        // TODO: How to set this number? How does it relate to other io threads?
+        let todo_io_threads = 4;
+        let blocking_io_actor = SyncArbiter::start(todo_io_threads, || BlockingIoActor);
+
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
         } else {
@@ -231,6 +235,7 @@ impl Client {
             doomslug_threshold_mode,
             chain_config.clone(),
             make_state_snapshot_callback,
+            Some(blocking_io_actor.clone()),
         )?;
         // Create flat storage or initiate migration to flat storage.
         let flat_storage_creator = FlatStorageCreator::new(

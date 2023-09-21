@@ -1,6 +1,7 @@
 use crate::block_processing_utils::{
     BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing, DoneApplyChunkCallback,
 };
+use crate::blocking_io_actor::BlockingIoActor;
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::lightclient::get_epoch_block_producers_view;
@@ -475,6 +476,8 @@ pub struct Chain {
 
     /// Lets trigger new state snapshots.
     state_snapshot_helper: Option<StateSnapshotHelper>,
+
+    blocking_io_actor: Option<actix::Addr<BlockingIoActor>>,
 }
 
 /// Lets trigger new state snapshots.
@@ -577,6 +580,7 @@ impl Chain {
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
             state_snapshot_helper: None,
+            blocking_io_actor: None,
         })
     }
 
@@ -588,6 +592,7 @@ impl Chain {
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_config: ChainConfig,
         make_snapshot_callback: Option<MakeSnapshotCallback>,
+        blocking_io_actor: Option<actix::Addr<BlockingIoActor>>,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
@@ -747,6 +752,7 @@ impl Chain {
                     .state_snapshot_every_n_blocks
                     .map(|n| (0, n)),
             }),
+            blocking_io_actor,
         })
     }
 
@@ -2249,10 +2255,16 @@ impl Chain {
         block_preprocess_info: BlockPreprocessInfo,
         apply_results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<Option<Tip>, Error> {
+        let addr = self.blocking_io_actor.clone().take();
         let mut chain_update = self.chain_update();
         let new_head =
             chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results)?;
-        chain_update.commit()?;
+        // chain_update.commit()?; // TODO: This commit can take forever
+        if let Some(blocking_io_actor) = addr {
+            chain_update.chain_store_update.commit_async(blocking_io_actor)?;
+        } else {
+            chain_update.commit()?;
+        }
         Ok(new_head)
     }
 

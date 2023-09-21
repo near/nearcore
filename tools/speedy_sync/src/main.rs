@@ -246,6 +246,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
             state_snapshot_every_n_blocks: None,
         },
         None,
+        None,
     )
     .unwrap();
 

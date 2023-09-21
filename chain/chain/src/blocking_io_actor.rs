@@ -1,4 +1,5 @@
 use near_o11y::WithSpanContext;
+use near_performance_metrics_macros::perf;
 use near_store::StoreUpdate;
 
 /// Runs IO tasks that would block a normal arbiter for too long.
@@ -23,6 +24,7 @@ impl actix::Actor for BlockingIoActor {
 impl actix::Handler<WithSpanContext<BlockingIoActorMessage>> for BlockingIoActor {
     type Result = std::io::Result<()>;
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<BlockingIoActorMessage>,

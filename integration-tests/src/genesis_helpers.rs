@@ -34,6 +34,7 @@ pub fn genesis_header(genesis: &Genesis) -> BlockHeader {
         DoomslugThresholdMode::TwoThirds,
         ChainConfig::test(),
         None,
+        None,
     )
     .unwrap();
     chain.genesis().clone()
@@ -56,6 +57,7 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
         &chain_genesis,
         DoomslugThresholdMode::TwoThirds,
         ChainConfig::test(),
+        None,
         None,
     )
     .unwrap();

@@ -113,6 +113,7 @@ pub fn setup_with_tx_validity_period(
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
+        None,
     )
     .unwrap();
 
@@ -150,6 +151,7 @@ pub fn setup_with_validators(
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
+        None,
     )
     .unwrap();
     (chain, epoch_manager, runtime, signers)
@@ -185,6 +187,7 @@ pub fn setup_with_validators_and_start_time(
         },
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
+        None,
         None,
     )
     .unwrap();
