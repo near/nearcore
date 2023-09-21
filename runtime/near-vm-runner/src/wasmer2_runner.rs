@@ -1,6 +1,5 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::imports::wasmer2::Wasmer2Imports;
-use crate::internal::VMKind;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
@@ -12,6 +11,7 @@ use crate::logic::{
 };
 use crate::prepare;
 use crate::runner::VMResult;
+use crate::VMKind;
 use crate::{get_contract_cache_key, imports, ContractCode};
 use memoffset::offset_of;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
@@ -218,7 +218,7 @@ impl Wasmer2Config {
 //  major version << 6
 //  minor version
 const WASMER2_CONFIG: Wasmer2Config = Wasmer2Config {
-    seed: (1 << 29) | (12 << 6) | 0,
+    seed: (1 << 29) | (12 << 6) | 1,
     engine: WasmerEngine::Universal,
     compiler: WasmerCompiler::Singlepass,
 };
@@ -296,7 +296,7 @@ impl Wasmer2VM {
         cache: Option<&dyn CompiledContractCache>,
     ) -> Result<Result<UniversalExecutable, CompilationError>, CacheError> {
         let executable_or_error = self.compile_uncached(code);
-        let key = get_contract_cache_key(code, VMKind::Wasmer2, &self.config);
+        let key = get_contract_cache_key(code, &self.config);
 
         if let Some(cache) = cache {
             let record = match &executable_or_error {
@@ -329,7 +329,7 @@ impl Wasmer2VM {
         // outcome). And `cache`, being a database, can fail with an `io::Error`.
         let _span = tracing::debug_span!(target: "vm", "Wasmer2VM::compile_and_load").entered();
 
-        let key = get_contract_cache_key(code, VMKind::Wasmer2, &self.config);
+        let key = get_contract_cache_key(code, &self.config);
 
         let compile_or_read_from_cache = || -> VMResult<Result<VMArtifact, CompilationError>> {
             let _span = tracing::debug_span!(target: "vm", "Wasmer2VM::compile_or_read_from_cache")

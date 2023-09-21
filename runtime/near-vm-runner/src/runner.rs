@@ -6,7 +6,6 @@ use crate::logic::{CompiledContractCache, External, VMContext, VMOutcome};
 use crate::vm_kind::VMKind;
 use crate::ContractCode;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
-use near_primitives_core::types::ProtocolVersion;
 
 /// Returned by VM::run method.
 ///
@@ -49,10 +48,9 @@ pub fn run(
     wasm_config: &Config,
     fees_config: &RuntimeFeesConfig,
     promise_results: &[PromiseResult],
-    current_protocol_version: ProtocolVersion,
     cache: Option<&dyn CompiledContractCache>,
 ) -> VMResult {
-    let vm_kind = VMKind::for_protocol_version(current_protocol_version);
+    let vm_kind = wasm_config.vm_kind;
     let span = tracing::debug_span!(
         target: "vm",
         "run",
@@ -60,7 +58,6 @@ pub fn run(
         %method_name,
         ?vm_kind,
         burnt_gas = tracing::field::Empty,
-        %current_protocol_version,
     )
     .entered();
 

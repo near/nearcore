@@ -2,7 +2,6 @@
 #![cfg(target_arch = "x86_64")]
 
 use super::{create_context, with_vm_variants};
-use crate::internal::VMKind;
 use crate::logic::errors::VMRunnerError;
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::Config;
@@ -10,6 +9,7 @@ use crate::logic::{CompiledContract, CompiledContractCache};
 use crate::runner::VMResult;
 use crate::wasmer2_runner::Wasmer2VM;
 use crate::ContractCode;
+use crate::VMKind;
 use crate::{prepare, MockCompiledContractCache};
 use assert_matches::assert_matches;
 use near_primitives_core::hash::CryptoHash;
@@ -111,8 +111,8 @@ fn test_wasmer2_artifact_output_stability() {
     let prepared_hashes = [
         11313378614122864359,
         15129741658507107429,
-        5094307245783848260,
-        7694538159330999784,
+        6663551338814735895,
+        17573418911223110359,
         3130574445877428311,
         11574598916196339098,
         10719493536745069553,
@@ -121,8 +121,8 @@ fn test_wasmer2_artifact_output_stability() {
     let compiled_hashes = [
         10064221885882795403,
         3125775751094251057,
-        10028445138356098295,
-        12076298193069645776,
+        5419113076376709775,
+        11996380560209519923,
         5262356478082097591,
         15002713309850850128,
         17666356303775050986,
@@ -192,8 +192,8 @@ fn test_near_vm_artifact_output_stability() {
     let compiled_hashes = [
         4853457605418485197,
         13732980080772388685,
-        13113947215618315585,
-        14806575926393320657,
+        5341774541420947021,
+        11161633624742571232,
         12949634280637067071,
         6571507299571270433,
         2426595065881413005,
