@@ -15,10 +15,9 @@ use near_primitives::types::{
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, DownloadStatusView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
-    FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
-    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView,
-    SplitStorageInfoView, StateChangesKindsView, StateChangesRequestView, StateChangesView,
-    SyncStatusView,
+    GasPriceView, LightClientBlockLiteView, LightClientBlockView, MaintenanceWindowsView,
+    QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView, SplitStorageInfoView,
+    StateChangesKindsView, StateChangesRequestView, StateChangesView, SyncStatusView, TxStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use std::collections::HashMap;
@@ -721,7 +720,7 @@ impl From<near_chain_primitives::Error> for TxStatusError {
 }
 
 impl Message for TxStatus {
-    type Result = Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError>;
+    type Result = Result<TxStatusView, TxStatusError>;
 }
 
 #[derive(Debug)]

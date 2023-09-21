@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.3
+
+* Added `final_execution_status` field to the response of methods `tx`, `EXPERIMENTAL_tx_status`, `broadcast_tx_commit`
+
+### Breaking changes
+
+Response from `broadcast_tx_async` changed the type from String to Dict.
+The response has the same structure as in `broadcast_tx_commit`.
+It no longer contains transaction hash (which may be retrieved from Signed Transaction passed in request).
+
 ## 0.2.2
 
 * Extended error structures to be more explicit. See [#2976 decision comment for reference](https://github.com/near/nearcore/issues/2976#issuecomment-865834617)

@@ -138,7 +138,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                 spawn_interruptible(client.broadcast_tx_commit(to_base64(&bytes)).then(
                     move |res| {
                         let final_transaction_outcome = match res {
-                            Ok(outcome) => outcome,
+                            Ok(outcome) => outcome.final_execution_outcome.unwrap().into_outcome(),
                             Err(_) => return future::ready(()),
                         };
                         spawn_interruptible(sleep(Duration::from_secs(1)).then(move |_| {
