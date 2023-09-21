@@ -2351,7 +2351,7 @@ pub fn create_chunk(
             header.shard_id(),
             &mut rs,
             header.prev_gas_used(),
-            header.prev_gas_limit(),
+            header.gas_limit(),
             header.prev_balance_burnt(),
             tx_root,
             header.prev_validator_proposals().collect(),

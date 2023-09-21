@@ -239,7 +239,7 @@ fn apply_block_from_range(
                 chunk.transactions(),
                 chunk_inner.prev_validator_proposals(),
                 prev_block.header().gas_price(),
-                chunk_inner.prev_gas_limit(),
+                chunk_inner.gas_limit(),
                 block.header().challenges_result(),
                 *block.header().random_value(),
                 true,
