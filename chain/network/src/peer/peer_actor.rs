@@ -1509,6 +1509,7 @@ impl actix::Actor for PeerActor {
 
 impl actix::Handler<stream::Error> for PeerActor {
     type Result = ();
+    #[perf]
     fn handle(&mut self, err: stream::Error, ctx: &mut Self::Context) {
         let expected = match &err {
             stream::Error::Recv(stream::RecvError::MessageTooLarge { .. }) => {
