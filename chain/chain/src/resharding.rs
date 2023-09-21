@@ -271,7 +271,6 @@ impl Chain {
     }
 
     // TODO(#9446) remove function when shifting to flat storage iteration for resharding
-    #[allow(dead_code)]
     fn build_state_for_split_shards_impl(
         state_split_request: StateSplitRequest,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
@@ -361,18 +360,31 @@ impl Chain {
             "printing trie from snapshot"
         );
 
-        {
-            let (store, flat_storage_manager) = tries.get_state_snapshot(&prev_prev_hash).unwrap();
+        let (snapshot_store, snapshot_flat_storage_manager) =
+            tries.get_state_snapshot(&prev_prev_hash).unwrap();
+        let delta = store_helper::get_delta_changes(&snapshot_store, shard_uid, prev_hash)
+            .unwrap()
+            .unwrap();
+        // {
 
-            Self::print_flat_storage(&store, &flat_storage_manager, &shard_uid, &prev_prev_hash);
-        }
+        //     Self::print_flat_storage(&store, &flat_storage_manager, &shard_uid, &prev_prev_hash);
+        // }
 
         // trie.print_recursive_leaves(10000);
 
         let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
-        let iter = trie.iter_flat_state_entries(vec![], LAST_STATE_PART_BOUNDARY.to_vec()).unwrap();
-        let iter = iter.map(move |entry| -> (Vec<u8>, Vec<u8>) {
-            let (key, value) = entry.unwrap();
+        let iter1 = trie
+            .iter_flat_state_entries(vec![], LAST_STATE_PART_BOUNDARY.to_vec())
+            .unwrap()
+            .map(|e| {
+                let e = e.unwrap();
+                (e.0, Some(e.1))
+            });
+        let iter2 = delta.0.into_iter();
+
+        let iter = iter1.chain(iter2).map(move |(key, value)| -> (Vec<u8>, Vec<u8>) {
+            // let (key, value) = entry.unwrap();
+            let value = value.unwrap();
             let value = match value {
                 FlatStateValue::Ref(ref_value) => {
                     trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()
