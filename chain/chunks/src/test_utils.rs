@@ -6,6 +6,7 @@ use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_pro
 use near_epoch_manager::EpochManagerHandle;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
+use near_o11y::WithSpanContext;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{self, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -295,10 +296,24 @@ impl CanSend<ShardsManagerRequestFromClient> for SynchronousShardsManagerAdapter
     }
 }
 
+impl CanSend<WithSpanContext<ShardsManagerRequestFromClient>> for SynchronousShardsManagerAdapter {
+    fn send(&self, msg: WithSpanContext<ShardsManagerRequestFromClient>) {
+        let mut shards_manager = self.shards_manager.lock().unwrap();
+        shards_manager.handle_client_request(msg.msg);
+    }
+}
+
 impl CanSend<ShardsManagerRequestFromNetwork> for SynchronousShardsManagerAdapter {
     fn send(&self, msg: ShardsManagerRequestFromNetwork) {
         let mut shards_manager = self.shards_manager.lock().unwrap();
         shards_manager.handle_network_request(msg);
+    }
+}
+
+impl CanSend<WithSpanContext<ShardsManagerRequestFromNetwork>> for SynchronousShardsManagerAdapter {
+    fn send(&self, msg: WithSpanContext<ShardsManagerRequestFromNetwork>) {
+        let mut shards_manager = self.shards_manager.lock().unwrap();
+        shards_manager.handle_network_request(msg.msg);
     }
 }
 

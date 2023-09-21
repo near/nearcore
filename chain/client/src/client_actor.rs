@@ -1869,7 +1869,7 @@ pub fn start_client(
     runtime: Arc<dyn RuntimeAdapter>,
     node_id: PeerId,
     network_adapter: PeerManagerAdapter,
-    shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
+    shards_manager_adapter: Sender<WithSpanContext<ShardsManagerRequestFromClient>>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
     make_state_snapshot_callback: Option<MakeSnapshotCallback>,

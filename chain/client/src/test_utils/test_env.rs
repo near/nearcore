@@ -147,7 +147,7 @@ impl TestEnv {
                                 ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
                                     partial_encoded_chunk,
                                 );
-                            self.shards_manager(&account_id).send(message);
+                            self.shards_manager(&account_id).send(message.with_span_context());
                         }
                         PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::PartialEncodedChunkForward { account_id, forward },
@@ -156,7 +156,7 @@ impl TestEnv {
                                 ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
                                     forward,
                                 );
-                            self.shards_manager(&account_id).send(message);
+                            self.shards_manager(&account_id).send(message.with_span_context());
                         }
                         _ => {
                             tracing::debug!(target: "test", ?request, "skipping unsupported request type");
@@ -192,7 +192,8 @@ impl TestEnv {
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
                         partial_encoded_chunk_response: response,
                         received_time: Instant::now(),
-                    },
+                    }
+                    .with_span_context(),
                 );
             }
         } else {
@@ -209,7 +210,8 @@ impl TestEnv {
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
                 partial_encoded_chunk_request: request.clone(),
                 route_back: CryptoHash::default(),
-            },
+            }
+            .with_span_context(),
         );
         let response = self.network_adapters[id].pop_most_recent();
         match response {

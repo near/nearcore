@@ -26,6 +26,7 @@ use anyhow::Context;
 use arc_swap::ArcSwap;
 use near_async::messaging::Sender;
 use near_async::time;
+use near_o11y::WithSpanContext;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -98,7 +99,7 @@ pub(crate) struct NetworkState {
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     pub client: Arc<dyn client::Client>,
-    pub shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
+    pub shards_manager_adapter: Sender<WithSpanContext<ShardsManagerRequestFromNetwork>>,
 
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<Option<ChainInfo>>,
@@ -164,7 +165,7 @@ impl NetworkState {
         config: config::VerifiedConfig,
         genesis_id: GenesisId,
         client: Arc<dyn client::Client>,
-        shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
+        shards_manager_adapter: Sender<WithSpanContext<ShardsManagerRequestFromNetwork>>,
         whitelist_nodes: Vec<WhitelistNode>,
     ) -> Self {
         Self {
