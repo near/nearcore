@@ -7,6 +7,7 @@ use near_chain::chain::{
 use near_chain::resharding::StateSplitRequest;
 use near_chain::Chain;
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_performance_metrics_macros::perf;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::StatePartKey;
 use near_primitives::types::ShardId;
@@ -84,6 +85,7 @@ impl actix::Actor for SyncJobsActor {
 impl actix::Handler<WithSpanContext<ApplyStatePartsRequest>> for SyncJobsActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<ApplyStatePartsRequest>,
@@ -123,6 +125,7 @@ impl actix::Handler<WithSpanContext<ApplyStatePartsRequest>> for SyncJobsActor {
 impl actix::Handler<WithSpanContext<BlockCatchUpRequest>> for SyncJobsActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<BlockCatchUpRequest>,
@@ -142,6 +145,7 @@ impl actix::Handler<WithSpanContext<BlockCatchUpRequest>> for SyncJobsActor {
 impl actix::Handler<WithSpanContext<StateSplitRequest>> for SyncJobsActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<StateSplitRequest>,

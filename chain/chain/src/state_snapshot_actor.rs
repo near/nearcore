@@ -1,5 +1,6 @@
 use actix::AsyncContext;
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_performance_metrics_macros::perf;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -44,6 +45,7 @@ struct CompactSnapshotRequest {}
 impl actix::Handler<WithSpanContext<MakeSnapshotRequest>> for StateSnapshotActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<MakeSnapshotRequest>,
@@ -76,6 +78,7 @@ impl actix::Handler<WithSpanContext<MakeSnapshotRequest>> for StateSnapshotActor
 impl actix::Handler<WithSpanContext<CompactSnapshotRequest>> for StateSnapshotActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<CompactSnapshotRequest>,
