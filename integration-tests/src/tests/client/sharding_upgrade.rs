@@ -358,15 +358,6 @@ impl TestShardUpgradeEnv {
                     client.postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
-            if j == 0 {
-                let runtime = &client.runtime_adapter;
-                let state_root = block.chunks().get(0).unwrap().prev_state_root();
-                let prev_hash = block.header().prev_hash();
-                let trie = runtime.get_trie_for_shard(0, prev_hash, state_root, true).unwrap();
-                // let tries = runtime.trie
-                tracing::info!(?state_root, ?prev_hash, "printing trie at height {next_height}");
-                trie.print_recursive_leaves(10000);
-            }
 
             if should_catchup {
                 run_catchup(&mut env.clients[j], &[]).unwrap();

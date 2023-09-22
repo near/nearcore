@@ -239,7 +239,6 @@ pub fn iter_flat_state_entries<'a>(
     from: Option<&[u8]>,
     to: Option<&[u8]>,
 ) -> FlatStateIterator<'a> {
-    tracing::info!(?shard_uid, "boom iter_flat_state_entries");
     // If left direction is unbounded, encoded `shard_uid` serves as the
     // smallest possible key in DB for the shard.
     let db_key_from = match from {
