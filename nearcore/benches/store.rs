@@ -34,6 +34,7 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
             near_config.config.archive,
             &near_config.config.store,
             None,
+            false,
         )
         .open_in_mode(mode)
         .unwrap()

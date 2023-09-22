@@ -1816,7 +1816,7 @@ fn test_process_block_after_state_sync() {
         let tmp_dir = tempfile::tempdir().unwrap();
         // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
         // same configuration as in production.
-        let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
+        let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None, false)
             .open()
             .unwrap()
             .get_hot_store();
@@ -2194,7 +2194,7 @@ fn test_incorrect_validator_key_produce_block() {
         KeyType::ED25519,
         "seed",
     ));
-    let mut config = ClientConfig::test(true, 10, 20, 2, false, true, true, true);
+    let mut config = ClientConfig::test(true, 10, 20, 2, false, true, true, true, false);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
@@ -2573,7 +2573,7 @@ fn test_catchup_gas_price_change() {
         let tmp_dir = tempfile::tempdir().unwrap();
         // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
         // same configuration as in production.
-        let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
+        let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None, false)
             .open()
             .unwrap()
             .get_hot_store();
@@ -3652,7 +3652,7 @@ mod contract_precompilation_tests {
             let tmp_dir = tempfile::tempdir().unwrap();
             // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
             // same configuration as in production.
-            let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
+            let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None, false)
                 .open()
                 .unwrap()
                 .get_hot_store();
@@ -3765,7 +3765,7 @@ mod contract_precompilation_tests {
             let tmp_dir = tempfile::tempdir().unwrap();
             // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
             // same configuration as in production.
-            let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
+            let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None, false)
                 .open()
                 .unwrap()
                 .get_hot_store();
@@ -3860,7 +3860,7 @@ mod contract_precompilation_tests {
             let tmp_dir = tempfile::tempdir().unwrap();
             // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
             // same configuration as in production.
-            let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
+            let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None, false)
                 .open()
                 .unwrap()
                 .get_hot_store();

@@ -569,11 +569,16 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                         let tmp_dir = tempfile::tempdir().unwrap();
                         // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
                         // same configuration as in production.
-                        let store =
-                            NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
-                                .open()
-                                .unwrap()
-                                .get_hot_store();
+                        let store = NodeStorage::opener(
+                            &tmp_dir.path(),
+                            false,
+                            &Default::default(),
+                            None,
+                            false,
+                        )
+                        .open()
+                        .unwrap()
+                        .get_hot_store();
                         initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
                         let epoch_manager =
                             EpochManager::new_arc_handle(store.clone(), &genesis.config);

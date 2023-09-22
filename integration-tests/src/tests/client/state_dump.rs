@@ -47,7 +47,7 @@ fn test_state_dump() {
             let tmp_dir = tempfile::tempdir().unwrap();
             // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
             // same configuration as in production.
-            let store = NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
+            let store = NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None, false)
                 .open()
                 .unwrap()
                 .get_hot_store();
@@ -167,7 +167,7 @@ fn run_state_sync_with_dumped_parts(
             let tmp_dir = tempfile::tempdir().unwrap();
             // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
             // same configuration as in production.
-            let store = NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
+            let store = NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None, false)
                 .open()
                 .unwrap()
                 .get_hot_store();

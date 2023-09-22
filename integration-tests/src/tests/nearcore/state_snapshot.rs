@@ -160,7 +160,7 @@ fn verify_make_snapshot(
     }
     // check that the stored snapshot in file system is an actual snapshot
     let store_config = StoreConfig::default();
-    let opener = NodeStorage::opener(&snapshot_path, false, &store_config, None);
+    let opener = NodeStorage::opener(&snapshot_path, false, &store_config, None, false);
     let _storage = opener.open_in_mode(Mode::ReadOnly)?;
     // check that there's only one snapshot at the parent directory of snapshot path
     let parent_path = snapshot_path
@@ -197,7 +197,7 @@ fn test_make_state_snapshot() {
         let tmp_dir = tempfile::tempdir().unwrap();
         // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
         // same configuration as in production.
-        let store = NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
+        let store = NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None, false)
             .open()
             .unwrap()
             .get_hot_store();
