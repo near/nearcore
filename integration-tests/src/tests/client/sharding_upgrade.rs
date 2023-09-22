@@ -1,5 +1,4 @@
 use borsh::BorshSerialize;
-use itertools::Itertools;
 use near_chain::types::RuntimeAdapter;
 use near_client::{Client, ProcessTxResponse};
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
@@ -198,19 +197,22 @@ impl TestShardUpgradeEnv {
             genesis_protocol_version,
         );
 
+        // TODO(resharidng) refactor test env setup
+        // this pattern is used throughout the state sync and resharding tests
         let env_objects = (0..num_clients).map(|_|{
             let tmp_dir = tempfile::tempdir().unwrap();
             // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
             // same configuration as in production.
-            let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
+            let home_dir = tmp_dir.path();
+            let store= NodeStorage::opener(&home_dir, false, &Default::default(), None)
                 .open()
                 .unwrap()
                 .get_hot_store();
-            initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
+            initialize_genesis_state(store.clone(), &genesis, Some(home_dir));
             let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
             let runtime =
-                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
-                    as Arc<dyn RuntimeAdapter>;
+                NightshadeRuntime::test(home_dir, store.clone(), &genesis.config, epoch_manager.clone());
+            let runtime = runtime as Arc<dyn RuntimeAdapter>;
             (tmp_dir, store, epoch_manager, runtime)
         }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
 
@@ -311,10 +313,6 @@ impl TestShardUpgradeEnv {
             let mut block = block_producer_client.produce_block(next_height).unwrap().unwrap();
             set_block_protocol_version(&mut block, block_producer.clone(), protocol_version);
 
-            let state_roots =
-                block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect_vec();
-            tracing::debug!(target: "test", height=block.header().height(), hash=?block.hash(), ?state_roots, "Produced block.");
-
             block
         };
 
@@ -349,7 +347,7 @@ impl TestShardUpgradeEnv {
             // because we want to call run_catchup before finish processing this block. This simulates
             // that catchup and block processing run in parallel.
             let block = MaybeValidated::from(block.clone());
-            client.start_process_block(block.clone(), Provenance::NONE, Arc::new(|_| {})).unwrap();
+            client.start_process_block(block, Provenance::NONE, Arc::new(|_| {})).unwrap();
             if should_catchup {
                 run_catchup(client, &[]).unwrap();
             }
@@ -844,9 +842,9 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_se
     let target_protocol_version = get_target_protocol_version(&resharding_type);
 
     // setup
-    let epoch_length = 10;
+    let epoch_length = 5;
     let mut test_env =
-        TestShardUpgradeEnv::new(epoch_length, 2, 2, 0, None, genesis_protocol_version, rng_seed);
+        TestShardUpgradeEnv::new(epoch_length, 2, 2, 100, None, genesis_protocol_version, rng_seed);
     test_env.set_init_tx(vec![]);
 
     let mut nonce = 100;
@@ -856,11 +854,7 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_se
     let initial_accounts = test_env.initial_accounts.clone();
 
     // add transactions until after sharding upgrade finishes
-    // for height in 2..3 * epoch_length {
-    for height in vec![9] {
-        // if height == 9 {
-        //     continue;
-        // }
+    for height in 2..3 * epoch_length {
         let txs = generate_create_accounts_txs(
             &mut test_env.rng,
             genesis_hash,
@@ -868,7 +862,7 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_se
             &mut accounts_to_check,
             &mut all_accounts,
             &mut nonce,
-            1,
+            10,
             true,
         );
 

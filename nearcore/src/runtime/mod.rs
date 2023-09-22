@@ -93,7 +93,6 @@ impl NightshadeRuntime {
         } else {
             StateSnapshotConfig::Disabled
         };
-        tracing::info!(target: "state_snapshot", ?state_snapshot_config);
         Self::new(
             store,
             &config.genesis.config,
@@ -163,14 +162,6 @@ impl NightshadeRuntime {
         epoch_manager: Arc<EpochManagerHandle>,
         runtime_config_store: RuntimeConfigStore,
     ) -> Arc<Self> {
-        let state_snapshot_config = StateSnapshotConfig::Enabled {
-            home_dir: home_dir.to_path_buf(),
-            hot_store_path: PathBuf::from("data"),
-            state_snapshot_subdir: PathBuf::from("state_snapshot"),
-            compaction_enabled: false,
-        };
-        tracing::info!(target: "state_snapshot", ?state_snapshot_config);
-
         Self::new(
             store,
             genesis_config,
@@ -180,7 +171,12 @@ impl NightshadeRuntime {
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
-            state_snapshot_config,
+            StateSnapshotConfig::Enabled {
+                home_dir: home_dir.to_path_buf(),
+                hot_store_path: PathBuf::from("data"),
+                state_snapshot_subdir: PathBuf::from("state_snapshot"),
+                compaction_enabled: false,
+            },
         )
     }
 
@@ -254,7 +250,7 @@ impl NightshadeRuntime {
         is_first_block_with_chunk_of_version: bool,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyTransactionResult, Error> {
-        let _span = tracing::debug_span!(target: "runtime", "psu").entered();
+        let _span = tracing::debug_span!(target: "runtime", "process_state_update").entered();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
             let epoch_manager = self.epoch_manager.read();

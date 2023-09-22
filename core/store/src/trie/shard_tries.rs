@@ -468,7 +468,6 @@ impl ShardTries {
         let _span =
             tracing::info_span!(target: "state_snapshot", "make_state_snapshot", ?prev_block_hash)
                 .entered();
-        tracing::info!(target: "state_snapshot", "make_state_snapshot");
         match &self.0.state_snapshot_config {
             StateSnapshotConfig::Disabled => {
                 tracing::info!(target: "state_snapshot", "State Snapshots are disabled");
