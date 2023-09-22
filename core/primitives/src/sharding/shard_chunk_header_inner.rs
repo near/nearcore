@@ -31,11 +31,11 @@ impl ShardChunkHeaderInner {
     }
 
     #[inline]
-    pub fn prev_gas_limit(&self) -> Gas {
+    pub fn gas_limit(&self) -> Gas {
         match self {
-            Self::V1(inner) => inner.prev_gas_limit,
-            Self::V2(inner) => inner.prev_gas_limit,
-            Self::V3(inner) => inner.prev_gas_limit,
+            Self::V1(inner) => inner.gas_limit,
+            Self::V2(inner) => inner.gas_limit,
+            Self::V3(inner) => inner.gas_limit,
         }
     }
 
@@ -144,8 +144,8 @@ pub struct ShardChunkHeaderInnerV1 {
     pub shard_id: ShardId,
     /// Gas used in the previous chunk.
     pub prev_gas_used: Gas,
-    /// Gas limit voted by validators in the previous chunk.
-    pub prev_gas_limit: Gas,
+    /// Gas limit voted by validators.
+    pub gas_limit: Gas,
     /// Total balance burnt in the previous chunk.
     pub prev_balance_burnt: Balance,
     /// Previous chunk's outgoing receipts merkle root.
@@ -171,8 +171,8 @@ pub struct ShardChunkHeaderInnerV2 {
     pub shard_id: ShardId,
     /// Gas used in the previous chunk.
     pub prev_gas_used: Gas,
-    /// Gas limit voted by validators in the previous chunk.
-    pub prev_gas_limit: Gas,
+    /// Gas limit voted by validators.
+    pub gas_limit: Gas,
     /// Total balance burnt in the previous chunk.
     pub prev_balance_burnt: Balance,
     /// Previous chunk's outgoing receipts merkle root.
@@ -198,8 +198,8 @@ pub struct ShardChunkHeaderInnerV3 {
     pub shard_id: ShardId,
     /// Gas used in the previous chunk.
     pub prev_gas_used: Gas,
-    /// Gas limit voted by validators in the previous chunk.
-    pub prev_gas_limit: Gas,
+    /// Gas limit voted by validators.
+    pub gas_limit: Gas,
     /// Total balance burnt in the previous chunk.
     pub prev_balance_burnt: Balance,
     /// Previous chunk's outgoing receipts merkle root.

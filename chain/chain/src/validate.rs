@@ -128,7 +128,7 @@ pub fn validate_chunk_with_chunk_extra(
         return Err(Error::InvalidValidatorProposals);
     }
 
-    if prev_chunk_extra.gas_limit() != chunk_header.prev_gas_limit() {
+    if prev_chunk_extra.gas_limit() != chunk_header.gas_limit() {
         return Err(Error::InvalidGasLimit);
     }
 
@@ -156,10 +156,9 @@ pub fn validate_chunk_with_chunk_extra(
         return Err(Error::InvalidReceiptsProof);
     }
 
-    let prev_gas_limit = prev_chunk_extra.gas_limit();
-    if chunk_header.prev_gas_limit() < prev_gas_limit - prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
-        || chunk_header.prev_gas_limit()
-            > prev_gas_limit + prev_gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
+    let gas_limit = prev_chunk_extra.gas_limit();
+    if chunk_header.gas_limit() < gas_limit - gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
+        || chunk_header.gas_limit() > gas_limit + gas_limit / GAS_LIMIT_ADJUSTMENT_FACTOR
     {
         return Err(Error::InvalidGasLimit);
     }

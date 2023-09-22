@@ -142,7 +142,7 @@ pub(crate) fn apply_chunk(
             transactions,
             chunk_header.prev_validator_proposals(),
             gas_price,
-            chunk_header.prev_gas_limit(),
+            chunk_header.gas_limit(),
             &vec![],
             hash("random seed".as_ref()),
             true,
@@ -150,7 +150,7 @@ pub(crate) fn apply_chunk(
             Default::default(),
             use_flat_storage,
         )?,
-        chunk_header.prev_gas_limit(),
+        chunk_header.gas_limit(),
     ))
 }
 
