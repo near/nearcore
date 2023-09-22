@@ -1,3 +1,5 @@
+use std::mem::size_of;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use super::encoding::BorshFixedSize;
@@ -19,10 +21,10 @@ impl BorshFixedSize for EncodedChildrenHeader {
 }
 
 impl FlexibleDataHeader for EncodedChildrenHeader {
-    type InputData = Vec<Option<MemTrieNodeId>>;
+    type InputData = [Option<MemTrieNodeId>; 16];
     type View<'a> = ChildrenView<'a>;
 
-    fn from_input(children: &Vec<Option<MemTrieNodeId>>) -> EncodedChildrenHeader {
+    fn from_input(children: &[Option<MemTrieNodeId>; 16]) -> EncodedChildrenHeader {
         let mut mask = 0u16;
         for i in 0..16 {
             if children[i].is_some() {
@@ -33,20 +35,21 @@ impl FlexibleDataHeader for EncodedChildrenHeader {
     }
 
     fn flexible_data_length(&self) -> usize {
-        self.mask.count_ones() as usize * 8
+        self.mask.count_ones() as usize * size_of::<usize>()
     }
 
     fn encode_flexible_data(
         &self,
-        children: Vec<Option<MemTrieNodeId>>,
+        children: [Option<MemTrieNodeId>; 16],
         target: &mut ArenaSliceMut<'_>,
     ) {
-        assert_eq!(children.len(), 16);
         let mut j = 0;
         for (i, child) in children.into_iter().enumerate() {
             if self.mask & (1 << i) != 0 {
                 target.write_usize_at(j, child.unwrap().pos);
-                j += 8;
+                j += size_of::<usize>();
+            } else {
+                debug_assert!(child.is_none());
             }
         }
     }
@@ -73,7 +76,7 @@ impl<'a> ChildrenView<'a> {
         } else {
             let lower_mask = self.mask & (bit - 1);
             let index = lower_mask.count_ones() as usize;
-            Some(MemTrieNodePtr::from(self.children.read_ptr_at(index * 8)))
+            Some(MemTrieNodePtr::from(self.children.read_ptr_at(index * size_of::<usize>())))
         }
     }
 
@@ -85,7 +88,7 @@ impl<'a> ChildrenView<'a> {
             if self.mask & (1 << i) != 0 {
                 let child = MemTrieNodePtr::from(self.children.read_ptr_at(j));
                 children.0[i] = Some(child.view().node_hash());
-                j += 8;
+                j += size_of::<usize>();
             }
         }
         children
@@ -94,6 +97,6 @@ impl<'a> ChildrenView<'a> {
     /// Iterates through the children that exist.
     pub fn iter<'b>(&'b self) -> impl Iterator<Item = MemTrieNodePtr<'a>> + 'b {
         (0..self.mask.count_ones() as usize)
-            .map(|i| MemTrieNodePtr::from(self.children.read_ptr_at(i * 8)))
+            .map(|i| MemTrieNodePtr::from(self.children.read_ptr_at(i * size_of::<usize>())))
     }
 }

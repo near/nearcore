@@ -161,8 +161,4 @@ skip = [
     # cloud-storage
     { name = "base64", version = "=0.12.3" },
     { name = "num-bigint", version = "=0.2.6" },
-
-    # mmap-rs depends on nix and memoffset of different versions
-    { name = "memoffset", version = "=0.7.1" },
-    { name = "nix", version = "=0.24.3" }
 ]

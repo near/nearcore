@@ -75,6 +75,8 @@ impl Allocator {
 
 #[cfg(test)]
 mod test {
+    use std::mem::size_of;
+
     use crate::trie::mem::arena::Arena;
 
     use super::MAX_ALLOC_SIZE;
@@ -114,7 +116,7 @@ mod test {
             assert!(size_class < super::NUM_ALLOCATION_CLASSES);
             let size = super::allocation_size(size_class);
             assert!(size >= i); // alloc must be large enough
-            assert!(size >= 8); // needed for freelist pointers
+            assert!(size >= size_of::<usize>()); // needed for freelist pointers
             if size_class > 0 {
                 // Allocation must be as small as possible to fit the size.
                 assert!(super::allocation_size(size_class - 1) < i);

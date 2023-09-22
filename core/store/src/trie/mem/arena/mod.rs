@@ -1,7 +1,7 @@
 mod alloc;
 use self::alloc::Allocator;
 use borsh::{BorshDeserialize, BorshSerialize};
-use mmap_rs::{MmapFlags, MmapMut, MmapOptions};
+use memmap2::{MmapMut, MmapOptions};
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::mem::size_of;
@@ -25,22 +25,16 @@ pub struct ArenaMemory {
 
 impl ArenaMemory {
     fn new(max_size_in_bytes: usize) -> Self {
-        let mmap = MmapOptions::new(max_size_in_bytes)
-            .unwrap()
-            // We need NO_RESERVE so that the memory region doesn't actually
-            // take up space before the memory is used.
-            .with_flags(MmapFlags::NO_RESERVE)
-            .map_mut()
-            .expect("mmap failed");
+        let mmap = MmapOptions::new().len(max_size_in_bytes).map_anon().expect("mmap failed");
         Self { mmap }
     }
 
-    fn raw_slice<'a>(&'a self, pos: usize, len: usize) -> &'a [u8] {
-        &self.mmap.as_slice()[pos..pos + len]
+    fn raw_slice(&self, pos: usize, len: usize) -> &[u8] {
+        &self.mmap[pos..pos + len]
     }
 
-    fn raw_slice_mut<'a>(&'a mut self, pos: usize, len: usize) -> &'a mut [u8] {
-        &mut self.mmap.as_mut_slice()[pos..pos + len]
+    fn raw_slice_mut(&mut self, pos: usize, len: usize) -> &mut [u8] {
+        &mut self.mmap[pos..pos + len]
     }
 
     /// Provides read access to a region of memory in the arena.
@@ -138,7 +132,7 @@ impl<'a> ArenaPtr<'a> {
 
     /// Reads a usize at the memory pointed to by this pointer.
     pub fn read_usize(&self) -> usize {
-        usize::try_from_slice(&self.arena.raw_slice(self.pos, 8)).unwrap()
+        usize::try_from_slice(&self.arena.raw_slice(self.pos, size_of::<usize>())).unwrap()
     }
 }
 
@@ -240,8 +234,9 @@ impl<'a> ArenaSliceMut<'a> {
 
     /// Writes a usize at the given offset in the slice (bounds checked).
     pub fn write_usize_at(&mut self, pos: usize, ptr: usize) {
-        assert!(pos + 8 <= self.len);
-        ptr.serialize(&mut &mut self.arena.raw_slice_mut(self.pos + pos, 8)).unwrap();
+        assert!(pos + size_of::<usize>() <= self.len);
+        ptr.serialize(&mut &mut self.arena.raw_slice_mut(self.pos + pos, size_of::<usize>()))
+            .unwrap();
     }
 
     /// Provides mutable raw memory access. It is only possible while holding

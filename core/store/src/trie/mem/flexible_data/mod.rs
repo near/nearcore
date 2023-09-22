@@ -17,10 +17,6 @@ pub mod value;
 /// alternative of storing two heap-allocated Strings; it is a single memory
 /// allocation rather than three, and it saves the need to encode two pointers.
 ///
-/// There's no Rust-safe way to do this, however, and it would be too error-
-/// prone to encode and decode these structures manually. This is where
-/// FlexibleDataHeader comes in.
-///
 /// In this string example, these two strings would each define a header struct,
 /// say EncodedStringHeader, that implements FlexibleDataHeader. The struct
 /// itself only contains the fixed-size part, i.e. the length of the string.
@@ -30,9 +26,6 @@ pub mod value;
 ///
 /// This trait allows us to then encode and decode a flexibly-sized structure
 /// with multiple flexibly-sized parts with relative ease.
-///
-/// It is possible to envision a more general way to do this that is also safer,
-/// but for now, we'll keep it simple.
 pub trait FlexibleDataHeader {
     /// The type of the original form of data to be used for encoding.
     type InputData;

@@ -140,8 +140,8 @@ fn test_basic_extension_node() {
     }
 }
 
-fn branch_vec(children: Vec<(usize, MemTrieNodeId)>) -> Vec<Option<MemTrieNodeId>> {
-    let mut result: Vec<Option<MemTrieNodeId>> = std::iter::repeat_with(|| None).take(16).collect();
+fn branch_array(children: Vec<(usize, MemTrieNodeId)>) -> [Option<MemTrieNodeId>; 16] {
+    let mut result = [None; 16];
     for (idx, child) in children {
         result[idx] = Some(child);
     }
@@ -167,7 +167,7 @@ fn test_basic_branch_node() {
     );
     let node = MemTrieNodeId::new(
         &mut arena,
-        InputMemTrieNode::Branch { children: branch_vec(vec![(3, child1), (5, child2)]) },
+        InputMemTrieNode::Branch { children: branch_array(vec![(3, child1), (5, child2)]) },
     );
     node.as_ptr_mut(arena.memory_mut()).compute_hash_recursively();
     let child1_ptr = child1.as_ptr(arena.memory());
@@ -238,7 +238,7 @@ fn test_basic_branch_with_value_node() {
     let node = MemTrieNodeId::new(
         &mut arena,
         InputMemTrieNode::BranchWithValue {
-            children: branch_vec(vec![(0, child1), (15, child2)]),
+            children: branch_array(vec![(0, child1), (15, child2)]),
             value: FlatStateValue::Inlined(vec![3, 4, 5]),
         },
     );

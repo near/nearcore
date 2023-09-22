@@ -80,8 +80,8 @@ impl<'a> MemTrieNodePtr<'a> {
 pub enum InputMemTrieNode {
     Leaf { value: FlatStateValue, extension: Box<[u8]> },
     Extension { extension: Box<[u8]>, child: MemTrieNodeId },
-    Branch { children: Vec<Option<MemTrieNodeId>> },
-    BranchWithValue { children: Vec<Option<MemTrieNodeId>>, value: FlatStateValue },
+    Branch { children: [Option<MemTrieNodeId>; 16] },
+    BranchWithValue { children: [Option<MemTrieNodeId>; 16], value: FlatStateValue },
 }
 
 /// A view of the encoded data of `MemTrieNode`, obtainable via

@@ -49,6 +49,8 @@ impl<'a> RawEncoder<'a> {
     /// Encodes the given flexibly-sized part of the data to the current
     /// encoder position, and then advances the position by the size of the
     /// flexibly-sized part, as returned by `header.flexible_data_length()`.
+    /// Note that the header itself is NOT encoded; only the flexible part is.
+    /// The header is expected to have been encoded earlier.
     pub fn encode_flexible<T: FlexibleDataHeader>(&mut self, header: &T, data: T::InputData) {
         let length = header.flexible_data_length();
         header.encode_flexible_data(data, &mut self.data.subslice_mut(self.pos, length));
@@ -128,7 +130,8 @@ impl<'a> RawDecoderMut<'a> {
         T::try_from_slice(slice.raw_slice()).unwrap()
     }
 
-    /// Overwrites the data at the current position with the given data.
+    /// Overwrites the data at the current position with the given data,
+    /// and advances the position by the size of the data.
     pub fn overwrite<T: BorshSerialize + BorshFixedSize>(&mut self, data: T) {
         let mut slice = self.data.slice_mut(self.pos, T::SERIALIZED_SIZE);
         data.serialize(&mut slice.raw_slice_mut()).unwrap();

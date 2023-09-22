@@ -170,8 +170,7 @@ log = "0.4"
 loupe = "0.1"
 lru = "0.7.2"
 memmap2 = "0.5"
-memoffset = "0.8.0"
-mmap-rs = "0.6.0"
+memoffset = "0.8"
 more-asserts = "0.2"
 near-account-id = { path = "core/account-id", features = ["internal_unstable"] }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
@@ -233,7 +232,7 @@ near-vm-test-generator = { path = "runtime/near-vm/test-generator" }
 near-vm-types = { path = "runtime/near-vm/types" }
 near-vm-vm = { path = "runtime/near-vm/vm" }
 near-vm-wast = { path = "runtime/near-vm/wast" }
-nix = "0.26.4"
+nix = "0.24"
 node-runtime = { path = "runtime/runtime" }
 num-bigint = "0.3"
 num_cpus = "1.11"
