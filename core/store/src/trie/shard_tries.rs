@@ -303,7 +303,7 @@ impl ShardTries {
                 }
             }
         };
-        return Ok((store, flat_storage_manager));
+        Ok((store, flat_storage_manager))
     }
 
     pub fn get_trie_with_block_hash_for_shard(

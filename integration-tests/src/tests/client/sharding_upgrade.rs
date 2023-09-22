@@ -197,7 +197,7 @@ impl TestShardUpgradeEnv {
             genesis_protocol_version,
         );
 
-        // TODO(resharidng) refactor test env setup
+        // TODO(resharding) refactor test env setup
         // this pattern is used throughout the state sync and resharding tests
         let env_objects = (0..num_clients).map(|_|{
             let tmp_dir = tempfile::tempdir().unwrap();
@@ -356,7 +356,6 @@ impl TestShardUpgradeEnv {
                     client.postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
-
             if should_catchup {
                 run_catchup(&mut env.clients[j], &[]).unwrap();
             }
