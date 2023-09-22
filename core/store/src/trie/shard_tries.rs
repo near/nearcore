@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
+
 use crate::db::STATE_SNAPSHOT_KEY;
 use crate::flat::FlatStorageManager;
 use crate::trie::config::TrieConfig;
@@ -97,33 +100,33 @@ impl StateSnapshot {
                 } else {
                     tracing::error!(target: "state_snapshot", ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), ?prev_block_hash, "Failed to move FlatStorage head of the snapshot, no chunk");
                 }
-                let chunk_view = flat_storage_manager.chunk_view(*shard_uid, *block.hash());
-                if let Some(chunk_view) = chunk_view {
-                    let trie_storage = TrieDBStorage::new(store.clone(), *shard_uid);
+                // let chunk_view = flat_storage_manager.chunk_view(*shard_uid, *block.hash());
+                // if let Some(chunk_view) = chunk_view {
+                //     let trie_storage = TrieDBStorage::new(store.clone(), *shard_uid);
 
-                    for item in chunk_view.iter_flat_state_entries(None, None) {
-                        if let Ok((key, value)) = item {
-                            let value = match value {
-                                FlatStateValue::Ref(ref_value) => trie_storage
-                                    .retrieve_raw_bytes(&ref_value.hash)
-                                    .unwrap()
-                                    .to_vec(),
-                                FlatStateValue::Inlined(inline_value) => inline_value,
-                            };
-                            let state_record = StateRecord::from_raw_key_value(key, value);
-                            if let Some(state_record) = state_record.clone() {
-                                if state_record.get_type_string() != "Account" {
-                                    continue;
-                                }
-                            }
-                            tracing::debug!(target: "state_snapshot", "printing flat storage {state_record:?}");
-                        } else {
-                            tracing::debug!(target: "state_snapshot", "printing flat storage failed");
-                        }
-                    }
-                } else {
-                    tracing::warn!(target: "state_snapshot", block_hash=?block.hash(), ?shard_uid, "printing flat storage failed to get chunk view");
-                }
+                //     for item in chunk_view.iter_flat_state_entries(None, None) {
+                //         if let Ok((key, value)) = item {
+                //             let value = match value {
+                //                 FlatStateValue::Ref(ref_value) => trie_storage
+                //                     .retrieve_raw_bytes(&ref_value.hash)
+                //                     .unwrap()
+                //                     .to_vec(),
+                //                 FlatStateValue::Inlined(inline_value) => inline_value,
+                //             };
+                //             let state_record = StateRecord::from_raw_key_value(key, value);
+                //             if let Some(state_record) = state_record.clone() {
+                //                 if state_record.get_type_string() != "Account" {
+                //                     continue;
+                //                 }
+                //             }
+                //             tracing::debug!(target: "state_snapshot", "printing flat storage {state_record:?}");
+                //         } else {
+                //             tracing::debug!(target: "state_snapshot", "printing flat storage failed");
+                //         }
+                //     }
+                // } else {
+                //     tracing::warn!(target: "state_snapshot", block_hash=?block.hash(), ?shard_uid, "printing flat storage failed to get chunk view");
+                // }
             }
         }
         Self { prev_block_hash, store, flat_storage_manager }

@@ -23,6 +23,7 @@ use near_store::flat::{
 use near_store::split_state::get_delayed_receipts;
 use near_store::trie::state_parts::LAST_STATE_PART_BOUNDARY;
 use near_store::{ShardTries, ShardUId, Store, Trie, TrieDBStorage, TrieStorage};
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
@@ -234,41 +235,41 @@ impl Chain {
         StateSplitResponse { shard_id, sync_hash, new_state_roots: new_state_roots_v2 }
     }
 
-    fn print_flat_storage(
-        store: &Store,
-        flat_storage_manager: &FlatStorageManager,
-        shard_uid: &ShardUId,
-        block_hash: &CryptoHash,
-    ) {
-        tracing::debug!(target: "state_snapshot", ?shard_uid, "printing flat storage 2");
+    // fn print_flat_storage(
+    //     store: &Store,
+    //     flat_storage_manager: &FlatStorageManager,
+    //     shard_uid: &ShardUId,
+    //     block_hash: &CryptoHash,
+    // ) {
+    //     tracing::debug!(target: "state_snapshot", ?shard_uid, "printing flat storage 2");
 
-        let chunk_view = flat_storage_manager.chunk_view(*shard_uid, *block_hash);
-        if let Some(chunk_view) = chunk_view {
-            let trie_storage = TrieDBStorage::new(store.clone(), *shard_uid);
+    //     let chunk_view = flat_storage_manager.chunk_view(*shard_uid, *block_hash);
+    //     if let Some(chunk_view) = chunk_view {
+    //         let trie_storage = TrieDBStorage::new(store.clone(), *shard_uid);
 
-            for item in chunk_view.iter_flat_state_entries(None, None) {
-                if let Ok((key, value)) = item {
-                    let value = match value {
-                        FlatStateValue::Ref(ref_value) => {
-                            trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()
-                        }
-                        FlatStateValue::Inlined(inline_value) => inline_value,
-                    };
-                    let state_record = StateRecord::from_raw_key_value(key, value);
-                    if let Some(state_record) = state_record.clone() {
-                        if state_record.get_type_string() != "Account" {
-                            continue;
-                        }
-                    }
-                    tracing::debug!(target: "state_snapshot", "printing flat storage 2 {state_record:?}");
-                } else {
-                    tracing::debug!(target: "state_snapshot", "printing flat storage 2 failed");
-                }
-            }
-        } else {
-            tracing::warn!(target: "state_snapshot", block_hash=?block_hash, ?shard_uid, "printing flat storage 2 failed to get chunk view");
-        }
-    }
+    //         for item in chunk_view.iter_flat_state_entries(None, None) {
+    //             if let Ok((key, value)) = item {
+    //                 let value = match value {
+    //                     FlatStateValue::Ref(ref_value) => {
+    //                         trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()
+    //                     }
+    //                     FlatStateValue::Inlined(inline_value) => inline_value,
+    //                 };
+    //                 let state_record = StateRecord::from_raw_key_value(key, value);
+    //                 if let Some(state_record) = state_record.clone() {
+    //                     if state_record.get_type_string() != "Account" {
+    //                         continue;
+    //                     }
+    //                 }
+    //                 tracing::debug!(target: "state_snapshot", "printing flat storage 2 {state_record:?}");
+    //             } else {
+    //                 tracing::debug!(target: "state_snapshot", "printing flat storage 2 failed");
+    //             }
+    //         }
+    //     } else {
+    //         tracing::warn!(target: "state_snapshot", block_hash=?block_hash, ?shard_uid, "printing flat storage 2 failed to get chunk view");
+    //     }
+    // }
 
     // TODO(#9446) remove function when shifting to flat storage iteration for resharding
     fn build_state_for_split_shards_impl(
@@ -308,6 +309,13 @@ impl Chain {
         )?;
 
         Ok(state_roots)
+    }
+
+    fn iter_cmp(
+        left: &(Vec<u8>, Option<FlatStateValue>),
+        right: &(Vec<u8>, Option<FlatStateValue>),
+    ) -> Ordering {
+        left.0.cmp(&right.0)
     }
 
     fn build_state_for_split_shards_impl_v2(
@@ -360,7 +368,7 @@ impl Chain {
             "printing trie from snapshot"
         );
 
-        let (snapshot_store, snapshot_flat_storage_manager) =
+        let (snapshot_store, _snapshot_flat_storage_manager) =
             tries.get_state_snapshot(&prev_prev_hash).unwrap();
         let delta = store_helper::get_delta_changes(&snapshot_store, shard_uid, prev_hash)
             .unwrap()
@@ -382,9 +390,29 @@ impl Chain {
             });
         let iter2 = delta.0.into_iter();
 
-        let iter = iter1.chain(iter2).map(move |(key, value)| -> (Vec<u8>, Vec<u8>) {
-            // let (key, value) = entry.unwrap();
-            let value = value.unwrap();
+        // let iter = iter1.chain(iter2);
+
+        // Need to merge the two iterators. If a key is present in the delta iter
+        // (right) it should be used and the item with the same key from the
+        // trie iter (left) should be ignored.
+        // Follow that up by filtering values that are Some. The None values were
+        // deleted and should not be included.
+        // TODO(resharding) test the heck out of it
+        // TODO(resharding) benchmark the performance as it may be slow
+        let iter = itertools::merge_join_by(iter1, iter2, Self::iter_cmp);
+        let iter = iter.filter_map(|either_or_both| {
+            let (key, value) = match either_or_both {
+                itertools::EitherOrBoth::Both(_, value) => value,
+                itertools::EitherOrBoth::Left(value) => value,
+                itertools::EitherOrBoth::Right(value) => value,
+            };
+            match value {
+                Some(value) => Some((key, value)),
+                None => None,
+            }
+        });
+
+        let iter = iter.map(move |(key, value)| -> (Vec<u8>, Vec<u8>) {
             let value = match value {
                 FlatStateValue::Ref(ref_value) => {
                     trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()

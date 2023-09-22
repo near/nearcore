@@ -16,11 +16,11 @@ do
     #RUST_LOG=info,catchup=trace,store=trace,client=debug,store=debug,test=debug,resharding=trace \
     # RUST_LOG=debug,resharding=trace,waclaw=trace,catchup=trace \
     # RUST_LOG=debug,resharding=trace \
+    # --no-capture \
     RUST_BACKTRACE=all \
     cargo nextest run -p integration-tests \
         --features nightly \
         --no-fail-fast \
-        --no-capture \
         $TEST \
         | egrep -v prev_prev_stake_change \
         | egrep -v NetworkRequests.ForwardTx \

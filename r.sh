@@ -12,6 +12,7 @@ TEST=test_shard_layout_upgrade_cross_contract_calls_v2
 TEST=test_shard_layout_upgrade_missing_chunks_high_missing_prob
 TEST=test_shard_layout_upgrade_simple_v2_seed_42
 TEST=test_shard_layout_upgrade_simple_v1
+TEST=test_shard_layout_upgrade_cross_contract_calls_v1
 
 for i in {1..1}
 do

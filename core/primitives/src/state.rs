@@ -100,3 +100,9 @@ impl FlatStateValue {
         }
     }
 }
+
+// impl PartialOrd for FlatStateValue {
+//     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+//         return self.
+//     }
+// }
