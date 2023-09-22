@@ -1760,12 +1760,7 @@ impl TestEnvBuilder {
                     let runtime = runtime.clone();
                     let snapshot : MakeSnapshotCallback = Arc::new(move |prev_block_hash, shard_uids, block| {
                         tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
-                        match runtime.get_tries().make_state_snapshot(&prev_block_hash, &shard_uids, &block) {
-                            Ok(()) => {}
-                            Err(err) => {
-                                tracing::error!(target: "state_snapshot", ?err, "Failed to make state snapshot");
-                            }
-                        };
+                        runtime.get_tries().make_state_snapshot(&prev_block_hash, &shard_uids, &block).unwrap();
                     });
                     Some(snapshot)
                 } else {
@@ -2450,7 +2445,6 @@ pub fn run_catchup(
             catchup_done = false;
         }
         for msg in state_split_messages.write().unwrap().drain(..) {
-            tracing::debug!(target: "test", ?msg);
             let response = Chain::build_state_for_split_shards(msg);
             if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&response.sync_hash) {
                 // We are doing catchup

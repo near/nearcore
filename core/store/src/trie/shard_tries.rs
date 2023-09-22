@@ -1,15 +1,12 @@
-#![allow(dead_code)]
-#![allow(unused_imports)]
-
 use crate::db::STATE_SNAPSHOT_KEY;
 use crate::flat::FlatStorageManager;
+use crate::option_to_not_found;
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
+use crate::Mode;
 use crate::{checkpoint_hot_storage_and_cleanup_columns, metrics, DBCol, NodeStorage, PrefetchApi};
-use crate::{option_to_not_found, TrieDBStorage};
-use crate::{Mode, TrieStorage};
 use crate::{Store, StoreConfig, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
 use near_primitives::block::Block;
@@ -19,8 +16,6 @@ use near_primitives::errors::StorageError;
 use near_primitives::errors::StorageError::StorageInconsistentState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{self, ShardUId, ShardVersion};
-use near_primitives::state::FlatStateValue;
-use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
@@ -100,33 +95,6 @@ impl StateSnapshot {
                 } else {
                     tracing::error!(target: "state_snapshot", ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), ?prev_block_hash, "Failed to move FlatStorage head of the snapshot, no chunk");
                 }
-                // let chunk_view = flat_storage_manager.chunk_view(*shard_uid, *block.hash());
-                // if let Some(chunk_view) = chunk_view {
-                //     let trie_storage = TrieDBStorage::new(store.clone(), *shard_uid);
-
-                //     for item in chunk_view.iter_flat_state_entries(None, None) {
-                //         if let Ok((key, value)) = item {
-                //             let value = match value {
-                //                 FlatStateValue::Ref(ref_value) => trie_storage
-                //                     .retrieve_raw_bytes(&ref_value.hash)
-                //                     .unwrap()
-                //                     .to_vec(),
-                //                 FlatStateValue::Inlined(inline_value) => inline_value,
-                //             };
-                //             let state_record = StateRecord::from_raw_key_value(key, value);
-                //             if let Some(state_record) = state_record.clone() {
-                //                 if state_record.get_type_string() != "Account" {
-                //                     continue;
-                //                 }
-                //             }
-                //             tracing::debug!(target: "state_snapshot", "printing flat storage {state_record:?}");
-                //         } else {
-                //             tracing::debug!(target: "state_snapshot", "printing flat storage failed");
-                //         }
-                //     }
-                // } else {
-                //     tracing::warn!(target: "state_snapshot", block_hash=?block.hash(), ?shard_uid, "printing flat storage failed to get chunk view");
-                // }
             }
         }
         Self { prev_block_hash, store, flat_storage_manager }
@@ -284,39 +252,9 @@ impl ShardTries {
         &self,
         shard_uid: ShardUId,
         state_root: StateRoot,
-        snapshot_block_hash: &CryptoHash,
-        trie_block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
     ) -> Result<Trie, StorageError> {
-        let (store, flat_storage_manager) = {
-            // Taking this lock can last up to 10 seconds, if the snapshot happens to be re-created.
-            match self.0.state_snapshot.try_read() {
-                Ok(guard) => {
-                    if let Some(data) = guard.as_ref() {
-                        if &data.prev_block_hash != snapshot_block_hash {
-                            return Err(StorageInconsistentState(format!(
-                                "Wrong state snapshot. Requested: {:?}, Available: {:?}",
-                                snapshot_block_hash, data.prev_block_hash
-                            )));
-                        }
-                        (data.store.clone(), data.flat_storage_manager.clone())
-                    } else {
-                        return Err(StorageInconsistentState(
-                            "No state snapshot available".to_string(),
-                        ));
-                    }
-                }
-                Err(TryLockError::WouldBlock) => {
-                    return Err(StorageInconsistentState(
-                        "Accessing state snapshot would block. Retry in a few seconds.".to_string(),
-                    ));
-                }
-                Err(err) => {
-                    return Err(StorageInconsistentState(format!(
-                        "Can't access state snapshot: {err:?}"
-                    )));
-                }
-            }
-        };
+        let (store, flat_storage_manager) = self.get_state_snapshot(block_hash)?;
 
         let cache = {
             let mut caches = self.0.view_caches.write().expect(POISONED_LOCK_ERR);
@@ -326,30 +264,24 @@ impl ShardTries {
                 .clone()
         };
         let storage = Rc::new(TrieCachingStorage::new(store, cache, shard_uid, true, None));
-        let flat_storage_chunk_view = flat_storage_manager.chunk_view(shard_uid, *trie_block_hash);
+        let flat_storage_chunk_view = flat_storage_manager.chunk_view(shard_uid, *block_hash);
 
-        tracing::debug!(
-            ?snapshot_block_hash,
-            ?trie_block_hash,
-            ?state_root,
-            "new trie for snapshot"
-        );
         Ok(Trie::new(storage, state_root, flat_storage_chunk_view))
     }
 
     pub fn get_state_snapshot(
         &self,
-        snapshot_block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
     ) -> Result<(Store, FlatStorageManager), StorageError> {
         let (store, flat_storage_manager) = {
             // Taking this lock can last up to 10 seconds, if the snapshot happens to be re-created.
             match self.0.state_snapshot.try_read() {
                 Ok(guard) => {
                     if let Some(data) = guard.as_ref() {
-                        if &data.prev_block_hash != snapshot_block_hash {
+                        if &data.prev_block_hash != block_hash {
                             return Err(StorageInconsistentState(format!(
                                 "Wrong state snapshot. Requested: {:?}, Available: {:?}",
-                                snapshot_block_hash, data.prev_block_hash
+                                block_hash, data.prev_block_hash
                             )));
                         }
                         (data.store.clone(), data.flat_storage_manager.clone())
@@ -372,24 +304,6 @@ impl ShardTries {
             }
         };
         return Ok((store, flat_storage_manager));
-
-        // let cache = {
-        //     let mut caches = self.0.view_caches.write().expect(POISONED_LOCK_ERR);
-        //     caches
-        //         .entry(shard_uid)
-        //         .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, true))
-        //         .clone()
-        // };
-        // let storage = Rc::new(TrieCachingStorage::new(store, cache, shard_uid, true, None));
-        // let flat_storage_chunk_view = flat_storage_manager.chunk_view(shard_uid, *trie_block_hash);
-
-        // tracing::debug!(
-        //     ?snapshot_block_hash,
-        //     ?trie_block_hash,
-        //     ?state_root,
-        //     "new trie for snapshot"
-        // );
-        // Ok(Trie::new(storage, state_root, flat_storage_chunk_view))
     }
 
     pub fn get_trie_with_block_hash_for_shard(
@@ -552,8 +466,9 @@ impl ShardTries {
         metrics::HAS_STATE_SNAPSHOT.set(0);
         // The function returns an `anyhow::Error`, because no special handling of errors is done yet. The errors are logged and ignored.
         let _span =
-            tracing::info_span!(target: "state_snapshot", "msnapshot", ?prev_block_hash).entered();
-        tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_state_snapshot");
+            tracing::info_span!(target: "state_snapshot", "make_state_snapshot", ?prev_block_hash)
+                .entered();
+        tracing::info!(target: "state_snapshot", "make_state_snapshot");
         match &self.0.state_snapshot_config {
             StateSnapshotConfig::Disabled => {
                 tracing::info!(target: "state_snapshot", "State Snapshots are disabled");

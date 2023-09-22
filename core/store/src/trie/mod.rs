@@ -1466,7 +1466,7 @@ mod tests {
 
         assert_eq!(trie3.get(b"dog"), Ok(Some(b"puppy".to_vec())));
         assert_eq!(trie3.get(b"horse"), Ok(Some(b"stallion".to_vec())));
-        assert!(matches!(trie3.get(b"doge"), Err(StorageError::MissingTrieValue(_))));
+        assert_eq!(trie3.get(b"doge"), Err(StorageError::MissingTrieValue));
     }
 
     #[test]

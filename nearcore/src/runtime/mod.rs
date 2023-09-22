@@ -545,12 +545,7 @@ impl NightshadeRuntime {
         // TODO: Make it impossible for the snapshot data to be deleted while the snapshot is in use.
         let snapshot_trie = self
             .tries
-            .get_trie_with_block_hash_for_shard_from_snapshot(
-                shard_uid,
-                *state_root,
-                &prev_hash,
-                &prev_hash,
-            )
+            .get_trie_with_block_hash_for_shard_from_snapshot(shard_uid, *state_root, &prev_hash)
             .map_err(|err| Error::Other(err.to_string()))?;
         let state_part = match snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, partial_state, nibbles_begin, nibbles_end, &trie_with_state) {
             Ok(partial_state) => partial_state,
