@@ -4032,7 +4032,7 @@ impl Chain {
         };
 
         let chunk_inner = chunk.cloned_header().take_inner();
-        let gas_limit = chunk_inner.prev_gas_limit();
+        let gas_limit = chunk_inner.gas_limit();
 
         // This variable is responsible for checking to which block we can apply receipts previously lost in apply_chunks
         // (see https://github.com/near/nearcore/pull/4248/)
@@ -5611,7 +5611,7 @@ impl<'a> ChainUpdate<'a> {
         };
 
         let chunk_header = chunk.cloned_header();
-        let gas_limit = chunk_header.prev_gas_limit();
+        let gas_limit = chunk_header.gas_limit();
         // This is set to false because the value is only relevant
         // during protocol version RestoreReceiptsAfterFixApplyChunks.
         // TODO(nikurt): Determine the value correctly.
