@@ -247,7 +247,7 @@ impl Block {
             if chunk.height_included() == height {
                 prev_validator_proposals.extend(chunk.prev_validator_proposals());
                 gas_used += chunk.prev_gas_used();
-                gas_limit += chunk.prev_gas_limit();
+                gas_limit += chunk.gas_limit();
                 balance_burnt += chunk.prev_balance_burnt();
                 chunk_mask.push(true);
             } else {
@@ -482,7 +482,7 @@ impl Block {
     ) -> Gas {
         chunks.into_iter().fold(0, |acc, chunk| {
             if chunk.height_included() == height {
-                acc + chunk.prev_gas_limit()
+                acc + chunk.gas_limit()
             } else {
                 acc
             }
