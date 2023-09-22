@@ -1493,6 +1493,7 @@ impl ClientActor {
     /// Schedules itself again if it was not ran as response to state parts job result
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
         {
+            // An extra scope to limit the lifetime of the span.
             let _span = tracing::debug_span!(target: "client", "catchup").entered();
             if let Err(err) = self.client.run_catchup(
                 &self.network_info.highest_height_peers,
