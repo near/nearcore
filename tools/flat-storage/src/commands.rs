@@ -385,8 +385,13 @@ impl FlatStorageCommand {
         let (_, epoch_manager, _, chain_store, store) =
             Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadWriteExisting);
 
-        let write_opener =
-            NodeStorage::opener(&cmd.write_store_path, false, &near_config.config.store, None, false);
+        let write_opener = NodeStorage::opener(
+            &cmd.write_store_path,
+            false,
+            &near_config.config.store,
+            None,
+            false,
+        );
         let write_node_storage = write_opener.open_in_mode(Mode::Create)?;
         let write_store = write_node_storage.get_hot_store();
 
