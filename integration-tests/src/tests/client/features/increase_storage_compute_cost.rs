@@ -237,7 +237,7 @@ fn assert_compute_limit_reached(
     );
     let chunk_header = old_chunk.cloned_header();
     let gas_burnt = chunk_header.prev_gas_used();
-    let gas_limit: u64 = chunk_header.prev_gas_limit();
+    let gas_limit: u64 = chunk_header.gas_limit();
     assert!(
         gas_burnt >= gas_limit,
         "should saturate gas limit, only burnt {gas_burnt} when limit was {gas_limit}"
