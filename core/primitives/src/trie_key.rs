@@ -356,7 +356,6 @@ pub mod trie_key_parsers {
         Ok(TrieKey::AccessKey { account_id, public_key })
     }
 
-    #[allow(unused)]
     pub fn parse_account_id_from_raw_key(
         raw_key: &[u8],
     ) -> Result<Option<AccountId>, std::io::Error> {

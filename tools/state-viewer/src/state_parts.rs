@@ -63,6 +63,9 @@ pub(crate) enum StatePartsSubCommand {
         /// Dump part ids up to this part (exclusive).
         #[clap(long)]
         part_to: Option<u64>,
+        /// Location of a file with write permissions to the bucket.
+        #[clap(long)]
+        credentials_file: Option<PathBuf>,
         /// Select an epoch to work on.
         #[clap(subcommand)]
         epoch_selection: EpochSelection,
@@ -119,8 +122,6 @@ impl StatePartsSubCommand {
         let chain_id = &near_config.genesis.config.chain_id;
         let sys = actix::System::new();
         sys.block_on(async move {
-            let credentials_file =
-                near_config.config.s3_credentials_file.clone().map(|file| home_dir.join(file));
             match self {
                 StatePartsSubCommand::Load {
                     action,
@@ -151,7 +152,12 @@ impl StatePartsSubCommand {
                     )
                     .await
                 }
-                StatePartsSubCommand::Dump { part_from, part_to, epoch_selection } => {
+                StatePartsSubCommand::Dump {
+                    part_from,
+                    part_to,
+                    epoch_selection,
+                    credentials_file,
+                } => {
                     let external = create_external_connection(
                         root_dir,
                         s3_bucket,
@@ -209,6 +215,9 @@ fn create_external_connection(
         .expect("Failed to create an S3 bucket");
         ExternalConnection::S3 { bucket: Arc::new(bucket) }
     } else if let Some(bucket) = gcs_bucket {
+        if let Some(credentials_file) = credentials_file {
+            std::env::set_var("SERVICE_ACCOUNT", &credentials_file);
+        }
         ExternalConnection::GCS {
             gcs_client: Arc::new(cloud_storage::Client::default()),
             reqwest_client: Arc::new(reqwest::Client::default()),

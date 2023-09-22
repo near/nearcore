@@ -1,13 +1,14 @@
 /// Conversion functions for PeerMessage - the top-level message for the NEAR P2P protocol format.
 use super::*;
 
-use crate::network_protocol::proto;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
+use crate::network_protocol::proto::{self};
 use crate::network_protocol::{
     AdvertisedPeerDistance, Disconnect, DistanceVector, PeerMessage, PeersRequest, PeersResponse,
     RoutingTableUpdate, SyncAccountsData,
 };
 use crate::network_protocol::{RoutedMessage, RoutedMessageV2};
+use crate::types::StateResponseInfo;
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_async::time::error::ComponentRange;
 use near_primitives::block::{Block, BlockHeader};
@@ -144,6 +145,23 @@ impl TryFrom<&proto::Block> for Block {
 
 //////////////////////////////////////////
 
+impl From<&StateResponseInfo> for proto::StateResponseInfo {
+    fn from(x: &StateResponseInfo) -> Self {
+        Self { borsh: x.try_to_vec().unwrap(), ..Default::default() }
+    }
+}
+
+pub type ParseStateInfoError = borsh::maybestd::io::Error;
+
+impl TryFrom<&proto::StateResponseInfo> for StateResponseInfo {
+    type Error = ParseStateInfoError;
+    fn try_from(x: &proto::StateResponseInfo) -> Result<Self, Self::Error> {
+        Self::try_from_slice(&x.borsh)
+    }
+}
+
+//////////////////////////////////////////
+
 impl From<&PeerMessage> for proto::PeerMessage {
     fn from(x: &PeerMessage) -> Self {
         Self {
@@ -225,6 +243,27 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     borsh: r.try_to_vec().unwrap(),
                     ..Default::default()
                 }),
+                PeerMessage::StateRequestHeader(shard_id, sync_hash) => {
+                    ProtoMT::StateRequestHeader(proto::StateRequestHeader {
+                        shard_id: *shard_id,
+                        sync_hash: MF::some(sync_hash.into()),
+                        ..Default::default()
+                    })
+                }
+                PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => {
+                    ProtoMT::StateRequestPart(proto::StateRequestPart {
+                        shard_id: *shard_id,
+                        sync_hash: MF::some(sync_hash.into()),
+                        part_id: *part_id,
+                        ..Default::default()
+                    })
+                }
+                PeerMessage::VersionedStateResponse(sri) => {
+                    ProtoMT::StateResponse(proto::StateResponse {
+                        state_response_info: MF::some(sri.into()),
+                        ..Default::default()
+                    })
+                }
             }),
             ..Default::default()
         }
@@ -276,6 +315,8 @@ pub enum ParsePeerMessageError {
     RoutedCreatedAtTimestamp(ComponentRange),
     #[error("sync_accounts_data: {0}")]
     SyncAccountsData(ParseVecError<ParseSignedAccountDataError>),
+    #[error("state_response: {0}")]
+    StateResponse(ParseRequiredError<ParseStateInfoError>),
 }
 
 impl TryFrom<&proto::PeerMessage> for PeerMessage {
@@ -361,6 +402,18 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             }),
             ProtoMT::Challenge(c) => PeerMessage::Challenge(
                 Challenge::try_from_slice(&c.borsh).map_err(Self::Error::Challenge)?,
+            ),
+            ProtoMT::StateRequestHeader(srh) => PeerMessage::StateRequestHeader(
+                srh.shard_id,
+                try_from_required(&srh.sync_hash).map_err(Self::Error::BlockRequest)?,
+            ),
+            ProtoMT::StateRequestPart(srp) => PeerMessage::StateRequestPart(
+                srp.shard_id,
+                try_from_required(&srp.sync_hash).map_err(Self::Error::BlockRequest)?,
+                srp.part_id,
+            ),
+            ProtoMT::StateResponse(t) => PeerMessage::VersionedStateResponse(
+                try_from_required(&t.state_response_info).map_err(Self::Error::StateResponse)?,
             ),
         })
     }

@@ -54,8 +54,8 @@ impl TryFrom<crate::models::Operation> for DelegateActionOperation {
     }
 }
 
-impl From<near_primitives::delegate_action::DelegateAction> for DelegateActionOperation {
-    fn from(delegate_action: near_primitives::delegate_action::DelegateAction) -> Self {
+impl From<near_primitives::action::delegate::DelegateAction> for DelegateActionOperation {
+    fn from(delegate_action: near_primitives::action::delegate::DelegateAction) -> Self {
         DelegateActionOperation {
             receiver_id: delegate_action.receiver_id.into(),
             max_block_height: delegate_action.max_block_height,

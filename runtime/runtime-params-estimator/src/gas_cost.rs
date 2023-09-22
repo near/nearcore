@@ -78,7 +78,9 @@ impl GasCost {
 
     /// Like [`std::cmp::Ord::min`] but operates on heterogenous types ([`GasCost`] + [`Gas`]).
     pub(crate) fn min_gas(mut self, gas: Gas) -> Self {
-        let Some(to_add) = gas.checked_sub(self.to_gas()) else { return self; };
+        let Some(to_add) = gas.checked_sub(self.to_gas()) else {
+            return self;
+        };
         if let Some(qemu) = &mut self.qemu {
             // QEMU gas is split across multiple components (instructions
             // and IO). When rounding up to an amount of gas, the assumption

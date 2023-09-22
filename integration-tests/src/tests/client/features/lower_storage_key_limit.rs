@@ -69,12 +69,12 @@ fn protocol_upgrade() {
         signer_id: "test0".parse().unwrap(),
         receiver_id: "test0".parse().unwrap(),
         public_key: signer.public_key(),
-        actions: vec![Action::FunctionCall(FunctionCallAction {
+        actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "write_key_value".to_string(),
             args,
             gas: 10u64.pow(14),
             deposit: 0,
-        })],
+        }))],
 
         nonce: 0,
         block_hash: CryptoHash::default(),
@@ -129,12 +129,12 @@ fn protocol_upgrade() {
             signer_id: "test0".parse().unwrap(),
             receiver_id: "test0".parse().unwrap(),
             public_key: signer.public_key(),
-            actions: vec![Action::FunctionCall(FunctionCallAction {
+            actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "write_key_value".to_string(),
                 args,
                 gas: 10u64.pow(14),
                 deposit: 0,
-            })],
+            }))],
 
             nonce: 0,
             block_hash: CryptoHash::default(),

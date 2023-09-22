@@ -1,8 +1,10 @@
 # Locust based load testing
 
-WIP: This is work in progress, motivation described in https://github.com/near/nearcore/issues/8999
-
 TLDR: Use [locust](https://locust.io/) to generate transactions against a Near chain and produce statistics.
+
+Locust is a python library which we are using to send load to an RPC node. How
+to set up the network under test is outside the scope of this document. This is
+only about generating the load.
 
 ## Install
 ```sh
@@ -10,6 +12,12 @@ pip3 install locust
 # Run in nearcore directory.
 pip3 install -r pytest/requirements.txt
 ```
+
+*Note: You will need a working python3 / pip3 environment. While the code is
+written in a backwards compatible way, modern OSs with modern python are
+preferred. Completely independent of locust, you may run into problems with
+PyOpenSSL with an old OS, `pip3 install pyopenssl --upgrade` may help if you see
+error messages involving `X509_V_FLAG_CB_ISSUER_CHECK`.*
 
 ## Run a first load test
 
@@ -43,13 +51,17 @@ Each locust process will only use a single core. This leads to unwanted
 throttling on the load generator side if you try to use more than a couple
 hundred of users.
 
+In the Locust UI, check the "Workers" tab to see CPU and memory usage. If this
+approaches anything close to 100%, you should use more workers.
+
 Luckily, locust has the ability to swarm the load generation across many processes.
 To use it, start one process with the `--master` argument and as many as you
 like with `--worker`. (If they run on different machines, you also need to
 provide `--master-host` and `--master-port`, if running on the same machine it
 will work automagically.)
 
-Start the master
+Start the master:
+
 ```sh
 locust -H 127.0.0.1:3030 \
   -f locustfiles/ft.py \
@@ -57,7 +69,8 @@ locust -H 127.0.0.1:3030 \
   --master
 ```
 
-On the worker
+On the worker:
+
 ```sh
 # Increase soft limit of open files for the current OS user
 # (each locust user opens a separate socket = file)
@@ -69,7 +82,9 @@ locust -H 127.0.0.1:3030 \
   --worker
 ```
 
-Spawning N workers in a single shell:
+Note that you have to start each worker process individually. But you can, for
+example, use the `&` operator to spawn N workers in a single shell.
+
 ```sh
 for i in {1..16}
 do
@@ -80,8 +95,25 @@ do
 done
 ```
 
-Use `pkill -P $$` to stop all workers.
+Use `pkill -P $$` to stop all workers spawned in the current shell.
 Stopping the master will also terminate all workers.
+
+### Funding Key
+
+The funding key (`--funding-key=$KEY`) and the account associated with it are
+used to pay for all on-chain transactions. When running in the distributed mode,
+it will first create a funding account for each worker instance and those are
+used to pay for transactions.
+
+As the load generator is currently configured, it will consume 1M NEAR from the
+master funding account for each worker instance spawned. So, if you run with 64
+workers with 1000 users, it will consume 64M Near. It's recommended to have a
+funding key with billions of Near.
+
+Also, the account name associated with this account should not bee too long.
+Keep it below 20 characters, and it should be fine. The reason is that we create
+sub accounts on this account, which become Sweat users. If the parent account
+name is too long, children names will breach the 64 bytes max length.
 
 # Available load types
 
@@ -98,8 +130,40 @@ Currently supported load types:
 | Sweat (normal load) | sweat.py | (`--sweat-wasm $WASM_PATH`) | Creates a single instance of the SWEAT contract. A mix of FT transfers and batch minting with batch sizes comparable to mainnet observations in summer 2023. |
 | Sweat (storage stress test) | sweat.py | `--tags=storage-stress-test` <br> (`--sweat-wasm $WASM_PATH`) | Creates a single instance of the SWEAT contract. Sends maximally large batches to mint more tokens, thereby touching many storage nodes per receipt. This load will take a while to initialize enough Sweat users on chain. |
 
-In the future, we might have multiple users per load type but for now there is a
-one-to-one mapping from users to load type (and tag).
+## Notes on Storage Stress Test
 
-If the table above seems outdated, list available classes using `locust
---funding-key . --list` and send a PR to fix it, please.
+The Sweat based storage stress test is special. While the other workloads send
+innocent traffic with many assumptions, this test pushes the storage accesses
+per chunk to the limit. As such, it is a bit more fragile.
+
+### Slow Start
+
+First, you will notice that for several minutes after start, it will only be
+registering new accounts to the Sweat contract on chain. You will see these
+requests show up as "Init FT Account" in the statistics tab of the Locust UI.
+
+To make sure you are not waiting forever, you want to have enough locust users
+per worker instance. For example, 100 users in one worker will be 100 times
+faster than 100 users distributed over 100 workers.
+
+Once enough accounts have been registered, large batches of users get new steps
+added, which translates to new tokens being minted for them. You will see them
+as `Sweat record batch (stress test)` requests.
+
+When you restart your workers, they reset their known registered user accounts.
+Hence on restart they add new accounts again. And you have to wait again. To
+avoid this, you can stop and restart tests from within the UI. This way, they
+will remember the account list and start the next test immediately, without long
+setup.
+
+
+### Master Key Requirements
+
+The `--funding-key` provided must always have enough balance to fund many users.
+But this is even more extreme for this load, as we are creating many accounts
+per worker.
+
+Also, the account name limits are even tighter for this load. Other loads
+probably work with lengths up to 40 character, here it really has to be below 20
+characters or else we hit the log output limit when writing all the JSON events
+for updated Sweat balances.

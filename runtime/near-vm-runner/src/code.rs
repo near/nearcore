@@ -1,4 +1,4 @@
-use crate::hash::{hash as sha256, CryptoHash};
+use near_primitives_core::hash::{hash as sha256, CryptoHash};
 
 pub struct ContractCode {
     code: Vec<u8>,

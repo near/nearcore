@@ -1,3 +1,7 @@
+// FIXME(nagisa): Is there a good reason we're triggering this? Luckily though this is just test
+// code so we're in the clear.
+#![allow(clippy::arc_with_non_send_sync)]
+
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::mem::swap;
@@ -55,8 +59,8 @@ use near_network::types::{
 };
 use near_o11y::testonly::TracingCapture;
 use near_o11y::WithSpanContextExt;
+use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
-use near_primitives::delegate_action::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
@@ -85,7 +89,6 @@ use near_telemetry::TelemetryActor;
 use crate::adapter::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
     BlockResponse, ProcessTxResponse, SetNetworkInfo, StateRequestHeader, StateRequestPart,
-    StateResponse,
 };
 
 pub struct PeerManagerMock {
@@ -974,16 +977,6 @@ pub fn setup_mock_all_validators(
                                                 }
                                                 future::ready(())
                                             }),
-                                    );
-                                }
-                            }
-                        }
-                        NetworkRequests::StateResponse { route_back, response } => {
-                            for (i, address) in addresses.iter().enumerate() {
-                                if route_back == address {
-                                    connectors1[i].client_actor.do_send(
-                                        StateResponse(Box::new(response.clone()))
-                                            .with_span_context(),
                                     );
                                 }
                             }
@@ -1888,21 +1881,48 @@ impl TestEnv {
 
     pub fn process_partial_encoded_chunks(&mut self) {
         let network_adapters = self.network_adapters.clone();
-        for network_adapter in network_adapters {
-            // process partial encoded chunks
-            while let Some(request) = network_adapter.pop() {
-                if let PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::PartialEncodedChunkMessage {
-                        account_id,
-                        partial_encoded_chunk,
-                    },
-                ) = request
-                {
-                    self.shards_manager(&account_id).send(
-                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
-                            PartialEncodedChunk::from(partial_encoded_chunk),
-                        ),
-                    );
+
+        let mut keep_going = true;
+        while keep_going {
+            for network_adapter in network_adapters.iter() {
+                keep_going = false;
+                // process partial encoded chunks
+                while let Some(request) = network_adapter.pop() {
+                    // if there are any requests in any of the adapters reset
+                    // keep going to true as processing of any message may
+                    // trigger more messages to be processed in other clients
+                    // it's a bit sad and it would be much nicer if all messages
+                    // were forwarded to a single queue
+                    // TODO would be nicer to first handle all PECs and then all PECFs
+                    keep_going = true;
+                    match request {
+                        PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::PartialEncodedChunkMessage {
+                                account_id,
+                                partial_encoded_chunk,
+                            },
+                        ) => {
+                            let partial_encoded_chunk =
+                                PartialEncodedChunk::from(partial_encoded_chunk);
+                            let message =
+                                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
+                                    partial_encoded_chunk,
+                                );
+                            self.shards_manager(&account_id).send(message);
+                        }
+                        PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::PartialEncodedChunkForward { account_id, forward },
+                        ) => {
+                            let message =
+                                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
+                                    forward,
+                                );
+                            self.shards_manager(&account_id).send(message);
+                        }
+                        _ => {
+                            tracing::debug!(target: "test", ?request, "skipping unsupported request type");
+                        }
+                    }
                 }
             }
         }
@@ -1997,6 +2017,9 @@ impl TestEnv {
     }
 
     pub fn process_shards_manager_responses_and_finish_processing_blocks(&mut self, idx: usize) {
+        let _span =
+            tracing::debug_span!(target: "test", "process_shards_manager", client=idx).entered();
+
         loop {
             self.process_shards_manager_responses(idx);
             if self.clients[idx].finish_blocks_in_processing().is_empty() {
@@ -2191,7 +2214,7 @@ impl TestEnv {
             relayer,
             sender,
             &relayer_signer,
-            vec![Action::Delegate(signed_delegate_action)],
+            vec![Action::Delegate(Box::new(signed_delegate_action))],
             tip.last_block_hash,
         )
     }
@@ -2230,12 +2253,12 @@ impl TestEnv {
     /// deployed already.
     pub fn call_main(&mut self, account: &AccountId) -> FinalExecutionOutcomeView {
         let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
-        let actions = vec![Action::FunctionCall(FunctionCallAction {
+        let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: vec![],
             gas: 3 * 10u64.pow(14),
             deposit: 0,
-        })];
+        }))];
         let tx = self.tx_from_actions(actions, &signer, signer.account_id.clone());
         self.execute_tx(tx).unwrap()
     }
@@ -2326,18 +2349,18 @@ pub fn create_chunk(
         let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
             *header.prev_block_hash(),
             header.prev_state_root(),
-            header.outcome_root(),
+            header.prev_outcome_root(),
             header.height_created(),
             header.shard_id(),
             &mut rs,
-            header.gas_used(),
-            header.gas_limit(),
-            header.balance_burnt(),
+            header.prev_gas_used(),
+            header.prev_gas_limit(),
+            header.prev_balance_burnt(),
             tx_root,
-            header.validator_proposals().collect(),
+            header.prev_validator_proposals().collect(),
             transactions,
-            decoded_chunk.receipts(),
-            header.outgoing_receipts_root(),
+            decoded_chunk.prev_outgoing_receipts(),
+            header.prev_outgoing_receipts_root(),
             &*signer,
             PROTOCOL_VERSION,
         )

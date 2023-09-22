@@ -37,7 +37,7 @@ unsafe impl<T: Copy, Ty> ValueType for WasmPtr<T, Ty> {}
 
 impl<T: Copy, Ty> Clone for WasmPtr<T, Ty> {
     fn clone(&self) -> Self {
-        Self { offset: self.offset, _phantom: PhantomData }
+        *self
     }
 }
 

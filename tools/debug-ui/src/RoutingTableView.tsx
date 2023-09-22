@@ -66,7 +66,7 @@ export const RoutingTableView = ({ addr }: RoutingTableViewProps) => {
 
                         const peer_distances = routingInfo.peer_distances[peer_id];
                         const formatted_distances = peer_distances == null ? "null" :
-                            peer_distances.distance.map((x) => x || '_').join(', ');
+                            peer_distances.distance.map((x) => x ?? '_').join(', ');
 
                         return (
                             <tr key={peer_label}>

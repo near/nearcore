@@ -160,10 +160,7 @@ impl near_network::client::Client for Adapter {
     ) -> Option<Box<FinalExecutionOutcomeView>> {
         match self
             .view_client_addr
-            .send(
-                TxStatusRequest { tx_hash: tx_hash, signer_account_id: account_id }
-                    .with_span_context(),
-            )
+            .send(TxStatusRequest { tx_hash, signer_account_id: account_id }.with_span_context())
             .await
         {
             Ok(res) => res,
@@ -194,9 +191,7 @@ impl near_network::client::Client for Adapter {
     ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
         match self
             .view_client_addr
-            .send(
-                StateRequestHeader { shard_id: shard_id, sync_hash: sync_hash }.with_span_context(),
-            )
+            .send(StateRequestHeader { shard_id, sync_hash }.with_span_context())
             .await
         {
             Ok(Some(StateResponse(resp))) => Ok(Some(*resp)),
@@ -216,10 +211,7 @@ impl near_network::client::Client for Adapter {
     ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
         match self
             .view_client_addr
-            .send(
-                StateRequestPart { shard_id: shard_id, sync_hash: sync_hash, part_id: part_id }
-                    .with_span_context(),
-            )
+            .send(StateRequestPart { shard_id, sync_hash, part_id }.with_span_context())
             .await
         {
             Ok(Some(StateResponse(resp))) => Ok(Some(*resp)),

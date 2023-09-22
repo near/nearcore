@@ -17,7 +17,7 @@ fn does_gas_price_exceed_limit(protocol_version: ProtocolVersion) -> bool {
             .unwrap();
         let min_gas_price =
             env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
-        was_congested |= block.chunks()[0].gas_used() >= block.chunks()[0].gas_limit();
+        was_congested |= block.chunks()[0].prev_gas_used() >= block.chunks()[0].prev_gas_limit();
         price_exceeded_limit |= block.header().gas_price() > 20 * min_gas_price;
     }
 

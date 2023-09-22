@@ -25,6 +25,7 @@ use std::sync::Arc;
 // know of a block containing the target chunk
 fn get_incoming_receipts(
     chain_store: &mut ChainStore,
+    epoch_manager: &EpochManagerHandle,
     chunk_hash: &ChunkHash,
     shard_id: u64,
     target_height: u64,
@@ -65,6 +66,7 @@ fn get_incoming_receipts(
     }
     let mut responses = vec![ReceiptProofResponse(CryptoHash::default(), Arc::new(receipt_proofs))];
     responses.extend_from_slice(&chain_store.store_update().get_incoming_receipts_for_shard(
+        epoch_manager,
         shard_id,
         *prev_hash,
         prev_height_included,
@@ -102,6 +104,7 @@ pub(crate) fn apply_chunk(
     let gas_price = prev_block.header().gas_price();
     let receipts = get_incoming_receipts(
         chain_store,
+        epoch_manager,
         &chunk_hash,
         shard_id,
         target_height,
@@ -114,11 +117,7 @@ pub(crate) fn apply_chunk(
     if use_flat_storage {
         let shard_uid =
             epoch_manager.shard_id_to_uid(shard_id as u64, prev_block.header().epoch_id()).unwrap();
-        runtime
-            .get_flat_storage_manager()
-            .unwrap()
-            .create_flat_storage_for_shard(shard_uid)
-            .unwrap();
+        runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid).unwrap();
     }
 
     let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
@@ -141,9 +140,9 @@ pub(crate) fn apply_chunk(
             ),
             &receipts,
             transactions,
-            chunk_header.validator_proposals(),
+            chunk_header.prev_validator_proposals(),
             gas_price,
-            chunk_header.gas_limit(),
+            chunk_header.prev_gas_limit(),
             &vec![],
             hash("random seed".as_ref()),
             true,
@@ -151,7 +150,7 @@ pub(crate) fn apply_chunk(
             Default::default(),
             use_flat_storage,
         )?,
-        chunk_header.gas_limit(),
+        chunk_header.prev_gas_limit(),
     ))
 }
 
@@ -177,7 +176,7 @@ fn find_tx_or_receipt(
                 return Ok(Some((HashType::Tx, shard_id as ShardId)));
             }
         }
-        for receipt in chunk.receipts() {
+        for receipt in chunk.prev_outgoing_receipts() {
             if &receipt.get_hash() == hash {
                 let shard_layout =
                     epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
@@ -385,7 +384,7 @@ fn apply_receipt_in_chunk(
                 };
                 non_applied_chunks.insert((height, chunk.shard_id()), chunk_hash.clone());
 
-                for receipt in chunk.receipts().iter() {
+                for receipt in chunk.prev_outgoing_receipts().iter() {
                     if receipt.get_hash() == *id {
                         let shard_layout =
                             epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
@@ -677,7 +676,7 @@ mod test {
                         assert_eq!(results[0].new_root, new_roots[shard_id as usize]);
                     }
 
-                    for receipt in chunk.receipts() {
+                    for receipt in chunk.prev_outgoing_receipts() {
                         let to_shard = shard_layout::account_id_to_shard_id(
                             &receipt.receiver_id,
                             &shard_layout,
@@ -733,7 +732,7 @@ mod test {
                     assert!(applied);
                 }
             }
-            for receipt in chunk.receipts() {
+            for receipt in chunk.prev_outgoing_receipts() {
                 let results = crate::apply_chunk::apply_receipt(
                     genesis.config.genesis_height,
                     &epoch_manager,

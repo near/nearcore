@@ -1,17 +1,17 @@
 //! Tests that `CompiledContractCache` is working correctly. Currently testing only wasmer code, so disabled outside of x86_64
 #![cfg(target_arch = "x86_64")]
 
-use super::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
-use crate::internal::VMKind;
+use super::{create_context, with_vm_variants};
 use crate::logic::errors::VMRunnerError;
 use crate::logic::mocks::mock_external::MockedExternal;
-use crate::logic::VMConfig;
+use crate::logic::Config;
 use crate::logic::{CompiledContract, CompiledContractCache};
 use crate::runner::VMResult;
 use crate::wasmer2_runner::Wasmer2VM;
+use crate::ContractCode;
+use crate::VMKind;
 use crate::{prepare, MockCompiledContractCache};
 use assert_matches::assert_matches;
-use near_primitives_core::contract::ContractCode;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use std::io;
@@ -21,7 +21,7 @@ use wasmer_engine::Executable;
 
 #[test]
 fn test_caches_compilation_error() {
-    let config = VMConfig::test();
+    let config = Config::test();
     with_vm_variants(&config, |vm_kind: VMKind| {
         match vm_kind {
             VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
@@ -45,7 +45,7 @@ fn test_caches_compilation_error() {
 
 #[test]
 fn test_does_not_cache_io_error() {
-    let config = VMConfig::test();
+    let config = Config::test();
     with_vm_variants(&config, |vm_kind: VMKind| {
         match vm_kind {
             VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
@@ -75,7 +75,7 @@ fn test_does_not_cache_io_error() {
 }
 
 fn make_cached_contract_call_vm(
-    config: &VMConfig,
+    config: &Config,
     cache: &dyn CompiledContractCache,
     code: &[u8],
     method_name: &str,
@@ -96,7 +96,6 @@ fn make_cached_contract_call_vm(
         context,
         &fees,
         &promise_results,
-        LATEST_PROTOCOL_VERSION,
         Some(cache),
     )
 }
@@ -112,8 +111,8 @@ fn test_wasmer2_artifact_output_stability() {
     let prepared_hashes = [
         11313378614122864359,
         15129741658507107429,
-        5094307245783848260,
-        7694538159330999784,
+        6663551338814735895,
+        17573418911223110359,
         3130574445877428311,
         11574598916196339098,
         10719493536745069553,
@@ -122,8 +121,8 @@ fn test_wasmer2_artifact_output_stability() {
     let compiled_hashes = [
         10064221885882795403,
         3125775751094251057,
-        10028445138356098295,
-        12076298193069645776,
+        5419113076376709775,
+        11996380560209519923,
         5262356478082097591,
         15002713309850850128,
         17666356303775050986,
@@ -132,7 +131,7 @@ fn test_wasmer2_artifact_output_stability() {
     for seed in seeds {
         let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
 
-        let config = VMConfig::test();
+        let config = Config::test();
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::Wasmer2).unwrap();
         got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));
@@ -193,8 +192,8 @@ fn test_near_vm_artifact_output_stability() {
     let compiled_hashes = [
         4853457605418485197,
         13732980080772388685,
-        13113947215618315585,
-        14806575926393320657,
+        5341774541420947021,
+        11161633624742571232,
         12949634280637067071,
         6571507299571270433,
         2426595065881413005,
@@ -203,7 +202,7 @@ fn test_near_vm_artifact_output_stability() {
     for seed in seeds {
         let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
 
-        let config = VMConfig::test();
+        let config = Config::test();
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::NearVm).unwrap();
         got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));

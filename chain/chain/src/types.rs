@@ -89,7 +89,11 @@ pub struct ApplySplitStateResult {
 // otherwise, it simply returns the state changes needed to be applied to split states
 #[derive(Debug)]
 pub enum ApplySplitStateResultOrStateChanges {
+    /// Immediately apply the split state result.
+    /// Happens during IsCaughtUp and CatchingUp
     ApplySplitStateResults(Vec<ApplySplitStateResult>),
+    /// Store the split state results so that they can be applied later.
+    /// Happens during NotCaughtUp.
     StateChangesForSplitStates(StateChangesForSplitStates),
 }
 
@@ -265,7 +269,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: StateRoot,
     ) -> Result<Trie, Error>;
 
-    fn get_flat_storage_manager(&self) -> Option<FlatStorageManager>;
+    fn get_flat_storage_manager(&self) -> FlatStorageManager;
 
     /// Validates a given signed transaction.
     /// If the state root is given, then the verification will use the account. Otherwise it will
@@ -508,7 +512,8 @@ mod tests {
         let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
         assert!(b1.header().verify_block_producer(&signer.public_key()));
         let other_signer = create_test_signer("other2");
-        let approvals = vec![Some(Approval::new(*b1.hash(), 1, 2, &other_signer).signature)];
+        let approvals =
+            vec![Some(Box::new(Approval::new(*b1.hash(), 1, 2, &other_signer).signature))];
         let b2 = TestBlockBuilder::new(&b1, signer.clone()).approvals(approvals).build();
         b2.header().verify_block_producer(&signer.public_key());
     }

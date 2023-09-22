@@ -350,8 +350,6 @@ pub struct Config {
     /// chunks and underutilizing the capacity of the network.
     #[serde(default = "default_transaction_pool_size_limit")]
     pub transaction_pool_size_limit: Option<u64>,
-    /// If a node needs to upload state parts to S3
-    pub s3_credentials_file: Option<String>,
     /// If set on the node will collect RocksDB perf metrics
     pub perf_db: bool,
 }
@@ -393,7 +391,6 @@ impl Default for Config {
             state_sync: None,
             state_sync_enabled: None,
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
-            s3_credentials_file: None,
             enable_multiline_logging: None,
             perf_db: false,
         }
@@ -506,7 +503,6 @@ impl Config {
         None
     }
 
-    #[allow(unused_variables)]
     pub fn set_rpc_addr(&mut self, addr: tcp::ListenerAddr) {
         #[cfg(feature = "json_rpc")]
         {

@@ -166,12 +166,7 @@ impl ShardTries {
             (0..num_shards as u32).map(|shard_id| ShardUId { shard_id, version }).collect();
         let trie_config = TrieConfig::default();
 
-        ShardTries::new(
-            store.clone(),
-            trie_config,
-            &shard_uids,
-            FlatStorageManager::test(store, &shard_uids, CryptoHash::default()),
-        )
+        ShardTries::new(store.clone(), trie_config, &shard_uids, FlatStorageManager::new(store))
     }
 
     /// Create caches for all shards according to the trie config.
@@ -194,7 +189,6 @@ impl ShardTries {
         TrieUpdate::new(self.get_view_trie_for_shard(shard_uid, state_root))
     }
 
-    #[allow(unused_variables)]
     fn get_trie_for_shard_internal(
         &self,
         shard_uid: ShardUId,
@@ -328,6 +322,10 @@ impl ShardTries {
 
     pub(crate) fn get_db(&self) -> &Arc<dyn crate::Database> {
         &self.0.store.storage
+    }
+
+    pub fn get_flat_storage_manager(&self) -> FlatStorageManager {
+        self.0.flat_storage_manager.clone()
     }
 
     pub fn update_cache(&self, ops: Vec<(&CryptoHash, Option<&[u8]>)>, shard_uid: ShardUId) {
@@ -769,7 +767,7 @@ impl WrappedTrieChanges {
     ///
     /// NOTE: the changes are drained from `self`.
     pub fn state_changes_into(&mut self, store_update: &mut StoreUpdate) {
-        for change_with_trie_key in self.state_changes.drain(..) {
+        for mut change_with_trie_key in self.state_changes.drain(..) {
             assert!(
                 !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
                     cause,
@@ -778,13 +776,14 @@ impl WrappedTrieChanges {
                 "NotWritableToDisk changes must never be finalized."
             );
 
-            assert!(
-                !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
-                    cause,
-                    StateChangeCause::Resharding
-                )),
-                "Resharding changes must never be finalized."
-            );
+            // Resharding changes must not be finalized, however they may be introduced here when we are
+            // evaluating changes for split state in process_split_state function
+            change_with_trie_key
+                .changes
+                .retain(|change| change.cause != StateChangeCause::Resharding);
+            if change_with_trie_key.changes.is_empty() {
+                continue;
+            }
 
             let storage_key = if cfg!(feature = "serialize_all_state_changes") {
                 // Serialize all kinds of state changes without any filtering.
@@ -1049,7 +1048,7 @@ mod test {
             store.clone(),
             trie_config,
             &shard_uids,
-            FlatStorageManager::test(store, &shard_uids, CryptoHash::default()),
+            FlatStorageManager::new(store),
         );
 
         let trie_caches = &trie.0.caches;
@@ -1098,7 +1097,7 @@ mod test {
             store.clone(),
             trie_config,
             &shard_uids,
-            FlatStorageManager::test(store, &shard_uids, CryptoHash::default()),
+            FlatStorageManager::new(store),
         );
 
         let trie_caches = &trie.0.caches;
