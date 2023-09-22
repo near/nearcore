@@ -183,7 +183,7 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
             ProtocolFeature::SimpleNightshadeV2 => 135,
             ProtocolFeature::PostStateRoot => 136,
-            ProtocolFeature::TestnetFewerBlockProducers => 137,
+            ProtocolFeature::TestnetFewerBlockProducers => 140,
         }
     }
 }
