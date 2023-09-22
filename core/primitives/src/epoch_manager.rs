@@ -152,7 +152,7 @@ impl AllEpochConfig {
 
         // Adjust the number of block and chunk producers for all chains except
         // mainnet, to make it easier to test the change.
-        if chain_id != "mainnet"
+        if chain_id != crate::chains::MAINNET
             && checked_feature!("stable", TestnetFewerBlockProducers, protocol_version)
         {
             let num_shards = config.shard_layout.num_shards() as usize;
