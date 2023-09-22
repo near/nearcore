@@ -65,7 +65,7 @@ fn test_bad_shard_id() {
         2,
         1,
         chunk.prev_gas_used(),
-        chunk.prev_gas_limit(),
+        chunk.gas_limit(),
         chunk.prev_balance_burnt(),
         outgoing_receipts_root,
         chunk.tx_root(),

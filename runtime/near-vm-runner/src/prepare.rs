@@ -1,9 +1,9 @@
 //! Module that takes care of loading, checking and preprocessing of a
 //! wasm module before execution.
 
-use crate::internal::VMKind;
 use crate::logic::errors::PrepareError;
 use crate::logic::Config;
+use crate::VMKind;
 
 mod prepare_v0;
 mod prepare_v1;

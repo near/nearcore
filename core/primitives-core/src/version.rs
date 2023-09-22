@@ -120,6 +120,9 @@ pub enum ProtocolFeature {
     RejectBlocksWithOutdatedProtocolVersions,
     #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
     SimpleNightshadeV2,
+    /// Enables block production with post-state-root.
+    /// NEP: https://github.com/near/NEPs/pull/507
+    PostStateRoot,
 }
 
 impl ProtocolFeature {
@@ -173,6 +176,7 @@ impl ProtocolFeature {
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
             ProtocolFeature::SimpleNightshadeV2 => 135,
+            ProtocolFeature::PostStateRoot => 136,
         }
     }
 }

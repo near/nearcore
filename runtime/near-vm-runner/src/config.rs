@@ -1,4 +1,5 @@
 use crate::logic::StorageGetMode;
+use crate::VMKind;
 use near_primitives_core::config::{AccountIdValidityRulesVersion, ExtCostsConfig, ParameterCost};
 use near_primitives_core::types::Gas;
 use std::collections::hash_map::DefaultHasher;
@@ -18,8 +19,12 @@ pub struct Config {
 
     /// Gas cost of a growing memory by single page.
     pub grow_mem_cost: u32,
+
     /// Gas cost of a regular operation.
     pub regular_op_cost: u32,
+
+    /// The kind of the VM implementation to use
+    pub vm_kind: VMKind,
 
     /// Disable the fix for the #9393 issue in near-vm-runner.
     pub disable_9393_fix: bool,
@@ -174,24 +179,6 @@ fn wasmer2_stack_limit_default() -> i32 {
 }
 
 impl Config {
-    pub fn test() -> Self {
-        Self {
-            ext_costs: ExtCostsConfig::test(),
-            grow_mem_cost: 1,
-            // Refer to `near_primitives_core::config::SAFETY_MULTIPLIER`.
-            regular_op_cost: 3 * 1285457,
-            disable_9393_fix: false,
-            limit_config: LimitConfig::test(),
-            fix_contract_loading_cost: cfg!(feature = "protocol_feature_fix_contract_loading_cost"),
-            storage_get_mode: StorageGetMode::FlatStorage,
-            implicit_account_creation: true,
-            math_extension: true,
-            ed25519_verify: true,
-            alt_bn128: true,
-            function_call_weight: true,
-        }
-    }
-
     /// Computes non-cryptographically-proof hash. The computation is fast but not cryptographically
     /// secure.
     pub fn non_crypto_hash(&self) -> u64 {
@@ -200,79 +187,14 @@ impl Config {
         s.finish()
     }
 
-    pub fn free() -> Self {
-        Self {
-            ext_costs: ExtCostsConfig {
-                costs: near_primitives_core::enum_map::enum_map! {
-                    _ => ParameterCost { gas: 0, compute: 0 }
-                },
+    pub fn make_free(&mut self) {
+        self.ext_costs = ExtCostsConfig {
+            costs: near_primitives_core::enum_map::enum_map! {
+                _ => ParameterCost { gas: 0, compute: 0 }
             },
-            grow_mem_cost: 0,
-            regular_op_cost: 0,
-            disable_9393_fix: false,
-            // We shouldn't have any costs in the limit config.
-            limit_config: LimitConfig { max_gas_burnt: u64::MAX, ..LimitConfig::test() },
-            fix_contract_loading_cost: cfg!(feature = "protocol_feature_fix_contract_loading_cost"),
-            storage_get_mode: StorageGetMode::FlatStorage,
-            implicit_account_creation: true,
-            math_extension: true,
-            ed25519_verify: true,
-            alt_bn128: true,
-            function_call_weight: true,
-        }
-    }
-}
-
-impl LimitConfig {
-    pub fn test() -> Self {
-        const KB: u32 = 1024;
-        let max_contract_size = 4 * 2u64.pow(20);
-        Self {
-            max_gas_burnt: 2 * 10u64.pow(14), // with 10**15 block gas limit this will allow 5 calls.
-            max_stack_height: 256 * KB,
-            contract_prepare_version: ContractPrepareVersion::V2,
-            initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
-            max_memory_pages: 2u32.pow(11),     // 128Mib of memory.
-
-            // By default registers are limited by 1GiB of memory.
-            registers_memory_limit: 2u64.pow(30),
-            // By default each register is limited by 100MiB of memory.
-            max_register_size: 2u64.pow(20) * 100,
-            // By default there is at most 100 registers.
-            max_number_registers: 100,
-
-            max_number_logs: 100,
-            // Total logs size is 16Kib
-            max_total_log_length: 16 * 1024,
-
-            // Updating the maximum prepaid gas to limit the maximum depth of a transaction to 64
-            // blocks.
-            // This based on `63 * min_receipt_with_function_call_gas()`. Where 63 is max depth - 1.
-            max_total_prepaid_gas: 300 * 10u64.pow(12),
-
-            // Safety limit. Unlikely to hit it for most common transactions and receipts.
-            max_actions_per_receipt: 100,
-            // Should be low enough to deserialize an access key without paying.
-            max_number_bytes_method_names: 2000,
-            max_length_method_name: 256,            // basic safety limit
-            max_arguments_length: 4 * 2u64.pow(20), // 4 Mib
-            max_length_returned_data: 4 * 2u64.pow(20), // 4 Mib
-            max_contract_size,                      // 4 Mib,
-            max_transaction_size: 4 * 2u64.pow(20), // 4 Mib
-
-            max_length_storage_key: 4 * 2u64.pow(20), // 4 Mib
-            max_length_storage_value: 4 * 2u64.pow(20), // 4 Mib
-            // Safety limit and unlikely abusable.
-            max_promises_per_function_call_action: 1024,
-            // Unlikely to hit it for normal development.
-            max_number_input_data_dependencies: 128,
-            max_functions_number_per_contract: Some(10000),
-            wasmer2_stack_limit: 200 * 1024,
-            // To utilize a local in an useful way, at least two `local.*` instructions are
-            // necessary (they only take constant operands indicating the local to access), which
-            // is 4 bytes worth of code for each local.
-            max_locals_per_contract: Some(max_contract_size / 4),
-            account_id_validity_rules_version: AccountIdValidityRulesVersion::V1,
-        }
+        };
+        self.grow_mem_cost = 0;
+        self.regular_op_cost = 0;
+        self.limit_config.max_gas_burnt = u64::MAX;
     }
 }

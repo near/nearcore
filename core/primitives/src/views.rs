@@ -981,6 +981,7 @@ impl From<BlockHeader> for BlockHeaderInnerLiteView {
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite,
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite,
             BlockHeader::BlockHeaderV4(header) => &header.inner_lite,
+            BlockHeader::BlockHeaderV5(header) => &header.inner_lite,
         };
         BlockHeaderInnerLiteView {
             height: inner_lite.height,
@@ -1055,7 +1056,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             height_included,
             shard_id: inner.shard_id(),
             gas_used: inner.prev_gas_used(),
-            gas_limit: inner.prev_gas_limit(),
+            gas_limit: inner.gas_limit(),
             rent_paid: 0,
             validator_reward: 0,
             balance_burnt: inner.prev_balance_burnt(),
@@ -1079,7 +1080,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 height_created: view.height_created,
                 shard_id: view.shard_id,
                 prev_gas_used: view.gas_used,
-                prev_gas_limit: view.gas_limit,
+                gas_limit: view.gas_limit,
                 prev_balance_burnt: view.balance_burnt,
                 prev_outgoing_receipts_root: view.outgoing_receipts_root,
                 tx_root: view.tx_root,
@@ -1137,6 +1138,12 @@ impl ChunkView {
                 header: chunk.header.into(),
                 transactions: chunk.transactions.into_iter().map(Into::into).collect(),
                 receipts: chunk.prev_outgoing_receipts.into_iter().map(Into::into).collect(),
+            },
+            ShardChunk::V3(chunk) => Self {
+                author,
+                header: chunk.header.into(),
+                transactions: chunk.transactions.into_iter().map(Into::into).collect(),
+                receipts: chunk.outgoing_receipts.into_iter().map(Into::into).collect(),
             },
         }
     }
@@ -2477,6 +2484,8 @@ pub struct VMConfigView {
     /// Gas cost of a regular operation.
     pub regular_op_cost: u32,
 
+    /// See [`VMConfig::vm_kind`].
+    pub vm_kind: near_vm_runner::VMKind,
     /// See [`VMConfig::disable_9393_fix`].
     pub disable_9393_fix: bool,
     /// See [`VMConfig::flat_storage_reads`].
@@ -2516,6 +2525,7 @@ impl From<near_vm_runner::logic::Config> for VMConfigView {
             ed25519_verify: config.ed25519_verify,
             alt_bn128: config.alt_bn128,
             function_call_weight: config.function_call_weight,
+            vm_kind: config.vm_kind,
         }
     }
 }
@@ -2535,6 +2545,7 @@ impl From<VMConfigView> for near_vm_runner::logic::Config {
             ed25519_verify: view.ed25519_verify,
             alt_bn128: view.alt_bn128,
             function_call_weight: view.function_call_weight,
+            vm_kind: view.vm_kind,
         }
     }
 }

@@ -1,16 +1,12 @@
 mod tracing_capture;
-
-use std::time::Instant;
-
-use crate::use_color_auto;
+use crate::subscriber::use_color_auto;
 use core::fmt::Result;
+use std::time::Instant;
+pub use tracing_capture::TracingCapture;
 use tracing_subscriber::fmt;
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::FormatTime;
-
 use tracing_subscriber::EnvFilter;
-
-pub use tracing_capture::TracingCapture;
 
 fn setup_subscriber_from_filter(mut env_filter: EnvFilter) {
     if let Ok(rust_log) = std::env::var("RUST_LOG") {

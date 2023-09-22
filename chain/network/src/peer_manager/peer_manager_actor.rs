@@ -970,6 +970,7 @@ impl PeerManagerActor {
 
 impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
     type Result = ();
+    #[perf]
     fn handle(&mut self, msg: WithSpanContext<SetChainInfo>, ctx: &mut Self::Context) {
         let (_span, SetChainInfo(info)) = handler_trace_span!(target: "network", msg);
         let _timer =
@@ -1003,6 +1004,7 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
 
 impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerActor {
     type Result = PeerManagerMessageResponse;
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<PeerManagerMessageRequest>,
@@ -1018,6 +1020,7 @@ impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerA
 
 impl actix::Handler<GetDebugStatus> for PeerManagerActor {
     type Result = DebugStatus;
+    #[perf]
     fn handle(&mut self, msg: GetDebugStatus, _ctx: &mut actix::Context<Self>) -> Self::Result {
         match msg {
             GetDebugStatus::PeerStore => {

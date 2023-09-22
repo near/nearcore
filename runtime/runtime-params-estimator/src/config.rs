@@ -1,6 +1,6 @@
 use crate::rocksdb::RocksDBTestConfig;
 use crate::Cost;
-use near_vm_runner::internal::VMKind;
+use near_vm_runner::VMKind;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

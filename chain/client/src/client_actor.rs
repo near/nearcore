@@ -395,6 +395,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
 impl Handler<WithSpanContext<ProcessTxRequest>> for ClientActor {
     type Result = ProcessTxResponse;
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<ProcessTxRequest>,
@@ -410,6 +411,7 @@ impl Handler<WithSpanContext<ProcessTxRequest>> for ClientActor {
 impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: WithSpanContext<BlockResponse>, ctx: &mut Context<Self>) {
         self.wrap(msg, ctx, "BlockResponse", |this: &mut Self, msg|{
             let BlockResponse{ block, peer_id, was_requested } = msg;
@@ -464,6 +466,7 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
 impl Handler<WithSpanContext<BlockHeadersResponse>> for ClientActor {
     type Result = Result<(), ReasonForBan>;
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<BlockHeadersResponse>,
@@ -484,6 +487,7 @@ impl Handler<WithSpanContext<BlockHeadersResponse>> for ClientActor {
 impl Handler<WithSpanContext<BlockApproval>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: WithSpanContext<BlockApproval>, ctx: &mut Context<Self>) {
         self.wrap(msg, ctx, "BlockApproval", |this, msg| {
             let BlockApproval(approval, peer_id) = msg;
@@ -498,6 +502,7 @@ impl Handler<WithSpanContext<BlockApproval>> for ClientActor {
 impl Handler<WithSpanContext<StateResponse>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: WithSpanContext<StateResponse>, ctx: &mut Context<Self>) {
         self.wrap(msg, ctx, "StateResponse", |this, msg| {
             let StateResponse(state_response_info) = msg;
@@ -542,6 +547,7 @@ impl Handler<WithSpanContext<StateResponse>> for ClientActor {
 impl Handler<WithSpanContext<RecvChallenge>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: WithSpanContext<RecvChallenge>, ctx: &mut Context<Self>) {
         self.wrap(msg, ctx, "RecvChallenge", |this, msg| {
             let RecvChallenge(challenge) = msg;
@@ -556,6 +562,7 @@ impl Handler<WithSpanContext<RecvChallenge>> for ClientActor {
 impl Handler<WithSpanContext<SetNetworkInfo>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: WithSpanContext<SetNetworkInfo>, ctx: &mut Context<Self>) {
         // SetNetworkInfo is a large message. Avoid printing it at the `debug` verbosity.
         self.wrap(msg, ctx, "SetNetworkInfo", |this, msg| {
@@ -796,6 +803,7 @@ pub struct ApplyChunksDoneMessage;
 impl Handler<WithSpanContext<ApplyChunksDoneMessage>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<ApplyChunksDoneMessage>,
@@ -1741,6 +1749,7 @@ impl Drop for ClientActor {
 impl Handler<WithSpanContext<ApplyStatePartsResponse>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<ApplyStatePartsResponse>,
@@ -1760,6 +1769,7 @@ impl Handler<WithSpanContext<ApplyStatePartsResponse>> for ClientActor {
 impl Handler<WithSpanContext<BlockCatchUpResponse>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<BlockCatchUpResponse>,
@@ -1781,6 +1791,7 @@ impl Handler<WithSpanContext<BlockCatchUpResponse>> for ClientActor {
 impl Handler<WithSpanContext<StateSplitResponse>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<StateSplitResponse>,
@@ -1800,6 +1811,7 @@ impl Handler<WithSpanContext<StateSplitResponse>> for ClientActor {
 impl Handler<WithSpanContext<ShardsManagerResponse>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<ShardsManagerResponse>,
@@ -1830,6 +1842,7 @@ impl Handler<WithSpanContext<ShardsManagerResponse>> for ClientActor {
 impl Handler<WithSpanContext<GetClientConfig>> for ClientActor {
     type Result = Result<ClientConfig, GetClientConfigError>;
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<GetClientConfig>,

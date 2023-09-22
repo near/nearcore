@@ -280,6 +280,9 @@ impl BlockHeader {
                 panic!("old header should not appear in tests")
             }
             BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header),
+            BlockHeader::BlockHeaderV5(_) => {
+                panic!("post-state-root header should not appear in tests yet")
+            }
         }
     }
 
@@ -298,6 +301,10 @@ impl BlockHeader {
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
             BlockHeader::BlockHeaderV4(header) => {
+                let header = Arc::make_mut(header);
+                header.inner_rest.latest_protocol_version = latest_protocol_version;
+            }
+            BlockHeader::BlockHeaderV5(header) => {
                 let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
@@ -327,6 +334,11 @@ impl BlockHeader {
                 header.signature = signature;
             }
             BlockHeader::BlockHeaderV4(header) => {
+                let header = Arc::make_mut(header);
+                header.hash = hash;
+                header.signature = signature;
+            }
+            BlockHeader::BlockHeaderV5(header) => {
                 let header = Arc::make_mut(header);
                 header.hash = hash;
                 header.signature = signature;
