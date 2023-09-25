@@ -165,7 +165,7 @@ fn apply_relocation(
 
 /// Links a module, patching the allocated functions with the
 /// required relocations and jump tables.
-#[tracing::instrument(target = "near_vm", skip_all)]
+#[tracing::instrument(target = "near_vm", level = "trace", skip_all)]
 pub fn link_module(
     allocated_functions: &PrimaryMap<LocalFunctionIndex, VMLocalFunction>,
     jt_offsets: impl Fn(LocalFunctionIndex, JumpTable) -> near_vm_compiler::CodeOffset,

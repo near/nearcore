@@ -1,10 +1,10 @@
 //! Settings of the parameters of the runtime.
-use crate::config::VMConfig;
 use crate::runtime::config_store::INITIAL_TESTNET_CONFIG;
 use crate::runtime::fees::RuntimeFeesConfig;
 use crate::runtime::parameter_table::ParameterTable;
 use crate::types::AccountId;
 use near_primitives_core::types::Balance;
+use near_primitives_core::version::PROTOCOL_VERSION;
 
 use super::parameter_table::InvalidConfigError;
 
@@ -20,7 +20,7 @@ pub struct RuntimeConfig {
     ///
     /// This contains all the configuration parameters that are only required by
     /// the WASM runtime.
-    pub wasm_config: VMConfig,
+    pub wasm_config: near_vm_runner::logic::Config,
     /// Config that defines rules for account creation.
     pub account_creation_config: AccountCreationConfig,
 }
@@ -38,17 +38,26 @@ impl RuntimeConfig {
     }
 
     pub fn test() -> Self {
+        let config_store = super::config_store::RuntimeConfigStore::new(None);
+        let wasm_config = near_vm_runner::logic::Config::clone(
+            &config_store.get_config(PROTOCOL_VERSION).wasm_config,
+        );
         RuntimeConfig {
             fees: RuntimeFeesConfig::test(),
-            wasm_config: VMConfig::test(),
+            wasm_config,
             account_creation_config: AccountCreationConfig::default(),
         }
     }
 
     pub fn free() -> Self {
+        let config_store = super::config_store::RuntimeConfigStore::new(None);
+        let mut wasm_config = near_vm_runner::logic::Config::clone(
+            &config_store.get_config(PROTOCOL_VERSION).wasm_config,
+        );
+        wasm_config.make_free();
         Self {
             fees: RuntimeFeesConfig::free(),
-            wasm_config: VMConfig::free(),
+            wasm_config,
             account_creation_config: AccountCreationConfig::default(),
         }
     }

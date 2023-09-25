@@ -56,7 +56,7 @@ impl SignedDelegateAction {
 
 impl From<SignedDelegateAction> for Action {
     fn from(delegate_action: SignedDelegateAction) -> Self {
-        Self::Delegate(delegate_action)
+        Self::Delegate(Box::new(delegate_action))
     }
 }
 
@@ -150,7 +150,7 @@ mod tests {
     );
 
     fn create_delegate_action(actions: Vec<Action>) -> Action {
-        Action::Delegate(SignedDelegateAction {
+        Action::Delegate(Box::new(SignedDelegateAction {
             delegate_action: DelegateAction {
                 sender_id: "aaa".parse().unwrap(),
                 receiver_id: "bbb".parse().unwrap(),
@@ -163,7 +163,7 @@ mod tests {
                 public_key: PublicKey::empty(KeyType::ED25519),
             },
             signature: Signature::empty(KeyType::ED25519),
-        })
+        }))
     }
 
     #[test]

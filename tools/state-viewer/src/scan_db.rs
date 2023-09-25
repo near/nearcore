@@ -93,6 +93,10 @@ fn format_key_and_value<'a>(
             Box::new(CryptoHash::try_from(key).unwrap()),
             Box::new(u64::try_from_slice(value).unwrap()),
         ),
+        DBCol::BlocksToCatchup => (
+            Box::new(CryptoHash::try_from(key).unwrap()),
+            Box::new(Vec::<CryptoHash>::try_from_slice(value).unwrap()),
+        ),
         DBCol::ChunkExtra => (
             Box::new(get_block_shard_uid_rev(key).unwrap()),
             Box::new(ChunkExtra::try_from_slice(value).unwrap()),

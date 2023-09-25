@@ -142,7 +142,7 @@ impl crate::ChainAccess for ChainAccess {
             chunks.push(SourceChunk {
                 shard_id: chunk.shard_id(),
                 transactions: chunk.transactions().iter().map(|t| t.clone().into()).collect(),
-                receipts: chunk.receipts().iter().cloned().collect(),
+                receipts: chunk.prev_outgoing_receipts().iter().cloned().collect(),
             })
         }
         Ok(SourceBlock { hash: block_hash, chunks })

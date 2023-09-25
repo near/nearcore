@@ -115,6 +115,8 @@ fn generate_stats(db: &Db) -> anyhow::Result<String> {
 mod tests {
     use super::generate_stats;
     use crate::db::Db;
+    use crate::estimate::EstimateConfig;
+    use std::path::Path;
 
     #[test]
     fn test_stats() {
@@ -134,5 +136,32 @@ mod tests {
 
         let db = Db::test_with_data(input);
         insta::assert_snapshot!(generate_stats(&db).unwrap());
+    }
+
+    /// Run a minimal estimation of all parameters to ensure we have no crashes.
+    ///
+    /// Things to note:
+    /// - This re-compiles the estimator (including nearcore) in quick-release
+    ///   profile because estimations are really slow otherwise.
+    /// - This is an expensive test. We run it like any other test for now but
+    ///   it might make sense to put it in a separate CI job.
+    /// - QEMU based estimation is skipped - it would be too slow.
+    #[test]
+    fn test_full_estimator() -> anyhow::Result<()> {
+        let stats_path = Path::new("tmp_db.sqlite");
+        let db = Db::open(stats_path)?;
+        let config = EstimateConfig {
+            external_repo: None,
+            home: None,
+            metrics: vec!["time".to_owned()],
+            mode: crate::estimate::Mode::Fast,
+        };
+
+        crate::estimate::run_estimation(&db, &config)?;
+
+        // cleanup
+        drop(db);
+        std::fs::remove_file(stats_path)?;
+        Ok(())
     }
 }

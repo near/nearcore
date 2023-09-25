@@ -40,14 +40,12 @@ macro_rules! entity_impl {
 
         impl $entity {
             /// Create a new instance from a `u32`.
-            #[allow(dead_code)]
             pub fn from_u32(x: u32) -> Self {
                 debug_assert!(x < $crate::lib::std::u32::MAX);
                 $entity(x)
             }
 
             /// Return the underlying index value as a `u32`.
-            #[allow(dead_code)]
             pub fn as_u32(self) -> u32 {
                 self.0
             }

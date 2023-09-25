@@ -17,7 +17,7 @@ impl BlockInfo {
     }
 }
 
-#[derive(strum::AsRefStr, Debug, PartialEq, Eq)]
+#[derive(strum::AsRefStr, strum::Display, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum FlatStorageError {
     /// This means we can't find a path from `flat_head` to the block. Includes
     /// `flat_head` hash and block hash, respectively.

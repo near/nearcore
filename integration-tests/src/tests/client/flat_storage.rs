@@ -556,5 +556,5 @@ fn test_not_supported_block() {
 }
 
 fn get_flat_storage_manager(env: &TestEnv) -> FlatStorageManager {
-    env.clients[0].chain.runtime_adapter.get_flat_storage_manager().unwrap()
+    env.clients[0].chain.runtime_adapter.get_flat_storage_manager()
 }

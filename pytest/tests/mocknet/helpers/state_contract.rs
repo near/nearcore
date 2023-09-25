@@ -42,7 +42,6 @@ impl StatusMessage {
 // receiver. The callback simply returns `1`.
 #[near_bindgen]
 impl FungibleTokenReceiver for StatusMessage {
-    #[allow(unused_variables)]
     fn ft_on_transfer(
         &mut self,
         sender_id: ValidAccountId,

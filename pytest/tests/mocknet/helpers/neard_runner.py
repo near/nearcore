@@ -53,6 +53,8 @@ class JSONHandler(http.server.BaseHTTPRequestHandler):
                                    name="new_test")
         self.dispatcher.add_method(server.neard_runner.do_network_init,
                                    name="network_init")
+        self.dispatcher.add_method(server.neard_runner.do_update_config,
+                                   name="update_config")
         self.dispatcher.add_method(server.neard_runner.do_ready, name="ready")
         self.dispatcher.add_method(server.neard_runner.do_start, name="start")
         self.dispatcher.add_method(server.neard_runner.do_stop, name="stop")
@@ -373,6 +375,23 @@ class NeardRunner:
                         'num_seats': num_seats,
                         'protocol_version': protocol_version,
                     }, f)
+
+    def do_update_config(self, state_cache_size_mb):
+        with self.lock:
+            logging.info(f'updating config with {state_cache_size_mb}')
+            with open(self.target_near_home_path('config.json'), 'r') as f:
+                config = json.load(f)
+
+            config['store']['trie_cache']['per_shard_max_bytes'] = {}
+            if state_cache_size_mb is not None:
+                for i in range(4):
+                    config['store']['trie_cache']['per_shard_max_bytes'][
+                        f's{i}.v1'] = state_cache_size_mb * 10**6
+
+            with open(self.target_near_home_path('config.json'), 'w') as f:
+                json.dump(config, f, indent=2)
+
+        return True
 
     def do_start(self):
         with self.lock:

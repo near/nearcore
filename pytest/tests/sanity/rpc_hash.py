@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""Test computing block hash from data provided by JSON RPCs."""
+# Test computing block hash from data provided by JSON RPCs.
 
+import base58
 import hashlib
-import json
 import pathlib
 import sys
 import typing
 import unittest
-
-import base58
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -23,8 +21,9 @@ import messages.block
 
 config = cluster.load_config()
 binary_protocol_version = cluster.get_binary_protocol_version(config)
+logger.info(f"binary_protocol_version: {binary_protocol_version}")
 assert binary_protocol_version is not None
-BLOCK_HEADER_V4_PROTOCOL_VERSION = 138
+BLOCK_HEADER_V4_PROTOCOL_VERSION = 63
 
 
 def serialize(msg: typing.Any) -> bytes:
@@ -314,12 +313,12 @@ class HashTestCase(unittest.TestCase):
     if binary_protocol_version >= BLOCK_HEADER_V4_PROTOCOL_VERSION:
 
         def test_block_hash_v4(self):
-            """Starts a cluster using protocol version 138 and verifies block hashes.
+            """Starts a cluster using protocol version BLOCK_HEADER_V4_PROTOCOL_VERSION and verifies block hashes.
 
             The cluster is started with a protocol version in which the fourth
             version of the BlockHeaderInnerRest has been used.
             """
-            self._test_block_hash(4, 138)
+            self._test_block_hash(4, BLOCK_HEADER_V4_PROTOCOL_VERSION)
 
     def test_block_hash_latest(self):
         """Starts a cluster using latest protocol and verifies block hashes.

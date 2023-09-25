@@ -6,9 +6,10 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use near_primitives::version::ProtocolVersion;
+use sha2::Digest;
+use sha2::Sha256;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-
 pub mod cli;
 
 struct AppInfo {
@@ -42,11 +43,21 @@ fn handle_message(
             } else {
                 None
             };
+            let part_hash = if let Some(part) = state_response.part() {
+                Sha256::digest(&part.1)
+                    .iter()
+                    .map(|byte| format!("{:02x}", byte))
+                    .collect::<String>()
+            } else {
+                "No part".to_string()
+            };
+
             tracing::info!(
                 shard_id,
                 ?sync_hash,
                 ?part_id,
                 ?duration,
+                ?part_hash,
                 "Received VersionedStateResponse"
             );
         }

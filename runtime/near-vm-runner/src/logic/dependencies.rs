@@ -101,6 +101,7 @@ pub trait MemoryLike {
 }
 
 /// This enum represents if a storage_get call will be performed through flat storage or trie
+#[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub enum StorageGetMode {
     FlatStorage,
     Trie,

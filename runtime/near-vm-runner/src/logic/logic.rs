@@ -6,16 +6,16 @@ use super::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use super::utils::split_method_names;
 use super::{HostError, VMLogicError};
 use super::{StorageGetMode, ValuePtr};
+use crate::config::Config;
+use crate::ProfileDataV3;
 use near_crypto::Secp256K1Signature;
-use near_primitives_core::checked_feature;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::ViewConfig;
-use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
-use near_primitives_core::profile::ProfileDataV3;
+use near_primitives_core::config::{ActionCosts, ExtCosts};
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_primitives_core::runtime::fees::{transfer_exec_fee, transfer_send_fee};
 use near_primitives_core::types::{
-    AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, ProtocolVersion, StorageUsage,
+    AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
 };
 use std::mem::size_of;
 
@@ -34,7 +34,7 @@ pub struct VMLogic<'a> {
     /// Part of Context API and Economics API that was extracted from the receipt.
     context: VMContext,
     /// All gas and economic parameters required during contract execution.
-    config: &'a VMConfig,
+    pub(crate) config: &'a Config,
     /// Fees for creating (async) actions on runtime.
     fees_config: &'a RuntimeFeesConfig,
     /// If this method execution is invoked directly as a callback by one or more contract calls the
@@ -64,9 +64,6 @@ pub struct VMLogic<'a> {
     promises: Vec<Promise>,
     /// Tracks the total log length. The sum of length of all logs.
     total_log_length: u64,
-
-    /// Current protocol version that is used for the function call.
-    current_protocol_version: ProtocolVersion,
 
     /// Stores the amount of stack space remaining
     remaining_stack: u64,
@@ -128,14 +125,13 @@ impl PublicKeyBuffer {
 }
 
 impl<'a> VMLogic<'a> {
-    pub fn new_with_protocol_version(
+    pub fn new(
         ext: &'a mut dyn External,
         context: VMContext,
-        config: &'a VMConfig,
+        config: &'a Config,
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
-        current_protocol_version: ProtocolVersion,
     ) -> Self {
         // Overflow should be checked before calling VMLogic.
         let current_account_balance = context.account_balance + context.attached_deposit;
@@ -169,7 +165,6 @@ impl<'a> VMLogic<'a> {
             registers: Default::default(),
             promises: vec![],
             total_log_length: 0,
-            current_protocol_version,
             remaining_stack: u64::from(config.limit_config.max_stack_height),
         }
     }
@@ -185,7 +180,7 @@ impl<'a> VMLogic<'a> {
     }
 
     #[cfg(test)]
-    pub(super) fn config(&self) -> &VMConfig {
+    pub(super) fn config(&self) -> &Config {
         &self.config
     }
 
@@ -1779,9 +1774,7 @@ impl<'a> VMLogic<'a> {
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.ext.get_receipt_receiver(receipt_idx);
         let is_receiver_implicit =
-            checked_feature!("stable", ImplicitAccountCreation, self.current_protocol_version)
-                && receiver_id.is_implicit();
-
+            self.config.implicit_account_creation && receiver_id.is_implicit();
         let send_fee = transfer_send_fee(self.fees_config, sir, is_receiver_implicit);
         let exec_fee = transfer_exec_fee(self.fees_config, is_receiver_implicit);
         let burn_gas = send_fee;
@@ -2479,13 +2472,7 @@ impl<'a> VMLogic<'a> {
         }
         self.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        let read_mode =
-            if checked_feature!("stable", FlatStorageReads, self.current_protocol_version) {
-                StorageGetMode::FlatStorage
-            } else {
-                StorageGetMode::Trie
-            };
-        let read = self.ext.storage_get(&key, read_mode);
+        let read = self.ext.storage_get(&key, self.config.storage_get_mode);
         let nodes_delta = self
             .ext
             .get_trie_nodes_count()
@@ -2628,13 +2615,7 @@ impl<'a> VMLogic<'a> {
         }
         self.gas_counter.pay_per(storage_has_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        let read_mode =
-            if checked_feature!("stable", FlatStorageReads, self.current_protocol_version) {
-                StorageGetMode::FlatStorage
-            } else {
-                StorageGetMode::Trie
-            };
-        let res = self.ext.storage_has_key(&key, read_mode);
+        let res = self.ext.storage_has_key(&key, self.config.storage_get_mode);
         let nodes_delta = self
             .ext
             .get_trie_nodes_count()
@@ -2847,7 +2828,6 @@ impl<'a> VMLogic<'a> {
     pub fn before_loading_executable(
         &mut self,
         method_name: &str,
-        current_protocol_version: u32,
         wasm_code_bytes: usize,
     ) -> std::result::Result<(), super::errors::FunctionCallError> {
         if method_name.is_empty() {
@@ -2856,11 +2836,7 @@ impl<'a> VMLogic<'a> {
             );
             return Err(error);
         }
-        if checked_feature!(
-            "protocol_feature_fix_contract_loading_cost",
-            FixContractLoadingCost,
-            current_protocol_version
-        ) {
+        if self.config.fix_contract_loading_cost {
             if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
                 let error =
                     super::errors::FunctionCallError::HostError(super::HostError::GasExceeded);
@@ -2873,14 +2849,9 @@ impl<'a> VMLogic<'a> {
     /// Legacy code to preserve old gas charging behaviour in old protocol versions.
     pub fn after_loading_executable(
         &mut self,
-        current_protocol_version: u32,
         wasm_code_bytes: usize,
     ) -> std::result::Result<(), super::errors::FunctionCallError> {
-        if !checked_feature!(
-            "protocol_feature_fix_contract_loading_cost",
-            FixContractLoadingCost,
-            current_protocol_version
-        ) {
+        if !self.config.fix_contract_loading_cost {
             if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
                 return Err(super::errors::FunctionCallError::HostError(
                     super::HostError::GasExceeded,
@@ -2943,13 +2914,8 @@ impl VMOutcome {
     pub fn abort_but_nop_outcome_in_old_protocol(
         logic: VMLogic,
         error: FunctionCallError,
-        current_protocol_version: u32,
     ) -> VMOutcome {
-        if checked_feature!(
-            "protocol_feature_fix_contract_loading_cost",
-            FixContractLoadingCost,
-            current_protocol_version
-        ) {
+        if logic.config.fix_contract_loading_cost {
             Self::abort(logic, error)
         } else {
             Self::nop_outcome(error)

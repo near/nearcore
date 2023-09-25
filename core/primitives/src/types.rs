@@ -154,7 +154,7 @@ impl StateChangesKinds {
 }
 
 /// A structure used to index state changes due to transaction/receipt processing and other things.
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq)]
 pub enum StateChangeCause {
     /// A type of update that does not get finalized. Used for verification and execution of
     /// immutable smart contract methods. Attempt fo finalize a `TrieUpdate` containing such

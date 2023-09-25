@@ -64,7 +64,7 @@ def main():
             )
             break
 
-    mirror_utils.check_num_txs(source_nodes[0], target_nodes[0])
+    traffic_data.check_ok(source_nodes[0], target_nodes[0])
 
 
 if __name__ == '__main__':

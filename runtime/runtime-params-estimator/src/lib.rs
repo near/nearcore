@@ -92,7 +92,8 @@ use gas_cost::{LeastSquaresTolerance, NonNegativeTolerance};
 use gas_metering::gas_metering_cost;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
-use near_primitives::contract::ContractCode;
+use near_primitives::config::ExtCosts;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -101,7 +102,7 @@ use near_primitives::transaction::{
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
-use near_vm_runner::logic::{ExtCosts, VMConfig};
+use near_vm_runner::ContractCode;
 use near_vm_runner::MockCompiledContractCache;
 use serde_json::json;
 use utils::{
@@ -522,7 +523,7 @@ fn add_key_transaction(
     tb.transaction_from_actions(
         sender,
         receiver,
-        vec![Action::AddKey(AddKeyAction { public_key, access_key })],
+        vec![Action::AddKey(Box::new(AddKeyAction { public_key, access_key }))],
     )
 }
 
@@ -532,9 +533,9 @@ fn action_delete_key(ctx: &mut EstimatorContext) -> GasCost {
             let sender = tb.random_unused_account();
             let receiver = sender.clone();
 
-            let actions = vec![Action::DeleteKey(DeleteKeyAction {
+            let actions = vec![Action::DeleteKey(Box::new(DeleteKeyAction {
                 public_key: SecretKey::from_seed(KeyType::ED25519, sender.as_ref()).public_key(),
-            })];
+            }))];
             tb.transaction_from_actions(sender, receiver, actions)
         };
         transaction_cost(ctx, &mut make_transaction)
@@ -551,10 +552,10 @@ fn action_stake(ctx: &mut EstimatorContext) -> GasCost {
             let sender = tb.random_unused_account();
             let receiver = sender.clone();
 
-            let actions = vec![Action::Stake(StakeAction {
+            let actions = vec![Action::Stake(Box::new(StakeAction {
                 stake: 1,
                 public_key: "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap(),
-            })];
+            }))];
             tb.transaction_from_actions(sender, receiver, actions)
         };
         transaction_cost(ctx, &mut make_transaction)
@@ -709,8 +710,10 @@ fn contract_compile_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost, Ga
     ctx.cached.compile_cost_base_per_byte_v2 = Some(costs.clone());
     costs
 }
+
 fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
-    let vm_config = VMConfig::test();
+    let config_store = RuntimeConfigStore::new(None);
+    let vm_config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let small_code = generate_data_only_contract(0, &vm_config);
     let large_code = generate_data_only_contract(bytesize::mb(4u64) as usize, &vm_config);
     let small_code_len = small_code.len();
@@ -723,14 +726,17 @@ fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
 
 /// Base cost for a fn call action, without receipt creation or contract loading.
 fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
+    let config_store = RuntimeConfigStore::new(None);
+    let vm_config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let n_actions = 100;
-    let code = generate_data_only_contract(0, &VMConfig::test());
+    let code = generate_data_only_contract(0, &vm_config);
     // This returns a cost without block/transaction/receipt overhead.
     let base_cost = fn_cost_in_contract(ctx, "main", &code, n_actions);
     // Executable loading is a separately charged step, so it must be subtracted on the action cost.
     let executable_loading_cost = contract_loading_base(ctx);
     base_cost.saturating_sub(&executable_loading_cost, &NonNegativeTolerance::PER_MILLE)
 }
+
 fn action_function_call_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     // X values below 1M have a rather high variance. Therefore, use one small X
     // value and two larger values to fit a curve that gets the slope about
@@ -779,7 +785,8 @@ fn contract_loading_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCo
     (base, per_byte)
 }
 fn function_call_per_storage_byte(ctx: &mut EstimatorContext) -> GasCost {
-    let vm_config = VMConfig::test();
+    let config_store = RuntimeConfigStore::new(None);
+    let vm_config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let n_actions = 5;
 
     let small_code = generate_data_only_contract(0, &vm_config);
@@ -867,7 +874,8 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
 
     let code = ContractCode::new(code.to_vec(), None);
     let mut fake_external = MockedExternal::new();
-    let config = VMConfig::test();
+    let config_store = RuntimeConfigStore::new(None);
+    let config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];
     let cache = MockCompiledContractCache::default();
@@ -884,7 +892,6 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
                 context,
                 &fees,
                 &promise_results,
-                PROTOCOL_VERSION,
                 Some(&cache),
             )
             .expect("fatal_error");

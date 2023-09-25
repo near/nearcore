@@ -170,14 +170,18 @@ pub enum Action {
     CreateAccount(CreateAccountAction),
     /// Sets a Wasm code to a receiver_id
     DeployContract(DeployContractAction),
-    FunctionCall(FunctionCallAction),
+    FunctionCall(Box<FunctionCallAction>),
     Transfer(TransferAction),
-    Stake(StakeAction),
-    AddKey(AddKeyAction),
-    DeleteKey(DeleteKeyAction),
+    Stake(Box<StakeAction>),
+    AddKey(Box<AddKeyAction>),
+    DeleteKey(Box<DeleteKeyAction>),
     DeleteAccount(DeleteAccountAction),
-    Delegate(delegate::SignedDelegateAction),
+    Delegate(Box<delegate::SignedDelegateAction>),
 }
+const _: () = assert!(
+    cfg!(not(target_pointer_width = "64")) || std::mem::size_of::<Action>() == 32,
+    "Action is less than 32 bytes for performance reasons, see #9451"
+);
 
 impl Action {
     pub fn get_prepaid_gas(&self) -> Gas {
@@ -209,7 +213,7 @@ impl From<DeployContractAction> for Action {
 
 impl From<FunctionCallAction> for Action {
     fn from(function_call_action: FunctionCallAction) -> Self {
-        Self::FunctionCall(function_call_action)
+        Self::FunctionCall(Box::new(function_call_action))
     }
 }
 
@@ -221,19 +225,19 @@ impl From<TransferAction> for Action {
 
 impl From<StakeAction> for Action {
     fn from(stake_action: StakeAction) -> Self {
-        Self::Stake(stake_action)
+        Self::Stake(Box::new(stake_action))
     }
 }
 
 impl From<AddKeyAction> for Action {
     fn from(add_key_action: AddKeyAction) -> Self {
-        Self::AddKey(add_key_action)
+        Self::AddKey(Box::new(add_key_action))
     }
 }
 
 impl From<DeleteKeyAction> for Action {
     fn from(delete_key_action: DeleteKeyAction) -> Self {
-        Self::DeleteKey(delete_key_action)
+        Self::DeleteKey(Box::new(delete_key_action))
     }
 }
 

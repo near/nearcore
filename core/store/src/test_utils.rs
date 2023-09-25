@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use near_primitives::state::{FlatStateValue, ValueRef};
@@ -7,7 +7,7 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 
 use crate::db::TestDB;
-use crate::flat::{store_helper, BlockInfo, FlatStorageReadyStatus};
+use crate::flat::{store_helper, BlockInfo, FlatStorageReadyStatus, FlatStorageStatus};
 use crate::metadata::{DbKind, DbVersion, DB_VERSION};
 use crate::{get, get_delayed_receipt_indices, DBCol, NodeStorage, ShardTries, Store};
 use near_primitives::account::id::AccountId;
@@ -70,6 +70,36 @@ pub fn create_tries_complex(shard_version: ShardVersion, num_shards: NumShards) 
     ShardTries::test_shard_version(store, shard_version, num_shards)
 }
 
+pub fn create_tries_with_flat_storage() -> ShardTries {
+    create_tries_complex_with_flat_storage(0, 1)
+}
+
+pub fn create_tries_complex_with_flat_storage(
+    shard_version: ShardVersion,
+    num_shards: NumShards,
+) -> ShardTries {
+    let tries = create_tries_complex(shard_version, num_shards);
+    let mut store_update = tries.store_update();
+    for shard_id in 0..num_shards {
+        let shard_uid = ShardUId { version: shard_version, shard_id: shard_id.try_into().unwrap() };
+        store_helper::set_flat_storage_status(
+            &mut store_update,
+            shard_uid,
+            FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                flat_head: BlockInfo::genesis(CryptoHash::default(), 0),
+            }),
+        );
+    }
+    store_update.commit().unwrap();
+
+    let flat_storage_manager = tries.get_flat_storage_manager();
+    for shard_id in 0..num_shards {
+        let shard_uid = ShardUId { version: shard_version, shard_id: shard_id.try_into().unwrap() };
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+    }
+    tries
+}
+
 pub fn test_populate_trie(
     tries: &ShardTries,
     root: &CryptoHash,
@@ -118,10 +148,10 @@ pub fn test_populate_flat_storage(
 }
 
 /// Insert values to non-reference-counted columns in the store.
-pub fn test_populate_store(store: &Store, data: &[(DBCol, Vec<u8>, Vec<u8>)]) {
+pub fn test_populate_store(store: &Store, data: impl Iterator<Item = (DBCol, Vec<u8>, Vec<u8>)>) {
     let mut update = store.store_update();
     for (column, key, value) in data {
-        update.insert(*column, key, value);
+        update.insert(column, key, value);
     }
     update.commit().expect("db commit failed");
 }
@@ -153,8 +183,11 @@ pub fn gen_account(rng: &mut impl Rng, alphabet: &[u8]) -> AccountId {
 
 pub fn gen_unique_accounts(rng: &mut impl Rng, min_size: usize, max_size: usize) -> Vec<AccountId> {
     let alphabet = b"abcdefghijklmn";
-    let accounts = gen_accounts_from_alphabet(rng, min_size, max_size, alphabet);
-    accounts.into_iter().collect::<HashSet<_>>().into_iter().collect()
+    let mut accounts = gen_accounts_from_alphabet(rng, min_size, max_size, alphabet);
+    accounts.sort();
+    accounts.dedup();
+    accounts.shuffle(rng);
+    accounts
 }
 
 pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {

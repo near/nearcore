@@ -46,7 +46,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
         signer_id: "test0".parse().unwrap(),
         receiver_id: "test0".parse().unwrap(),
         public_key: signer.public_key(),
-        actions: vec![Action::AddKey(AddKeyAction {
+        actions: vec![Action::AddKey(Box::new(AddKeyAction {
             public_key: signer.public_key(),
             access_key: AccessKey {
                 nonce: 1,
@@ -56,7 +56,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
                     method_names: vec![],
                 }),
             },
-        })],
+        }))],
         nonce: 0,
         block_hash: CryptoHash::default(),
     };
@@ -111,7 +111,7 @@ fn test_very_long_account_id() {
         signer_id: "test0".parse().unwrap(),
         receiver_id: "test0".parse().unwrap(),
         public_key: signer.public_key(),
-        actions: vec![Action::AddKey(AddKeyAction {
+        actions: vec![Action::AddKey(Box::new(AddKeyAction {
             public_key: signer.public_key(),
             access_key: AccessKey {
                 nonce: 1,
@@ -121,7 +121,7 @@ fn test_very_long_account_id() {
                     method_names: vec![],
                 }),
             },
-        })],
+        }))],
         nonce: 0,
         block_hash: tip.last_block_hash,
     }

@@ -297,6 +297,13 @@ impl RocksDB {
             _ => unreachable!(),
         }
     }
+
+    pub fn compact_column(&self, col: DBCol) -> io::Result<()> {
+        let none = Option::<&[u8]>::None;
+        tracing::info!(target: "db", column = %col, "Compact column");
+        self.db.compact_range_cf(self.cf_handle(col)?, none, none);
+        Ok(())
+    }
 }
 
 impl Database for RocksDB {
@@ -375,10 +382,8 @@ impl Database for RocksDB {
     }
 
     fn compact(&self) -> io::Result<()> {
-        let none = Option::<&[u8]>::None;
         for col in DBCol::iter() {
-            tracing::info!(target: "db", column = %col, "Compacted column");
-            self.db.compact_range_cf(self.cf_handle(col)?, none, none);
+            self.compact_column(col)?;
         }
         Ok(())
     }
@@ -825,7 +830,7 @@ mod tests {
 
         let mut store_update = store.store_update();
         for key in &keys {
-            store_update.insert(column, key, &vec![42]);
+            store_update.insert(column, key.clone(), vec![42]);
         }
         store_update.commit().unwrap();
 

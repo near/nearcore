@@ -42,7 +42,7 @@
 //! `for_each_available_import` with its own import definition logic.
 //!
 //! The real `for_each_available_import` takes one more argument --
-//! `protocol_version`. We can add new imports, but we must make sure that they
+//! `VMConfig`. We can add new imports, but we must make sure that they
 //! are only available to contracts at a specific protocol version -- we can't
 //! make imports retroactively available to old transactions. So
 //! `for_each_available_import` takes care to invoke `M!` only for currently
@@ -62,19 +62,15 @@ macro_rules! call_with_name {
 
 macro_rules! imports {
     (
-      $($(#[$stable_feature:ident])? $(#[$feature_name:literal, $feature:ident])* $(##[$feature_name2:literal])?
+      $($(#[$config_field:ident])? $(##[$feature_name:literal])?
         $( @in $mod:ident : )?
         $( @as $name:ident : )?
         $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >,)*
     ) => {
         macro_rules! for_each_available_import {
-            ($protocol_version:expr, $M:ident) => {$(
-                $(#[cfg(feature = $feature_name2)])?
-                $(#[cfg(feature = $feature_name)])*
-                if true
-                    $(&& near_primitives_core::checked_feature!($feature_name, $feature, $protocol_version))*
-                    $(&& near_primitives_core::checked_feature!("stable", $stable_feature, $protocol_version))?
-                {
+            ($config:expr, $M:ident) => {$(
+                $(#[cfg(feature = $feature_name)])?
+                if true $(&& ($config).$config_field)? {
                     call_with_name!($M => $( @in $mod : )? $( @as $name : )? $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
                 }
             )*}
@@ -122,15 +118,15 @@ imports! {
     sha256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak512<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    #[Ed25519Verify] ed25519_verify<[sig_len: u64,
+    #[ed25519_verify] ed25519_verify<[sig_len: u64,
         sig_ptr: u64,
         msg_len: u64,
         msg_ptr: u64,
         pub_key_len: u64,
         pub_key_ptr: u64
     ] -> [u64]>,
-    #[MathExtension] ripemd160<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    #[MathExtension] ecrecover<[hash_len: u64, hash_ptr: u64, sign_len: u64, sig_ptr: u64, v: u64, malleability_flag: u64, register_id: u64] -> [u64]>,
+    #[math_extension] ripemd160<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #[math_extension] ecrecover<[hash_len: u64, hash_ptr: u64, sign_len: u64, sig_ptr: u64, v: u64, malleability_flag: u64, register_id: u64] -> [u64]>,
     // #####################
     // # Miscellaneous API #
     // #####################
@@ -181,7 +177,7 @@ imports! {
         amount_ptr: u64,
         gas: u64
     ] -> []>,
-    #[FunctionCallWeight] promise_batch_action_function_call_weight<[
+    #[function_call_weight] promise_batch_action_function_call_weight<[
         promise_index: u64,
         method_name_len: u64,
         method_name_ptr: u64,
@@ -251,9 +247,9 @@ imports! {
     // #############
     // # Alt BN128 #
     // #############
-    #[AltBn128] alt_bn128_g1_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    #[AltBn128] alt_bn128_g1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    #[AltBn128] alt_bn128_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
+    #[alt_bn128] alt_bn128_g1_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #[alt_bn128] alt_bn128_g1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #[alt_bn128] alt_bn128_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
     // #############
     // #  Sandbox  #
     // #############
@@ -263,7 +259,7 @@ imports! {
 #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
 pub(crate) mod wasmer {
     use super::str_eq;
-    use crate::logic::{ProtocolVersion, VMLogic, VMLogicError};
+    use crate::logic::{VMLogic, VMLogicError};
     use std::ffi::c_void;
 
     #[derive(Clone, Copy)]
@@ -274,7 +270,6 @@ pub(crate) mod wasmer {
     pub(crate) fn build(
         memory: wasmer_runtime::memory::Memory,
         logic: &mut VMLogic<'_>,
-        protocol_version: ProtocolVersion,
     ) -> wasmer_runtime::ImportObject {
         let raw_ptr = logic as *mut _ as *mut c_void;
         let import_reference = ImportReference(raw_ptr);
@@ -311,7 +306,7 @@ pub(crate) mod wasmer {
                 }
             };
         }
-        for_each_available_import!(protocol_version, add_import);
+        for_each_available_import!(logic.config, add_import);
 
         import_object.register("env", ns_env);
         import_object.register("internal", ns_internal);
@@ -324,7 +319,7 @@ pub(crate) mod wasmer2 {
     use std::sync::Arc;
 
     use super::str_eq;
-    use crate::logic::{ProtocolVersion, VMLogic};
+    use crate::logic::VMLogic;
     use wasmer_engine::Engine;
     use wasmer_engine_universal::UniversalEngine;
     use wasmer_vm::{
@@ -336,7 +331,6 @@ pub(crate) mod wasmer2 {
         // Note: this same object is also referenced by the `metadata` field!
         pub(crate) vmlogic: &'vmlogic mut VMLogic<'vmlogic_refs>,
         pub(crate) metadata: Arc<ExportFunctionMetadata>,
-        pub(crate) protocol_version: ProtocolVersion,
         pub(crate) engine: &'engine UniversalEngine,
     }
 
@@ -454,7 +448,7 @@ pub(crate) mod wasmer2 {
                     }
                 };
             }
-            for_each_available_import!(self.protocol_version, add_import);
+            for_each_available_import!(self.vmlogic.config, add_import);
             return None;
         }
     }
@@ -462,7 +456,6 @@ pub(crate) mod wasmer2 {
     pub(crate) fn build<'e, 'a, 'b>(
         memory: VMMemory,
         logic: &'a mut VMLogic<'b>,
-        protocol_version: ProtocolVersion,
         engine: &'e UniversalEngine,
     ) -> Wasmer2Imports<'e, 'a, 'b> {
         let metadata = unsafe {
@@ -471,13 +464,7 @@ pub(crate) mod wasmer2 {
             // contains this metadata.
             ExportFunctionMetadata::new(logic as *mut _ as *mut _, None, |ptr| ptr, |_| {})
         };
-        Wasmer2Imports {
-            memory,
-            vmlogic: logic,
-            metadata: Arc::new(metadata),
-            protocol_version,
-            engine,
-        }
+        Wasmer2Imports { memory, vmlogic: logic, metadata: Arc::new(metadata), engine }
     }
 }
 
@@ -486,7 +473,7 @@ pub(crate) mod near_vm {
     use std::sync::Arc;
 
     use super::str_eq;
-    use crate::logic::{ProtocolVersion, VMLogic};
+    use crate::logic::VMLogic;
     use near_vm_engine::universal::UniversalEngine;
     use near_vm_vm::{
         ExportFunction, ExportFunctionMetadata, Resolver, VMFunction, VMFunctionKind, VMMemory,
@@ -497,7 +484,6 @@ pub(crate) mod near_vm {
         // Note: this same object is also referenced by the `metadata` field!
         pub(crate) vmlogic: &'vmlogic mut VMLogic<'vmlogic_refs>,
         pub(crate) metadata: Arc<ExportFunctionMetadata>,
-        pub(crate) protocol_version: ProtocolVersion,
         pub(crate) engine: &'engine UniversalEngine,
     }
 
@@ -615,7 +601,7 @@ pub(crate) mod near_vm {
                     }
                 };
             }
-            for_each_available_import!(self.protocol_version, add_import);
+            for_each_available_import!(self.vmlogic.config, add_import);
             return None;
         }
     }
@@ -623,7 +609,6 @@ pub(crate) mod near_vm {
     pub(crate) fn build<'e, 'a, 'b>(
         memory: VMMemory,
         logic: &'a mut VMLogic<'b>,
-        protocol_version: ProtocolVersion,
         engine: &'e UniversalEngine,
     ) -> NearVmImports<'e, 'a, 'b> {
         let metadata = unsafe {
@@ -632,20 +617,14 @@ pub(crate) mod near_vm {
             // contains this metadata.
             ExportFunctionMetadata::new(logic as *mut _ as *mut _, None, |ptr| ptr, |_| {})
         };
-        NearVmImports {
-            memory,
-            vmlogic: logic,
-            metadata: Arc::new(metadata),
-            protocol_version,
-            engine,
-        }
+        NearVmImports { memory, vmlogic: logic, metadata: Arc::new(metadata), engine }
     }
 }
 
 #[cfg(feature = "wasmtime_vm")]
 pub(crate) mod wasmtime {
     use super::str_eq;
-    use crate::logic::{ProtocolVersion, VMLogic, VMLogicError};
+    use crate::logic::{VMLogic, VMLogicError};
     use std::cell::UnsafeCell;
     use std::ffi::c_void;
 
@@ -671,13 +650,17 @@ pub(crate) mod wasmtime {
         static CALLER_CONTEXT: UnsafeCell<*mut c_void> = UnsafeCell::new(0 as *mut c_void);
     }
 
-    pub(crate) fn link(
+    pub(crate) fn link<'a, 'b>(
         linker: &mut wasmtime::Linker<()>,
         memory: wasmtime::Memory,
         store: &wasmtime::Store<()>,
-        raw_logic: *mut c_void,
-        protocol_version: ProtocolVersion,
+        logic: &'a mut VMLogic<'b>,
     ) {
+        // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
+        // lifetimes of the logic instance and pass raw pointers here.
+        // FIXME(nagisa): I believe this is no longer required, we just need to look at this code
+        // again.
+        let raw_logic = logic as *mut _ as *mut c_void;
         CALLER_CONTEXT.with(|caller_context| unsafe { *caller_context.get() = raw_logic });
         linker.define(store, "env", "memory", memory).expect("cannot define memory");
 
@@ -717,7 +700,7 @@ pub(crate) mod wasmtime {
                 linker.func_wrap(stringify!($mod), stringify!($name), $name).expect("cannot link external");
             };
         }
-        for_each_available_import!(protocol_version, add_import);
+        for_each_available_import!(logic.config, add_import);
     }
 }
 
