@@ -38,21 +38,20 @@ use near_client_primitives::types::{
     format_shard_sync_phase, DownloadStatus, ShardSyncDownload, ShardSyncStatus,
 };
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::types::AccountOrPeerIdOrHash;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
 use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
+use near_primitives::state_sync::{get_num_state_parts, StateRequestHeader, StateSyncHeader};
 use near_primitives::static_clock::StaticClock;
-use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponse};
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
 use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng};
+use rand::thread_rng;
 use std::collections::HashMap;
-use std::ops::Add;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
@@ -79,34 +78,6 @@ pub enum StateSyncResult {
     Completed,
 }
 
-struct PendingRequestStatus {
-    /// Number of parts that are in progress (we requested them from a given peer but didn't get the answer yet).
-    missing_parts: usize,
-    wait_until: DateTime<Utc>,
-}
-
-impl PendingRequestStatus {
-    fn new(timeout: Duration) -> Self {
-        Self { missing_parts: 1, wait_until: StaticClock::utc().add(timeout) }
-    }
-    fn expired(&self) -> bool {
-        StaticClock::utc() > self.wait_until
-    }
-}
-
-/// Private to public API conversion.
-fn make_account_or_peer_id_or_hash(
-    from: near_network::types::AccountOrPeerIdOrHash,
-) -> near_client_primitives::types::AccountOrPeerIdOrHash {
-    type From = near_network::types::AccountOrPeerIdOrHash;
-    type To = near_client_primitives::types::AccountOrPeerIdOrHash;
-    match from {
-        From::AccountId(a) => To::AccountId(a),
-        From::PeerId(p) => To::PeerId(p),
-        From::Hash(h) => To::Hash(h),
-    }
-}
-
 pub struct StateSyncGetPartResult {
     sync_hash: CryptoHash,
     shard_id: ShardId,
@@ -115,13 +86,8 @@ pub struct StateSyncGetPartResult {
 }
 /// How to retrieve the state data.
 enum StateSyncInner {
-    /// Request both the state header and state parts from the peers.
-    Peers {
-        /// Which parts were requested from which peer and when.
-        last_part_id_requested: HashMap<(AccountOrPeerIdOrHash, ShardId), PendingRequestStatus>,
-        /// Map from which part we requested to whom.
-        requested_target: lru::LruCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
-    },
+    /// No state sync.
+    Disabled,
     /// Requests the state header from peers but gets the state parts from an
     /// external storage.
     PartsFromExternal {
@@ -170,10 +136,7 @@ impl StateSync {
         catchup: bool,
     ) -> Self {
         let inner = match sync_config {
-            SyncConfig::Peers => StateSyncInner::Peers {
-                last_part_id_requested: Default::default(),
-                requested_target: lru::LruCache::new(MAX_PENDING_PART as usize),
-            },
+            SyncConfig::Disabled => StateSyncInner::Disabled,
             SyncConfig::ExternalStorage(ExternalStorageConfig {
                 location,
                 num_concurrent_requests,
@@ -394,10 +357,8 @@ impl StateSync {
             if run_shard_state_download {
                 update_sync_status = true;
                 self.request_shard(
-                    me,
                     shard_id,
                     chain,
-                    epoch_manager,
                     sync_hash,
                     shard_sync_download,
                     highest_height_peers,
@@ -501,129 +462,38 @@ impl StateSync {
         }
     }
 
-    // Function called when our node receives the network response with a part.
-    pub fn received_requested_part(
-        &mut self,
-        part_id: u64,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-    ) {
-        match &mut self.inner {
-            StateSyncInner::Peers { last_part_id_requested, requested_target } => {
-                let key = (part_id, sync_hash);
-                // Check that it came from the target that we requested it from.
-                if let Some(target) = requested_target.get(&key) {
-                    if last_part_id_requested.get_mut(&(target.clone(), shard_id)).map_or(
-                        false,
-                        |request| {
-                            request.missing_parts = request.missing_parts.saturating_sub(1);
-                            request.missing_parts == 0
-                        },
-                    ) {
-                        last_part_id_requested.remove(&(target.clone(), shard_id));
-                    }
-                }
-            }
-            StateSyncInner::PartsFromExternal { .. } => {
-                // Do nothing.
-            }
-        }
-    }
-
     /// Find possible targets to download state from.
     /// Candidates are validators at current epoch and peers at highest height.
     /// Only select candidates that we have no pending request currently ongoing.
     fn possible_targets(
         &mut self,
-        me: &Option<AccountId>,
         shard_id: ShardId,
-        chain: &Chain,
-        epoch_manager: &dyn EpochManagerAdapter,
-        sync_hash: CryptoHash,
         highest_height_peers: &[HighestHeightPeerInfo],
-    ) -> Result<Vec<AccountOrPeerIdOrHash>, near_chain::Error> {
-        let prev_block_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
-        let epoch_hash = epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
-
-        let block_producers =
-            epoch_manager.get_epoch_block_producers_ordered(&epoch_hash, &sync_hash)?;
-        let peers = block_producers
-            .iter()
-            .filter_map(|(validator_stake, _slashed)| {
-                let account_id = validator_stake.account_id();
-                if epoch_manager
-                    .cares_about_shard_from_prev_block(&prev_block_hash, account_id, shard_id)
-                    .unwrap_or(false)
-                {
-                    // If we are one of the validators (me is not None) - then make sure that we don't try to send request to ourselves.
-                    if me.as_ref().map(|me| me != account_id).unwrap_or(true) {
-                        Some(AccountOrPeerIdOrHash::AccountId(account_id.clone()))
-                    } else {
-                        None
-                    }
-                } else {
-                    // This validator doesn't track the shard - ignore.
-                    None
-                }
-            })
-            .chain(highest_height_peers.iter().filter_map(|peer| {
-                // Select peers that are high enough (if they are syncing themselves, they might not have the data that we want)
-                //  and that are tracking the shard.
-                // TODO: possible optimization - simply select peers that have height greater than the epoch start that we're asking for.
-                if peer.tracked_shards.contains(&shard_id) {
-                    Some(AccountOrPeerIdOrHash::PeerId(peer.peer_info.id.clone()))
-                } else {
-                    None
-                }
-            }));
-        Ok(self.select_peers(peers.collect(), shard_id)?)
-    }
-
-    /// Avoids peers that already have outstanding requests for parts.
-    fn select_peers(
-        &mut self,
-        peers: Vec<AccountOrPeerIdOrHash>,
-        shard_id: ShardId,
-    ) -> Result<Vec<AccountOrPeerIdOrHash>, near_chain::Error> {
-        let res = match &mut self.inner {
-            StateSyncInner::Peers {
-                last_part_id_requested,
-                requested_target: _requested_target,
-            } => {
-                last_part_id_requested.retain(|_, request| !request.expired());
-                peers
-                    .into_iter()
-                    .filter(|candidate| {
-                        // If we still have a pending request from this node - don't add another one.
-                        !last_part_id_requested.contains_key(&(candidate.clone(), shard_id))
-                    })
-                    .collect::<Vec<_>>()
+    ) -> Result<Vec<PeerId>, near_chain::Error> {
+        let peers = highest_height_peers.iter().filter_map(|peer| {
+            // Select peers that are high enough (if they are syncing themselves, they might not have the data that we want)
+            //  and that are tracking the shard.
+            // TODO: possible optimization - simply select peers that have height greater than the epoch start that we're asking for.
+            if peer.tracked_shards.contains(&shard_id) {
+                Some(peer.peer_info.id.clone())
+            } else {
+                None
             }
-            StateSyncInner::PartsFromExternal { .. } => peers,
-        };
-        Ok(res)
+        });
+        Ok(peers.collect())
     }
 
     /// Returns new ShardSyncDownload if successful, otherwise returns given shard_sync_download
     fn request_shard(
         &mut self,
-        me: &Option<AccountId>,
         shard_id: ShardId,
         chain: &Chain,
-        epoch_manager: &dyn EpochManagerAdapter,
         sync_hash: CryptoHash,
         shard_sync_download: &mut ShardSyncDownload,
         highest_height_peers: &[HighestHeightPeerInfo],
         state_parts_arbiter_handle: &ArbiterHandle,
     ) -> Result<(), near_chain::Error> {
-        let possible_targets = self.possible_targets(
-            me,
-            shard_id,
-            chain,
-            epoch_manager,
-            sync_hash,
-            highest_height_peers,
-        )?;
+        let possible_targets = self.possible_targets(shard_id, highest_height_peers)?;
 
         if possible_targets.is_empty() {
             // In most cases it means that all the targets are currently busy (that we have a pending request with them).
@@ -644,7 +514,6 @@ impl StateSync {
                 self.request_shard_parts(
                     shard_id,
                     sync_hash,
-                    possible_targets,
                     shard_sync_download,
                     chain,
                     state_parts_arbiter_handle,
@@ -661,21 +530,21 @@ impl StateSync {
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        possible_targets: &[AccountOrPeerIdOrHash],
+        possible_targets: &[PeerId],
         new_shard_sync_download: &mut ShardSyncDownload,
     ) {
-        let target = possible_targets.choose(&mut thread_rng()).cloned().unwrap();
+        let peer_id = possible_targets.choose(&mut thread_rng()).cloned().unwrap();
         assert!(new_shard_sync_download.downloads[0].run_me.load(Ordering::SeqCst));
         new_shard_sync_download.downloads[0].run_me.store(false, Ordering::SeqCst);
         new_shard_sync_download.downloads[0].state_requests_count += 1;
-        new_shard_sync_download.downloads[0].last_target =
-            Some(make_account_or_peer_id_or_hash(target.clone()));
+        new_shard_sync_download.downloads[0].last_target = Some(peer_id.clone());
         let run_me = new_shard_sync_download.downloads[0].run_me.clone();
+        let request = StateRequestHeader::new(sync_hash, shard_id);
         near_performance_metrics::actix::spawn(
             std::any::type_name::<Self>(),
             self.network_adapter
                 .send_async(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::StateRequestHeader { shard_id, sync_hash, target },
+                    NetworkRequests::StateRequestHeader { request, peer_id },
                 ))
                 .then(move |result| {
                     if let Ok(NetworkResponses::RouteNotFound) =
@@ -694,7 +563,6 @@ impl StateSync {
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        possible_targets: Vec<AccountOrPeerIdOrHash>,
         new_shard_sync_download: &mut ShardSyncDownload,
         chain: &Chain,
         state_parts_arbiter_handle: &ArbiterHandle,
@@ -702,39 +570,7 @@ impl StateSync {
         // Iterate over all parts that needs to be requested (i.e. download.run_me is true).
         // Parts are ordered such that its index match its part_id.
         match &mut self.inner {
-            StateSyncInner::Peers { last_part_id_requested, requested_target } => {
-                // We'll select all the 'highest' peers + validators as candidates (excluding those that gave us timeout in the past).
-                // And for each one of them, we'll ask for up to 16 (MAX_STATE_PART_REQUEST) parts.
-                let possible_targets_sampler =
-                    SamplerLimited::new(possible_targets, MAX_STATE_PART_REQUEST);
-
-                // For every part that needs to be requested it is selected one
-                // peer (target) randomly to request the part from.
-                // IMPORTANT: here we use 'zip' with possible_target_sampler -
-                // which is limited. So at any moment we'll not request more
-                // than possible_targets.len() * MAX_STATE_PART_REQUEST parts.
-                for ((part_id, download), target) in
-                    parts_to_fetch(new_shard_sync_download).zip(possible_targets_sampler)
-                {
-                    sent_request_part(
-                        target.clone(),
-                        part_id,
-                        shard_id,
-                        sync_hash,
-                        last_part_id_requested,
-                        requested_target,
-                        self.timeout,
-                    );
-                    request_part_from_peers(
-                        part_id,
-                        target,
-                        download,
-                        shard_id,
-                        sync_hash,
-                        &self.network_adapter,
-                    );
-                }
-            }
+            StateSyncInner::Disabled => {}
             StateSyncInner::PartsFromExternal { chain_id, semaphore, external } => {
                 let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
                 let epoch_id = sync_block_header.epoch_id();
@@ -839,68 +675,70 @@ impl StateSync {
         })
     }
 
-    pub fn update_download_on_state_response_message(
+    pub fn update_download_header(
         &mut self,
         shard_sync_download: &mut ShardSyncDownload,
-        hash: CryptoHash,
+        sync_hash: CryptoHash,
         shard_id: u64,
-        state_response: ShardStateSyncResponse,
+        header: &StateSyncHeader,
         chain: &mut Chain,
     ) {
-        if let Some(part_id) = state_response.part_id() {
-            // Mark that we have received this part (this will update info on pending parts from peers etc).
-            self.received_requested_part(part_id, shard_id, hash);
-        }
         match shard_sync_download.status {
             ShardSyncStatus::StateDownloadHeader => {
-                if let Some(header) = state_response.take_header() {
-                    if !shard_sync_download.downloads[0].done {
-                        match chain.set_state_header(shard_id, hash, header) {
-                            Ok(()) => {
-                                shard_sync_download.downloads[0].done = true;
-                            }
-                            Err(err) => {
-                                tracing::error!(target: "sync", %shard_id, %hash, ?err, "State sync set_state_header error");
-                                shard_sync_download.downloads[0].error = true;
-                            }
+                if !shard_sync_download.downloads[0].done {
+                    match chain.set_state_header(shard_id, sync_hash, header.clone()) {
+                        Ok(()) => {
+                            shard_sync_download.downloads[0].done = true;
                         }
-                    }
-                } else {
-                    // No header found.
-                    // It may happen because requested node couldn't build state response.
-                    if !shard_sync_download.downloads[0].done {
-                        tracing::info!(target: "sync", %shard_id, %hash, "state_response doesn't have header, should be re-requested");
-                        shard_sync_download.downloads[0].error = true;
+                        Err(err) => {
+                            tracing::error!(target: "sync", %shard_id, %sync_hash, ?err, "State sync set_state_header error");
+                            shard_sync_download.downloads[0].error = true;
+                        }
                     }
                 }
             }
+            _ => {
+                tracing::info!(target: "sync", shard_id, %sync_hash, "Received state header, but no longer needed");
+            }
+        }
+    }
+
+    pub fn update_download_state_part(
+        &mut self,
+        shard_sync_download: &mut ShardSyncDownload,
+        sync_hash: CryptoHash,
+        shard_id: u64,
+        part_id: u64,
+        data: &[u8],
+        chain: &mut Chain,
+    ) {
+        match shard_sync_download.status {
             ShardSyncStatus::StateDownloadParts => {
-                if let Some(part) = state_response.take_part() {
-                    let num_parts = shard_sync_download.downloads.len() as u64;
-                    let (part_id, data) = part;
-                    if part_id >= num_parts {
-                        tracing::error!(target: "sync", %shard_id, %hash, part_id, "State sync received incorrect part_id, potential malicious peer");
-                        return;
-                    }
-                    if !shard_sync_download.downloads[part_id as usize].done {
-                        match chain.set_state_part(
-                            shard_id,
-                            hash,
-                            PartId::new(part_id, num_parts),
-                            &data,
-                        ) {
-                            Ok(()) => {
-                                shard_sync_download.downloads[part_id as usize].done = true;
-                            }
-                            Err(err) => {
-                                tracing::error!(target: "sync", %shard_id, %hash, part_id, ?err, "State sync set_state_part error");
-                                shard_sync_download.downloads[part_id as usize].error = true;
-                            }
+                let num_parts = shard_sync_download.downloads.len() as u64;
+                if part_id >= num_parts {
+                    tracing::error!(target: "sync", %shard_id, %sync_hash, part_id, "State sync received incorrect part_id, potential malicious peer");
+                    return;
+                }
+                if !shard_sync_download.downloads[part_id as usize].done {
+                    match chain.set_state_part(
+                        shard_id,
+                        sync_hash,
+                        PartId::new(part_id, num_parts),
+                        &data,
+                    ) {
+                        Ok(()) => {
+                            shard_sync_download.downloads[part_id as usize].done = true;
+                        }
+                        Err(err) => {
+                            tracing::error!(target: "sync", %shard_id, %sync_hash, part_id, ?err, "State sync set_state_part error");
+                            shard_sync_download.downloads[part_id as usize].error = true;
                         }
                     }
                 }
             }
-            _ => {}
+            _ => {
+                tracing::info!(target: "sync", shard_id, %sync_hash, part_id, "Received state part, but no longer needed");
+            }
         }
     }
 
@@ -1218,59 +1056,6 @@ fn request_part_from_external_storage(
     }
 }
 
-/// Asynchronously requests a state part from a suitable peer.
-fn request_part_from_peers(
-    part_id: u64,
-    target: AccountOrPeerIdOrHash,
-    download: &mut DownloadStatus,
-    shard_id: ShardId,
-    sync_hash: CryptoHash,
-    network_adapter: &PeerManagerAdapter,
-) {
-    download.run_me.store(false, Ordering::SeqCst);
-    download.state_requests_count += 1;
-    download.last_target = Some(make_account_or_peer_id_or_hash(target.clone()));
-    let run_me = download.run_me.clone();
-
-    near_performance_metrics::actix::spawn(
-        "StateSync",
-        network_adapter
-            .send_async(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, target },
-            ))
-            .then(move |result| {
-                // TODO: possible optimization - in the current code, even if one of the targets it not present in the network graph
-                //       (so we keep getting RouteNotFound) - we'll still keep trying to assign parts to it.
-                //       Fortunately only once every 60 seconds (timeout value).
-                if let Ok(NetworkResponses::RouteNotFound) = result.map(|f| f.as_network_response())
-                {
-                    // Send a StateRequestPart on the next iteration
-                    run_me.store(true, Ordering::SeqCst);
-                }
-                future::ready(())
-            }),
-    );
-}
-
-fn sent_request_part(
-    target: AccountOrPeerIdOrHash,
-    part_id: u64,
-    shard_id: ShardId,
-    sync_hash: CryptoHash,
-    last_part_id_requested: &mut HashMap<(AccountOrPeerIdOrHash, ShardId), PendingRequestStatus>,
-    requested_target: &mut lru::LruCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
-    timeout: Duration,
-) {
-    // FIXME: something is wrong - the index should have a shard_id too.
-    requested_target.put((part_id, sync_hash), target.clone());
-    last_part_id_requested
-        .entry((target, shard_id))
-        .and_modify(|pending_request| {
-            pending_request.missing_parts += 1;
-        })
-        .or_insert_with(|| PendingRequestStatus::new(timeout));
-}
-
 /// Works around how data requests to external storage are done.
 /// This function investigates if the response is valid and updates `done` and `error` appropriately.
 /// If the response is successful, then also writes the state part to the DB.
@@ -1325,68 +1110,6 @@ fn process_part_response(
         part_download.error = true;
     }
     true
-}
-
-/// Create an abstract collection of elements to be shuffled.
-/// Each element will appear in the shuffled output exactly `limit` times.
-/// Use it as an iterator to access the shuffled collection.
-///
-/// ```rust,ignore
-/// let sampler = SamplerLimited::new(vec![1, 2, 3], 2);
-///
-/// let res = sampler.collect::<Vec<_>>();
-///
-/// assert!(res.len() == 6);
-/// assert!(res.iter().filter(|v| v == 1).count() == 2);
-/// assert!(res.iter().filter(|v| v == 2).count() == 2);
-/// assert!(res.iter().filter(|v| v == 3).count() == 2);
-/// ```
-///
-/// Out of the 90 possible values of `res` in the code above on of them is:
-///
-/// ```
-/// vec![1, 2, 1, 3, 3, 2];
-/// ```
-struct SamplerLimited<T> {
-    data: Vec<T>,
-    limit: Vec<u64>,
-}
-
-impl<T> SamplerLimited<T> {
-    fn new(data: Vec<T>, limit: u64) -> Self {
-        if limit == 0 {
-            Self { data: vec![], limit: vec![] }
-        } else {
-            let len = data.len();
-            Self { data, limit: vec![limit; len] }
-        }
-    }
-}
-
-impl<T: Clone> Iterator for SamplerLimited<T> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.limit.is_empty() {
-            None
-        } else {
-            let len = self.limit.len();
-            let ix = thread_rng().gen_range(0..len);
-            self.limit[ix] -= 1;
-
-            if self.limit[ix] == 0 {
-                if ix + 1 != len {
-                    self.limit[ix] = self.limit[len - 1];
-                    self.data.swap(ix, len - 1);
-                }
-
-                self.limit.pop();
-                self.data.pop()
-            } else {
-                Some(self.data[ix].clone())
-            }
-        }
-    }
 }
 
 #[cfg(test)]

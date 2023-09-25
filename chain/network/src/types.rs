@@ -14,6 +14,9 @@ use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
+use near_primitives::state_sync::{
+    StateRequestHeader, StateRequestPart, StateResponseHeader, StateResponsePart,
+};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
 use near_primitives::types::{AccountId, ShardId};
@@ -25,8 +28,7 @@ use std::sync::Arc;
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
     Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, StateResponseInfo,
-    StateResponseInfoV1, StateResponseInfoV2,
+    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,
 };
 
 /// Number of hops a message is allowed to travel before being dropped.
@@ -224,14 +226,13 @@ pub enum NetworkRequests {
     /// Request given block headers.
     BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
     /// Request state header for given shard at given state root.
-    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, target: AccountOrPeerIdOrHash },
+    StateRequestHeader { request: StateRequestHeader, peer_id: PeerId },
     /// Request state part for given shard at given state root.
-    StateRequestPart {
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        part_id: u64,
-        target: AccountOrPeerIdOrHash,
-    },
+    StateRequestPart { request: StateRequestPart, peer_id: PeerId },
+    /// Response state header for given shard at given state root.
+    StateResponseHeader { response: StateResponseHeader, peer_id: PeerId },
+    /// Response state part for given shard at given state root.
+    StateResponsePart { response: StateResponsePart, peer_id: PeerId },
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
     /// Announce account

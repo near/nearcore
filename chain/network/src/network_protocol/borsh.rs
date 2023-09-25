@@ -4,14 +4,16 @@
 //! WARNING WARNING WARNING
 //! We need to maintain backwards compatibility, all changes to this file needs to be reviews.
 use crate::network_protocol::edge::{Edge, PartialEdgeInfo};
-use crate::network_protocol::{PeerChainInfoV2, PeerInfo, RoutedMessage, StateResponseInfo};
+use crate::network_protocol::{PeerChainInfoV2, PeerInfo, RoutedMessage};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::state_sync::{
+    StateRequestHeader, StateRequestPart, StateResponseHeader, StateResponsePart,
+};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::ShardId;
 use std::fmt;
 use std::fmt::Formatter;
 
@@ -118,7 +120,7 @@ impl std::error::Error for HandshakeFailureReason {}
 /// Warning, position of each message type in this enum defines the protocol due to serialization.
 /// DO NOT MOVE, REORDER, DELETE items from the list. Only add new items to the end.
 /// If need to remove old items - replace with `None`.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, strum::AsRefStr)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, strum::AsRefStr)]
 // TODO(#1313): Use Box
 pub(super) enum PeerMessage {
     Handshake(Handshake),
@@ -155,9 +157,10 @@ pub(super) enum PeerMessage {
 
     DistanceVector(DistanceVector),
 
-    StateRequestHeader(ShardId, CryptoHash),
-    StateRequestPart(ShardId, CryptoHash, u64),
-    VersionedStateResponse(StateResponseInfo),
+    StateRequestHeader(StateRequestHeader),
+    StateRequestPart(StateRequestPart),
+    StateResponseHeader(StateResponseHeader),
+    StateResponsePart(StateResponsePart),
 }
 #[cfg(target_arch = "x86_64")] // Non-x86_64 doesn't match this requirement yet but it's not bad as it's not production-ready
 const _: () = assert!(std::mem::size_of::<PeerMessage>() <= 1500, "PeerMessage > 1500 bytes");

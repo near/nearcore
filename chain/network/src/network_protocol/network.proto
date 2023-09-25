@@ -415,18 +415,19 @@ message TraceContext {
 }
 
 message StateRequestHeader {
-  uint64 shard_id = 1;
-  CryptoHash sync_hash = 2;
+  bytes borsh = 1;
 }
 
 message StateRequestPart {
-  uint64 shard_id = 1;
-  CryptoHash sync_hash = 2;
-  uint64 part_id = 3;
+  bytes borsh = 1;
 }
 
-message StateResponse {
-  StateResponseInfo state_response_info = 1;
+message StateResponseHeader {
+  bytes borsh = 1;
+}
+
+message StateResponsePart {
+  bytes borsh = 1;
 }
 
 // PeerMessage is a wrapper of all message types exchanged between NEAR nodes.
@@ -483,6 +484,7 @@ message PeerMessage {
 
     StateRequestHeader state_request_header = 29;
     StateRequestPart state_request_part = 30;
-    StateResponse state_response = 31;
+    StateResponseHeader state_response_header = 31;
+    StateResponsePart state_response_part = 32;
   }
 }

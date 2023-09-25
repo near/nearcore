@@ -7,7 +7,7 @@
 
 use crate::adapter::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ProcessTxRequest, ProcessTxResponse,
-    RecvChallenge, SetNetworkInfo, StateResponse,
+    RecvChallenge, RecvStateResponseHeader, RecvStateResponsePart, SetNetworkInfo,
 };
 use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
@@ -74,7 +74,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -498,31 +498,26 @@ impl Handler<WithSpanContext<BlockApproval>> for ClientActor {
 
 /// StateResponse is used during StateSync and catchup.
 /// It contains either StateSync header information (that tells us how many parts there are etc) or a single part.
-impl Handler<WithSpanContext<StateResponse>> for ClientActor {
+impl Handler<WithSpanContext<RecvStateResponseHeader>> for ClientActor {
     type Result = ();
 
     #[perf]
-    fn handle(&mut self, msg: WithSpanContext<StateResponse>, ctx: &mut Context<Self>) {
-        self.wrap(msg, ctx, "StateResponse", |this, msg| {
-            let StateResponse(state_response_info) = msg;
-            let shard_id = state_response_info.shard_id();
-            let hash = state_response_info.sync_hash();
-            let state_response = state_response_info.take_state_response();
+    fn handle(&mut self, msg: WithSpanContext<RecvStateResponseHeader>, ctx: &mut Context<Self>) {
+        self.wrap(msg, ctx, "RecvStateResponseHeader", |this, msg| {
+            let msg = msg.response;
+            let shard_id = msg.shard_id();
+            let sync_hash = msg.sync_hash();
 
-            trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
-                   shard_id,
-                   hash,
-                   state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
-            );
+            tracing::trace!(target: "sync", shard_id, %sync_hash, "Received state header response");
             // Get the download that matches the shard_id and hash
 
             // ... It could be that the state was requested by the state sync
-            if let SyncStatus::StateSync(StateSyncStatus{ sync_hash, sync_status: shards_to_download }) =
+            if let SyncStatus::StateSync(StateSyncStatus{ sync_hash: sync_hash_recv, sync_status: shards_to_download }) =
                 &mut this.client.sync_status
             {
-                if hash == *sync_hash {
+                if sync_hash == *sync_hash_recv {
                     if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
-                        this.client.state_sync.update_download_on_state_response_message(shard_download, hash, shard_id, state_response, &mut this.client.chain);
+                        this.client.state_sync.update_download_header(shard_download, sync_hash, shard_id, msg.header(), &mut this.client.chain);
                         return;
                     }
                 }
@@ -530,15 +525,59 @@ impl Handler<WithSpanContext<StateResponse>> for ClientActor {
 
             // ... Or one of the catchups
             if let Some((state_sync, shards_to_download, _)) =
-                this.client.catchup_state_syncs.get_mut(&hash)
+                this.client.catchup_state_syncs.get_mut(&sync_hash)
             {
                 if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
-                    state_sync.update_download_on_state_response_message(shard_download, hash, shard_id, state_response, &mut this.client.chain);
+                    state_sync.update_download_header(shard_download, sync_hash, shard_id, msg.header(), &mut this.client.chain);
                     return;
                 }
             }
 
-            error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer or a very delayed response.", hash);
+            tracing::error!(target: "sync", %sync_hash, "State sync received hash that we're not expecting, potential malicious peer or a very delayed response.");
+        })
+    }
+}
+
+/// StateResponse is used during StateSync and catchup.
+/// It contains either StateSync header information (that tells us how many parts there are etc) or a single part.
+impl Handler<WithSpanContext<RecvStateResponsePart>> for ClientActor {
+    type Result = ();
+
+    #[perf]
+    fn handle(&mut self, msg: WithSpanContext<RecvStateResponsePart>, ctx: &mut Context<Self>) {
+        self.wrap(msg, ctx, "RecvStateResponsePart", |this, msg| {
+            let msg = msg.response;
+            let shard_id = msg.shard_id();
+            let sync_hash = msg.sync_hash();
+            let part_id = msg.part_id();
+            let data = msg.part();
+
+            tracing::trace!(target: "sync", shard_id, %sync_hash, part_id, part_len = data.len(), "Received state part");
+
+            // Get the download that matches the shard_id and sync_hash.
+            // ... It could be that the state was requested by the state sync.
+            if let SyncStatus::StateSync(StateSyncStatus{ sync_hash: sync_hash_recv, sync_status: shards_to_download }) =
+                &mut this.client.sync_status
+            {
+                if sync_hash == *sync_hash_recv {
+                    if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
+                        this.client.state_sync.update_download_state_part(shard_download, sync_hash, shard_id, part_id, data, &mut this.client.chain);
+                        return;
+                    }
+                }
+            }
+
+            // ... Or one of the catchups
+            if let Some((state_sync, shards_to_download, _)) =
+                this.client.catchup_state_syncs.get_mut(&sync_hash)
+            {
+                if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
+                    state_sync.update_download_state_part(shard_download, sync_hash, shard_id, part_id, data, &mut this.client.chain);
+                    return;
+                }
+            }
+
+            tracing::error!(target: "sync", %sync_hash, "State sync received hash that we're not expecting, potential malicious peer or a very delayed response.");
         })
     }
 }

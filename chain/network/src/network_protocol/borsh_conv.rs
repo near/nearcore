@@ -193,14 +193,17 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
                 return Err(Self::Error::DeprecatedRoutingTableSyncV2)
             }
             net::PeerMessage::DistanceVector(dv) => mem::PeerMessage::DistanceVector(dv.into()),
-            net::PeerMessage::StateRequestHeader(shard_id, sync_hash) => {
-                mem::PeerMessage::StateRequestHeader(shard_id, sync_hash)
+            net::PeerMessage::StateRequestHeader(request) => {
+                mem::PeerMessage::StateRequestHeader(request)
             }
-            net::PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => {
-                mem::PeerMessage::StateRequestPart(shard_id, sync_hash, part_id)
+            net::PeerMessage::StateRequestPart(request) => {
+                mem::PeerMessage::StateRequestPart(request)
             }
-            net::PeerMessage::VersionedStateResponse(sri) => {
-                mem::PeerMessage::VersionedStateResponse(sri)
+            net::PeerMessage::StateResponseHeader(request) => {
+                mem::PeerMessage::StateResponseHeader(request)
+            }
+            net::PeerMessage::StateResponsePart(request) => {
+                mem::PeerMessage::StateResponsePart(request)
             }
         })
     }
@@ -242,14 +245,17 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             mem::PeerMessage::Routed(r) => net::PeerMessage::Routed(Box::new(r.msg.clone())),
             mem::PeerMessage::Disconnect(_) => net::PeerMessage::Disconnect,
             mem::PeerMessage::Challenge(c) => net::PeerMessage::Challenge(c),
-            mem::PeerMessage::StateRequestHeader(shard_id, sync_hash) => {
-                net::PeerMessage::StateRequestHeader(shard_id, sync_hash)
+            mem::PeerMessage::StateRequestHeader(request) => {
+                net::PeerMessage::StateRequestHeader(request)
             }
-            mem::PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => {
-                net::PeerMessage::StateRequestPart(shard_id, sync_hash, part_id)
+            mem::PeerMessage::StateRequestPart(request) => {
+                net::PeerMessage::StateRequestPart(request)
             }
-            mem::PeerMessage::VersionedStateResponse(sri) => {
-                net::PeerMessage::VersionedStateResponse(sri)
+            mem::PeerMessage::StateResponseHeader(request) => {
+                net::PeerMessage::StateResponseHeader(request)
+            }
+            mem::PeerMessage::StateResponsePart(request) => {
+                net::PeerMessage::StateResponsePart(request)
             }
         }
     }

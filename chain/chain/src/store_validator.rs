@@ -17,7 +17,7 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
-use near_primitives::syncing::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
+use near_primitives::state_sync::{StateHeaderKey, StatePartKey, StateSyncHeader};
 use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId};
@@ -304,7 +304,7 @@ impl StoreValidator {
                 }
                 DBCol::StateHeaders => {
                     let key = StateHeaderKey::try_from_slice(key_ref)?;
-                    let header = ShardStateSyncResponseHeader::try_from_slice(value_ref)?;
+                    let header = StateSyncHeader::try_from_slice(value_ref)?;
                     self.check(&validate::state_header_block_exists, &key, &header, col);
                 }
                 DBCol::StateParts => {

@@ -88,7 +88,7 @@ use near_telemetry::TelemetryActor;
 
 use crate::adapter::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, ProcessTxResponse, SetNetworkInfo, StateRequestHeader, StateRequestPart,
+    BlockResponse, ProcessTxResponse, SetNetworkInfo,
 };
 
 pub struct PeerManagerMock {

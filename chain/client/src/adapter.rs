@@ -2,7 +2,7 @@ use crate::client_actor::ClientActor;
 use crate::view_client::ViewClientActor;
 use near_network::types::{
     NetworkInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, ReasonForBan, StateResponseInfo,
+    PartialEncodedChunkResponseMsg, ReasonForBan,
 };
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, Block, BlockHeader};
@@ -11,8 +11,11 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunk;
+use near_primitives::state_sync::{
+    StateRequestHeader, StateRequestPart, StateResponseHeader, StateResponsePart,
+};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::types::{AccountId, EpochId};
 use near_primitives::views::FinalExecutionOutcomeView;
 
 /// Transaction status query
@@ -58,25 +61,31 @@ pub(crate) struct BlockHeadersResponse(pub Vec<BlockHeader>, pub PeerId);
 
 /// State request header.
 #[derive(actix::Message, Debug)]
-#[rtype(result = "Option<StateResponse>")]
-pub(crate) struct StateRequestHeader {
-    pub shard_id: ShardId,
-    pub sync_hash: CryptoHash,
+#[rtype(result = "Option<StateResponseHeader>")]
+pub(crate) struct RecvStateRequestHeader {
+    pub request: StateRequestHeader,
 }
 
 /// State request part.
 #[derive(actix::Message, Debug)]
-#[rtype(result = "Option<StateResponse>")]
-pub(crate) struct StateRequestPart {
-    pub shard_id: ShardId,
-    pub sync_hash: CryptoHash,
-    pub part_id: u64,
+#[rtype(result = "Option<StateResponsePart>")]
+pub(crate) struct RecvStateRequestPart {
+    pub request: StateRequestPart,
 }
 
-/// Response to state request.
+/// Response to state header request.
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub(crate) struct StateResponse(pub Box<StateResponseInfo>);
+pub(crate) struct RecvStateResponseHeader {
+    pub response: StateResponseHeader,
+}
+
+/// Response to state part request.
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub(crate) struct RecvStateResponsePart {
+    pub response: StateResponsePart,
+}
 
 /// Account announcements that needs to be validated before being processed.
 /// They are paired with last epoch id known to this announcement, in order to accept only
@@ -186,15 +195,14 @@ impl near_network::client::Client for Adapter {
 
     async fn state_request_header(
         &self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-    ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
+        request: StateRequestHeader,
+    ) -> Result<Option<StateResponseHeader>, ReasonForBan> {
         match self
             .view_client_addr
-            .send(StateRequestHeader { shard_id, sync_hash }.with_span_context())
+            .send(RecvStateRequestHeader { request }.with_span_context())
             .await
         {
-            Ok(Some(StateResponse(resp))) => Ok(Some(*resp)),
+            Ok(Some(resp)) => Ok(Some(resp)),
             Ok(None) => Ok(None),
             Err(err) => {
                 tracing::error!("mailbox error: {err}");
@@ -205,16 +213,11 @@ impl near_network::client::Client for Adapter {
 
     async fn state_request_part(
         &self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        part_id: u64,
-    ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
-        match self
-            .view_client_addr
-            .send(StateRequestPart { shard_id, sync_hash, part_id }.with_span_context())
-            .await
+        request: StateRequestPart,
+    ) -> Result<Option<StateResponsePart>, ReasonForBan> {
+        match self.view_client_addr.send(RecvStateRequestPart { request }.with_span_context()).await
         {
-            Ok(Some(StateResponse(resp))) => Ok(Some(*resp)),
+            Ok(Some(resp)) => Ok(Some(resp)),
             Ok(None) => Ok(None),
             Err(err) => {
                 tracing::error!("mailbox error: {err}");
@@ -223,8 +226,16 @@ impl near_network::client::Client for Adapter {
         }
     }
 
-    async fn state_response(&self, info: StateResponseInfo) {
-        match self.client_addr.send(StateResponse(Box::new(info)).with_span_context()).await {
+    async fn state_response_header(&self, response: StateResponseHeader) {
+        match self.client_addr.send(RecvStateResponseHeader { response }.with_span_context()).await
+        {
+            Ok(()) => {}
+            Err(err) => tracing::error!("mailbox error: {err}"),
+        }
+    }
+
+    async fn state_response_part(&self, response: StateResponsePart) {
+        match self.client_addr.send(RecvStateResponsePart { response }.with_span_context()).await {
             Ok(()) => {}
             Err(err) => tracing::error!("mailbox error: {err}"),
         }

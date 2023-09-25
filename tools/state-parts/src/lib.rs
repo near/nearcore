@@ -4,6 +4,7 @@ use near_network::raw::{ConnectError, Connection, DirectMessage, Message};
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::state_sync::StateRequestPart;
 use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use near_primitives::version::ProtocolVersion;
 use sha2::Digest;
@@ -28,29 +29,25 @@ fn handle_message(
     received_at: time::Instant,
 ) -> anyhow::Result<()> {
     match &msg {
-        Message::Direct(DirectMessage::VersionedStateResponse(response)) => {
+        Message::Direct(DirectMessage::StateResponseHeader(response)) => {
             let shard_id = response.shard_id();
             let sync_hash = response.sync_hash();
-            let state_response = response.clone().take_state_response();
-            let part_id = state_response.part_id();
-            let duration = if let Some(part_id) = part_id {
-                let duration = app_info
-                    .requests_sent
-                    .get(&part_id)
-                    .map(|sent| (sent.elapsed() - received_at.elapsed()).as_seconds_f64());
-                app_info.requests_sent.remove(&part_id);
-                duration
-            } else {
-                None
-            };
-            let part_hash = if let Some(part) = state_response.part() {
-                Sha256::digest(&part.1)
-                    .iter()
-                    .map(|byte| format!("{:02x}", byte))
-                    .collect::<String>()
-            } else {
-                "No part".to_string()
-            };
+            tracing::info!(shard_id, ?sync_hash, "Received StateResponseHeader");
+        }
+        Message::Direct(DirectMessage::StateResponsePart(response)) => {
+            let shard_id = response.shard_id();
+            let sync_hash = response.sync_hash();
+            let part_id = response.part_id();
+            let duration = app_info
+                .requests_sent
+                .get(&part_id)
+                .map(|sent| (sent.elapsed() - received_at.elapsed()).as_seconds_f64());
+            app_info.requests_sent.remove(&part_id);
+            let part = response.part();
+            let part_hash = Sha256::digest(&part)
+                .iter()
+                .map(|byte| format!("{:02x}", byte))
+                .collect::<String>();
 
             tracing::info!(
                 shard_id,
@@ -58,7 +55,7 @@ fn handle_message(
                 ?part_id,
                 ?duration,
                 ?part_hash,
-                "Received VersionedStateResponse"
+                "Received StateResponsePart"
             );
         }
         _ => {}
@@ -140,7 +137,7 @@ async fn state_parts_from_node(
         tokio::select! {
             _ = &mut next_request => {
                 let target = &peer_id;
-                let msg = DirectMessage::StateRequestPart(shard_id, block_hash, part_id);
+                let msg = DirectMessage::StateRequestPart(StateRequestPart::new(block_hash, shard_id, part_id));
                 tracing::info!(target: "state-parts", ?target, shard_id, ?block_hash, part_id, ttl, "Sending a request");
                 result = peer.send_message(msg).await.with_context(|| format!("Failed sending State Part Request to {:?}", target));
                 app_info.requests_sent.insert(part_id, time::Instant::now());

@@ -134,14 +134,14 @@ pub struct DumpConfig {
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub enum SyncConfig {
     /// Syncs state from the peers without reading anything from external storage.
-    Peers,
+    Disabled,
     /// Expects parts to be available in external storage.
     ExternalStorage(ExternalStorageConfig),
 }
 
 impl Default for SyncConfig {
     fn default() -> Self {
-        Self::Peers
+        Self::Disabled
     }
 }
 
@@ -158,7 +158,7 @@ pub struct StateSyncConfig {
 impl SyncConfig {
     /// Checks whether the object equals its default value.
     fn is_default(&self) -> bool {
-        matches!(self, Self::Peers)
+        matches!(self, Self::Disabled)
     }
 }
 

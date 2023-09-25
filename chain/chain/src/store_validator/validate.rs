@@ -6,8 +6,8 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
-use near_primitives::syncing::{
-    get_num_state_parts, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
+use near_primitives::state_sync::{
+    get_num_state_parts, StateHeaderKey, StatePartKey, StateSyncHeader,
 };
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -838,7 +838,7 @@ pub(crate) fn block_refcount(
 pub(crate) fn state_header_block_exists(
     sv: &mut StoreValidator,
     key: &StateHeaderKey,
-    _header: &ShardStateSyncResponseHeader,
+    _header: &StateSyncHeader,
 ) -> Result<(), StoreValidatorError> {
     unwrap_or_err_db!(
         sv.store.get_ser::<Block>(DBCol::Block, key.1.as_ref()),
@@ -858,7 +858,7 @@ pub(crate) fn state_part_header_exists(
         "Can't serialize StateHeaderKey"
     );
     let header = unwrap_or_err_db!(
-        sv.store.get_ser::<ShardStateSyncResponseHeader>(DBCol::StateHeaders, &state_header_key),
+        sv.store.get_ser::<StateSyncHeader>(DBCol::StateHeaders, &state_header_key),
         "Can't get StateHeaderKey from DB"
     );
     let num_parts = get_num_state_parts(header.state_root_node().memory_usage);

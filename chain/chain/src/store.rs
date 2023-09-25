@@ -23,9 +23,9 @@ use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
     StateSyncInfo,
 };
-use near_primitives::syncing::{
-    get_num_state_parts, ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey,
-    StatePartKey, StateSyncDumpProgress,
+use near_primitives::state_sync::{
+    get_num_state_parts, ReceiptProofResponse, StateHeaderKey, StatePartKey, StateSyncDumpProgress,
+    StateSyncHeader,
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
@@ -880,7 +880,7 @@ impl ChainStore {
         &self,
         shard_id: ShardId,
         block_hash: CryptoHash,
-    ) -> Result<ShardStateSyncResponseHeader, Error> {
+    ) -> Result<StateSyncHeader, Error> {
         let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
         match self.store.get_ser(DBCol::StateHeaders, &key) {
             Ok(Some(header)) => Ok(header),

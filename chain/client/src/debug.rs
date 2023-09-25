@@ -18,13 +18,10 @@ use near_client_primitives::{
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::{handler_debug_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
-use near_primitives::syncing::get_num_state_parts;
+use near_primitives::state_sync::{get_num_state_parts, StateSyncHeaderV1};
 use near_primitives::types::{AccountId, BlockHeight, ShardId, ValidatorInfoIdentifier};
 use near_primitives::{
-    hash::CryptoHash,
-    syncing::{ShardStateSyncResponseHeader, StateHeaderKey},
-    types::EpochId,
-    views::ValidatorInfo,
+    hash::CryptoHash, state_sync::StateHeaderKey, types::EpochId, views::ValidatorInfo,
 };
 use near_store::DBCol;
 use std::cmp::{max, min};
@@ -263,7 +260,7 @@ impl ClientActor {
                                 .chain
                                 .store()
                                 .store()
-                                .get_ser::<ShardStateSyncResponseHeader>(DBCol::StateHeaders, &key),
+                                .get_ser::<StateSyncHeader>(DBCol::StateHeaders, &key),
                             Ok(Some(_))
                         )
                     }

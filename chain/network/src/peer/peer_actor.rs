@@ -5,7 +5,7 @@ use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::{
     DistanceVector, Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError,
     PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse,
-    RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
+    RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -917,10 +917,6 @@ impl PeerActor {
                 network_state.client.tx_status_response(tx_result).await;
                 None
             }
-            RoutedMessageBody::StateResponse(info) => {
-                network_state.client.state_response(StateResponseInfo::V1(info)).await;
-                None
-            }
             RoutedMessageBody::BlockApproval(approval) => {
                 network_state.client.block_approval(approval, peer_id).await;
                 None
@@ -1043,19 +1039,24 @@ impl PeerActor {
                     network_state.client.challenge(challenge).await;
                     None
                 }
-                PeerMessage::StateRequestHeader(shard_id, sync_hash) => network_state
+                PeerMessage::StateRequestHeader(request) => network_state
                     .client
-                    .state_request_header(shard_id, sync_hash)
+                    .state_request_header(request)
                     .await?
-                    .map(PeerMessage::VersionedStateResponse),
-                PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => network_state
+                    .map(PeerMessage::StateResponseHeader),
+                PeerMessage::StateRequestPart(request) => network_state
                     .client
-                    .state_request_part(shard_id, sync_hash, part_id)
+                    .state_request_part(request)
                     .await?
-                    .map(PeerMessage::VersionedStateResponse),
-                PeerMessage::VersionedStateResponse(info) => {
-                        //TODO: Route to state sync actor.
-                    network_state.client.state_response(info).await;
+                    .map(PeerMessage::StateResponsePart),
+                PeerMessage::StateResponseHeader(response) => {
+                    //TODO: Route to state sync actor.
+                    network_state.client.state_response_header(response).await;
+                    None
+                }
+                PeerMessage::StateResponsePart(response) => {
+                    //TODO: Route to state sync actor.
+                    network_state.client.state_response_part(response).await;
                     None
                 }
                 msg => {

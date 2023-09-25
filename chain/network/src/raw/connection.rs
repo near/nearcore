@@ -3,9 +3,7 @@ use crate::network_protocol::{
     PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate,
 };
 use crate::tcp;
-use crate::types::{
-    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo, StateResponseInfo,
-};
+use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo};
 use bytes::buf::{Buf, BufMut};
 use bytes::BytesMut;
 use near_async::time::{Duration, Instant, Utc};
@@ -13,6 +11,9 @@ use near_crypto::{KeyType, SecretKey};
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::state_sync::{
+    StateRequestHeader, StateRequestPart, StateResponseHeader, StateResponsePart,
+};
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use std::fmt;
@@ -82,9 +83,10 @@ pub enum DirectMessage {
     Block(Block),
     BlockHeadersRequest(Vec<CryptoHash>),
     BlockHeaders(Vec<BlockHeader>),
-    StateRequestHeader(ShardId, CryptoHash),
-    StateRequestPart(ShardId, CryptoHash, u64),
-    VersionedStateResponse(StateResponseInfo),
+    StateRequestHeader(StateRequestHeader),
+    StateRequestPart(StateRequestPart),
+    StateResponseHeader(StateResponseHeader),
+    StateResponsePart(StateResponsePart),
 }
 
 impl fmt::Display for DirectMessage {
@@ -107,18 +109,29 @@ impl fmt::Debug for DirectMessage {
                     h.iter().map(|h| format!("#{} {}", h.height(), h.hash())).collect::<Vec<_>>()
                 )
             }
-            Self::StateRequestHeader(shard_id, hash) => {
-                write!(f, "StateRequestHeader({}, {})", shard_id, hash)
+            Self::StateRequestHeader(request) => {
+                write!(f, "StateRequestHeader({request:?})")
             }
-            Self::StateRequestPart(shard_id, hash, part_id) => {
-                write!(f, "StateRequestPart({}, {}, {})", shard_id, hash, part_id)
+            Self::StateRequestPart(request) => {
+                write!(f, "StateRequestPart({request:?})")
             }
-            Self::VersionedStateResponse(r) => write!(
-                f,
-                "VersionedStateResponse(shard_id: {} sync_hash: {})",
-                r.shard_id(),
-                r.sync_hash()
-            ),
+            Self::StateResponseHeader(response) => {
+                write!(
+                    f,
+                    "StateRequestHeader(sync_hash: {}, shard_id: {})",
+                    response.sync_hash(),
+                    response.shard_id()
+                )
+            }
+            Self::StateResponsePart(response) => {
+                write!(
+                    f,
+                    "StateRequestPart(sync_hash: {}, shard_id: {}, part_len: {})",
+                    response.sync_hash(),
+                    response.shard_id(),
+                    response.part().len(),
+                )
+            }
         }
     }
 }
@@ -371,15 +384,12 @@ impl Connection {
             DirectMessage::Block(b) => PeerMessage::Block(b),
             DirectMessage::BlockHeadersRequest(h) => PeerMessage::BlockHeadersRequest(h),
             DirectMessage::BlockHeaders(h) => PeerMessage::BlockHeaders(h),
-            DirectMessage::StateRequestHeader(shard_id, sync_hash) => {
-                PeerMessage::StateRequestHeader(shard_id, sync_hash)
+            DirectMessage::StateRequestHeader(request) => PeerMessage::StateRequestHeader(request),
+            DirectMessage::StateRequestPart(request) => PeerMessage::StateRequestPart(request),
+            DirectMessage::StateResponseHeader(response) => {
+                PeerMessage::StateResponseHeader(response)
             }
-            DirectMessage::StateRequestPart(shard_id, sync_hash, part_id) => {
-                PeerMessage::StateRequestPart(shard_id, sync_hash, part_id)
-            }
-            DirectMessage::VersionedStateResponse(request) => {
-                PeerMessage::VersionedStateResponse(request)
-            }
+            DirectMessage::StateResponsePart(response) => PeerMessage::StateResponsePart(response),
         };
 
         self.stream.write_message(&peer_msg).await
@@ -495,9 +505,27 @@ impl Connection {
                 PeerMessage::BlockHeaders(headers) => {
                     return Ok((Message::Direct(DirectMessage::BlockHeaders(headers)), timestamp));
                 }
-                PeerMessage::VersionedStateResponse(state_response) => {
+                PeerMessage::StateRequestHeader(request) => {
                     return Ok((
-                        Message::Direct(DirectMessage::VersionedStateResponse(state_response)),
+                        Message::Direct(DirectMessage::StateRequestHeader(request)),
+                        timestamp,
+                    ));
+                }
+                PeerMessage::StateRequestPart(request) => {
+                    return Ok((
+                        Message::Direct(DirectMessage::StateRequestPart(request)),
+                        timestamp,
+                    ));
+                }
+                PeerMessage::StateResponseHeader(request) => {
+                    return Ok((
+                        Message::Direct(DirectMessage::StateResponseHeader(request)),
+                        timestamp,
+                    ));
+                }
+                PeerMessage::StateResponsePart(request) => {
+                    return Ok((
+                        Message::Direct(DirectMessage::StateResponsePart(request)),
                         timestamp,
                     ));
                 }

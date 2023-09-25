@@ -13,7 +13,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::get_num_state_parts;
+use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, StateRoot};
 use near_store::flat::{

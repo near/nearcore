@@ -35,7 +35,9 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
-use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
+use near_primitives::state_sync::{
+    StateRequestHeader, StateRequestPart, StateResponseHeader, StateResponsePart,
+};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -408,9 +410,10 @@ pub enum PeerMessage {
     Disconnect(Disconnect),
     Challenge(Challenge),
 
-    StateRequestHeader(ShardId, CryptoHash),
-    StateRequestPart(ShardId, CryptoHash, u64),
-    VersionedStateResponse(StateResponseInfo),
+    StateRequestHeader(StateRequestHeader),
+    StateRequestPart(StateRequestPart),
+    StateResponseHeader(StateResponseHeader),
+    StateResponsePart(StateResponsePart),
 }
 
 impl fmt::Display for PeerMessage {
@@ -514,7 +517,7 @@ pub enum RoutedMessageBody {
     /// We can remove the support for it in protocol version 60.
     /// It has been obsoleted by VersionedStateResponse which
     /// is a superset of StateResponse values.
-    StateResponse(StateResponseInfoV1),
+    _UnusedStateResponse,
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
     _UnusedPartialEncodedChunk,
@@ -563,9 +566,7 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::_UnusedReceiptOutcomeResponse => write!(f, "ReceiptResponse"),
             RoutedMessageBody::_UnusedStateRequestHeader => write!(f, "StateRequestHeader"),
             RoutedMessageBody::_UnusedStateRequestPart => write!(f, "StateRequestPart"),
-            RoutedMessageBody::StateResponse(response) => {
-                write!(f, "StateResponse({}, {})", response.shard_id, response.sync_hash)
-            }
+            RoutedMessageBody::_UnusedStateResponse => write!(f, "StateResponse"),
             RoutedMessageBody::PartialEncodedChunkRequest(request) => {
                 write!(f, "PartialChunkRequest({:?}, {:?})", request.chunk_hash, request.part_ords)
             }
@@ -756,49 +757,6 @@ pub struct PartialEncodedChunkResponseMsg {
     pub chunk_hash: ChunkHash,
     pub parts: Vec<PartialEncodedChunkPart>,
     pub receipts: Vec<ReceiptProof>,
-}
-
-#[derive(PartialEq, Eq, Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize)]
-pub struct StateResponseInfoV1 {
-    pub shard_id: ShardId,
-    pub sync_hash: CryptoHash,
-    pub state_response: ShardStateSyncResponseV1,
-}
-
-#[derive(PartialEq, Eq, Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize)]
-pub struct StateResponseInfoV2 {
-    pub shard_id: ShardId,
-    pub sync_hash: CryptoHash,
-    pub state_response: ShardStateSyncResponse,
-}
-
-#[derive(PartialEq, Eq, Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize)]
-pub enum StateResponseInfo {
-    V1(StateResponseInfoV1),
-    V2(StateResponseInfoV2),
-}
-
-impl StateResponseInfo {
-    pub fn shard_id(&self) -> ShardId {
-        match self {
-            Self::V1(info) => info.shard_id,
-            Self::V2(info) => info.shard_id,
-        }
-    }
-
-    pub fn sync_hash(&self) -> CryptoHash {
-        match self {
-            Self::V1(info) => info.sync_hash,
-            Self::V2(info) => info.sync_hash,
-        }
-    }
-
-    pub fn take_state_response(self) -> ShardStateSyncResponse {
-        match self {
-            Self::V1(info) => ShardStateSyncResponse::V1(info.state_response),
-            Self::V2(info) => info.state_response,
-        }
-    }
 }
 
 #[derive(

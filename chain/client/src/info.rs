@@ -642,15 +642,7 @@ pub fn display_sync_status(
                 write!(res, "[{}: {}]", shard_id, shard_status.status.to_string(),).unwrap();
             }
             match state_sync_config {
-                SyncConfig::Peers => {
-                    tracing::warn!(
-                        target: "stats",
-                        "The node is trying to sync its State from its peers. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\
-                         Suggestions:\n\
-                         * Try to state sync from GCS. See `\"state_sync\"` and `\"state_sync_enabled\"` options in the reference `config.json` file.
-                         or
-                         * Disable state sync in the config. Add `\"state_sync_enabled\": false` to `config.json`, then download a recent data snapshot and restart the node.");
-                }
+                SyncConfig::Disabled => {}
                 SyncConfig::ExternalStorage(_) => {
                     tracing::info!(
                         target: "stats",

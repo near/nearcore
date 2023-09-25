@@ -1,13 +1,13 @@
-use crate::network_protocol::StateResponseInfo;
-
 use crate::types::{NetworkInfo, ReasonForBan};
-
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::state_sync::{
+    StateRequestHeader, StateRequestPart, StateResponseHeader, StateResponsePart,
+};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::types::{AccountId, EpochId};
 use near_primitives::views::FinalExecutionOutcomeView;
 
 /// A strongly typed asynchronous API for the Client logic.
@@ -25,18 +25,17 @@ pub trait Client: Send + Sync + 'static {
 
     async fn state_request_header(
         &self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-    ) -> Result<Option<StateResponseInfo>, ReasonForBan>;
+        request: StateRequestHeader,
+    ) -> Result<Option<StateResponseHeader>, ReasonForBan>;
 
     async fn state_request_part(
         &self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        part_id: u64,
-    ) -> Result<Option<StateResponseInfo>, ReasonForBan>;
+        request: StateRequestPart,
+    ) -> Result<Option<StateResponsePart>, ReasonForBan>;
 
-    async fn state_response(&self, info: StateResponseInfo);
+    async fn state_response_header(&self, header: StateResponseHeader);
+
+    async fn state_response_part(&self, header: StateResponsePart);
 
     async fn block_approval(&self, approval: Approval, peer_id: PeerId);
 
@@ -81,22 +80,21 @@ impl Client for Noop {
 
     async fn state_request_header(
         &self,
-        _shard_id: ShardId,
-        _sync_hash: CryptoHash,
-    ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
+        _request: StateRequestHeader,
+    ) -> Result<Option<StateResponseHeader>, ReasonForBan> {
         Ok(None)
     }
 
     async fn state_request_part(
         &self,
-        _shard_id: ShardId,
-        _sync_hash: CryptoHash,
-        _part_id: u64,
-    ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
+        _request: StateRequestPart,
+    ) -> Result<Option<StateResponsePart>, ReasonForBan> {
         Ok(None)
     }
 
-    async fn state_response(&self, _info: StateResponseInfo) {}
+    async fn state_response_header(&self, _header: StateResponseHeader) {}
+    async fn state_response_part(&self, _part: StateResponsePart) {}
+
     async fn block_approval(&self, _approval: Approval, _peer_id: PeerId) {}
 
     async fn transaction(&self, _transaction: SignedTransaction, _is_forwarded: bool) {}

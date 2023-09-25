@@ -9,8 +9,8 @@ use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{get_block_shard_uid_rev, ShardUId};
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, StateSyncInfo};
 use near_primitives::state::FlatStateValue;
-use near_primitives::syncing::{
-    ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, StateSyncDumpProgress,
+use near_primitives::state_sync::{
+    StateHeaderKey, StatePartKey, StateSyncDumpProgress, StateSyncHeader,
 };
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -195,7 +195,7 @@ fn format_key_and_value<'a>(
         ),
         DBCol::StateHeaders => (
             Box::new(StateHeaderKey::try_from_slice(key).unwrap()),
-            Box::new(ShardStateSyncResponseHeader::try_from_slice(value).unwrap()),
+            Box::new(StateSyncHeader::try_from_slice(value).unwrap()),
         ),
         DBCol::StateParts => (
             Box::new(StatePartKey::try_from_slice(key).unwrap()),

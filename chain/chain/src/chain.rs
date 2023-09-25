@@ -56,11 +56,11 @@ use near_primitives::sharding::{
     ShardChunkHeader, ShardInfo, ShardProof, StateSyncInfo,
 };
 use near_primitives::state_part::PartId;
-use near_primitives::static_clock::StaticClock;
-use near_primitives::syncing::{
-    get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
-    ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
+use near_primitives::state_sync::{
+    get_num_state_parts, ReceiptProofResponse, RootProof, StateHeaderKey, StatePartKey,
+    StateSyncHeader, StateSyncHeaderV1,
 };
+use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
@@ -2832,12 +2832,12 @@ impl Chain {
         )
     }
 
-    /// Computes ShardStateSyncResponseHeader.
+    /// Computes StateSyncHeader.
     pub fn compute_state_response_header(
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-    ) -> Result<ShardStateSyncResponseHeader, Error> {
+    ) -> Result<StateSyncHeader, Error> {
         // Consistency rules:
         // 1. Everything prefixed with `sync_` indicates new epoch, for which we are syncing.
         // 1a. `sync_prev` means the last of the prev epoch.
@@ -2975,49 +2975,32 @@ impl Chain {
         )?;
 
         let shard_state_header = match chunk {
-            ShardChunk::V1(chunk) => {
-                let prev_chunk_header =
-                    prev_chunk_header.and_then(|prev_header| match prev_header {
-                        ShardChunkHeader::V1(header) => Some(header),
-                        ShardChunkHeader::V2(_) => None,
-                        ShardChunkHeader::V3(_) => None,
-                    });
-                ShardStateSyncResponseHeader::V1(ShardStateSyncResponseHeaderV1 {
-                    chunk,
-                    chunk_proof,
-                    prev_chunk_header,
-                    prev_chunk_proof,
-                    incoming_receipts_proofs,
-                    root_proofs,
-                    state_root_node,
-                })
+            ShardChunk::V1(_) => {
+                tracing::warn!(target: "sync", "ShardChunk::V1 is obsolete for state sync");
+                return Err(Error::Other("ShardChunk::V1 is obsolete".to_string()));
             }
-
-            chunk @ ShardChunk::V2(_) => {
-                ShardStateSyncResponseHeader::V2(ShardStateSyncResponseHeaderV2 {
-                    chunk,
-                    chunk_proof,
-                    prev_chunk_header,
-                    prev_chunk_proof,
-                    incoming_receipts_proofs,
-                    root_proofs,
-                    state_root_node,
-                })
-            }
-
+            chunk @ ShardChunk::V2(_) => StateSyncHeaderV1 {
+                chunk,
+                chunk_proof,
+                prev_chunk_header,
+                prev_chunk_proof,
+                incoming_receipts_proofs,
+                root_proofs,
+                state_root_node,
+            },
             ShardChunk::V3(_) => todo!("#9535"),
         };
-        Ok(shard_state_header)
+        Ok(StateSyncHeader::V1(shard_state_header))
     }
 
-    /// Returns ShardStateSyncResponseHeader for the given epoch and shard.
+    /// Returns StateSyncHeaderV1 for the given epoch and shard.
     /// If the header is already available in the DB, returns the cached version and doesn't recompute it.
     /// If the header was computed then it also gets cached in the DB.
     pub fn get_state_response_header(
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-    ) -> Result<ShardStateSyncResponseHeader, Error> {
+    ) -> Result<StateSyncHeader, Error> {
         // Check cache
         let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
         if let Ok(Some(header)) = self.store.store().get_ser(DBCol::StateHeaders, &key) {
@@ -3112,12 +3095,12 @@ impl Chain {
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        shard_state_header: ShardStateSyncResponseHeader,
+        shard_state_header: StateSyncHeader,
     ) -> Result<(), Error> {
         let sync_block_header = self.get_block_header(&sync_hash)?;
 
-        let chunk = shard_state_header.cloned_chunk();
-        let prev_chunk_header = shard_state_header.cloned_prev_chunk_header();
+        let chunk = shard_state_header.chunk().clone();
+        let prev_chunk_header = shard_state_header.prev_chunk_header().clone();
 
         // 1-2. Checking chunk validity
         if !validate_chunk_proofs(&chunk, self.epoch_manager.as_ref())? {
@@ -3135,7 +3118,7 @@ impl Chain {
         let sync_prev_block_header = self.get_block_header(sync_block_header.prev_hash())?;
         if !verify_path(
             *sync_prev_block_header.chunk_headers_root(),
-            shard_state_header.chunk_proof(),
+            &shard_state_header.chunk_proof(),
             &ChunkHashHeight(chunk.chunk_hash(), chunk.height_included()),
         ) {
             byzantine_assert!(false);
@@ -3148,13 +3131,13 @@ impl Chain {
             self.get_block_header_on_chain_by_height(&sync_hash, chunk.height_included())?;
         // 3b. Checking that chunk `prev_chunk` is included into block at height before chunk.height_included
         // 3ba. Also checking prev_chunk.height_included - it's important for getting correct incoming receipts
-        match (&prev_chunk_header, shard_state_header.prev_chunk_proof()) {
+        match (&prev_chunk_header, shard_state_header.prev_chunk_proof().clone()) {
             (Some(prev_chunk_header), Some(prev_chunk_proof)) => {
                 let prev_block_header =
                     self.get_block_header(block_header.prev_hash())?;
                 if !verify_path(
                     *prev_block_header.chunk_headers_root(),
-                    prev_chunk_proof,
+                    &prev_chunk_proof,
                     &ChunkHashHeight(prev_chunk_header.chunk_hash(), prev_chunk_header.height_included()),
                 ) {
                     byzantine_assert!(false);
@@ -3251,7 +3234,7 @@ impl Chain {
         // 5. Checking that state_root_node is valid
         let chunk_inner = chunk.take_header().take_inner();
         if !self.runtime_adapter.validate_state_root_node(
-            shard_state_header.state_root_node(),
+            &shard_state_header.state_root_node(),
             chunk_inner.prev_state_root(),
         ) {
             byzantine_assert!(false);
@@ -3271,7 +3254,7 @@ impl Chain {
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-    ) -> Result<ShardStateSyncResponseHeader, Error> {
+    ) -> Result<StateSyncHeader, Error> {
         self.store.get_state_header(shard_id, sync_hash)
     }
 
@@ -3283,7 +3266,7 @@ impl Chain {
         data: &[u8],
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        let chunk = shard_state_header.take_chunk();
+        let chunk = shard_state_header.chunk().clone();
         let state_root = *chunk.take_header().take_inner().prev_state_root();
         if !self.runtime_adapter.validate_state_part(&state_root, part_id, data) {
             byzantine_assert!(false);
@@ -3312,7 +3295,7 @@ impl Chain {
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
 
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        let state_root = shard_state_header.chunk_prev_state_root();
+        let state_root = shard_state_header.chunk().prev_state_root();
 
         state_parts_task_scheduler(ApplyStatePartsRequest {
             runtime_adapter: self.runtime_adapter.clone(),
@@ -3336,7 +3319,7 @@ impl Chain {
         apply_result?;
 
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        let chunk = shard_state_header.cloned_chunk();
+        let chunk = shard_state_header.chunk().clone();
 
         let block_hash = chunk.prev_block();
 
@@ -3377,7 +3360,7 @@ impl Chain {
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
         }
 
-        let mut height = shard_state_header.chunk_height_included();
+        let mut height = shard_state_header.chunk().height_included();
         let mut chain_update = self.chain_update();
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
         chain_update.commit()?;
@@ -5574,19 +5557,12 @@ impl<'a> ChainUpdate<'a> {
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        shard_state_header: ShardStateSyncResponseHeader,
+        shard_state_header: StateSyncHeader,
     ) -> Result<(), Error> {
         let _span =
             tracing::debug_span!(target: "sync", "chain_update_set_state_finalize").entered();
-        let (chunk, incoming_receipts_proofs) = match shard_state_header {
-            ShardStateSyncResponseHeader::V1(shard_state_header) => (
-                ShardChunk::V1(shard_state_header.chunk),
-                shard_state_header.incoming_receipts_proofs,
-            ),
-            ShardStateSyncResponseHeader::V2(shard_state_header) => {
-                (shard_state_header.chunk, shard_state_header.incoming_receipts_proofs)
-            }
-        };
+        let chunk = shard_state_header.chunk().clone();
+        let incoming_receipts_proofs = shard_state_header.incoming_receipts_proofs();
 
         let block_header = self
             .chain_store_update
@@ -5680,7 +5656,7 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.save_incoming_receipt(
                 &receipt_proof_response.0,
                 shard_id,
-                receipt_proof_response.1,
+                receipt_proof_response.1.clone(),
             );
         }
         Ok(())

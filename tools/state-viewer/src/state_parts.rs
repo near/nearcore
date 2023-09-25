@@ -12,7 +12,7 @@ use near_primitives::challenge::PartialState;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::StateRecord;
-use near_primitives::syncing::get_num_state_parts;
+use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, EpochHeight, ShardId};
@@ -332,7 +332,7 @@ async fn load_state_parts(
             let sync_hash = StateSync::get_epoch_start_sync_hash(chain, &sync_hash).unwrap();
 
             let state_header = chain.get_state_response_header(shard_id, sync_hash).unwrap();
-            let state_root = state_header.chunk_prev_state_root();
+            let state_root = state_header.chunk().prev_state_root();
 
             (state_root, epoch.epoch_height(), epoch_id, sync_hash)
         };
@@ -427,7 +427,7 @@ async fn dump_state_parts(
     let sync_prev_prev_hash = sync_prev_header.prev_hash();
 
     let state_header = chain.compute_state_response_header(shard_id, sync_hash).unwrap();
-    let state_root = state_header.chunk_prev_state_root();
+    let state_root = state_header.chunk().prev_state_root();
     let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
     let part_ids = get_part_ids(part_from, part_to, num_parts);
 
