@@ -14,10 +14,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [nayduck, macOS-m1]
+        os: [ubuntu-22.04-8core, macOS-m1]
         flags: [""]
         include:
-          - os: nayduck
+          - os: ubuntu-22.04-8core
             flags: "--features nightly,test_features,mock_node"
     timeout-minutes: 60
 
