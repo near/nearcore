@@ -679,9 +679,7 @@ impl RocksDB {
                 ));
 
                 let mut add_cache_measurements_to_results = |stat_name, stat_value| {
-                    result
-                        .data
-                        .push((stat_name, vec![StatsValue::ColumnValue(*col, stat_value)]));
+                    result.data.push((stat_name, vec![StatsValue::ColumnValue(*col, stat_value)]));
                 };
 
                 // Add cache stats
