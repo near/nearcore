@@ -56,14 +56,16 @@ impl LogCounter {
         line: Option<u32>,
     ) {
         match level {
-            &tracing::Level::ERROR | &tracing::Level::WARN => LOG_WITH_LOCATION_COUNTER
-                .with_label_values(&[
-                    &level.as_str(),
-                    target,
-                    file.unwrap_or(""),
-                    &line.map_or("".to_string(), |x| x.to_string()),
-                ])
-                .inc(),
+            &tracing::Level::ERROR | &tracing::Level::WARN | &tracing::Level::INFO => {
+                LOG_WITH_LOCATION_COUNTER
+                    .with_label_values(&[
+                        &level.as_str(),
+                        target,
+                        file.unwrap_or(""),
+                        &line.map_or("".to_string(), |x| x.to_string()),
+                    ])
+                    .inc()
+            }
             // Retaining LoC for low-severity messages can lead to excessive memory usage.
             // Therefore, only record LoC for high severity log messages.
             _ => {}
