@@ -13,7 +13,6 @@ borsh.workspace = true
 bytesize.workspace = true
 chrono.workspace = true
 crossbeam-channel.workspace = true
-delay-detector.workspace = true
 enum-map.workspace = true
 itertools.workspace = true
 itoa.workspace = true
@@ -49,7 +48,6 @@ assert_matches.workspace = true
 byzantine_asserts = []
 expensive_tests = []
 test_features = []
-delay_detector = ["delay-detector/delay_detector"]
 no_cache = ["near-store/no_cache"]
 new_epoch_sync = ["near-store/new_epoch_sync", "near-primitives/new_epoch_sync"]
 

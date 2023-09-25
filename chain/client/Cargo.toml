@@ -37,7 +37,6 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-delay-detector.workspace = true
 near-async.workspace = true
 near-chain-configs.workspace = true
 near-chain-primitives.workspace = true
@@ -68,11 +67,6 @@ test_features = [
   "near-network/test_features",
   "near-chain/test_features",
   "near-chunks/test_features",
-]
-delay_detector = [
-  "near-chain/delay_detector",
-  "near-network/delay_detector",
-  "delay-detector/delay_detector",
 ]
 nightly_protocol = [
   "near-async/nightly_protocol",

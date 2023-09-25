@@ -1767,14 +1767,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "delay-detector"
-version = "0.0.0"
-dependencies = [
- "cpu-time",
- "tracing",
-]
-
-[[package]]
 name = "derive-enum-from-into"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3475,7 +3467,6 @@ dependencies = [
  "bytesize",
  "chrono",
  "crossbeam-channel",
- "delay-detector",
  "enum-map",
  "insta",
  "itertools",
@@ -3588,7 +3579,6 @@ dependencies = [
  "borsh 0.10.2",
  "chrono",
  "cloud-storage",
- "delay-detector",
  "derive_more",
  "futures",
  "itertools",
@@ -3994,7 +3984,6 @@ dependencies = [
  "chrono",
  "criterion",
  "crossbeam-channel",
- "delay-detector",
  "derive_more",
  "futures",
  "futures-util",
@@ -4596,7 +4585,6 @@ dependencies = [
  "borsh 0.10.2",
  "chrono",
  "cloud-storage",
- "delay-detector",
  "dirs",
  "easy-ext",
  "futures",
