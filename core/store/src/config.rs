@@ -9,7 +9,7 @@ use std::{collections::HashMap, iter::FromIterator};
 /// Cache size for DBCol::FlatState column
 /// Default value: 128MiB
 /// This value was tuned in after we removed filter and index block from block cache
-/// and slightly improved read speed for FlatState and reduced memory footprint in 
+/// and slightly improved read speed for FlatState and reduced memory footprint in
 /// #9389
 /// This is purposefully hardcoded to avoid additional config.json parameters.
 const FLAT_COLUMN_BLOCK_CACHE_SIZE: bytesize::ByteSize = bytesize::ByteSize::mib(128);

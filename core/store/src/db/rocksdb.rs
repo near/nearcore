@@ -503,7 +503,7 @@ fn rocksdb_block_based_options(store_config: &StoreConfig, db_col: DBCol) -> Blo
     match db_col {
         DBCol::FlatState => {
             rocksdb_block_based_options_no_index_cache(store_config.block_size, cache_size)
-        },
+        }
         _ => rocksdb_block_based_options_default(store_config.block_size, cache_size),
     }
 }
