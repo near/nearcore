@@ -630,7 +630,7 @@ impl RocksDB {
                     measurement.measurements_overall.avg_read_block_latency().as_micros() as i64;
                 result.data.push((
                     "rocksdb_perf_avg_read_block_latency".to_string(),
-                    vec![StatsValue::ColumnValue(col.clone(), col_read_block_latency)],
+                    vec![StatsValue::ColumnValue(*col, col_read_block_latency)],
                 ));
 
                 let col_total_obs_lat_per_block: Vec<StatsValue> = measurement
@@ -638,7 +638,7 @@ impl RocksDB {
                     .iter()
                     .map(|(block_count, measurement)| {
                         StatsValue::BucketBlockCount(
-                            col.clone(),
+                            *col,
                             block_count.to_string(),
                             measurement.total_read_block_latency.as_micros() as i64,
                         )
@@ -654,7 +654,7 @@ impl RocksDB {
                     .iter()
                     .map(|(block_count, measurement)| {
                         StatsValue::BucketBlockCount(
-                            col.clone(),
+                            *col,
                             block_count.to_string(),
                             measurement.samples as i64,
                         )
@@ -667,7 +667,7 @@ impl RocksDB {
                     .iter()
                     .map(|(block_count, measurement)| {
                         StatsValue::BucketBlockCount(
-                            col.clone(),
+                            *col,
                             block_count.to_string(),
                             measurement.total_read_block_latency.as_micros() as i64,
                         )
@@ -681,7 +681,7 @@ impl RocksDB {
                 let mut add_cache_measurements_to_results = |stat_name, stat_value| {
                     result
                         .data
-                        .push((stat_name, vec![StatsValue::ColumnValue(col.clone(), stat_value)]));
+                        .push((stat_name, vec![StatsValue::ColumnValue(*col, stat_value)]));
                 };
 
                 // Add cache stats
