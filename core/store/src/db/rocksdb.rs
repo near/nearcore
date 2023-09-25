@@ -496,9 +496,9 @@ fn rocksdb_block_based_options_default(
 fn rocksdb_block_based_options(store_config: &StoreConfig, db_col: DBCol) -> BlockBasedOptions {
     let cache_size = store_config.col_cache_size(db_col);
     match db_col {
-        DBCol::FlatState  | DBCol::State => {
+        DBCol::FlatState => {
             rocksdb_block_based_options_no_index_cache(store_config.block_size, cache_size)
-        }
+        },
         _ => rocksdb_block_based_options_default(store_config.block_size, cache_size),
     }
 }
