@@ -12,5 +12,7 @@ mod runtimes;
 mod sandbox;
 mod sharding_upgrade;
 mod state_dump;
+mod state_snapshot;
+mod sync_state_nodes;
 mod undo_block;
 mod utils;
