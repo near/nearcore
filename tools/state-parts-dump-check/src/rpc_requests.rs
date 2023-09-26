@@ -12,38 +12,22 @@ struct BlockResponse {
 }
 
 #[derive(Deserialize)]
-struct StatusResponse {
-    result: StatusInfo,
-}
-
-#[derive(Deserialize)]
-struct StatusInfo {
-    sync_info: SyncInfo
-}
-
-#[derive(Deserialize)]
-struct SyncInfo {
-    latest_block_hash: String
-}
-
-#[derive(Deserialize)]
 struct ValidatorsInfo {
     epoch_start_height: u64,
-    epoch_height: u64
+    epoch_height: u64,
 }
 
 #[derive(Deserialize)]
 struct BlockInfo {
     header: BlockInfoHeader,
-    chunks: Vec<ChunkInfo>
+    chunks: Vec<ChunkInfo>,
 }
 
 #[derive(Deserialize)]
 struct BlockInfoHeader {
     hash: String,
     prev_hash: String,
-    next_epoch_id: String,
-    epoch_id: String
+    epoch_id: String,
 }
 
 #[derive(Deserialize)]
@@ -59,7 +43,10 @@ pub struct RpcClient {
 impl RpcClient {
     // network can only be "mainnet" or "testnet"
     pub fn new(network: &str) -> Self {
-        Self { client: reqwest::blocking::Client::new(), rpc_endpoint: format!("https://rpc.{}.near.org", network) }
+        Self {
+            client: reqwest::blocking::Client::new(),
+            rpc_endpoint: format!("https://rpc.{}.near.org", network),
+        }
     }
 
     pub fn get_block_hash(&self, block_height: u64) -> Result<String, Box<dyn Error>> {
@@ -82,7 +69,10 @@ impl RpcClient {
     }
 
     // epoch_id here is the epoch_id you want state part for
-    pub fn get_current_epoch_first_block_hash(&self, epoch_id: &String) -> Result<String, Box<dyn Error>> {
+    pub fn get_current_epoch_first_block_hash(
+        &self,
+        epoch_id: &String,
+    ) -> Result<String, Box<dyn Error>> {
         let epoch_response: ValidatorsResponse = self
             .client
             .post(&self.rpc_endpoint)
@@ -101,8 +91,12 @@ impl RpcClient {
         Ok(epoch_start_block_hash)
     }
 
-    pub fn get_prev_epoch_last_block_hash(&self, epoch_id: &String) -> Result<String, Box<dyn Error>> {
-        let current_epoch_first_block_hash = self.get_current_epoch_first_block_hash(epoch_id).unwrap();
+    pub fn get_prev_epoch_last_block_hash(
+        &self,
+        epoch_id: &String,
+    ) -> Result<String, Box<dyn Error>> {
+        let current_epoch_first_block_hash =
+            self.get_current_epoch_first_block_hash(epoch_id).unwrap();
         let current_epoch_first_block_response: BlockResponse = self
             .client
             .post(&self.rpc_endpoint)
@@ -139,7 +133,7 @@ impl RpcClient {
     }
 
     // get the state root of previous epoch. This should be the state root of the last block of last epoch.
-    pub fn get_prev_epoch_state_root(&self, block_hash: &String) -> Result<String, Box<dyn Error>> {
+    pub fn get_prev_epoch_state_root(&self, block_hash: &String, shard_id: u64) -> Result<String, Box<dyn Error>> {
         let prev_epoch_last_block_hash = self.get_prev_epoch_last_block_hash(block_hash).unwrap();
         let prev_epoch_last_block_response: BlockResponse = self
             .client
@@ -155,11 +149,11 @@ impl RpcClient {
             .send()?
             .json()?;
         let chunks = prev_epoch_last_block_response.result.chunks;
-        let state_root = &chunks[chunks.len() -1].prev_state_root;
+        let state_root = &chunks[shard_id as usize] .prev_state_root;
         Ok(state_root.to_string())
     }
 
-    pub fn get_latest_block_hash(&self) -> Result<String, Box<dyn Error>> { 
+    pub fn get_final_block_hash(&self) -> Result<String, Box<dyn Error>> {
         let status_response: BlockResponse = self
             .client
             .post(&self.rpc_endpoint)
