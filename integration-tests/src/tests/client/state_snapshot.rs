@@ -1,26 +1,24 @@
-use near_chain::types::RuntimeAdapter;
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::SignedTransaction;
 use near_store::flat::FlatStorageManager;
-use near_store::genesis::initialize_genesis_state;
 use near_store::{
     config::TrieCacheConfig, test_utils::create_test_store, Mode, ShardTries, StateSnapshotConfig,
     StoreConfig, TrieConfig,
 };
 use near_store::{NodeStorage, Store};
 use nearcore::config::GenesisExt;
-use nearcore::{NightshadeRuntime, NEAR_BASE};
+use nearcore::NEAR_BASE;
 use std::path::PathBuf;
-use std::sync::Arc;
+
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 struct StateSnaptshotTestEnv {
     home_dir: PathBuf,
@@ -192,32 +190,11 @@ fn delete_content_at_path(path: &str) -> std::io::Result<()> {
 fn test_make_state_snapshot() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
-    let num_clients = 1;
-    let env_objects = (0..num_clients).map(|_|{
-        let tmp_dir = tempfile::tempdir().unwrap();
-        // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
-        // same configuration as in production.
-        let store = NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
-            .open()
-            .unwrap()
-            .get_hot_store();
-        initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-        let runtime =
-            NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
-                as Arc<dyn RuntimeAdapter>;
-        (tmp_dir, store, epoch_manager, runtime)
-    }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
-
-    let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
-    let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();
-    let runtimes = env_objects.iter().map(|x| x.3.clone()).collect::<Vec<_>>();
-
     let mut env = TestEnv::builder(ChainGenesis::test())
-        .clients_count(env_objects.len())
-        .stores(stores.clone())
-        .epoch_managers(epoch_managers)
-        .runtimes(runtimes.clone())
+        .clients_count(1)
+        .real_stores()
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .use_state_snapshots()
         .build();
 
@@ -227,7 +204,8 @@ fn test_make_state_snapshot() {
 
     let mut blocks = vec![];
 
-    let state_snapshot_test_env = set_up_test_env_for_state_snapshots(&stores[0]);
+    let store = env.clients[0].chain.store().store();
+    let state_snapshot_test_env = set_up_test_env_for_state_snapshots(store);
 
     for i in 1..=5 {
         let new_account_id = format!("test_account_{i}");

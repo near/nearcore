@@ -1,16 +1,15 @@
 use crate::test_helpers::heavy_test;
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
 use near_chain::chain::ApplyStatePartsRequest;
-use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, ExternalStorageConfig, Genesis, SyncConfig};
 use near_client::test_utils::TestEnv;
 use near_client::{GetBlock, ProcessTxResponse};
 use near_crypto::{InMemorySigner, KeyType};
-use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout, WaitOrTimeoutActor};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
@@ -21,9 +20,8 @@ use near_primitives::syncing::{get_num_state_parts, StatePartKey};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::MaybeValidated;
 use near_primitives_core::types::ShardId;
-use near_store::genesis::initialize_genesis_state;
-use near_store::{DBCol, NodeStorage, Store};
-use nearcore::{config::GenesisExt, load_test_config, start_with_config, NightshadeRuntime};
+use near_store::DBCol;
+use nearcore::{config::GenesisExt, load_test_config, start_with_config};
 use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -560,47 +558,11 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
             let mut genesis =
                 Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
             genesis.config.epoch_length = epoch_length;
-            let chain_genesis = ChainGenesis::new(&genesis);
-
-            let num_clients = 2;
-            let env_objects =
-                (0..num_clients)
-                    .map(|_| {
-                        let tmp_dir = tempfile::tempdir().unwrap();
-                        // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
-                        // same configuration as in production.
-                        let store =
-                            NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
-                                .open()
-                                .unwrap()
-                                .get_hot_store();
-                        initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
-                        let epoch_manager =
-                            EpochManager::new_arc_handle(store.clone(), &genesis.config);
-                        let runtime = NightshadeRuntime::test(
-                            tmp_dir.path(),
-                            store.clone(),
-                            &genesis.config,
-                            epoch_manager.clone(),
-                        ) as Arc<dyn RuntimeAdapter>;
-                        (tmp_dir, store, epoch_manager, runtime)
-                    })
-                    .collect::<Vec<(
-                        tempfile::TempDir,
-                        Store,
-                        Arc<EpochManagerHandle>,
-                        Arc<dyn RuntimeAdapter>,
-                    )>>();
-
-            let stores = env_objects.iter().map(|x| x.1.clone()).collect();
-            let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect();
-            let runtimes = env_objects.iter().map(|x| x.3.clone()).collect();
-
-            let mut env = TestEnv::builder(chain_genesis)
-                .clients_count(num_clients)
-                .stores(stores)
-                .epoch_managers(epoch_managers)
-                .runtimes(runtimes)
+            let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
+                .clients_count(2)
+                .real_stores()
+                .real_epoch_managers(&genesis.config)
+                .nightshade_runtimes(&genesis)
                 .use_state_snapshots()
                 .build();
 

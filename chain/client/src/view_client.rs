@@ -1466,7 +1466,6 @@ impl Handler<WithSpanContext<GetSplitStorageInfo>> for ViewClientActor {
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         tracing::debug!(target: "client", ?msg);
-        let _d = delay_detector::DelayDetector::new(|| "client get split storage info".into());
 
         let store = self.chain.store().store();
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;

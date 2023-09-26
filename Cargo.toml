@@ -67,7 +67,6 @@ members = [
     "test-utils/testlib",
     "tools/database",
     "tools/chainsync-loadtest",
-    "tools/delay-detector",
     "tools/fork-network",
     "tools/indexer/example",
     "tools/mirror",
@@ -126,11 +125,10 @@ conqueue = "0.4.0"
 cpu-time = "1.0"
 criterion = { version = "0.3.5", default_features = false, features = ["html_reports", "cargo_bench_support"] }
 crossbeam = "0.8"
-crossbeam-channel = "0.5"
+crossbeam-channel = "0.5.8"
 crossbeam-queue = "0.3.8"
 csv = "1.2.1"
 curve25519-dalek = "3"
-delay-detector = { path = "tools/delay-detector" }
 derive-enum-from-into = "0.1.1"
 derive_more = "0.99.9"
 dirs = "4"

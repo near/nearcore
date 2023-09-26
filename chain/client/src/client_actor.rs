@@ -263,8 +263,7 @@ impl ClientActor {
     ) -> Res {
         let (_span, msg) = handler_debug_span!(target: "client", msg, msg_type);
         self.check_triggers(ctx);
-        let _d =
-            delay_detector::DelayDetector::new(|| format!("NetworkClientMessage {:?}", msg).into());
+        let _span_inner = tracing::debug_span!(target: "client", "NetworkClientMessage").entered();
         metrics::CLIENT_MESSAGES_COUNT.with_label_values(&[msg_type]).inc();
         let timer =
             metrics::CLIENT_MESSAGES_PROCESSING_TIME.with_label_values(&[msg_type]).start_timer();
@@ -619,7 +618,6 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
     fn handle(&mut self, msg: WithSpanContext<Status>, ctx: &mut Context<Self>) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         tracing::debug!(target: "client", ?msg);
-        let _d = delay_detector::DelayDetector::new(|| "client status".into());
         self.check_triggers(ctx);
 
         let head = self.client.chain.head()?;
@@ -772,7 +770,6 @@ impl Handler<WithSpanContext<GetNetworkInfo>> for ClientActor {
         ctx: &mut Context<Self>,
     ) -> Self::Result {
         let (_span, _msg) = handler_debug_span!(target: "client", msg);
-        let _d = delay_detector::DelayDetector::new(|| "client get network info".into());
         self.check_triggers(ctx);
 
         Ok(NetworkInfoResponse {
@@ -1103,6 +1100,7 @@ impl ClientActor {
     /// Returns the delay before the next time `check_triggers` should be called, which is
     /// min(time until the closest trigger, 1 second).
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
+        let _span = tracing::debug_span!(target: "client", "check_triggers").entered();
         if let Some(config_updater) = &mut self.config_updater {
             config_updater.try_update(&|updateable_client_config| {
                 self.client.update_client_config(updateable_client_config)
@@ -1120,8 +1118,6 @@ impl ClientActor {
                 }
             }
         }
-
-        let _d = delay_detector::DelayDetector::new(|| "client triggers".into());
 
         self.try_process_unfinished_blocks();
 
@@ -1496,16 +1492,19 @@ impl ClientActor {
     /// Runs catchup on repeat, if this client is a validator.
     /// Schedules itself again if it was not ran as response to state parts job result
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
-        let _d = delay_detector::DelayDetector::new(|| "client catchup".into());
-        if let Err(err) = self.client.run_catchup(
-            &self.network_info.highest_height_peers,
-            &self.state_parts_task_scheduler,
-            &self.block_catch_up_scheduler,
-            &self.state_split_scheduler,
-            self.get_apply_chunks_done_callback(),
-            &self.state_parts_client_arbiter.handle(),
-        ) {
-            error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err);
+        {
+            // An extra scope to limit the lifetime of the span.
+            let _span = tracing::debug_span!(target: "client", "catchup").entered();
+            if let Err(err) = self.client.run_catchup(
+                &self.network_info.highest_height_peers,
+                &self.state_parts_task_scheduler,
+                &self.block_catch_up_scheduler,
+                &self.state_split_scheduler,
+                self.get_apply_chunks_done_callback(),
+                &self.state_parts_client_arbiter.handle(),
+            ) {
+                error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err);
+            }
         }
 
         near_performance_metrics::actix::run_later(
@@ -1561,8 +1560,7 @@ impl ClientActor {
     /// Runs itself iff it was not ran as reaction for message with results of
     /// finishing state part job
     fn run_sync_step(&mut self) {
-        let _span = tracing::debug_span!(target: "client", "sync").entered();
-        let _d = delay_detector::DelayDetector::new(|| "client sync".into());
+        let _span = tracing::debug_span!(target: "client", "run_sync_step").entered();
 
         macro_rules! unwrap_and_report (($obj: expr) => (match $obj {
             Ok(v) => v,
@@ -1729,7 +1727,6 @@ impl ClientActor {
     /// Print current summary.
     fn log_summary(&mut self) {
         let _span = tracing::debug_span!(target: "client", "log_summary").entered();
-        let _d = delay_detector::DelayDetector::new(|| "client log summary".into());
         self.info_helper.log_summary(
             &self.client,
             &self.node_id,
@@ -1850,7 +1847,6 @@ impl Handler<WithSpanContext<GetClientConfig>> for ClientActor {
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         tracing::debug!(target: "client", ?msg);
-        let _d = delay_detector::DelayDetector::new(|| "client get client config".into());
 
         Ok(self.client.config.clone())
     }
