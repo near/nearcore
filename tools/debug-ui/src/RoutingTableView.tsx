@@ -1,5 +1,5 @@
 import { useQuery } from 'react-query';
-import { toHumanTime } from './utils';
+import { toHumanTime, formatDurationInMillis } from './utils';
 import { fetchRoutingTable } from './api';
 import './RoutingTableView.scss';
 
@@ -27,8 +27,19 @@ export const RoutingTableView = ({ addr }: RoutingTableViewProps) => {
     const routable_peers = Object.keys(routingInfo.my_distances);
     routable_peers.sort((a, b) => peerLabels[a] > peerLabels[b] ? 1 : -1);
 
-    const direct_peers = Object.keys(routingInfo.local_edges);
+    const direct_peers: string[] = [];
+    const disconnected_peers: string[] = [];
+
+    Object.entries(routingInfo.local_edges).map(([peer_id, edge]) => {
+        if (edge.nonce % 2 == 1) {
+            direct_peers.push(peer_id);
+        } else {
+            disconnected_peers.push(peer_id);
+        }
+    });
+
     direct_peers.sort((a, b) => peerLabels[a] > peerLabels[b] ? 1 : -1);
+    disconnected_peers.sort((a, b) => peerLabels[a] > peerLabels[b] ? 1 : -1);
 
     return (
         <div className="routing-table-view">
@@ -59,20 +70,43 @@ export const RoutingTableView = ({ addr }: RoutingTableViewProps) => {
                     <th>Peer ID</th>
                     <th>Peer Label</th>
                     <th>Advertised Distances</th>
+                    <th>Min Nonce</th>
                 </thead>
                 <tbody>
                     {direct_peers.map((peer_id) => {
                         const peer_label = peerLabels[peer_id];
 
                         const peer_distances = routingInfo.peer_distances[peer_id];
-                        const formatted_distances = peer_distances == null ? "null" :
-                            peer_distances.distance.map((x) => x ?? '_').join(', ');
 
                         return (
                             <tr key={peer_label}>
                                 <td>{peer_id.substring(8, 14)}...</td>
                                 <td>{peer_label}</td>
-                                <td>{formatted_distances}</td>
+                                <td>{peer_distances.distance.map((x) => x ?? '_').join(', ')}</td>
+                                <td>{peer_distances.min_nonce} ({formatDurationInMillis(Date.now() - peer_distances.min_nonce * 1000)})</td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
+            <br/>
+            <p><b>Disconnected Peers</b></p>
+            <table>
+                <thead>
+                    <th>Peer ID</th>
+                    <th>Peer Label</th>
+                    <th>Nonce</th>
+                </thead>
+                <tbody>
+                    {disconnected_peers.map((peer_id) => {
+                        const peer_label = peerLabels[peer_id];
+                        const nonce = routingInfo.local_edges[peer_id].nonce;
+
+                        return (
+                            <tr key={peer_label}>
+                                <td>{peer_id.substring(8, 14)}...</td>
+                                <td>{peer_label}</td>
+                                <td>{nonce} ({formatDurationInMillis(Date.now() - nonce * 1000)})</td>
                             </tr>
                         );
                     })}

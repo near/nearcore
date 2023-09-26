@@ -122,6 +122,9 @@ pub enum ProtocolFeature {
     SimpleNightshadeV2,
     #[cfg(feature = "protocol_feature_restrict_tla")]
     RestrictTla,
+    /// Enables block production with post-state-root.
+    /// NEP: https://github.com/near/NEPs/pull/507
+    PostStateRoot,
 }
 
 impl ProtocolFeature {
@@ -177,6 +180,7 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV2 => 135,
             #[cfg(feature = "protocol_feature_restrict_tla")]
             ProtocolFeature::RestrictTla => 139,
+            ProtocolFeature::PostStateRoot => 136,
         }
     }
 }

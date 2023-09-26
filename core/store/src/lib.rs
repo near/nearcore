@@ -432,11 +432,21 @@ impl StoreUpdate {
     ///
     /// It is a programming error if `insert` overwrites an existing, different
     /// value. Use it for insert-only columns.
-    pub fn insert(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
+    pub fn insert(&mut self, column: DBCol, key: Vec<u8>, value: Vec<u8>) {
         assert!(column.is_insert_only(), "can't insert: {column}");
-        self.transaction.insert(column, key.to_vec(), value.to_vec())
+        self.transaction.insert(column, key, value)
     }
 
+    /// Borsh-serializes a value and inserts it into the database.
+    ///
+    /// It is a programming error if `insert` overwrites an existing, different
+    /// value. Use it for insert-only columns.
+    ///
+    /// Note on performance: The key is always copied into a new allocation,
+    /// which is generally bad. However, the insert-only columns use
+    /// `CryptoHash` as key, which has the data in a small fixed-sized array.
+    /// Copying and allocating that is not prohibitively expensive and we have
+    /// to do it either way. Thus, we take a slice for the key for the nice API.
     pub fn insert_ser<T: BorshSerialize>(
         &mut self,
         column: DBCol,
@@ -445,7 +455,7 @@ impl StoreUpdate {
     ) -> io::Result<()> {
         assert!(column.is_insert_only(), "can't insert_ser: {column}");
         let data = value.try_to_vec()?;
-        self.insert(column, key, &data);
+        self.insert(column, key.to_vec(), data);
         Ok(())
     }
 

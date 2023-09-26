@@ -1,6 +1,5 @@
 use crate::config::Config;
 use crate::errors::{ContractPrecompilatonResult, IntoVMError};
-use crate::internal::VMKind;
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
@@ -11,6 +10,7 @@ use crate::logic::{
 use crate::memory::WasmerMemory;
 use crate::prepare;
 use crate::runner::VMResult;
+use crate::VMKind;
 use crate::{get_contract_cache_key, imports, ContractCode};
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use wasmer_runtime::{ImportObject, Module};
@@ -265,7 +265,7 @@ impl Wasmer0VM {
         cache: Option<&dyn CompiledContractCache>,
     ) -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> {
         let module_or_error = self.compile_uncached(code);
-        let key = get_contract_cache_key(code, VMKind::Wasmer0, &self.config);
+        let key = get_contract_cache_key(code, &self.config);
 
         if let Some(cache) = cache {
             let record = match &module_or_error {
@@ -291,7 +291,7 @@ impl Wasmer0VM {
     ) -> VMResult<Result<wasmer_runtime::Module, CompilationError>> {
         let _span = tracing::debug_span!(target: "vm", "Wasmer0VM::compile_and_load").entered();
 
-        let key = get_contract_cache_key(code, VMKind::Wasmer0, &self.config);
+        let key = get_contract_cache_key(code, &self.config);
 
         let compile_or_read_from_cache =
             || -> VMResult<Result<wasmer_runtime::Module, CompilationError>> {

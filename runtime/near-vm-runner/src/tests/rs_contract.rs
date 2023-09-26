@@ -163,7 +163,7 @@ pub fn ext_used_gas() {
         let expected = match config.limit_config.contract_prepare_version {
             crate::logic::ContractPrepareVersion::V0 => [111, 10, 200, 15, 0, 0, 0, 0],
             crate::logic::ContractPrepareVersion::V1 => [111, 10, 200, 15, 0, 0, 0, 0],
-            crate::logic::ContractPrepareVersion::V2 => [72, 146, 120, 16, 0, 0, 0, 0],
+            crate::logic::ContractPrepareVersion::V2 => [27, 180, 237, 15, 0, 0, 0, 0],
         };
         run_test_ext(&config, "ext_used_gas", &expected, &[], vec![], vm_kind)
     })
@@ -214,7 +214,8 @@ def_test_ext!(
 
 #[test]
 pub fn test_out_of_memory() {
-    let config = Config::free();
+    let mut config = Config::test();
+    config.make_free();
     with_vm_variants(&config, |vm_kind: VMKind| {
         // TODO: currently we only run this test on Wasmer.
         match vm_kind {

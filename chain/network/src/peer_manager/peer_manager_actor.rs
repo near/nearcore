@@ -731,9 +731,6 @@ impl PeerManagerActor {
         let _span =
             tracing::trace_span!(target: "network", "handle_msg_network_requests", msg_type)
                 .entered();
-        let _d = delay_detector::DelayDetector::new(|| {
-            format!("network request {}", msg.as_ref()).into()
-        });
         metrics::REQUEST_COUNT_BY_TYPE_TOTAL.with_label_values(&[msg.as_ref()]).inc();
         match msg {
             NetworkRequests::Block { block } => {
@@ -970,6 +967,7 @@ impl PeerManagerActor {
 
 impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
     type Result = ();
+    #[perf]
     fn handle(&mut self, msg: WithSpanContext<SetChainInfo>, ctx: &mut Self::Context) {
         let (_span, SetChainInfo(info)) = handler_trace_span!(target: "network", msg);
         let _timer =
@@ -1003,6 +1001,7 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
 
 impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerActor {
     type Result = PeerManagerMessageResponse;
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<PeerManagerMessageRequest>,
@@ -1018,6 +1017,7 @@ impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerA
 
 impl actix::Handler<GetDebugStatus> for PeerManagerActor {
     type Result = DebugStatus;
+    #[perf]
     fn handle(&mut self, msg: GetDebugStatus, _ctx: &mut actix::Context<Self>) -> Self::Result {
         match msg {
             GetDebugStatus::PeerStore => {
