@@ -2,7 +2,7 @@ use actix::Addr;
 use near_chain_configs::Genesis;
 use near_client::ViewClientActor;
 use near_o11y::WithSpanContextExt;
-use near_primitives::transaction::{TransferAction, TransferActionV2};
+use near_primitives::transaction::TransferAction;
 use validated_operations::ValidatedOperation;
 
 mod transactions;
@@ -321,11 +321,37 @@ impl From<NearActions> for Vec<crate::models::Operation> {
 
                 // Note: Both refundable and non-refundable transfers are considered as available balance.
                 // (TODO: ensure final decision for NEP-491 aligns with that!)
-                near_primitives::transaction::Action::Transfer(TransferAction { deposit })
-                | near_primitives::transaction::Action::TransferV2(TransferActionV2 {
-                    deposit,
-                    ..
-                }) => {
+                near_primitives::transaction::Action::Transfer(TransferAction { deposit }) => {
+                    let transfer_amount = crate::models::Amount::from_yoctonear(deposit);
+
+                    let sender_transfer_operation_id =
+                        crate::models::OperationIdentifier::new(&operations);
+                    operations.push(
+                        validated_operations::TransferOperation {
+                            account: sender_account_identifier.clone(),
+                            amount: -transfer_amount.clone(),
+                            predecessor_id: Some(sender_account_identifier.clone()),
+                        }
+                        .into_operation(sender_transfer_operation_id.clone()),
+                    );
+
+                    operations.push(
+                        validated_operations::TransferOperation {
+                            account: receiver_account_identifier.clone(),
+                            amount: transfer_amount,
+                            predecessor_id: Some(sender_account_identifier.clone()),
+                        }
+                        .into_related_operation(
+                            crate::models::OperationIdentifier::new(&operations),
+                            vec![sender_transfer_operation_id],
+                        ),
+                    );
+                }
+                #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+                near_primitives::transaction::Action::TransferV2(
+                    near_primitives::transaction::TransferActionV2 { deposit, .. },
+                ) => {
+                    // TODO(protocol_feature_nonrefundable_transfer_nep491): merge with branch above on stabilization
                     let transfer_amount = crate::models::Amount::from_yoctonear(deposit);
 
                     let sender_transfer_operation_id =

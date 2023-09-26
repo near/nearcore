@@ -24,10 +24,10 @@ use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::ExecutionMetadata;
 use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
+use near_primitives::transaction::{ExecutionMetadata, TransferAction};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, Balance, Compute, EpochInfoProvider, Gas,
@@ -368,68 +368,33 @@ impl Runtime {
                     epoch_info_provider,
                 )?;
             }
-            Action::Transfer(transfer) => {
-                if let Some(account) = account.as_mut() {
-                    action_transfer(account, transfer)?;
-                    // Check if this is a gas refund, then try to refund the access key allowance.
-                    if is_refund && action_receipt.signer_id == receipt.receiver_id {
-                        try_refund_allowance(
-                            state_update,
-                            &receipt.receiver_id,
-                            &action_receipt.signer_public_key,
-                            transfer.deposit,
-                        )?;
-                    }
-                } else {
-                    // Implicit account creation
-                    debug_assert!(apply_state.config.wasm_config.implicit_account_creation);
-                    debug_assert!(!is_refund);
-                    action_implicit_account_creation_transfer(
-                        state_update,
-                        &apply_state.config.fees,
-                        account,
-                        actor_id,
-                        &receipt.receiver_id,
-                        transfer.deposit,
-                        apply_state.block_height,
-                        apply_state.current_protocol_version,
-                        false,
-                    );
-                }
+            Action::Transfer(TransferAction { deposit }) => {
+                let nonrefundable = false;
+                action_transfer_or_implicit_account_creation(
+                    account,
+                    *deposit,
+                    nonrefundable,
+                    is_refund,
+                    action_receipt,
+                    receipt,
+                    state_update,
+                    apply_state,
+                    actor_id,
+                )?;
             }
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             Action::TransferV2(transfer) => {
-                // TOOD(jakmeier): This is just a copy-paste of `Transfer` with two lines changed, it should be refactored
-                if let Some(account) = account.as_mut() {
-                    action_transfer_v2(account, transfer)?;
-                    // Check if this is a gas refund, then try to refund the access key allowance.
-                    if is_refund && action_receipt.signer_id == receipt.receiver_id {
-                        try_refund_allowance(
-                            state_update,
-                            &receipt.receiver_id,
-                            &action_receipt.signer_public_key,
-                            transfer.deposit,
-                        )?;
-                    }
-                } else {
-                    // Implicit account creation
-                    debug_assert!(checked_feature!(
-                        "stable",
-                        ImplicitAccountCreation,
-                        apply_state.current_protocol_version
-                    ));
-                    debug_assert!(!is_refund);
-                    action_implicit_account_creation_transfer(
-                        state_update,
-                        &apply_state.config.fees,
-                        account,
-                        actor_id,
-                        &receipt.receiver_id,
-                        transfer.deposit,
-                        apply_state.block_height,
-                        apply_state.current_protocol_version,
-                        transfer.nonrefundable,
-                    );
-                }
+                action_transfer_or_implicit_account_creation(
+                    account,
+                    transfer.deposit,
+                    transfer.nonrefundable,
+                    is_refund,
+                    action_receipt,
+                    receipt,
+                    state_update,
+                    apply_state,
+                    actor_id,
+                )?;
             }
             Action::Stake(stake) => {
                 action_stake(
@@ -1552,6 +1517,46 @@ impl Runtime {
         }
         state_update.commit(StateChangeCause::Migration);
     }
+}
+
+fn action_transfer_or_implicit_account_creation(
+    account: &mut Option<Account>,
+    deposit: u128,
+    nonrefundable: bool,
+    is_refund: bool,
+    action_receipt: &ActionReceipt,
+    receipt: &Receipt,
+    state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
+    actor_id: &mut AccountId,
+) -> Result<(), RuntimeError> {
+    Ok(if let Some(account) = account.as_mut() {
+        action_transfer(account, deposit, nonrefundable)?;
+        // Check if this is a gas refund, then try to refund the access key allowance.
+        if is_refund && action_receipt.signer_id == receipt.receiver_id {
+            try_refund_allowance(
+                state_update,
+                &receipt.receiver_id,
+                &action_receipt.signer_public_key,
+                deposit,
+            )?;
+        }
+    } else {
+        // Implicit account creation
+        debug_assert!(apply_state.config.wasm_config.implicit_account_creation);
+        debug_assert!(!is_refund);
+        action_implicit_account_creation_transfer(
+            state_update,
+            &apply_state.config.fees,
+            account,
+            actor_id,
+            &receipt.receiver_id,
+            deposit,
+            apply_state.block_height,
+            apply_state.current_protocol_version,
+            nonrefundable,
+        );
+    })
 }
 
 #[cfg(test)]

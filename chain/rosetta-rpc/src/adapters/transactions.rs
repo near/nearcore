@@ -261,7 +261,7 @@ pub(crate) async fn convert_block_changes_to_transactions(
                             .actions
                             .iter()
                             .map(|action| match action {
-                                near_primitives::views::ActionView::Transfer { deposit } => {
+                                near_primitives::views::ActionView::Transfer { deposit, .. } => {
                                     *deposit
                                 }
                                 _ => 0,

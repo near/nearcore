@@ -90,6 +90,7 @@ nightly = [
   "near-ping/nightly",
   "near-primitives/nightly",
   "near-state-parts/nightly",
+  "near-state-viewer/nightly",
   "near-store/nightly",
   "near-undo-block/nightly",
   "nearcore/nightly",

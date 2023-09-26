@@ -11,9 +11,11 @@ use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+pub use crate::action::TransferActionV2;
 pub use crate::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, StakeAction, TransferAction, TransferActionV2,
+    DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
 
 pub type LogEntry = String;

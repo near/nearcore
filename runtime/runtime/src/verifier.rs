@@ -400,7 +400,8 @@ pub fn validate_action(
         Action::DeployContract(a) => validate_deploy_contract_action(limit_config, a),
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
-        Action::TransferV2(_) => todo!("TODO(jakmeier"),
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        Action::TransferV2(_) => Ok(()),
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),

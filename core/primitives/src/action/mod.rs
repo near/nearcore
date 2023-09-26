@@ -162,7 +162,7 @@ pub struct TransferAction {
     serde::Serialize,
     serde::Deserialize,
 )]
-// TODO(jakmeier): hide behind feature flag
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 pub struct TransferActionV2 {
     #[serde(with = "dec_format")]
     pub deposit: Balance,
@@ -196,7 +196,7 @@ pub enum Action {
     DeleteKey(Box<DeleteKeyAction>),
     DeleteAccount(DeleteAccountAction),
     Delegate(Box<delegate::SignedDelegateAction>),
-    /// TODO: hide behind cfg feature
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     TransferV2(TransferActionV2),
 }
 const _: () = assert!(

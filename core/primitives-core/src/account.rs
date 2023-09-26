@@ -18,9 +18,10 @@ use std::io;
     serde::Deserialize,
 )]
 pub enum AccountVersion {
+    #[cfg_attr(not(feature = "protocol_feature_nonrefundable_transfer_nep491"), default)]
     V1,
-    // TODO(jakmeier): hide behind feature flag
     #[default]
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     V2,
 }
 
@@ -33,9 +34,9 @@ pub struct Account {
     /// The amount locked due to staking.
     #[serde(with = "dec_format")]
     locked: Balance,
-    // TODO(jakmeier): hide behind feature flag, we don't want to show this field in serde::Deserialize unless the feature is active
     /// Tokens that are not available to withdraw, stake, or refund, but can be used to cover storage usage.
     #[serde(with = "dec_format")]
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     nonrefundable: Balance,
     /// Hash of the code stored in the storage for this account.
     code_hash: CryptoHash,
@@ -47,6 +48,7 @@ pub struct Account {
     /// and the code doesn't allow adding a new version at all since this field
     /// is not included in the merklized state...
     #[serde(default)]
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     version: AccountVersion,
 }
 
@@ -62,6 +64,10 @@ impl Account {
     pub fn new(
         amount: Balance,
         locked: Balance,
+        #[cfg_attr(
+            not(feature = "protocol_feature_nonrefundable_transfer_nep491"),
+            allow(unused_variables)
+        )]
         nonrefundable: Balance,
         code_hash: CryptoHash,
         storage_usage: StorageUsage,
@@ -69,10 +75,11 @@ impl Account {
         Account {
             amount,
             locked,
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             nonrefundable,
             code_hash,
             storage_usage,
-            // TODO(jakmeier): condition on feature flag
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             version: AccountVersion::V2,
         }
     }
@@ -83,8 +90,15 @@ impl Account {
     }
 
     #[inline]
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     pub fn nonrefundable(&self) -> Balance {
         self.nonrefundable
+    }
+
+    #[inline]
+    #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
+    pub fn nonrefundable(&self) -> Balance {
+        0
     }
 
     #[inline]
@@ -103,6 +117,7 @@ impl Account {
     }
 
     #[inline]
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     pub fn version(&self) -> AccountVersion {
         self.version
     }
@@ -113,6 +128,8 @@ impl Account {
     }
 
     #[inline]
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+
     pub fn set_nonrefundable(&mut self, nonrefundable: Balance) {
         self.nonrefundable = nonrefundable;
     }
@@ -132,6 +149,7 @@ impl Account {
         self.storage_usage = storage_usage;
     }
 
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     pub fn set_version(&mut self, version: AccountVersion) {
         self.version = version;
     }
@@ -140,6 +158,10 @@ impl Account {
 /// Note(jakmeier): Even though this is called "legacy", it looks like this is
 /// the one and only serialization format of Accounts currently in use.
 #[derive(BorshSerialize)]
+#[cfg_attr(
+    not(feature = "protocol_feature_nonrefundable_transfer_nep491"),
+    derive(BorshDeserialize)
+)]
 struct LegacyAccount {
     amount: Balance,
     locked: Balance,
@@ -156,14 +178,25 @@ impl BorshDeserialize for Account {
             // Account v2 or newer
             let version_byte = u8::deserialize_reader(rd)?;
             assert_eq!(version_byte, 2); // TODO(jakmeier): return proper error instead of panic
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             let version = AccountVersion::V2;
             let amount = u128::deserialize_reader(rd)?;
             let locked = u128::deserialize_reader(rd)?;
             let code_hash = CryptoHash::deserialize_reader(rd)?;
             let storage_usage = StorageUsage::deserialize_reader(rd)?;
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             let nonrefundable = u128::deserialize_reader(rd)?;
 
-            Ok(Account { amount, locked, code_hash, storage_usage, version, nonrefundable })
+            Ok(Account {
+                amount,
+                locked,
+                code_hash,
+                storage_usage,
+                #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+                version,
+                #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+                nonrefundable,
+            })
         } else {
             // Account v1
             let locked = u128::deserialize_reader(rd)?;
@@ -175,7 +208,9 @@ impl BorshDeserialize for Account {
                 locked,
                 code_hash,
                 storage_usage,
+                #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
                 version: AccountVersion::V1,
+                #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
                 nonrefundable: 0,
             })
         }
@@ -184,38 +219,45 @@ impl BorshDeserialize for Account {
 
 impl BorshSerialize for Account {
     fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
-        match self.version {
-            AccountVersion::V1 => LegacyAccount {
-                amount: self.amount,
-                locked: self.locked,
-                code_hash: self.code_hash,
-                storage_usage: self.storage_usage,
-                // FIXME(jakmeier): can we add nonrefundable storage to existing
-                // accounts? IN this implementation, we burn any nonrefundable
-                // tokens sent to existing accounts, which is unacceptable. But
-                // automatically converting old V1 to V2 would break the borsh
-                // assumptions of unique binary representation.
-            }
-            .serialize(writer),
-            // TODO(jakmeier): Can we do better than this?
-            // Context: These accounts are serialized in merklized state. I
-            // would really like to avoid migration of the MPT. This here would
-            // keep old accounts in the old format and only allow nonrefundable
-            // storage on new accounts.
-            AccountVersion::V2 => {
-                let sentinel = Account::SERIALIZATION_SENTINEL;
-                // For now a constant, but if we need V3 later we can use this
-                // field instead of sentinel magic.
-                let version = 2u8;
-                BorshSerialize::serialize(&sentinel, writer)?;
-                BorshSerialize::serialize(&version, writer)?;
-                // TODO(jakmeier): Consider wrapping this in a struct and derive BorshSerialize for it.
-                BorshSerialize::serialize(&self.amount, writer)?;
-                BorshSerialize::serialize(&self.locked, writer)?;
-                BorshSerialize::serialize(&self.code_hash, writer)?;
-                BorshSerialize::serialize(&self.storage_usage, writer)?;
-                BorshSerialize::serialize(&self.nonrefundable, writer)?;
-                Ok(())
+        let legacy_account = LegacyAccount {
+            amount: self.amount,
+            locked: self.locked,
+            code_hash: self.code_hash,
+            storage_usage: self.storage_usage,
+        };
+
+        #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
+        {
+            legacy_account.serialize(writer)
+        }
+
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        {
+            match self.version {
+                // Note: It might be tempting to lazily convert old V1 to V2
+                // while serializing. But that would break the borsh assumptions
+                // of unique binary representation.
+                AccountVersion::V1 => legacy_account.serialize(writer),
+                // TODO(jakmeier): Can we do better than this?
+                // Context: These accounts are serialized in merklized state. I
+                // would really like to avoid migration of the MPT. This here would
+                // keep old accounts in the old format and only allow nonrefundable
+                // storage on new accounts.
+                AccountVersion::V2 => {
+                    let sentinel = Account::SERIALIZATION_SENTINEL;
+                    // For now a constant, but if we need V3 later we can use this
+                    // field instead of sentinel magic.
+                    let version = 2u8;
+                    BorshSerialize::serialize(&sentinel, writer)?;
+                    BorshSerialize::serialize(&version, writer)?;
+                    // TODO(jakmeier): Consider wrapping this in a struct and derive BorshSerialize for it.
+                    BorshSerialize::serialize(&self.amount, writer)?;
+                    BorshSerialize::serialize(&self.locked, writer)?;
+                    BorshSerialize::serialize(&self.code_hash, writer)?;
+                    BorshSerialize::serialize(&self.storage_usage, writer)?;
+                    BorshSerialize::serialize(&self.nonrefundable, writer)?;
+                    Ok(())
+                }
             }
         }
     }

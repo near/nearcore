@@ -18,7 +18,7 @@ use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
-    FunctionCallAction, StakeAction, TransferAction, TransferActionV2,
+    FunctionCallAction, StakeAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -379,28 +379,21 @@ pub(crate) fn try_refund_allowance(
 
 pub(crate) fn action_transfer(
     account: &mut Account,
-    transfer: &TransferAction,
+    deposit: Balance,
+    nonrefundable: bool,
 ) -> Result<(), StorageError> {
-    account.set_amount(account.amount().checked_add(transfer.deposit).ok_or_else(|| {
-        StorageError::StorageInconsistentState("Account balance integer overflow".to_string())
-    })?);
-    Ok(())
-}
-
-pub(crate) fn action_transfer_v2(
-    account: &mut Account,
-    transfer: &TransferActionV2,
-) -> Result<(), StorageError> {
-    if transfer.nonrefundable {
-        account.set_nonrefundable(
-            account.nonrefundable().checked_add(transfer.deposit).ok_or_else(|| {
+    if nonrefundable {
+        assert!(cfg!(feature = "protocol_feature_nonrefundable_transfer_nep491"));
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        account.set_nonrefundable(account.nonrefundable().checked_add(deposit).ok_or_else(
+            || {
                 StorageError::StorageInconsistentState(
                     "Non-refundable account balance integer overflow".to_string(),
                 )
-            })?,
-        );
+            },
+        )?);
     } else {
-        account.set_amount(account.amount().checked_add(transfer.deposit).ok_or_else(|| {
+        account.set_amount(account.amount().checked_add(deposit).ok_or_else(|| {
             StorageError::StorageInconsistentState("Account balance integer overflow".to_string())
         })?);
     }
@@ -900,7 +893,8 @@ pub(crate) fn check_actor_permissions(
         }
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
         Action::Delegate(_) => (),
-        Action::TransferV2(_) => todo!("TODO(jakmeier"),
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        Action::TransferV2(_) => (),
     };
     Ok(())
 }
@@ -912,6 +906,10 @@ pub(crate) fn check_account_existence(
     config: &RuntimeConfig,
     is_the_only_action: bool,
     is_refund: bool,
+    #[cfg_attr(
+        not(feature = "protocol_feature_nonrefundable_transfer_nep491"),
+        allow(unused_variables)
+    )]
     receipt_starts_with_create_account: bool,
 ) -> Result<(), ActionError> {
     match action {
@@ -950,6 +948,7 @@ pub(crate) fn check_account_existence(
                 );
             }
         }
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
         Action::TransferV2(transfer) => {
             if account.is_none() {
                 return check_transfer_to_nonexisting_account(

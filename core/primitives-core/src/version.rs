@@ -123,6 +123,10 @@ pub enum ProtocolFeature {
     /// Enables block production with post-state-root.
     /// NEP: https://github.com/near/NEPs/pull/507
     PostStateRoot,
+    /// Allows creating an account with a non refundable balance to cover storage costs.
+    /// NEP: https://github.com/near/NEPs/pull/491
+    #[cfg(feature = "protocol_feature_nonrefundable_balance_nep491")]
+    NonRefundableBalance,
 }
 
 impl ProtocolFeature {
@@ -177,6 +181,8 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
             ProtocolFeature::SimpleNightshadeV2 => 135,
             ProtocolFeature::PostStateRoot => 136,
+            #[cfg(feature = "protocol_feature_nonrefundable_balance_nep491")]
+            ProtocolFeature::NonRefundableBalance => 140,
         }
     }
 }
@@ -189,7 +195,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 63;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    138
+    140
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION

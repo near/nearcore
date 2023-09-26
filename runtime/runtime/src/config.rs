@@ -94,7 +94,15 @@ pub fn total_send_fees(
                     + fees.fee(ActionCosts::function_call_byte).send_fee(sender_is_receiver)
                         * num_bytes
             }
-            Transfer(_) | TransferV2(_) => {
+            Transfer(_) => {
+                // Account for implicit account creation
+                let is_receiver_implicit =
+                    config.wasm_config.implicit_account_creation && receiver_id.is_implicit();
+                transfer_send_fee(fees, sender_is_receiver, is_receiver_implicit)
+            }
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            TransferV2(_) => {
+                // Note: when stabilizing, merge with branch above
                 // Account for implicit account creation
                 let is_receiver_implicit =
                     config.wasm_config.implicit_account_creation && receiver_id.is_implicit();
@@ -186,7 +194,16 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             fees.fee(ActionCosts::function_call_base).exec_fee()
                 + fees.fee(ActionCosts::function_call_byte).exec_fee() * num_bytes
         }
-        Transfer(_) | TransferV2(_) => {
+        Transfer(_) => {
+            // Account for implicit account creation
+            let is_receiver_implicit =
+                config.wasm_config.implicit_account_creation && receiver_id.is_implicit();
+            transfer_exec_fee(fees, is_receiver_implicit)
+        }
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        TransferV2(_) => {
+            // Note: when stabilizing, merge with branch above
+
             // Account for implicit account creation
             let is_receiver_implicit =
                 config.wasm_config.implicit_account_creation && receiver_id.is_implicit();
