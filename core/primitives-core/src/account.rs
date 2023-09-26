@@ -25,6 +25,19 @@ pub enum AccountVersion {
     V2,
 }
 
+impl TryFrom<u8> for AccountVersion {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(AccountVersion::V1),
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            2 => Ok(AccountVersion::V2),
+            _ => Err(()),
+        }
+    }
+}
+
 /// Per account information stored in the state.
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
@@ -48,7 +61,6 @@ pub struct Account {
     /// and the code doesn't allow adding a new version at all since this field
     /// is not included in the merklized state...
     #[serde(default)]
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     version: AccountVersion,
 }
 
@@ -79,8 +91,7 @@ impl Account {
             nonrefundable,
             code_hash,
             storage_usage,
-            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            version: AccountVersion::V2,
+            version: AccountVersion::default(),
         }
     }
 
@@ -177,9 +188,10 @@ impl BorshDeserialize for Account {
         if sentinel_or_amount == Account::SERIALIZATION_SENTINEL {
             // Account v2 or newer
             let version_byte = u8::deserialize_reader(rd)?;
-            assert_eq!(version_byte, 2); // TODO(jakmeier): return proper error instead of panic
-            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            let version = AccountVersion::V2;
+            // TODO(jakmeier): return proper error instead of panic
+            debug_assert_eq!(version_byte, 2);
+            // TODO(jakmeier): return proper error instead of panic
+            let version = AccountVersion::try_from(version_byte).expect("TODO(jakmeier)");
             let amount = u128::deserialize_reader(rd)?;
             let locked = u128::deserialize_reader(rd)?;
             let code_hash = CryptoHash::deserialize_reader(rd)?;
@@ -192,7 +204,6 @@ impl BorshDeserialize for Account {
                 locked,
                 code_hash,
                 storage_usage,
-                #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
                 version,
                 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
                 nonrefundable,
@@ -208,7 +219,6 @@ impl BorshDeserialize for Account {
                 locked,
                 code_hash,
                 storage_usage,
-                #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
                 version: AccountVersion::V1,
                 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
                 nonrefundable: 0,
@@ -364,9 +374,14 @@ mod tests {
 
     #[test]
     fn test_account_serialization() {
-        let acc = Account::new(1_000_000, 1_000_000, CryptoHash::default(), 100);
+        let acc = Account::new(1_000_000, 1_000_000, 0, CryptoHash::default(), 100);
         let bytes = acc.try_to_vec().unwrap();
-        assert_eq!(hash(&bytes).to_string(), "EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ");
+        if cfg!(feature = "protocol_feature_nonrefundable_transfer_nep491") {
+            expect_test::expect!("HaZPNG4KpXQ9Mre4PAA83V5usqXsA4zy4vMwSXBiBcQv")
+        } else {
+            expect_test::expect!("EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ")
+        }
+        .assert_eq(&hash(&bytes).to_string());
     }
 
     #[test]
