@@ -255,7 +255,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                         if let NetworkRequests::StateRequestHeader {
                             shard_id,
                             sync_hash,
-                            peer_id,
+                            peer_id: target,
                         } = msg
                         {
                             if sync_hold {
@@ -263,7 +263,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                                     shard_id: *shard_id,
                                     sync_hash: *sync_hash,
                                     part_id: None,
-                                    peer_id: peer_id.clone(),
+                                    peer_id: target.clone(),
                                 };
                                 if !seen_hashes_with_state
                                     .contains(&hash_func(&srs.try_to_vec().unwrap()))
@@ -278,7 +278,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                             shard_id,
                             sync_hash,
                             part_id,
-                            peer_id,
+                            peer_id: target,
                         } = msg
                         {
                             if sync_hold {
@@ -286,7 +286,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                                     shard_id: *shard_id,
                                     sync_hash: *sync_hash,
                                     part_id: Some(*part_id),
-                                    peer_id: peer_id.clone(),
+                                    peer_id: target.clone(),
                                 };
                                 if !seen_hashes_with_state
                                     .contains(&hash_func(&srs.try_to_vec().unwrap()))
