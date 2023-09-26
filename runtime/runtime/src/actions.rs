@@ -942,47 +942,22 @@ pub(crate) fn check_account_existence(
         }
         Action::Transfer(_) => {
             if account.is_none() {
-                return if config.wasm_config.implicit_account_creation
-                    && is_the_only_action
-                    && account_id.is_implicit()
-                    && !is_refund
-                {
-                    // OK. It's implicit account creation.
-                    // Notes:
-                    // - The transfer action has to be the only action in the transaction to avoid
-                    // abuse by hijacking this account with other public keys or contracts.
-                    // - Refunds don't automatically create accounts, because refunds are free and
-                    // we don't want some type of abuse.
-                    // - Account deletion with beneficiary creates a refund, so it'll not create a
-                    // new account.
-                    Ok(())
-                } else {
-                    Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }
-                        .into())
-                };
+                return check_transfer_to_nonexisting_account(
+                    config,
+                    is_the_only_action,
+                    account_id,
+                    is_refund,
+                );
             }
         }
         Action::TransferV2(transfer) => {
-            // TODO(jakmeier): consider refactoring the code duplication
             if account.is_none() {
-                return if config.wasm_config.implicit_account_creation
-                    && is_the_only_action
-                    && account_id.is_implicit()
-                    && !is_refund
-                {
-                    // OK. It's implicit account creation.
-                    // Notes:
-                    // - The transfer action has to be the only action in the transaction to avoid
-                    // abuse by hijacking this account with other public keys or contracts.
-                    // - Refunds don't automatically create accounts, because refunds are free and
-                    // we don't want some type of abuse.
-                    // - Account deletion with beneficiary creates a refund, so it'll not create a
-                    // new account.
-                    Ok(())
-                } else {
-                    Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }
-                        .into())
-                };
+                return check_transfer_to_nonexisting_account(
+                    config,
+                    is_the_only_action,
+                    account_id,
+                    is_refund,
+                );
             } else if transfer.nonrefundable && !receipt_starts_with_create_account {
                 // If the account already existed before the current receipt,
                 // non-refundable transfer is not allowed. But for named
@@ -1022,6 +997,31 @@ pub(crate) fn check_account_existence(
         }
     };
     Ok(())
+}
+
+fn check_transfer_to_nonexisting_account(
+    config: &RuntimeConfig,
+    is_the_only_action: bool,
+    account_id: &AccountId,
+    is_refund: bool,
+) -> Result<(), ActionError> {
+    if config.wasm_config.implicit_account_creation
+        && is_the_only_action
+        && account_id.is_implicit()
+        && !is_refund
+    {
+        // OK. It's implicit account creation.
+        // Notes:
+        // - The transfer action has to be the only action in the transaction to avoid
+        // abuse by hijacking this account with other public keys or contracts.
+        // - Refunds don't automatically create accounts, because refunds are free and
+        // we don't want some type of abuse.
+        // - Account deletion with beneficiary creates a refund, so it'll not create a
+        // new account.
+        Ok(())
+    } else {
+        Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }.into())
+    }
 }
 
 #[cfg(test)]
