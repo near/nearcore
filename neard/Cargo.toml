@@ -50,6 +50,7 @@ near-performance-metrics.workspace = true
 near-ping.workspace = true
 near-primitives.workspace = true
 near-state-parts.workspace = true
+near-state-parts-dump-check.workspace = true
 near-state-viewer.workspace = true
 near-store.workspace = true
 near-undo-block.workspace = true

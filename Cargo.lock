@@ -4225,6 +4225,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-state-parts-dump-check"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "anyhow",
+ "borsh 0.10.2",
+ "clap 4.2.4",
+ "cloud-storage",
+ "near-client",
+ "near-o11y",
+ "near-primitives",
+ "near-primitives-core",
+ "near-store",
+ "nearcore",
+ "once_cell",
+ "rayon",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "near-stdx"
 version = "0.0.0"
 
@@ -4643,6 +4666,7 @@ dependencies = [
  "near-ping",
  "near-primitives",
  "near-state-parts",
+ "near-state-parts-dump-check",
  "near-store",
  "near-undo-block",
  "nearcore",
@@ -6574,27 +6598,6 @@ name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
-
-[[package]]
-name = "state-parts-dump"
-version = "0.0.0"
-dependencies = [
- "actix",
- "anyhow",
- "borsh 0.10.2",
- "clap 4.2.4",
- "cloud-storage",
- "near-client",
- "near-primitives",
- "near-primitives-core",
- "near-store",
- "nearcore",
- "rayon",
- "reqwest",
- "serde",
- "serde_json",
- "tracing",
-]
 
 [[package]]
 name = "state-viewer"

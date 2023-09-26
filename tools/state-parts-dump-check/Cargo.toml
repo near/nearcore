@@ -1,5 +1,5 @@
 [package]
-name = "state-parts-dump"
+name = "near-state-parts-dump-check"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
