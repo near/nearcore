@@ -1,14 +1,14 @@
 //! Legacy validation for very old protocol versions.
 
 use crate::logic::errors::PrepareError;
-use crate::logic::VMConfig;
+use crate::logic::Config;
 use parity_wasm_41::builder;
 use parity_wasm_41::elements::{self, External, MemorySection, Type};
 use pwasm_utils_12 as pwasm_utils;
 
 pub(crate) fn prepare_contract(
     original_code: &[u8],
-    config: &VMConfig,
+    config: &Config,
 ) -> Result<Vec<u8>, PrepareError> {
     ContractModule::init(original_code, config)?
         .standardize_mem()
@@ -21,11 +21,11 @@ pub(crate) fn prepare_contract(
 
 struct ContractModule<'a> {
     module: elements::Module,
-    config: &'a VMConfig,
+    config: &'a Config,
 }
 
 impl<'a> ContractModule<'a> {
-    fn init(original_code: &[u8], config: &'a VMConfig) -> Result<Self, PrepareError> {
+    fn init(original_code: &[u8], config: &'a Config) -> Result<Self, PrepareError> {
         let module = elements::deserialize_buffer(original_code).map_err(|e| {
             tracing::debug!(err=?e, "parity_wasm_41 failed decoding a contract");
             PrepareError::Deserialization

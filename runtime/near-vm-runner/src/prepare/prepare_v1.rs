@@ -1,7 +1,7 @@
 //! Less legacy validation for old protocol versions.
 
 use crate::logic::errors::PrepareError;
-use crate::logic::VMConfig;
+use crate::logic::Config;
 use parity_wasm::builder;
 use parity_wasm::elements::{self, External, MemorySection};
 
@@ -13,12 +13,12 @@ use parity_wasm::elements::{self, External, MemorySection};
 /// - module doesn't define an internal memory instance,
 /// - imported memory (if any) doesn't reserve more memory than permitted by the `config`,
 /// - all imported functions from the external environment matches defined by `env` module,
-/// - functions number does not exceed limit specified in VMConfig,
+/// - functions number does not exceed limit specified in Config,
 ///
 /// The preprocessing includes injecting code for gas metering and metering the height of stack.
 pub(crate) fn prepare_contract(
     original_code: &[u8],
-    config: &VMConfig,
+    config: &Config,
 ) -> Result<Vec<u8>, PrepareError> {
     ContractModule::init(original_code, config)?
         .scan_imports()?
@@ -31,11 +31,11 @@ pub(crate) fn prepare_contract(
 
 pub(crate) struct ContractModule<'a> {
     module: elements::Module,
-    config: &'a VMConfig,
+    config: &'a Config,
 }
 
 impl<'a> ContractModule<'a> {
-    pub(crate) fn init(original_code: &[u8], config: &'a VMConfig) -> Result<Self, PrepareError> {
+    pub(crate) fn init(original_code: &[u8], config: &'a Config) -> Result<Self, PrepareError> {
         let module = parity_wasm::deserialize_buffer(original_code).map_err(|e| {
             tracing::debug!(err=?e, "parity_wasm failed decoding a contract");
             PrepareError::Deserialization
@@ -207,7 +207,7 @@ fn wasmparser_decode(
 pub(crate) fn validate_contract(
     code: &[u8],
     features: crate::features::WasmFeatures,
-    config: &VMConfig,
+    config: &Config,
 ) -> Result<(), PrepareError> {
     let (function_count, local_count) = wasmparser_decode(code, features).map_err(|e| {
         tracing::debug!(err=?e, "wasmparser failed decoding a contract");
@@ -234,11 +234,11 @@ pub(crate) fn validate_contract(
 
 #[cfg(test)]
 mod test {
-    use crate::logic::{ContractPrepareVersion, VMConfig};
+    use crate::logic::{Config, ContractPrepareVersion};
 
     #[test]
     fn v1_preparation_generates_valid_contract() {
-        let mut config = VMConfig::test();
+        let mut config = Config::test();
         let prepare_version = ContractPrepareVersion::V1;
         config.limit_config.contract_prepare_version = prepare_version;
         let features = crate::features::WasmFeatures::from(prepare_version);

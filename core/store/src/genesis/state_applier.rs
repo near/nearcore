@@ -7,13 +7,13 @@ use borsh::BorshSerialize;
 use near_chain_configs::Genesis;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::contract::ContractCode;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData};
 use near_primitives::runtime::fees::StorageUsageConfig;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, ShardId, StateChangeCause, StateRoot};
+use near_vm_runner::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic;
 

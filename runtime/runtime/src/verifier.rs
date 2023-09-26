@@ -1,32 +1,28 @@
-use near_crypto::key_conversion::is_valid_staking_key;
-use near_primitives::checked_feature;
-use near_primitives::delegate_action::SignedDelegateAction;
-use near_primitives::runtime::config::RuntimeConfig;
-use near_primitives::transaction::DeleteAccountAction;
-use near_primitives::types::{BlockHeight, StorageUsage};
-use near_primitives::version::ProtocolFeature;
-use near_primitives::{
-    account::AccessKeyPermission,
-    config::VMLimitConfig,
-    errors::{
-        ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
-        RuntimeError,
-    },
-    receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum},
-    transaction::{
-        Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction,
-        StakeAction,
-    },
-    types::{AccountId, Balance},
-    version::ProtocolVersion,
-};
-use near_store::{
-    get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
-};
-
 use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
 use crate::near_primitives::account::Account;
 use crate::VerificationResult;
+use near_crypto::key_conversion::is_valid_staking_key;
+use near_primitives::account::AccessKeyPermission;
+use near_primitives::action::delegate::SignedDelegateAction;
+use near_primitives::checked_feature;
+use near_primitives::errors::{
+    ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
+    RuntimeError,
+};
+use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
+use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::transaction::DeleteAccountAction;
+use near_primitives::transaction::{
+    Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction,
+};
+use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{BlockHeight, StorageUsage};
+use near_primitives::version::ProtocolFeature;
+use near_primitives::version::ProtocolVersion;
+use near_store::{
+    get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
+};
+use near_vm_runner::logic::LimitConfig;
 
 pub const ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT: StorageUsage = 770;
 
@@ -125,7 +121,7 @@ pub fn validate_transaction(
 
     let sender_is_receiver = &transaction.receiver_id == signer_id;
 
-    tx_cost(&config.fees, transaction, gas_price, sender_is_receiver, current_protocol_version)
+    tx_cost(&config, transaction, gas_price, sender_is_receiver)
         .map_err(|_| InvalidTxError::CostOverflow.into())
 }
 
@@ -137,7 +133,7 @@ pub fn verify_and_charge_transaction(
     gas_price: Balance,
     signed_transaction: &SignedTransaction,
     verify_signature: bool,
-    #[allow(unused)] block_height: Option<BlockHeight>,
+    block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
 ) -> Result<VerificationResult, RuntimeError> {
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
@@ -282,7 +278,7 @@ pub fn verify_and_charge_transaction(
 
 /// Validates a given receipt. Checks validity of the Action or Data receipt.
 pub(crate) fn validate_receipt(
-    limit_config: &VMLimitConfig,
+    limit_config: &LimitConfig,
     receipt: &Receipt,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ReceiptValidationError> {
@@ -308,7 +304,7 @@ pub(crate) fn validate_receipt(
 
 /// Validates given ActionReceipt. Checks validity of the number of input data dependencies and all actions.
 fn validate_action_receipt(
-    limit_config: &VMLimitConfig,
+    limit_config: &LimitConfig,
     receipt: &ActionReceipt,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ReceiptValidationError> {
@@ -324,7 +320,7 @@ fn validate_action_receipt(
 
 /// Validates given data receipt. Checks validity of the length of the returned data.
 fn validate_data_receipt(
-    limit_config: &VMLimitConfig,
+    limit_config: &LimitConfig,
     receipt: &DataReceipt,
 ) -> Result<(), ReceiptValidationError> {
     let data_len = receipt.data.as_ref().map(|data| data.len()).unwrap_or(0);
@@ -345,7 +341,7 @@ fn validate_data_receipt(
 /// - Validates each individual action.
 /// - Checks that the total prepaid gas doesn't exceed the limit.
 pub(crate) fn validate_actions(
-    limit_config: &VMLimitConfig,
+    limit_config: &LimitConfig,
     actions: &[Action],
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
@@ -395,7 +391,7 @@ pub(crate) fn validate_actions(
 
 /// Validates a single given action. Checks limits if applicable.
 pub fn validate_action(
-    limit_config: &VMLimitConfig,
+    limit_config: &LimitConfig,
     action: &Action,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
@@ -414,7 +410,7 @@ pub fn validate_action(
 }
 
 fn validate_delegate_action(
-    limit_config: &VMLimitConfig,
+    limit_config: &LimitConfig,
     signed_delegate_action: &SignedDelegateAction,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
@@ -425,7 +421,7 @@ fn validate_delegate_action(
 
 /// Validates `DeployContractAction`. Checks that the given contract size doesn't exceed the limit.
 fn validate_deploy_contract_action(
-    limit_config: &VMLimitConfig,
+    limit_config: &LimitConfig,
     action: &DeployContractAction,
 ) -> Result<(), ActionsValidationError> {
     if action.code.len() as u64 > limit_config.max_contract_size {
@@ -441,7 +437,7 @@ fn validate_deploy_contract_action(
 /// Validates `FunctionCallAction`. Checks that the method name length doesn't exceed the limit and
 /// the length of the arguments doesn't exceed the limit.
 fn validate_function_call_action(
-    limit_config: &VMLimitConfig,
+    limit_config: &LimitConfig,
     action: &FunctionCallAction,
 ) -> Result<(), ActionsValidationError> {
     if action.gas == 0 {
@@ -480,15 +476,15 @@ fn validate_stake_action(action: &StakeAction) -> Result<(), ActionsValidationEr
 /// total number of bytes of the method names doesn't exceed the limit and
 /// every method name length doesn't exceed the limit.
 fn validate_add_key_action(
-    limit_config: &VMLimitConfig,
+    limit_config: &LimitConfig,
     action: &AddKeyAction,
 ) -> Result<(), ActionsValidationError> {
     if let AccessKeyPermission::FunctionCall(fc) = &action.access_key.permission {
         // Check whether `receiver_id` is a valid account_id. Historically, we
         // allowed arbitrary strings there!
         match limit_config.account_id_validity_rules_version {
-            near_vm_runner::logic::AccountIdValidityRulesVersion::V0 => (),
-            near_vm_runner::logic::AccountIdValidityRulesVersion::V1 => {
+            near_primitives_core::config::AccountIdValidityRulesVersion::V0 => (),
+            near_primitives_core::config::AccountIdValidityRulesVersion::V1 => {
                 if let Err(_) = fc.receiver_id.parse::<AccountId>() {
                     return Err(ActionsValidationError::InvalidAccountId {
                         account_id: truncate_string(&fc.receiver_id, AccountId::MAX_LEN * 2),
@@ -543,22 +539,6 @@ fn truncate_string(s: &str, limit: usize) -> String {
     unreachable!()
 }
 
-#[test]
-fn test_truncate_string() {
-    fn check(input: &str, limit: usize, want: &str) {
-        let got = truncate_string(input, limit);
-        assert_eq!(got, want)
-    }
-    check("", 10, "");
-    check("hello", 0, "");
-    check("hello", 2, "he");
-    check("hello", 4, "hell");
-    check("hello", 5, "hello");
-    check("hello", 6, "hello");
-    check("hello", 10, "hello");
-    check("привет", 3, "п");
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -566,7 +546,7 @@ mod tests {
     use crate::near_primitives::borsh::BorshSerialize;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, FunctionCallPermission};
-    use near_primitives::delegate_action::{DelegateAction, NonDelegateAction};
+    use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
@@ -580,15 +560,20 @@ mod tests {
     use crate::near_primitives::shard_layout::ShardUId;
 
     use super::*;
-    use crate::near_primitives::contract::ContractCode;
     use crate::near_primitives::trie_key::TrieKey;
     use near_store::{set, set_code};
+    use near_vm_runner::ContractCode;
 
     /// Initial balance used in tests.
     const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
 
     /// One NEAR, divisible by 10^24.
     const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
+
+    fn test_limit_config() -> LimitConfig {
+        let store = near_primitives::runtime::config_store::RuntimeConfigStore::test();
+        store.get_config(PROTOCOL_VERSION).wasm_config.limit_config.clone()
+    }
 
     fn setup_common(
         initial_balance: Balance,
@@ -943,12 +928,12 @@ mod tests {
                 alice_account(),
                 bob_account(),
                 &*signer,
-                vec![Action::FunctionCall(FunctionCallAction {
+                vec![Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "hello".to_string(),
                     args: b"abc".to_vec(),
                     gas: 200,
                     deposit: 0,
-                })],
+                }))],
                 CryptoHash::default(),
             ),
             RuntimeError::InvalidTxError(InvalidTxError::ActionsValidation(
@@ -1105,12 +1090,12 @@ mod tests {
                 alice_account(),
                 bob_account(),
                 &*signer,
-                vec![Action::FunctionCall(FunctionCallAction {
+                vec![Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "hello".to_string(),
                     args: b"abc".to_vec(),
                     gas: 300,
                     deposit: 0,
-                })],
+                }))],
                 CryptoHash::default(),
             ),
             true,
@@ -1238,12 +1223,12 @@ mod tests {
                     bob_account(),
                     &*signer,
                     vec![
-                        Action::FunctionCall(FunctionCallAction {
+                        Action::FunctionCall(Box::new(FunctionCallAction {
                             method_name: "hello".to_string(),
                             args: b"abc".to_vec(),
                             gas: 100,
                             deposit: 0,
-                        }),
+                        })),
                         Action::CreateAccount(CreateAccountAction {})
                     ],
                     CryptoHash::default(),
@@ -1331,12 +1316,12 @@ mod tests {
                     alice_account(),
                     eve_dot_alice_account(),
                     &*signer,
-                    vec![Action::FunctionCall(FunctionCallAction {
+                    vec![Action::FunctionCall(Box::new(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
                         gas: 100,
                         deposit: 0,
-                    }),],
+                    })),],
                     CryptoHash::default(),
                 ),
                 true,
@@ -1379,12 +1364,12 @@ mod tests {
                     alice_account(),
                     bob_account(),
                     &*signer,
-                    vec![Action::FunctionCall(FunctionCallAction {
+                    vec![Action::FunctionCall(Box::new(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
                         gas: 100,
                         deposit: 0,
-                    }),],
+                    })),],
                     CryptoHash::default(),
                 ),
                 true,
@@ -1424,12 +1409,12 @@ mod tests {
                     alice_account(),
                     bob_account(),
                     &*signer,
-                    vec![Action::FunctionCall(FunctionCallAction {
+                    vec![Action::FunctionCall(Box::new(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
                         gas: 100,
                         deposit: 100,
-                    }),],
+                    })),],
                     CryptoHash::default(),
                 ),
                 true,
@@ -1496,7 +1481,7 @@ mod tests {
 
     #[test]
     fn test_validate_receipt_valid() {
-        let limit_config = VMLimitConfig::test();
+        let limit_config = test_limit_config();
         validate_receipt(
             &limit_config,
             &Receipt::new_balance_refund(&alice_account(), 10),
@@ -1507,7 +1492,7 @@ mod tests {
 
     #[test]
     fn test_validate_action_receipt_too_many_input_deps() {
-        let mut limit_config = VMLimitConfig::test();
+        let mut limit_config = test_limit_config();
         limit_config.max_number_input_data_dependencies = 1;
         assert_eq!(
             validate_action_receipt(
@@ -1534,7 +1519,7 @@ mod tests {
 
     #[test]
     fn test_validate_data_receipt_valid() {
-        let limit_config = VMLimitConfig::test();
+        let limit_config = test_limit_config();
         validate_data_receipt(
             &limit_config,
             &DataReceipt { data_id: CryptoHash::default(), data: None },
@@ -1550,7 +1535,7 @@ mod tests {
 
     #[test]
     fn test_validate_data_receipt_too_much_data() {
-        let mut limit_config = VMLimitConfig::test();
+        let mut limit_config = test_limit_config();
         let data = b"hello".to_vec();
         limit_config.max_length_returned_data = data.len() as u64 - 1;
         assert_eq!(
@@ -1570,21 +1555,21 @@ mod tests {
 
     #[test]
     fn test_validate_actions_empty() {
-        let limit_config = VMLimitConfig::test();
+        let limit_config = test_limit_config();
         validate_actions(&limit_config, &[], PROTOCOL_VERSION).expect("empty actions");
     }
 
     #[test]
     fn test_validate_actions_valid_function_call() {
-        let limit_config = VMLimitConfig::test();
+        let limit_config = test_limit_config();
         validate_actions(
             &limit_config,
-            &[Action::FunctionCall(FunctionCallAction {
+            &[Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
                 gas: 100,
                 deposit: 0,
-            })],
+            }))],
             PROTOCOL_VERSION,
         )
         .expect("valid function call action");
@@ -1592,24 +1577,24 @@ mod tests {
 
     #[test]
     fn test_validate_actions_too_much_gas() {
-        let mut limit_config = VMLimitConfig::test();
+        let mut limit_config = test_limit_config();
         limit_config.max_total_prepaid_gas = 220;
         assert_eq!(
             validate_actions(
                 &limit_config,
                 &[
-                    Action::FunctionCall(FunctionCallAction {
+                    Action::FunctionCall(Box::new(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
                         gas: 100,
                         deposit: 0,
-                    }),
-                    Action::FunctionCall(FunctionCallAction {
+                    })),
+                    Action::FunctionCall(Box::new(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
                         gas: 150,
                         deposit: 0,
-                    })
+                    }))
                 ],
                 PROTOCOL_VERSION,
             )
@@ -1620,24 +1605,24 @@ mod tests {
 
     #[test]
     fn test_validate_actions_gas_overflow() {
-        let mut limit_config = VMLimitConfig::test();
+        let mut limit_config = test_limit_config();
         limit_config.max_total_prepaid_gas = 220;
         assert_eq!(
             validate_actions(
                 &limit_config,
                 &[
-                    Action::FunctionCall(FunctionCallAction {
+                    Action::FunctionCall(Box::new(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
                         gas: u64::max_value() / 2 + 1,
                         deposit: 0,
-                    }),
-                    Action::FunctionCall(FunctionCallAction {
+                    })),
+                    Action::FunctionCall(Box::new(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
                         gas: u64::max_value() / 2 + 1,
                         deposit: 0,
-                    })
+                    }))
                 ],
                 PROTOCOL_VERSION,
             )
@@ -1648,7 +1633,7 @@ mod tests {
 
     #[test]
     fn test_validate_actions_num_actions() {
-        let mut limit_config = VMLimitConfig::test();
+        let mut limit_config = test_limit_config();
         limit_config.max_actions_per_receipt = 1;
         assert_eq!(
             validate_actions(
@@ -1669,7 +1654,7 @@ mod tests {
 
     #[test]
     fn test_validate_delete_must_be_final() {
-        let mut limit_config = VMLimitConfig::test();
+        let mut limit_config = test_limit_config();
         limit_config.max_actions_per_receipt = 3;
         assert_eq!(
             validate_actions(
@@ -1689,7 +1674,7 @@ mod tests {
 
     #[test]
     fn test_validate_delete_must_work_if_its_final() {
-        let mut limit_config = VMLimitConfig::test();
+        let mut limit_config = test_limit_config();
         limit_config.max_actions_per_receipt = 3;
         assert_eq!(
             validate_actions(
@@ -1711,7 +1696,7 @@ mod tests {
     #[test]
     fn test_validate_action_valid_create_account() {
         validate_action(
-            &VMLimitConfig::test(),
+            &test_limit_config(),
             &Action::CreateAccount(CreateAccountAction {}),
             PROTOCOL_VERSION,
         )
@@ -1721,13 +1706,13 @@ mod tests {
     #[test]
     fn test_validate_action_valid_function_call() {
         validate_action(
-            &VMLimitConfig::test(),
-            &Action::FunctionCall(FunctionCallAction {
+            &test_limit_config(),
+            &Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
                 gas: 100,
                 deposit: 0,
-            }),
+            })),
             PROTOCOL_VERSION,
         )
         .expect("valid action");
@@ -1737,13 +1722,13 @@ mod tests {
     fn test_validate_action_invalid_function_call_zero_gas() {
         assert_eq!(
             validate_action(
-                &VMLimitConfig::test(),
-                &Action::FunctionCall(FunctionCallAction {
+                &test_limit_config(),
+                &Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name: "new".to_string(),
                     args: vec![],
                     gas: 0,
                     deposit: 0,
-                }),
+                })),
                 PROTOCOL_VERSION,
             )
             .expect_err("expected an error"),
@@ -1754,7 +1739,7 @@ mod tests {
     #[test]
     fn test_validate_action_valid_transfer() {
         validate_action(
-            &VMLimitConfig::test(),
+            &test_limit_config(),
             &Action::Transfer(TransferAction { deposit: 10 }),
             PROTOCOL_VERSION,
         )
@@ -1764,11 +1749,11 @@ mod tests {
     #[test]
     fn test_validate_action_valid_stake() {
         validate_action(
-            &VMLimitConfig::test(),
-            &Action::Stake(StakeAction {
+            &test_limit_config(),
+            &Action::Stake(Box::new(StakeAction {
                 stake: 100,
                 public_key: "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7".parse().unwrap(),
-            }),
+            })),
             PROTOCOL_VERSION,
         )
         .expect("valid action");
@@ -1778,11 +1763,11 @@ mod tests {
     fn test_validate_action_invalid_staking_key() {
         assert_eq!(
             validate_action(
-                &VMLimitConfig::test(),
-                &Action::Stake(StakeAction {
+                &test_limit_config(),
+                &Action::Stake(Box::new(StakeAction {
                     stake: 100,
                     public_key: PublicKey::empty(KeyType::ED25519),
-                }),
+                })),
                 PROTOCOL_VERSION,
             )
             .expect_err("Expected an error"),
@@ -1795,11 +1780,11 @@ mod tests {
     #[test]
     fn test_validate_action_valid_add_key_full_permission() {
         validate_action(
-            &VMLimitConfig::test(),
-            &Action::AddKey(AddKeyAction {
+            &test_limit_config(),
+            &Action::AddKey(Box::new(AddKeyAction {
                 public_key: PublicKey::empty(KeyType::ED25519),
                 access_key: AccessKey::full_access(),
-            }),
+            })),
             PROTOCOL_VERSION,
         )
         .expect("valid action");
@@ -1808,8 +1793,8 @@ mod tests {
     #[test]
     fn test_validate_action_valid_add_key_function_call() {
         validate_action(
-            &VMLimitConfig::test(),
-            &Action::AddKey(AddKeyAction {
+            &test_limit_config(),
+            &Action::AddKey(Box::new(AddKeyAction {
                 public_key: PublicKey::empty(KeyType::ED25519),
                 access_key: AccessKey {
                     nonce: 0,
@@ -1819,7 +1804,7 @@ mod tests {
                         method_names: vec!["hello".to_string(), "world".to_string()],
                     }),
                 },
-            }),
+            })),
             PROTOCOL_VERSION,
         )
         .expect("valid action");
@@ -1828,8 +1813,10 @@ mod tests {
     #[test]
     fn test_validate_action_valid_delete_key() {
         validate_action(
-            &VMLimitConfig::test(),
-            &Action::DeleteKey(DeleteKeyAction { public_key: PublicKey::empty(KeyType::ED25519) }),
+            &test_limit_config(),
+            &Action::DeleteKey(Box::new(DeleteKeyAction {
+                public_key: PublicKey::empty(KeyType::ED25519),
+            })),
             PROTOCOL_VERSION,
         )
         .expect("valid action");
@@ -1838,7 +1825,7 @@ mod tests {
     #[test]
     fn test_validate_action_valid_delete_account() {
         validate_action(
-            &VMLimitConfig::test(),
+            &test_limit_config(),
             &Action::DeleteAccount(DeleteAccountAction { beneficiary_id: alice_account() }),
             PROTOCOL_VERSION,
         )
@@ -1863,10 +1850,10 @@ mod tests {
         };
         assert_eq!(
             validate_actions(
-                &VMLimitConfig::test(),
+                &test_limit_config(),
                 &[
-                    Action::Delegate(signed_delegate_action.clone()),
-                    Action::Delegate(signed_delegate_action.clone()),
+                    Action::Delegate(Box::new(signed_delegate_action.clone())),
+                    Action::Delegate(Box::new(signed_delegate_action.clone())),
                 ],
                 PROTOCOL_VERSION,
             ),
@@ -1874,22 +1861,38 @@ mod tests {
         );
         assert_eq!(
             validate_actions(
-                &&VMLimitConfig::test(),
-                &[Action::Delegate(signed_delegate_action.clone()),],
+                &&test_limit_config(),
+                &[Action::Delegate(Box::new(signed_delegate_action.clone())),],
                 PROTOCOL_VERSION,
             ),
             Ok(()),
         );
         assert_eq!(
             validate_actions(
-                &VMLimitConfig::test(),
+                &test_limit_config(),
                 &[
                     Action::CreateAccount(CreateAccountAction {}),
-                    Action::Delegate(signed_delegate_action),
+                    Action::Delegate(Box::new(signed_delegate_action)),
                 ],
                 PROTOCOL_VERSION,
             ),
             Ok(()),
         );
+    }
+
+    #[test]
+    fn test_truncate_string() {
+        fn check(input: &str, limit: usize, want: &str) {
+            let got = truncate_string(input, limit);
+            assert_eq!(got, want)
+        }
+        check("", 10, "");
+        check("hello", 0, "");
+        check("hello", 2, "he");
+        check("hello", 4, "hell");
+        check("hello", 5, "hello");
+        check("hello", 6, "hello");
+        check("hello", 10, "hello");
+        check("привет", 3, "п");
     }
 }

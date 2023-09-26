@@ -1,3 +1,4 @@
+ed25519_verify: { old: false, new: true }
 action_create_account: {
   old: {
     send_sir: 99_607_375_000,

@@ -7,7 +7,7 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{get_block_shard_uid_rev, ShardUId};
-use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
+use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, StateSyncInfo};
 use near_primitives::state::FlatStateValue;
 use near_primitives::syncing::{
     ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, StateSyncDumpProgress,
@@ -93,6 +93,10 @@ fn format_key_and_value<'a>(
             Box::new(CryptoHash::try_from(key).unwrap()),
             Box::new(u64::try_from_slice(value).unwrap()),
         ),
+        DBCol::BlocksToCatchup => (
+            Box::new(CryptoHash::try_from(key).unwrap()),
+            Box::new(Vec::<CryptoHash>::try_from_slice(value).unwrap()),
+        ),
         DBCol::ChunkExtra => (
             Box::new(get_block_shard_uid_rev(key).unwrap()),
             Box::new(ChunkExtra::try_from_slice(value).unwrap()),
@@ -151,6 +155,14 @@ fn format_key_and_value<'a>(
         DBCol::HeaderHashesByHeight => (
             Box::new(BlockHeight::try_from_slice(key).unwrap()),
             Box::new(HashSet::<CryptoHash>::try_from_slice(value).unwrap()),
+        ),
+        DBCol::IncomingReceipts => (
+            Box::new(get_block_shard_id_rev(key).unwrap()),
+            Box::new(Vec::<ReceiptProof>::try_from_slice(value).unwrap()),
+        ),
+        DBCol::OutgoingReceipts => (
+            Box::new(get_block_shard_id_rev(key).unwrap()),
+            Box::new(Vec::<Receipt>::try_from_slice(value).unwrap()),
         ),
         DBCol::OutcomeIds => (
             Box::new(get_block_shard_id_rev(key).unwrap()),

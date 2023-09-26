@@ -51,7 +51,7 @@ impl<'a> BatchedStoreUpdate<'a> {
         self.total_size_written += entry_size as u64;
         let update = self.store_update.as_mut().unwrap();
         if insert {
-            update.insert(col, key.as_ref(), &value_bytes);
+            update.insert(col, key.to_vec(), value_bytes);
         } else {
             update.set(col, key.as_ref(), &value_bytes);
         }
@@ -202,6 +202,30 @@ pub fn migrate_36_to_37(store: &Store) -> anyhow::Result<()> {
         )
         .try_to_vec()?;
         update.set(DBCol::FlatStateChanges, &key, &new_value);
+    }
+    update.commit()?;
+    Ok(())
+}
+
+/// Migrates the database from version 37 to 38.
+///
+/// Rewrites FlatStateDeltaMetadata to add a bit to Metadata, `prev_block_with_changes`.
+/// That bit is initialized with a `None` regardless of the corresponding flat state changes.
+pub fn migrate_37_to_38(store: &Store) -> anyhow::Result<()> {
+    #[derive(borsh::BorshDeserialize)]
+    struct LegacyFlatStateDeltaMetadata {
+        block: crate::flat::BlockInfo,
+    }
+
+    let mut update = store.store_update();
+    update.delete_all(DBCol::FlatStateDeltaMetadata);
+    for result in store.iter(DBCol::FlatStateDeltaMetadata) {
+        let (key, old_value) = result?;
+        let LegacyFlatStateDeltaMetadata { block } =
+            LegacyFlatStateDeltaMetadata::try_from_slice(&old_value)?;
+        let new_value =
+            crate::flat::FlatStateDeltaMetadata { block, prev_block_with_changes: None };
+        update.set(DBCol::FlatStateDeltaMetadata, &key, &new_value.try_to_vec()?);
     }
     update.commit()?;
     Ok(())

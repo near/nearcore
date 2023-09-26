@@ -787,7 +787,7 @@ async fn max_num_peers_limit() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start three nodes with max_num_peers=2");
-    let mut cfgs = make_configs(&chain, rng, 4, 4, true);
+    let mut cfgs = make_configs(&chain, rng, 4, 4, false);
     for config in cfgs.iter_mut() {
         config.max_num_peers = 2;
         config.ideal_connections_lo = 2;
@@ -801,6 +801,10 @@ async fn max_num_peers_limit() {
     let id0 = pm0.cfg.node_id();
     let id1 = pm1.cfg.node_id();
     let id2 = pm2.cfg.node_id();
+
+    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+    pm0.connect_to(&pm2.peer_info(), tcp::Tier::T2).await;
+    pm1.connect_to(&pm2.peer_info(), tcp::Tier::T2).await;
 
     tracing::info!(target:"test", "wait for {id0} routing table");
     pm0.wait_for_routing_table(&[
@@ -831,18 +835,21 @@ async fn max_num_peers_limit() {
     let id3 = pm3.cfg.node_id();
 
     tracing::info!(target:"test", "wait for {id0} to reject attempted connection");
+    pm3.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
     wait_for_connection_closed(
         &mut pm0_ev,
         ClosingReason::RejectedByPeerManager(RegisterPeerError::ConnectionLimitExceeded),
     )
     .await;
     tracing::info!(target:"test", "wait for {id1} to reject attempted connection");
+    pm3.send_outbound_connect(&pm1.peer_info(), tcp::Tier::T2).await;
     wait_for_connection_closed(
         &mut pm1_ev,
         ClosingReason::RejectedByPeerManager(RegisterPeerError::ConnectionLimitExceeded),
     )
     .await;
     tracing::info!(target:"test", "wait for {id2} to reject attempted connection");
+    pm3.send_outbound_connect(&pm2.peer_info(), tcp::Tier::T2).await;
     wait_for_connection_closed(
         &mut pm2_ev,
         ClosingReason::RejectedByPeerManager(RegisterPeerError::ConnectionLimitExceeded),
@@ -1376,4 +1383,44 @@ async fn connect_to_unbanned_peer() {
 
     drop(pm0);
     drop(pm1);
+}
+
+/// Awaits a DistanceVector message from a given `peer_id`
+async fn wait_for_distance_vector(events: &mut broadcast::Receiver<Event>, peer_id: PeerId) {
+    events
+        .recv_until(|ev| match ev {
+            Event::PeerManager(PME::MessageProcessed(_, msg)) => match msg {
+                PeerMessage::DistanceVector(dv) if dv.root == peer_id => Some(()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .await
+}
+
+/// Check that connecting to a peer triggers exchange of DistanceVectors
+#[tokio::test]
+async fn peer_connect_send_distance_vector() {
+    abort_on_panic();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    tracing::info!(target:"test", "start two nodes");
+    let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+
+    let id0 = pm0.cfg.node_id();
+    let id1 = pm1.cfg.node_id();
+
+    // capture event streams before connecting
+    let mut pm0_ev = pm0.events.from_now();
+    let mut pm1_ev = pm1.events.from_now();
+
+    tracing::info!(target:"test", "connect the nodes");
+    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+
+    wait_for_distance_vector(&mut pm0_ev, id1).await;
+    wait_for_distance_vector(&mut pm1_ev, id0).await;
 }

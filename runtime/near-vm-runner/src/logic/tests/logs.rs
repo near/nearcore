@@ -1,8 +1,9 @@
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::logic::HostError;
-use crate::logic::{ExtCosts, MemSlice, VMLogic, VMLogicError};
+use crate::logic::{MemSlice, VMLogic, VMLogicError};
 use crate::map;
+use near_primitives_core::config::ExtCosts;
 
 #[test]
 fn test_valid_utf8() {
@@ -11,7 +12,7 @@ fn test_valid_utf8() {
     let string = "j ñ r'ø qò$`5 y'5 øò{%÷ `Võ%";
     let bytes = logic.internal_mem_write(string.as_bytes());
     logic.log_utf8(bytes.len, bytes.ptr).expect("Valid UTF-8 in bytes");
-    let outcome = logic.compute_outcome_and_distribute_gas();
+    let outcome = logic.compute_outcome();
     assert_eq!(outcome.logs[0], string);
     assert_costs(map! {
         ExtCosts::base: 1,
@@ -30,7 +31,7 @@ fn test_invalid_utf8() {
     let mut logic = logic_builder.build();
     let bytes = logic.internal_mem_write(b"\x80");
     assert_eq!(logic.log_utf8(bytes.len, bytes.ptr), Err(HostError::BadUTF8.into()));
-    let outcome = logic.compute_outcome_and_distribute_gas();
+    let outcome = logic.compute_outcome();
     assert_eq!(outcome.logs.len(), 0);
     assert_costs(map! {
         ExtCosts::base: 1,
@@ -51,7 +52,7 @@ fn test_valid_null_terminated_utf8() {
     let mut logic = logic_builder.build();
     let bytes = logic.internal_mem_write(cstring.as_bytes());
     logic.log_utf8(u64::MAX, bytes.ptr).expect("Valid null-terminated utf-8 string_bytes");
-    let outcome = logic.compute_outcome_and_distribute_gas();
+    let outcome = logic.compute_outcome();
     assert_costs(map! {
         ExtCosts::base: 1,
         ExtCosts::log_base: 1,
@@ -83,7 +84,7 @@ fn test_log_max_limit() {
       ExtCosts::utf8_decoding_base: 1,
     });
 
-    let outcome = logic.compute_outcome_and_distribute_gas();
+    let outcome = logic.compute_outcome();
     assert_eq!(outcome.logs.len(), 0);
 }
 
@@ -106,7 +107,7 @@ fn test_log_total_length_limit() {
         Err(HostError::TotalLogLengthExceeded { length: limit + 1, limit }.into())
     );
 
-    let outcome = logic.compute_outcome_and_distribute_gas();
+    let outcome = logic.compute_outcome();
     assert_eq!(outcome.logs.len() as u64, num_logs - 1);
 }
 
@@ -140,7 +141,7 @@ fn test_log_number_limit() {
         ExtCosts::utf8_decoding_byte: bytes.len * max_number_logs,
     });
 
-    let outcome = logic.compute_outcome_and_distribute_gas();
+    let outcome = logic.compute_outcome();
     assert_eq!(outcome.logs.len() as u64, max_number_logs);
 }
 
@@ -184,7 +185,7 @@ fn test_log_utf16_number_limit() {
         ExtCosts::utf16_decoding_byte: bytes.len * max_number_logs,
     });
 
-    let outcome = logic.compute_outcome_and_distribute_gas();
+    let outcome = logic.compute_outcome();
     assert_eq!(outcome.logs.len() as u64, max_number_logs);
 }
 
@@ -215,7 +216,7 @@ fn test_log_total_length_limit_mixed() {
         Err(HostError::TotalLogLengthExceeded { length: limit + 1, limit }.into())
     );
 
-    let outcome = logic.compute_outcome_and_distribute_gas();
+    let outcome = logic.compute_outcome();
     assert_eq!(outcome.logs.len() as u64, num_logs_each * 2);
 }
 
@@ -240,7 +241,7 @@ fn test_log_utf8_max_limit_null_terminated() {
         ExtCosts::utf8_decoding_base: 1,
     });
 
-    let outcome = logic.compute_outcome_and_distribute_gas();
+    let outcome = logic.compute_outcome();
     assert_eq!(outcome.logs.len(), 0);
 }
 
@@ -265,7 +266,7 @@ fn test_valid_log_utf16() {
         ExtCosts::log_base: 1,
         ExtCosts::log_byte: string.len() as u64,
     });
-    let outcome = logic.compute_outcome_and_distribute_gas();
+    let outcome = logic.compute_outcome();
     assert_eq!(outcome.logs[0], string);
 }
 
@@ -339,7 +340,7 @@ fn test_valid_log_utf16_null_terminated() {
 
     logic.log_utf16(u64::MAX, bytes.ptr).expect("Valid utf-16 string_bytes");
 
-    let outcome = logic.compute_outcome_and_distribute_gas();
+    let outcome = logic.compute_outcome();
     assert_eq!(outcome.logs[0], string);
     assert_costs(map! {
         ExtCosts::base: 1,

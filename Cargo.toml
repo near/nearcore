@@ -2,7 +2,7 @@
 version = "0.0.0" # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
-rust-version = "1.71.0"
+rust-version = "1.72.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -12,6 +12,7 @@ version = "0.17.0"
 exclude = ["neard"]
 
 [workspace]
+resolver = "2"
 members = [
     "chain/chain",
     "chain/chunks",
@@ -66,7 +67,6 @@ members = [
     "test-utils/testlib",
     "tools/database",
     "tools/chainsync-loadtest",
-    "tools/delay-detector",
     "tools/fork-network",
     "tools/indexer/example",
     "tools/mirror",
@@ -129,7 +129,6 @@ crossbeam-channel = "0.5"
 crossbeam-queue = "0.3.8"
 csv = "1.2.1"
 curve25519-dalek = "3"
-delay-detector = { path = "tools/delay-detector" }
 derive-enum-from-into = "0.1.1"
 derive_more = "0.99.9"
 dirs = "4"

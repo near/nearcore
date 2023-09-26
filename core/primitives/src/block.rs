@@ -159,13 +159,7 @@ impl Block {
                 vrf_value: body.vrf_value,
                 vrf_proof: body.vrf_proof,
             }))
-        } else if checked_feature!(
-            "protocol_feature_block_header_v4",
-            BlockHeaderV4,
-            this_epoch_protocol_version
-        ) {
-            Block::BlockV3(Arc::new(BlockV3 { header, body }))
-        } else {
+        } else if !checked_feature!("stable", BlockHeaderV4, this_epoch_protocol_version) {
             Block::BlockV2(Arc::new(BlockV2 {
                 header,
                 chunks: body.chunks,
@@ -173,6 +167,8 @@ impl Block {
                 vrf_value: body.vrf_value,
                 vrf_proof: body.vrf_proof,
             }))
+        } else {
+            Block::BlockV3(Arc::new(BlockV3 { header, body }))
         }
     }
 
@@ -197,9 +193,8 @@ impl Block {
             genesis_protocol_version,
             height,
             Block::compute_state_root(&body.chunks),
-            #[cfg(feature = "protocol_feature_block_header_v4")]
             Block::compute_block_body_hash_impl(&body),
-            Block::compute_chunk_receipts_root(&body.chunks),
+            Block::compute_chunk_prev_outgoing_receipts_root(&body.chunks),
             Block::compute_chunk_headers_root(&body.chunks).0,
             Block::compute_chunk_tx_root(&body.chunks),
             body.chunks.len() as u64,
@@ -229,7 +224,7 @@ impl Block {
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         epoch_sync_data_hash: Option<CryptoHash>,
-        approvals: Vec<Option<Signature>>,
+        approvals: Vec<Option<Box<Signature>>>,
         gas_price_adjustment_rate: Rational32,
         min_gas_price: Balance,
         max_gas_price: Balance,
@@ -242,7 +237,7 @@ impl Block {
         timestamp_override: Option<DateTime<chrono::Utc>>,
     ) -> Self {
         // Collect aggregate of validators and gas usage/limits from chunks.
-        let mut validator_proposals = vec![];
+        let mut prev_validator_proposals = vec![];
         let mut gas_used = 0;
         // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
         let mut chunk_mask = vec![];
@@ -250,10 +245,10 @@ impl Block {
         let mut gas_limit = 0;
         for chunk in chunks.iter() {
             if chunk.height_included() == height {
-                validator_proposals.extend(chunk.validator_proposals());
-                gas_used += chunk.gas_used();
+                prev_validator_proposals.extend(chunk.prev_validator_proposals());
+                gas_used += chunk.prev_gas_used();
                 gas_limit += chunk.gas_limit();
-                balance_burnt += chunk.balance_burnt();
+                balance_burnt += chunk.prev_balance_burnt();
                 chunk_mask.push(true);
             } else {
                 chunk_mask.push(false);
@@ -294,6 +289,9 @@ impl Block {
             BlockHeader::BlockHeaderV4(_) => {
                 debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
             }
+            BlockHeader::BlockHeaderV5(_) => {
+                debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
+            }
         };
 
         let body = BlockBody { chunks, challenges, vrf_value, vrf_proof };
@@ -302,17 +300,16 @@ impl Block {
             next_epoch_protocol_version,
             height,
             *prev.hash(),
-            #[cfg(feature = "protocol_feature_block_header_v4")]
             Block::compute_block_body_hash_impl(&body),
             Block::compute_state_root(&body.chunks),
-            Block::compute_chunk_receipts_root(&body.chunks),
+            Block::compute_chunk_prev_outgoing_receipts_root(&body.chunks),
             Block::compute_chunk_headers_root(&body.chunks).0,
             Block::compute_chunk_tx_root(&body.chunks),
             Block::compute_outcome_root(&body.chunks),
             time,
             Block::compute_challenges_root(&body.challenges),
             random_value,
-            validator_proposals,
+            prev_validator_proposals,
             chunk_mask,
             block_ordinal,
             epoch_id,
@@ -347,7 +344,7 @@ impl Block {
 
         for chunk in self.chunks().iter() {
             if chunk.height_included() == self.header().height() {
-                balance_burnt += chunk.balance_burnt();
+                balance_burnt += chunk.prev_balance_burnt();
             }
         }
 
@@ -421,13 +418,16 @@ impl Block {
         CryptoHash::hash_borsh(body)
     }
 
-    pub fn compute_chunk_receipts_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
+    pub fn compute_chunk_prev_outgoing_receipts_root<
+        'a,
+        T: IntoIterator<Item = &'a ShardChunkHeader>,
+    >(
         chunks: T,
     ) -> CryptoHash {
         merklize(
             &chunks
                 .into_iter()
-                .map(|chunk| chunk.outgoing_receipts_root())
+                .map(|chunk| chunk.prev_outgoing_receipts_root())
                 .collect::<Vec<CryptoHash>>(),
         )
         .0
@@ -453,8 +453,10 @@ impl Block {
     pub fn compute_outcome_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
         chunks: T,
     ) -> CryptoHash {
-        merklize(&chunks.into_iter().map(|chunk| chunk.outcome_root()).collect::<Vec<CryptoHash>>())
-            .0
+        merklize(
+            &chunks.into_iter().map(|chunk| chunk.prev_outcome_root()).collect::<Vec<CryptoHash>>(),
+        )
+        .0
     }
 
     pub fn compute_challenges_root(challenges: &Challenges) -> CryptoHash {
@@ -467,7 +469,7 @@ impl Block {
     ) -> Gas {
         chunks.into_iter().fold(0, |acc, chunk| {
             if chunk.height_included() == height {
-                acc + chunk.gas_used()
+                acc + chunk.prev_gas_used()
             } else {
                 acc
             }
@@ -566,8 +568,9 @@ impl Block {
         }
 
         // Check that chunk receipts root stored in the header matches the state root of the chunks
-        let chunk_receipts_root = Block::compute_chunk_receipts_root(self.chunks().iter());
-        if self.header().chunk_receipts_root() != &chunk_receipts_root {
+        let chunk_receipts_root =
+            Block::compute_chunk_prev_outgoing_receipts_root(self.chunks().iter());
+        if self.header().prev_chunk_outgoing_receipts_root() != &chunk_receipts_root {
             return Err(InvalidReceiptRoot);
         }
 
@@ -682,7 +685,7 @@ impl<'a> ChunksCollection<'a> {
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
 /// blockchain tree. References the max height and the latest and previous
 /// blocks for convenience
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Tip {
     /// Height of the tip (max height of the fork)
     pub height: BlockHeight,

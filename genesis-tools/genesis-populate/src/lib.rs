@@ -12,7 +12,6 @@ use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{genesis_chunks, Tip};
-use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
@@ -22,6 +21,7 @@ use near_store::genesis::{compute_storage_usage, initialize_genesis_state};
 use near_store::{
     get_account, get_genesis_state_roots, set_access_key, set_account, set_code, Store, TrieUpdate,
 };
+use near_vm_runner::ContractCode;
 use nearcore::{NearConfig, NightshadeRuntime};
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};

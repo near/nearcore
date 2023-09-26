@@ -63,7 +63,7 @@ pub(crate) struct TriePrefetcher {
 
 impl TriePrefetcher {
     pub(crate) fn new_if_enabled(trie: &Trie) -> Option<Self> {
-        if let Some(caching_storage) = trie.storage.as_caching_storage() {
+        if let Some(caching_storage) = trie.internal_get_storage_as_caching_storage() {
             if let Some(prefetch_api) = caching_storage.prefetch_api().clone() {
                 let trie_root = *trie.get_root();
                 let shard_uid = prefetch_api.shard_uid;
@@ -320,7 +320,7 @@ mod tests {
         }
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), kvs);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
-        trie.storage.as_caching_storage().unwrap().clear_cache();
+        trie.internal_get_storage_as_caching_storage().unwrap().clear_cache();
 
         let prefetcher =
             TriePrefetcher::new_if_enabled(&trie).expect("caching storage should have prefetcher");

@@ -40,15 +40,18 @@
 # ```
 #
 
-import sys, time, requests, logging
-from subprocess import check_output
-from queue import Queue
+import logging
 import pathlib
+import requests
+from subprocess import check_output
+import sys
+import time
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config
 from populate import genesis_populate_all, copy_genesis
+import state_sync_lib
 from utils import LogTracker
 
 logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG)
@@ -60,25 +63,12 @@ else:
     additional_accounts = 200000
 
 config = load_config()
+node_config = state_sync_lib.get_state_sync_config_combined()
 near_root, node_dirs = init_cluster(
     1, 2, 1,
     config, [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
-             ["epoch_length", 300], ["block_producer_kickout_threshold", 80]], {
-                 0: {
-                     "state_sync_enabled": True,
-                     "store.state_snapshot_enabled": True,
-                 },
-                 1: {
-                     "tracked_shards": [0],
-                     "state_sync_enabled": True,
-                     "store.state_snapshot_enabled": True,
-                 },
-                 2: {
-                     "tracked_shards": [0],
-                     "state_sync_enabled": True,
-                     "store.state_snapshot_enabled": True,
-                 }
-             })
+             ["epoch_length", 300], ["block_producer_kickout_threshold", 80]],
+    {x: node_config for x in range(3)})
 
 logging.info("Populating genesis")
 

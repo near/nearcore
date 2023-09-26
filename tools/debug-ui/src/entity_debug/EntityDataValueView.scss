@@ -1,0 +1,147 @@
+.entity-entry {
+    .entity-entry-header {
+        display: flex;
+        gap: 4px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+
+        &:hover {
+            background-color: #eee;
+        }
+    }
+
+    .entity-entry-name {
+        color: gray;
+
+        &:after {
+            content: ':';
+            color: gray;
+        }
+    }
+
+    .entity-entry-value {
+        word-wrap: break-word;
+        max-width: 800px;
+
+        .value-trie-path {
+            .shard-uid {
+                font-size: 0.8em;
+
+                &:after {
+                    content: '/';
+                }
+            }
+
+            .state-root {
+                font-size: 0.8em;
+
+                &:after {
+                    content: '/';
+                }
+            }
+        }
+
+        .nibbles {
+            font-family: monospace;
+
+            .hex-chars {
+                background-color: rgb(255, 254, 193);
+                color: rgb(117, 104, 0);
+                font-size: 0.9em;
+            }
+
+            .ascii-char {
+                background-color: rgb(171, 255, 171);
+            }
+        }
+    }
+
+    .entity-entry-value-with-keys {
+        color: rgb(0, 0, 198);
+    }
+
+    .entity-entry-expander {
+        margin-top: 4px;
+        width: 16px;
+        height: 16px;
+        line-height: 16px;
+        text-align: center;
+        border: 1px solid gray;
+        border-radius: 2px;
+        cursor: pointer;
+
+        &:hover {
+            background-color: #eee;
+        }
+    }
+
+    .entity-entry-children {
+        margin-left: 8px;
+        padding-left: 8px;
+        border-left: 1px dashed gray;
+    }
+
+    .entity-entry-queried-children {
+        > * {
+            margin-left: 8px;
+            margin-top: 4px;
+            margin-bottom: 8px;
+            border: 1px solid gray;
+        }
+    }
+
+    .entity-key-pin-button {
+        margin-top: 2.5px;
+        background-color: #ddd;
+        border-radius: 16px;
+        padding: 0 6px;
+        font-size: 0.8em;
+        cursor: pointer;
+        user-select: none;
+
+        &.selected {
+            background-color: rgb(69, 125, 255);
+            color: white;
+        }
+    }
+
+    .entity-query-button {
+        margin-top: 2.5px;
+
+        button {
+            display: block;
+            background-color: #c8ffc5;
+            border: none;
+            border-radius: 16px;
+            padding: 0 6px;
+            font-size: 0.8em;
+            user-select: none;
+
+            &[disabled] {
+                background-color: #ddd;
+                color: gray;
+                cursor: not-allowed;
+            }
+        }
+    }
+
+    .entity-query-tooltip {
+        .entity-query-type {
+            font-weight: bold;
+
+            &:before {
+                content: 'Query: ';
+                font-weight: normal;
+            }
+        }
+
+        .entity-query-keys {
+            margin-left: 16px;
+
+            .missing {
+                font-weight: bold;
+                color: rgb(255, 186, 186);
+            }
+        }
+    }
+}

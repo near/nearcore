@@ -266,7 +266,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                             chunk_header.shard_id(),
                             chunk_producer,
                             chunk.transactions().len(),
-                            chunk.receipts().len()
+                            chunk.prev_outgoing_receipts().len()
                         );
                     } else if let Ok(partial_chunk) =
                         chain_store.get_partial_chunk(&chunk_header.chunk_hash())

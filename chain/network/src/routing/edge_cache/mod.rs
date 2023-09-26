@@ -81,7 +81,7 @@ pub struct EdgeCache {
     active_trees: HashMap<PeerId, Vec<EdgeKey>>,
 
     /// Mapping from PeerId to assigned u32 id
-    p2id: HashMap<PeerId, u32>,
+    pub(crate) p2id: HashMap<PeerId, u32>,
     /// Mapping from u32 id to the number of distinct active edges for the node
     degree: Vec<u32>,
     /// List of unused u32 ids

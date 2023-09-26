@@ -3,9 +3,8 @@
 use anyhow::Context;
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::RuntimeConfigView;
-use near_vm_runner::internal::VMKind;
+use near_vm_runner::VMKind;
 use replay::ReplayCmd;
 use runtime_params_estimator::config::{Config, GasMetric};
 use runtime_params_estimator::{
@@ -61,7 +60,7 @@ struct CliArgs {
     #[clap(long, default_value = "time", value_parser(["icount", "time"]))]
     metric: String,
     /// Which VM to test.
-    #[clap(long, value_enum, default_value_t = VMKind::for_protocol_version(PROTOCOL_VERSION))]
+    #[clap(long, value_enum, default_value_t = VMKind::NearVm)]
     vm_kind: VMKind,
     /// Render existing `costs.txt` as `RuntimeConfig`.
     #[clap(long)]
@@ -78,11 +77,6 @@ struct CliArgs {
     /// Spawn a bash shell inside a docker container for debugging purposes.
     #[clap(long)]
     docker_shell: bool,
-    /// If docker is also set, run estimator in the fully production setting to get usable cost
-    /// table. See runtime-params-estimator/emu-cost/README.md for more details.
-    /// Works only with enabled docker, because precise computations without it doesn't make sense.
-    #[clap(long)]
-    full: bool,
     /// Drop OS cache before measurements for better IO accuracy. Requires sudo.
     #[clap(long)]
     drop_os_cache: bool,
@@ -102,6 +96,9 @@ struct CliArgs {
     /// Use in-memory test DB, useful to avoid variance caused by DB.
     #[clap(long)]
     pub in_memory_db: bool,
+    /// If false, only runs a minimal check that's faster than trying to get accurate results.
+    #[clap(long, default_value_t = true, action = clap::ArgAction::Set)]
+    pub accurate: bool,
     /// Extra configuration parameters for RocksDB specific estimations
     #[clap(flatten)]
     db_test_config: RocksDBTestConfig,
@@ -207,7 +204,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
     if cli_args.docker {
         main_docker(
             &state_dump_path,
-            cli_args.full,
+            cli_args.accurate,
             cli_args.docker_shell,
             cli_args.json_output,
             cli_args.debug,
@@ -289,7 +286,6 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         warmup_iters_per_block,
         iter_per_block,
         active_accounts,
-        block_sizes: vec![],
         finality_lag: cli_args.finality_lag,
         fs_keys_per_delta: cli_args.fs_keys_per_delta,
         state_dump_path: state_dump_path,
@@ -301,6 +297,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         json_output: cli_args.json_output,
         drop_os_cache: cli_args.drop_os_cache,
         in_memory_db: cli_args.in_memory_db,
+        accurate: cli_args.accurate,
     };
     let cost_table = runtime_params_estimator::run(config);
     Ok(Some(cost_table))
@@ -376,7 +373,7 @@ fn main_docker(
         let _binary_name = args.next();
         while let Some(arg) = args.next() {
             match arg.as_str() {
-                "--docker" | "--full" => continue,
+                "--docker" => continue,
                 "--additional-accounts-num" | "--home" => {
                     args.next();
                     continue;
@@ -512,13 +509,12 @@ mod tests {
             fs_keys_per_delta: 1,
             skip_build_test_contract: false,
             metric: "time".to_owned(),
-            vm_kind: VMKind::for_protocol_version(PROTOCOL_VERSION),
+            vm_kind: VMKind::NearVm,
             costs_file: None,
             compare_to: None,
             costs: Some(costs),
             docker: false,
             docker_shell: false,
-            full: false,
             drop_os_cache: false,
             debug: true,
             json_output: false,
@@ -527,6 +523,7 @@ mod tests {
             in_memory_db: false,
             db_test_config: clap::Parser::parse_from(std::iter::empty::<std::ffi::OsString>()),
             sub_cmd: None,
+            accurate: true, // we run a small number of estimations, no need to take more shortcuts
         };
         run_estimation(args).unwrap();
     }

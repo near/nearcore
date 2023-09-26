@@ -208,6 +208,7 @@ static EXCEPTIONS: Lazy<HashSet<&str>> = Lazy::new(|| {
         "flat_storage_creation_threads_used",
         "flat_storage_distance_to_head",
         "flat_storage_head_height",
+        "flat_storage_hops_to_head",
     ])
 });
 

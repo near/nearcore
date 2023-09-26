@@ -32,7 +32,7 @@ pub(crate) struct StatePerfCommand {
 
 impl StatePerfCommand {
     pub(crate) fn run(&self, home: &Path) -> anyhow::Result<()> {
-        let rocksdb = Arc::new(open_rocksdb(home)?);
+        let rocksdb = Arc::new(open_rocksdb(home, near_store::Mode::ReadOnly)?);
         let store = near_store::NodeStorage::new(rocksdb).get_hot_store();
         eprintln!("Start State perf test");
         let mut perf_context = PerfContext::new();

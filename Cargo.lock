@@ -1767,14 +1767,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "delay-detector"
-version = "0.0.0"
-dependencies = [
- "cpu-time",
- "tracing",
-]
-
-[[package]]
 name = "derive-enum-from-into"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2383,6 +2375,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-test-contracts",
+ "near-vm-runner",
  "nearcore",
  "tempfile",
 ]
@@ -2796,6 +2789,7 @@ dependencies = [
  "futures",
  "hex",
  "insta",
+ "itertools",
  "near-actix-test-utils",
  "near-async",
  "near-chain",
@@ -3470,9 +3464,9 @@ dependencies = [
  "ansi_term",
  "assert_matches",
  "borsh 0.10.2",
+ "bytesize",
  "chrono",
  "crossbeam-channel",
- "delay-detector",
  "enum-map",
  "insta",
  "itertools",
@@ -3485,6 +3479,8 @@ dependencies = [
  "near-crypto",
  "near-epoch-manager",
  "near-o11y",
+ "near-performance-metrics",
+ "near-performance-metrics-macros",
  "near-pool",
  "near-primitives",
  "near-store",
@@ -3540,6 +3536,7 @@ dependencies = [
  "derive-enum-from-into",
  "derive_more",
  "futures",
+ "itertools",
  "lru",
  "near-async",
  "near-chain",
@@ -3550,6 +3547,7 @@ dependencies = [
  "near-network",
  "near-o11y",
  "near-performance-metrics",
+ "near-performance-metrics-macros",
  "near-pool",
  "near-primitives",
  "near-store",
@@ -3581,7 +3579,6 @@ dependencies = [
  "borsh 0.10.2",
  "chrono",
  "cloud-storage",
- "delay-detector",
  "derive_more",
  "futures",
  "itertools",
@@ -3633,7 +3630,6 @@ dependencies = [
  "near-chunks-primitives",
  "near-crypto",
  "near-primitives",
- "once_cell",
  "serde",
  "serde_json",
  "strum",
@@ -3719,6 +3715,7 @@ version = "0.0.0"
 dependencies = [
  "borsh 0.10.2",
  "chrono",
+ "itertools",
  "near-cache",
  "near-chain-configs",
  "near-chain-primitives",
@@ -3749,6 +3746,7 @@ dependencies = [
  "nearcore",
  "rayon",
  "tqdm",
+ "tracing",
 ]
 
 [[package]]
@@ -3821,6 +3819,7 @@ dependencies = [
  "bs58",
  "easy-ext",
  "futures",
+ "hex",
  "near-chain-configs",
  "near-client",
  "near-client-primitives",
@@ -3985,7 +3984,6 @@ dependencies = [
  "chrono",
  "criterion",
  "crossbeam-channel",
- "delay-detector",
  "derive_more",
  "futures",
  "futures-util",
@@ -4119,6 +4117,7 @@ version = "0.0.0"
 dependencies = [
  "arbitrary",
  "assert_matches",
+ "base64 0.21.0",
  "bencher",
  "borsh 0.10.2",
  "bytesize",
@@ -4244,6 +4243,7 @@ dependencies = [
  "near-ping",
  "near-primitives",
  "once_cell",
+ "sha2 0.10.6",
  "tokio",
  "tracing",
 ]
@@ -4272,7 +4272,9 @@ dependencies = [
  "itertools",
  "itoa",
  "lru",
+ "near-chain",
  "near-chain-configs",
+ "near-chunks",
  "near-crypto",
  "near-fmt",
  "near-o11y",
@@ -4426,6 +4428,7 @@ dependencies = [
  "borsh 0.10.2",
  "clap 4.2.4",
  "ed25519-dalek",
+ "enum-map",
  "expect-test",
  "finite-wasm",
  "hex",
@@ -4439,8 +4442,10 @@ dependencies = [
  "near-vm-compiler",
  "near-vm-compiler-singlepass",
  "near-vm-engine",
+ "near-vm-runner",
  "near-vm-types",
  "near-vm-vm",
+ "num-rational",
  "once_cell",
  "parity-wasm 0.41.0",
  "parity-wasm 0.42.2",
@@ -4450,6 +4455,7 @@ dependencies = [
  "ripemd",
  "serde",
  "serde_json",
+ "serde_repr",
  "serde_with",
  "sha2 0.10.6",
  "sha3",
@@ -4579,10 +4585,10 @@ dependencies = [
  "borsh 0.10.2",
  "chrono",
  "cloud-storage",
- "delay-detector",
  "dirs",
  "easy-ext",
  "futures",
+ "hex",
  "hyper",
  "hyper-tls",
  "indicatif",
@@ -4716,6 +4722,7 @@ dependencies = [
  "near-crypto",
  "near-o11y",
  "near-primitives",
+ "near-primitives-core",
  "near-store",
  "near-test-contracts",
  "near-vm-runner",

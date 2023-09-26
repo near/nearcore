@@ -63,11 +63,8 @@ fn test_block_with_challenges() {
                 body.body.challenges = challenges.clone();
             }
         };
-        #[cfg(feature = "protocol_feature_block_header_v4")]
-        {
-            let block_body_hash = block.compute_block_body_hash().unwrap();
-            block.mut_header().get_mut().inner_rest.block_body_hash = block_body_hash;
-        }
+        let block_body_hash = block.compute_block_body_hash().unwrap();
+        block.mut_header().get_mut().inner_rest.block_body_hash = block_body_hash;
         block.mut_header().get_mut().inner_rest.challenges_root =
             Block::compute_challenges_root(&challenges);
         block.mut_header().resign(&*signer);
@@ -397,7 +394,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         vec![],
         vec![],
         &[],
-        last_block.chunks()[0].outgoing_receipts_root(),
+        last_block.chunks()[0].prev_outgoing_receipts_root(),
         CryptoHash::default(),
         &validator_signer,
         &mut rs,
