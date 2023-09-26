@@ -1,15 +1,14 @@
+use super::utils::TestEnvNightshadeSetupExt;
 use assert_matches::assert_matches;
 use borsh::BorshSerialize;
 use near_chain::near_chain_primitives::error::QueryError;
-use near_chain::types::RuntimeAdapter;
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, Genesis};
 use near_client::sync::external::external_storage_location;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
@@ -22,12 +21,11 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::flat::store_helper;
-use near_store::genesis::initialize_genesis_state;
 use near_store::DBCol;
-use near_store::{NodeStorage, Store};
+use near_store::Store;
 use nearcore::config::GenesisExt;
 use nearcore::state_sync::spawn_state_sync_dump;
-use nearcore::{NightshadeRuntime, NEAR_BASE};
+use nearcore::NEAR_BASE;
 use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::time::Duration;
@@ -42,38 +40,18 @@ fn test_state_dump() {
     genesis.config.epoch_length = 25;
 
     near_actix_test_utils::run_actix(async {
-        let num_clients = 1;
-        let env_objects = (0..num_clients).map(|_|{
-            let tmp_dir = tempfile::tempdir().unwrap();
-            // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
-            // same configuration as in production.
-            let store = NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
-                .open()
-                .unwrap()
-                .get_hot_store();
-            initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
-            let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-            let runtime =
-                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
-                    as Arc<dyn RuntimeAdapter>;
-            (tmp_dir, store, epoch_manager, runtime)
-        }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
-
-        let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
-        let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();
-        let runtimes = env_objects.iter().map(|x| x.3.clone()).collect::<Vec<_>>();
-
-        let mut env = TestEnv::builder(ChainGenesis::test())
-            .clients_count(env_objects.len())
-            .stores(stores.clone())
-            .epoch_managers(epoch_managers.clone())
-            .runtimes(runtimes.clone())
+        let chain_genesis = ChainGenesis::new(&genesis);
+        let mut env = TestEnv::builder(chain_genesis.clone())
+            .clients_count(1)
+            .real_stores()
+            .real_epoch_managers(&genesis.config)
+            .nightshade_runtimes(&genesis)
             .use_state_snapshots()
             .build();
 
-        let chain_genesis = ChainGenesis::new(&genesis);
-
         let chain = &env.clients[0].chain;
+        let epoch_manager = env.clients[0].epoch_manager.clone();
+        let runtime = env.clients[0].runtime_adapter.clone();
         let shard_tracker = chain.shard_tracker.clone();
         let mut config = env.clients[0].config.clone();
         let root_dir = tempfile::Builder::new().prefix("state_dump").tempdir().unwrap();
@@ -87,9 +65,9 @@ fn test_state_dump() {
         let _state_sync_dump_handle = spawn_state_sync_dump(
             &config,
             chain_genesis,
-            epoch_managers[0].clone(),
-            shard_tracker.clone(),
-            runtimes[0].clone(),
+            epoch_manager.clone(),
+            shard_tracker,
+            runtime,
             Some("test0".parse().unwrap()),
         )
         .unwrap();
@@ -101,13 +79,13 @@ fn test_state_dump() {
         }
         let head = &env.clients[0].chain.head().unwrap();
         let epoch_id = head.clone().epoch_id;
-        let epoch_info = epoch_managers[0].get_epoch_info(&epoch_id).unwrap();
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
         let epoch_height = epoch_info.epoch_height();
 
         wait_or_timeout(100, 10000, || async {
             let mut all_parts_present = true;
 
-            let num_shards = epoch_managers[0].num_shards(&epoch_id).unwrap();
+            let num_shards = epoch_manager.num_shards(&epoch_id).unwrap();
             assert_ne!(num_shards, 0);
 
             for shard_id in 0..num_shards {
@@ -163,31 +141,11 @@ fn run_state_sync_with_dumped_parts(
         genesis.config.epoch_length = epoch_length;
         let chain_genesis = ChainGenesis::new(&genesis);
         let num_clients = 2;
-        let env_objects = (0..num_clients).map(|_|{
-            let tmp_dir = tempfile::tempdir().unwrap();
-            // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
-            // same configuration as in production.
-            let store = NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
-                .open()
-                .unwrap()
-                .get_hot_store();
-            initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
-            let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-            let runtime =
-                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
-                    as Arc<dyn RuntimeAdapter>;
-            (tmp_dir, store, epoch_manager, runtime)
-        }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
-
-        let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
-        let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();
-        let runtimes = env_objects.iter().map(|x| x.3.clone()).collect::<Vec<_>>();
-
-        let mut env = TestEnv::builder(ChainGenesis::test())
-            .clients_count(env_objects.len())
-            .stores(stores.clone())
-            .epoch_managers(epoch_managers.clone())
-            .runtimes(runtimes.clone())
+        let mut env = TestEnv::builder(chain_genesis.clone())
+            .clients_count(num_clients)
+            .real_stores()
+            .real_epoch_managers(&genesis.config)
+            .nightshade_runtimes(&genesis)
             .use_state_snapshots()
             .build();
 
@@ -197,6 +155,8 @@ fn run_state_sync_with_dumped_parts(
 
         let mut blocks = vec![];
         let chain = &env.clients[0].chain;
+        let epoch_manager = env.clients[0].epoch_manager.clone();
+        let runtime = env.clients[0].runtime_adapter.clone();
         let shard_tracker = chain.shard_tracker.clone();
         let mut config = env.clients[0].config.clone();
         let root_dir = tempfile::Builder::new().prefix("state_dump").tempdir().unwrap();
@@ -209,9 +169,9 @@ fn run_state_sync_with_dumped_parts(
         let _state_sync_dump_handle = spawn_state_sync_dump(
             &config,
             chain_genesis,
-            epoch_managers[0].clone(),
-            shard_tracker.clone(),
-            runtimes[0].clone(),
+            epoch_manager.clone(),
+            shard_tracker,
+            runtime,
             Some("test0".parse().unwrap()),
         )
         .unwrap();
@@ -279,7 +239,7 @@ fn run_state_sync_with_dumped_parts(
         }
 
         let epoch_id = final_block_header.epoch_id().clone();
-        let epoch_info = epoch_managers[0].get_epoch_info(&epoch_id).unwrap();
+        let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
         let epoch_height = epoch_info.epoch_height();
 
         let sync_block_height = (epoch_length * epoch_height + 1) as usize;
@@ -301,7 +261,7 @@ fn run_state_sync_with_dumped_parts(
         wait_or_timeout(100, 10000, || async {
             let mut all_parts_present = true;
 
-            let num_shards = epoch_managers[0].num_shards(&epoch_id).unwrap();
+            let num_shards = epoch_manager.num_shards(&epoch_id).unwrap();
             assert_ne!(num_shards, 0);
 
             for shard_id in 0..num_shards {
@@ -377,8 +337,10 @@ fn run_state_sync_with_dumped_parts(
 
             // Check that inlined flat state values remain inlined.
             {
-                let (num_inlined_before, num_ref_before) = count_flat_state_value_kinds(&stores[0]);
-                let (num_inlined_after, num_ref_after) = count_flat_state_value_kinds(&stores[1]);
+                let store0 = env.clients[0].chain.store().store();
+                let store1 = env.clients[1].chain.store().store();
+                let (num_inlined_before, num_ref_before) = count_flat_state_value_kinds(store0);
+                let (num_inlined_after, num_ref_after) = count_flat_state_value_kinds(store1);
                 // Nothing new created, number of flat state values should be identical.
                 assert_eq!(num_inlined_before, num_inlined_after);
                 assert_eq!(num_ref_before, num_ref_after);
@@ -394,9 +356,10 @@ fn run_state_sync_with_dumped_parts(
 
             // Check that inlined flat state values remain inlined.
             {
-                let (num_inlined_before, _num_ref_before) =
-                    count_flat_state_value_kinds(&stores[0]);
-                let (num_inlined_after, _num_ref_after) = count_flat_state_value_kinds(&stores[1]);
+                let store0 = env.clients[0].chain.store().store();
+                let store1 = env.clients[1].chain.store().store();
+                let (num_inlined_before, _num_ref_before) = count_flat_state_value_kinds(store0);
+                let (num_inlined_after, _num_ref_after) = count_flat_state_value_kinds(store1);
                 // Created a new entry, but inlined values should stay inlinedNothing new created, number of flat state values should be identical.
                 assert!(num_inlined_before >= num_inlined_after);
                 assert!(num_inlined_after > 0);
