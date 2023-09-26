@@ -42,10 +42,10 @@ pub struct RpcClient {
 
 impl RpcClient {
     // network can only be "mainnet" or "testnet"
-    pub fn new(network: &str) -> Self {
+    pub fn new(chain_id: &str) -> Self {
         Self {
             client: reqwest::blocking::Client::new(),
-            rpc_endpoint: format!("https://rpc.{}.near.org", network),
+            rpc_endpoint: format!("https://rpc.{}.near.org", chain_id),
         }
     }
 
