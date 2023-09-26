@@ -46,13 +46,13 @@ use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShar
 use near_client_primitives::types::Error;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_network::test_utils::MockPeerManagerAdapter;
-use near_network::types::{
-    AccountOrPeerIdOrHash, HighestHeightPeerInfo, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerInfo, PeerType,
-};
 use near_network::types::{BlockInfo, PeerChainInfo};
 use near_network::types::{
     ConnectedPeerInfo, FullPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
+};
+use near_network::types::{
+    HighestHeightPeerInfo, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
+    PeerType,
 };
 use near_network::types::{
     NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
@@ -908,14 +908,11 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::StateRequestHeader {
                             shard_id,
                             sync_hash,
-                            target: target_account_id,
+                            ..
                         } => {
-                            let target_account_id = match target_account_id {
-                                AccountOrPeerIdOrHash::AccountId(x) => x,
-                                _ => panic!(),
-                            };
-                            for (i, name) in validators_clone2.iter().enumerate() {
-                                if name == target_account_id {
+                            for (i, _name) in validators_clone2.iter().enumerate() {
+                                // TODO: Filter requests by peer_id.
+                                {
                                     let me = connectors1[my_ord].client_actor.clone();
                                     actix::spawn(
                                         connectors1[i]
@@ -945,14 +942,11 @@ pub fn setup_mock_all_validators(
                             shard_id,
                             sync_hash,
                             part_id,
-                            target: target_account_id,
+                            ..
                         } => {
-                            let target_account_id = match target_account_id {
-                                AccountOrPeerIdOrHash::AccountId(x) => x,
-                                _ => panic!(),
-                            };
-                            for (i, name) in validators_clone2.iter().enumerate() {
-                                if name == target_account_id {
+                            for (i, _name) in validators_clone2.iter().enumerate() {
+                                // TODO: Filter requests by peer_id.
+                                {
                                     let me = connectors1[my_ord].client_actor.clone();
                                     actix::spawn(
                                         connectors1[i]
