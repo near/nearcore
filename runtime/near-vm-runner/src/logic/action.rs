@@ -187,7 +187,7 @@ pub enum Action {
     /// Sets a Wasm code to a receiver_id
     DeployContract(DeployContractAction),
     FunctionCall(FunctionCallAction),
-    /// To be deprecated with NEP XXX
+    /// To be deprecated with NEP-491 but kept for backwards-compatibility.
     Transfer(TransferAction),
     Stake(StakeAction),
     AddKey(AddKeyAction),

@@ -2,6 +2,7 @@ use actix::Addr;
 use near_chain_configs::Genesis;
 use near_client::ViewClientActor;
 use near_o11y::WithSpanContextExt;
+use near_primitives::transaction::{TransferAction, TransferActionV2};
 use validated_operations::ValidatedOperation;
 
 mod transactions;
@@ -318,8 +319,14 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     );
                 }
 
-                near_primitives::transaction::Action::Transfer(action) => {
-                    let transfer_amount = crate::models::Amount::from_yoctonear(action.deposit);
+                // Note: Both refundable and non-refundable transfers are considered as available balance.
+                // (TODO: ensure final decision for NEP-491 aligns with that!)
+                near_primitives::transaction::Action::Transfer(TransferAction { deposit })
+                | near_primitives::transaction::Action::TransferV2(TransferActionV2 {
+                    deposit,
+                    ..
+                }) => {
+                    let transfer_amount = crate::models::Amount::from_yoctonear(deposit);
 
                     let sender_transfer_operation_id =
                         crate::models::OperationIdentifier::new(&operations);
@@ -344,9 +351,6 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                         ),
                     );
                 }
-
-                near_primitives::transaction::Action::TransferV2(_) => todo!("TODO(jakmeier)"),
-
                 near_primitives::transaction::Action::Stake(action) => {
                     operations.push(
                         validated_operations::StakeOperation {

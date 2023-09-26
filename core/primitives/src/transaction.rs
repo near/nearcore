@@ -13,7 +13,7 @@ use std::hash::{Hash, Hasher};
 
 pub use near_vm_runner::logic::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
+    DeployContractAction, FunctionCallAction, StakeAction, TransferAction, TransferActionV2,
 };
 
 pub type LogEntry = String;
