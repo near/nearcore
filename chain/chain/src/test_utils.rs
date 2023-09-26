@@ -90,7 +90,7 @@ pub fn setup_with_tx_validity_period(
     tx_validity_period: NumBlocks,
 ) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
-    let epoch_length = 1000;
+    let epoch_length = 10;
     let epoch_manager = MockEpochManager::new(store.clone(), epoch_length);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
