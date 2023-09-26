@@ -1144,7 +1144,7 @@ mod tests {
         storage_usage: u64,
         state_update: &mut TrieUpdate,
     ) -> ActionResult {
-        let mut account = Some(Account::new(100, 0, *code_hash, storage_usage));
+        let mut account = Some(Account::new(100, 0, 0, *code_hash, storage_usage));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
         let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), 0);
@@ -1282,7 +1282,7 @@ mod tests {
         let tries = create_tries();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        let account = Account::new(100, 0, CryptoHash::default(), 100);
+        let account = Account::new(100, 0, 0, CryptoHash::default(), 100);
         set_account(&mut state_update, account_id.clone(), &account);
         set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
 
@@ -1434,7 +1434,8 @@ mod tests {
                 &sender_id,
                 &RuntimeConfig::test(),
                 false,
-                false
+                false,
+                false,
             ),
             Err(ActionErrorKind::AccountDoesNotExist { account_id: sender_id.clone() }.into())
         );

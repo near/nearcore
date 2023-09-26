@@ -415,7 +415,7 @@ mod tests {
             set_account(
                 &mut trie_update,
                 account_id.clone(),
-                &Account::new(0, 0, CryptoHash::default(), 0),
+                &Account::new(0, 0, 0, CryptoHash::default(), 0),
             );
         }
         let receipts = gen_receipts(rng, 100);
@@ -469,7 +469,7 @@ mod tests {
                 set_account(
                     &mut trie_update,
                     account_id.clone(),
-                    &Account::new(0, 0, CryptoHash::default(), 0),
+                    &Account::new(0, 0, 0, CryptoHash::default(), 0),
                 );
             }
             // remove accounts

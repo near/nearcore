@@ -76,14 +76,12 @@ impl Account {
     pub fn new(
         amount: Balance,
         locked: Balance,
-        #[cfg_attr(
-            not(feature = "protocol_feature_nonrefundable_transfer_nep491"),
-            allow(unused_variables)
-        )]
         nonrefundable: Balance,
         code_hash: CryptoHash,
         storage_usage: StorageUsage,
     ) -> Self {
+        #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
+        assert_eq!(nonrefundable, 0);
         Account {
             amount,
             locked,

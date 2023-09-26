@@ -29,6 +29,7 @@ near-account-id.workspace = true
 [dev-dependencies]
 serde_json.workspace = true
 insta.workspace = true
+expect-test.workspace = true
 
 [features]
 default = []
