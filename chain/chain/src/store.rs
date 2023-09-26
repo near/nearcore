@@ -2,13 +2,14 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::io;
 
+use actix::Handler;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 use near_cache::CellLruCache;
 
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_o11y::WithSpanContextExt;
+use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::block::Tip;
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 use near_primitives::checked_feature;
@@ -459,6 +460,19 @@ pub struct ChainStore {
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
     /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     save_trie_changes: bool,
+}
+
+/// Update the chain store caches after an asynchronous commit has finished.
+///
+/// TODO: Are there any concurrency problems if the commit and the cache updates
+/// are not atomic? Someone with better chain and client knowledge than me
+/// (jakmeier) should look into this before we merge this...
+#[derive(actix::Message, Debug)]
+#[rtype(result = "Result<(), Error>")]
+pub struct UpdateChainCachesMessage {
+    pub updates: ChainStoreCacheUpdate,
+    pub head: Option<Tip>,
+    pub tail: Option<u64>,
 }
 
 fn option_to_not_found<T, F>(res: io::Result<Option<T>>, field_name: F) -> Result<T, Error>
@@ -1405,8 +1419,8 @@ impl ChainStoreAccess for ChainStore {
 }
 
 /// Cache update for ChainStore
-#[derive(Default)]
-struct ChainStoreCacheUpdate {
+#[derive(Default, Debug)]
+pub struct ChainStoreCacheUpdate {
     blocks: HashMap<CryptoHash, Block>,
     headers: HashMap<CryptoHash, BlockHeader>,
     block_extras: HashMap<CryptoHash, Arc<BlockExtra>>,
@@ -3254,30 +3268,57 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(store_update)
     }
 
-    pub fn commit_async(
+    pub fn commit_async<A>(
         mut self,
+        client_io_actor: actix::Addr<A>,
         blocking_io_actor: actix::Addr<BlockingIoActor>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Error>
+    where
+        A: Handler<WithSpanContext<UpdateChainCachesMessage>>,
+        <A as actix::Actor>::Context:
+            actix::dev::ToEnvelope<A, WithSpanContext<UpdateChainCachesMessage>>,
+    {
+        // self.commit()
         let store_update = self.finalize()?;
-        let msg = BlockingIoActorMessage::CommitStoreUpdate(store_update);
+
+        let commit_msg =
+            BlockingIoActorMessage::CommitStoreUpdate(store_update).with_span_context();
+        let update_caches_msg = UpdateChainCachesMessage {
+            updates: self.chain_store_cache_update,
+            head: self.head,
+            tail: self.tail,
+        };
         let future = async move {
-            let mailbox_result = blocking_io_actor.send(msg.with_span_context()).await;
-            // TODO: do we need to handle the mailbox error?
+            let mailbox_result = blocking_io_actor.send(commit_msg).await;
+            // TODO: do we need to handle the mailbox error?)
             // TODO: do we need to handle the IO error?
+            mailbox_result.unwrap().unwrap();
+            // This is a message from the client actor to itself, kind of.
+            // But we need &mut access to the actor but don't want to keep
+            // it alive during the previous step. Hence we use a helper
+            // message to resume with new &mut access.
+            let mailbox_result = client_io_actor.send(update_caches_msg.with_span_context()).await;
+            // TODO: handle errors?
             mailbox_result.unwrap().unwrap();
         };
         actix::Arbiter::current().spawn(future);
-        // TODO: do we need to wait or is persisting async okay?
-        self.update_caches()
+
+        // TODO: forward error somehow?
+        Ok(())
     }
 
     pub fn commit(mut self) -> Result<(), Error> {
         let store_update = self.finalize()?;
         store_update.commit()?;
-        self.update_caches()
+        Self::update_caches(self.chain_store_cache_update, self.chain_store, self.head, self.tail)
     }
 
-    fn update_caches(mut self) -> Result<(), Error> {
+    pub fn update_caches(
+        chain_store_cache_update: ChainStoreCacheUpdate,
+        chain_store: &mut ChainStore,
+        head: Option<Tip>,
+        tail: Option<u64>,
+    ) -> Result<(), Error> {
         let ChainStoreCacheUpdate {
             blocks,
             headers,
@@ -3302,81 +3343,83 @@ impl<'a> ChainStoreUpdate<'a> {
 
             outcomes: _,
             outcome_ids: _,
-        } = self.chain_store_cache_update;
+        } = chain_store_cache_update;
+        // let chain_store = self.chain_store;
+
         for (hash, block) in blocks {
-            self.chain_store.blocks.put(hash.into(), block);
+            chain_store.blocks.put(hash.into(), block);
         }
         for (hash, header) in headers {
-            self.chain_store.headers.put(hash.into(), header);
+            chain_store.headers.put(hash.into(), header);
         }
         for (hash, block_extra) in block_extras {
-            self.chain_store.block_extras.put(hash.into(), block_extra);
+            chain_store.block_extras.put(hash.into(), block_extra);
         }
         for ((block_hash, shard_uid), chunk_extra) in chunk_extras {
             let key = get_block_shard_uid(&block_hash, &shard_uid);
-            self.chain_store.chunk_extras.put(key, chunk_extra);
+            chain_store.chunk_extras.put(key, chunk_extra);
         }
         for (hash, chunk) in chunks {
-            self.chain_store.chunks.put(hash.into(), chunk);
+            chain_store.chunks.put(hash.into(), chunk);
         }
         for (hash, partial_chunk) in partial_chunks {
-            self.chain_store.partial_chunks.put(hash.into(), partial_chunk);
+            chain_store.partial_chunks.put(hash.into(), partial_chunk);
         }
         for (height, epoch_id_to_hash) in block_hash_per_height {
-            self.chain_store
+            chain_store
                 .block_hash_per_height
                 .put(index_to_bytes(height).to_vec(), Arc::new(epoch_id_to_hash));
         }
         for (height, block_hash) in height_to_hashes {
             let bytes = index_to_bytes(height);
             if let Some(hash) = block_hash {
-                self.chain_store.height.put(bytes.to_vec(), hash);
+                chain_store.height.put(bytes.to_vec(), hash);
             } else {
-                self.chain_store.height.pop(&bytes.to_vec());
+                chain_store.height.pop(&bytes.to_vec());
             }
         }
         for (block_hash, next_hash) in next_block_hashes {
-            self.chain_store.next_block_hashes.put(block_hash.into(), next_hash);
+            chain_store.next_block_hashes.put(block_hash.into(), next_hash);
         }
         for (epoch_hash, light_client_block) in epoch_light_client_blocks {
-            self.chain_store.epoch_light_client_blocks.put(epoch_hash.into(), light_client_block);
+            chain_store.epoch_light_client_blocks.put(epoch_hash.into(), light_client_block);
         }
         for ((block_hash, shard_id), shard_outgoing_receipts) in outgoing_receipts {
             let key = get_block_shard_id(&block_hash, shard_id);
-            self.chain_store.outgoing_receipts.put(key, shard_outgoing_receipts);
+            chain_store.outgoing_receipts.put(key, shard_outgoing_receipts);
         }
         for ((block_hash, shard_id), shard_incoming_receipts) in incoming_receipts {
             let key = get_block_shard_id(&block_hash, shard_id);
-            self.chain_store.incoming_receipts.put(key, shard_incoming_receipts);
+            chain_store.incoming_receipts.put(key, shard_incoming_receipts);
         }
         for (hash, invalid_chunk) in invalid_chunks {
-            self.chain_store.invalid_chunks.put(hash.into(), invalid_chunk);
+            chain_store.invalid_chunks.put(hash.into(), invalid_chunk);
         }
         for (receipt_id, shard_id) in receipt_id_to_shard_id {
-            self.chain_store.receipt_id_to_shard_id.put(receipt_id.into(), shard_id);
+            chain_store.receipt_id_to_shard_id.put(receipt_id.into(), shard_id);
         }
         for (hash, transaction) in transactions {
-            self.chain_store.transactions.put(hash.into(), transaction);
+            chain_store.transactions.put(hash.into(), transaction);
         }
         for (receipt_id, receipt) in receipts {
-            self.chain_store.receipts.put(receipt_id.into(), receipt);
+            chain_store.receipts.put(receipt_id.into(), receipt);
         }
         for (block_hash, refcount) in block_refcounts {
-            self.chain_store.block_refcounts.put(block_hash.into(), refcount);
+            chain_store.block_refcounts.put(block_hash.into(), refcount);
         }
         for (block_hash, merkle_tree) in block_merkle_tree {
-            self.chain_store.block_merkle_tree.put(block_hash.into(), merkle_tree);
+            chain_store.block_merkle_tree.put(block_hash.into(), merkle_tree);
         }
         for (block_ordinal, block_hash) in block_ordinal_to_hash {
-            self.chain_store
+            chain_store
                 .block_ordinal_to_hash
                 .put(index_to_bytes(block_ordinal).to_vec(), block_hash);
         }
         for block_height in processed_block_heights {
-            self.chain_store.processed_block_heights.put(index_to_bytes(block_height).to_vec(), ());
+            chain_store.processed_block_heights.put(index_to_bytes(block_height).to_vec(), ());
         }
-        self.chain_store.head = self.head;
-        self.chain_store.tail = self.tail;
+        chain_store.head = head;
+        chain_store.tail = tail;
 
         Ok(())
     }

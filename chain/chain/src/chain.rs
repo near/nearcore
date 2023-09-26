@@ -2261,7 +2261,12 @@ impl Chain {
             chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results)?;
         // chain_update.commit()?; // TODO: This commit can take forever
         if let Some(blocking_io_actor) = addr {
-            chain_update.chain_store_update.commit_async(blocking_io_actor)?;
+            // TODO
+            // chain_update.chain_store_update.commit_async(
+            //     self.client.client_actor.clone().expect("must have a client actor"),
+            //     blocking_io_actor,
+            // )?;
+            chain_update.commit()?;
         } else {
             chain_update.commit()?;
         }

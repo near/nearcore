@@ -31,7 +31,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::ChainStoreAccess;
 use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
-    ChainGenesis, DoneApplyChunkCallback, Provenance,
+    ChainGenesis, ChainStoreUpdate, DoneApplyChunkCallback, Provenance, UpdateChainCachesMessage,
 };
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_chain_primitives::error::EpochErrorResultToChainError;
@@ -159,6 +159,7 @@ impl ClientActor {
         adv: crate::adversarial::Controls,
         config_updater: Option<ConfigUpdater>,
     ) -> Result<Self, Error> {
+        let client = client.with_client_actor(address.clone());
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
         let self_addr_clone = self_addr;
@@ -1217,7 +1218,7 @@ impl ClientActor {
         }
     }
 
-    fn try_doomslug_timer(&mut self, _: &mut Context<ClientActor>) {
+    fn try_doomslug_timer(&mut self, ctx: &mut Context<ClientActor>) {
         let _span = tracing::debug_span!(target: "client", "try_doomslug_timer").entered();
         let _ = self.client.check_and_update_doomslug_tip();
         let approvals = self.client.doomslug.process_timer(StaticClock::instant());
@@ -1228,10 +1229,11 @@ impl ClientActor {
         chain_store_update
             .save_largest_target_height(self.client.doomslug.get_largest_target_height());
 
-        let addr = self.client.blocking_io_actor.clone();
+        let blocking_io_actor = self.client.blocking_io_actor.clone();
+        let client_actor = ctx.address();
         // this commit can take seconds! Try async commit?
         // match chain_store_update.commit() {
-        match chain_store_update.commit_async(addr) {
+        match chain_store_update.commit_async(client_actor, blocking_io_actor) {
             Ok(_) => {
                 let head = unwrap_or_return!(self.client.chain.head());
                 if self.client.is_validator(&head.epoch_id, &head.last_block_hash)
@@ -1852,6 +1854,20 @@ impl Handler<WithSpanContext<GetClientConfig>> for ClientActor {
         tracing::debug!(target: "client", ?msg);
 
         Ok(self.client.config.clone())
+    }
+}
+
+impl Handler<WithSpanContext<UpdateChainCachesMessage>> for ClientActor {
+    type Result = Result<(), near_chain_primitives::Error>;
+
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<UpdateChainCachesMessage>,
+        _: &mut Context<Self>,
+    ) -> Self::Result {
+        let UpdateChainCachesMessage { updates, head, tail } = msg.msg;
+        ChainStoreUpdate::update_caches(updates, self.client.chain.mut_store(), head, tail)
     }
 }
 

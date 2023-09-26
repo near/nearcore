@@ -585,6 +585,10 @@ impl NetworkState {
             }
         }
 
+        // if success {
+        //     return success;
+        // }
+
         let peer_id_from_account_data = accounts_data
             .keys_by_id
             .get(account_id)
@@ -617,7 +621,9 @@ impl NetworkState {
 
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
         let msg = self.sign_message(clock, msg);
-        if msg.body.is_important() {
+        // If we have sent it over tier 1 already, let's trust the tier 1
+        // network instead of resending 3x we resend only once.
+        if msg.body.is_important() &! success {
             for _ in 0..IMPORTANT_MESSAGE_RESENT_COUNT {
                 success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone());
             }

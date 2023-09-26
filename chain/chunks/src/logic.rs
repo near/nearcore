@@ -1,9 +1,11 @@
+use actix::Handler;
 use near_chain::{
     blocking_io_actor::BlockingIoActor, types::EpochManagerAdapter,
-    validate::validate_chunk_proofs, Chain, ChainStore,
+    validate::validate_chunk_proofs, Chain, ChainStore, UpdateChainCachesMessage,
 };
 use near_chunks_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_o11y::WithSpanContext;
 use near_primitives::{
     errors::EpochError,
     hash::CryptoHash,
@@ -215,18 +217,24 @@ fn create_partial_chunk(
     ))
 }
 
-pub fn persist_chunk(
+pub fn persist_chunk<A>(
     partial_chunk: PartialEncodedChunk,
     shard_chunk: Option<ShardChunk>,
     store: &mut ChainStore,
+    client_io_actor: actix::Addr<A>,
     blocking_io_actor: actix::Addr<BlockingIoActor>,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    A: Handler<WithSpanContext<UpdateChainCachesMessage>>,
+    <A as actix::Actor>::Context:
+        actix::dev::ToEnvelope<A, WithSpanContext<UpdateChainCachesMessage>>,
+{
     let mut update = store.store_update();
     update.save_partial_chunk(partial_chunk);
     if let Some(shard_chunk) = shard_chunk {
         update.save_chunk(shard_chunk);
     }
-    update.commit_async(blocking_io_actor)?;
+    update.commit_async(client_io_actor, blocking_io_actor)?;
     // update.commit()?;
     Ok(())
 }

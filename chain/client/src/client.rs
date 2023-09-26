@@ -167,6 +167,8 @@ pub struct Client {
 
     /// Actor address for IO operations that may block for a long time.
     pub blocking_io_actor: actix::Addr<BlockingIoActor>,
+    /// Reference to owning ClientActore, useful for async callbacks.
+    pub client_actor: Option<actix::Addr<crate::ClientActor>>,
 }
 
 impl Client {
@@ -344,7 +346,13 @@ impl Client {
             tier1_accounts_cache: None,
             flat_storage_creator,
             blocking_io_actor,
+            client_actor: None,
         })
+    }
+
+    pub fn with_client_actor(mut self, client_actor: actix::Addr<crate::ClientActor>) -> Self {
+        self.client_actor = Some(client_actor);
+        self
     }
 
     // Checks if it's been at least `stall_timeout` since the last time the head was updated, or
@@ -1345,6 +1353,7 @@ impl Client {
             partial_chunk,
             shard_chunk,
             self.chain.mut_store(),
+            self.client_actor.clone().expect("must have a client actor"),
             self.blocking_io_actor.clone(),
         )
         .expect("Could not persist chunk");
@@ -1719,6 +1728,7 @@ impl Client {
             partial_chunk.clone(),
             Some(shard_chunk),
             self.chain.mut_store(),
+            self.client_actor.clone().expect("must have a client actor"),
             self.blocking_io_actor.clone(),
         )?;
         self.on_chunk_header_ready_for_inclusion(encoded_chunk.cloned_header(), validator_id);
