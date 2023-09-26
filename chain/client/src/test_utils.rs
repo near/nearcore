@@ -213,7 +213,7 @@ pub fn setup(
     let store = create_test_store();
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
     let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
-    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+    let shard_tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone());
     let runtime = KeyValueRuntime::new_with_no_gc(store.clone(), epoch_manager.as_ref(), archive);
     let chain_genesis = ChainGenesis {
         time: genesis_time,
@@ -250,7 +250,7 @@ pub fn setup(
 
     let signer = Arc::new(create_test_signer(account_id.as_str()));
     let telemetry = TelemetryActor::default().start();
-    let config = ClientConfig::test(
+    let mut config = ClientConfig::test(
         skip_sync_wait,
         min_block_prod_time,
         max_block_prod_time,
@@ -260,6 +260,7 @@ pub fn setup(
         epoch_sync_enabled,
         state_sync_enabled,
     );
+    config.tracked_shards = vec![0];
 
     let adv = crate::adversarial::Controls::default();
 
