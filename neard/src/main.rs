@@ -32,7 +32,13 @@ fn neard_version() -> Version {
 static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(get_default_home);
 
 #[global_allocator]
+#[cfg(not(feature = "c_memory_stats"))]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
+#[global_allocator]
+#[cfg(feature = "c_memory_stats")]
+static ALLOC: near_rust_allocator_proxy::ProxyAllocator<tikv_jemallocator::Jemalloc> =
+    near_rust_allocator_proxy::ProxyAllocator::new(tikv_jemallocator::Jemalloc);
 
 fn main() -> anyhow::Result<()> {
     if env::var("RUST_BACKTRACE").is_err() {

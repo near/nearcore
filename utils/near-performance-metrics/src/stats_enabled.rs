@@ -197,11 +197,7 @@ pub(crate) struct Stats {
 
 #[cfg(all(target_os = "linux", feature = "c_memory_stats"))]
 fn get_c_memory_usage_cur_thread() -> ByteSize {
-    // hack to get memory usage stats for c memory usage per thread
-    // This feature will only work if near is started with environment
-    // LD_PRELOAD=${PWD}/bins/near-c-allocator-proxy.so nearup ...
-    // from https://github.com/near/near-memory-tracker/blob/master/near-dump-analyzer
-    unsafe { ByteSize::b(libc::malloc(usize::MAX - 1) as u64) }
+    ByteSize::b(near_rust_allocator_proxy::current_thread_memory_usage() as u64)
 }
 
 #[cfg(any(not(target_os = "linux"), not(feature = "c_memory_stats")))]
@@ -211,11 +207,7 @@ fn get_c_memory_usage_cur_thread() -> ByteSize {
 
 #[cfg(all(target_os = "linux", feature = "c_memory_stats"))]
 fn get_c_memory_usage() -> ByteSize {
-    // hack to get memory usage stats for c memory usage
-    // This feature will only work if near is started with environment
-    // LD_PRELOAD=${PWD}/bins/near-c-allocator-proxy.so nearup ...
-    // from https://github.com/near/near-memory-tracker/blob/master/near-dump-analyzer
-    unsafe { ByteSize::b(libc::malloc(usize::MAX) as u64) }
+    ByteSize::b(near_rust_allocator_proxy::total_memory_usage() as u64)
 }
 
 #[cfg(any(not(target_os = "linux"), not(feature = "c_memory_stats")))]

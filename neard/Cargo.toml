@@ -54,6 +54,8 @@ near-state-viewer.workspace = true
 near-store.workspace = true
 near-undo-block.workspace = true
 
+near-rust-allocator-proxy = { workspace = true, optional = true }
+
 [build-dependencies]
 anyhow.workspace = true
 rustc_version = "0.4"
@@ -62,7 +64,7 @@ rustc_version = "0.4"
 default = ["json_rpc", "rosetta_rpc"]
 
 performance_stats = ["nearcore/performance_stats"]
-c_memory_stats = ["nearcore/c_memory_stats"]
+c_memory_stats = ["nearcore/c_memory_stats", "near-rust-allocator-proxy"]
 test_features = ["nearcore/test_features"]
 expensive_tests = ["nearcore/expensive_tests"]
 no_cache = ["nearcore/no_cache"]

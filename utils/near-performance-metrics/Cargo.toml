@@ -21,6 +21,9 @@ tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 
+near-rust-allocator-proxy = { workspace = true, optional = true }
+
+
 [features]
-c_memory_stats = []
+c_memory_stats = ["near-rust-allocator-proxy"]
 performance_stats = ["bytesize"]

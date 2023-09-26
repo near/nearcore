@@ -4066,6 +4066,7 @@ dependencies = [
  "bytesize",
  "futures",
  "libc",
+ "near-rust-allocator-proxy",
  "once_cell",
  "strum",
  "tokio",
@@ -4224,6 +4225,15 @@ dependencies = [
  "serde",
  "serde_json",
  "syn 2.0.15",
+]
+
+[[package]]
+name = "near-rust-allocator-proxy"
+version = "0.4.0"
+dependencies = [
+ "backtrace",
+ "nix 0.15.0",
+ "tracing",
 ]
 
 [[package]]
@@ -4665,6 +4675,7 @@ dependencies = [
  "near-performance-metrics",
  "near-ping",
  "near-primitives",
+ "near-rust-allocator-proxy",
  "near-state-parts",
  "near-store",
  "near-undo-block",
