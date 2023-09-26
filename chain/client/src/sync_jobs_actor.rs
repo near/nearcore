@@ -9,7 +9,7 @@ use near_chain::Chain;
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::StatePartKey;
+use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::ShardId;
 use near_store::DBCol;
 
