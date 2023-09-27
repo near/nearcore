@@ -357,6 +357,10 @@ pub struct TrieCachingStorage {
     /// not guaranteed.
     pub(crate) shard_cache: TrieCache,
 
+    /// Caches data that is specific for contract
+    /// For now the "specific" contracts are hardcoded
+    pub(crate) contract_shard_cache: HashMap<String, TrieCache>,
+
     /// The entry point for the runtime to submit prefetch requests.
     pub(crate) prefetch_api: Option<PrefetchApi>,
 
@@ -383,6 +387,7 @@ impl TrieCachingStorage {
     pub fn new(
         store: Store,
         shard_cache: TrieCache,
+        contract_shard_cache: HashMap<String, TrieCache>,
         shard_uid: ShardUId,
         is_view: bool,
         prefetch_api: Option<PrefetchApi>,
@@ -409,7 +414,7 @@ impl TrieCachingStorage {
             prefetch_retry: metrics::PREFETCH_RETRY.with_label_values(&metrics_labels[..1]),
             prefetch_conflict: metrics::PREFETCH_CONFLICT.with_label_values(&metrics_labels[..1]),
         };
-        TrieCachingStorage { store, shard_uid, is_view, shard_cache, prefetch_api, metrics }
+        TrieCachingStorage { store, shard_uid, is_view, shard_cache, contract_shard_cache, prefetch_api, metrics }
     }
 
     pub fn get_key_from_shard_uid_and_hash(shard_uid: ShardUId, hash: &CryptoHash) -> [u8; 40] {

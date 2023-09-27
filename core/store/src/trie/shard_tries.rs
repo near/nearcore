@@ -231,9 +231,19 @@ impl ShardTries {
                 .clone()
         });
 
+        let mut contract_shard_cache = HashMap::new();
+        // TODO(jbajic) Fix this hardcode
+        if shard_uid.shard_id == 2 {
+            contract_shard_cache.insert(
+                "token.sweat".to_string(),
+                TrieCache::new(&self.0.trie_config, shard_uid, true),
+            );
+        }
+
         let storage = Rc::new(TrieCachingStorage::new(
             self.0.store.clone(),
             cache,
+            contract_shard_cache,
             shard_uid,
             is_view,
             prefetch_api,
@@ -292,7 +302,8 @@ impl ShardTries {
                 .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, true))
                 .clone()
         };
-        let storage = Rc::new(TrieCachingStorage::new(store, cache, shard_uid, true, None));
+        let storage =
+            Rc::new(TrieCachingStorage::new(store, cache, HashMap::new(), shard_uid, true, None));
         let flat_storage_chunk_view = flat_storage_manager.chunk_view(shard_uid, *block_hash);
 
         Ok(Trie::new(storage, state_root, flat_storage_chunk_view))

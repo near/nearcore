@@ -272,6 +272,7 @@ impl Testbed<'_> {
         let caching_storage = TrieCachingStorage::new(
             store,
             TrieCache::new(&TrieConfig::default(), ShardUId::single_shard(), false),
+            HashMap::new(),
             ShardUId::single_shard(),
             is_view,
             prefetcher,
