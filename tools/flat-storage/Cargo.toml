@@ -13,12 +13,11 @@ anyhow.workspace = true
 borsh.workspace = true
 clap.workspace = true
 rayon.workspace = true
-
 tqdm.workspace = true
+tracing.workspace = true
 
 near-chain.workspace = true
 near-chain-configs.workspace = true
-
 near-epoch-manager.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true

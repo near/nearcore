@@ -9,6 +9,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, Gas, Nonce};
+use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::{config::GenesisExt, NightshadeRuntime};
 use std::io;
@@ -48,11 +49,13 @@ impl Scenario {
             let store = opener.open().unwrap();
             (Some(tempdir), store.get_hot_store())
         };
+        let home_dir = tempdir.as_ref().map(|d| d.path());
+        initialize_genesis_state(store.clone(), &genesis, home_dir);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime = NightshadeRuntime::test_with_runtime_config_store(
-            if let Some(tempdir) = &tempdir { tempdir.path() } else { Path::new(".") },
+            home_dir.unwrap_or(Path::new(".")),
             store.clone(),
-            &genesis,
+            &genesis.config,
             epoch_manager.clone(),
             runtime_config_store,
         );

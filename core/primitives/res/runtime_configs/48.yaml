@@ -25,3 +25,4 @@ data_receipt_creation_per_byte: {
     execution: 17_212_011,
   },
 }
+vm_kind: { old: Wasmer0, new: Wasmer2 }

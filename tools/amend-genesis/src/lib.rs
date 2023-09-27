@@ -565,7 +565,6 @@ mod test {
                 (0..num_shards - 1)
                     .map(|f| AccountId::from_str(format!("shard{}.test.near", f).as_str()).unwrap())
                     .collect(),
-                vec![],
                 None,
                 1,
             );

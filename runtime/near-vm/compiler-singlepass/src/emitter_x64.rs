@@ -62,7 +62,6 @@ pub(crate) enum Size {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
 pub(crate) enum XMMOrMemory {
     XMM(XMM),
     Memory(GPR, i32),

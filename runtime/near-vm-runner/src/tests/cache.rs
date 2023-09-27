@@ -1,21 +1,19 @@
 //! Tests that `CompiledContractCache` is working correctly. Currently testing only wasmer code, so disabled outside of x86_64
 #![cfg(target_arch = "x86_64")]
 
-use super::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
-use crate::internal::VMKind;
+use super::{create_context, with_vm_variants};
+use crate::logic::errors::VMRunnerError;
+use crate::logic::mocks::mock_external::MockedExternal;
+use crate::logic::Config;
+use crate::logic::{CompiledContract, CompiledContractCache};
 use crate::runner::VMResult;
 use crate::wasmer2_runner::Wasmer2VM;
+use crate::ContractCode;
+use crate::VMKind;
 use crate::{prepare, MockCompiledContractCache};
 use assert_matches::assert_matches;
-use near_primitives::contract::ContractCode;
-use near_primitives::hash::CryptoHash;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::types::{CompiledContract, CompiledContractCache};
-use near_stable_hasher::StableHasher;
-use near_vm_errors::VMRunnerError;
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::VMConfig;
-use std::hash::{Hash, Hasher};
+use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use wasmer_compiler::{CpuFeature, Target};
@@ -23,7 +21,7 @@ use wasmer_engine::Executable;
 
 #[test]
 fn test_caches_compilation_error() {
-    let config = VMConfig::test();
+    let config = Config::test();
     with_vm_variants(&config, |vm_kind: VMKind| {
         match vm_kind {
             VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
@@ -47,7 +45,7 @@ fn test_caches_compilation_error() {
 
 #[test]
 fn test_does_not_cache_io_error() {
-    let config = VMConfig::test();
+    let config = Config::test();
     with_vm_variants(&config, |vm_kind: VMKind| {
         match vm_kind {
             VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
@@ -63,7 +61,7 @@ fn test_does_not_cache_io_error() {
             make_cached_contract_call_vm(&config, &cache, &code, "main", prepaid_gas, vm_kind);
         assert_matches!(
             result.err(),
-            Some(VMRunnerError::CacheError(near_vm_errors::CacheError::ReadError(_)))
+            Some(VMRunnerError::CacheError(crate::logic::errors::CacheError::ReadError(_)))
         );
 
         cache.set_write_fault(true);
@@ -71,13 +69,13 @@ fn test_does_not_cache_io_error() {
             make_cached_contract_call_vm(&config, &cache, &code, "main", prepaid_gas, vm_kind);
         assert_matches!(
             result.err(),
-            Some(VMRunnerError::CacheError(near_vm_errors::CacheError::WriteError(_)))
+            Some(VMRunnerError::CacheError(crate::logic::errors::CacheError::WriteError(_)))
         );
     })
 }
 
 fn make_cached_contract_call_vm(
-    config: &VMConfig,
+    config: &Config,
     cache: &dyn CompiledContractCache,
     code: &[u8],
     method_name: &str,
@@ -98,7 +96,6 @@ fn make_cached_contract_call_vm(
         context,
         &fees,
         &promise_results,
-        LATEST_PROTOCOL_VERSION,
         Some(cache),
     )
 }
@@ -114,32 +111,30 @@ fn test_wasmer2_artifact_output_stability() {
     let prepared_hashes = [
         11313378614122864359,
         15129741658507107429,
-        5094307245783848260,
-        7694538159330999784,
+        6663551338814735895,
+        17573418911223110359,
         3130574445877428311,
         11574598916196339098,
         10719493536745069553,
     ];
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let compiled_hashes = [
-        16241863964906842660,
-        9891733092817574479,
-        10546692418763942004,
-        13653435153125107606,
-        10549554738494211661,
-        11197084127324548219,
-        6788687979647989853,
+        10064221885882795403,
+        3125775751094251057,
+        5419113076376709775,
+        11996380560209519923,
+        5262356478082097591,
+        15002713309850850128,
+        17666356303775050986,
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {
         let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
 
-        let config = VMConfig::test();
+        let config = Config::test();
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::Wasmer2).unwrap();
-        let mut hasher = StableHasher::new();
-        (&contract.code(), &prepared_code).hash(&mut hasher);
-        got_prepared_hashes.push(hasher.finish());
+        got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));
 
         let mut features = CpuFeature::set();
         features.insert(CpuFeature::AVX);
@@ -148,9 +143,78 @@ fn test_wasmer2_artifact_output_stability() {
         let vm = Wasmer2VM::new_for_target(config, target);
         let artifact = vm.compile_uncached(&contract).unwrap();
         let serialized = artifact.serialize().unwrap();
-        let mut hasher = StableHasher::new();
-        serialized.hash(&mut hasher);
-        let this_hash = hasher.finish();
+        let this_hash = crate::utils::stable_hash(&serialized);
+        got_compiled_hashes.push(this_hash);
+
+        std::fs::write(format!("/tmp/artifact{}", this_hash), serialized).unwrap();
+    }
+    // These asserts have failed as a result of some change and the following text describes what
+    // the implications of the change.
+    //
+    // May need a protocol version change, and definitely wants a `WASMER2_CONFIG version update
+    // too, as below. Maybe something else too.
+    assert!(
+        got_prepared_hashes == prepared_hashes,
+        "contract preparation hashes have changed to {:#?}",
+        got_prepared_hashes
+    );
+    // In this case you will need to adjust the WASMER2_CONFIG version so that the cached contracts
+    // are evicted from the contract cache.
+    assert!(
+        got_compiled_hashes == compiled_hashes,
+        "VM output hashes have changed to {:#?}",
+        got_compiled_hashes
+    );
+    // Once it has been confirmed that these steps have been done, the expected hashes in this test
+    // can be adjusted.
+}
+
+#[test]
+fn test_near_vm_artifact_output_stability() {
+    use crate::near_vm_runner::NearVM;
+    use near_vm_compiler::{CpuFeature, Target};
+    // If this test has failed, you want to adjust the necessary constants so that `cache::vm_hash`
+    // changes (and only then the hashes here).
+    //
+    // Note that this test is a best-effort fish net. Some changes that should modify the hash will
+    // fall through the cracks here, but hopefully it should catch most of the fish just fine.
+    let seeds = [2, 3, 5, 7, 11, 13, 17];
+    let prepared_hashes = [
+        15237011375120738807,
+        3750594434467176559,
+        2196541628148102482,
+        1576495094908614397,
+        6394387219699970793,
+        18132026143745992229,
+        4095228008100475322,
+    ];
+    let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
+    let compiled_hashes = [
+        4853457605418485197,
+        13732980080772388685,
+        5341774541420947021,
+        11161633624742571232,
+        12949634280637067071,
+        6571507299571270433,
+        2426595065881413005,
+    ];
+    let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
+    for seed in seeds {
+        let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
+
+        let config = Config::test();
+        let prepared_code =
+            prepare::prepare_contract(contract.code(), &config, VMKind::NearVm).unwrap();
+        got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));
+
+        let mut features = CpuFeature::set();
+        features.insert(CpuFeature::AVX);
+        let triple = "x86_64-unknown-linux-gnu".parse().unwrap();
+        let target = Target::new(triple, features);
+        let vm = NearVM::new_for_target(config, target);
+        let artifact = vm.compile_uncached(&contract).unwrap();
+        let serialized = artifact.serialize().unwrap();
+        let this_hash = crate::utils::stable_hash(&serialized);
         got_compiled_hashes.push(this_hash);
 
         std::fs::write(format!("/tmp/artifact{}", this_hash), serialized).unwrap();

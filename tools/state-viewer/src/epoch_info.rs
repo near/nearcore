@@ -66,14 +66,14 @@ pub(crate) fn print_epoch_info(
                 epoch_manager,
             ) {
                 println!("Can't display Epoch Info: {:?}", err);
-                break;
+                continue;
             }
             println!("---");
             if let Err(err) =
                 display_block_and_chunk_producers(epoch_id, epoch_info, chain_store, epoch_manager)
             {
                 println!("Can't display Epoch Info: {:?}", err);
-                break;
+                continue;
             }
         }
     }

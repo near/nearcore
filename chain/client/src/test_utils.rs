@@ -1,16 +1,24 @@
+// FIXME(nagisa): Is there a good reason we're triggering this? Luckily though this is just test
+// code so we're in the clear.
+#![allow(clippy::arc_with_non_send_sync)]
+
+use itertools::Itertools;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::mem::swap;
 use std::ops::DerefMut;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, AsyncContext, Context};
+use actix_rt::{Arbiter, System};
 use chrono::DateTime;
 use futures::{future, FutureExt};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{CanSend, IntoSender, LateBoundSender, Sender};
 use near_async::time;
+use near_chain::resharding::StateSplitRequest;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_chunks::ShardsManager;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
@@ -25,7 +33,8 @@ use tracing::info;
 
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use chrono::Utc;
-use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
+use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest};
+use near_chain::state_snapshot_actor::MakeSnapshotCallback;
 use near_chain::test_utils::{
     wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
     MockEpochManager, ValidatorSchedule,
@@ -52,8 +61,8 @@ use near_network::types::{
 };
 use near_o11y::testonly::TracingCapture;
 use near_o11y::WithSpanContextExt;
+use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
-use near_primitives::delegate_action::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
@@ -76,13 +85,12 @@ use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind, StateItem,
 };
 use near_store::test_utils::create_test_store;
-use near_store::Store;
+use near_store::{NodeStorage, Store};
 use near_telemetry::TelemetryActor;
 
 use crate::adapter::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
     BlockResponse, ProcessTxResponse, SetNetworkInfo, StateRequestHeader, StateRequestPart,
-    StateResponse,
 };
 
 pub struct PeerManagerMock {
@@ -176,7 +184,7 @@ impl Client {
         accepted_blocks
     }
 
-    /// This function finishes processing block with hash `hash`, if the procesing of that block
+    /// This function finishes processing block with hash `hash`, if the processing of that block
     /// has started.
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
         if let Ok(()) = wait_for_block_in_processing(&mut self.chain, hash) {
@@ -198,6 +206,7 @@ pub fn setup(
     enable_doomslug: bool,
     archive: bool,
     epoch_sync_enabled: bool,
+    state_sync_enabled: bool,
     network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
@@ -231,7 +240,12 @@ pub fn setup(
         runtime.clone(),
         &chain_genesis,
         doomslug_threshold_mode,
-        ChainConfig { save_trie_changes: true, background_migration_threads: 1 },
+        ChainConfig {
+            save_trie_changes: true,
+            background_migration_threads: 1,
+            state_snapshot_every_n_blocks: None,
+        },
+        None,
     )
     .unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
@@ -246,6 +260,7 @@ pub fn setup(
         archive,
         true,
         epoch_sync_enabled,
+        state_sync_enabled,
     );
 
     let adv = crate::adversarial::Controls::default();
@@ -283,6 +298,7 @@ pub fn setup(
         Some(signer.clone()),
         enable_doomslug,
         TEST_SEED,
+        None,
     )
     .unwrap();
     let client_actor = ClientActor::new(
@@ -312,6 +328,7 @@ pub fn setup_only_view(
     enable_doomslug: bool,
     archive: bool,
     epoch_sync_enabled: bool,
+    state_sync_enabled: bool,
     network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
@@ -345,7 +362,12 @@ pub fn setup_only_view(
         runtime.clone(),
         &chain_genesis,
         doomslug_threshold_mode,
-        ChainConfig { save_trie_changes: true, background_migration_threads: 1 },
+        ChainConfig {
+            save_trie_changes: true,
+            background_migration_threads: 1,
+            state_snapshot_every_n_blocks: None,
+        },
+        None,
     )
     .unwrap();
 
@@ -359,6 +381,7 @@ pub fn setup_only_view(
         archive,
         true,
         epoch_sync_enabled,
+        state_sync_enabled,
     );
 
     let adv = crate::adversarial::Controls::default();
@@ -428,6 +451,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
             enable_doomslug,
             false,
             false,
+            true,
             network_adapter.clone().into(),
             transaction_validity_period,
             StaticClock::utc(),
@@ -957,16 +981,6 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::StateResponse { route_back, response } => {
-                            for (i, address) in addresses.iter().enumerate() {
-                                if route_back == address {
-                                    connectors1[i].client_actor.do_send(
-                                        StateResponse(Box::new(response.clone()))
-                                            .with_span_context(),
-                                    );
-                                }
-                            }
-                        }
                         NetworkRequests::AnnounceAccount(announce_account) => {
                             let mut aa = announced_accounts1.write().unwrap();
                             let key = (
@@ -1067,6 +1081,7 @@ pub fn setup_mock_all_validators(
                 enable_doomslug,
                 archive1[index],
                 epoch_sync_enabled1[index],
+                true,
                 Arc::new(pm).into(),
                 10000,
                 genesis_time,
@@ -1141,11 +1156,20 @@ pub fn setup_client_with_runtime(
     rng_seed: RngSeed,
     archive: bool,
     save_trie_changes: bool,
+    make_state_snapshot_callback: Option<MakeSnapshotCallback>,
 ) -> Client {
     let validator_signer =
         account_id.map(|x| Arc::new(create_test_signer(x.as_str())) as Arc<dyn ValidatorSigner>);
-    let mut config =
-        ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
+    let mut config = ClientConfig::test(
+        true,
+        10,
+        20,
+        num_validator_seats,
+        archive,
+        save_trie_changes,
+        true,
+        true,
+    );
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
@@ -1158,6 +1182,7 @@ pub fn setup_client_with_runtime(
         validator_signer,
         enable_doomslug,
         rng_seed,
+        make_state_snapshot_callback,
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;
@@ -1194,6 +1219,7 @@ pub fn setup_client(
         rng_seed,
         archive,
         save_trie_changes,
+        None,
     )
 }
 
@@ -1217,7 +1243,12 @@ pub fn setup_synchronous_shards_manager(
         runtime,
         chain_genesis,
         DoomslugThresholdMode::TwoThirds, // irrelevant
-        ChainConfig { save_trie_changes: true, background_migration_threads: 1 }, // irrelevant
+        ChainConfig {
+            save_trie_changes: true,
+            background_migration_threads: 1,
+            state_snapshot_every_n_blocks: None,
+        }, // irrelevant
+        None,
     )
     .unwrap();
     let chain_head = chain.head().unwrap();
@@ -1275,6 +1306,7 @@ pub fn setup_client_with_synchronous_shards_manager(
         rng_seed,
         archive,
         save_trie_changes,
+        None,
     )
 }
 
@@ -1331,6 +1363,7 @@ pub struct TestEnvBuilder {
     chain_genesis: ChainGenesis,
     clients: Vec<AccountId>,
     validators: Vec<AccountId>,
+    home_dirs: Option<Vec<PathBuf>>,
     stores: Option<Vec<Store>>,
     epoch_managers: Option<Vec<EpochManagerKind>>,
     shard_trackers: Option<Vec<ShardTracker>>,
@@ -1342,6 +1375,7 @@ pub struct TestEnvBuilder {
     seeds: HashMap<AccountId, RngSeed>,
     archive: bool,
     save_trie_changes: bool,
+    add_state_snapshots: bool,
 }
 
 /// Builder for the [`TestEnv`] structure.
@@ -1355,6 +1389,7 @@ impl TestEnvBuilder {
             chain_genesis,
             clients,
             validators,
+            home_dirs: None,
             stores: None,
             epoch_managers: None,
             shard_trackers: None,
@@ -1364,6 +1399,7 @@ impl TestEnvBuilder {
             seeds,
             archive: false,
             save_trie_changes: true,
+            add_state_snapshots: false,
         }
     }
 
@@ -1411,14 +1447,44 @@ impl TestEnvBuilder {
         self.validators(Self::make_accounts(num))
     }
 
+    fn ensure_home_dirs(mut self) -> Self {
+        if self.home_dirs.is_none() {
+            let home_dirs = (0..self.clients.len())
+                .map(|_| {
+                    let temp_dir = tempfile::tempdir().unwrap();
+                    temp_dir.into_path()
+                })
+                .collect_vec();
+            self.home_dirs = Some(home_dirs)
+        }
+        self
+    }
+
     /// Overrides the stores that are used to create epoch managers and runtimes.
     pub fn stores(mut self, stores: Vec<Store>) -> Self {
-        assert!(stores.len() == self.clients.len());
+        assert_eq!(stores.len(), self.clients.len());
         assert!(self.stores.is_none(), "Cannot override twice");
         assert!(self.epoch_managers.is_none(), "Cannot override store after epoch_managers");
         assert!(self.runtimes.is_none(), "Cannot override store after runtimes");
         self.stores = Some(stores);
         self
+    }
+
+    pub fn real_stores(self) -> Self {
+        let ret = self.ensure_home_dirs();
+        let stores = ret
+            .home_dirs
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|home_dir| {
+                NodeStorage::opener(home_dir.as_path(), false, &Default::default(), None)
+                    .open()
+                    .unwrap()
+                    .get_hot_store()
+            })
+            .collect_vec();
+        ret.stores(stores)
     }
 
     /// Internal impl to make sure the stores are initialized.
@@ -1438,7 +1504,7 @@ impl TestEnvBuilder {
     /// (one by default).  If that does not hold, [`Self::build`] method will
     /// panic.
     pub fn mock_epoch_managers(mut self, epoch_managers: Vec<Arc<MockEpochManager>>) -> Self {
-        assert!(epoch_managers.len() == self.clients.len());
+        assert_eq!(epoch_managers.len(), self.clients.len());
         assert!(self.epoch_managers.is_none(), "Cannot override twice");
         assert!(
             self.num_shards.is_none(),
@@ -1461,7 +1527,7 @@ impl TestEnvBuilder {
     /// (one by default).  If that does not hold, [`Self::build`] method will
     /// panic.
     pub fn epoch_managers(mut self, epoch_managers: Vec<Arc<EpochManagerHandle>>) -> Self {
-        assert!(epoch_managers.len() == self.clients.len());
+        assert_eq!(epoch_managers.len(), self.clients.len());
         assert!(self.epoch_managers.is_none(), "Cannot override twice");
         assert!(
             self.num_shards.is_none(),
@@ -1529,8 +1595,11 @@ impl TestEnvBuilder {
     /// Visible for extension methods in integration-tests.
     pub fn internal_ensure_epoch_managers_for_nightshade_runtime(
         self,
-    ) -> (Self, Vec<Store>, Vec<Arc<EpochManagerHandle>>) {
+    ) -> (Self, Vec<PathBuf>, Vec<Store>, Vec<Arc<EpochManagerHandle>>) {
         let builder = self.ensure_epoch_managers();
+        let default_home_dirs =
+            (0..builder.clients.len()).map(|_| PathBuf::from("../../../..")).collect_vec();
+        let home_dirs = builder.home_dirs.clone().unwrap_or(default_home_dirs);
         let stores = builder.stores.clone().unwrap();
         let epoch_managers = builder
             .epoch_managers
@@ -1544,13 +1613,13 @@ impl TestEnvBuilder {
                 EpochManagerKind::Handle(handle) => handle,
             })
             .collect();
-        (builder, stores, epoch_managers)
+        (builder, home_dirs, stores, epoch_managers)
     }
 
     /// Specifies custom ShardTracker for each client.  This allows us to
     /// construct [`TestEnv`] with a custom implementation.
     pub fn shard_trackers(mut self, shard_trackers: Vec<ShardTracker>) -> Self {
-        assert!(shard_trackers.len() == self.clients.len());
+        assert_eq!(shard_trackers.len(), self.clients.len());
         assert!(self.shard_trackers.is_none(), "Cannot override twice");
         self.shard_trackers = Some(shard_trackers);
         self
@@ -1598,7 +1667,7 @@ impl TestEnvBuilder {
     /// Specifies custom RuntimeAdapter for each client.  This allows us to
     /// construct [`TestEnv`] with a custom implementation.
     pub fn runtimes(mut self, runtimes: Vec<Arc<dyn RuntimeAdapter>>) -> Self {
-        assert!(runtimes.len() == self.clients.len());
+        assert_eq!(runtimes.len(), self.clients.len());
         assert!(self.runtimes.is_none(), "Cannot override twice");
         self.runtimes = Some(runtimes);
         self
@@ -1724,6 +1793,16 @@ impl TestEnvBuilder {
                     Some(seed) => *seed,
                     None => TEST_SEED,
                 };
+                let make_state_snapshot_callback : Option<MakeSnapshotCallback> = if self.add_state_snapshots {
+                    let runtime = runtime.clone();
+                    let snapshot : MakeSnapshotCallback = Arc::new(move |prev_block_hash, shard_uids, block| {
+                        tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
+                        runtime.get_tries().make_state_snapshot(&prev_block_hash, &shard_uids, &block).unwrap();
+                    });
+                    Some(snapshot)
+                } else {
+                    None
+                };
                 setup_client_with_runtime(
                     u64::try_from(num_validators).unwrap(),
                     Some(account_id),
@@ -1737,6 +1816,7 @@ impl TestEnvBuilder {
                     rng_seed,
                     self.archive,
                     self.save_trie_changes,
+                    make_state_snapshot_callback,
                 )
             })
             .collect();
@@ -1763,6 +1843,11 @@ impl TestEnvBuilder {
 
     fn make_accounts(count: usize) -> Vec<AccountId> {
         (0..count).map(|i| format!("test{}", i).parse().unwrap()).collect()
+    }
+
+    pub fn use_state_snapshots(mut self) -> Self {
+        self.add_state_snapshots = true;
+        self
     }
 }
 
@@ -1830,21 +1915,48 @@ impl TestEnv {
 
     pub fn process_partial_encoded_chunks(&mut self) {
         let network_adapters = self.network_adapters.clone();
-        for network_adapter in network_adapters {
-            // process partial encoded chunks
-            while let Some(request) = network_adapter.pop() {
-                if let PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::PartialEncodedChunkMessage {
-                        account_id,
-                        partial_encoded_chunk,
-                    },
-                ) = request
-                {
-                    self.shards_manager(&account_id).send(
-                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
-                            PartialEncodedChunk::from(partial_encoded_chunk),
-                        ),
-                    );
+
+        let mut keep_going = true;
+        while keep_going {
+            for network_adapter in network_adapters.iter() {
+                keep_going = false;
+                // process partial encoded chunks
+                while let Some(request) = network_adapter.pop() {
+                    // if there are any requests in any of the adapters reset
+                    // keep going to true as processing of any message may
+                    // trigger more messages to be processed in other clients
+                    // it's a bit sad and it would be much nicer if all messages
+                    // were forwarded to a single queue
+                    // TODO would be nicer to first handle all PECs and then all PECFs
+                    keep_going = true;
+                    match request {
+                        PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::PartialEncodedChunkMessage {
+                                account_id,
+                                partial_encoded_chunk,
+                            },
+                        ) => {
+                            let partial_encoded_chunk =
+                                PartialEncodedChunk::from(partial_encoded_chunk);
+                            let message =
+                                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
+                                    partial_encoded_chunk,
+                                );
+                            self.shards_manager(&account_id).send(message);
+                        }
+                        PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::PartialEncodedChunkForward { account_id, forward },
+                        ) => {
+                            let message =
+                                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
+                                    forward,
+                                );
+                            self.shards_manager(&account_id).send(message);
+                        }
+                        _ => {
+                            tracing::debug!(target: "test", ?request, "skipping unsupported request type");
+                        }
+                    }
                 }
             }
         }
@@ -1939,6 +2051,9 @@ impl TestEnv {
     }
 
     pub fn process_shards_manager_responses_and_finish_processing_blocks(&mut self, idx: usize) {
+        let _span =
+            tracing::debug_span!(target: "test", "process_shards_manager", client=idx).entered();
+
         loop {
             self.process_shards_manager_responses(idx);
             if self.clients[idx].finish_blocks_in_processing().is_empty() {
@@ -2070,6 +2185,7 @@ impl TestEnv {
             rng_seed,
             self.archive,
             self.save_trie_changes,
+            None,
         )
     }
 
@@ -2132,7 +2248,7 @@ impl TestEnv {
             relayer,
             sender,
             &relayer_signer,
-            vec![Action::Delegate(signed_delegate_action)],
+            vec![Action::Delegate(Box::new(signed_delegate_action))],
             tip.last_block_hash,
         )
     }
@@ -2171,12 +2287,12 @@ impl TestEnv {
     /// deployed already.
     pub fn call_main(&mut self, account: &AccountId) -> FinalExecutionOutcomeView {
         let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
-        let actions = vec![Action::FunctionCall(FunctionCallAction {
+        let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: vec![],
             gas: 3 * 10u64.pow(14),
             deposit: 0,
-        })];
+        }))];
         let tx = self.tx_from_actions(actions, &signer, signer.account_id.clone());
         self.execute_tx(tx).unwrap()
     }
@@ -2267,18 +2383,18 @@ pub fn create_chunk(
         let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
             *header.prev_block_hash(),
             header.prev_state_root(),
-            header.outcome_root(),
+            header.prev_outcome_root(),
             header.height_created(),
             header.shard_id(),
             &mut rs,
-            header.gas_used(),
+            header.prev_gas_used(),
             header.gas_limit(),
-            header.balance_burnt(),
+            header.prev_balance_burnt(),
             tx_root,
-            header.validator_proposals().collect(),
+            header.prev_validator_proposals().collect(),
             transactions,
-            decoded_chunk.receipts(),
-            header.outgoing_receipts_root(),
+            decoded_chunk.prev_outgoing_receipts(),
+            header.prev_outgoing_receipts_root(),
             &*signer,
             PROTOCOL_VERSION,
         )
@@ -2341,7 +2457,8 @@ pub fn run_catchup(
     let state_split = move |msg: StateSplitRequest| {
         state_split_inside_messages.write().unwrap().push(msg);
     };
-    let runtime = client.runtime_adapter.clone();
+    let _ = System::new();
+    let state_parts_arbiter_handle = Arbiter::new().handle();
     loop {
         client.run_catchup(
             highest_height_peers,
@@ -2349,6 +2466,7 @@ pub fn run_catchup(
             &block_catch_up,
             &state_split,
             Arc::new(|_| {}),
+            &state_parts_arbiter_handle,
         )?;
         let mut catchup_done = true;
         for msg in block_messages.write().unwrap().drain(..) {
@@ -2364,17 +2482,12 @@ pub fn run_catchup(
             catchup_done = false;
         }
         for msg in state_split_messages.write().unwrap().drain(..) {
-            let results = runtime.build_state_for_split_shards(
-                msg.shard_uid,
-                &msg.state_root,
-                &msg.next_epoch_shard_layout,
-                msg.state_split_status,
-            );
-            if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+            let response = Chain::build_state_for_split_shards(msg);
+            if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&response.sync_hash) {
                 // We are doing catchup
-                sync.set_split_result(msg.shard_id, results);
+                sync.set_split_result(response.shard_id, response.new_state_roots);
             } else {
-                client.state_sync.set_split_result(msg.shard_id, results);
+                client.state_sync.set_split_result(response.shard_id, response.new_state_roots);
             }
             catchup_done = false;
         }

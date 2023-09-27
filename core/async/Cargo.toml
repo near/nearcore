@@ -23,3 +23,14 @@ tokio.workspace = true
 near-primitives.workspace = true
 near-o11y.workspace = true
 near-performance-metrics.workspace = true
+
+[features]
+nightly = [
+  "nightly_protocol",
+  "near-o11y/nightly",
+  "near-primitives/nightly",
+]
+nightly_protocol = [
+  "near-o11y/nightly_protocol",
+  "near-primitives/nightly_protocol",
+]

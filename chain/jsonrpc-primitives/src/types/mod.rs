@@ -3,6 +3,7 @@ pub mod changes;
 pub mod chunks;
 pub mod client_config;
 pub mod config;
+pub mod entity_debug;
 pub mod gas_price;
 pub mod light_client;
 pub mod maintenance;

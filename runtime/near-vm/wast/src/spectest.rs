@@ -1,4 +1,4 @@
-use near_vm::*;
+use near_vm_test_api::*;
 
 /// Return an instance implementing the "spectest" interface used in the
 /// spec testsuite.

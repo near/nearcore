@@ -29,6 +29,7 @@ pub mod debug;
 mod info;
 mod metrics;
 pub mod sync;
+mod sync_jobs_actor;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;

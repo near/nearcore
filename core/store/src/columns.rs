@@ -124,7 +124,7 @@ pub enum DBCol {
     /// - *Rows*: EpochId (CryptoHash)  -- TODO: where does the epoch_id come from? it looks like blockHash..
     /// - *Content type*: BlockHeight (int)
     EpochStart,
-    /// Map account_id to announce_account (which peer has announced which account in the current epoch). // TODO: explain account annoucement
+    /// Map account_id to announce_account (which peer has announced which account in the current epoch). // TODO: explain account announcement
     /// - *Rows*: AccountId (str)
     /// - *Content type*: AnnounceAccount
     AccountAnnouncements,
@@ -219,7 +219,6 @@ pub enum DBCol {
     #[strum(serialize = "GCCount")]
     _GCCount,
     /// All Outcome ids by block hash and shard id. For each shard it is ordered by execution order.
-    /// TODO: seems that it has only 'transaction ids' there (not sure if intentional)
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
     /// - *Column type*: Vec <OutcomeId (CryptoHash)>
     OutcomeIds,
@@ -259,7 +258,7 @@ pub enum DBCol {
     TransactionResultForBlock,
     /// Flat state contents. Used to get `ValueRef` by trie key faster than doing a trie lookup.
     /// - *Rows*: `shard_uid` + trie key (Vec<u8>)
-    /// - *Column type*: ValueRef
+    /// - *Column type*: FlatStateValue
     FlatState,
     /// Changes for flat state delta. Stores how flat state should be updated for the given shard and block.
     /// - *Rows*: `KeyForFlatStateDelta { shard_uid, block_hash }`
@@ -278,6 +277,12 @@ pub enum DBCol {
     /// - *Rows*: arbitrary string, see `crate::db::FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY` for example
     /// - *Column type*: arbitrary bytes
     Misc,
+    /// Column to store data for Epoch Sync.
+    /// Does not contain data for genesis epoch.
+    /// - *Rows*: `epoch_id`
+    /// - *Column type*: `EpochSyncInfo
+    #[cfg(feature = "new_epoch_sync")]
+    EpochSyncInfo,
 }
 
 /// Defines different logical parts of a db key.
@@ -342,7 +347,7 @@ impl DBCol {
         }
     }
 
-    /// Whethere this column is reference-counted.
+    /// Whether this column is reference-counted.
     ///
     /// A reference-counted column is one where we store additional 8-byte value
     /// at the end of the payload with the current reference counter value.  For
@@ -389,7 +394,7 @@ impl DBCol {
 
     /// Whether this column should be copied to the cold storage.
     ///
-    /// This doesn’t include DbVersion and BlockMisc columns which are present
+    /// This doesn't include DbVersion and BlockMisc columns which are present
     /// in the cold database but rather than being copied from hot database are
     /// maintained separately.
     pub const fn is_cold(&self) -> bool {
@@ -471,7 +476,9 @@ impl DBCol {
             | DBCol::FlatState
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
-            | DBCol::FlatStorageStatus => false,
+            | DBCol::FlatStorageStatus  => false,
+            #[cfg(feature = "new_epoch_sync")]
+            DBCol::EpochSyncInfo => false
         }
     }
 
@@ -540,6 +547,8 @@ impl DBCol {
             DBCol::FlatStateChanges => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
             DBCol::FlatStateDeltaMetadata => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
             DBCol::FlatStorageStatus => &[DBKeyType::ShardUId],
+            #[cfg(feature = "new_epoch_sync")]
+            DBCol::EpochSyncInfo => &[DBKeyType::EpochId],
         }
     }
 }

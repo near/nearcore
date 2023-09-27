@@ -1,3 +1,4 @@
+use crate::types::BlockHeaderInfo;
 use crate::EpochManagerHandle;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -17,7 +18,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
-use near_store::ShardUId;
+use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
 use std::sync::Arc;
 
@@ -199,6 +200,11 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_id: ValidatorInfoIdentifier,
     ) -> Result<EpochValidatorInfo, EpochError>;
 
+    fn add_validator_proposals(
+        &self,
+        block_header_info: BlockHeaderInfo,
+    ) -> Result<StoreUpdate, EpochError>;
+
     /// Amount of tokens minted in given epoch.
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, EpochError>;
 
@@ -337,7 +343,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         prev_block_hash: &CryptoHash,
         prev_block_height: BlockHeight,
         block_height: BlockHeight,
-        approvals: &[Option<Signature>],
+        approvals: &[Option<Box<Signature>>],
     ) -> Result<bool, Error>;
 
     /// Verify approvals and check threshold, but ignore next epoch approvals and slashing
@@ -345,14 +351,14 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         epoch_id: &EpochId,
         can_approved_block_be_produced: &dyn Fn(
-            &[Option<Signature>],
+            &[Option<Box<Signature>>],
             // (stake this in epoch, stake in next epoch, is_slashed)
             &[(Balance, Balance, bool)],
         ) -> bool,
         prev_block_hash: &CryptoHash,
         prev_block_height: BlockHeight,
         block_height: BlockHeight,
-        approvals: &[Option<Signature>],
+        approvals: &[Option<Box<Signature>>],
     ) -> Result<(), Error>;
 
     fn cares_about_shard_from_prev_block(
@@ -642,7 +648,15 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_id: ValidatorInfoIdentifier,
     ) -> Result<EpochValidatorInfo, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_validator_info(epoch_id).map_err(|e| e.into())
+        epoch_manager.get_validator_info(epoch_id)
+    }
+
+    fn add_validator_proposals(
+        &self,
+        block_header_info: BlockHeaderInfo,
+    ) -> Result<StoreUpdate, EpochError> {
+        let mut epoch_manager = self.write();
+        epoch_manager.add_validator_proposals(block_header_info)
     }
 
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, EpochError> {
@@ -781,6 +795,10 @@ impl EpochManagerAdapter for EpochManagerHandle {
         }
     }
 
+    /// Returns true if the header signature is signed by the assigned block producer and the block
+    /// producer is not slashed
+    /// This function requires that the previous block of `header` has been processed.
+    /// If not, it returns EpochError::MissingBlock.
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
         let epoch_manager = self.read();
         let block_producer =
@@ -820,7 +838,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         prev_block_hash: &CryptoHash,
         prev_block_height: BlockHeight,
         block_height: BlockHeight,
-        approvals: &[Option<Signature>],
+        approvals: &[Option<Box<Signature>>],
     ) -> Result<bool, Error> {
         let info = {
             let epoch_manager = self.read();
@@ -856,13 +874,13 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         epoch_id: &EpochId,
         can_approved_block_be_produced: &dyn Fn(
-            &[Option<Signature>],
+            &[Option<Box<Signature>>],
             &[(Balance, Balance, bool)],
         ) -> bool,
         prev_block_hash: &CryptoHash,
         prev_block_height: BlockHeight,
         block_height: BlockHeight,
-        approvals: &[Option<Signature>],
+        approvals: &[Option<Box<Signature>>],
     ) -> Result<(), Error> {
         let info = {
             let epoch_manager = self.read();

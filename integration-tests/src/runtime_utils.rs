@@ -5,7 +5,8 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::types::AccountId;
 use near_primitives::types::StateRoot;
-use near_store::test_utils::create_tries_complex;
+use near_store::genesis::GenesisStateApplier;
+use near_store::test_utils::create_tries_complex_with_flat_storage;
 use near_store::{ShardTries, TrieUpdate};
 use nearcore::config::GenesisExt;
 use node_runtime::config::RuntimeConfig;
@@ -33,14 +34,16 @@ pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {
 
 pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTries, StateRoot) {
     let shard_layout = &genesis.config.shard_layout;
-    let tries = create_tries_complex(shard_layout.version(), shard_layout.num_shards());
+    let tries =
+        create_tries_complex_with_flat_storage(shard_layout.version(), shard_layout.num_shards());
     let runtime = Runtime::new();
     let mut account_ids: HashSet<AccountId> = HashSet::new();
     genesis.for_each_record(|record: &StateRecord| {
         account_ids.insert(state_record_to_account_id(record).clone());
     });
     let writers = std::sync::atomic::AtomicUsize::new(0);
-    let genesis_root = runtime.apply_genesis_state(
+    let storage_usage_config = &RuntimeConfig::test().fees.storage_usage_config;
+    let genesis_root = GenesisStateApplier::apply(
         &writers,
         tries.clone(),
         0,
@@ -56,8 +59,8 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
                 )
             })
             .collect::<Vec<_>>(),
+        storage_usage_config,
         genesis,
-        &RuntimeConfig::test(),
         account_ids,
     );
     (runtime, tries, genesis_root)

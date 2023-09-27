@@ -22,6 +22,8 @@ pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
+use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQuery};
+use near_jsonrpc_primitives::types::query::RpcQueryRequest;
 use near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse;
 use near_network::tcp;
 use near_network::PeerManagerActor;
@@ -30,12 +32,13 @@ use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives::views::FinalExecutionOutcomeViewEnum;
+use near_primitives::views::{FinalExecutionOutcomeViewEnum, QueryRequest};
 use serde_json::{json, Value};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::{sleep, timeout};
-use tracing::info;
+use tracing::{error, info};
 
 mod api;
 mod metrics;
@@ -219,6 +222,7 @@ struct JsonRpcHandler {
     genesis_config: GenesisConfig,
     enable_debug_rpc: bool,
     debug_pages_src_path: Option<PathBuf>,
+    entity_debug_handler: Arc<dyn EntityDebugHandler>,
 }
 
 impl JsonRpcHandler {
@@ -238,23 +242,16 @@ impl JsonRpcHandler {
     // `process_request_internal`.
     async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
         let timer = Instant::now();
+        let (metrics_name, response) = self.process_request_internal(request).await;
 
-        let request_method = request.method.clone();
-        let response = self.process_request_internal(request).await;
-
-        let request_method = match &response {
-            Err(err) if err.code == -32_601 => "UNSUPPORTED_METHOD",
-            _ => &request_method,
-        };
-
-        metrics::HTTP_RPC_REQUEST_COUNT.with_label_values(&[request_method]).inc();
+        metrics::HTTP_RPC_REQUEST_COUNT.with_label_values(&[&metrics_name]).inc();
         metrics::RPC_PROCESSING_TIME
-            .with_label_values(&[request_method])
+            .with_label_values(&[&metrics_name])
             .observe(timer.elapsed().as_secs_f64());
 
         if let Err(err) = &response {
             metrics::RPC_ERROR_COUNT
-                .with_label_values(&[request_method, &err.code.to_string()])
+                .with_label_values(&[&metrics_name, &err.code.to_string()])
                 .inc();
         }
 
@@ -262,13 +259,56 @@ impl JsonRpcHandler {
     }
 
     /// Processes the request without updating any metrics.
-    async fn process_request_internal(&self, request: Request) -> Result<Value, RpcError> {
+    /// Returns metrics name (method name with optional details as a suffix)
+    /// and the result of the execution.
+    async fn process_request_internal(
+        &self,
+        request: Request,
+    ) -> (String, Result<Value, RpcError>) {
+        let method_name = request.method.to_string();
         let request = match self.process_adversarial_request_internal(request).await {
-            Ok(response) => return response,
+            Ok(response) => return (method_name, response),
+            Err(request) => request,
+        };
+
+        let request = match self.process_basic_requests_internal(request).await {
+            Ok(response) => return (method_name, response),
             Err(request) => request,
         };
 
         match request.method.as_ref() {
+            "query" => {
+                let params: RpcQueryRequest = match RpcRequest::parse(request.params) {
+                    Ok(params) => params,
+                    Err(err) => return (method_name, Err(RpcError::from(err))),
+                };
+                let metrics_name = match params.request {
+                    QueryRequest::ViewAccount { .. } => "query_view_account",
+                    QueryRequest::ViewCode { .. } => "query_view_code",
+                    QueryRequest::ViewState { include_proof, .. } => {
+                        if include_proof {
+                            "query_view_state_with_proof"
+                        } else {
+                            "query_view_state"
+                        }
+                    }
+                    QueryRequest::ViewAccessKey { .. } => "query_view_access_key",
+                    QueryRequest::ViewAccessKeyList { .. } => "query_view_access_key_list",
+                    QueryRequest::CallFunction { .. } => "query_call_function",
+                };
+                (metrics_name.to_string(), process_query_response(self.query(params).await))
+            }
+            _ => {
+                ("UNSUPPORTED_METHOD".to_string(), Err(RpcError::method_not_found(request.method)))
+            }
+        }
+    }
+
+    async fn process_basic_requests_internal(
+        &self,
+        request: Request,
+    ) -> Result<Result<Value, RpcError>, Request> {
+        Ok(match request.method.as_ref() {
             // Handlers ordered alphabetically
             "block" => process_method_call(request, |params| self.block(params)).await,
             "broadcast_tx_async" => {
@@ -294,14 +334,6 @@ impl JsonRpcHandler {
                 process_method_call(request, |params| self.next_light_client_block(params)).await
             }
             "network_info" => process_method_call(request, |_params: ()| self.network_info()).await,
-            "tier1_network_info" => {
-                process_method_call(request, |_params: ()| self.tier1_network_info()).await
-            }
-            "query" => {
-                let params = RpcRequest::parse(request.params)?;
-                let query_response = self.query(params).await;
-                process_query_response(query_response)
-            }
             "status" => process_method_call(request, |_params: ()| self.status()).await,
             "tx" => {
                 process_method_call(request, |params| self.tx_status_common(params, false)).await
@@ -360,8 +392,8 @@ impl JsonRpcHandler {
             "sandbox_fast_forward" => {
                 process_method_call(request, |params| self.sandbox_fast_forward(params)).await
             }
-            _ => Err(RpcError::method_not_found(request.method)),
-        }
+            _ => return Err(request),
+        })
     }
 
     /// Handles adversarial requests if they are enabled.
@@ -811,6 +843,10 @@ impl JsonRpcHandler {
                         )
                         .await?
                         .rpc_into(),
+                    "/debug/api/network_routes" => self
+                        .peer_manager_send(near_network::debug::GetDebugStatus::Routes)
+                        .await?
+                        .rpc_into(),
                     _ => return Ok(None),
                 };
             Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
@@ -1008,16 +1044,6 @@ impl JsonRpcHandler {
     }
 
     async fn network_info(
-        &self,
-    ) -> Result<
-        near_jsonrpc_primitives::types::network_info::RpcNetworkInfoResponse,
-        near_jsonrpc_primitives::types::network_info::RpcNetworkInfoError,
-    > {
-        let network_info = self.client_send(GetNetworkInfo {}).await?;
-        Ok(network_info.rpc_into())
-    }
-
-    async fn tier1_network_info(
         &self,
     ) -> Result<
         near_jsonrpc_primitives::types::network_info::RpcNetworkInfoResponse,
@@ -1371,6 +1397,16 @@ async fn debug_handler(
     }
 }
 
+async fn handle_entity_debug(
+    req: web::Json<EntityQuery>,
+    handler: web::Data<JsonRpcHandler>,
+) -> Result<HttpResponse, HttpError> {
+    match handler.entity_debug_handler.query(req.0) {
+        Ok(value) => Ok(HttpResponse::Ok().json(&value)),
+        Err(err) => Ok(HttpResponse::ServiceUnavailable().body(format!("{:?}", err))),
+    }
+}
+
 async fn debug_block_status_handler(
     path: web::Path<u64>,
     handler: web::Data<JsonRpcHandler>,
@@ -1399,18 +1435,6 @@ fn network_info_handler(
 ) -> impl Future<Output = Result<HttpResponse, HttpError>> {
     let response = async move {
         match handler.network_info().await {
-            Ok(value) => Ok(HttpResponse::Ok().json(&value)),
-            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
-        }
-    };
-    response.boxed()
-}
-
-fn tier1_network_info_handler(
-    handler: web::Data<JsonRpcHandler>,
-) -> impl Future<Output = Result<HttpResponse, HttpError>> {
-    let response = async move {
-        match handler.tier1_network_info().await {
             Ok(value) => Ok(HttpResponse::Ok().json(&value)),
             Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
         }
@@ -1480,15 +1504,20 @@ async fn display_debug_html(
 
     let content = match page_name.as_str() {
         "last_blocks" => Some(debug_page_string!("last_blocks.html", handler)),
+        "last_blocks.css" => Some(debug_page_string!("last_blocks.css", handler)),
         "last_blocks.js" => Some(debug_page_string!("last_blocks.js", handler)),
         "network_info" => Some(debug_page_string!("network_info.html", handler)),
         "network_info.css" => Some(debug_page_string!("network_info.css", handler)),
         "network_info.js" => Some(debug_page_string!("network_info.js", handler)),
         "tier1_network_info" => Some(debug_page_string!("tier1_network_info.html", handler)),
         "epoch_info" => Some(debug_page_string!("epoch_info.html", handler)),
+        "epoch_info.css" => Some(debug_page_string!("epoch_info.css", handler)),
         "chain_n_chunk_info" => Some(debug_page_string!("chain_n_chunk_info.html", handler)),
+        "chain_n_chunk_info.css" => Some(debug_page_string!("chain_n_chunk_info.css", handler)),
         "sync" => Some(debug_page_string!("sync.html", handler)),
+        "sync.css" => Some(debug_page_string!("sync.css", handler)),
         "validator" => Some(debug_page_string!("validator.html", handler)),
+        "validator.css" => Some(debug_page_string!("validator.css", handler)),
         _ => None,
     };
 
@@ -1517,6 +1546,7 @@ pub fn start_http(
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
     peer_manager_addr: Option<Addr<PeerManagerActor>>,
+    entity_debug_handler: Arc<dyn EntityDebugHandler>,
 ) -> Vec<(&'static str, actix_web::dev::ServerHandle)> {
     let RpcConfig {
         addr,
@@ -1531,7 +1561,7 @@ pub fn start_http(
     let cors_allowed_origins_clone = cors_allowed_origins.clone();
     info!(target:"network", "Starting http server at {}", addr);
     let mut servers = Vec::new();
-    let server = HttpServer::new(move || {
+    let listener = HttpServer::new(move || {
         App::new()
             .wrap(get_cors(&cors_allowed_origins))
             .app_data(web::Data::new(JsonRpcHandler {
@@ -1542,6 +1572,7 @@ pub fn start_http(
                 genesis_config: genesis_config.clone(),
                 enable_debug_rpc,
                 debug_pages_src_path: debug_pages_src_path.clone().map(Into::into),
+                entity_debug_handler: entity_debug_handler.clone(),
             }))
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())
@@ -1557,11 +1588,8 @@ pub fn start_http(
                     .route(web::head().to(health_handler)),
             )
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
-            .service(
-                web::resource("/tier1_network_info")
-                    .route(web::get().to(tier1_network_info_handler)),
-            )
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
+            .service(web::resource("/debug/api/entity").route(web::post().to(handle_entity_debug)))
             .service(web::resource("/debug/api/{api}").route(web::get().to(debug_handler)))
             .service(
                 web::resource("/debug/api/block_status/{starting_height}")
@@ -1572,38 +1600,46 @@ pub fn start_http(
             )
             .service(debug_html)
             .service(display_debug_html)
-    })
-    .listen(addr.std_listener().unwrap())
-    .unwrap()
-    .workers(4)
-    .shutdown_timeout(5)
-    .disable_signals()
-    .run();
+    });
 
-    servers.push(("JSON RPC", server.handle()));
-
-    tokio::spawn(server);
+    match listener.listen(addr.std_listener().unwrap()) {
+        std::result::Result::Ok(s) => {
+            let server = s.workers(4).shutdown_timeout(5).disable_signals().run();
+            servers.push(("JSON RPC", server.handle()));
+            tokio::spawn(server);
+        }
+        std::result::Result::Err(e) => {
+            error!(
+                target:"network",
+                "Could not start http server at {} due to {:?}", &addr, e,
+            )
+        }
+    };
 
     if let Some(prometheus_addr) = prometheus_addr {
         info!(target:"network", "Starting http monitoring server at {}", prometheus_addr);
         // Export only the /metrics service. It's a read-only service and can have very relaxed
         // access restrictions.
-        let server = HttpServer::new(move || {
+        let listener = HttpServer::new(move || {
             App::new()
                 .wrap(get_cors(&cors_allowed_origins_clone))
                 .wrap(middleware::Logger::default())
                 .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
-        })
-        .bind(prometheus_addr)
-        .unwrap()
-        .workers(2)
-        .shutdown_timeout(5)
-        .disable_signals()
-        .run();
+        });
 
-        servers.push(("Prometheus Metrics", server.handle()));
-
-        tokio::spawn(server);
+        match listener.bind(&prometheus_addr) {
+            std::result::Result::Ok(s) => {
+                let server = s.workers(2).shutdown_timeout(5).disable_signals().run();
+                servers.push(("Prometheus Metrics", server.handle()));
+                tokio::spawn(server);
+            }
+            std::result::Result::Err(e) => {
+                error!(
+                    target:"network",
+                    "Can't export Prometheus metrics at {} due to {:?}", &prometheus_addr, e,
+                )
+            }
+        };
     }
 
     servers

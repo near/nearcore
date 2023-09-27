@@ -26,6 +26,7 @@ pub const DEFAULT_GC_NUM_EPOCHS_TO_KEEP: u64 = 5;
 
 /// Default number of concurrent requests to external storage to fetch state parts.
 pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL: u32 = 25;
+pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL: u32 = 5;
 
 /// Configuration for garbage collection.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -77,14 +78,22 @@ fn default_num_concurrent_requests() -> u32 {
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL
 }
 
+fn default_num_concurrent_requests_during_catchup() -> u32 {
+    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct ExternalStorageConfig {
     /// Location of state parts.
     pub location: ExternalStorageLocation,
     /// When fetching state parts from external storage, throttle fetch requests
-    /// to this many concurrent requests per shard.
+    /// to this many concurrent requests.
     #[serde(default = "default_num_concurrent_requests")]
     pub num_concurrent_requests: u32,
+    /// During catchup, the node will use a different number of concurrent requests
+    /// to reduce the performance impact of state sync.
+    #[serde(default = "default_num_concurrent_requests_during_catchup")]
+    pub num_concurrent_requests_during_catchup: u32,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -97,6 +106,9 @@ pub enum ExternalStorageLocation {
     },
     Filesystem {
         root_dir: PathBuf,
+    },
+    GCS {
+        bucket: String,
     },
 }
 
@@ -113,6 +125,9 @@ pub struct DumpConfig {
     /// Feel free to set to `None`, defaults are sensible.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iteration_delay: Option<Duration>,
+    /// Location of a json file with credentials allowing write access to the bucket.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credentials_file: Option<PathBuf>,
 }
 
 /// Configures how to fetch state parts during state sync.
@@ -200,8 +215,6 @@ pub struct ClientConfig {
     pub ttl_account_id_router: Duration,
     /// Horizon at which instead of fetching block, fetch full state.
     pub block_fetch_horizon: BlockHeightDelta,
-    /// Horizon to step from the latest block when fetching state.
-    pub state_fetch_horizon: NumBlocks,
     /// Time between check to perform catchup.
     pub catchup_step_period: Duration,
     /// Time between checking to re-request chunks.
@@ -212,12 +225,13 @@ pub struct ClientConfig {
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Garbage collection configuration.
     pub gc: GCConfig,
-    /// Accounts that this client tracks
+    /// Accounts that this client tracks.
     pub tracked_accounts: Vec<AccountId>,
-    /// Shards that this client tracks
+    /// Shards that this client tracks.
     pub tracked_shards: Vec<ShardId>,
     /// Rotate between these sets of tracked shards.
     /// Used to simulate the behavior of chunk only producers without staking tokens.
+    /// This field is only used if `tracked_shards` is empty.
     pub tracked_shard_schedule: Vec<Vec<ShardId>>,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
@@ -251,9 +265,13 @@ pub struct ClientConfig {
     pub state_sync_enabled: bool,
     /// Options for syncing state.
     pub state_sync: StateSyncConfig,
+    /// Testing only. Makes a state snapshot after every epoch, but also every N blocks. The first snapshot is done after processng the first block.
+    pub state_snapshot_every_n_blocks: Option<u64>,
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
     pub transaction_pool_size_limit: Option<u64>,
+    // Allows more detailed logging, for example a list of orphaned blocks.
+    pub enable_multiline_logging: bool,
 }
 
 impl ClientConfig {
@@ -265,6 +283,7 @@ impl ClientConfig {
         archive: bool,
         save_trie_changes: bool,
         epoch_sync_enabled: bool,
+        state_sync_enabled: bool,
     ) -> Self {
         assert!(
             archive || save_trie_changes,
@@ -300,7 +319,6 @@ impl ClientConfig {
             num_block_producer_seats,
             ttl_account_id_router: Duration::from_secs(60 * 60),
             block_fetch_horizon: 50,
-            state_fetch_horizon: 5,
             catchup_step_period: Duration::from_millis(1),
             chunk_request_retry_period: min(
                 Duration::from_millis(100),
@@ -324,9 +342,11 @@ impl ClientConfig {
             client_background_migration_threads: 1,
             flat_storage_creation_enabled: true,
             flat_storage_creation_period: Duration::from_secs(1),
-            state_sync_enabled: false,
+            state_sync_enabled,
             state_sync: StateSyncConfig::default(),
+            state_snapshot_every_n_blocks: None,
             transaction_pool_size_limit: None,
+            enable_multiline_logging: false,
         }
     }
 }

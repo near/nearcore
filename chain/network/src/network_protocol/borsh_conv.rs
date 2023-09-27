@@ -90,6 +90,42 @@ impl From<mem::RoutingTableUpdate> for net::RoutingTableUpdate {
 
 //////////////////////////////////////////
 
+impl From<net::AdvertisedPeerDistance> for mem::AdvertisedPeerDistance {
+    fn from(x: net::AdvertisedPeerDistance) -> Self {
+        Self { destination: x.destination, distance: x.distance }
+    }
+}
+
+impl From<mem::AdvertisedPeerDistance> for net::AdvertisedPeerDistance {
+    fn from(x: mem::AdvertisedPeerDistance) -> Self {
+        Self { destination: x.destination, distance: x.distance }
+    }
+}
+
+//////////////////////////////////////////
+
+impl From<net::DistanceVector> for mem::DistanceVector {
+    fn from(x: net::DistanceVector) -> Self {
+        Self {
+            root: x.root,
+            distances: x.distances.into_iter().map(|y| y.into()).collect(),
+            edges: x.edges,
+        }
+    }
+}
+
+impl From<mem::DistanceVector> for net::DistanceVector {
+    fn from(x: mem::DistanceVector) -> Self {
+        Self {
+            root: x.root,
+            distances: x.distances.into_iter().map(|y| y.into()).collect(),
+            edges: x.edges,
+        }
+    }
+}
+
+//////////////////////////////////////////
+
 #[derive(thiserror::Error, Debug)]
 pub enum ParsePeerMessageError {
     #[error("HandshakeV2 is deprecated")]
@@ -156,6 +192,16 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
             net::PeerMessage::_RoutingTableSyncV2 => {
                 return Err(Self::Error::DeprecatedRoutingTableSyncV2)
             }
+            net::PeerMessage::DistanceVector(dv) => mem::PeerMessage::DistanceVector(dv.into()),
+            net::PeerMessage::StateRequestHeader(shard_id, sync_hash) => {
+                mem::PeerMessage::StateRequestHeader(shard_id, sync_hash)
+            }
+            net::PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => {
+                mem::PeerMessage::StateRequestPart(shard_id, sync_hash, part_id)
+            }
+            net::PeerMessage::VersionedStateResponse(sri) => {
+                mem::PeerMessage::VersionedStateResponse(sri)
+            }
         })
     }
 }
@@ -177,6 +223,7 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
                 net::PeerMessage::SyncRoutingTable(rtu.into())
             }
             mem::PeerMessage::RequestUpdateNonce(e) => net::PeerMessage::RequestUpdateNonce(e),
+            mem::PeerMessage::DistanceVector(dv) => net::PeerMessage::DistanceVector(dv.into()),
 
             // This message is not supported, we translate it to an empty RoutingTableUpdate.
             mem::PeerMessage::SyncAccountsData(_) => {
@@ -195,6 +242,15 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             mem::PeerMessage::Routed(r) => net::PeerMessage::Routed(Box::new(r.msg.clone())),
             mem::PeerMessage::Disconnect(_) => net::PeerMessage::Disconnect,
             mem::PeerMessage::Challenge(c) => net::PeerMessage::Challenge(c),
+            mem::PeerMessage::StateRequestHeader(shard_id, sync_hash) => {
+                net::PeerMessage::StateRequestHeader(shard_id, sync_hash)
+            }
+            mem::PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => {
+                net::PeerMessage::StateRequestPart(shard_id, sync_hash, part_id)
+            }
+            mem::PeerMessage::VersionedStateResponse(sri) => {
+                net::PeerMessage::VersionedStateResponse(sri)
+            }
         }
     }
 }

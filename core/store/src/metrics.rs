@@ -3,8 +3,8 @@ use crate::{NodeStorage, Store, Temperature};
 use actix_rt::ArbiterHandle;
 use near_o11y::metrics::{
     exponential_buckets, try_create_histogram, try_create_histogram_vec,
-    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec, Histogram,
-    HistogramVec, IntCounterVec, IntGauge, IntGaugeVec,
+    try_create_histogram_with_buckets, try_create_int_counter_vec, try_create_int_gauge,
+    try_create_int_gauge_vec, Histogram, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
 
@@ -18,6 +18,7 @@ pub(crate) static DATABASE_OP_LATENCY_HIST: Lazy<HistogramVec> = Lazy::new(|| {
     .unwrap()
 });
 
+// TODO(#9054): Rename the metric to be consistent with "accounting cache".
 pub static CHUNK_CACHE_HITS: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_chunk_cache_hits",
@@ -27,6 +28,7 @@ pub static CHUNK_CACHE_HITS: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
+// TODO(#9054): Rename the metric to be consistent with "accounting cache".
 pub static CHUNK_CACHE_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_chunk_cache_misses",
@@ -68,6 +70,7 @@ pub static SHARD_CACHE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
         .unwrap()
 });
 
+// TODO(#9054): Rename the metric to be consistent with "accounting cache".
 pub static CHUNK_CACHE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec("near_chunk_cache_size", "Chunk cache size", &["shard_id", "is_view"])
         .unwrap()
@@ -236,10 +239,52 @@ pub static COLD_COPY_DURATION: Lazy<Histogram> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static GET_STATE_PART_WITH_FS_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
+pub(crate) static HAS_STATE_SNAPSHOT: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_has_state_snapshot", "Whether a node has a state snapshot open")
+        .unwrap()
+});
+
+pub(crate) static MAKE_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_make_state_snapshot_elapsed_sec",
+        "Latency of making a state snapshot, in seconds",
+        exponential_buckets(0.01, 1.3, 30).unwrap(),
+    )
+    .unwrap()
+});
+
+pub(crate) static DELETE_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_delete_state_snapshot_elapsed_sec",
+        "Latency of deleting a state snapshot, in seconds",
+        exponential_buckets(0.001, 1.6, 25).unwrap(),
+    )
+    .unwrap()
+});
+
+pub(crate) static COMPACT_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_compact_state_snapshot_elapsed_sec",
+        "Latency of compaction of a state snapshot, in seconds",
+        exponential_buckets(0.001, 1.6, 40).unwrap(),
+    )
+    .unwrap()
+});
+
+pub(crate) static MOVE_STATE_SNAPSHOT_FLAT_HEAD_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_get_state_part_with_fs_elapsed_sec",
-        "Latency of creating a state part using flat storage, in seconds",
+        "near_move_state_snapshot_flat_head_elapsed_sec",
+        "Latency of moving flat head of state snapshot, in seconds",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static GET_STATE_PART_NODES_WITH_FS_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_get_state_part_nodes_with_fs_elapsed_sec",
+        "Latency of creating a state part using flat storage given the boundaries, in seconds",
         &["shard_id"],
         Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
     )
@@ -260,6 +305,16 @@ pub(crate) static GET_STATE_PART_READ_FS_ELAPSED: Lazy<HistogramVec> = Lazy::new
     try_create_histogram_vec(
         "near_get_state_part_with_fs_read_fs_elapsed_sec",
         "Latency of reading FS columns, in seconds",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static GET_STATE_PART_LOOKUP_REF_VALUES_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_get_state_part_with_fs_lookup_value_refs_elapsed_sec",
+        "Latency of looking references values, in seconds",
         &["shard_id"],
         Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
     )
@@ -409,7 +464,15 @@ pub mod flat_state_metrics {
     pub static FLAT_STORAGE_DISTANCE_TO_HEAD: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
             "flat_storage_distance_to_head",
-            "Distance between processed block and flat storage head",
+            "Height distance between processed block and flat storage head",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+    pub static FLAT_STORAGE_HOPS_TO_HEAD: Lazy<IntGaugeVec> = Lazy::new(|| {
+        try_create_int_gauge_vec(
+            "flat_storage_hops_to_head",
+            "Number of blocks visited to flat storage head",
             &["shard_id"],
         )
         .unwrap()

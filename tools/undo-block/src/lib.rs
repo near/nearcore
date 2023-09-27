@@ -46,3 +46,37 @@ pub fn undo_block(
     tracing::info!(target: "neard", ?new_head_height, ?new_header_height, "The current chain store shows");
     Ok(())
 }
+
+pub fn undo_only_block_head(
+    chain_store: &mut ChainStore,
+    epoch_manager: &dyn EpochManagerAdapter,
+) -> anyhow::Result<()> {
+    let current_head = chain_store.head()?;
+    let current_head_height = current_head.height;
+    let current_header_head = chain_store.header_head()?;
+    let current_header_height = current_header_head.height;
+
+    let tail_height = chain_store.tail()?;
+    let tail_header = chain_store.get_block_header_by_height(tail_height)?;
+    let new_head = Tip::from_header(&tail_header);
+
+    tracing::info!(target: "neard", ?tail_height, ?current_head_height, ?current_header_height, "Trying to update head");
+
+    if current_head_height == tail_height {
+        tracing::info!(target: "neard", "Body head is alreay at the oldest block.");
+        return Ok(());
+    }
+
+    let mut chain_store_update = ChainStoreUpdate::new(chain_store);
+    chain_store_update.clear_head_block_data(epoch_manager)?;
+    chain_store_update.save_body_head(&new_head)?;
+    chain_store_update.commit()?;
+
+    let new_chain_store_head = chain_store.head()?;
+    let new_chain_store_header_head = chain_store.header_head()?;
+    let new_head_height = new_chain_store_head.height;
+    let new_header_height = new_chain_store_header_head.height;
+
+    tracing::info!(target: "neard", ?new_head_height, ?new_header_height, "The current chain store shows");
+    Ok(())
+}

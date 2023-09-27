@@ -112,6 +112,7 @@ pub fn setup_with_tx_validity_period(
         },
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
+        None,
     )
     .unwrap();
 
@@ -148,6 +149,7 @@ pub fn setup_with_validators(
         },
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
+        None,
     )
     .unwrap();
     (chain, epoch_manager, runtime, signers)
@@ -183,6 +185,7 @@ pub fn setup_with_validators_and_start_time(
         },
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
+        None,
     )
     .unwrap();
     (chain, epoch_manager, runtime, signers)
@@ -263,7 +266,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                             chunk_header.shard_id(),
                             chunk_producer,
                             chunk.transactions().len(),
-                            chunk.receipts().len()
+                            chunk.prev_outgoing_receipts().len()
                         );
                     } else if let Ok(partial_chunk) =
                         chain_store.get_partial_chunk(&chunk_header.chunk_hash())

@@ -40,15 +40,18 @@ python3 tests/sanity/state_sync_massive_validator.py ~/.near/backup_genesis
 ```
 """
 
-import sys, time, requests, logging
 from subprocess import check_output
-from queue import Queue
+import logging
 import pathlib
+import requests
+import sys
+import time
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import init_cluster, spin_up_node, load_config
 from populate import genesis_populate_all, copy_genesis
+import state_sync_lib
 
 logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG)
 
@@ -58,28 +61,16 @@ else:
     genesis_data = None
     additional_accounts = 200000
 
+EPOCH_LENGTH = 300
+
 config = load_config()
+node_config = state_sync_lib.get_state_sync_config_combined()
 near_root, node_dirs = init_cluster(
-    3, 1, 1,
-    config, [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
-             ["epoch_length", 300], ["block_producer_kickout_threshold", 0],
-             ["chunk_producer_kickout_threshold", 0]], {
-                 0: {
-                     "state_sync_enabled": True,
-                 },
-                 1: {
-                     "tracked_shards": [0],
-                     "state_sync_enabled": True,
-                 },
-                 2: {
-                     "tracked_shards": [0],
-                     "state_sync_enabled": True,
-                 },
-                 3: {
-                     "tracked_shards": [0],
-                     "state_sync_enabled": True,
-                 },
-             })
+    3, 1, 1, config,
+    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
+     ["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 0],
+     ["chunk_producer_kickout_threshold", 0]],
+    {x: node_config for x in range(4)})
 
 logging.info("Populating genesis")
 
@@ -97,9 +88,9 @@ for node_dir in node_dirs:
     for line in result.split('\n'):
         logging.info(line)
 
-INTERMEDIATE_HEIGHT = 310
-SMALL_HEIGHT = 610
-LARGE_HEIGHT = 660
+INTERMEDIATE_HEIGHT = EPOCH_LENGTH + 10
+SMALL_HEIGHT = EPOCH_LENGTH * 2 + 10
+LARGE_HEIGHT = SMALL_HEIGHT + 50
 TIMEOUT = 3600
 start = time.time()
 
@@ -126,7 +117,8 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
 
         # Check current height
         try:
-            new_height = rpc_node.get_latest_block(check_storage=False).height
+            new_height = rpc_node.get_latest_block(check_storage=False,
+                                                   timeout=10).height
             logging.info(f"Height: {latest_height} => {new_height}")
             latest_height = new_height
         except requests.ReadTimeout:

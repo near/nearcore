@@ -4,15 +4,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::BlockHeight;
 
-/// Defines value size threshold for flat state inlining.
-/// It means that values having size greater than the threshold will be stored
-/// in FlatState as `FlatStateValue::Ref`, otherwise the whole value will be
-/// stored as `FlatStateValue::Inlined`.
-/// See the following comment for reasoning behind the threshold value:
-/// https://github.com/near/nearcore/issues/8243#issuecomment-1523049994
-pub const INLINE_DISK_VALUE_THRESHOLD: usize = 4000;
-
-#[derive(BorshSerialize, BorshDeserialize, Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Copy, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct BlockInfo {
     pub hash: CryptoHash,
     pub height: BlockHeight,
@@ -20,12 +12,12 @@ pub struct BlockInfo {
 }
 
 impl BlockInfo {
-    pub fn genesis(hash: CryptoHash, height: BlockHeight) -> BlockInfo {
-        BlockInfo { hash, height, prev_hash: CryptoHash::default() }
+    pub fn genesis(hash: CryptoHash, height: BlockHeight) -> Self {
+        Self { hash, height, prev_hash: CryptoHash::default() }
     }
 }
 
-#[derive(strum::AsRefStr, Debug, PartialEq, Eq)]
+#[derive(strum::AsRefStr, strum::Display, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum FlatStorageError {
     /// This means we can't find a path from `flat_head` to the block. Includes
     /// `flat_head` hash and block hash, respectively.
@@ -60,7 +52,7 @@ pub enum FlatStateValuesInliningMigrationStatus {
     Finished,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum FlatStorageStatus {
     /// Flat Storage is not supported.
     Disabled,
@@ -90,7 +82,7 @@ impl Into<i64> for &FlatStorageStatus {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct FlatStorageReadyStatus {
     pub flat_head: BlockInfo,
 }
@@ -99,7 +91,7 @@ pub struct FlatStorageReadyStatus {
 /// Because this is a heavy work requiring ~5h for testnet rpc node and ~10h for testnet archival node, we do it on
 /// background during regular block processing.
 /// This struct reveals what is the current status of creating flat storage data on disk.
-#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum FlatStorageCreationStatus {
     /// Flat storage state does not exist. We are saving `FlatStorageDelta`s to disk.
     /// During this step, we save current chain head, start saving all deltas for blocks after chain head and wait until
@@ -120,7 +112,7 @@ pub enum FlatStorageCreationStatus {
 }
 
 /// Current step of fetching state to fill flat storage.
-#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct FetchingStateStatus {
     /// Hash of block on top of which we create flat storage.
     pub block_hash: CryptoHash,

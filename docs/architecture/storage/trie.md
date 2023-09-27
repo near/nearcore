@@ -61,12 +61,9 @@ when `ShardTries::apply_insertions` is called, which puts new values to
 Stores all `Trie` nodes and allows to get serialized nodes by `TrieKey` hash
 using the `retrieve_raw_bytes` method.
 
-There are three implementations of `TrieStorage`:
+There are two major implementations of `TrieStorage`:
 
 * `TrieCachingStorage` - caches all big values ever read by `retrieve_raw_bytes`.
-* `TrieRecordingStorage` - records all key-value pairs ever read by
-  `retrieve_raw_bytes`. Used for obtaining state parts (and challenges in the
-  future).
 * `TrieMemoryPartialStorage` - used for validating recorded partial storage.
 
 Note that these storages use database keys, which are retrieved using hashes of

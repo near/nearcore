@@ -10,7 +10,7 @@ use crate::trap::{Trap, TrapCode};
 use crate::vmcontext::VMTableDefinition;
 use crate::VMExternRef;
 use near_vm_types::{ExternRef, TableType, Type as ValType};
-use std::borrow::{Borrow, BorrowMut};
+use std::borrow::BorrowMut;
 use std::cell::UnsafeCell;
 use std::convert::TryFrom;
 use std::fmt;
@@ -337,7 +337,7 @@ impl Table for LinearTable {
     /// Returns `None` if the index is out of bounds.
     fn get(&self, index: u32) -> Option<TableElement> {
         let vec_guard = self.vec.lock().unwrap();
-        let raw_data = vec_guard.borrow().get(index as usize).cloned()?;
+        let raw_data = vec_guard.get(index as usize).cloned()?;
         Some(match self.table.ty {
             ValType::ExternRef => {
                 TableElement::ExternRef(unsafe { raw_data.extern_ref.ref_clone() }.into())

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 macro_rules! include_config {
     ($file:expr) => {
-        include_str!(concat!("../../res/runtime_configs/", $file))
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/runtime_configs/", $file))
     };
 }
 
@@ -18,7 +18,9 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
+    (35, include_config!("35.yaml")),
     (42, include_config!("42.yaml")),
+    (46, include_config!("46.yaml")),
     (48, include_config!("48.yaml")),
     (49, include_config!("49.yaml")),
     (50, include_config!("50.yaml")),
@@ -27,11 +29,14 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     // Increased deployment costs, increased wasmer2 stack_limit, added limiting of contract locals,
     // set read_cached_trie_node cost, decrease storage key limit
     (53, include_config!("53.yaml")),
+    (55, include_config!("55.yaml")),
     (57, include_config!("57.yaml")),
     // Introduce Zero Balance Account and increase account creation cost to 7.7Tgas
     (59, include_config!("59.yaml")),
     (61, include_config!("61.yaml")),
     (62, include_config!("62.yaml")),
+    (63, include_config!("63.yaml")),
+    (129, include_config!("129.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
@@ -99,6 +104,22 @@ impl RuntimeConfigStore {
         Self { store }
     }
 
+    /// Create store of runtime configs for the given chain id.
+    ///
+    /// For mainnet and other chains except testnet we don't need to override runtime config for
+    /// first protocol versions.
+    /// For testnet, runtime config for genesis block was (incorrectly) different, that's why we
+    /// need to override it specifically to preserve compatibility.
+    pub fn for_chain_id(chain_id: &str) -> Self {
+        match chain_id {
+            "testnet" => {
+                let genesis_runtime_config = RuntimeConfig::initial_testnet_config();
+                Self::new(Some(&genesis_runtime_config))
+            }
+            _ => Self::new(None),
+        }
+    }
+
     /// Constructs test store.
     pub fn with_one_config(runtime_config: RuntimeConfig) -> Self {
         Self { store: BTreeMap::from_iter([(0, Arc::new(runtime_config))].iter().cloned()) }
@@ -133,9 +154,38 @@ mod tests {
         LowerDataReceiptAndEcrecoverBaseCost, LowerStorageCost, LowerStorageKeyLimit,
     };
     use near_primitives_core::config::{ActionCosts, ExtCosts};
+    use std::collections::HashSet;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
     const RECEIPTS_DEPTH: u64 = 63;
+
+    #[test]
+    fn all_configs_are_specified() {
+        let file_versions =
+            std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/res/runtime_configs/"))
+                .expect("can open config directory");
+        let mut files = file_versions
+            .into_iter()
+            .map(|de| {
+                de.expect("direntry should read successfully")
+                    .path()
+                    .file_name()
+                    .expect("direntry should have a filename")
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect::<HashSet<_>>();
+
+        for (ver, _) in super::CONFIG_DIFFS {
+            assert!(files.remove(&format!("{ver}.yaml")), "{ver}.yaml file is missing?");
+        }
+
+        for file in files {
+            let Some((name, "yaml")) = file.rsplit_once(".") else { continue };
+            let Ok(version_num) = name.parse::<u32>() else { continue };
+            panic!("CONFIG_DIFFS does not contain reference to the {version_num}.yaml file!");
+        }
+    }
 
     #[test]
     fn test_max_prepaid_gas() {
@@ -214,20 +264,24 @@ mod tests {
             store.get_config(LowerStorageCost.protocol_version() - 1).as_ref()
         );
 
-        let expected_config = {
-            let first_diff = CONFIG_DIFFS[0].1.parse().unwrap();
-            base_params.apply_diff(first_diff).unwrap();
-            RuntimeConfig::new(&base_params).unwrap()
-        };
+        for (ver, diff) in &CONFIG_DIFFS[..] {
+            if *ver <= LowerStorageCost.protocol_version() {
+                base_params.apply_diff(diff.parse().unwrap()).unwrap();
+            }
+        }
+        let expected_config = RuntimeConfig::new(&base_params).unwrap();
         assert_eq!(**config, expected_config);
 
         let config = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert_eq!(config.fees.fee(ActionCosts::new_data_receipt_base).send_sir, 36_486_732_312);
-        let expected_config = {
-            let second_diff = CONFIG_DIFFS[1].1.parse().unwrap();
-            base_params.apply_diff(second_diff).unwrap();
-            RuntimeConfig::new(&base_params).unwrap()
-        };
+        for (ver, diff) in &CONFIG_DIFFS[..] {
+            if *ver <= LowerStorageCost.protocol_version() {
+                continue;
+            } else if *ver <= LowerDataReceiptAndEcrecoverBaseCost.protocol_version() {
+                base_params.apply_diff(diff.parse().unwrap()).unwrap();
+            }
+        }
+        let expected_config = RuntimeConfig::new(&base_params).unwrap();
         assert_eq!(config.as_ref(), &expected_config);
     }
 
@@ -264,11 +318,15 @@ mod tests {
         use crate::views::RuntimeConfigView;
 
         let store = RuntimeConfigStore::new(None);
+        let mut any_failure = false;
 
         for version in store.store.keys() {
             let snapshot_name = format!("{version}.json");
             let config_view = RuntimeConfigView::from(store.get_config(*version).as_ref().clone());
-            insta::assert_json_snapshot!(snapshot_name, config_view);
+            any_failure |= std::panic::catch_unwind(|| {
+                insta::assert_json_snapshot!(snapshot_name, config_view);
+            })
+            .is_err();
         }
 
         // Store the latest values of parameters in a human-readable snapshot.
@@ -283,7 +341,9 @@ mod tests {
                 description => "THIS IS AN AUTOGENERATED FILE. DO NOT EDIT THIS FILE DIRECTLY.",
                 omit_expression => true,
             }, {
-                insta::assert_display_snapshot!("parameters", params);
+                any_failure |= std::panic::catch_unwind(|| {
+                    insta::assert_display_snapshot!("parameters", params);
+                }).is_err();
             });
         }
 
@@ -295,7 +355,13 @@ mod tests {
         for version in testnet_store.store.keys() {
             let snapshot_name = format!("testnet_{version}.json");
             let config_view = RuntimeConfigView::from(store.get_config(*version).as_ref().clone());
-            insta::assert_json_snapshot!(snapshot_name, config_view);
+            any_failure |= std::panic::catch_unwind(|| {
+                insta::assert_json_snapshot!(snapshot_name, config_view);
+            })
+            .is_err();
+        }
+        if any_failure {
+            panic!("some snapshot assertions failed");
         }
     }
 

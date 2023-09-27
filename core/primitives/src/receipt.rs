@@ -11,6 +11,8 @@ use serde_with::serde_as;
 use std::borrow::Borrow;
 use std::fmt;
 
+pub use near_vm_runner::logic::DataReceiver;
+
 /// Receipts are used for a cross-shard communication.
 /// Receipts could be 2 types (determined by a `ReceiptEnum`): `ReceiptEnum::Action` of `ReceiptEnum::Data`.
 #[derive(
@@ -170,24 +172,6 @@ impl fmt::Debug for DataReceipt {
     }
 }
 
-/// The outgoing (egress) data which will be transformed
-/// to a `DataReceipt` to be sent to a `receipt.receiver`
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Hash,
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-pub struct DataReceiver {
-    pub data_id: CryptoHash,
-    pub receiver_id: AccountId,
-}
-
 /// A temporary data which is created by processing of DataReceipt
 /// stored in a state trie with a key = `account_id` + `data_id` until
 /// `input_data_ids` of all incoming Receipts are satisfied
@@ -212,6 +196,12 @@ pub struct DelayedReceiptIndices {
     pub first_index: u64,
     // Exclusive end index of the queue
     pub next_available_index: u64,
+}
+
+impl DelayedReceiptIndices {
+    pub fn len(&self) -> u64 {
+        self.next_available_index - self.first_index
+    }
 }
 
 /// Map of shard to list of receipts to send to it.

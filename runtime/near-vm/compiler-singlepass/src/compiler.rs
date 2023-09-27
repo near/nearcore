@@ -17,7 +17,6 @@ use near_vm_types::{
     FunctionIndex, FunctionType, LocalFunctionIndex, MemoryIndex, ModuleInfo, TableIndex,
 };
 use near_vm_vm::{TrapCode, VMOffsets};
-#[cfg(feature = "rayon")]
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::sync::Arc;
 
@@ -42,7 +41,7 @@ impl SinglepassCompiler {
 impl Compiler for SinglepassCompiler {
     /// Compile the module using Singlepass, producing a compilation result with
     /// associated relocations.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(target = "near_vm", level = "info", skip_all)]
     fn compile_module(
         &self,
         target: &Target,
@@ -82,19 +81,24 @@ impl Compiler for SinglepassCompiler {
             })?
             .bytes();
         let vmoffsets = VMOffsets::new(pointer_width).with_module_info(&module);
+        let make_assembler = || {
+            const KB: usize = 1024;
+            dynasmrt::VecAssembler::new_with_capacity(0, 128 * KB, 0, 0, KB, 0, KB)
+        };
         let import_idxs = 0..module.import_counts.functions as usize;
         let import_trampolines: PrimaryMap<SectionIndex, _> =
-            tracing::info_span!("import_trampolines", n_imports = import_idxs.len()).in_scope(
+            tracing::debug_span!(target: "near_vm", "import_trampolines", n_imports = import_idxs.len()).in_scope(
                 || {
                     import_idxs
-                        .into_par_iter_if_rayon()
-                        .map(|i| {
+                        .into_par_iter()
+                        .map_init(make_assembler, |assembler, i| {
                             let i = FunctionIndex::new(i);
                             gen_import_call_trampoline(
                                 &vmoffsets,
                                 i,
                                 &module.signatures[module.functions[i]],
                                 calling_convention,
+                                assembler,
                             )
                         })
                         .collect::<Vec<_>>()
@@ -105,9 +109,9 @@ impl Compiler for SinglepassCompiler {
         let functions = function_body_inputs
             .iter()
             .collect::<Vec<(LocalFunctionIndex, &FunctionBodyData<'_>)>>()
-            .into_par_iter_if_rayon()
-            .map(|(i, input)| {
-                tracing::info_span!("function", i = i.index()).in_scope(|| {
+            .into_par_iter()
+            .map_init(make_assembler, |assembler, (i, input)| {
+                tracing::debug_span!(target: "near_vm", "function", i = i.index()).in_scope(|| {
                     let reader =
                         near_vm_compiler::FunctionReader::new(input.module_offset, input.data);
                     let stack_init_gas_cost = tunables
@@ -120,6 +124,7 @@ impl Compiler for SinglepassCompiler {
                             ))
                         })?;
                     let mut generator = FuncGen::new(
+                        assembler,
                         module,
                         &self.config,
                         &target,
@@ -149,8 +154,9 @@ impl Compiler for SinglepassCompiler {
                     let mut operator_reader =
                         reader.get_operators_reader()?.into_iter_with_offsets();
                     while generator.has_control_frames() {
-                        let (op, pos) = tracing::info_span!("parsing-next-operator")
-                            .in_scope(|| operator_reader.next().unwrap())?;
+                        let (op, pos) =
+                            tracing::debug_span!(target: "near_vm", "parsing-next-operator")
+                                .in_scope(|| operator_reader.next().unwrap())?;
                         generator.set_srcloc(pos as u32);
                         generator.feed_operator(op).map_err(to_compile_error)?;
                     }
@@ -163,35 +169,40 @@ impl Compiler for SinglepassCompiler {
             .collect::<PrimaryMap<LocalFunctionIndex, CompiledFunction>>();
 
         let function_call_trampolines =
-            tracing::info_span!("function_call_trampolines").in_scope(|| {
+            tracing::debug_span!(target: "near_vm", "function_call_trampolines").in_scope(|| {
                 module
                     .signatures
                     .values()
                     .collect::<Vec<_>>()
-                    .into_par_iter_if_rayon()
-                    .map(|func_type| gen_std_trampoline(&func_type, calling_convention))
+                    .into_par_iter()
+                    .map_init(make_assembler, |assembler, func_type| {
+                        gen_std_trampoline(&func_type, calling_convention, assembler)
+                    })
                     .collect::<Vec<_>>()
                     .into_iter()
                     .collect::<PrimaryMap<_, _>>()
             });
 
-        let dynamic_function_trampolines = tracing::info_span!("dynamic_function_trampolines")
-            .in_scope(|| {
-                module
-                    .imported_function_types()
-                    .collect::<Vec<_>>()
-                    .into_par_iter_if_rayon()
-                    .map(|func_type| {
-                        gen_std_dynamic_import_trampoline(
-                            &vmoffsets,
-                            &func_type,
-                            calling_convention,
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .collect::<PrimaryMap<FunctionIndex, FunctionBody>>()
-            });
+        let dynamic_function_trampolines =
+            tracing::debug_span!(target: "near_vm", "dynamic_function_trampolines").in_scope(
+                || {
+                    module
+                        .imported_function_types()
+                        .collect::<Vec<_>>()
+                        .into_par_iter()
+                        .map_init(make_assembler, |assembler, func_type| {
+                            gen_std_dynamic_import_trampoline(
+                                &vmoffsets,
+                                &func_type,
+                                calling_convention,
+                                assembler,
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .collect::<PrimaryMap<FunctionIndex, FunctionBody>>()
+                },
+            );
 
         Ok(Compilation {
             functions,
@@ -216,27 +227,6 @@ impl ToCompileError for CodegenError {
 
 fn to_compile_error<T: ToCompileError>(x: T) -> CompileError {
     x.to_compile_error()
-}
-
-trait IntoParIterIfRayon {
-    type Output;
-    fn into_par_iter_if_rayon(self) -> Self::Output;
-}
-
-#[cfg(feature = "rayon")]
-impl<T: IntoParallelIterator + IntoIterator> IntoParIterIfRayon for T {
-    type Output = <T as IntoParallelIterator>::Iter;
-    fn into_par_iter_if_rayon(self) -> Self::Output {
-        return self.into_par_iter();
-    }
-}
-
-#[cfg(not(feature = "rayon"))]
-impl<T: IntoIterator> IntoParIterIfRayon for T {
-    type Output = <T as IntoIterator>::IntoIter;
-    fn into_par_iter_if_rayon(self) -> Self::Output {
-        return self.into_iter();
-    }
 }
 
 #[cfg(test)]

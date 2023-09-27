@@ -72,12 +72,12 @@ impl TransactionBuilder {
         args: Vec<u8>,
     ) -> SignedTransaction {
         let receiver = sender.clone();
-        let actions = vec![Action::FunctionCall(FunctionCallAction {
+        let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: method.to_string(),
             args,
             gas: 10u64.pow(18),
             deposit: 0,
-        })];
+        }))];
         self.transaction_from_actions(sender, receiver, actions)
     }
 
@@ -98,14 +98,6 @@ impl TransactionBuilder {
             .collect();
 
         self.transaction_from_function_call(account, "account_storage_insert_key", arg)
-    }
-
-    /// Transaction that checks existence of a given key under an account.
-    /// The account must have the test contract deployed.
-    pub(crate) fn account_has_key(&mut self, account: AccountId, key: &str) -> SignedTransaction {
-        let arg = (key.len() as u64).to_le_bytes().into_iter().chain(key.bytes()).collect();
-
-        self.transaction_from_function_call(account, "account_storage_has_key", arg)
     }
 
     pub(crate) fn rng(&mut self) -> ThreadRng {

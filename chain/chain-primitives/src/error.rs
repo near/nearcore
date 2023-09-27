@@ -188,6 +188,9 @@ pub enum Error {
     /// Invalid block merkle root.
     #[error("Invalid Block Merkle Root")]
     InvalidBlockMerkleRoot,
+    /// Invalid split shard ids.
+    #[error("Invalid Split Shard Ids when resharding. shard_id: {0}, parent_shard_id: {1}")]
+    InvalidSplitShardsIds(u64, u64),
     /// Someone is not a validator. Usually happens in signature verification
     #[error("Not A Validator")]
     NotAValidator,
@@ -271,6 +274,7 @@ impl Error {
             | Error::InvalidStatePayload
             | Error::InvalidTransactions
             | Error::InvalidChallenge
+            | Error::InvalidSplitShardsIds(_, _)
             | Error::MaliciousChallenge
             | Error::IncorrectNumberOfChunkHeaders
             | Error::InvalidEpochHash

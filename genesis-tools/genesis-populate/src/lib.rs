@@ -4,20 +4,24 @@ pub mod state_dump;
 
 use crate::state_dump::StateDump;
 use indicatif::{ProgressBar, ProgressStyle};
-use near_chain::types::{BlockHeaderInfo, RuntimeAdapter};
+use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
-use near_epoch_manager::{EpochManager, EpochManagerHandle};
+use near_epoch_manager::types::BlockHeaderInfo;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{genesis_chunks, Tip};
-use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
-use near_store::{get_account, set_access_key, set_account, set_code, Store, TrieUpdate};
+use near_store::genesis::{compute_storage_usage, initialize_genesis_state};
+use near_store::{
+    get_account, get_genesis_state_roots, set_access_key, set_account, set_code, Store, TrieUpdate,
+};
+use near_vm_runner::ContractCode;
 use nearcore::{NearConfig, NightshadeRuntime};
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
@@ -75,6 +79,7 @@ pub struct GenesisBuilder {
 impl GenesisBuilder {
     pub fn from_config_and_store(home_dir: &Path, config: NearConfig, store: Store) -> Self {
         let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
+        initialize_genesis_state(store.clone(), &config.genesis, Some(tmpdir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
         let runtime = NightshadeRuntime::from_config(
             tmpdir.path(),
@@ -117,7 +122,8 @@ impl GenesisBuilder {
 
     pub fn build(mut self) -> Result<Self> {
         // First, apply whatever is defined by the genesis config.
-        let (_store, roots) = self.runtime.genesis_state();
+        let roots = get_genesis_state_roots(self.runtime.store())?
+            .expect("genesis state roots not initialized.");
         let genesis_shard_version = self.genesis.config.shard_layout.version();
         self.roots = roots.into_iter().enumerate().map(|(k, v)| (k as u64, v)).collect();
         self.state_updates = self
@@ -172,12 +178,10 @@ impl GenesisBuilder {
         let mut state_update =
             self.state_updates.remove(&shard_idx).expect("State updates are always available");
         let protocol_config = self.runtime.get_protocol_config(&EpochId::default())?;
-        let runtime_config = protocol_config.runtime_config;
+        let storage_usage_config = protocol_config.runtime_config.fees.storage_usage_config;
 
         // Compute storage usage and update accounts.
-        for (account_id, storage_usage) in
-            self.runtime.runtime.compute_storage_usage(&records, &runtime_config)
-        {
+        for (account_id, storage_usage) in compute_storage_usage(&records, &storage_usage_config) {
             let mut account =
                 get_account(&state_update, &account_id)?.expect("We should've created account");
             account.set_storage_usage(storage_usage);
@@ -227,7 +231,7 @@ impl GenesisBuilder {
         let mut store_update = store.store_update();
 
         store_update.merge(
-            self.runtime
+            self.epoch_manager
                 .add_validator_proposals(BlockHeaderInfo::new(genesis.header(), 0))
                 .unwrap(),
         );

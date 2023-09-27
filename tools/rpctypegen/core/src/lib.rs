@@ -65,7 +65,7 @@ pub fn parse_error_type(schema: &mut BTreeMap<String, ErrorType>, input: &Derive
                 }
             }
             for e in direct_error_types {
-                let mut error_type = error_type_name(schema, e.name.clone());
+                let error_type = error_type_name(schema, e.name.clone());
                 error_type.name = e.name;
                 error_type.props = e.props;
             }

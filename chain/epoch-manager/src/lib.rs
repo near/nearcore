@@ -28,6 +28,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{debug, warn};
+use types::BlockHeaderInfo;
 
 pub use crate::adapter::EpochManagerAdapter;
 pub use crate::reward_calculator::RewardCalculator;
@@ -324,7 +325,6 @@ impl EpochManager {
     /// we don't kick out too many validators in case of network instability.
     /// We also make sure that these exempted validators were not kicked out in the last epoch,
     /// so it is guaranteed that they will stay as validators after this epoch.
-    #[allow(unused_variables)]
     fn compute_exempted_kickout(
         epoch_info: &EpochInfo,
         validator_block_chunk_stats: &HashMap<AccountId, BlockChunkValidatorStats>,
@@ -339,7 +339,6 @@ impl EpochManager {
         // until the total excepted stake exceeds the ratio of total stake that we need to keep.
         // Later when we perform the check to kick out validators, we don't kick out validators in
         // exempted_validators.
-        #[allow(unused_mut)]
         let mut exempted_validators = HashSet::new();
         if checked_feature!("stable", MaxKickoutStake, epoch_info.protocol_version()) {
             let min_keep_stake = total_stake * (exempt_perc as u128) / 100;
@@ -419,7 +418,6 @@ impl EpochManager {
         let block_producer_kickout_threshold = config.block_producer_kickout_threshold;
         let chunk_producer_kickout_threshold = config.chunk_producer_kickout_threshold;
         let mut validator_block_chunk_stats = HashMap::new();
-        #[allow(unused)]
         let mut total_stake: Balance = 0;
         let mut maximum_block_prod = 0;
         let mut max_validator = None;
@@ -557,11 +555,10 @@ impl EpochManager {
         let next_version = if let Some((version, stake)) =
             versions.into_iter().max_by_key(|&(_version, stake)| stake)
         {
-            if stake
-                > (total_block_producer_stake
-                    * *config.protocol_upgrade_stake_threshold.numer() as u128)
-                    / *config.protocol_upgrade_stake_threshold.denom() as u128
-            {
+            let numer = *config.protocol_upgrade_stake_threshold.numer() as u128;
+            let denom = *config.protocol_upgrade_stake_threshold.denom() as u128;
+            let threshold = total_block_producer_stake * numer / denom;
+            if stake > threshold {
                 version
             } else {
                 protocol_version
@@ -569,7 +566,6 @@ impl EpochManager {
         } else {
             protocol_version
         };
-
         // Gather slashed validators and add them to kick out first.
         let slashed_validators = last_block_info.slashed();
         for (account_id, _) in slashed_validators.iter() {
@@ -1364,6 +1360,38 @@ impl EpochManager {
             epoch_start_height,
             epoch_height,
         })
+    }
+
+    pub fn add_validator_proposals(
+        &mut self,
+        block_header_info: BlockHeaderInfo,
+    ) -> Result<StoreUpdate, EpochError> {
+        // Check that genesis block doesn't have any proposals.
+        assert!(
+            block_header_info.height > 0
+                || (block_header_info.proposals.is_empty()
+                    && block_header_info.slashed_validators.is_empty())
+        );
+        debug!(target: "epoch_manager",
+            height = block_header_info.height,
+            proposals = ?block_header_info.proposals,
+            "add_validator_proposals");
+        // Deal with validator proposals and epoch finishing.
+        let block_info = BlockInfo::new(
+            block_header_info.hash,
+            block_header_info.height,
+            block_header_info.last_finalized_height,
+            block_header_info.last_finalized_block_hash,
+            block_header_info.prev_hash,
+            block_header_info.proposals,
+            block_header_info.chunk_mask,
+            block_header_info.slashed_validators,
+            block_header_info.total_supply,
+            block_header_info.latest_protocol_version,
+            block_header_info.timestamp_nanosec,
+        );
+        let rng_seed = block_header_info.random_value.0;
+        self.record_block_info(block_info, rng_seed)
     }
 
     /// Compare two epoch ids based on their start height. This works because finality gadget

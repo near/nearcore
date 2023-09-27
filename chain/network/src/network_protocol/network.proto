@@ -106,6 +106,11 @@ message BlockHeader {
   bytes borsh = 1;
 }
 
+// Wrapper of the borsh-encoded StateResponseInfo.
+message StateResponseInfo {
+  bytes borsh = 1;
+}
+
 // Unique identifier of the NEAR chain.
 message GenesisId {
   // Name of the chain (for example "mainnet").
@@ -260,6 +265,29 @@ message RoutingTableUpdate {
   repeated AnnounceAccount accounts = 2;
 }
 
+// Denotes an available route to `destination` of length `distance`
+message AdvertisedPeerDistance {
+  PublicKey destination = 1;
+  uint32 distance = 2;
+}
+
+/// Message shared by a peer listing the distances it has to other peers
+/// in the NEAR network.
+///
+/// It includes a collection of signed edges forming a spanning tree
+/// which verifiably achieves the advertised routing distances.
+///
+/// The distances in the tree may be the same or better than the advertised
+/// distances; see routing::graph_v2::tests::inconsistent_peers.
+message DistanceVector {
+  // PeerId of the node sending the message.
+  PublicKey root = 1;
+  // List of distances the root has to other peers in the network.
+  repeated AdvertisedPeerDistance distances = 2;
+  // Spanning tree of signed edges achieving the claimed distances (or better).
+  repeated Edge edges = 3;
+}
+
 // TODO: document it.
 message UpdateNonceRequest {
   PartialEdgeInfo partial_edge_info = 1;
@@ -386,6 +414,21 @@ message TraceContext {
   SamplingPriority sampling_priority = 3;
 }
 
+message StateRequestHeader {
+  uint64 shard_id = 1;
+  CryptoHash sync_hash = 2;
+}
+
+message StateRequestPart {
+  uint64 shard_id = 1;
+  CryptoHash sync_hash = 2;
+  uint64 part_id = 3;
+}
+
+message StateResponse {
+  StateResponseInfo state_response_info = 1;
+}
+
 // PeerMessage is a wrapper of all message types exchanged between NEAR nodes.
 // The wire format of a single message M consists of len(M)+4 bytes:
 // <len(M)> : 4 bytes : little endian uint32
@@ -417,6 +460,7 @@ message PeerMessage {
     HandshakeFailure handshake_failure = 5;
     LastEdge last_edge = 6;
     RoutingTableUpdate sync_routing_table = 7;
+    DistanceVector distance_vector = 28;
     
     UpdateNonceRequest update_nonce_request = 8;
     UpdateNonceResponse update_nonce_response = 9;
@@ -436,5 +480,9 @@ message PeerMessage {
     RoutedMessage routed = 17;
     Disconnect disconnect = 18;
     Challenge challenge = 19;
+
+    StateRequestHeader state_request_header = 29;
+    StateRequestPart state_request_part = 30;
+    StateResponse state_response = 31;
   }
 }

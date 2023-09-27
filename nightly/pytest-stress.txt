@@ -5,10 +5,13 @@ pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_networ
 pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network --features nightly
 # pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network packets_drop
 # pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network packets_drop --features nightly
-pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart
-pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart --features nightly
-pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart packets_drop
-pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart packets_drop --features nightly
+
+# TODO(#9090): Node restarts often fail due to the DB having the LOCK file.
+# pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart
+# pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart --features nightly
+# pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart packets_drop
+# pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart packets_drop --features nightly
+
 # pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart wipe_data
 # pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart wipe_data --features nightly
 # pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart packets_drop wipe_data

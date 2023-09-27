@@ -78,7 +78,7 @@ impl Edge {
 
     pub fn make_fake_edge(peer0: PeerId, peer1: PeerId, nonce: u64) -> Self {
         Self(Arc::new(EdgeInner {
-            key: (peer0, peer1),
+            key: if peer0 < peer1 { (peer0, peer1) } else { (peer1, peer0) },
             nonce,
             signature0: Signature::empty(KeyType::ED25519),
             signature1: Signature::empty(KeyType::ED25519),

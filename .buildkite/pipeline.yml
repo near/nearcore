@@ -13,6 +13,7 @@ steps:
 
     agents:
       - "distro=amazonlinux"
+      - "queue=default"
 
   - label: "cargo test integration-tests*"
     command: |
@@ -22,6 +23,7 @@ steps:
 
     agents:
       - "distro=amazonlinux"
+      - "queue=default"
     branches: "!master"
 
   - label: "cargo test not integration-tests*"
@@ -32,6 +34,7 @@ steps:
 
     agents:
       - "distro=amazonlinux"
+      - "queue=default"
     branches: "!master"
 
   - label: "cargo test nightly integration-tests*"
@@ -42,6 +45,7 @@ steps:
 
     agents:
       - "distro=amazonlinux"
+      - "queue=default"
     branches: "!master"
 
   - label: "cargo test nightly not integration-tests*"
@@ -53,6 +57,7 @@ steps:
 
     agents:
       - "distro=amazonlinux"
+      - "queue=default"
     branches: "!master"
 
   - label: "sanity checks"
@@ -84,6 +89,8 @@ steps:
       python3 scripts/check_pytests.py
       python3 scripts/check_fuzzing.py
 
+      python3 scripts/fix_nightly_feature_flags.py
+
       ./scripts/formatting --check
 
       ./scripts/run_clippy.sh
@@ -98,6 +105,7 @@ steps:
       fi >&2
     agents:
       - "distro=amazonlinux"
+      - "queue=default"
     branches: "!master"
 
   - label: "backward compatible"
@@ -112,6 +120,7 @@ steps:
     branches: "!master !beta !stable"
     agents:
       - "distro=amazonlinux"
+      - "queue=default"
 
   - label: "upgradable"
     command: |
@@ -122,6 +131,7 @@ steps:
     branches: "!master"
     agents:
       - "distro=amazonlinux"
+      - "queue=default"
 
   - label: "db migration"
     command: |
@@ -132,3 +142,4 @@ steps:
     branches: "!master !beta !stable"
     agents:
       - "distro=amazonlinux"
+      - "queue=default"

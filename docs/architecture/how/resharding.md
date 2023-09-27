@@ -38,12 +38,12 @@ do it more often than on new releases?
 
 It all starts in ``preprocess_block`` - if the node sees, that the block it is
 about to preprocess is the first block of the epoch (X+1)  - it calls
-``get_state_dl_info``, which is responsible for figuring out which shards will 
+``get_state_sync_info``, which is responsible for figuring out which shards will 
 be needed in next epoch (X+2).
 
 This is the moment, when node can request new shards that it didn't track before (using StateSync) - and if it detects that the shard layout would change in the next epoch, it also involves the StateSync - but skips the download part (as it already has the data) - and starts from state splitting.
 
-StateSync in this phase would send the ``StateSplitRequest`` to the ``SyncJobActor`` (you can think about the SyncJobActor as a background thread).
+StateSync in this phase would send the ``StateSplitRequest`` to the ``SyncJobsActor`` (you can think about the ``SyncJobsActor`` as a background thread).
 
 We'd use the background thread to do the state splitting: the goal is to change the one trie (that represents the state of the current shard) - to multiple tries (one for each of the new shards).
 

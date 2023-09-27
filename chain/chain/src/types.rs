@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
@@ -11,9 +10,8 @@ use num_rational::Rational32;
 use crate::metrics;
 use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
-use near_client_primitives::types::StateSplitApplyingStatus;
 use near_pool::types::PoolIterator;
-use near_primitives::challenge::{ChallengesResult, SlashedValidator};
+use near_primitives::challenge::ChallengesResult;
 use near_primitives::checked_feature;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -32,7 +30,7 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
-use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
+use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 
 pub use near_epoch_manager::EpochManagerAdapter;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
@@ -77,6 +75,7 @@ pub struct AcceptedBlock {
     pub provenance: Provenance,
 }
 
+#[derive(Debug)]
 pub struct ApplySplitStateResult {
     pub shard_uid: ShardUId,
     pub trie_changes: WrappedTrieChanges,
@@ -88,11 +87,17 @@ pub struct ApplySplitStateResult {
 // if it's ready, apply transactions also apply updates to split states and this enum will be
 //    ApplySplitStateResults
 // otherwise, it simply returns the state changes needed to be applied to split states
+#[derive(Debug)]
 pub enum ApplySplitStateResultOrStateChanges {
+    /// Immediately apply the split state result.
+    /// Happens during IsCaughtUp and CatchingUp
     ApplySplitStateResults(Vec<ApplySplitStateResult>),
+    /// Store the split state results so that they can be applied later.
+    /// Happens during NotCaughtUp.
     StateChangesForSplitStates(StateChangesForSplitStates),
 }
 
+#[derive(Debug)]
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
@@ -115,43 +120,6 @@ impl ApplyTransactionResult {
             result.push(outcome_with_id.to_hashes());
         }
         merklize(&result)
-    }
-}
-
-/// Compressed information about block.
-/// Useful for epoch manager.
-#[derive(Default, Clone, Debug)]
-pub struct BlockHeaderInfo {
-    pub hash: CryptoHash,
-    pub prev_hash: CryptoHash,
-    pub height: BlockHeight,
-    pub random_value: CryptoHash,
-    pub last_finalized_height: BlockHeight,
-    pub last_finalized_block_hash: CryptoHash,
-    pub proposals: Vec<ValidatorStake>,
-    pub slashed_validators: Vec<SlashedValidator>,
-    pub chunk_mask: Vec<bool>,
-    pub total_supply: Balance,
-    pub latest_protocol_version: ProtocolVersion,
-    pub timestamp_nanosec: u64,
-}
-
-impl BlockHeaderInfo {
-    pub fn new(header: &BlockHeader, last_finalized_height: u64) -> Self {
-        Self {
-            hash: *header.hash(),
-            prev_hash: *header.prev_hash(),
-            height: header.height(),
-            random_value: *header.random_value(),
-            last_finalized_height,
-            last_finalized_block_hash: *header.last_final_block(),
-            proposals: header.validator_proposals().collect(),
-            slashed_validators: vec![],
-            chunk_mask: header.chunk_mask().to_vec(),
-            total_supply: header.total_supply(),
-            latest_protocol_version: header.latest_protocol_version(),
-            timestamp_nanosec: header.raw_timestamp(),
-        }
     }
 }
 
@@ -242,11 +210,16 @@ pub struct ChainConfig {
     /// Number of threads to execute background migration work.
     /// Currently used for flat storage background creation.
     pub background_migration_threads: usize,
+    pub state_snapshot_every_n_blocks: Option<u64>,
 }
 
 impl ChainConfig {
     pub fn test() -> Self {
-        Self { save_trie_changes: true, background_migration_threads: 1 }
+        Self {
+            save_trie_changes: true,
+            background_migration_threads: 1,
+            state_snapshot_every_n_blocks: None,
+        }
     }
 }
 
@@ -273,9 +246,6 @@ impl ChainGenesis {
 /// Naming note: `state_root` is a pre state root for block `block_hash` and a
 /// post state root for block `prev_hash`.
 pub trait RuntimeAdapter: Send + Sync {
-    /// Get store and genesis state roots
-    fn genesis_state(&self) -> (Store, Vec<StateRoot>);
-
     fn get_tries(&self) -> ShardTries;
 
     fn store(&self) -> &Store;
@@ -299,7 +269,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: StateRoot,
     ) -> Result<Trie, Error>;
 
-    fn get_flat_storage_manager(&self) -> Option<FlatStorageManager>;
+    fn get_flat_storage_manager(&self) -> FlatStorageManager;
 
     /// Validates a given signed transaction.
     /// If the state root is given, then the verification will use the account. Otherwise it will
@@ -345,12 +315,6 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get the block height for which garbage collection should not go over
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight;
 
-    /// Add proposals for validators.
-    fn add_validator_proposals(
-        &self,
-        block_header_info: BlockHeaderInfo,
-    ) -> Result<StoreUpdate, Error>;
-
     /// Apply transactions to given state root and return store update and new state root.
     /// Also returns transaction result for each transaction and new receipts.
     fn apply_transactions(
@@ -373,11 +337,6 @@ pub trait RuntimeAdapter: Send + Sync {
         state_patch: SandboxStatePatch,
         use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
-        let _span = tracing::debug_span!(
-            target: "runtime",
-            "apply_transactions",
-            shard_id)
-        .entered();
         let _timer =
             metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         self.apply_transactions_with_optional_storage_proof(
@@ -480,14 +439,6 @@ pub trait RuntimeAdapter: Send + Sync {
         state_changes: StateChangesForSplitStates,
     ) -> Result<Vec<ApplySplitStateResult>, Error>;
 
-    fn build_state_for_split_shards(
-        &self,
-        shard_uid: ShardUId,
-        state_root: &StateRoot,
-        next_epoch_shard_layout: &ShardLayout,
-        state_split_status: Arc<StateSplitApplyingStatus>,
-    ) -> Result<HashMap<ShardUId, StateRoot>, Error>;
-
     /// Should be executed after accepting all the parts to set up a new state.
     fn apply_state_part(
         &self,
@@ -529,6 +480,8 @@ pub struct LatestKnown {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use chrono::Utc;
     use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
 
@@ -559,7 +512,8 @@ mod tests {
         let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
         assert!(b1.header().verify_block_producer(&signer.public_key()));
         let other_signer = create_test_signer("other2");
-        let approvals = vec![Some(Approval::new(*b1.hash(), 1, 2, &other_signer).signature)];
+        let approvals =
+            vec![Some(Box::new(Approval::new(*b1.hash(), 1, 2, &other_signer).signature))];
         let b2 = TestBlockBuilder::new(&b1, signer.clone()).approvals(approvals).build();
         b2.header().verify_block_producer(&signer.public_key());
     }

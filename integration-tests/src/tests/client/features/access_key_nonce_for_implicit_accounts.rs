@@ -132,7 +132,7 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
 
     let signer1 = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
 
-    let public_key = signer1.public_key.clone();
+    let public_key = &signer1.public_key;
     let raw_public_key = public_key.unwrap_as_ed25519().0.to_vec();
     let implicit_account_id = AccountId::try_from(hex::encode(&raw_public_key)).unwrap();
     let implicit_account_signer =

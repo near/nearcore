@@ -1,15 +1,14 @@
 use crate::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
-use crate::internal::VMKind;
+use crate::logic::errors::FunctionCallError;
+use crate::logic::mocks::mock_external::MockedExternal;
+use crate::logic::{Config, VMContext};
 use crate::runner::VMResult;
+use crate::ContractCode;
+use crate::VMKind;
 use arbitrary::Arbitrary;
 use bolero::check;
 use core::fmt;
-use near_primitives::contract::ContractCode;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_errors::FunctionCallError;
-use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::{VMConfig, VMContext};
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
 pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
@@ -111,7 +110,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     let mut context = create_context(vec![]);
     context.prepaid_gas = 10u64.pow(14);
 
-    let mut config = VMConfig::test();
+    let mut config = Config::test();
     config.limit_config.wasmer2_stack_limit = i32::MAX; // If we can crash wasmer2 even without the secondary stack limit it's still good to know
 
     let fees = RuntimeFeesConfig::test();
@@ -126,7 +125,6 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
         context,
         &fees,
         &promise_results,
-        PROTOCOL_VERSION,
         None,
     );
 
@@ -154,7 +152,8 @@ fn current_vm_does_not_crash() {
             Err(_) => return,
         };
         let code = ContractCode::new(module.0.module.to_bytes(), None);
-        let _result = run_fuzz(&code, VMKind::for_protocol_version(PROTOCOL_VERSION));
+        let config = Config::test();
+        let _result = run_fuzz(&code, config.vm_kind);
     });
 }
 
@@ -174,20 +173,34 @@ fn wasmer2_and_wasmtime_agree() {
     });
 }
 
-#[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
 #[test]
-fn wasmer2_is_reproducible() {
-    use crate::wasmer2_runner::Wasmer2VM;
+fn near_vm_and_wasmtime_agree() {
+    check!().for_each(|data: &[u8]| {
+        let module = ArbitraryModule::arbitrary(&mut arbitrary::Unstructured::new(data));
+        let module = match module {
+            Ok(m) => m,
+            Err(_) => return,
+        };
+        let code = ContractCode::new(module.0.module.to_bytes(), None);
+        let near_vm = run_fuzz(&code, VMKind::NearVm).expect("fatal failure");
+        let wasmtime = run_fuzz(&code, VMKind::Wasmtime).expect("fatal failure");
+        assert_eq!(near_vm, wasmtime);
+    });
+}
+
+#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
+#[test]
+fn near_vm_is_reproducible() {
+    use crate::near_vm_runner::NearVM;
     use near_primitives::hash::CryptoHash;
-    use wasmer_engine::Executable;
 
     bolero::check!().for_each(|data: &[u8]| {
         if let Ok(module) = ArbitraryModule::arbitrary(&mut arbitrary::Unstructured::new(data)) {
             let code = ContractCode::new(module.0.module.to_bytes(), None);
-            let config = VMConfig::test();
+            let config = Config::test();
             let mut first_hash = None;
             for _ in 0..3 {
-                let vm = Wasmer2VM::new(config.clone());
+                let vm = NearVM::new(config.clone());
                 let exec = match vm.compile_uncached(&code) {
                     Ok(e) => e,
                     Err(_) => return,

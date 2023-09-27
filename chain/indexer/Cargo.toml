@@ -32,5 +32,27 @@ near-store.workspace = true
 node-runtime.workspace = true
 
 [features]
+nightly_protocol = [
+  "near-chain-configs/nightly_protocol",
+  "near-client/nightly_protocol",
+  "near-dyn-configs/nightly_protocol",
+  "near-indexer-primitives/nightly_protocol",
+  "near-o11y/nightly_protocol",
+  "near-primitives/nightly_protocol",
+  "near-store/nightly_protocol",
+  "nearcore/nightly_protocol",
+  "node-runtime/nightly_protocol",
+]
 calimero_zero_storage = ["near-primitives/calimero_zero_storage"]
-nightly = ["nearcore/nightly"]
+nightly = [
+  "nightly_protocol",
+  "near-chain-configs/nightly",
+  "near-client/nightly",
+  "near-dyn-configs/nightly",
+  "near-indexer-primitives/nightly",
+  "near-o11y/nightly",
+  "near-primitives/nightly",
+  "near-store/nightly",
+  "nearcore/nightly",
+  "node-runtime/nightly",
+]

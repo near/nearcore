@@ -1,0 +1,97 @@
+[package]
+name = "near-vm-test-api"
+version.workspace = true
+description = "High-performance WebAssembly runtime"
+categories = ["wasm"]
+keywords = ["wasm", "webassembly", "runtime", "vm"]
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
+repository.workspace = true
+license = "MIT"
+readme = "README.md"
+edition = "2021"
+publish = false
+rust-version.workspace = true
+
+# Shared dependencies.
+[dependencies]
+# - Mandatory shared dependencies.
+cfg-if.workspace = true
+finite-wasm.workspace = true
+indexmap.workspace = true
+more-asserts.workspace = true
+prefix-sum-vec.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+# - Optional shared dependencies.
+wat = { workspace = true, optional = true }
+
+# Dependencies and Development Dependencies for `sys`.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# - Mandatory dependencies for `sys`.
+# TODO: properly finish crate renaming and hoist dep to workspace (#8834)
+near-vm-vm.workspace = true
+near-vm-compiler.workspace = true
+near-vm-engine.workspace = true
+near-vm-types.workspace = true
+target-lexicon.workspace = true
+# - Optional dependencies for `sys`.
+near-vm-compiler-singlepass = { workspace = true, optional = true}
+
+# - Mandatory dependencies for `sys` on Windows.
+[target.'cfg(all(not(target_arch = "wasm32"), target_os = "windows"))'.dependencies]
+winapi.workspace = true
+# - Development Dependencies for `sys`.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+anyhow.workspace = true
+tempfile.workspace = true
+wat.workspace = true
+near-vm-compiler-test-derive.workspace = true
+near-vm-wast.workspace = true
+test-log.workspace = true
+serial_test.workspace = true
+tracing-subscriber.workspace = true
+
+[build-dependencies]
+near-vm-test-generator.workspace = true
+anyhow.workspace = true
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[features]
+default = ["sys-default"]
+
+# Features for `sys`.
+sys = []
+sys-default = ["sys", "wat", "default-singlepass", "default-universal"]
+# - Compilers.
+compiler = [
+    "sys",
+]
+    singlepass = [
+        "compiler",
+        "near-vm-compiler-singlepass",
+    ]
+default-compiler = []
+    default-singlepass = [
+        "default-compiler",
+        "singlepass",
+    ]
+# - Engines.
+engine = ["sys"]
+    universal = [
+        "engine",
+    ]
+default-engine = []
+    default-universal = [
+        "default-engine",
+        "universal",
+    ]
+
+[package.metadata.docs.rs]
+features = ["compiler", "core", "default-compiler", "default-engine", "engine", "jit", "native", "singlepass", "sys", "sys-default", "universal"]
+
+[[test]]
+name = "near-vm-compilers"
+path = "../tests/compilers/main.rs"

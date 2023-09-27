@@ -9,6 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
+pub use near_vm_runner::logic::TrieNodesCount;
 use once_cell::sync::Lazy;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -153,7 +154,7 @@ impl StateChangesKinds {
 }
 
 /// A structure used to index state changes due to transaction/receipt processing and other things.
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq)]
 pub enum StateChangeCause {
     /// A type of update that does not get finalized. Used for verification and execution of
     /// immutable smart contract methods. Attempt fo finalize a `TrieUpdate` containing such
@@ -936,21 +937,6 @@ pub enum TransactionOrReceiptId {
     Receipt { receipt_id: CryptoHash, receiver_id: AccountId },
 }
 
-#[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize)]
-pub enum CompiledContract {
-    CompileModuleError(near_vm_errors::CompilationError),
-    Code(Vec<u8>),
-}
-
-/// Cache for compiled modules
-pub trait CompiledContractCache: Send + Sync {
-    fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()>;
-    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>>;
-    fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
-        self.get(key).map(|entry| entry.is_some())
-    }
-}
-
 /// Provides information about current epoch validators.
 /// Used to break dependency between epoch manager and runtime.
 pub trait EpochInfoProvider {
@@ -974,7 +960,7 @@ pub trait EpochInfoProvider {
 }
 
 /// Mode of the trie cache.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TrieCacheMode {
     /// In this mode we put each visited node to LRU cache to optimize performance.
     /// Presence of any exact node is not guaranteed.
@@ -984,25 +970,6 @@ pub enum TrieCacheMode {
     /// only once during a single chunk processing. Such nodes remain in cache until the chunk processing is finished,
     /// and thus users (potentially different) are not required to pay twice for retrieval of the same node.
     CachingChunk,
-}
-
-/// Counts trie nodes reads during tx/receipt execution for proper storage costs charging.
-#[derive(Debug, PartialEq)]
-pub struct TrieNodesCount {
-    /// Potentially expensive trie node reads which are served from disk in the worst case.
-    pub db_reads: u64,
-    /// Cheap trie node reads which are guaranteed to be served from RAM.
-    pub mem_reads: u64,
-}
-
-impl TrieNodesCount {
-    /// Used to determine the number of trie nodes charged during some operation.
-    pub fn checked_sub(self, other: &Self) -> Option<Self> {
-        Some(Self {
-            db_reads: self.db_reads.checked_sub(other.db_reads)?,
-            mem_reads: self.mem_reads.checked_sub(other.mem_reads)?,
-        })
-    }
 }
 
 /// State changes for a range of blocks.

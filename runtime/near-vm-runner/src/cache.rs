@@ -1,11 +1,10 @@
 use crate::errors::ContractPrecompilatonResult;
+use crate::logic::errors::{CacheError, CompilationError};
+use crate::logic::{CompiledContract, CompiledContractCache, Config};
 use crate::vm_kind::VMKind;
+use crate::ContractCode;
 use borsh::BorshSerialize;
-use near_primitives::contract::ContractCode;
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::{CompiledContract, CompiledContractCache};
-use near_vm_errors::{CacheError, CompilationError};
-use near_vm_logic::{ProtocolVersion, VMConfig};
+use near_primitives_core::hash::CryptoHash;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
@@ -44,17 +43,13 @@ fn vm_hash(vm_kind: VMKind) -> u64 {
     }
 }
 
-pub fn get_contract_cache_key(
-    code: &ContractCode,
-    vm_kind: VMKind,
-    config: &VMConfig,
-) -> CryptoHash {
+pub fn get_contract_cache_key(code: &ContractCode, config: &Config) -> CryptoHash {
     let _span = tracing::debug_span!(target: "vm", "get_key").entered();
     let key = ContractCacheKey::Version4 {
         code_hash: *code.hash(),
         vm_config_non_crypto_hash: config.non_crypto_hash(),
-        vm_kind,
-        vm_hash: vm_hash(vm_kind),
+        vm_kind: config.vm_kind,
+        vm_hash: vm_hash(config.vm_kind),
     };
     CryptoHash::hash_borsh(key)
 }
@@ -89,21 +84,16 @@ impl fmt::Debug for MockCompiledContractCache {
     }
 }
 
-/// Size of in-memory cache for compiled and loaded contracts.
-#[cfg(all(not(feature = "no_cache"), target_arch = "x86_64"))]
-pub(crate) const CACHE_SIZE: usize = 128;
-
 /// Precompiles contract for the current default VM, and stores result to the cache.
 /// Returns `Ok(true)` if compiled code was added to the cache, and `Ok(false)` if element
 /// is already in the cache, or if cache is `None`.
 pub fn precompile_contract(
     code: &ContractCode,
-    config: &VMConfig,
-    current_protocol_version: ProtocolVersion,
+    config: &Config,
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError> {
     let _span = tracing::debug_span!(target: "vm", "precompile_contract").entered();
-    let vm_kind = VMKind::for_protocol_version(current_protocol_version);
+    let vm_kind = config.vm_kind;
     let runtime = vm_kind
         .runtime(config.clone())
         .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
@@ -111,7 +101,7 @@ pub fn precompile_contract(
         Some(it) => it,
         None => return Ok(Ok(ContractPrecompilatonResult::CacheNotAvailable)),
     };
-    let key = get_contract_cache_key(code, vm_kind, config);
+    let key = get_contract_cache_key(code, config);
     // Check if we already cached with such a key.
     if cache.has(&key).map_err(CacheError::ReadError)? {
         return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
