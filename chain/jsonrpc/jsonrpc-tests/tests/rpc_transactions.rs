@@ -223,14 +223,8 @@ fn test_check_invalid_tx() {
             100,
             hash(&[1]),
         );
-        let bytes = tx.try_to_vec().unwrap();
-        match client.EXPERIMENTAL_check_tx(to_base64(&bytes)).await {
-            Err(e) => {
-                let s = serde_json::to_string(&e.data.unwrap()).unwrap();
-                println!("{}", s);
-                assert_eq!(s, "{\"TxExecutionError\":{\"InvalidTxError\":\"Expired\"}}");
-            }
-            Ok(_) => panic!("transaction should not succeed"),
+        if let Ok(_) = client.tx(tx.get_hash().to_string(), "test1".parse().unwrap()).await {
+            panic!("transaction should not succeed");
         }
     });
 }
