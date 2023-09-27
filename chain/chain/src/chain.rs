@@ -63,6 +63,7 @@ use near_primitives::syncing::{
 };
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
     NumBlocks, NumShards, ShardId, StateChangesForSplitStates, StateRoot,
@@ -829,6 +830,64 @@ impl Chain {
 
         chain_store_update.commit()?;
         Ok(())
+    }
+
+    pub fn apply_chunk_for_post_state_root(
+        &self,
+        shard_id: ShardId,
+        prev_state_root: StateRoot,
+        block_height: BlockHeight,
+        prev_block: &Block,
+        transactions: &[SignedTransaction],
+        last_validator_proposals: ValidatorStakeIter,
+        gas_limit: Gas,
+        last_chunk_height_included: BlockHeight,
+    ) -> Result<ApplyTransactionResult, Error> {
+        let prev_block_hash = prev_block.hash();
+        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
+            self.store(),
+            self.epoch_manager.as_ref(),
+            prev_block_hash,
+            shard_id,
+        )?;
+        // TODO(post-state-root): this misses outgoing receipts from the last block before
+        // the switch to post-state-root. Incoming receipts for that block corresponds to the
+        // outgoing receipts from the previous block, but incoming receipts for the next block
+        // include outgoing receipts for that block. These receipts can be obtained from the db
+        // using get_outgoing_receipts_for_shard since we currently track all shard. This will
+        // be implemented later along with an intergation test to reproduce the issue.
+        let receipts =
+            collect_receipts_from_response(&self.store.get_incoming_receipts_for_shard(
+                self.epoch_manager.as_ref(),
+                shard_id,
+                *prev_block_hash,
+                last_chunk_height_included,
+            )?);
+        // TODO(post-state-root): block-level fields, take values from the previous block for now
+        let block_timestamp = prev_block.header().raw_timestamp();
+        let block_hash = prev_block_hash;
+        let random_seed = *prev_block.header().random_value();
+        let gas_price = prev_block.header().gas_price();
+
+        self.runtime_adapter.apply_transactions(
+            shard_id,
+            &prev_state_root,
+            block_height,
+            block_timestamp,
+            prev_block_hash,
+            &block_hash,
+            &receipts,
+            transactions,
+            last_validator_proposals,
+            gas_price,
+            gas_limit,
+            &vec![],
+            random_seed,
+            true,
+            is_first_block_with_chunk_of_version,
+            Default::default(),
+            true,
+        )
     }
 
     pub fn save_orphan(
@@ -1704,6 +1763,7 @@ impl Chain {
         if !self.care_about_any_shard_or_part(me, *block.header().prev_hash())? {
             return Ok(HashMap::new());
         }
+
         let height = block.header().height();
         let mut receipt_proofs_by_shard_id = HashMap::new();
 
