@@ -2237,6 +2237,9 @@ impl TestEnv {
             let block = self.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
             self.process_block(0, block.clone(), Provenance::PRODUCED);
             if let Ok(outcome) = self.clients[0].chain.get_final_transaction_result(&tx_hash) {
+                // process one more block to allow refunds to finish
+                let block = self.clients[0].produce_block(tip.height + i + 2).unwrap().unwrap();
+                self.process_block(0, block.clone(), Provenance::PRODUCED);
                 return Ok(outcome);
             }
         }
