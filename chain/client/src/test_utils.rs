@@ -2,10 +2,12 @@
 // code so we're in the clear.
 #![allow(clippy::arc_with_non_send_sync)]
 
+use itertools::Itertools;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::mem::swap;
 use std::ops::DerefMut;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -83,7 +85,7 @@ use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind, StateItem,
 };
 use near_store::test_utils::create_test_store;
-use near_store::Store;
+use near_store::{NodeStorage, Store};
 use near_telemetry::TelemetryActor;
 
 use crate::adapter::{
@@ -1361,6 +1363,7 @@ pub struct TestEnvBuilder {
     chain_genesis: ChainGenesis,
     clients: Vec<AccountId>,
     validators: Vec<AccountId>,
+    home_dirs: Option<Vec<PathBuf>>,
     stores: Option<Vec<Store>>,
     epoch_managers: Option<Vec<EpochManagerKind>>,
     shard_trackers: Option<Vec<ShardTracker>>,
@@ -1386,6 +1389,7 @@ impl TestEnvBuilder {
             chain_genesis,
             clients,
             validators,
+            home_dirs: None,
             stores: None,
             epoch_managers: None,
             shard_trackers: None,
@@ -1443,6 +1447,19 @@ impl TestEnvBuilder {
         self.validators(Self::make_accounts(num))
     }
 
+    fn ensure_home_dirs(mut self) -> Self {
+        if self.home_dirs.is_none() {
+            let home_dirs = (0..self.clients.len())
+                .map(|_| {
+                    let temp_dir = tempfile::tempdir().unwrap();
+                    temp_dir.into_path()
+                })
+                .collect_vec();
+            self.home_dirs = Some(home_dirs)
+        }
+        self
+    }
+
     /// Overrides the stores that are used to create epoch managers and runtimes.
     pub fn stores(mut self, stores: Vec<Store>) -> Self {
         assert_eq!(stores.len(), self.clients.len());
@@ -1451,6 +1468,23 @@ impl TestEnvBuilder {
         assert!(self.runtimes.is_none(), "Cannot override store after runtimes");
         self.stores = Some(stores);
         self
+    }
+
+    pub fn real_stores(self) -> Self {
+        let ret = self.ensure_home_dirs();
+        let stores = ret
+            .home_dirs
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|home_dir| {
+                NodeStorage::opener(home_dir.as_path(), false, &Default::default(), None)
+                    .open()
+                    .unwrap()
+                    .get_hot_store()
+            })
+            .collect_vec();
+        ret.stores(stores)
     }
 
     /// Internal impl to make sure the stores are initialized.
@@ -1561,8 +1595,11 @@ impl TestEnvBuilder {
     /// Visible for extension methods in integration-tests.
     pub fn internal_ensure_epoch_managers_for_nightshade_runtime(
         self,
-    ) -> (Self, Vec<Store>, Vec<Arc<EpochManagerHandle>>) {
+    ) -> (Self, Vec<PathBuf>, Vec<Store>, Vec<Arc<EpochManagerHandle>>) {
         let builder = self.ensure_epoch_managers();
+        let default_home_dirs =
+            (0..builder.clients.len()).map(|_| PathBuf::from("../../../..")).collect_vec();
+        let home_dirs = builder.home_dirs.clone().unwrap_or(default_home_dirs);
         let stores = builder.stores.clone().unwrap();
         let epoch_managers = builder
             .epoch_managers
@@ -1576,7 +1613,7 @@ impl TestEnvBuilder {
                 EpochManagerKind::Handle(handle) => handle,
             })
             .collect();
-        (builder, stores, epoch_managers)
+        (builder, home_dirs, stores, epoch_managers)
     }
 
     /// Specifies custom ShardTracker for each client.  This allows us to
