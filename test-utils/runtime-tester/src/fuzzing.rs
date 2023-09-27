@@ -789,6 +789,9 @@ mod tests {
 
     #[test]
     fn fuzz_scenario() {
-        bolero::check!().with_arbitrary::<Scenario>().for_each(fuzz)
+        bolero::check!()
+            .with_iterations(100) // Limit to 100 iterations, the default of 1000 would be too slow
+            .with_arbitrary::<Scenario>()
+            .for_each(fuzz)
     }
 }
