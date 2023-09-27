@@ -282,7 +282,16 @@ impl Chain {
         let mut state_roots: HashMap<_, _> =
             new_shards.iter().map(|shard_uid| (*shard_uid, Trie::EMPTY_ROOT)).collect();
 
-        // Build the required iterator from flat storage and delta changes
+        // Build the required iterator from flat storage and delta changes. Note that we are
+        // working with iterators as we don't want to have all the state in memory at once.
+        //
+        // Iterator is built by chaining the following:
+        // 1. Flat storage iterator from the snapshot state as of `prev_prev_hash`.
+        // 2. Delta changes iterator from the snapshot state as of `prev_hash`.
+        //
+        // The snapshot when created has the flat head as of `prev_prev_hash`, i.e. the hash as
+        // of the second last block of the previous epoch. Hence we need to append the detla
+        // changes on top of it.
         let (snapshot_store, flat_storage_manager) = tries.get_state_snapshot(&prev_prev_hash)?;
         let flat_storage_chunk_view =
             flat_storage_manager.chunk_view(shard_uid, prev_prev_hash).ok_or_else(|| {
@@ -320,6 +329,7 @@ impl Chain {
         let checked_account_id_to_shard_uid =
             get_checked_account_id_to_shard_uid_fn(shard_uid, new_shards, next_epoch_shard_layout);
 
+        // Once we build the iterator, we break it into batches using the get_trie_update_batch function.
         while let Some(batch) = get_trie_update_batch(&mut iter) {
             let TrieUpdateBatch { entries, size } = batch;
             // TODO(#9435): This is highly inefficient as for each key in the batch, we are parsing the account_id
