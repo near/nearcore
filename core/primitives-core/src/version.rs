@@ -125,7 +125,7 @@ pub enum ProtocolFeature {
     PostStateRoot,
     /// Allows creating an account with a non refundable balance to cover storage costs.
     /// NEP: https://github.com/near/NEPs/pull/491
-    #[cfg(feature = "protocol_feature_nonrefundable_balance_nep491")]
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     NonRefundableBalance,
 }
 
@@ -181,7 +181,7 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
             ProtocolFeature::SimpleNightshadeV2 => 135,
             ProtocolFeature::PostStateRoot => 136,
-            #[cfg(feature = "protocol_feature_nonrefundable_balance_nep491")]
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonRefundableBalance => 140,
         }
     }
