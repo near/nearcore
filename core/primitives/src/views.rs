@@ -65,6 +65,9 @@ pub struct AccountView {
     pub amount: Balance,
     #[serde(with = "dec_format")]
     pub locked: Balance,
+    #[serde(with = "dec_format")]
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    pub nonrefundable: Balance,
     pub code_hash: CryptoHash,
     pub storage_usage: StorageUsage,
     /// TODO(2271): deprecated.
@@ -108,6 +111,8 @@ impl From<&Account> for AccountView {
         AccountView {
             amount: account.amount(),
             locked: account.locked(),
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            nonrefundable: account.nonrefundable(),
             code_hash: account.code_hash(),
             storage_usage: account.storage_usage(),
             storage_paid_at: 0,
