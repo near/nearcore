@@ -109,7 +109,8 @@ bencher = "0.1.5"
 bitflags = "1.2"
 blake2 = "0.9.1"
 bn = { package = "zeropool-bn", version = "0.5.11" }
-bolero = { version = "0.9.0", features = ["arbitrary"] }
+# TODO: revert to upstream bolero once 0.10 is released
+bolero = { version = "0.9.0", git = "https://github.com/camshaft/bolero", rev = "16814dcf5533a26f7448db3672245da7f2f92e82", features = ["arbitrary"] }
 borsh = { version = "0.10.2", features = ["rc"] }
 bs58 = "0.4"
 bytes = "1"

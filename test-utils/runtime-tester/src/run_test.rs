@@ -83,7 +83,8 @@ impl Scenario {
             for tx in &block.transactions {
                 let signed_tx = tx.to_signed_transaction(&last_block);
                 block_stats.tx_hashes.push(signed_tx.get_hash());
-                if !self.is_fuzzing { // fuzzing can generate invalid transactions
+                if !self.is_fuzzing {
+                    // fuzzing can generate invalid transactions
                     assert_eq!(
                         env.clients[0].process_tx(signed_tx, false, false),
                         ProcessTxResponse::ValidTx

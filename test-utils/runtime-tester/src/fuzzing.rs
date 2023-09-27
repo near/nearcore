@@ -45,7 +45,13 @@ impl Arbitrary<'_> for Scenario {
         while blocks.len() < MAX_BLOCKS && u.len() > BlockConfig::size_hint(0).0 {
             blocks.push(BlockConfig::arbitrary(u, &mut scope)?);
         }
-        Ok(Scenario { network_config, runtime_config, blocks, use_in_memory_store: true, is_fuzzing: true })
+        Ok(Scenario {
+            network_config,
+            runtime_config,
+            blocks,
+            use_in_memory_store: true,
+            is_fuzzing: true,
+        })
     }
 
     fn size_hint(_depth: usize) -> (usize, Option<usize>) {
@@ -783,8 +789,6 @@ mod tests {
 
     #[test]
     fn fuzz_scenario() {
-        bolero::check!()
-            .with_arbitrary::<Scenario>()
-            .for_each(fuzz)
+        bolero::check!().with_arbitrary::<Scenario>().for_each(fuzz)
     }
 }
