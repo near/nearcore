@@ -396,7 +396,7 @@ pub struct BlockHeaderV4 {
 
 /// V4 -> V5: Switch to post-state-root
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct BlockHeaderV5 {
     pub prev_hash: CryptoHash,
 
@@ -408,8 +408,8 @@ pub struct BlockHeaderV5 {
     /// Signature of the block producer.
     pub signature: Signature,
 
-    /// Cached value of hash for this block.
-    #[borsh_skip]
+    /// Cached value of hash for this block
+    #[borsh(skip)]
     pub hash: CryptoHash,
 }
 
