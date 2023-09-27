@@ -555,11 +555,10 @@ impl EpochManager {
         let next_version = if let Some((version, stake)) =
             versions.into_iter().max_by_key(|&(_version, stake)| stake)
         {
-            if stake
-                > (total_block_producer_stake
-                    * *config.protocol_upgrade_stake_threshold.numer() as u128)
-                    / *config.protocol_upgrade_stake_threshold.denom() as u128
-            {
+            let numer = *config.protocol_upgrade_stake_threshold.numer() as u128;
+            let denom = *config.protocol_upgrade_stake_threshold.denom() as u128;
+            let threshold = total_block_producer_stake * numer / denom;
+            if stake > threshold {
                 version
             } else {
                 protocol_version
@@ -567,7 +566,6 @@ impl EpochManager {
         } else {
             protocol_version
         };
-
         // Gather slashed validators and add them to kick out first.
         let slashed_validators = last_block_info.slashed();
         for (account_id, _) in slashed_validators.iter() {

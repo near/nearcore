@@ -1,5 +1,6 @@
 use actix::AsyncContext;
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_performance_metrics_macros::perf;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -44,12 +45,14 @@ struct CompactSnapshotRequest {}
 impl actix::Handler<WithSpanContext<MakeSnapshotRequest>> for StateSnapshotActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<MakeSnapshotRequest>,
         _ctx: &mut actix::Context<Self>,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
+        tracing::debug!(target: "state_snapshot", ?msg);
         let MakeSnapshotRequest { prev_block_hash, shard_uids, block, compaction_enabled } = msg;
 
         let res = self.tries.make_state_snapshot(&prev_block_hash, &shard_uids, &block);
@@ -75,12 +78,14 @@ impl actix::Handler<WithSpanContext<MakeSnapshotRequest>> for StateSnapshotActor
 impl actix::Handler<WithSpanContext<CompactSnapshotRequest>> for StateSnapshotActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<CompactSnapshotRequest>,
         _ctx: &mut actix::Context<Self>,
     ) -> Self::Result {
-        let (_span, _msg) = handler_debug_span!(target: "state_snapshot", msg);
+        let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
+        tracing::debug!(target: "state_snapshot", ?msg);
 
         if let Err(err) = self.tries.compact_state_snapshot() {
             tracing::error!(target: "state_snapshot", ?err, "State snapshot compaction failed");

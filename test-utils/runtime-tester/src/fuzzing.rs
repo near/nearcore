@@ -155,13 +155,13 @@ impl TransactionConfig {
                 signer,
                 actions: vec![
                     Action::CreateAccount(CreateAccountAction {}),
-                    Action::AddKey(AddKeyAction {
+                    Action::AddKey(Box::new(AddKeyAction {
                         public_key: new_public_key,
                         access_key: AccessKey {
                             nonce: 0,
                             permission: AccessKeyPermission::FullAccess,
                         },
-                    }),
+                    })),
                     Action::Transfer(TransferAction { deposit: NEAR_BASE }),
                 ],
             })
@@ -266,7 +266,7 @@ impl TransactionConfig {
 
             while actions.len() < actions_num && u.len() > Function::size_hint(0).1.unwrap() {
                 let function = u.choose(&receiver_functions)?;
-                actions.push(Action::FunctionCall(function.arbitrary(u)?));
+                actions.push(Action::FunctionCall(Box::new(function.arbitrary(u)?)));
             }
 
             Ok(TransactionConfig {
@@ -291,11 +291,11 @@ impl TransactionConfig {
                 signer_id: signer_account.id.clone(),
                 receiver_id: signer_account.id.clone(),
                 signer,
-                actions: vec![Action::AddKey(scope.add_new_key(
+                actions: vec![Action::AddKey(Box::new(scope.add_new_key(
                     u,
                     scope.usize_id(&signer_account),
                     nonce,
-                )?)],
+                )?))],
             })
         });
 
@@ -323,7 +323,7 @@ impl TransactionConfig {
                 signer_id: signer_account.id.clone(),
                 receiver_id: signer_account.id.clone(),
                 signer,
-                actions: vec![Action::DeleteKey(DeleteKeyAction { public_key })],
+                actions: vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key }))],
             })
         });
 

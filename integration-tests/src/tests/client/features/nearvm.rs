@@ -8,6 +8,7 @@ use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::hash::CryptoHash;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{Action, FunctionCallAction, Transaction};
 use nearcore::config::GenesisExt;
 
@@ -30,7 +31,10 @@ fn test_nearvm_upgrade() {
         let chain_genesis = ChainGenesis::new(&genesis);
         let mut env = TestEnv::builder(chain_genesis)
             .real_epoch_managers(&genesis.config)
-            .nightshade_runtimes(&genesis)
+            .nightshade_runtimes_with_runtime_config_store(
+                &genesis,
+                vec![RuntimeConfigStore::new(None)],
+            )
             .build();
 
         deploy_test_contract(
@@ -48,12 +52,12 @@ fn test_nearvm_upgrade() {
         signer_id: "test0".parse().unwrap(),
         receiver_id: "test0".parse().unwrap(),
         public_key: signer.public_key(),
-        actions: vec![Action::FunctionCall(FunctionCallAction {
+        actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "log_something".to_string(),
             args: Vec::new(),
             gas: 100_000_000_000_000,
             deposit: 0,
-        })],
+        }))],
 
         nonce: 0,
         block_hash: CryptoHash::default(),

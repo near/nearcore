@@ -180,7 +180,7 @@ impl StateSync {
                 num_concurrent_requests_during_catchup,
             }) => {
                 let external = match location {
-                    ExternalStorageLocation::S3 { bucket, region } => {
+                    ExternalStorageLocation::S3 { bucket, region, .. } => {
                         let bucket = create_bucket_readonly(&bucket, &region, timeout);
                         if let Err(err) = bucket {
                             panic!("Failed to create an S3 bucket: {}", err);
@@ -190,7 +190,7 @@ impl StateSync {
                     ExternalStorageLocation::Filesystem { root_dir } => {
                         ExternalConnection::Filesystem { root_dir: root_dir.clone() }
                     }
-                    ExternalStorageLocation::GCS { bucket } => ExternalConnection::GCS {
+                    ExternalStorageLocation::GCS { bucket, .. } => ExternalConnection::GCS {
                         gcs_client: Arc::new(cloud_storage::Client::default()),
                         reqwest_client: Arc::new(reqwest::Client::default()),
                         bucket: bucket.clone(),
@@ -283,6 +283,8 @@ impl StateSync {
         if epoch_manager.get_shard_layout(&prev_epoch_id)?
             != epoch_manager.get_shard_layout(&epoch_id)?
         {
+            // This error message is used in tests to ensure node exists for the
+            // correct reason. When changing it please also update the tests.
             panic!("cannot sync to the first epoch after sharding upgrade. Please wait for the next epoch or find peers that are more up to date");
         }
         let split_states = epoch_manager.will_shard_layout_change(&prev_hash)?;

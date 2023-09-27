@@ -175,12 +175,12 @@ struct NeardOpts {
 }
 
 impl NeardOpts {
+    // TODO(nikurt): Delete in 1.38 or later.
     pub fn verbose_target(&self) -> Option<&str> {
-        match self.verbose {
-            None => None,
-            Some(None) => Some(""),
-            Some(Some(ref target)) => Some(target.as_str()),
-        }
+        self.verbose.as_ref().map(|inner| {
+            tracing::error!(target: "neard", "--verbose flag is deprecated, please use RUST_LOG or log_config.json instead.");
+            inner.as_ref().map_or("", String::as_str)
+        })
     }
 }
 
@@ -559,9 +559,7 @@ impl RunCmd {
             if let Some(handle) = state_sync_dump_handle {
                 handle.stop()
             }
-            if let Some(handle) = flat_state_migration_handle {
-                handle.stop();
-            }
+            flat_state_migration_handle.stop();
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);

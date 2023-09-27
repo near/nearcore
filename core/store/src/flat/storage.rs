@@ -111,6 +111,11 @@ impl FlatStorageInner {
                     metadata.block.prev_hash
                 }
                 Some(prev_block_with_changes) => {
+                    // Don't include blocks with no changes in the result,
+                    // unless it's the target block.
+                    if &block_hash == target_block_hash {
+                        blocks.push(block_hash);
+                    }
                     if prev_block_with_changes.height > flat_head.height {
                         prev_block_with_changes.hash
                     } else {
@@ -129,6 +134,7 @@ impl FlatStorageInner {
                 shard_id = self.shard_uid.shard_id(),
                 flat_head_height = flat_head.height,
                 cached_deltas = self.deltas.len(),
+                num_hops = blocks.len(),
                 "Flat storage needs too many hops to access a block");
         }
 
@@ -953,7 +959,9 @@ mod tests {
             tracing::info!(?i, ?block_hash, ?value, blocks_to_head = ?blocks);
             assert_eq!(value, Some(FlatStateValue::value_ref(&[((i / 3) * 3) as u8])));
 
-            for block_hash in blocks {
+            // Don't check the first block because it may be a block with no changes.
+            for i in 1..blocks.len() {
+                let block_hash = blocks[i];
                 let delta = store_helper::get_delta_changes(&store.clone(), shard_uid, block_hash)
                     .unwrap()
                     .unwrap();
@@ -978,6 +986,69 @@ mod tests {
                 blocks.len() <= 2 + FlatStorageInner::BLOCKS_WITH_CHANGES_FLAT_HEAD_GAP as usize
             );
         }
+    }
+
+    #[test]
+    /// Move flat storage to an exact height when flat storage has no changes.
+    fn flat_storage_with_no_changes() {
+        init_test_logger();
+        let num_blocks = 10;
+        let chain = MockChain::linear_chain(num_blocks);
+        let shard_uid = ShardUId::single_shard();
+        let store = create_test_store();
+        let mut store_update = store.store_update();
+        store_helper::set_flat_storage_status(
+            &mut store_update,
+            shard_uid,
+            FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: chain.get_block(0) }),
+        );
+        store_helper::set_flat_state_value(
+            &mut store_update,
+            shard_uid,
+            vec![1],
+            Some(FlatStateValue::value_ref(&[0])),
+        );
+        store_update.commit().unwrap();
+
+        for i in 1..num_blocks as BlockHeight {
+            let mut store_update = store.store_update();
+            // No changes.
+            let changes = FlatStateChanges::default();
+            // Simulates `Chain::save_flat_state_changes()`.
+            let prev_block_with_changes = store_helper::get_prev_block_with_changes(
+                &store,
+                shard_uid,
+                chain.get_block(i).hash,
+                chain.get_block(i).prev_hash,
+            )
+            .unwrap();
+            let delta = FlatStateDelta {
+                changes,
+                metadata: FlatStateDeltaMetadata {
+                    block: chain.get_block(i),
+                    prev_block_with_changes,
+                },
+            };
+            tracing::info!(?i, ?delta);
+            store_helper::set_delta(&mut store_update, shard_uid, &delta);
+            store_update.commit().unwrap();
+        }
+
+        let flat_storage_manager = FlatStorageManager::new(store);
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
+
+        let hashes = (0..num_blocks as BlockHeight)
+            .map(|height| (chain.get_block_hash(height), height))
+            .collect::<HashMap<CryptoHash, BlockHeight>>();
+
+        let block_hash = chain.get_block_hash((num_blocks - 1) as BlockHeight);
+        flat_storage.update_flat_head(&block_hash, true).unwrap();
+
+        let flat_head_hash = flat_storage.get_head_hash();
+        let flat_head_height = hashes.get(&flat_head_hash).unwrap();
+
+        assert_eq!(*flat_head_height, (num_blocks - 1) as BlockHeight);
     }
 
     #[test]
@@ -1056,7 +1127,9 @@ mod tests {
             assert!(
                 blocks.len() <= 2 + FlatStorageInner::BLOCKS_WITH_CHANGES_FLAT_HEAD_GAP as usize
             );
-            for block_hash in blocks {
+            // Don't check the first block because it may be a block with no changes.
+            for i in 1..blocks.len() {
+                let block_hash = blocks[i];
                 let delta = store_helper::get_delta_changes(&store.clone(), shard_uid, block_hash)
                     .unwrap()
                     .unwrap();

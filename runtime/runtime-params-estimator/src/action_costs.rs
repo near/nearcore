@@ -686,10 +686,10 @@ fn create_transfer_action() -> Action {
 }
 
 fn stake_action() -> Action {
-    Action::Stake(near_primitives::transaction::StakeAction {
+    Action::Stake(Box::new(near_primitives::transaction::StakeAction {
         stake: 5u128.pow(28), // some arbitrary positive number
         public_key: PublicKey::from_seed(KeyType::ED25519, "seed"),
-    })
+    }))
 }
 
 fn delete_account_action() -> Action {
@@ -705,10 +705,10 @@ fn deploy_action(size: ActionSize) -> Action {
 }
 
 fn add_full_access_key_action() -> Action {
-    Action::AddKey(near_primitives::transaction::AddKeyAction {
+    Action::AddKey(Box::new(near_primitives::transaction::AddKeyAction {
         public_key: PublicKey::from_seed(KeyType::ED25519, "full-access-key-seed"),
         access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
-    })
+    }))
 }
 
 fn add_fn_access_key_action(size: ActionSize) -> Action {
@@ -716,7 +716,7 @@ fn add_fn_access_key_action(size: ActionSize) -> Action {
     let method_names = vec!["foo".to_owned(); size.key_methods_list() as usize / 4];
     // This is charged flat, therefore it should always be max len.
     let receiver_id = "a".repeat(AccountId::MAX_LEN).parse().unwrap();
-    Action::AddKey(near_primitives::transaction::AddKeyAction {
+    Action::AddKey(Box::new(near_primitives::transaction::AddKeyAction {
         public_key: PublicKey::from_seed(KeyType::ED25519, "seed"),
         access_key: AccessKey {
             nonce: 0,
@@ -726,13 +726,13 @@ fn add_fn_access_key_action(size: ActionSize) -> Action {
                 method_names,
             }),
         },
-    })
+    }))
 }
 
 fn delete_key_action() -> Action {
-    Action::DeleteKey(near_primitives::transaction::DeleteKeyAction {
+    Action::DeleteKey(Box::new(near_primitives::transaction::DeleteKeyAction {
         public_key: PublicKey::from_seed(KeyType::ED25519, "seed"),
-    })
+    }))
 }
 
 fn transfer_action() -> Action {
@@ -744,12 +744,12 @@ fn function_call_action(size: ActionSize) -> Action {
     let method_len = 4.min(total_size) as usize;
     let method_name: String = "noop".chars().take(method_len).collect();
     let arg_len = total_size as usize - method_len;
-    Action::FunctionCall(near_primitives::transaction::FunctionCallAction {
+    Action::FunctionCall(Box::new(near_primitives::transaction::FunctionCallAction {
         method_name,
         args: vec![1u8; arg_len],
         gas: 3 * 10u64.pow(12), // 3 Tgas, to allow 100 copies in the same receipt
         deposit: 10u128.pow(24),
-    })
+    }))
 }
 
 pub(crate) fn empty_delegate_action(
@@ -772,10 +772,10 @@ pub(crate) fn empty_delegate_action(
     };
     let signature =
         SignableMessage::new(&delegate_action, SignableMessageType::DelegateAction).sign(&signer);
-    Action::Delegate(near_primitives::action::delegate::SignedDelegateAction {
+    Action::Delegate(Box::new(near_primitives::action::delegate::SignedDelegateAction {
         delegate_action,
         signature,
-    })
+    }))
 }
 
 /// Helper enum to select how large an action should be generated.

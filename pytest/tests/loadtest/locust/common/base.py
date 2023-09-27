@@ -188,7 +188,7 @@ class Deploy(Transaction):
 
 class CreateSubAccount(Transaction):
 
-    def __init__(self, sender, sub_key, balance: int = 50):
+    def __init__(self, sender, sub_key, balance: float = 50):
         super().__init__()
         self.sender = sender
         self.sub_key = sub_key
@@ -358,7 +358,7 @@ class NearNodeProxy:
     def account_exists(self, account_id: str) -> bool:
         return "error" not in self.node.get_account(account_id, do_assert=False)
 
-    def prepare_account(self, account: Account, parent: Account, balance: int,
+    def prepare_account(self, account: Account, parent: Account, balance: float,
                         msg: str) -> bool:
         """
         Creates the account if it doesn't exist and refreshes the nonce.
@@ -373,7 +373,7 @@ class NearNodeProxy:
     def prepare_accounts(self,
                          accounts: typing.List[Account],
                          parent: Account,
-                         balance: int,
+                         balance: float,
                          msg: str,
                          timeout: timedelta = timedelta(minutes=3)):
         """

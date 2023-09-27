@@ -50,11 +50,7 @@ pub(crate) fn apply_block(
     let height = block.header().height();
     let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
     if use_flat_storage {
-        runtime
-            .get_flat_storage_manager()
-            .unwrap()
-            .create_flat_storage_for_shard(shard_uid)
-            .unwrap();
+        runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid).unwrap();
     }
     let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
         let chunk = chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap();
@@ -62,6 +58,7 @@ pub(crate) fn apply_block(
         let chain_store_update = ChainStoreUpdate::new(chain_store);
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
+                epoch_manager,
                 shard_id,
                 block_hash,
                 prev_block.chunks()[shard_id as usize].height_included(),
@@ -88,7 +85,7 @@ pub(crate) fn apply_block(
                 block.hash(),
                 &receipts,
                 chunk.transactions(),
-                chunk_inner.validator_proposals(),
+                chunk_inner.prev_validator_proposals(),
                 prev_block.header().gas_price(),
                 chunk_inner.gas_limit(),
                 block.header().challenges_result(),
@@ -631,7 +628,7 @@ pub(crate) fn print_chain(
                                     "{}: {} {: >3} Tgas {: >10}",
                                     shard_id,
                                     format_hash(chunk_hash.0, show_full_hashes),
-                                    chunk.cloned_header().gas_used() / (1_000_000_000_000),
+                                    chunk.cloned_header().prev_gas_used() / (1_000_000_000_000),
                                     chunk_producer
                                 ));
                             } else {

@@ -333,7 +333,9 @@ fn get_keys_from_store(
                     .collect(),
                 DBKeyType::ReceiptHash => chunks
                     .iter()
-                    .flat_map(|c| c.receipts().iter().map(|r| r.get_hash().as_bytes().to_vec()))
+                    .flat_map(|c| {
+                        c.prev_outgoing_receipts().iter().map(|r| r.get_hash().as_bytes().to_vec())
+                    })
                     .collect(),
                 DBKeyType::ChunkHash => {
                     chunks.iter().map(|c| c.chunk_hash().as_bytes().to_vec()).collect()

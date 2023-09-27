@@ -23,7 +23,6 @@ use crate::{metrics, DoomslugThresholdMode};
 use borsh::BorshSerialize;
 use chrono::Duration;
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use delay_detector::DelayDetector;
 use itertools::Itertools;
 use lru::LruCache;
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
@@ -684,21 +683,19 @@ impl Chain {
                 // Set the root block of flat state to be the genesis block. Later, when we
                 // init FlatStorages, we will read the from this column in storage, so it
                 // must be set here.
-                if let Some(flat_storage_manager) = runtime_adapter.get_flat_storage_manager() {
-                    let genesis_epoch_id = genesis.header().epoch_id();
-                    let mut tmp_store_update = store_update.store().store_update();
-                    for shard_uid in
-                        epoch_manager.get_shard_layout(genesis_epoch_id)?.get_shard_uids()
-                    {
-                        flat_storage_manager.set_flat_storage_for_genesis(
-                            &mut tmp_store_update,
-                            shard_uid,
-                            genesis.hash(),
-                            genesis.header().height(),
-                        )
-                    }
-                    store_update.merge(tmp_store_update);
+                let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
+                let genesis_epoch_id = genesis.header().epoch_id();
+                let mut tmp_store_update = store_update.store().store_update();
+                for shard_uid in epoch_manager.get_shard_layout(genesis_epoch_id)?.get_shard_uids()
+                {
+                    flat_storage_manager.set_flat_storage_for_genesis(
+                        &mut tmp_store_update,
+                        shard_uid,
+                        genesis.hash(),
+                        genesis.header().height(),
+                    )
                 }
+                store_update.merge(tmp_store_update);
 
                 info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
 
@@ -942,7 +939,7 @@ impl Chain {
         tries: ShardTries,
         gc_config: &near_chain_configs::GCConfig,
     ) -> Result<(), Error> {
-        let _d = DelayDetector::new(|| "GC".into());
+        let _span = tracing::debug_span!(target: "chain", "clear_data").entered();
 
         let head = self.store.head()?;
         let tail = self.store.tail()?;
@@ -1030,7 +1027,7 @@ impl Chain {
     ///
     /// `gc_height_limit` limits how many heights will the function process.
     pub fn clear_archive_data(&mut self, gc_height_limit: BlockHeightDelta) -> Result<(), Error> {
-        let _d = DelayDetector::new(|| "GC".into());
+        let _span = tracing::debug_span!(target: "chain", "clear_archive_data").entered();
 
         let head = self.store.head()?;
         let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash);
@@ -1567,8 +1564,8 @@ impl Chain {
             .chunks()
             .iter()
             .filter(|chunk| block_height == chunk.height_included())
-            .flat_map(|chunk| chunk.validator_proposals())
-            .zip_longest(block.header().validator_proposals())
+            .flat_map(|chunk| chunk.prev_validator_proposals())
+            .zip_longest(block.header().prev_validator_proposals())
         {
             match pair {
                 itertools::EitherOrBoth::Both(cp, hp) => {
@@ -1711,17 +1708,18 @@ impl Chain {
         let mut receipt_proofs_by_shard_id = HashMap::new();
 
         for chunk_header in block.chunks().iter() {
-            if chunk_header.height_included() == height {
-                let partial_encoded_chunk =
-                    self.store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
-                for receipt in partial_encoded_chunk.receipts().iter() {
-                    let ReceiptProof(_, shard_proof) = receipt;
-                    let ShardProof { from_shard_id: _, to_shard_id, proof: _ } = shard_proof;
-                    receipt_proofs_by_shard_id
-                        .entry(*to_shard_id)
-                        .or_insert_with(Vec::new)
-                        .push(receipt.clone());
-                }
+            if chunk_header.height_included() != height {
+                continue;
+            }
+            let partial_encoded_chunk =
+                self.store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
+            for receipt in partial_encoded_chunk.receipts().iter() {
+                let ReceiptProof(_, shard_proof) = receipt;
+                let ShardProof { to_shard_id, .. } = shard_proof;
+                receipt_proofs_by_shard_id
+                    .entry(*to_shard_id)
+                    .or_insert_with(Vec::new)
+                    .push(receipt.clone());
             }
         }
         // sort the receipts deterministically so the order that they will be processed is deterministic
@@ -2341,9 +2339,8 @@ impl Chain {
 
             if need_flat_storage_update {
                 let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
-                if let Some(manager) = self.runtime_adapter.get_flat_storage_manager() {
-                    manager.update_flat_storage_for_shard(shard_uid, &block)?;
-                }
+                let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+                flat_storage_manager.update_flat_storage_for_shard(shard_uid, &block)?;
             }
         }
 
@@ -2711,8 +2708,16 @@ impl Chain {
         parent_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> bool {
-        let will_shard_layout_change =
-            epoch_manager.will_shard_layout_change(parent_hash).unwrap_or(false);
+        let result = epoch_manager.will_shard_layout_change(parent_hash);
+        let will_shard_layout_change = match result {
+            Ok(will_shard_layout_change) => will_shard_layout_change,
+            Err(err) => {
+                // TODO(resharding) This is a problem, if this happens the node
+                // will not perform resharding and fall behind the network.
+                tracing::error!(target: "chain", ?err, "failed to check if shard layout will change");
+                false
+            }
+        };
         // if shard layout will change the next epoch, we should catch up the shard regardless
         // whether we already have the shard's state this epoch, because we need to generate
         // new states for shards split from the current shard for the next epoch
@@ -2916,8 +2921,10 @@ impl Chain {
             },
         };
 
-        // Getting all existing incoming_receipts from prev_chunk height to the new epoch.
+        // Getting all existing incoming_receipts from prev_chunk height to the
+        // new epoch.
         let incoming_receipts_proofs = self.store.get_incoming_receipts_for_shard(
+            self.epoch_manager.as_ref(),
             shard_id,
             sync_hash,
             prev_chunk_height_included,
@@ -2933,7 +2940,7 @@ impl Chain {
                 &block
                     .chunks()
                     .iter()
-                    .map(|chunk| chunk.outgoing_receipts_root())
+                    .map(|chunk| chunk.prev_outgoing_receipts_root())
                     .collect::<Vec<CryptoHash>>(),
             );
 
@@ -2945,12 +2952,12 @@ impl Chain {
                 let receipts_hash = CryptoHash::hash_borsh(ReceiptList(shard_id, receipts));
                 let from_shard_id = *from_shard_id as usize;
 
-                let root_proof = block.chunks()[from_shard_id].outgoing_receipts_root();
+                let root_proof = block.chunks()[from_shard_id].prev_outgoing_receipts_root();
                 root_proofs_cur
                     .push(RootProof(root_proof, block_receipts_proofs[from_shard_id].clone()));
 
                 // Make sure we send something reasonable.
-                assert_eq!(block_header.chunk_receipts_root(), &block_receipts_root);
+                assert_eq!(block_header.prev_chunk_outgoing_receipts_root(), &block_receipts_root);
                 assert!(verify_path(root_proof, proof, &receipts_hash));
                 assert!(verify_path(
                     block_receipts_root,
@@ -2997,6 +3004,8 @@ impl Chain {
                     state_root_node,
                 })
             }
+
+            ShardChunk::V3(_) => todo!("#9535"),
         };
         Ok(shard_state_header)
     }
@@ -3222,7 +3231,11 @@ impl Chain {
                     return Err(Error::Other("set_shard_state failed: invalid proofs".into()));
                 }
                 // 4f. Proving the outgoing_receipts_root matches that in the block
-                if !verify_path(*block_header.chunk_receipts_root(), block_proof, root) {
+                if !verify_path(
+                    *block_header.prev_chunk_outgoing_receipts_root(),
+                    block_proof,
+                    root,
+                ) {
                     byzantine_assert!(false);
                     return Err(Error::Other("set_shard_state failed: invalid proofs".into()));
                 }
@@ -3337,32 +3350,31 @@ impl Chain {
             let epoch_id = block_header.epoch_id();
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
 
-            if let Some(flat_storage_manager) = self.runtime_adapter.get_flat_storage_manager() {
-                // Flat storage must not exist at this point because leftover keys corrupt its state.
-                assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
+            let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+            // Flat storage must not exist at this point because leftover keys corrupt its state.
+            assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
 
-                let flat_head_hash = *chunk.prev_block();
-                let flat_head_header = self.get_block_header(&flat_head_hash)?;
-                let flat_head_prev_hash = *flat_head_header.prev_hash();
-                let flat_head_height = flat_head_header.height();
+            let flat_head_hash = *chunk.prev_block();
+            let flat_head_header = self.get_block_header(&flat_head_hash)?;
+            let flat_head_prev_hash = *flat_head_header.prev_hash();
+            let flat_head_height = flat_head_header.height();
 
-                tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
+            tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
 
-                let mut store_update = self.runtime_adapter.store().store_update();
-                store_helper::set_flat_storage_status(
-                    &mut store_update,
-                    shard_uid,
-                    FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                        flat_head: near_store::flat::BlockInfo {
-                            hash: flat_head_hash,
-                            prev_hash: flat_head_prev_hash,
-                            height: flat_head_height,
-                        },
-                    }),
-                );
-                store_update.commit()?;
-                flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
-            }
+            let mut store_update = self.runtime_adapter.store().store_update();
+            store_helper::set_flat_storage_status(
+                &mut store_update,
+                shard_uid,
+                FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                    flat_head: near_store::flat::BlockInfo {
+                        hash: flat_head_hash,
+                        prev_hash: flat_head_prev_hash,
+                        height: flat_head_height,
+                    },
+                }),
+            );
+            store_update.commit()?;
+            flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
         }
 
         let mut height = shard_state_header.chunk_height_included();
@@ -3503,9 +3515,8 @@ impl Chain {
                 true,
             ) {
                 let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
-                if let Some(manager) = self.runtime_adapter.get_flat_storage_manager() {
-                    manager.update_flat_storage_for_shard(shard_uid, &block)?;
-                }
+                let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+                flat_storage_manager.update_flat_storage_for_shard(shard_uid, &block)?;
             }
         }
 
@@ -3972,14 +3983,16 @@ impl Chain {
         })?;
         // we can't use hash from the current block here yet because the incoming receipts
         // for this block is not stored yet
-        let mut receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
-        receipts.extend(collect_receipts_from_response(
-            &self.store().get_incoming_receipts_for_shard(
-                shard_id,
-                *prev_hash,
-                prev_chunk_height_included,
-            )?,
-        ));
+        let new_receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
+        let old_receipts = &self.store().get_incoming_receipts_for_shard(
+            self.epoch_manager.as_ref(),
+            shard_id,
+            *prev_hash,
+            prev_chunk_height_included,
+        )?;
+        let old_receipts = collect_receipts_from_response(old_receipts);
+        let receipts = [new_receipts, old_receipts].concat();
+
         let chunk = self.get_chunk_clone_from_header(&chunk_header.clone())?;
 
         let transactions = chunk.transactions();
@@ -4056,7 +4069,7 @@ impl Chain {
                 &block_hash,
                 &receipts,
                 chunk.transactions(),
-                chunk_inner.validator_proposals(),
+                chunk_inner.prev_validator_proposals(),
                 gas_price,
                 gas_limit,
                 &challenges_result,
@@ -5059,8 +5072,16 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<(), Error> {
         let block_hash = block.hash();
         let prev_hash = block.header().prev_hash();
+        let height = block.header().height();
         match apply_results_or_state_changes {
-            ApplySplitStateResultOrStateChanges::ApplySplitStateResults(results) => {
+            ApplySplitStateResultOrStateChanges::ApplySplitStateResults(mut results) => {
+                tracing::debug!(target: "resharding", height, ?shard_uid, "process_split_state apply");
+
+                // Sort the results so that the gas reassignment is deterministic.
+                results.sort_unstable_by_key(|r| r.shard_uid);
+                // Drop the mutability as we no longer need it.
+                let results = results;
+
                 // Split validator_proposals, gas_burnt, balance_burnt to each split shard
                 // and store the chunk extra for split shards
                 // Note that here we do not split outcomes by the new shard layout, we simply store
@@ -5077,12 +5098,12 @@ impl<'a> ChainUpdate<'a> {
 
                 let mut validator_proposals_by_shard: HashMap<_, Vec<_>> = HashMap::new();
                 for validator_proposal in chunk_extra.validator_proposals() {
-                    let shard_id = account_id_to_shard_uid(
+                    let shard_uid = account_id_to_shard_uid(
                         validator_proposal.account_id(),
                         &next_epoch_shard_layout,
                     );
                     validator_proposals_by_shard
-                        .entry(shard_id)
+                        .entry(shard_uid)
                         .or_default()
                         .push(validator_proposal);
                 }
@@ -5091,21 +5112,49 @@ impl<'a> ChainUpdate<'a> {
                     .get_split_shard_uids(shard_uid.shard_id())
                     .unwrap_or_else(|| panic!("invalid shard layout {:?}", next_epoch_shard_layout))
                     .len() as NumShards;
+
                 let total_gas_used = chunk_extra.gas_used();
                 let total_balance_burnt = chunk_extra.balance_burnt();
-                let gas_res = total_gas_used % num_split_shards;
+
+                // The gas remainder, the split shards will be reassigned one
+                // unit each until its depleted.
+                let mut gas_res = total_gas_used % num_split_shards;
+                // The gas quotient, the split shards will be reassigned the
+                // full value each.
                 let gas_split = total_gas_used / num_split_shards;
-                let balance_res = (total_balance_burnt % num_split_shards as u128) as NumShards;
+
+                // The balance remainder, the split shards will be reassigned one
+                // unit each until its depleted.
+                let mut balance_res = (total_balance_burnt % num_split_shards as u128) as NumShards;
+                // The balance quotient, the split shards will be reassigned the
+                // full value each.
                 let balance_split = total_balance_burnt / (num_split_shards as u128);
+
                 let gas_limit = chunk_extra.gas_limit();
                 let outcome_root = *chunk_extra.outcome_root();
 
                 let mut sum_gas_used = 0;
                 let mut sum_balance_burnt = 0;
+
+                // The gas and balance distribution assumes that we have a result for every split shard.
+                // TODO(resharding) make sure that is the case.
+                assert_eq!(num_split_shards, results.len() as u64);
+
                 for result in results {
-                    let shard_id = result.shard_uid.shard_id();
-                    let gas_burnt = gas_split + if shard_id < gas_res { 1 } else { 0 };
-                    let balance_burnt = balance_split + if shard_id < balance_res { 1 } else { 0 };
+                    let gas_burnt = if gas_res > 0 {
+                        gas_res -= 1;
+                        gas_split + 1
+                    } else {
+                        gas_split
+                    };
+
+                    let balance_burnt = if balance_res > 0 {
+                        balance_res -= 1;
+                        balance_split + 1
+                    } else {
+                        balance_split
+                    };
+
                     let new_chunk_extra = ChunkExtra::new(
                         &result.new_root,
                         outcome_root,
@@ -5117,19 +5166,18 @@ impl<'a> ChainUpdate<'a> {
                     sum_gas_used += gas_burnt;
                     sum_balance_burnt += balance_burnt;
 
-                    if let Some(manager) = self.runtime_adapter.get_flat_storage_manager() {
-                        // TODO(#9430): Support manager.save_flat_state_changes and manager.update_flat_storage_for_shard
-                        // functions to be a part of the same chain_store_update
-                        let store_update = manager.save_flat_state_changes(
-                            *block_hash,
-                            *prev_hash,
-                            block.header().height(),
-                            result.shard_uid,
-                            result.trie_changes.state_changes(),
-                        )?;
-                        manager.update_flat_storage_for_shard(*shard_uid, block)?;
-                        self.chain_store_update.merge(store_update);
-                    }
+                    // TODO(#9430): Support manager.save_flat_state_changes and manager.update_flat_storage_for_shard
+                    // functions to be a part of the same chain_store_update
+                    let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+                    let store_update = flat_storage_manager.save_flat_state_changes(
+                        *block_hash,
+                        *prev_hash,
+                        block.header().height(),
+                        result.shard_uid,
+                        result.trie_changes.state_changes(),
+                    )?;
+                    flat_storage_manager.update_flat_storage_for_shard(*shard_uid, block)?;
+                    self.chain_store_update.merge(store_update);
 
                     self.chain_store_update.save_chunk_extra(
                         block_hash,
@@ -5142,6 +5190,7 @@ impl<'a> ChainUpdate<'a> {
                 assert_eq!(sum_balance_burnt, total_balance_burnt);
             }
             ApplySplitStateResultOrStateChanges::StateChangesForSplitStates(state_changes) => {
+                tracing::debug!(target: "resharding", height, ?shard_uid, "process_split_state store");
                 self.chain_store_update.add_state_changes_for_split_states(
                     *block_hash,
                     shard_uid.shard_id(),
@@ -5185,16 +5234,17 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.total_balance_burnt,
                     ),
                 );
-                if let Some(manager) = self.runtime_adapter.get_flat_storage_manager() {
-                    let store_update = manager.save_flat_state_changes(
-                        *block_hash,
-                        *prev_hash,
-                        height,
-                        shard_uid,
-                        apply_result.trie_changes.state_changes(),
-                    )?;
-                    self.chain_store_update.merge(store_update);
-                }
+
+                let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+                let store_update = flat_storage_manager.save_flat_state_changes(
+                    *block_hash,
+                    *prev_hash,
+                    height,
+                    shard_uid,
+                    apply_result.trie_changes.state_changes(),
+                )?;
+                self.chain_store_update.merge(store_update);
+
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
                 self.chain_store_update.save_outgoing_receipt(
                     block_hash,
@@ -5222,16 +5272,16 @@ impl<'a> ChainUpdate<'a> {
                 let mut new_extra = ChunkExtra::clone(&old_extra);
                 *new_extra.state_root_mut() = apply_result.new_root;
 
-                if let Some(manager) = self.runtime_adapter.get_flat_storage_manager() {
-                    let store_update = manager.save_flat_state_changes(
-                        *block_hash,
-                        *prev_hash,
-                        height,
-                        shard_uid,
-                        apply_result.trie_changes.state_changes(),
-                    )?;
-                    self.chain_store_update.merge(store_update);
-                }
+                let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+                let store_update = flat_storage_manager.save_flat_state_changes(
+                    *block_hash,
+                    *prev_hash,
+                    height,
+                    shard_uid,
+                    apply_result.trie_changes.state_changes(),
+                )?;
+                self.chain_store_update.merge(store_update);
+
                 self.chain_store_update.save_chunk_extra(block_hash, &shard_uid, new_extra);
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
 
@@ -5575,7 +5625,7 @@ impl<'a> ChainUpdate<'a> {
             block_header.hash(),
             &receipts,
             chunk.transactions(),
-            chunk_header.validator_proposals(),
+            chunk_header.prev_validator_proposals(),
             gas_price,
             gas_limit,
             block_header.challenges_result(),
@@ -5592,16 +5642,15 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_chunk(chunk);
 
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
-        if let Some(manager) = self.runtime_adapter.get_flat_storage_manager() {
-            let store_update = manager.save_flat_state_changes(
-                *block_header.hash(),
-                *chunk_header.prev_block_hash(),
-                chunk_header.height_included(),
-                shard_uid,
-                apply_result.trie_changes.state_changes(),
-            )?;
-            self.chain_store_update.merge(store_update);
-        }
+        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        let store_update = flat_storage_manager.save_flat_state_changes(
+            *block_header.hash(),
+            *chunk_header.prev_block_hash(),
+            chunk_header.height_included(),
+            shard_uid,
+            apply_result.trie_changes.state_changes(),
+        )?;
+        self.chain_store_update.merge(store_update);
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
         let chunk_extra = ChunkExtra::new(
@@ -5681,16 +5730,15 @@ impl<'a> ChainUpdate<'a> {
             Default::default(),
             true,
         )?;
-        if let Some(manager) = self.runtime_adapter.get_flat_storage_manager() {
-            let store_update = manager.save_flat_state_changes(
-                *block_header.hash(),
-                *prev_block_header.hash(),
-                height,
-                shard_uid,
-                apply_result.trie_changes.state_changes(),
-            )?;
-            self.chain_store_update.merge(store_update);
-        }
+        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        let store_update = flat_storage_manager.save_flat_state_changes(
+            *block_header.hash(),
+            *prev_block_header.hash(),
+            height,
+            shard_uid,
+            apply_result.trie_changes.state_changes(),
+        )?;
+        self.chain_store_update.merge(store_update);
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
 
         let mut new_chunk_extra = ChunkExtra::clone(&chunk_extra);

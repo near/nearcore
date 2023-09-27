@@ -1,16 +1,15 @@
 use crate::test_helpers::heavy_test;
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
 use near_chain::chain::ApplyStatePartsRequest;
-use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, ExternalStorageConfig, Genesis, SyncConfig};
 use near_client::test_utils::TestEnv;
 use near_client::{GetBlock, ProcessTxResponse};
 use near_crypto::{InMemorySigner, KeyType};
-use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout, WaitOrTimeoutActor};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
@@ -21,9 +20,8 @@ use near_primitives::syncing::{get_num_state_parts, StatePartKey};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::MaybeValidated;
 use near_primitives_core::types::ShardId;
-use near_store::genesis::initialize_genesis_state;
-use near_store::{DBCol, NodeStorage, Store};
-use nearcore::{config::GenesisExt, load_test_config, start_with_config, NightshadeRuntime};
+use near_store::DBCol;
+use nearcore::{config::GenesisExt, load_test_config, start_with_config};
 use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -421,7 +419,7 @@ fn sync_state_dump() {
         let mut genesis = Genesis::test_sharded_new_version(
             vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
             1,
-            vec![1, 1, 1, 1],
+            vec![1],
         );
         // Needs to be long enough to give enough time to the second node to
         // start, sync headers and find a dump of state.
@@ -441,12 +439,16 @@ fn sync_state_dump() {
             near1.client_config.min_block_production_delay = Duration::from_millis(300);
             near1.client_config.max_block_production_delay = Duration::from_millis(600);
             near1.client_config.epoch_sync_enabled = false;
+            near1.client_config.tracked_shards = vec![0]; // Track all shards.
             let dump_dir = tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap();
             near1.client_config.state_sync.dump = Some(DumpConfig {
                 location: Filesystem { root_dir: dump_dir.path().to_path_buf() },
                 restart_dump_for_shards: None,
-                iteration_delay: Some(Duration::from_millis(100)),
+                iteration_delay: Some(Duration::from_millis(500)),
+                credentials_file: None,
             });
+            near1.config.store.state_snapshot_enabled = true;
+            near1.config.store.state_snapshot_compaction_enabled = false;
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let nearcore::NearNode {
@@ -460,7 +462,7 @@ fn sync_state_dump() {
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
             let arbiters_holder2 = arbiters_holder;
 
-            wait_or_timeout(100, 60000, || async {
+            wait_or_timeout(1000, 60000, || async {
                 if view_client2_holder.read().unwrap().is_none() {
                     let view_client2_holder2 = view_client2_holder.clone();
                     let arbiters_holder2 = arbiters_holder2.clone();
@@ -483,16 +485,16 @@ fn sync_state_dump() {
                                 near2.client_config.block_header_fetch_horizon =
                                     block_header_fetch_horizon;
                                 near2.client_config.block_fetch_horizon = block_fetch_horizon;
-                                near2.client_config.tracked_shards = vec![0, 1, 2, 3];
+                                near2.client_config.tracked_shards = vec![0]; // Track all shards.
                                 near2.client_config.epoch_sync_enabled = false;
                                 near2.client_config.state_sync_enabled = true;
-                                near2.client_config.state_sync_timeout = Duration::from_secs(1);
+                                near2.client_config.state_sync_timeout = Duration::from_secs(2);
                                 near2.client_config.state_sync.sync =
                                     SyncConfig::ExternalStorage(ExternalStorageConfig {
                                         location: Filesystem {
                                             root_dir: dump_dir.path().to_path_buf(),
                                         },
-                                        num_concurrent_requests: 10,
+                                        num_concurrent_requests: 1,
                                         num_concurrent_requests_during_catchup: 1,
                                     });
 
@@ -556,47 +558,11 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
             let mut genesis =
                 Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
             genesis.config.epoch_length = epoch_length;
-            let chain_genesis = ChainGenesis::new(&genesis);
-
-            let num_clients = 2;
-            let env_objects =
-                (0..num_clients)
-                    .map(|_| {
-                        let tmp_dir = tempfile::tempdir().unwrap();
-                        // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
-                        // same configuration as in production.
-                        let store =
-                            NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
-                                .open()
-                                .unwrap()
-                                .get_hot_store();
-                        initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
-                        let epoch_manager =
-                            EpochManager::new_arc_handle(store.clone(), &genesis.config);
-                        let runtime = NightshadeRuntime::test(
-                            tmp_dir.path(),
-                            store.clone(),
-                            &genesis.config,
-                            epoch_manager.clone(),
-                        ) as Arc<dyn RuntimeAdapter>;
-                        (tmp_dir, store, epoch_manager, runtime)
-                    })
-                    .collect::<Vec<(
-                        tempfile::TempDir,
-                        Store,
-                        Arc<EpochManagerHandle>,
-                        Arc<dyn RuntimeAdapter>,
-                    )>>();
-
-            let stores = env_objects.iter().map(|x| x.1.clone()).collect();
-            let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect();
-            let runtimes = env_objects.iter().map(|x| x.3.clone()).collect();
-
-            let mut env = TestEnv::builder(chain_genesis)
-                .clients_count(num_clients)
-                .stores(stores)
-                .epoch_managers(epoch_managers)
-                .runtimes(runtimes)
+            let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
+                .clients_count(2)
+                .real_stores()
+                .real_epoch_managers(&genesis.config)
+                .nightshade_runtimes(&genesis)
                 .use_state_snapshots()
                 .build();
 
@@ -698,6 +664,12 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 let store = rt.store();
 
                 let shard_id = msg.shard_uid.shard_id as ShardId;
+
+                assert!(rt
+                    .get_flat_storage_manager()
+                    .remove_flat_storage_for_shard(msg.shard_uid)
+                    .unwrap());
+
                 for part_id in 0..msg.num_parts {
                     let key = StatePartKey(msg.sync_hash, shard_id, part_id).try_to_vec().unwrap();
                     let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();

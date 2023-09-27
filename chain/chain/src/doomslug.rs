@@ -2,6 +2,8 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::doomslug::trackable::TrackableBlockHeightValue;
+use crate::metrics;
 use near_client_primitives::debug::{ApprovalAtHeightStatus, ApprovalHistoryEntry};
 use near_crypto::Signature;
 use near_primitives::block::{Approval, ApprovalInner};
@@ -72,6 +74,30 @@ struct DoomslugApprovalsTracker {
     threshold_mode: DoomslugThresholdMode,
 }
 
+mod trackable {
+    use near_o11y::metrics::IntGauge;
+    use near_primitives::types::BlockHeight;
+    use once_cell::sync::Lazy;
+
+    pub struct TrackableBlockHeightValue(BlockHeight, &'static Lazy<IntGauge>);
+
+    impl TrackableBlockHeightValue {
+        pub fn new(value: BlockHeight, gauge: &'static Lazy<IntGauge>) -> Self {
+            gauge.set(value as i64);
+            Self(value, gauge)
+        }
+
+        pub fn get(&self) -> BlockHeight {
+            self.0
+        }
+
+        pub fn set(&mut self, new: BlockHeight) {
+            self.0 = new;
+            self.1.set(self.0 as i64);
+        }
+    }
+}
+
 /// Approvals can arrive before the corresponding blocks, and we need a meaningful way to keep as
 /// many approvals as possible that can be useful in the future, while not allowing an adversary
 /// to spam us with invalid approvals.
@@ -97,13 +123,13 @@ struct DoomslugApprovalsTrackersAtHeight {
 pub struct Doomslug {
     approval_tracking: HashMap<BlockHeight, DoomslugApprovalsTrackersAtHeight>,
     /// Largest target height for which we issued an approval
-    largest_target_height: BlockHeight,
+    largest_target_height: TrackableBlockHeightValue,
     /// Largest height for which we saw a block containing 1/2 endorsements in it
-    largest_final_height: BlockHeight,
+    largest_final_height: TrackableBlockHeightValue,
     /// Largest height for which we saw threshold approvals (and thus can potentially create a block)
-    largest_threshold_height: BlockHeight,
+    largest_threshold_height: TrackableBlockHeightValue,
     /// Largest target height of approvals that we've received
-    largest_approval_height: BlockHeight,
+    largest_approval_height: TrackableBlockHeightValue,
     /// Information Doomslug tracks about the chain tip
     tip: DoomslugTip,
     /// Whether an endorsement (or in general an approval) was sent since updating the tip
@@ -339,10 +365,19 @@ impl Doomslug {
     ) -> Self {
         Doomslug {
             approval_tracking: HashMap::new(),
-            largest_target_height,
-            largest_approval_height: 0,
-            largest_final_height: 0,
-            largest_threshold_height: 0,
+            largest_target_height: TrackableBlockHeightValue::new(
+                largest_target_height,
+                &metrics::LARGEST_TARGET_HEIGHT,
+            ),
+            largest_approval_height: TrackableBlockHeightValue::new(
+                0,
+                &metrics::LARGEST_APPROVAL_HEIGHT,
+            ),
+            largest_final_height: TrackableBlockHeightValue::new(0, &metrics::LARGEST_FINAL_HEIGHT),
+            largest_threshold_height: TrackableBlockHeightValue::new(
+                0,
+                &metrics::LARGEST_THRESHOLD_HEIGHT,
+            ),
             tip: DoomslugTip { block_hash: CryptoHash::default(), height: 0 },
             endorsement_pending: false,
             timer: DoomslugTimer {
@@ -374,20 +409,20 @@ impl Doomslug {
     ///     produce a block (in practice a blocks might not be produceable yet if not enough time
     ///     passed since it accumulated enough approvals)
     pub fn get_largest_height_crossing_threshold(&self) -> BlockHeight {
-        self.largest_threshold_height
+        self.largest_threshold_height.get()
     }
 
     /// Returns the largest height for which we've received an approval
     pub fn get_largest_approval_height(&self) -> BlockHeight {
-        self.largest_approval_height
+        self.largest_approval_height.get()
     }
 
     pub fn get_largest_final_height(&self) -> BlockHeight {
-        self.largest_final_height
+        self.largest_final_height.get()
     }
 
     pub fn get_largest_target_height(&self) -> BlockHeight {
-        self.largest_target_height
+        self.largest_target_height.get()
     }
 
     pub fn get_timer_height(&self) -> BlockHeight {
@@ -430,8 +465,9 @@ impl Doomslug {
     pub fn process_timer(&mut self, cur_time: Instant) -> Vec<Approval> {
         let mut ret = vec![];
         for _ in 0..MAX_TIMER_ITERS {
-            let skip_delay =
-                self.timer.get_delay(self.timer.height.saturating_sub(self.largest_final_height));
+            let skip_delay = self
+                .timer
+                .get_delay(self.timer.height.saturating_sub(self.largest_final_height.get()));
 
             // The `endorsement_delay` is time to send approval to the block producer at `timer.height`,
             // while the `skip_delay` is the time before sending the approval to BP of `timer_height + 1`,
@@ -443,8 +479,8 @@ impl Doomslug {
             if self.endorsement_pending
                 && cur_time >= self.timer.last_endorsement_sent + self.timer.endorsement_delay
             {
-                if tip_height >= self.largest_target_height {
-                    self.largest_target_height = tip_height + 1;
+                if tip_height >= self.largest_target_height.get() {
+                    self.largest_target_height.set(tip_height + 1);
 
                     if let Some(approval) = self.create_approval(tip_height + 1) {
                         ret.push(approval);
@@ -469,8 +505,8 @@ impl Doomslug {
             if cur_time >= self.timer.started + skip_delay {
                 debug_assert!(!self.endorsement_pending);
 
-                self.largest_target_height =
-                    std::cmp::max(self.timer.height + 1, self.largest_target_height);
+                self.largest_target_height
+                    .set(std::cmp::max(self.timer.height + 1, self.largest_target_height.get()));
 
                 if let Some(approval) = self.create_approval(self.timer.height + 1) {
                     ret.push(approval);
@@ -575,7 +611,7 @@ impl Doomslug {
         debug_assert!(height > self.tip.height || self.tip.height == 0);
         self.tip = DoomslugTip { block_hash, height };
 
-        self.largest_final_height = last_final_height;
+        self.largest_final_height.set(last_final_height);
         self.timer.height = height + 1;
         self.timer.started = now;
 
@@ -604,13 +640,13 @@ impl Doomslug {
             .or_insert_with(|| DoomslugApprovalsTrackersAtHeight::new())
             .process_approval(now, approval, stakes, threshold_mode);
 
-        if approval.target_height > self.largest_approval_height {
-            self.largest_approval_height = approval.target_height;
+        if approval.target_height > self.largest_approval_height.get() {
+            self.largest_approval_height.set(approval.target_height);
         }
 
         if ret != DoomslugBlockProductionReadiness::NotReady {
-            if approval.target_height > self.largest_threshold_height {
-                self.largest_threshold_height = approval.target_height;
+            if approval.target_height > self.largest_threshold_height.get() {
+                self.largest_threshold_height.set(approval.target_height);
             }
         }
 
@@ -681,7 +717,7 @@ impl Doomslug {
                             true
                         } else {
                             let delay = self.timer.get_delay(
-                                self.timer.height.saturating_sub(self.largest_final_height),
+                                self.timer.height.saturating_sub(self.largest_final_height.get()),
                             ) / 6;
 
                             let ready = now > when + delay;

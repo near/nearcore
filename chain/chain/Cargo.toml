@@ -13,7 +13,6 @@ borsh.workspace = true
 bytesize.workspace = true
 chrono.workspace = true
 crossbeam-channel.workspace = true
-delay-detector.workspace = true
 enum-map.workspace = true
 itertools.workspace = true
 itoa.workspace = true
@@ -27,16 +26,18 @@ strum.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
+near-cache.workspace = true
 near-chain-configs.workspace = true
 near-chain-primitives.workspace = true
+near-client-primitives.workspace = true
 near-crypto.workspace = true
+near-epoch-manager.workspace = true
 near-o11y.workspace = true
+near-performance-metrics.workspace = true
+near-performance-metrics-macros.workspace = true
 near-pool.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
-near-cache.workspace = true
-near-client-primitives.workspace = true
-near-epoch-manager.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
@@ -47,7 +48,6 @@ assert_matches.workspace = true
 byzantine_asserts = []
 expensive_tests = []
 test_features = []
-delay_detector = ["delay-detector/delay_detector"]
 no_cache = ["near-store/no_cache"]
 new_epoch_sync = ["near-store/new_epoch_sync", "near-primitives/new_epoch_sync"]
 

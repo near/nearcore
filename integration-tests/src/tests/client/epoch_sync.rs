@@ -34,12 +34,12 @@ fn generate_transactions(last_hash: &CryptoHash, h: BlockHeight) -> Vec<SignedTr
             "test0".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer,
-            vec![Action::FunctionCall(FunctionCallAction {
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "write_random_value".to_string(),
                 args: vec![],
                 gas: 100_000_000_000_000,
                 deposit: 0,
-            })],
+            }))],
             last_hash.clone(),
         ));
     }

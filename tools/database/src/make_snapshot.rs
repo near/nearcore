@@ -46,7 +46,7 @@ mod tests {
             let node_storage = opener.open().unwrap();
             let mut store_update = node_storage.get_hot_store().store_update();
             for key in &keys {
-                store_update.insert(DBCol::Block, key, &vec![42]);
+                store_update.insert(DBCol::Block, key.clone(), vec![42]);
             }
             store_update.commit().unwrap();
             println!("Populated");

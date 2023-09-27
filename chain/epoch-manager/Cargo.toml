@@ -18,6 +18,8 @@ rand_hc.workspace = true
 serde_json.workspace = true
 smart-default.workspace = true
 tracing.workspace = true
+# itertools has collect_vec which is useful in quick debugging prints
+itertools.workspace = true
 
 near-crypto.workspace = true
 near-primitives.workspace = true
@@ -28,7 +30,9 @@ near-cache.workspace = true
 
 [features]
 expensive_tests = []
-protocol_feature_fix_staking_threshold = ["near-primitives/protocol_feature_fix_staking_threshold"]
+protocol_feature_fix_staking_threshold = [
+  "near-primitives/protocol_feature_fix_staking_threshold",
+]
 nightly = [
   "nightly_protocol",
   "protocol_feature_fix_staking_threshold",
@@ -43,7 +47,4 @@ nightly_protocol = [
   "near-store/nightly_protocol",
 ]
 no_cache = []
-new_epoch_sync = [
-  "near-store/new_epoch_sync",
-  "near-primitives/new_epoch_sync"
-]
+new_epoch_sync = ["near-store/new_epoch_sync", "near-primitives/new_epoch_sync"]

@@ -1,7 +1,13 @@
+// FIXME(nagisa): Is there a good reason we're triggering this? Luckily though this is just test
+// code so we're in the clear.
+#![allow(clippy::arc_with_non_send_sync)]
+
+use itertools::Itertools;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::mem::swap;
 use std::ops::DerefMut;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -79,7 +85,7 @@ use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind, StateItem,
 };
 use near_store::test_utils::create_test_store;
-use near_store::Store;
+use near_store::{NodeStorage, Store};
 use near_telemetry::TelemetryActor;
 
 use crate::adapter::{
@@ -1357,6 +1363,7 @@ pub struct TestEnvBuilder {
     chain_genesis: ChainGenesis,
     clients: Vec<AccountId>,
     validators: Vec<AccountId>,
+    home_dirs: Option<Vec<PathBuf>>,
     stores: Option<Vec<Store>>,
     epoch_managers: Option<Vec<EpochManagerKind>>,
     shard_trackers: Option<Vec<ShardTracker>>,
@@ -1382,6 +1389,7 @@ impl TestEnvBuilder {
             chain_genesis,
             clients,
             validators,
+            home_dirs: None,
             stores: None,
             epoch_managers: None,
             shard_trackers: None,
@@ -1439,6 +1447,19 @@ impl TestEnvBuilder {
         self.validators(Self::make_accounts(num))
     }
 
+    fn ensure_home_dirs(mut self) -> Self {
+        if self.home_dirs.is_none() {
+            let home_dirs = (0..self.clients.len())
+                .map(|_| {
+                    let temp_dir = tempfile::tempdir().unwrap();
+                    temp_dir.into_path()
+                })
+                .collect_vec();
+            self.home_dirs = Some(home_dirs)
+        }
+        self
+    }
+
     /// Overrides the stores that are used to create epoch managers and runtimes.
     pub fn stores(mut self, stores: Vec<Store>) -> Self {
         assert_eq!(stores.len(), self.clients.len());
@@ -1447,6 +1468,23 @@ impl TestEnvBuilder {
         assert!(self.runtimes.is_none(), "Cannot override store after runtimes");
         self.stores = Some(stores);
         self
+    }
+
+    pub fn real_stores(self) -> Self {
+        let ret = self.ensure_home_dirs();
+        let stores = ret
+            .home_dirs
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|home_dir| {
+                NodeStorage::opener(home_dir.as_path(), false, &Default::default(), None)
+                    .open()
+                    .unwrap()
+                    .get_hot_store()
+            })
+            .collect_vec();
+        ret.stores(stores)
     }
 
     /// Internal impl to make sure the stores are initialized.
@@ -1557,8 +1595,11 @@ impl TestEnvBuilder {
     /// Visible for extension methods in integration-tests.
     pub fn internal_ensure_epoch_managers_for_nightshade_runtime(
         self,
-    ) -> (Self, Vec<Store>, Vec<Arc<EpochManagerHandle>>) {
+    ) -> (Self, Vec<PathBuf>, Vec<Store>, Vec<Arc<EpochManagerHandle>>) {
         let builder = self.ensure_epoch_managers();
+        let default_home_dirs =
+            (0..builder.clients.len()).map(|_| PathBuf::from("../../../..")).collect_vec();
+        let home_dirs = builder.home_dirs.clone().unwrap_or(default_home_dirs);
         let stores = builder.stores.clone().unwrap();
         let epoch_managers = builder
             .epoch_managers
@@ -1572,7 +1613,7 @@ impl TestEnvBuilder {
                 EpochManagerKind::Handle(handle) => handle,
             })
             .collect();
-        (builder, stores, epoch_managers)
+        (builder, home_dirs, stores, epoch_managers)
     }
 
     /// Specifies custom ShardTracker for each client.  This allows us to
@@ -1874,21 +1915,48 @@ impl TestEnv {
 
     pub fn process_partial_encoded_chunks(&mut self) {
         let network_adapters = self.network_adapters.clone();
-        for network_adapter in network_adapters {
-            // process partial encoded chunks
-            while let Some(request) = network_adapter.pop() {
-                if let PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::PartialEncodedChunkMessage {
-                        account_id,
-                        partial_encoded_chunk,
-                    },
-                ) = request
-                {
-                    self.shards_manager(&account_id).send(
-                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
-                            PartialEncodedChunk::from(partial_encoded_chunk),
-                        ),
-                    );
+
+        let mut keep_going = true;
+        while keep_going {
+            for network_adapter in network_adapters.iter() {
+                keep_going = false;
+                // process partial encoded chunks
+                while let Some(request) = network_adapter.pop() {
+                    // if there are any requests in any of the adapters reset
+                    // keep going to true as processing of any message may
+                    // trigger more messages to be processed in other clients
+                    // it's a bit sad and it would be much nicer if all messages
+                    // were forwarded to a single queue
+                    // TODO would be nicer to first handle all PECs and then all PECFs
+                    keep_going = true;
+                    match request {
+                        PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::PartialEncodedChunkMessage {
+                                account_id,
+                                partial_encoded_chunk,
+                            },
+                        ) => {
+                            let partial_encoded_chunk =
+                                PartialEncodedChunk::from(partial_encoded_chunk);
+                            let message =
+                                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
+                                    partial_encoded_chunk,
+                                );
+                            self.shards_manager(&account_id).send(message);
+                        }
+                        PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::PartialEncodedChunkForward { account_id, forward },
+                        ) => {
+                            let message =
+                                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
+                                    forward,
+                                );
+                            self.shards_manager(&account_id).send(message);
+                        }
+                        _ => {
+                            tracing::debug!(target: "test", ?request, "skipping unsupported request type");
+                        }
+                    }
                 }
             }
         }
@@ -1983,6 +2051,9 @@ impl TestEnv {
     }
 
     pub fn process_shards_manager_responses_and_finish_processing_blocks(&mut self, idx: usize) {
+        let _span =
+            tracing::debug_span!(target: "test", "process_shards_manager", client=idx).entered();
+
         loop {
             self.process_shards_manager_responses(idx);
             if self.clients[idx].finish_blocks_in_processing().is_empty() {
@@ -2177,7 +2248,7 @@ impl TestEnv {
             relayer,
             sender,
             &relayer_signer,
-            vec![Action::Delegate(signed_delegate_action)],
+            vec![Action::Delegate(Box::new(signed_delegate_action))],
             tip.last_block_hash,
         )
     }
@@ -2216,12 +2287,12 @@ impl TestEnv {
     /// deployed already.
     pub fn call_main(&mut self, account: &AccountId) -> FinalExecutionOutcomeView {
         let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
-        let actions = vec![Action::FunctionCall(FunctionCallAction {
+        let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: vec![],
             gas: 3 * 10u64.pow(14),
             deposit: 0,
-        })];
+        }))];
         let tx = self.tx_from_actions(actions, &signer, signer.account_id.clone());
         self.execute_tx(tx).unwrap()
     }
@@ -2312,18 +2383,18 @@ pub fn create_chunk(
         let (mut encoded_chunk, mut new_merkle_paths) = EncodedShardChunk::new(
             *header.prev_block_hash(),
             header.prev_state_root(),
-            header.outcome_root(),
+            header.prev_outcome_root(),
             header.height_created(),
             header.shard_id(),
             &mut rs,
-            header.gas_used(),
+            header.prev_gas_used(),
             header.gas_limit(),
-            header.balance_burnt(),
+            header.prev_balance_burnt(),
             tx_root,
-            header.validator_proposals().collect(),
+            header.prev_validator_proposals().collect(),
             transactions,
-            decoded_chunk.receipts(),
-            header.outgoing_receipts_root(),
+            decoded_chunk.prev_outgoing_receipts(),
+            header.prev_outgoing_receipts_root(),
             &*signer,
             PROTOCOL_VERSION,
         )

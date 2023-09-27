@@ -1,26 +1,24 @@
-use near_chain::types::RuntimeAdapter;
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::SignedTransaction;
 use near_store::flat::FlatStorageManager;
-use near_store::genesis::initialize_genesis_state;
 use near_store::{
     config::TrieCacheConfig, test_utils::create_test_store, Mode, ShardTries, StateSnapshotConfig,
     StoreConfig, TrieConfig,
 };
 use near_store::{NodeStorage, Store};
 use nearcore::config::GenesisExt;
-use nearcore::{NightshadeRuntime, NEAR_BASE};
+use nearcore::NEAR_BASE;
 use std::path::PathBuf;
-use std::sync::Arc;
+
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 struct StateSnaptshotTestEnv {
     home_dir: PathBuf,
@@ -186,35 +184,17 @@ fn delete_content_at_path(path: &str) -> std::io::Result<()> {
 }
 
 #[test]
+// Runs a validator node.
+// Makes a state snapshot after processing every block. Each block contains a
+// transaction creating an account.
 fn test_make_state_snapshot() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
-    let num_clients = 1;
-    let env_objects = (0..num_clients).map(|_|{
-        let tmp_dir = tempfile::tempdir().unwrap();
-        // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
-        // same configuration as in production.
-        let store = NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
-            .open()
-            .unwrap()
-            .get_hot_store();
-        initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-        let runtime =
-            NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
-                as Arc<dyn RuntimeAdapter>;
-        (tmp_dir, store, epoch_manager, runtime)
-    }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
-
-    let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
-    let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();
-    let runtimes = env_objects.iter().map(|x| x.3.clone()).collect::<Vec<_>>();
-
     let mut env = TestEnv::builder(ChainGenesis::test())
-        .clients_count(env_objects.len())
-        .stores(stores.clone())
-        .epoch_managers(epoch_managers)
-        .runtimes(runtimes.clone())
+        .clients_count(1)
+        .real_stores()
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .use_state_snapshots()
         .build();
 
@@ -224,7 +204,8 @@ fn test_make_state_snapshot() {
 
     let mut blocks = vec![];
 
-    let state_snapshot_test_env = set_up_test_env_for_state_snapshots(&stores[0]);
+    let store = env.clients[0].chain.store().store();
+    let state_snapshot_test_env = set_up_test_env_for_state_snapshots(store);
 
     for i in 1..=5 {
         let new_account_id = format!("test_account_{i}");
@@ -242,7 +223,10 @@ fn test_make_state_snapshot() {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         blocks.push(block.clone());
         env.process_block(0, block.clone(), Provenance::PRODUCED);
-        assert!(verify_make_snapshot(&state_snapshot_test_env, *block.hash(), &block).is_ok());
+        assert_eq!(
+            format!("{:?}", Ok::<(), anyhow::Error>(())),
+            format!("{:?}", verify_make_snapshot(&state_snapshot_test_env, *block.hash(), &block))
+        );
     }
 
     // check that if the entry in DBCol::STATE_SNAPSHOT_KEY was missing while snapshot file exists, an overwrite of snapshot can succeed
@@ -250,7 +234,13 @@ fn test_make_state_snapshot() {
     let head = env.clients[0].chain.head().unwrap();
     let head_block_hash = head.last_block_hash;
     let head_block = env.clients[0].chain.get_block(&head_block_hash).unwrap();
-    assert!(verify_make_snapshot(&state_snapshot_test_env, head_block_hash, &head_block).is_ok());
+    assert_eq!(
+        format!("{:?}", Ok::<(), anyhow::Error>(())),
+        format!(
+            "{:?}",
+            verify_make_snapshot(&state_snapshot_test_env, head_block_hash, &head_block)
+        )
+    );
 
     // check that if the snapshot is deleted from file system while there's entry in DBCol::STATE_SNAPSHOT_KEY and write lock is nonempty, making a snpashot of the same hash will not write to the file system
     let snapshot_hash = head.last_block_hash;
@@ -261,8 +251,12 @@ fn test_make_state_snapshot() {
         &state_snapshot_test_env.state_snapshot_subdir,
     );
     delete_content_at_path(snapshot_path.to_str().unwrap()).unwrap();
-    assert!(
-        verify_make_snapshot(&state_snapshot_test_env, head.last_block_hash, &head_block).is_err()
+    assert_ne!(
+        format!("{:?}", Ok::<(), anyhow::Error>(())),
+        format!(
+            "{:?}",
+            verify_make_snapshot(&state_snapshot_test_env, head.last_block_hash, &head_block)
+        )
     );
     if let Ok(entries) = std::fs::read_dir(snapshot_path) {
         assert_eq!(entries.count(), 0);

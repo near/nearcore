@@ -906,26 +906,10 @@ pub mod epoch_info {
                 }
                 Self::V3(v3) => {
                     let protocol_version = self.protocol_version();
-                    let seed =
-                        if checked_feature!(
-                            "stable",
-                            SynchronizeBlockChunkProduction,
-                            protocol_version
-                        ) && !checked_feature!("stable", ChunkOnlyProducers, protocol_version)
-                        {
-                            // This is same seed that used for determining block producer
-                            Self::block_produce_seed(height, &v3.rng_seed)
-                        } else {
-                            // 32 bytes from epoch_seed, 8 bytes from height, 8 bytes from shard_id
-                            let mut buffer = [0u8; 48];
-                            buffer[0..32].copy_from_slice(&v3.rng_seed);
-                            buffer[32..40].copy_from_slice(&height.to_le_bytes());
-                            buffer[40..48].copy_from_slice(&shard_id.to_le_bytes());
-                            hash(&buffer).0
-                        };
+                    let seed = Self::chunk_produce_seed(protocol_version, v3, height, shard_id);
                     let shard_id = shard_id as usize;
-                    v3.chunk_producers_settlement[shard_id]
-                        [v3.chunk_producers_sampler[shard_id].sample(seed)]
+                    let sample = v3.chunk_producers_sampler[shard_id].sample(seed);
+                    v3.chunk_producers_settlement[shard_id][sample]
                 }
             }
         }
@@ -936,6 +920,30 @@ pub mod epoch_info {
             buffer[0..32].copy_from_slice(seed);
             buffer[32..40].copy_from_slice(&height.to_le_bytes());
             hash(&buffer).0
+        }
+
+        fn chunk_produce_seed(
+            protocol_version: ProtocolVersion,
+            epoch_info_v3: &EpochInfoV3,
+            height: BlockHeight,
+            shard_id: ShardId,
+        ) -> [u8; 32] {
+            if checked_feature!("stable", SynchronizeBlockChunkProduction, protocol_version)
+                && !checked_feature!("stable", ChunkOnlyProducers, protocol_version)
+            {
+                // This is same seed that used for determining block
+                // producer. This seed does not contain the shard id
+                // so all shards will be produced by the same
+                // validator.
+                Self::block_produce_seed(height, &epoch_info_v3.rng_seed)
+            } else {
+                // 32 bytes from epoch_seed, 8 bytes from height, 8 bytes from shard_id
+                let mut buffer = [0u8; 48];
+                buffer[0..32].copy_from_slice(&epoch_info_v3.rng_seed);
+                buffer[32..40].copy_from_slice(&height.to_le_bytes());
+                buffer[40..48].copy_from_slice(&shard_id.to_le_bytes());
+                hash(&buffer).0
+            }
         }
     }
 

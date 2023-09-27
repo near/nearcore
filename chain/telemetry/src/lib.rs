@@ -83,8 +83,8 @@ impl Handler<WithSpanContext<TelemetryEvent>> for TelemetryActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<TelemetryEvent>, _ctx: &mut Context<Self>) {
-        // let (_span, msg) = handler_span!(target: "telemetry", tracing::Level::DEBUG, msg, );
         let (_span, msg) = handler_debug_span!(target: "telemetry", msg);
+        tracing::debug!(target: "client", ?msg);
         let now = StaticClock::instant();
         if now.duration_since(self.last_telemetry_update) < self.config.reporting_interval {
             // Throttle requests to the telemetry endpoints, to at most one

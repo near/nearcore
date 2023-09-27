@@ -175,14 +175,14 @@ fn test_zero_balance_account_add_key() {
     for i in 1..5 {
         let new_key = PublicKey::from_seed(KeyType::ED25519, format!("{}", i).as_str());
         keys.push(new_key.clone());
-        actions.push(AddKey(AddKeyAction {
+        actions.push(AddKey(Box::new(AddKeyAction {
             public_key: new_key,
             access_key: AccessKey::full_access(),
-        }));
+        })));
     }
     for i in 0..2 {
         let new_key = PublicKey::from_seed(KeyType::ED25519, format!("{}", i + 5).as_str());
-        actions.push(AddKey(AddKeyAction {
+        actions.push(AddKey(Box::new(AddKeyAction {
             public_key: new_key,
             access_key: AccessKey {
                 nonce: 0,
@@ -192,7 +192,7 @@ fn test_zero_balance_account_add_key() {
                     method_names: vec![],
                 }),
             },
-        }));
+        })));
     }
 
     let head = env.clients[0].chain.head().unwrap();
@@ -230,7 +230,9 @@ fn test_zero_balance_account_add_key() {
         new_account_id.clone(),
         new_account_id.clone(),
         &new_signer,
-        vec![Action::DeleteKey(DeleteKeyAction { public_key: keys.last().unwrap().clone() })],
+        vec![Action::DeleteKey(Box::new(DeleteKeyAction {
+            public_key: keys.last().unwrap().clone(),
+        }))],
         *genesis_block.hash(),
     );
     assert_eq!(env.clients[0].process_tx(delete_key_tx, false, false), ProcessTxResponse::ValidTx);

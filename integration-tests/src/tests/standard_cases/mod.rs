@@ -35,7 +35,7 @@ use testlib::runtime_utils::{
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
 
 pub(crate) fn fee_helper(node: &impl Node) -> FeeHelper {
-    FeeHelper::new(RuntimeConfig::test().fees, node.genesis().config.min_gas_price)
+    FeeHelper::new(RuntimeConfig::test(), node.genesis().config.min_gas_price)
 }
 
 /// Adds given access key to the given account_id using signer2.
@@ -404,9 +404,9 @@ pub fn trying_to_create_implicit_account(node: impl Node) {
 
     let cost = fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
         + fee_helper.gas_to_balance(
-            fee_helper.cfg.fee(ActionCosts::create_account).send_fee(false)
+            fee_helper.cfg().fee(ActionCosts::create_account).send_fee(false)
                 + fee_helper
-                    .cfg
+                    .cfg()
                     .fee(near_primitives::config::ActionCosts::add_full_access_key)
                     .send_fee(false),
         );

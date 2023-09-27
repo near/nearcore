@@ -1,3 +1,5 @@
+#![allow(clippy::arc_with_non_send_sync)]
+
 use super::instance::InstantiationError;
 use super::store::Store;
 use near_vm_compiler::CompileError;

@@ -41,23 +41,6 @@ impl FlatStorageManager {
         Self(Arc::new(FlatStorageManagerInner { store, flat_storages: Default::default() }))
     }
 
-    pub fn test(store: Store, shard_uids: &[ShardUId], flat_head: CryptoHash) -> Self {
-        let mut flat_storages = HashMap::default();
-        for shard_uid in shard_uids {
-            let mut store_update = store.store_update();
-            store_helper::set_flat_storage_status(
-                &mut store_update,
-                *shard_uid,
-                FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                    flat_head: BlockInfo::genesis(flat_head, 0),
-                }),
-            );
-            store_update.commit().expect("failed to set flat storage status");
-            flat_storages.insert(*shard_uid, FlatStorage::new(store.clone(), *shard_uid).unwrap());
-        }
-        Self(Arc::new(FlatStorageManagerInner { store, flat_storages: Mutex::new(flat_storages) }))
-    }
-
     /// When a node starts from an empty database, this function must be called to ensure
     /// information such as flat head is set up correctly in the database.
     /// Note that this function is different from `create_flat_storage_for_shard`,
@@ -227,14 +210,18 @@ impl FlatStorageManager {
         flat_storages.get(&shard_uid).cloned()
     }
 
-    pub fn remove_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
+    /// Removes FlatStorage object from FlatStorageManager.
+    /// If FlatStorageManager did have that object, then removes all information about Flat State and returns Ok(true).
+    /// Otherwise does nothing and returns Ok(false).
+    pub fn remove_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<bool, StorageError> {
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
 
         if let Some(flat_store) = flat_storages.remove(&shard_uid) {
             flat_store.clear_state()?;
+            Ok(true)
+        } else {
+            Ok(false)
         }
-
-        Ok(())
     }
 
     /// Updates `move_head_enabled` for all shards and returns whether it succeeded.

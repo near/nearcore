@@ -27,9 +27,7 @@ use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as 
 use lru::LruCache;
 use near_async::time;
 use near_crypto::Signature;
-use near_o11y::{
-    handler_debug_span, handler_trace_span, log_assert, OpenTelemetrySpanExt, WithSpanContext,
-};
+use near_o11y::{handler_debug_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -1088,7 +1086,14 @@ impl PeerActor {
             "handle_msg_ready")
         .entered();
 
-        match peer_msg.clone() {
+        // Clones message iff someone is listening on the sink. Should be in tests only.
+        let message_processed_event = self
+            .network_state
+            .config
+            .event_sink
+            .delayed_push(|| Event::MessageProcessed(conn.tier, peer_msg.clone()));
+
+        match peer_msg {
             PeerMessage::Disconnect(d) => {
                 tracing::debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
 
@@ -1127,10 +1132,7 @@ impl PeerActor {
                         direct_peers,
                     }));
                 }
-                self.network_state
-                    .config
-                    .event_sink
-                    .push(Event::MessageProcessed(conn.tier, peer_msg));
+                message_processed_event();
             }
             PeerMessage::PeersResponse(PeersResponse { peers, direct_peers }) => {
                 tracing::debug!(target: "network", "Received peers from {}: {} peers and {} direct peers.", self.peer_info, peers.len(), direct_peers.len());
@@ -1156,11 +1158,7 @@ impl PeerActor {
                     &self.clock,
                     direct_peers.into_iter().filter(|peer_info| peer_info.id != node_id),
                 );
-
-                self.network_state
-                    .config
-                    .event_sink
-                    .push(Event::MessageProcessed(conn.tier, peer_msg));
+                message_processed_event();
             }
             PeerMessage::RequestUpdateNonce(edge_info) => {
                 let clock = self.clock.clone();
@@ -1187,10 +1185,7 @@ impl PeerActor {
                             }
                         }
                     };
-                    network_state
-                        .config
-                        .event_sink
-                        .push(Event::MessageProcessed(conn.tier, peer_msg));
+                    message_processed_event();
                 }));
             }
             PeerMessage::SyncRoutingTable(rtu) => {
@@ -1200,10 +1195,7 @@ impl PeerActor {
                 ctx.spawn(wrap_future(async move {
                     Self::handle_sync_routing_table(&clock, &network_state, conn.clone(), rtu)
                         .await;
-                    network_state
-                        .config
-                        .event_sink
-                        .push(Event::MessageProcessed(conn.tier, peer_msg));
+                    message_processed_event();
                 }));
             }
             PeerMessage::DistanceVector(dv) => {
@@ -1212,10 +1204,7 @@ impl PeerActor {
                 let network_state = self.network_state.clone();
                 ctx.spawn(wrap_future(async move {
                     Self::handle_distance_vector(&clock, &network_state, conn.clone(), dv).await;
-                    network_state
-                        .config
-                        .event_sink
-                        .push(Event::MessageProcessed(conn.tier, peer_msg));
+                    message_processed_event();
                 }));
             }
             PeerMessage::SyncAccountsData(msg) => {
@@ -1244,10 +1233,7 @@ impl PeerActor {
                 }
                 // Early exit, if there is no data in the message.
                 if msg.accounts_data.is_empty() {
-                    network_state
-                        .config
-                        .event_sink
-                        .push(Event::MessageProcessed(conn.tier, peer_msg));
+                    message_processed_event();
                     return;
                 }
                 let network_state = self.network_state.clone();
@@ -1262,10 +1248,7 @@ impl PeerActor {
                             AccountDataError::SingleAccountMultipleData => ReasonForBan::Abusive,
                         }));
                     }
-                    network_state
-                        .config
-                        .event_sink
-                        .push(Event::MessageProcessed(conn.tier, peer_msg));
+                    message_processed_event();
                 }));
             }
             PeerMessage::Routed(mut msg) => {
@@ -1334,17 +1317,11 @@ impl PeerActor {
                             // TODO(gprusak): deprecate Event::Ping/Pong in favor of
                             // MessageProcessed.
                             self.network_state.config.event_sink.push(Event::Ping(ping.clone()));
-                            self.network_state
-                                .config
-                                .event_sink
-                                .push(Event::MessageProcessed(conn.tier, PeerMessage::Routed(msg)));
+                            message_processed_event();
                         }
                         RoutedMessageBody::Pong(pong) => {
                             self.network_state.config.event_sink.push(Event::Pong(pong.clone()));
-                            self.network_state
-                                .config
-                                .event_sink
-                                .push(Event::MessageProcessed(conn.tier, PeerMessage::Routed(msg)));
+                            message_processed_event();
                         }
                         _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg)),
                     }
@@ -1511,6 +1488,7 @@ impl actix::Actor for PeerActor {
 
 impl actix::Handler<stream::Error> for PeerActor {
     type Result = ();
+    #[perf]
     fn handle(&mut self, err: stream::Error, ctx: &mut Self::Context) {
         let expected = match &err {
             stream::Error::Recv(stream::RecvError::MessageTooLarge { .. }) => {
@@ -1628,8 +1606,7 @@ impl actix::Handler<WithSpanContext<SendMessage>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<SendMessage>, _: &mut Self::Context) {
-        let (_span, msg) = handler_trace_span!(target: "network", msg);
-        let _d = delay_detector::DelayDetector::new(|| "send message".into());
+        let (_span, msg) = handler_debug_span!(target: "network", msg);
         self.send_message_or_log(&msg.message);
     }
 }
