@@ -215,6 +215,8 @@ impl Action {
         match self {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            Action::TransferV2(a) => a.deposit,
             _ => 0,
         }
     }
