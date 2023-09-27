@@ -128,8 +128,11 @@ impl From<Account> for AccountView {
 
 impl From<&AccountView> for Account {
     fn from(view: &AccountView) -> Self {
-        // TODO(jakmeier): expose nonrefundable storage on account view
-        Account::new(view.amount, view.locked, 0, view.code_hash, view.storage_usage)
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        let nonrefundable = view.nonrefundable;
+        #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
+        let nonrefundable = 0;
+        Account::new(view.amount, view.locked, nonrefundable, view.code_hash, view.storage_usage)
     }
 }
 
