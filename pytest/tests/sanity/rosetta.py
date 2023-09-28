@@ -710,7 +710,7 @@ class RosettaTestCase(unittest.TestCase):
         # tx = ft_result.transaction()
         # logger.info(f'Ft_transfer result: {tx}')
         json_res = self.node.get_tx(ft_result.near_hash, implicit.account_id)
-        logger.info(f'Tx-resukt: {json_res}')
+        logger.info(f'Tx-result: {json_res}')
 
     def test_get_block_nonexistent(self) -> None:
         """Tests querying non-existent blocks and transactions.

@@ -3,7 +3,7 @@ use paperclip::actix::{api_v2_errors, Apiv2Schema};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, Nonce};
 
-use crate::utils::{BlobInHexString, BorshInHexString};
+use crate::utils::{BlobInHexString, BorshInHexString, SignedDiff};
 
 /// An AccountBalanceRequest is utilized to make a balance request on the
 /// /account/balance endpoint. If the block_identifier is populated, a
@@ -1365,7 +1365,7 @@ pub(crate) struct FtBurnData {
     pub memo: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FungibleTokenEvent {
+pub(crate) struct FungibleTokenEvent {
     pub standard: String,
     pub receipt_id: CryptoHash,
     pub block_height: u64,
@@ -1375,7 +1375,7 @@ pub struct FungibleTokenEvent {
     pub decimals: u32,
     pub affected_account_id: String,
     pub involved_account_id: Option<String>,
-    pub delta_amount: i64,
+    pub delta_amount: SignedDiff<u128>,
     pub cause: String,
     pub status: String,
     pub event_memo: Option<String>,
@@ -1393,7 +1393,7 @@ pub(crate) struct EventBase {
 pub(crate) struct FtEvent {
     pub affected_id: AccountIdentifier,
     pub involved_id: Option<AccountIdentifier>,
-    pub delta: i64,
+    pub delta: SignedDiff<u128>,
     pub symbol: String,
     pub decimals: u32,
     pub cause: String,

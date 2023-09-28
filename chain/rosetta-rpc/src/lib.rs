@@ -398,53 +398,52 @@ async fn account_balance(
     } else {
         None
     };
-    match currencies {
-        Some(currencies) => {
-            let mut balances: Vec<models::Amount> = Vec::default();
-            for currency in currencies {
-                let ft_balance = crate::adapters::nep141::get_fungible_token_balance_for_account(
-                    &view_client_addr,
-                    &block.header,
-                    &currency
-                        .clone()
-                        .metadata
-                        .or_else(|| {
-                            // retrieve contract address from global config if not provided in query
-                            config_currencies.as_ref().clone().and_then(|currencies| {
-                                currencies.iter().find_map(|c| {
-                                    if c.symbol == currency.symbol {
-                                        c.metadata.clone()
-                                    } else {
-                                        None
-                                    }
-                                })
+    if let Some(currencies) = currencies {
+        let mut balances: Vec<models::Amount> = Vec::default();
+        for currency in currencies {
+            let ft_balance = crate::adapters::nep141::get_fungible_token_balance_for_account(
+                &view_client_addr,
+                &block.header,
+                &currency
+                    .clone()
+                    .metadata
+                    .or_else(|| {
+                        // retrieve contract address from global config if not provided in query
+                        config_currencies.as_ref().clone().and_then(|currencies| {
+                            currencies.iter().find_map(|c| {
+                                if c.symbol == currency.symbol {
+                                    c.metadata.clone()
+                                } else {
+                                    None
+                                }
                             })
                         })
-                        .ok_or_else(|| {
-                            errors::ErrorKind::NotFound(format!(
-                                "Unknown currency `{}`, try providing the contract address",
-                                currency.symbol
-                            ))
-                        })?
-                        .contract_address
-                        .clone(),
-                    &account_identifier_for_ft,
-                )
-                .await?;
-                balances.push(models::Amount::from_fungible_token(ft_balance, currency))
-            }
-            balances.push(models::Amount::from_yoctonear(balance));
-            Ok(Json(models::AccountBalanceResponse {
-                block_identifier: models::BlockIdentifier::new(block_height, &block_hash),
-                balances,
-                metadata: nonces,
-            }))
+                    })
+                    .ok_or_else(|| {
+                        errors::ErrorKind::NotFound(format!(
+                            "Unknown currency `{}`, try providing the contract address",
+                            currency.symbol
+                        ))
+                    })?
+                    .contract_address
+                    .clone(),
+                &account_identifier_for_ft,
+            )
+            .await?;
+            balances.push(models::Amount::from_fungible_token(ft_balance, currency))
         }
-        None => Ok(Json(models::AccountBalanceResponse {
+        balances.push(models::Amount::from_yoctonear(balance));
+        Ok(Json(models::AccountBalanceResponse {
+            block_identifier: models::BlockIdentifier::new(block_height, &block_hash),
+            balances,
+            metadata: nonces,
+        }))
+    } else {
+        Ok(Json(models::AccountBalanceResponse {
             block_identifier: models::BlockIdentifier::new(block_height, &block_hash),
             balances: vec![models::Amount::from_yoctonear(balance)],
             metadata: nonces,
-        })),
+        }))
     }
 }
 

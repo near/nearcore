@@ -1,10 +1,7 @@
-use std::{collections::HashMap, str::FromStr};
-
+use crate::models::{AccountIdentifier, Currency, FungibleTokenEvent};
 use near_o11y::WithSpanContextExt;
 use near_primitives::{types::BlockId, views::ExecutionOutcomeWithIdView};
-
-use crate::models::{AccountIdentifier, Currency, FungibleTokenEvent};
-
+use std::{collections::HashMap, str::FromStr};
 pub(crate) async fn collect_nep141_events(
     receipt_execution_outcomes: &Vec<ExecutionOutcomeWithIdView>,
     block_header: &near_primitives::views::BlockHeaderView,
@@ -44,7 +41,10 @@ async fn compose_rosetta_nep141_events(
                             involved_id: Some(AccountIdentifier::from_str(
                                 &transfer_event.new_owner_id,
                             )?),
-                            delta: -transfer_event.amount.parse::<i64>()?,
+                            delta: crate::utils::SignedDiff::cmp(
+                                transfer_event.amount.parse::<u128>()?,
+                                0,
+                            ),
                             cause: "TRANSFER".to_string(),
                             memo: transfer_event
                                 .memo
@@ -61,7 +61,9 @@ async fn compose_rosetta_nep141_events(
                             involved_id: Some(AccountIdentifier::from_str(
                                 &transfer_event.old_owner_id,
                             )?),
-                            delta: transfer_event.amount.parse::<i64>()?,
+                            delta: crate::utils::SignedDiff::from(
+                                transfer_event.amount.parse::<u128>()?,
+                            ),
                             cause: "TRANSFER".to_string(),
                             memo: transfer_event
                                 .memo
@@ -97,7 +99,7 @@ pub(crate) async fn get_fungible_token_balance_for_account(
     let request = near_primitives::views::QueryRequest::CallFunction {
         account_id: near_account_id::AccountId::from_str(contract_address)?,
         method_name,
-        args: near_primitives::types::FunctionArgs::from(args),
+        args: args.into(),
     };
     let query_response = view_client_addr
         .send(near_client::Query { block_reference, request }.with_span_context())
