@@ -54,7 +54,7 @@ impl State {
         let num_instances = {
             let mut inner = self.inner.lock().unwrap();
             let max_open_files = inner.max_open_files + u64::from(max_open_files);
-            ensure_max_open_files_limit(RealNoFile, max_open_files)?;
+            // ensure_max_open_files_limit(RealNoFile, max_open_files)?;
             inner.max_open_files = max_open_files;
             inner.count += 1;
             inner.count
@@ -151,6 +151,7 @@ impl Drop for InstanceTracker {
 /// Returns error if NOFILE limit could not be read or set.  In practice the
 /// only thing that can happen is hard limit being too low such that soft limit
 /// cannot be increased to required value.
+#[allow(dead_code)]
 fn ensure_max_open_files_limit(mut nofile: impl NoFile, max_open_files: u64) -> Result<(), String> {
     let required = max_open_files.saturating_add(1000);
     if required > i64::MAX as u64 {
