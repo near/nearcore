@@ -5,3 +5,5 @@ edition = "2021"
 publish = false
 description = "An entry point for miscelaneous (stylistic) workspace-wide tests"
 authors = ["Near Inc <hello@nearprotocol.com>"]
+
+[dependencies]
