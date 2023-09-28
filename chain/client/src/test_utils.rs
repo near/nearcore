@@ -85,7 +85,7 @@ use near_primitives::views::{
     AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind, StateItem,
 };
 use near_store::test_utils::create_test_store;
-use near_store::{NodeStorage, Store};
+use near_store::{NodeStorage, Store, StoreConfig};
 use near_telemetry::TelemetryActor;
 
 use crate::adapter::{
@@ -1478,7 +1478,9 @@ impl TestEnvBuilder {
             .unwrap()
             .iter()
             .map(|home_dir| {
-                NodeStorage::opener(home_dir.as_path(), false, &Default::default(), None)
+                let mut store_config = StoreConfig::default();
+                store_config.max_open_files = 1000;
+                NodeStorage::opener(home_dir.as_path(), false, &store_config, None)
                     .open()
                     .unwrap()
                     .get_hot_store()
