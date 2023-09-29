@@ -1,4 +1,3 @@
-use super::utils::TestEnvNightshadeSetupExt;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -11,6 +10,7 @@ use near_primitives::transaction::{
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 fn generate_transactions(last_hash: &CryptoHash, h: BlockHeight) -> Vec<SignedTransaction> {
     let mut txs = vec![];

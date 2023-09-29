@@ -1,5 +1,4 @@
 use crate::test_helpers::heavy_test;
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
@@ -21,6 +20,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::MaybeValidated;
 use near_primitives_core::types::ShardId;
 use near_store::DBCol;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::{config::GenesisExt, load_test_config, start_with_config};
 use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
