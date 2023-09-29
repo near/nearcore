@@ -273,7 +273,7 @@ rkyv = "0.7.31"
 rlimit = "0.7"
 rocksdb = { version = "0.21.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib", "jemalloc"] }
 runtime-tester = { path = "test-utils/runtime-tester" }
-rusqlite = { version = "0.27.0", features = ["bundled", "chrono", "functions"] }
+rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "functions"] }
 rustc-demangle = "0.1"
 rust-s3 = { version = "0.32.3", features = ["blocking"] }
 rustix = "0.37"
