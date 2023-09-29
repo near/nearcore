@@ -19,10 +19,8 @@ use near_primitives::transaction::{Action, AddKeyAction, DeleteKeyAction, Signed
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use nearcore::config::GenesisExt;
-
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
-
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 /// Assert that an account exists and has zero balance
 fn assert_zero_balance_account(env: &mut TestEnv, account_id: &AccountId) {
