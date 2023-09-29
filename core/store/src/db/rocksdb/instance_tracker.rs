@@ -51,29 +51,29 @@ impl State {
     /// Returns an error if process’ resource limits are too low to allow
     /// max_open_files open file descriptors for the new database instance.
     fn try_new_instance(&self, max_open_files: u32) -> Result<(), String> {
-        let (num_instances, max_open_files) = {
+        let num_instances = {
             let mut inner = self.inner.lock().unwrap();
             let max_open_files = inner.max_open_files + u64::from(max_open_files);
             ensure_max_open_files_limit(RealNoFile, max_open_files)?;
             inner.max_open_files = max_open_files;
             inner.count += 1;
-            (inner.count, inner.max_open_files)
+            inner.count
         };
-        info!(target: "db", num_instances, max_open_files, "Opened a new RocksDB instance.");
+        info!(target: "db", num_instances, "Opened a new RocksDB instance.");
         Ok(())
     }
 
     fn close_instance(&self, max_open_files: u32) {
-        let (num_instances, max_open_files) = {
+        let num_instances = {
             let mut inner = self.inner.lock().unwrap();
             inner.max_open_files = inner.max_open_files.saturating_sub(max_open_files.into());
             inner.count = inner.count.saturating_sub(1);
             if inner.count == 0 {
                 self.zero_cvar.notify_all();
             }
-            (inner.count, inner.max_open_files)
+            inner.count
         };
-        info!(target: "db", num_instances, max_open_files, "Closed a RocksDB instance.");
+        info!(target: "db", num_instances, "Closed a RocksDB instance.");
     }
 
     /// Blocks until all RocksDB instances (usually 0 or 1) shut down.
