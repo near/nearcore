@@ -4,7 +4,6 @@
 //! we want to test here are pretty heavy and its enough to run them once and
 //! note the wall-clock time.
 
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use borsh::BorshSerialize;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
@@ -13,6 +12,7 @@ use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 /// How long does it take to produce a large chunk?
 ///

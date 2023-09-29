@@ -9,8 +9,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{Action, AddKeyAction, Transaction};
 use nearcore::config::GenesisExt;
-
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 #[test]
 fn test_account_id_in_function_call_permission_upgrade() {
