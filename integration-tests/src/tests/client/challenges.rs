@@ -31,9 +31,8 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Trie;
 use nearcore::config::{GenesisExt, FISHERMEN_THRESHOLD};
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::sync::Arc;
-
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 /// Check that block containing a challenge is rejected.
 /// TODO (#2445): Enable challenges when they are working correctly.
