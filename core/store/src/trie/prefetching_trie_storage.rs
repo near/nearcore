@@ -250,7 +250,9 @@ impl TrieStorage for TriePrefetchingStorage {
                         // Releasing the lock here to unstuck main thread if it
                         // was blocking on this value, but it will also fail on its read.
                         self.prefetching.release(hash);
-                        Err(StorageError::MissingTrieValue)
+                        Err(StorageError::MissingTrieValue(format!(
+                            "Hash found in the trie without node: {hash}"
+                        )))
                     }
                     Err(e) => {
                         // This is an unrecoverable IO error.

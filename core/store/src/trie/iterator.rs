@@ -206,7 +206,9 @@ impl<'a> TrieIterator<'a> {
     fn descend_into_node(&mut self, hash: &CryptoHash) -> Result<(), StorageError> {
         let (bytes, node) = self.trie.retrieve_node(hash)?;
         if let Some(ref mut visited) = self.visited_nodes {
-            visited.push(bytes.ok_or(StorageError::MissingTrieValue)?);
+            visited.push(bytes.ok_or(StorageError::MissingTrieValue(format!(
+                "Trie value missing in storage by node hash {hash}"
+            )))?);
         }
         self.trail.push(Crumb { status: CrumbStatus::Entering, node, prefix_boundary: false });
         Ok(())

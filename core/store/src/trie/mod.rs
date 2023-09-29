@@ -1459,7 +1459,13 @@ mod tests {
 
         assert_eq!(trie3.get(b"dog"), Ok(Some(b"puppy".to_vec())));
         assert_eq!(trie3.get(b"horse"), Ok(Some(b"stallion".to_vec())));
-        assert_eq!(trie3.get(b"doge"), Err(StorageError::MissingTrieValue));
+
+        match trie3.get(b"doge") {
+            Err(StorageError::MissingTrieValue(msg)) => {
+                assert!(msg.starts_with("Trie memory recorded storage does not have node by hash"))
+            }
+            _ => panic!("Unexpected error type"),
+        }
     }
 
     #[test]
