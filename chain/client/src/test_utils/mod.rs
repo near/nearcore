@@ -1,5 +1,3 @@
-use near_epoch_manager::RngSeed;
-
 pub mod block_stats;
 pub mod client;
 pub mod peer_manager_mock;
@@ -14,4 +12,3 @@ pub use setup::*;
 pub use test_env::*;
 pub use test_env_builder::*;
 
-const TEST_SEED: RngSeed = [3; 32];

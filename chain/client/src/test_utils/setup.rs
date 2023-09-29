@@ -59,7 +59,8 @@ use rand::{thread_rng, Rng};
 
 use super::block_stats::BlockStats;
 use super::peer_manager_mock::PeerManagerMock;
-use super::TEST_SEED;
+
+pub const TEST_SEED: RngSeed = [3; 32];
 
 /// min block production time in milliseconds
 pub const MIN_BLOCK_PROD_TIME: Duration = Duration::from_millis(100);
