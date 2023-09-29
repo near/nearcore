@@ -238,23 +238,3 @@ where
     // update.commit()?;
     Ok(())
 }
-
-// pub fn persist_chunk_async(
-//     partial_chunk: PartialEncodedChunk,
-//     shard_chunk: Option<ShardChunk>,
-//     store: &mut ChainStore,
-//     blocking_io_actor: actix::Addr<BlockingIoActor>,
-// ) -> Result<(), Error> {
-//     let mut update = store.store_update();
-//     update.save_partial_chunk(partial_chunk);
-//     if let Some(shard_chunk) = shard_chunk {
-//         update.save_chunk(shard_chunk);
-//     }
-//     // TODO: do we need to wait or is persisting async okay?
-//     actix::Arbiter::current().spawn(async {
-//         // TODO: error handling
-//         update.commit_async(blocking_io_actor).await.unwrap();
-//     });
-//     // update.commit()?;
-//     Ok(())
-// }

@@ -585,10 +585,6 @@ impl NetworkState {
             }
         }
 
-        // if success {
-        //     return success;
-        // }
-
         let peer_id_from_account_data = accounts_data
             .keys_by_id
             .get(account_id)

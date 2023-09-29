@@ -1358,19 +1358,6 @@ impl Client {
         )
         .expect("Could not persist chunk");
 
-        // let blocking_io_actor = self.blocking_io_actor.clone();
-        // actix::Arbiter::current().spawn(async {
-        //     let store: &mut near_chain::ChainStore = self.chain.mut_store();
-        //     let mut update = store.store_update();
-        //     update.save_partial_chunk(partial_chunk);
-        //     if let Some(shard_chunk) = shard_chunk {
-        //         update.save_chunk(shard_chunk);
-        //     }
-        //     // TODO: do we need to wait or is persisting async okay?
-        //     // TODO: error handling
-        //     update.commit_async(blocking_io_actor).await.expect("Could not persist chunk");
-        // });
-
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.
