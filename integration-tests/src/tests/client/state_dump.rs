@@ -1,4 +1,3 @@
-use super::utils::TestEnvNightshadeSetupExt;
 use assert_matches::assert_matches;
 use borsh::BorshSerialize;
 use near_chain::near_chain_primitives::error::QueryError;
@@ -25,6 +24,7 @@ use near_store::DBCol;
 use near_store::Store;
 use nearcore::config::GenesisExt;
 use nearcore::state_sync::spawn_state_sync_dump;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
 use std::ops::ControlFlow;
 use std::sync::Arc;

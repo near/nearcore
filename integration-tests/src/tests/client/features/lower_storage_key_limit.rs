@@ -12,11 +12,11 @@ use near_primitives::transaction::{Action, FunctionCallAction, Transaction};
 use near_primitives::types::BlockHeight;
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 use crate::tests::client::process_blocks::{
     deploy_test_contract_with_protocol_version, produce_blocks_from_height_with_protocol_version,
 };
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 /// Check correctness of the protocol upgrade and ability to write 2 KB keys.
 #[test]
