@@ -10,8 +10,7 @@ use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::version::PROTOCOL_VERSION;
 use near_vm_runner::VMKind;
 use nearcore::config::GenesisExt;
-
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 /// Tests if the cost of deployment is higher after the protocol update 53
 #[test]
