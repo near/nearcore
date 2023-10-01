@@ -2,28 +2,26 @@ use near_client::sync::external::{
     external_storage_location, external_storage_location_directory, get_num_parts_from_filename,
 };
 extern crate rayon;
-use near_primitives::hash::CryptoHash;
-use near_primitives::state_part::PartId;
-use near_primitives::types::{EpochId, ShardId, StateRoot};
-
+use actix_web::{web, App, HttpServer};
 use anyhow::anyhow;
 use borsh::BorshDeserialize;
 use near_client::sync::external::{create_bucket_readonly, ExternalConnection};
+use near_primitives::hash::CryptoHash;
+use near_primitives::state_part::PartId;
+use near_primitives::types::{EpochId, ShardId, StateRoot};
 use near_store::Trie;
+use nearcore::state_sync::extract_part_id_from_part_file_name;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
-use nearcore::state_sync::extract_part_id_from_part_file_name;
-use std::collections::HashSet;
+use std::thread::sleep;
 use std::time::{Duration, Instant};
-use std::thread;
 
 #[derive(clap::Parser)]
 pub struct StatePartsDumpCheckCommand {
     #[clap(long)]
     chain_id: String,
-    #[clap(long)]
-    shard_id: ShardId,
     #[clap(long, value_parser)]
     root_dir: Option<PathBuf>,
     #[clap(long)]
@@ -43,7 +41,11 @@ pub enum StatePartsDumpCheckSubCommand {
 }
 
 #[derive(clap::Parser)]
-pub struct LoopCheckCommand {}
+pub struct LoopCheckCommand {
+    /// Listen address for prometheus metrics.
+    #[clap(long, default_value = "0.0.0.0:9090")]
+    prometheus_addr: String,
+}
 
 #[derive(clap::Parser)]
 pub struct SingleCheckCommand {
@@ -53,6 +55,8 @@ pub struct SingleCheckCommand {
     epoch_height: u64,
     #[clap(long)]
     state_root: StateRoot,
+    #[clap(long)]
+    shard_id: ShardId,
 }
 
 #[derive(Clone)]
@@ -62,10 +66,14 @@ pub enum StatePartsDumpCheckStatus {
 }
 
 impl StatePartsDumpCheckCommand {
-    pub fn run(
-        &self
-    ) -> anyhow::Result<()> {
-        self.subcmd.run(self.chain_id.clone(), self.shard_id, self.root_dir.clone(), self.s3_bucket.clone(), self.s3_region.clone(), self.gcs_bucket.clone())
+    pub fn run(&self) -> anyhow::Result<()> {
+        self.subcmd.run(
+            self.chain_id.clone(),
+            self.root_dir.clone(),
+            self.s3_bucket.clone(),
+            self.s3_region.clone(),
+            self.gcs_bucket.clone(),
+        )
     }
 }
 
@@ -73,29 +81,19 @@ impl StatePartsDumpCheckSubCommand {
     pub fn run(
         &self,
         chain_id: String,
-        shard_id: ShardId,
         root_dir: Option<PathBuf>,
         s3_bucket: Option<String>,
         s3_region: Option<String>,
         gcs_bucket: Option<String>,
     ) -> anyhow::Result<()> {
         match self {
-            StatePartsDumpCheckSubCommand::SingleCheck(cmd) => cmd.run(
-                chain_id,
-                shard_id,
-                root_dir,
-                s3_bucket,
-                s3_region,
-                gcs_bucket
-            ),
-            StatePartsDumpCheckSubCommand::LoopCheck(cmd) => cmd.run(
-                chain_id,
-                root_dir,
-                s3_bucket,
-                s3_region,
-                gcs_bucket
-            )
-        }   
+            StatePartsDumpCheckSubCommand::SingleCheck(cmd) => {
+                cmd.run(chain_id, root_dir, s3_bucket, s3_region, gcs_bucket)
+            }
+            StatePartsDumpCheckSubCommand::LoopCheck(cmd) => {
+                cmd.run(chain_id, root_dir, s3_bucket, s3_region, gcs_bucket)
+            }
+        }
     }
 }
 
@@ -103,7 +101,6 @@ impl SingleCheckCommand {
     pub fn run(
         &self,
         chain_id: String,
-        shard_id: ShardId,
         root_dir: Option<PathBuf>,
         s3_bucket: Option<String>,
         s3_region: Option<String>,
@@ -111,20 +108,21 @@ impl SingleCheckCommand {
     ) -> anyhow::Result<()> {
         let sys = actix::System::new();
         sys.block_on(async move {
-            let check_result = run_single_check(
+            let _check_result = run_single_check(
                 chain_id,
                 self.epoch_id.clone(),
                 self.epoch_height,
-                shard_id,
+                self.shard_id,
                 self.state_root,
                 root_dir,
                 s3_bucket,
                 s3_region,
                 gcs_bucket,
             )
-            .await?;
-            Ok(())
-        })
+            .await;
+        });
+
+        Ok(())
     }
 }
 
@@ -137,32 +135,16 @@ impl LoopCheckCommand {
         s3_region: Option<String>,
         gcs_bucket: Option<String>,
     ) -> anyhow::Result<()> {
-        let mut handles = vec![];
-        for shard_id in 0..4 as u64 {
-            let chain_id = chain_id.clone();
-            let root_dir = root_dir.clone();
-            let s3_bucket = s3_bucket.clone();
-            let s3_region = s3_region.clone();
-            let gcs_bucket = gcs_bucket.clone();
-            let rpc_client = crate::rpc_requests::RpcClient::new(&chain_id);
-            let handle = thread::spawn(move || 
-                run_loop_single_shard(
-                    chain_id,
-                    root_dir,
-                    s3_bucket,
-                    s3_region,
-                    gcs_bucket,
-                    shard_id,
-                    rpc_client
-                )               
-            );
-            handles.push(handle);
-        }
-
-        for handle in handles {
-            let _ = handle.join().unwrap();
-        }
-        
+        let rpc_client = crate::rpc_requests::RpcClient::new(&chain_id);
+        let _ = run_loop_single_shard(
+            chain_id,
+            root_dir,
+            s3_bucket,
+            s3_region,
+            gcs_bucket,
+            rpc_client,
+            &self.prometheus_addr,
+        );
         Ok(())
     }
 }
@@ -226,73 +208,105 @@ fn run_loop_single_shard(
     s3_bucket: Option<String>,
     s3_region: Option<String>,
     gcs_bucket: Option<String>,
-    shard_id: ShardId,
     rpc_client: crate::rpc_requests::RpcClient,
+    prometheus_addr: &str,
 ) -> anyhow::Result<()> {
-    let mut last_check_status =
-        Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height: 0 });
+    let mut last_check_status_vec = vec![];
+    for _ in 0..4 {
+        last_check_status_vec
+            .push(Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height: 0 }));
+    }
+    let mut last_check_iter_info: DumpCheckIterInfo;
 
-    let mut last_check_iter_info;
+    let mut is_prometheus_server_up: bool = false;
 
+    let sys = actix::System::new();
     loop {
         let dump_check_iter_info_res = get_processing_epoch_information(&rpc_client);
         if let Err(_) = dump_check_iter_info_res {
-            // TODO: sleep 5 mins
+            tracing::info!("sleeping for 60s");
+            sleep(Duration::from_secs(60));
             continue;
         }
         let dump_check_iter_info = dump_check_iter_info_res.unwrap();
 
-        match last_check_status {
-            Ok(StatePartsDumpCheckStatus::Done{epoch_height}) | Ok(StatePartsDumpCheckStatus::WaitingForParts{epoch_height}) => {
-                tracing::info!("last one was done or waiting");
-                if epoch_height >= dump_check_iter_info.prev_epoch_height {
-                    tracing::info!("current height was already checked");
-                    // TODO: sleep 5 mins
-                    continue;
-                }
+        for shard_id in 0..4 as u64 {
+            tracing::info!("started check for shard_id {}", shard_id);
+            let dump_check_iter_info = dump_check_iter_info.clone();
+            match last_check_status_vec[shard_id as usize] {
+                Ok(StatePartsDumpCheckStatus::Done { epoch_height })
+                | Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height }) => {
+                    tracing::info!("last one was done or waiting");
+                    if epoch_height >= dump_check_iter_info.prev_epoch_height {
+                        tracing::info!("current height was already checked");
+                        tracing::info!("sleeping for 60s");
+                        sleep(Duration::from_secs(60));
+                        continue;
+                    }
 
-                tracing::info!("current height was not already checked");
-                if dump_check_iter_info.prev_epoch_height > epoch_height + 1 {
-                    crate::metrics::STATE_SYNC_DUMP_CHECK_HAS_SKIPPED_EPOCH
-                        .with_label_values(&[&shard_id.to_string()])
-                        .set(1);  
-                } else {
-                    crate::metrics::STATE_SYNC_DUMP_CHECK_HAS_SKIPPED_EPOCH
-                        .with_label_values(&[&shard_id.to_string()])
-                        .set(0); 
+                    tracing::info!("current height was not already checked");
+                    if dump_check_iter_info.prev_epoch_height > epoch_height + 1 {
+                        crate::metrics::STATE_SYNC_DUMP_CHECK_HAS_SKIPPED_EPOCH
+                            .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
+                            .set(1);
+                    } else {
+                        crate::metrics::STATE_SYNC_DUMP_CHECK_HAS_SKIPPED_EPOCH
+                            .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
+                            .set(0);
+                    }
                 }
+                Err(_) => (),
             }
-            Err(_) => ()
+
+            let state_root_str = rpc_client
+                .get_prev_epoch_state_root(&dump_check_iter_info.prev_epoch_id, shard_id)
+                .or_else(|_| Err(anyhow!("get_prev_epoch_state_root failed")))?;
+
+            let state_root: StateRoot = CryptoHash::from_str(&state_root_str)
+                .or_else(|_| Err(anyhow!("convert str to StateRoot failed")))?;
+            let prev_epoch_id = EpochId(
+                CryptoHash::from_str(&dump_check_iter_info.prev_epoch_id)
+                    .or_else(|_| Err(anyhow!("convert str to EpochId failed")))?,
+            );
+
+            last_check_iter_info = dump_check_iter_info;
+            let chain_id = chain_id.clone();
+            let root_dir = root_dir.clone();
+            let s3_bucket = s3_bucket.clone();
+            let s3_region = s3_region.clone();
+            let gcs_bucket = gcs_bucket.clone();
+            last_check_status_vec[shard_id as usize] = sys.block_on(async move {
+                if !is_prometheus_server_up {
+                    let server = HttpServer::new(move || {
+                        App::new().service(
+                            web::resource("/metrics")
+                                .route(web::get().to(near_jsonrpc::prometheus_handler)),
+                        )
+                    })
+                    .bind(prometheus_addr)
+                    .unwrap()
+                    .workers(1)
+                    .shutdown_timeout(3)
+                    .disable_signals()
+                    .run();
+                    tokio::spawn(server);
+                }
+
+                run_single_check(
+                    chain_id,
+                    prev_epoch_id,
+                    last_check_iter_info.prev_epoch_height,
+                    shard_id,
+                    state_root,
+                    root_dir,
+                    s3_bucket,
+                    s3_region,
+                    gcs_bucket,
+                )
+                .await
+            });
+            is_prometheus_server_up = true;
         }
-
-        let state_root_str = rpc_client
-            .get_prev_epoch_state_root(&dump_check_iter_info.prev_epoch_id, shard_id)
-            .or_else(|_| Err(anyhow!("get_prev_epoch_state_root failed")))?;
-
-        let state_root: StateRoot = CryptoHash::from_str(&state_root_str).or_else(|_| Err(anyhow!("convert str to StateRoot failed")))?;
-        let prev_epoch_id = EpochId(CryptoHash::from_str(&dump_check_iter_info.prev_epoch_id).or_else(|_| Err(anyhow!("convert str to EpochId failed")))?);
-
-        last_check_iter_info = dump_check_iter_info;
-        let sys = actix::System::new();
-        let chain_id = chain_id.clone();
-        let root_dir = root_dir.clone();
-        let s3_bucket = s3_bucket.clone();
-        let s3_region = s3_region.clone();
-        let gcs_bucket = gcs_bucket.clone();
-        last_check_status = sys.block_on(async move {
-            run_single_check(
-                chain_id,
-                prev_epoch_id,
-                last_check_iter_info.prev_epoch_height,
-                shard_id,
-                state_root,
-                root_dir,
-                s3_bucket,
-                s3_region,
-                gcs_bucket,
-            )
-            .await
-        });
     }
 }
 
@@ -309,22 +323,24 @@ async fn run_single_check(
 ) -> anyhow::Result<StatePartsDumpCheckStatus> {
     tracing::info!("epoch_height: {}, state_root: {}", epoch_height, state_root);
     crate::metrics::STATE_SYNC_DUMP_CHECK_EPOCH_HEIGHT
-        .with_label_values(&[&shard_id.to_string()])
+        .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
         .set(epoch_height as i64);
 
-    crate::metrics::STATE_SYNC_DUMP_CHECK_PROCESS_IS_UP.set(1);
+    crate::metrics::STATE_SYNC_DUMP_CHECK_PROCESS_IS_UP
+        .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
+        .set(1);
 
     crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_TOTAL
-        .with_label_values(&[&shard_id.to_string()])
+        .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
         .set(0);
     crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_DUMPED
-        .with_label_values(&[&shard_id.to_string()])
+        .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
         .set(0);
     crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_VALID
-        .with_label_values(&[&shard_id.to_string()])
+        .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
         .set(0);
     crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_INVALID
-        .with_label_values(&[&shard_id.to_string()])
+        .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
         .set(0);
 
     let external = create_external_connection(
@@ -347,13 +363,14 @@ async fn run_single_check(
     let total_required_parts = part_file_names
         .iter()
         .map(|file_name| get_num_parts_from_filename(file_name).unwrap())
-        .min().unwrap();
+        .min()
+        .unwrap();
 
     crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_TOTAL
-        .with_label_values(&[&shard_id.to_string()])
+        .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
         .set(total_required_parts as i64);
     crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_DUMPED
-        .with_label_values(&[&shard_id.to_string()])
+        .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
         .set(num_parts as i64);
 
     if num_parts < total_required_parts {
@@ -363,23 +380,20 @@ async fn run_single_check(
         tracing::info!("total state parts required: {} > number of parts already dumped: {}, there are more dumped parts than total required, something is seriously wrong", total_required_parts, num_parts);
         return Ok(StatePartsDumpCheckStatus::Done { epoch_height: epoch_height });
     }
-    // let num_threads = 10;
-    // let pool = rayon::ThreadPoolBuilder::new().num_threads(num_threads).build()?;
 
     tracing::info!(
         //target: "store", %shard_id, %epoch_height, %num_parts,
-        "Spawning threads to download and validate state parts: {}", num_parts
+        "Spawning threads to download and validate state parts: {}",
+        num_parts
     );
 
-
-    // TODO: run in parallel with rayon
     let start = Instant::now();
     let mut handles = vec![];
-    for part_id in 0..2 {
+    for part_id in 0..num_parts {
         let chain_id = chain_id.clone();
         let epoch_id = epoch_id.clone();
         let external = external.clone();
-        let handle = actix::spawn(async move {
+        let handle = tokio::spawn(async move {
             let _ = process_part(
                 part_id,
                 chain_id,
@@ -389,7 +403,8 @@ async fn run_single_check(
                 state_root,
                 num_parts,
                 external,
-            ).await;
+            )
+            .await;
         });
         handles.push(handle);
     }
@@ -404,42 +419,36 @@ async fn run_single_check(
 }
 
 async fn process_part(
-    part_id: u64, 
+    part_id: u64,
     chain_id: String,
     epoch_id: EpochId,
     epoch_height: u64,
     shard_id: ShardId,
     state_root: StateRoot,
     num_parts: u64,
-    external: ExternalConnection
+    external: ExternalConnection,
 ) -> anyhow::Result<()> {
+    tracing::info!("process_part for {} started", part_id);
     if part_id == 0 {
         crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_VALID
-            .with_label_values(&[&shard_id.to_string()])
+            .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
             .set(0);
         crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_INVALID
-            .with_label_values(&[&shard_id.to_string()])
+            .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
             .set(0);
     }
-    let location = external_storage_location(
-        &chain_id,
-        &epoch_id,
-        epoch_height,
-        shard_id,
-        part_id,
-        num_parts,
-    );
+    let location =
+        external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, part_id, num_parts);
     let part = external.get_part(shard_id, &location).await?;
-    let is_part_valid =
-        validate_state_part(&state_root, PartId::new(part_id, num_parts), &part);
+    let is_part_valid = validate_state_part(&state_root, PartId::new(part_id, num_parts), &part);
     if is_part_valid {
         crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_VALID
-            .with_label_values(&[&shard_id.to_string()])
+            .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
             .inc();
         tracing::info!("part {} is valid", part_id);
     } else {
         crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_INVALID
-            .with_label_values(&[&shard_id.to_string()])
+            .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
             .inc();
         tracing::info!("part {} is invalid", part_id);
     }
@@ -449,10 +458,12 @@ async fn process_part(
 fn get_processing_epoch_information(
     rpc_client: &crate::rpc_requests::RpcClient,
 ) -> anyhow::Result<DumpCheckIterInfo> {
-    let latest_block_hash =
-        rpc_client.get_final_block_hash().or_else(|_| Err(anyhow!("get_final_block_hash failed")))?;
-    let latest_epoch_id =
-        rpc_client.get_epoch_id(&latest_block_hash).or_else(|_| Err(anyhow!("get_epoch_id failed")))?;
+    let latest_block_hash = rpc_client
+        .get_final_block_hash()
+        .or_else(|_| Err(anyhow!("get_final_block_hash failed")))?;
+    let latest_epoch_id = rpc_client
+        .get_epoch_id(&latest_block_hash)
+        .or_else(|_| Err(anyhow!("get_epoch_id failed")))?;
 
     let prev_epoch_id_str = rpc_client
         .get_prev_epoch_id(&latest_epoch_id)

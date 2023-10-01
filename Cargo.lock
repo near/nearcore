@@ -4221,11 +4221,13 @@ name = "near-state-parts-dump-check"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "actix-web",
  "anyhow",
  "borsh 0.10.2",
  "clap 4.2.4",
  "cloud-storage",
  "near-client",
+ "near-jsonrpc",
  "near-o11y",
  "near-primitives",
  "near-primitives-core",

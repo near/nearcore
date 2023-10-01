@@ -10,6 +10,7 @@ license.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+actix-web.workspace = true
 actix.workspace = true
 borsh.workspace = true
 clap.workspace = true
@@ -24,6 +25,7 @@ near-primitives.workspace = true
 nearcore.workspace = true
 near-store.workspace = true
 near-client.workspace = true
+near-jsonrpc.workspace = true
 near-primitives-core.workspace = true
 near-o11y.workspace = true
 once_cell.workspace = true
