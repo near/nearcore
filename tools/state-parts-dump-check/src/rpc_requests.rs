@@ -133,7 +133,11 @@ impl RpcClient {
     }
 
     // get the state root of previous epoch. This should be the state root of the last block of last epoch.
-    pub fn get_prev_epoch_state_root(&self, block_hash: &String, shard_id: u64) -> Result<String, Box<dyn Error>> {
+    pub fn get_prev_epoch_state_root(
+        &self,
+        block_hash: &String,
+        shard_id: u64,
+    ) -> Result<String, Box<dyn Error>> {
         let prev_epoch_last_block_hash = self.get_prev_epoch_last_block_hash(block_hash).unwrap();
         let prev_epoch_last_block_response: BlockResponse = self
             .client
@@ -149,7 +153,7 @@ impl RpcClient {
             .send()?
             .json()?;
         let chunks = prev_epoch_last_block_response.result.chunks;
-        let state_root = &chunks[shard_id as usize] .prev_state_root;
+        let state_root = &chunks[shard_id as usize].prev_state_root;
         Ok(state_root.to_string())
     }
 

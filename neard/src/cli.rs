@@ -271,7 +271,7 @@ pub(super) enum NeardSubCommand {
     ForkNetwork(ForkNetworkCommand),
 
     /// Check completeness of dumped state parts of an epoch
-    StatePartsDumpCheck(StatePartsDumpCheckCommand)
+    StatePartsDumpCheck(StatePartsDumpCheckCommand),
 }
 
 #[derive(clap::Parser)]
