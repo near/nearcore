@@ -14,9 +14,8 @@ use near_primitives::{
     types::{AccountId, EpochId, ShardId},
 };
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use tracing::log::debug;
-
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 struct AdversarialBehaviorTestData {
     num_validators: usize,
