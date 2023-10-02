@@ -24,9 +24,8 @@ use near_primitives::transaction::{
 use near_primitives::types::AccountId;
 use near_primitives::version::ProtocolFeature;
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use node_runtime::config::RuntimeConfig;
-
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 /// Tracked in https://github.com/near/nearcore/issues/8938
 const INCREASED_STORAGE_COSTS_PROTOCOL_VERSION: u32 = 61;

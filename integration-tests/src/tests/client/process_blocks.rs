@@ -52,7 +52,7 @@ use near_primitives::sharding::{
     ShardChunkHeaderV3,
 };
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::{get_num_state_parts, StatePartKey};
+use near_primitives::state_sync::{get_num_state_parts, StatePartKey};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::{
@@ -79,11 +79,10 @@ use near_store::test_utils::create_test_store;
 use near_store::NodeStorage;
 use near_store::{get, DBCol, TrieChanges};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 pub fn set_block_protocol_version(
     block: &mut Block,

@@ -6,7 +6,7 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
-use near_primitives::syncing::{
+use near_primitives::state_sync::{
     get_num_state_parts, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
 };
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};

@@ -244,12 +244,14 @@ fn iterate_over_records(
                     continue;
                 }
                 if let StateRecord::Account { account_id, account } = &mut sr {
-                    total_supply += account.amount() + account.locked();
                     if account.locked() > 0 {
                         let stake = *validators.get(account_id).map(|(_, s)| s).unwrap_or(&0);
-                        account.set_amount(account.amount() + account.locked() - stake);
+                        if account.locked() > stake {
+                            account.set_amount(account.amount() + account.locked() - stake);
+                        }
                         account.set_locked(stake);
                     }
+                    total_supply += account.amount() + account.locked();
                 }
                 change_state_record(&mut sr, change_config);
                 callback(sr);
