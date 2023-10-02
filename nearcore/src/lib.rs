@@ -45,6 +45,7 @@ mod metrics;
 pub mod migrations;
 mod runtime;
 pub mod state_sync;
+pub mod test_utils;
 
 pub fn get_default_home() -> PathBuf {
     if let Ok(near_home) = std::env::var("NEAR_HOME") {

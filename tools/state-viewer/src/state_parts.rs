@@ -12,7 +12,7 @@ use near_primitives::challenge::PartialState;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::StateRecord;
-use near_primitives::syncing::get_num_state_parts;
+use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, EpochHeight, ShardId};
