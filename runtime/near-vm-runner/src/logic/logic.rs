@@ -908,18 +908,47 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(bls12381_g1_sum_base)?;
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
-        let mut res_pk = blst::min_pk::AggregatePublicKey::from_public_key(&blst::min_pk::PublicKey::default());
+        let mut res_pk = blst::blst_p1::default();
 
-        let elements_count = data.len()/96;
+        let elements_count = data.len()/97;
         self.gas_counter.pay_per(bls12381_g1_sum_element, elements_count as u64)?;
 
         for i in 0..elements_count {
-            let pk = blst::min_pk::PublicKey::from_bytes(&data[i*96..(i + 1)*96]).unwrap();
-            res_pk.add_public_key(&pk, false).unwrap();
+            let sign = data[(i + 1) * 97 - 1].clone();
+
+            let mut pk_aff = blst::blst_p1_affine::default();
+            unsafe {
+                blst::blst_p1_deserialize(&mut pk_aff, data[i*97..(i + 1)*97 - 1].as_ptr());
+            }
+
+            if sign == 1 {
+                unsafe {
+                    blst::blst_fp_inverse(&mut pk_aff.y, &pk_aff.y);
+                }
+            }
+
+            let mut pk = blst::blst_p1::default();
+            unsafe {
+                blst::blst_p1_from_affine(&mut pk, &pk_aff);
+            }
+
+            unsafe {
+                blst::blst_p1_add_or_double(&mut res_pk, &res_pk, &pk);
+            }
         }
 
-        let res_ser = res_pk.to_public_key().serialize();
-        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res_ser.as_slice())
+        let mut res_affine = blst::blst_p1_affine::default();
+
+        unsafe {
+            blst::blst_p1_to_affine(&mut res_affine, &res_pk);
+        }
+
+        let mut res = [0u8; 96];
+        unsafe {
+            blst::blst_p1_affine_serialize(res.as_mut_ptr(), &res_affine);
+        }
+
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())
     }
 
     pub fn bls12381_g2_sum(
@@ -931,18 +960,47 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(bls12381_g2_sum_base)?;
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
-        let mut res_pk = blst::min_sig::AggregatePublicKey::from_public_key(&blst::min_sig::PublicKey::default());
+        let mut res_pk = blst::blst_p2::default();
 
-        let elements_count = data.len()/192;
+        let elements_count = data.len()/193;
         self.gas_counter.pay_per(bls12381_g2_sum_element, elements_count as u64)?;
 
         for i in 0..elements_count {
-            let pk = blst::min_sig::PublicKey::from_bytes(&data[i*192..(i + 1)*192]).unwrap();
-            res_pk.add_public_key(&pk, false).unwrap();
+            let sign = data[(i + 1) * 193 - 1].clone();
+
+            let mut pk_aff = blst::blst_p2_affine::default();
+            unsafe {
+                blst::blst_p2_deserialize(&mut pk_aff, data[i*193..(i + 1)*193 - 1].as_ptr());
+            }
+
+            if sign == 1 {
+                unsafe {
+                    blst::blst_fp2_inverse(&mut pk_aff.y, &pk_aff.y);
+                }
+            }
+
+            let mut pk = blst::blst_p2::default();
+            unsafe {
+                blst::blst_p2_from_affine(&mut pk, &pk_aff);
+            }
+
+            unsafe {
+                blst::blst_p2_add_or_double(&mut res_pk, &res_pk, &pk);
+            }
         }
 
-        let res_ser = res_pk.to_public_key().serialize();
-        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res_ser.as_slice())
+        let mut res_affine = blst::blst_p2_affine::default();
+
+        unsafe {
+            blst::blst_p2_to_affine(&mut res_affine, &res_pk);
+        }
+
+        let mut res = [0u8; 192];
+        unsafe {
+            blst::blst_p2_affine_serialize(res.as_mut_ptr(), &res_affine);
+        }
+
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())
     }
 
     pub fn bls12381_g1_multiexp(
