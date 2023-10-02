@@ -18,11 +18,11 @@ use near_client_primitives::{
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::{handler_debug_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
-use near_primitives::syncing::get_num_state_parts;
+use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::types::{AccountId, BlockHeight, ShardId, ValidatorInfoIdentifier};
 use near_primitives::{
     hash::CryptoHash,
-    syncing::{ShardStateSyncResponseHeader, StateHeaderKey},
+    state_sync::{ShardStateSyncResponseHeader, StateHeaderKey},
     types::EpochId,
     views::ValidatorInfo,
 };
