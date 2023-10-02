@@ -248,43 +248,41 @@ impl ShardTries {
         self.get_trie_for_shard_internal(shard_uid, state_root, false, None)
     }
 
+    pub fn get_state_snapshot(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<(Store, FlatStorageManager), StorageError> {
+        // Taking this lock can last up to 10 seconds, if the snapshot happens to be re-created.
+        match self.0.state_snapshot.try_read() {
+            Ok(guard) => {
+                if let Some(data) = guard.as_ref() {
+                    if &data.prev_block_hash != block_hash {
+                        return Err(StorageInconsistentState(format!(
+                            "Wrong state snapshot. Requested: {:?}, Available: {:?}",
+                            block_hash, data.prev_block_hash
+                        )));
+                    }
+                    Ok((data.store.clone(), data.flat_storage_manager.clone()))
+                } else {
+                    Err(StorageInconsistentState("No state snapshot available".to_string()))
+                }
+            }
+            Err(TryLockError::WouldBlock) => Err(StorageInconsistentState(
+                "Accessing state snapshot would block. Retry in a few seconds.".to_string(),
+            )),
+            Err(err) => {
+                Err(StorageInconsistentState(format!("Can't access state snapshot: {err:?}")))
+            }
+        }
+    }
+
     pub fn get_trie_with_block_hash_for_shard_from_snapshot(
         &self,
         shard_uid: ShardUId,
         state_root: StateRoot,
         block_hash: &CryptoHash,
     ) -> Result<Trie, StorageError> {
-        let (store, flat_storage_manager) = {
-            // Taking this lock can last up to 10 seconds, if the snapshot happens to be re-created.
-            match self.0.state_snapshot.try_read() {
-                Ok(guard) => {
-                    if let Some(data) = guard.as_ref() {
-                        if &data.prev_block_hash != block_hash {
-                            return Err(StorageInconsistentState(format!(
-                                "Wrong state snapshot. Requested: {:?}, Available: {:?}",
-                                block_hash, data.prev_block_hash
-                            )));
-                        }
-                        (data.store.clone(), data.flat_storage_manager.clone())
-                    } else {
-                        return Err(StorageInconsistentState(
-                            "No state snapshot available".to_string(),
-                        ));
-                    }
-                }
-                Err(TryLockError::WouldBlock) => {
-                    return Err(StorageInconsistentState(
-                        "Accessing state snapshot would block. Retry in a few seconds.".to_string(),
-                    ));
-                }
-                Err(err) => {
-                    return Err(StorageInconsistentState(format!(
-                        "Can't access state snapshot: {err:?}"
-                    )));
-                }
-            }
-        };
-
+        let (store, flat_storage_manager) = self.get_state_snapshot(block_hash)?;
         let cache = {
             let mut caches = self.0.view_caches.write().expect(POISONED_LOCK_ERR);
             caches
