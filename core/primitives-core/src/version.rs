@@ -178,9 +178,9 @@ impl ProtocolFeature {
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
             ProtocolFeature::SimpleNightshadeV2 => 135,
+            ProtocolFeature::PostStateRoot => 136,
             #[cfg(feature = "protocol_feature_restrict_tla")]
             ProtocolFeature::RestrictTla => 139,
-            ProtocolFeature::PostStateRoot => 136,
         }
     }
 }

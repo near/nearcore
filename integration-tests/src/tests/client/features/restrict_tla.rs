@@ -22,6 +22,8 @@ fn test_create_top_level_accounts() {
         .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config])
         .build();
 
+    // These accounts cannot be created because they are top level accounts that are not implicit.
+    // Note that implicit accounts have to be 64 characters long.
     let top_level_accounts = [
         "0x06012c8cf97bead5deae237070f9587f8e7a266d",
         "0x5e97870f263700f46aa00d967821199b9bc5a120",
