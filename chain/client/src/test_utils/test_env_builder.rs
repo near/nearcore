@@ -16,7 +16,7 @@ use near_network::test_utils::MockPeerManagerAdapter;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::types::{AccountId, NumShards};
 use near_store::test_utils::create_test_store;
-use near_store::{NodeStorage, Store};
+use near_store::{NodeStorage, Store, StoreConfig};
 
 use super::setup::{setup_client_with_runtime, setup_synchronous_shards_manager};
 use super::test_env::TestEnv;
@@ -157,7 +157,13 @@ impl TestEnvBuilder {
             .unwrap()
             .iter()
             .map(|home_dir| {
-                NodeStorage::opener(home_dir.as_path(), false, &Default::default(), None)
+                // The max number of open files across all RocksDB instances is INT_MAX i.e. 65,535
+                // The default value of max_open_files is 10,000 which only allows upto 6 RocksDB
+                // instance to open at a time. This is problematic in testing resharding. To overcome
+                // this limit, we set the max_open_files config to 1000.
+                let mut store_config = StoreConfig::default();
+                store_config.max_open_files = 1000;
+                NodeStorage::opener(home_dir.as_path(), false, &store_config, None)
                     .open()
                     .unwrap()
                     .get_hot_store()

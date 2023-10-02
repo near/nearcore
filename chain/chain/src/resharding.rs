@@ -13,8 +13,6 @@ use near_primitives::errors::StorageError::StorageInconsistentState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
 use near_primitives::state::FlatStateValue;
-use near_primitives::state_part::PartId;
-use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, StateRoot};
 use near_store::flat::{
@@ -216,49 +214,7 @@ impl Chain {
         StateSplitResponse { shard_id, sync_hash, new_state_roots }
     }
 
-    // TODO(#9446) remove function when shifting to flat storage iteration for resharding
     fn build_state_for_split_shards_impl(
-        state_split_request: StateSplitRequest,
-    ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-        let StateSplitRequest { tries, shard_uid, state_root, next_epoch_shard_layout, .. } =
-            state_split_request;
-        let trie = tries.get_view_trie_for_shard(shard_uid, state_root);
-        let shard_id = shard_uid.shard_id();
-        let new_shards = next_epoch_shard_layout
-            .get_split_shard_uids(shard_id)
-            .ok_or(Error::InvalidShardId(shard_id))?;
-        let mut state_roots: HashMap<_, _> =
-            new_shards.iter().map(|shard_uid| (*shard_uid, Trie::EMPTY_ROOT)).collect();
-        let checked_account_id_to_shard_uid =
-            get_checked_account_id_to_shard_uid_fn(shard_uid, new_shards, next_epoch_shard_layout);
-
-        let state_root_node = trie.retrieve_root_node()?;
-        let num_parts = get_num_state_parts(state_root_node.memory_usage);
-        debug!(target: "resharding", "splitting state for shard {} to {} parts to build new states", shard_id, num_parts);
-        for part_id in 0..num_parts {
-            let trie_items = trie.get_trie_items_for_part(PartId::new(part_id, num_parts))?;
-            let (store_update, new_state_roots) = tries.add_values_to_split_states(
-                &state_roots,
-                trie_items.into_iter().map(|(key, value)| (key, Some(value))).collect(),
-                &checked_account_id_to_shard_uid,
-            )?;
-            state_roots = new_state_roots;
-            store_update.commit()?;
-        }
-        state_roots = apply_delayed_receipts(
-            &tries,
-            shard_uid,
-            state_root,
-            state_roots,
-            &checked_account_id_to_shard_uid,
-        )?;
-
-        Ok(state_roots)
-    }
-
-    // TODO(#9446) After implementing iterator at specific head, shift to build_state_for_split_shards_impl_v2
-    #[allow(dead_code)]
-    fn build_state_for_split_shards_impl_v2(
         state_split_request: StateSplitRequest,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         let StateSplitRequest {

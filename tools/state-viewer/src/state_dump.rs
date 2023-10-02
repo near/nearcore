@@ -295,7 +295,7 @@ mod test {
     use std::path::Path;
     use std::sync::Arc;
 
-    use near_chain::{ChainGenesis, Provenance};
+    use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
     use near_chain_configs::genesis_validate::validate_genesis;
     use near_chain_configs::{Genesis, GenesisChangeConfig};
     use near_client::test_utils::TestEnv;
@@ -315,6 +315,7 @@ mod test {
     use nearcore::config::GenesisExt;
     use nearcore::config::TESTING_INIT_STAKE;
     use nearcore::config::{Config, NearConfig};
+    use nearcore::test_utils::TestEnvNightshadeSetupExt;
     use nearcore::NightshadeRuntime;
 
     use crate::state_dump::state_dump;
@@ -324,7 +325,7 @@ mod test {
     fn setup(
         epoch_length: NumBlocks,
         protocol_version: ProtocolVersion,
-        use_production_config: bool,
+        test_resharding: bool,
     ) -> (Store, Genesis, TestEnv, NearConfig) {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -332,25 +333,23 @@ mod test {
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = protocol_version;
-        genesis.config.use_production_config = use_production_config;
-        let store = create_test_store();
-        initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-        let nightshade_runtime = NightshadeRuntime::test(
-            Path::new("."),
-            store.clone(),
-            &genesis.config,
-            epoch_manager.clone(),
-        );
-        let mut chain_genesis = ChainGenesis::test();
-        chain_genesis.epoch_length = epoch_length;
-        chain_genesis.gas_limit = genesis.config.gas_limit;
-        let env = TestEnv::builder(chain_genesis)
-            .validator_seats(2)
-            .stores(vec![store.clone()])
-            .epoch_managers(vec![epoch_manager])
-            .runtimes(vec![nightshade_runtime])
-            .build();
+        genesis.config.use_production_config = test_resharding;
+
+        let env = if test_resharding {
+            TestEnv::builder(ChainGenesis::new(&genesis))
+                .validator_seats(2)
+                .real_stores()
+                .real_epoch_managers(&genesis.config)
+                .nightshade_runtimes(&genesis)
+                .use_state_snapshots()
+                .build()
+        } else {
+            TestEnv::builder(ChainGenesis::new(&genesis))
+                .validator_seats(2)
+                .real_epoch_managers(&genesis.config)
+                .nightshade_runtimes(&genesis)
+                .build()
+        };
 
         let near_config = NearConfig::new(
             Config::default(),
@@ -367,6 +366,7 @@ mod test {
         )
         .unwrap();
 
+        let store = env.clients[0].chain.store().store().clone();
         (store, genesis, env, near_config)
     }
 
