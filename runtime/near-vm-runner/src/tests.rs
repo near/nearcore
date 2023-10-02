@@ -8,7 +8,6 @@ pub(crate) mod test_builder;
 mod ts_contract;
 mod wasm_validation;
 
-#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 use crate::config::ContractPrepareVersion;
 use crate::logic::{Config, VMContext};
 use crate::vm_kind::VMKind;
