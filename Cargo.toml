@@ -372,3 +372,5 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.sha2]
 opt-level = 3
+[profile.dev.package.curve25519-dalek]
+opt-level = 3
