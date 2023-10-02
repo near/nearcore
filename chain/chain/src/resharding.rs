@@ -210,11 +210,11 @@ impl Chain {
     ) -> StateSplitResponse {
         let shard_id = state_split_request.shard_uid.shard_id();
         let sync_hash = state_split_request.sync_hash;
-        let new_state_roots = Self::build_state_for_split_shards_impl_v2(state_split_request);
+        let new_state_roots = Self::build_state_for_split_shards_impl(state_split_request);
         StateSplitResponse { shard_id, sync_hash, new_state_roots }
     }
 
-    fn build_state_for_split_shards_impl_v2(
+    fn build_state_for_split_shards_impl(
         state_split_request: StateSplitRequest,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         let StateSplitRequest {
