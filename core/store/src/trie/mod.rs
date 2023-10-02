@@ -1118,13 +1118,14 @@ pub mod estimator {
 
 #[cfg(test)]
 mod tests {
+    use assert_matches::assert_matches;
     use rand::Rng;
 
     use crate::test_utils::{
         create_test_store, create_tries, create_tries_complex, gen_changes, simplify_changes,
         test_populate_trie,
     };
-    use crate::DBCol;
+    use crate::{DBCol, MissingTrieValueContext};
 
     use super::*;
 
@@ -1459,13 +1460,13 @@ mod tests {
 
         assert_eq!(trie3.get(b"dog"), Ok(Some(b"puppy".to_vec())));
         assert_eq!(trie3.get(b"horse"), Ok(Some(b"stallion".to_vec())));
-
-        match trie3.get(b"doge") {
-            Err(StorageError::MissingTrieValue(msg)) => {
-                assert!(msg.starts_with("Trie memory recorded storage does not have node by hash"))
-            }
-            _ => panic!("Unexpected error type"),
-        }
+        assert_matches!(
+            trie3.get(b"doge"),
+            Err(StorageError::MissingTrieValue(
+                MissingTrieValueContext::TrieMemoryPartialStorage,
+                _
+            ))
+        );
     }
 
     #[test]

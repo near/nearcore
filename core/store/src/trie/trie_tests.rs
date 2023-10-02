@@ -1,8 +1,9 @@
 use crate::test_utils::{create_tries_complex, gen_changes, simplify_changes, test_populate_trie};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
 use crate::{PartialStorage, Trie, TrieUpdate};
+use assert_matches::assert_matches;
 use near_primitives::challenge::PartialState;
-use near_primitives::errors::StorageError;
+use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::TrieNodesCount;
@@ -44,7 +45,10 @@ impl TrieStorage for IncompletePartialStorage {
         self.visited_nodes.borrow_mut().insert(*hash);
 
         if self.visited_nodes.borrow().len() > self.node_count_to_fail_after {
-            Err(StorageError::MissingTrieValue(format!("Recorded storage is missing hash {hash}")))
+            Err(StorageError::MissingTrieValue(
+                MissingTrieValueContext::TrieMemoryPartialStorage,
+                *hash,
+            ))
         } else {
             Ok(result)
         }
@@ -79,12 +83,13 @@ where
         let new_trie = Trie::new(Rc::new(storage), *trie.get_root(), None);
         let result = test(new_trie).map(|v| v.1);
         if i < size {
-            match result {
-                Err(StorageError::MissingTrieValue(msg)) => {
-                    assert!(msg.starts_with("Recorded storage is missing hash"));
-                }
-                _ => panic!("Unexpected error type"),
-            }
+            assert_matches!(
+                result,
+                Err(StorageError::MissingTrieValue(
+                    MissingTrieValueContext::TrieMemoryPartialStorage,
+                    _
+                ))
+            );
         } else {
             assert_eq!(result.as_ref(), Ok(&expected));
         }
@@ -282,7 +287,7 @@ mod trie_storage_tests {
         let key = hash(&value);
 
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        assert_matches!(result, Err(StorageError::MissingTrieValue(_)));
+        assert_matches!(result, Err(StorageError::MissingTrieValue(_, _)));
     }
 
     /// Check that large values does not fall into shard cache, but fall into accounting cache.
