@@ -30,7 +30,6 @@ use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::types::{AccountOrPeerIdOrHash, PeerInfo, PeerType};
 use near_network::types::{BlockInfo, PeerChainInfo};
 use near_network::types::{
     ConnectedPeerInfo, FullPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
