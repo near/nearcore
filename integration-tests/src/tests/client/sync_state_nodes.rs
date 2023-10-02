@@ -15,7 +15,7 @@ use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::{get_num_state_parts, StatePartKey};
+use near_primitives::state_sync::{get_num_state_parts, StatePartKey};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::MaybeValidated;
 use near_primitives_core::types::ShardId;
