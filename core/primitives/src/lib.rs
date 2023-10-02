@@ -10,6 +10,7 @@ pub mod block;
 pub mod block_header;
 pub mod challenge;
 pub mod epoch_manager;
+pub mod epoch_sync;
 pub mod errors;
 pub mod merkle;
 pub mod network;
