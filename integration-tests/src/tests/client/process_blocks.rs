@@ -52,7 +52,7 @@ use near_primitives::sharding::{
     ShardChunkHeaderV3,
 };
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::{get_num_state_parts, StatePartKey};
+use near_primitives::state_sync::{get_num_state_parts, StatePartKey};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::{
