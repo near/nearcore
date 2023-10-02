@@ -1300,3 +1300,4 @@ fn test_shard_layout_upgrade_missing_chunks_high_missing_prob() {
 }
 
 // TODO(resharding) add a test with missing blocks
+// TODO(resharding) add a test with deleting accounts and delayed receipts check
