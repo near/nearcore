@@ -158,7 +158,7 @@ impl DropChunkCondition {
 ///
 /// Note: if the test is extended to more epochs, garbage collection will
 /// kick in and delete data that is checked at the end of the test.
-struct TestShardUpgradeEnv {
+struct TestReshardingEnv {
     env: TestEnv,
     initial_accounts: Vec<AccountId>,
     init_txs: Vec<SignedTransaction>,
@@ -168,7 +168,7 @@ struct TestShardUpgradeEnv {
     rng: StdRng,
 }
 
-impl TestShardUpgradeEnv {
+impl TestReshardingEnv {
     fn new(
         epoch_length: u64,
         num_validators: usize,
@@ -809,7 +809,7 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_se
     // setup
     let epoch_length = 5;
     let mut test_env =
-        TestShardUpgradeEnv::new(epoch_length, 2, 2, 100, None, genesis_protocol_version, rng_seed);
+        TestReshardingEnv::new(epoch_length, 2, 2, 100, None, genesis_protocol_version, rng_seed);
     test_env.set_init_tx(vec![]);
 
     let mut nonce = 100;
@@ -877,8 +877,8 @@ fn create_test_env_for_cross_contract_test(
     genesis_protocol_version: ProtocolVersion,
     epoch_length: u64,
     rng_seed: u64,
-) -> TestShardUpgradeEnv {
-    TestShardUpgradeEnv::new(
+) -> TestReshardingEnv {
+    TestReshardingEnv::new(
         epoch_length,
         4,
         4,
@@ -891,7 +891,7 @@ fn create_test_env_for_cross_contract_test(
 
 /// Return test_env and a map from tx hash to the new account that will be added by this transaction
 fn setup_test_env_with_cross_contract_txs(
-    test_env: &mut TestShardUpgradeEnv,
+    test_env: &mut TestReshardingEnv,
     epoch_length: u64,
 ) -> HashMap<CryptoHash, AccountId> {
     let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
@@ -1300,3 +1300,4 @@ fn test_shard_layout_upgrade_missing_chunks_high_missing_prob() {
 }
 
 // TODO(resharding) add a test with missing blocks
+// TODO(resharding) add a test with deleting accounts and delayed receipts check
