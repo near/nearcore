@@ -13,7 +13,7 @@ use near_network::tcp;
 use near_network::types::PeerInfo;
 use near_primitives::network::PeerId;
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::get_num_state_parts;
+use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::test_utils::create_test_store;
 use nearcore::{NearConfig, NightshadeRuntime};

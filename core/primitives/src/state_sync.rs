@@ -248,7 +248,7 @@ pub enum StateSyncDumpProgress {
 
 #[cfg(test)]
 mod tests {
-    use crate::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
+    use crate::state_sync::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 
     #[test]
     fn test_get_num_state_parts() {
