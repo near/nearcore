@@ -1,5 +1,13 @@
 use crate::hash::CryptoHash;
 use crate::merkle::MerklePath;
+use std::sync::Arc;
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives_core::types::EpochHeight;
+use crate::block_header::BlockHeader;
+use crate::epoch_manager::block_info::BlockInfo;
+use crate::epoch_manager::epoch_info::EpochInfo;
+use crate::hash::CryptoHash;
+use crate::merkle::{MerklePath, PartialMerkleTree};
 use crate::sharding::{
     ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1,
 };
@@ -7,6 +15,7 @@ use crate::types::{BlockHeight, EpochId, ShardId, StateRoot, StateRootNode};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::EpochHeight;
 use std::sync::Arc;
+use crate::views::LightClientBlockView;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptProofResponse(pub CryptoHash, pub Arc<Vec<ReceiptProof>>);
