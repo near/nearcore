@@ -1,5 +1,4 @@
 use crate::tests::client::process_blocks::set_block_protocol_version;
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -10,6 +9,7 @@ use near_primitives::types::BlockHeight;
 use near_primitives::version::ProtocolFeature;
 use nearcore::config::GenesisExt;
 use nearcore::migrations::load_migration_data;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::collections::HashSet;
 
 const EPOCH_LENGTH: u64 = 5;

@@ -316,6 +316,7 @@ mod tests {
     #[cfg(not(feature = "calimero_zero_storage"))]
     fn test_json_unchanged() {
         use crate::views::RuntimeConfigView;
+        use near_primitives_core::version::PROTOCOL_VERSION;
 
         let store = RuntimeConfigStore::new(None);
         let mut any_failure = false;
@@ -332,7 +333,9 @@ mod tests {
         // Store the latest values of parameters in a human-readable snapshot.
         {
             let mut params: ParameterTable = BASE_CONFIG.parse().unwrap();
-            for (_, diff_bytes) in CONFIG_DIFFS {
+            for (_, diff_bytes) in
+                CONFIG_DIFFS.iter().filter(|(version, _)| *version <= PROTOCOL_VERSION)
+            {
                 params.apply_diff(diff_bytes.parse().unwrap()).unwrap();
             }
             insta::with_settings!({

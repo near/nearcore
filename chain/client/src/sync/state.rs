@@ -46,8 +46,8 @@ use near_network::types::{
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
+use near_primitives::state_sync::{get_num_state_parts, ShardStateSyncResponse};
 use near_primitives::static_clock::StaticClock;
-use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponse};
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
@@ -1400,7 +1400,7 @@ mod test {
     use near_epoch_manager::EpochManagerAdapter;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_primitives::{
-        syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseV2},
+        state_sync::{ShardStateSyncResponseHeader, ShardStateSyncResponseV2},
         test_utils::TestBlockBuilder,
         types::EpochId,
     };

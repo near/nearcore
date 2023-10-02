@@ -10,7 +10,7 @@ use near_primitives::merkle::combine_hash;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout;
 use near_primitives::sharding::{ChunkHash, ReceiptProof};
-use near_primitives::syncing::ReceiptProofResponse;
+use near_primitives::state_sync::ReceiptProofResponse;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
