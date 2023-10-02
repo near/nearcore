@@ -850,12 +850,23 @@ impl Chain {
             prev_block_hash,
             shard_id,
         )?;
-        // TODO(post-state-root): this misses outgoing receipts from the last block before
-        // the switch to post-state-root. Incoming receipts for that block corresponds to the
-        // outgoing receipts from the previous block, but incoming receipts for the next block
-        // include outgoing receipts for that block. These receipts can be obtained from the db
-        // using get_outgoing_receipts_for_shard since we currently track all shard. This will
-        // be implemented later along with an intergation test to reproduce the issue.
+        // TODO(post-state-root):
+        // This misses outgoing receipts from the last non-post-state-root block B.
+        // Before post-state-root incoming receipts store receipts that are supposed to be applied
+        // in this block, which corresponds to the outgoing receipts from the previous block.
+        // After post-state-root incoming receipts store receipts that are the result of executing
+        // that block, which corresponds to the outgoing receipts from the current block.
+        // So considering which outgoing receipts correspond to the incoming receipts for the blocks:
+        // * ...
+        // * pre-state-root  block B-1: outgoing B-2 -> incoming B-1
+        // * pre-state-root  block B:   outgoing B-1 -> incoming B
+        // * post-state-root block B+1: outgoing B+1 -> incoming B+1
+        // * post-state-root block B+2: outgoing B+2 -> incoming B+2
+        // * ...
+        // We can see that outgoing receipts of block B are not stored anywhere in the incoming receipts.
+        // These receipts can be obtained from the db using get_outgoing_receipts_for_shard since we
+        // currently track all shard. This will be implemented later along with an intergation test
+        // to reproduce the issue.
         let receipts =
             collect_receipts_from_response(&self.store.get_incoming_receipts_for_shard(
                 self.epoch_manager.as_ref(),
@@ -1763,7 +1774,6 @@ impl Chain {
         if !self.care_about_any_shard_or_part(me, *block.header().prev_hash())? {
             return Ok(HashMap::new());
         }
-
         let height = block.header().height();
         let mut receipt_proofs_by_shard_id = HashMap::new();
 

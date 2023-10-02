@@ -866,18 +866,6 @@ impl Client {
             last_header.height_included(),
         )?;
 
-        // Receipts proofs root is calculating here
-        //
-        // For each subset of incoming_receipts_into_shard_i_from_the_current_one
-        // we calculate hash here and save it
-        // and then hash all of them into a single receipts root
-        //
-        // We check validity in two ways:
-        // 1. someone who cares about shard will download all the receipts
-        // and checks that receipts_root equals to all receipts hashed
-        // 2. anyone who just asks for one's incoming receipts
-        // will receive a piece of incoming receipts only
-        // with merkle receipts proofs which can be checked locally
         let outgoing_receipts_root = self.calculate_receipts_root(epoch_id, &outgoing_receipts)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let gas_used = chunk_extra.gas_used();
@@ -999,27 +987,13 @@ impl Client {
             last_header.height_included(),
         )?;
 
-        // Receipts proofs root is calculating here
-        //
-        // For each subset of incoming_receipts_into_shard_i_from_the_current_one
-        // we calculate hash here and save it
-        // and then hash all of them into a single receipts root
-        //
-        // We check validity in two ways:
-        // 1. someone who cares about shard will download all the receipts
-        // and checks that receipts_root equals to all receipts hashed
-        // 2. anyone who just asks for one's incoming receipts
-        // will receive a piece of incoming receipts only
-        // with merkle receipts proofs which can be checked locally
         let (transaction_receipts_parts, encoded_length) =
             EncodedShardChunk::encode_transaction_receipts(
                 &mut self.rs_for_chunk_production,
                 transactions,
                 &apply_result.outgoing_receipts,
             )
-            .map_err(|err| {
-                Error::ChunkProducer(format!("Failed to encode transactions/receipts: {}", err))
-            })?;
+            .map_err(|err| Error::Chunk(err.into()))?;
         let mut content = EncodedShardChunkBody { parts: transaction_receipts_parts };
         content.reconstruct(&mut self.rs_for_chunk_production).unwrap();
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
@@ -1072,6 +1046,17 @@ impl Client {
         Ok((encoded_chunk, merkle_paths, apply_result.outgoing_receipts))
     }
 
+    /// Calculates the root of receipt proofs.
+    /// All receipts are groupped by receiver_id and hash is calculated
+    /// for each such group. Then we merkalize these hashes to calculate
+    /// the receipts root.
+    ///
+    /// Receipts root is used in the following ways:
+    /// 1. Someone who cares about shard will download all the receipts
+    ///    and checks if those correspond to receipts_root.
+    /// 2. Anyone who asks for one's incoming receipts will receive a piece
+    ///    of incoming receipts only with merkle receipts proofs which can
+    ///    be checked locally.
     fn calculate_receipts_root(
         &self,
         epoch_id: &EpochId,
