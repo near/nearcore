@@ -530,8 +530,10 @@ impl StateSync {
                 //  and that are tracking the shard.
                 // TODO: possible optimization - simply select peers that have height greater than the epoch start that we're asking for.
                 if peer.tracked_shards.contains(&shard_id) {
+                    tracing::error!("DEBUGING HAS A TRACKED SHARD");
                     Some(peer.peer_info.id.clone())
                 } else {
+                    tracing::error!("DEBUGING HAS NO TRACKED SHARD");
                     None
                 }
             })
@@ -574,6 +576,7 @@ impl StateSync {
         let possible_targets = self.possible_targets(shard_id, highest_height_peers)?;
 
         if possible_targets.is_empty() {
+            tracing::error!("DEBUGING NO POSSIBLE TARGETS");
             // In most cases it means that all the targets are currently busy (that we have a pending request with them).
             return Ok(());
         }
