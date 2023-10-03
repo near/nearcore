@@ -682,7 +682,7 @@ pub fn setup_mock_all_validators(
                             shard_id,
                             sync_hash, ..
                         } => {
-                            for (i,_) in validators_clone2.iter().enumerate() {
+                            for (i, _) in validators_clone2.iter().enumerate() {
                                 if i == my_ord {
                                     let me = connectors1[my_ord].client_actor.clone();
                                     actix::spawn(
@@ -714,7 +714,7 @@ pub fn setup_mock_all_validators(
                             sync_hash,
                             part_id, ..
                         } => {
-                            for (i,_) in validators_clone2.iter().enumerate() {
+                            for (i, _) in validators_clone2.iter().enumerate() {
                                 if i == my_ord {
                                     let me = connectors1[my_ord].client_actor.clone();
                                     actix::spawn(
