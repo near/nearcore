@@ -37,6 +37,10 @@ deny = [
 ]
 
 skip = [
+    { name = "clap", version = "=2.34.0" },
+    # criterion uses clap=2.34.0 which relies on an older textwrap
+    { name = "textwrap", version = "=0.11.0" },
+
     # wasmer 0.17 and wasmtime 0.17 use conflicting versions of those
     { name = "wasmparser", version = "=0.51.4" },
     # wasmer 0.17 and wasmtime 0.17 uses older versions of some crates
