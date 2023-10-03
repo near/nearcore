@@ -19,6 +19,10 @@ pub struct Arena {
 /// Mmap-ed memory to host the in-memory trie nodes.
 /// A mutable reference to `ArenaMemory` can be used to mutate allocated
 /// memory, but not to allocate or deallocate memory.
+///
+/// From an `ArenaMemory` one can obtain an `ArenaPtr` (single location)
+/// or `ArenaSlice` (range of bytes) to read the actual memory, and the
+/// mutable versions `ArenaPtrMut` and `ArenaSliceMut` to write memory.
 pub struct ArenaMemory {
     mmap: MmapMut,
 }
@@ -250,5 +254,42 @@ impl<'a> ArenaSliceMut<'a> {
     pub fn subslice_mut<'b>(&'b mut self, start: usize, len: usize) -> ArenaSliceMut<'b> {
         assert!(start + len <= self.len);
         ArenaSliceMut { arena: self.arena, pos: self.pos + start, len }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_arena_mmap() {
+        let mut arena1 = super::ArenaMemory::new(1);
+        let mut arena2 = super::ArenaMemory::new(1000);
+        let mut arena3 = super::ArenaMemory::new(10000);
+        let mut arena4 = super::ArenaMemory::new(100000);
+        let size_100gb = 100 * 1024 * 1024 * 1024;
+        // 100GB is a lot, but it's all virtual memory so it's fine in 64-bit.
+        let mut arena5 = super::ArenaMemory::new(size_100gb);
+        arena1.raw_slice_mut(0, 1).fill(1);
+        arena2.raw_slice_mut(0, 1000).fill(2);
+        arena3.raw_slice_mut(0, 10000).fill(3);
+        arena4.raw_slice_mut(0, 100000).fill(4);
+        arena5.raw_slice_mut(size_100gb - 100, 100).fill(5);
+        assert!(arena1.raw_slice(0, 1).iter().all(|x| *x == 1));
+        assert!(arena2.raw_slice(0, 1000).iter().all(|x| *x == 2));
+        assert!(arena3.raw_slice(0, 10000).iter().all(|x| *x == 3));
+        assert!(arena4.raw_slice(0, 100000).iter().all(|x| *x == 4));
+        assert!(arena5.raw_slice(size_100gb - 100, 100).iter().all(|x| *x == 5));
+    }
+
+    #[test]
+    fn test_arena_ptr_and_slice() {
+        let mut arena = super::ArenaMemory::new(10 * 4096);
+
+        arena.ptr_mut(8).slice_mut(4, 16).write_usize_at(6, 123456);
+        assert_eq!(arena.ptr(8).slice(4, 16).read_ptr_at(6).raw_offset(), 123456);
+        assert_eq!(arena.slice(18, 8).read_ptr_at(0).raw_offset(), 123456);
+
+        arena.slice_mut(10, 20).subslice_mut(1, 8).write_usize_at(0, 234567);
+        assert_eq!(arena.slice(10, 20).subslice(1, 8).read_ptr_at(0).raw_offset(), 234567);
+        assert_eq!(arena.slice(11, 8).read_ptr_at(0).raw_offset(), 234567);
     }
 }

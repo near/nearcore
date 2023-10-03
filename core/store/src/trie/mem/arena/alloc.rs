@@ -50,7 +50,13 @@ impl Allocator {
         let allocation_size = allocation_size(size_class);
         if self.freelists[size_class] == usize::MAX {
             if arena.mmap.len() < self.next_ptr + allocation_size {
-                panic!("Arena out of memory");
+                panic!(
+                    "In-memory trie Arena out of memory; configured as {} bytes maximum,
+                    tried to allocate {} when {} bytes already used",
+                    arena.mmap.len(),
+                    allocation_size,
+                    self.next_ptr
+                );
             }
             let ptr = self.next_ptr;
             self.next_ptr += allocation_size;

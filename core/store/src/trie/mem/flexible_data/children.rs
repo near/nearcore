@@ -94,7 +94,7 @@ impl<'a> ChildrenView<'a> {
         children
     }
 
-    /// Iterates through the children that exist.
+    /// Iterates only through existing children.
     pub fn iter<'b>(&'b self) -> impl Iterator<Item = MemTrieNodePtr<'a>> + 'b {
         (0..self.mask.count_ones() as usize)
             .map(|i| MemTrieNodePtr::from(self.children.read_ptr_at(i * size_of::<usize>())))

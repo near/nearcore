@@ -34,7 +34,7 @@ fn test_basic_leaf_node_inlined() {
             assert_eq!(extension.raw_slice(), &[0, 1, 2, 3, 4]);
             assert_eq!(value.to_flat_value(), FlatStateValue::Inlined(vec![5, 6, 7, 8, 9]));
         }
-        _ => panic!(),
+        _ => panic!("Unexpected view type: {:?}", view),
     }
 }
 
@@ -67,7 +67,7 @@ fn test_basic_leaf_node_ref() {
                 FlatStateValue::Ref(ValueRef { hash: test_hash, length: 5 })
             );
         }
-        _ => panic!(),
+        _ => panic!("Unexpected view type: {:?}", view),
     }
 }
 
@@ -96,7 +96,7 @@ fn test_basic_leaf_node_empty_extension_empty_value() {
             assert!(extension.raw_slice().is_empty());
             assert_eq!(value.to_flat_value(), FlatStateValue::Inlined(vec![]));
         }
-        _ => panic!(),
+        _ => panic!("Unexpected view type: {:?}", view),
     }
 }
 
@@ -136,7 +136,7 @@ fn test_basic_extension_node() {
             assert_eq!(extension.raw_slice(), &[5, 6, 7, 8, 9]);
             assert_eq!(actual_child, child_ptr);
         }
-        _ => panic!(),
+        _ => panic!("Unexpected view type: {:?}", node_ptr.view()),
     }
 }
 
@@ -214,7 +214,7 @@ fn test_basic_branch_node() {
             assert_eq!(children.get(1), None);
             assert_eq!(children.get(5), Some(child2_ptr));
         }
-        _ => panic!(),
+        _ => panic!("Unexpected view type: {:?}", node_ptr.view()),
     }
 }
 
@@ -293,6 +293,6 @@ fn test_basic_branch_with_value_node() {
             assert_eq!(children.get(15), Some(child2_ptr));
             assert_eq!(value.to_flat_value(), FlatStateValue::Inlined(vec![3, 4, 5]));
         }
-        _ => panic!(),
+        _ => panic!("Unexpected view type: {:?}", node_ptr.view()),
     }
 }
