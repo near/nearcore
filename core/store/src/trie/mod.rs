@@ -36,6 +36,7 @@ mod config;
 mod from_flat;
 mod insert_delete;
 pub mod iterator;
+pub mod mem;
 mod nibble_slice;
 mod prefetching_trie_storage;
 mod raw_node;
