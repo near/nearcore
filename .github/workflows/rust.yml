@@ -14,11 +14,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04-8core, macOS-m1]
-        flags: [""]
         include:
           - os: ubuntu-22.04-8core
-            flags: "--features nightly,test_features,mock_node"
+            flags: ""
+          - os: ubuntu-22.04-8core
+            flags: "--features nightly,test_features"
+          - os: macOS-m1
+            # FIXME: Integration tests don't work very well on m1 macs it seems…
+            flags: "--exclude integration-tests"
     timeout-minutes: 90
 
     steps:
