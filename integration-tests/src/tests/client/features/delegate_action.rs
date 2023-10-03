@@ -4,7 +4,6 @@
 //! This is the module for its integration tests.
 
 use crate::node::{Node, RuntimeNode};
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use crate::tests::standard_cases::fee_helper;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
@@ -28,6 +27,7 @@ use near_primitives::views::{
 };
 use near_test_contracts::{ft_contract, smallest_rs_contract};
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
 use testlib::runtime_utils::{
     add_account_with_access_key, add_contract, add_test_contract, alice_account, bob_account,

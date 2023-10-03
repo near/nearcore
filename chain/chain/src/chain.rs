@@ -56,11 +56,11 @@ use near_primitives::sharding::{
     ShardChunkHeader, ShardInfo, ShardProof, StateSyncInfo,
 };
 use near_primitives::state_part::PartId;
-use near_primitives::static_clock::StaticClock;
-use near_primitives::syncing::{
+use near_primitives::state_sync::{
     get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
     ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
 };
+use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{

@@ -37,6 +37,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (62, include_config!("62.yaml")),
     (63, include_config!("63.yaml")),
     (129, include_config!("129.yaml")),
+    (139, include_config!("139.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
@@ -316,6 +317,7 @@ mod tests {
     #[cfg(not(feature = "calimero_zero_storage"))]
     fn test_json_unchanged() {
         use crate::views::RuntimeConfigView;
+        use near_primitives_core::version::PROTOCOL_VERSION;
 
         let store = RuntimeConfigStore::new(None);
         let mut any_failure = false;
@@ -332,7 +334,9 @@ mod tests {
         // Store the latest values of parameters in a human-readable snapshot.
         {
             let mut params: ParameterTable = BASE_CONFIG.parse().unwrap();
-            for (_, diff_bytes) in CONFIG_DIFFS {
+            for (_, diff_bytes) in
+                CONFIG_DIFFS.iter().filter(|(version, _)| *version <= PROTOCOL_VERSION)
+            {
                 params.apply_diff(diff_bytes.parse().unwrap()).unwrap();
             }
             insta::with_settings!({
