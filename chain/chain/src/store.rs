@@ -23,7 +23,7 @@ use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
     StateSyncInfo,
 };
-use near_primitives::syncing::{
+use near_primitives::state_sync::{
     get_num_state_parts, ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey,
     StatePartKey, StateSyncDumpProgress,
 };

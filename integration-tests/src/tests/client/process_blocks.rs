@@ -52,7 +52,7 @@ use near_primitives::sharding::{
     ShardChunkHeaderV3,
 };
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::{get_num_state_parts, StatePartKey};
+use near_primitives::state_sync::{get_num_state_parts, StatePartKey};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::{
@@ -79,11 +79,10 @@ use near_store::test_utils::create_test_store;
 use near_store::NodeStorage;
 use near_store::{get, DBCol, TrieChanges};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 pub fn set_block_protocol_version(
     block: &mut Block,
@@ -122,6 +121,37 @@ pub(crate) fn produce_blocks_from_height(
     height: BlockHeight,
 ) -> BlockHeight {
     produce_blocks_from_height_with_protocol_version(env, blocks_number, height, PROTOCOL_VERSION)
+}
+
+#[cfg(feature = "protocol_feature_restrict_tla")]
+pub(crate) fn create_account(
+    env: &mut TestEnv,
+    old_account_id: AccountId,
+    new_account_id: AccountId,
+    epoch_length: u64,
+    height: BlockHeight,
+    protocol_version: ProtocolVersion,
+) -> CryptoHash {
+    let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
+    let signer = InMemorySigner::from_seed(
+        old_account_id.clone(),
+        KeyType::ED25519,
+        old_account_id.as_ref(),
+    );
+
+    let tx = SignedTransaction::create_account(
+        height,
+        old_account_id,
+        new_account_id,
+        10u128.pow(24),
+        signer.public_key(),
+        &signer,
+        *block.hash(),
+    );
+    let tx_hash = tx.get_hash();
+    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    produce_blocks_from_height_with_protocol_version(env, epoch_length, height, protocol_version);
+    tx_hash
 }
 
 pub(crate) fn deploy_test_contract_with_protocol_version(

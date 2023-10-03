@@ -7,9 +7,8 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_undo_block::undo_block;
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::sync::Arc;
-
-use super::utils::TestEnvNightshadeSetupExt;
 
 /// Setup environment with one Near client for testing.
 fn setup_env(genesis: &Genesis, store: Store) -> (TestEnv, Arc<dyn EpochManagerAdapter>) {

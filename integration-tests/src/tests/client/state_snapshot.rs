@@ -15,10 +15,9 @@ use near_store::{
 };
 use near_store::{NodeStorage, Store};
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
 use std::path::PathBuf;
-
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 struct StateSnaptshotTestEnv {
     home_dir: PathBuf,

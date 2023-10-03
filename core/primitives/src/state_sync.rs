@@ -1,18 +1,12 @@
-use std::sync::Arc;
-
-use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::types::EpochHeight;
-
-use crate::block_header::BlockHeader;
-use crate::epoch_manager::block_info::BlockInfo;
-use crate::epoch_manager::epoch_info::EpochInfo;
 use crate::hash::CryptoHash;
-use crate::merkle::{MerklePath, PartialMerkleTree};
+use crate::merkle::MerklePath;
 use crate::sharding::{
     ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1,
 };
 use crate::types::{BlockHeight, EpochId, ShardId, StateRoot, StateRootNode};
-use crate::views::LightClientBlockView;
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives_core::types::EpochHeight;
+use std::sync::Arc;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptProofResponse(pub CryptoHash, pub Arc<Vec<ReceiptProof>>);
@@ -190,34 +184,6 @@ impl ShardStateSyncResponseV1 {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug, Clone)]
-pub struct EpochSyncFinalizationResponse {
-    pub cur_epoch_header: BlockHeader,
-    pub prev_epoch_headers: Vec<BlockHeader>,
-    pub header_sync_init_header: BlockHeader,
-    pub header_sync_init_header_tree: PartialMerkleTree,
-    // This Block Info is required by Epoch Manager when it checks if it's a good time to start a new Epoch.
-    // Epoch Manager asks for height difference by obtaining first Block Info of the Epoch.
-    pub prev_epoch_first_block_info: BlockInfo,
-    // This Block Info is required in State Sync that is started right after Epoch Sync is finished.
-    // It is used by `verify_chunk_signature_with_header_parts` in `save_block` as it calls `get_epoch_id_from_prev_block`.
-    pub prev_epoch_prev_last_block_info: BlockInfo,
-    // This Block Info is connected with the first actual Block received in State Sync.
-    // It is also used in Epoch Manager.
-    pub prev_epoch_last_block_info: BlockInfo,
-    pub prev_epoch_info: EpochInfo,
-    pub cur_epoch_info: EpochInfo,
-    // Next Epoch Info is required by Block Sync when Blocks of current Epoch will come.
-    // It asks in `process_block_single`, returns `Epoch Out Of Bounds` error otherwise.
-    pub next_epoch_info: EpochInfo,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug, Clone)]
-pub enum EpochSyncResponse {
-    UpToDate,
-    Advance { light_client_block_view: LightClientBlockView },
-}
-
 pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(30 * bytesize::MIB);
 
 pub fn get_num_state_parts(memory_usage: u64) -> u64 {
@@ -248,7 +214,7 @@ pub enum StateSyncDumpProgress {
 
 #[cfg(test)]
 mod tests {
-    use crate::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
+    use crate::state_sync::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 
     #[test]
     fn test_get_num_state_parts() {
