@@ -206,6 +206,10 @@ impl ShardChunkHeaderV3 {
             tx_root,
             prev_validator_proposals,
         });
+        Self::from_inner(inner, signer)
+    }
+
+    pub fn from_inner(inner: ShardChunkHeaderInner, signer: &dyn ValidatorSigner) -> Self {
         let hash = Self::compute_hash(&inner);
         let signature = signer.sign_chunk_hash(&hash);
         Self { inner, height_included: 0, signature, hash }

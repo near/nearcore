@@ -21,6 +21,7 @@ use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::resharding::StateSplitRequest;
 use near_chain::state_snapshot_actor::MakeSnapshotCallback;
 use near_chain::test_utils::format_hash;
+use near_chain::types::ApplyTransactionResult;
 use near_chain::types::RuntimeAdapter;
 use near_chain::types::{ChainConfig, LatestKnown};
 use near_chain::{
@@ -55,6 +56,11 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
+use near_primitives::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV3;
+use near_primitives::sharding::EncodedShardChunkBody;
+use near_primitives::sharding::EncodedShardChunkV2;
+use near_primitives::sharding::ShardChunkHeaderInner;
+use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::StateSyncInfo;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunk,
@@ -62,7 +68,9 @@ use near_primitives::sharding::{
 };
 use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::validator_stake::ValidatorStakeIter;
+use near_primitives::types::Gas;
+use near_primitives::types::StateRoot;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
@@ -801,6 +809,35 @@ impl Client {
             validator_signer.validator_id()
         );
 
+        let ret = self.produce_pre_state_root_chunk(
+            validator_signer.as_ref(),
+            prev_block_hash,
+            epoch_id,
+            last_header,
+            next_height,
+            shard_id,
+        )?;
+
+        metrics::CHUNK_PRODUCED_TOTAL.inc();
+        self.chunk_production_info.put(
+            (next_height, shard_id),
+            ChunkProduction {
+                chunk_production_time: Some(StaticClock::utc()),
+                chunk_production_duration_millis: Some(timer.elapsed().as_millis() as u64),
+            },
+        );
+        Ok(Some(ret))
+    }
+
+    fn produce_pre_state_root_chunk(
+        &mut self,
+        validator_signer: &dyn ValidatorSigner,
+        prev_block_hash: CryptoHash,
+        epoch_id: &EpochId,
+        last_header: ShardChunkHeader,
+        next_height: BlockHeight,
+        shard_id: ShardId,
+    ) -> Result<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>), Error> {
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
         let chunk_extra = self
             .chain
@@ -808,8 +845,12 @@ impl Client {
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
         let prev_block_header = self.chain.get_block_header(&prev_block_hash)?;
-        let transactions =
-            self.prepare_transactions(shard_uid, &chunk_extra, &prev_block_header)?;
+        let transactions = self.prepare_transactions(
+            shard_uid,
+            chunk_extra.gas_limit(),
+            *chunk_extra.state_root(),
+            &prev_block_header,
+        )?;
         let transactions = transactions;
         #[cfg(feature = "test_features")]
         let transactions = Self::maybe_insert_invalid_transaction(
@@ -825,23 +866,7 @@ impl Client {
             last_header.height_included(),
         )?;
 
-        // Receipts proofs root is calculating here
-        //
-        // For each subset of incoming_receipts_into_shard_i_from_the_current_one
-        // we calculate hash here and save it
-        // and then hash all of them into a single receipts root
-        //
-        // We check validity in two ways:
-        // 1. someone who cares about shard will download all the receipts
-        // and checks that receipts_root equals to all receipts hashed
-        // 2. anyone who just asks for one's incoming receipts
-        // will receive a piece of incoming receipts only
-        // with merkle receipts proofs which can be checked locally
-        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
-        let outgoing_receipts_hashes =
-            Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout);
-        let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
-
+        let outgoing_receipts_root = self.calculate_receipts_root(epoch_id, &outgoing_receipts)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let gas_used = chunk_extra.gas_used();
         #[cfg(feature = "test_features")]
@@ -875,15 +900,172 @@ impl Client {
             outgoing_receipts.len(),
         );
 
-        metrics::CHUNK_PRODUCED_TOTAL.inc();
-        self.chunk_production_info.put(
-            (next_height, shard_id),
-            ChunkProduction {
-                chunk_production_time: Some(StaticClock::utc()),
-                chunk_production_duration_millis: Some(timer.elapsed().as_millis() as u64),
-            },
+        Ok((encoded_chunk, merkle_paths, outgoing_receipts))
+    }
+
+    #[allow(dead_code)]
+    fn produce_post_state_root_chunk(
+        &mut self,
+        validator_signer: &dyn ValidatorSigner,
+        prev_block_hash: CryptoHash,
+        epoch_id: &EpochId,
+        last_header: ShardChunkHeader,
+        next_height: BlockHeight,
+        shard_id: ShardId,
+    ) -> Result<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>), Error> {
+        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
+        let prev_block = self.chain.get_block(&prev_block_hash)?;
+        let prev_block_header = prev_block.header();
+        let gas_limit;
+        let prev_gas_used;
+        let prev_state_root;
+        let prev_validator_proposals;
+        let prev_outcome_root;
+        let prev_balance_burnt;
+        let prev_outgoing_receipts_root;
+        match &last_header {
+            ShardChunkHeader::V3(ShardChunkHeaderV3 {
+                inner: ShardChunkHeaderInner::V3(last_header_inner),
+                ..
+            }) => {
+                gas_limit = last_header_inner.next_gas_limit;
+                prev_gas_used = last_header_inner.gas_used;
+                prev_state_root = last_header_inner.post_state_root;
+                prev_validator_proposals =
+                    ValidatorStakeIter::new(&last_header_inner.validator_proposals)
+                        .collect::<Vec<_>>();
+                prev_outcome_root = last_header_inner.outcome_root;
+                prev_balance_burnt = last_header_inner.balance_burnt;
+                prev_outgoing_receipts_root = last_header_inner.outgoing_receipts_root;
+            }
+            _ => {
+                let chunk_extra =
+                    self.chain.get_chunk_extra(&prev_block_hash, &shard_uid).map_err(|err| {
+                        Error::ChunkProducer(format!("No chunk extra available: {}", err))
+                    })?;
+                gas_limit = chunk_extra.gas_limit();
+                prev_gas_used = chunk_extra.gas_used();
+                prev_state_root = *chunk_extra.state_root();
+                prev_validator_proposals = chunk_extra.validator_proposals().collect();
+                prev_outcome_root = *chunk_extra.outcome_root();
+                prev_balance_burnt = chunk_extra.balance_burnt();
+                let prev_outgoing_receipts = self.chain.get_outgoing_receipts_for_shard(
+                    prev_block_hash,
+                    shard_id,
+                    last_header.height_included(),
+                )?;
+                prev_outgoing_receipts_root =
+                    self.calculate_receipts_root(epoch_id, &prev_outgoing_receipts)?;
+            }
+        }
+        #[cfg(feature = "test_features")]
+        let prev_gas_used =
+            if self.produce_invalid_chunks { prev_gas_used + 1 } else { prev_gas_used };
+
+        let transactions =
+            self.prepare_transactions(shard_uid, gas_limit, prev_state_root, prev_block_header)?;
+        #[cfg(feature = "test_features")]
+        let transactions = Self::maybe_insert_invalid_transaction(
+            transactions,
+            prev_block_hash,
+            self.produce_invalid_tx_in_chunks,
         );
-        Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
+        let num_filtered_transactions = transactions.len();
+        let (tx_root, _) = merklize(&transactions);
+
+        // TODO(post-state-root): applying the chunk can be time consuming, so probably
+        // we should not block the client thread here.
+        let apply_result = self.chain.apply_chunk_for_post_state_root(
+            shard_id,
+            prev_state_root,
+            // TODO(post-state-root): block-level field, need to double check if using next_height is correct here
+            next_height,
+            &prev_block,
+            &transactions,
+            ValidatorStakeIter::new(&prev_validator_proposals),
+            gas_limit,
+            last_header.height_included(),
+        )?;
+
+        let (transaction_receipts_parts, encoded_length) =
+            EncodedShardChunk::encode_transaction_receipts(
+                &mut self.rs_for_chunk_production,
+                transactions,
+                &apply_result.outgoing_receipts,
+            )
+            .map_err(|err| Error::Chunk(err.into()))?;
+        let mut content = EncodedShardChunkBody { parts: transaction_receipts_parts };
+        content.reconstruct(&mut self.rs_for_chunk_production).unwrap();
+        let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
+
+        let (outcome_root, _) =
+            ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+        let header_inner = ShardChunkHeaderInnerV3 {
+            prev_block_hash,
+            prev_state_root,
+            prev_outcome_root,
+            encoded_merkle_root,
+            encoded_length,
+            height_created: next_height,
+            shard_id,
+            prev_gas_used,
+            gas_limit,
+            prev_balance_burnt,
+            prev_outgoing_receipts_root,
+            tx_root,
+            prev_validator_proposals,
+            post_state_root: apply_result.new_root,
+            // Currently we don't change gas limit, also with pre-state-root
+            next_gas_limit: gas_limit,
+            gas_used: apply_result.total_gas_burnt,
+            validator_proposals: apply_result.validator_proposals,
+            outcome_root,
+            balance_burnt: apply_result.total_balance_burnt,
+            outgoing_receipts_root: self
+                .calculate_receipts_root(epoch_id, &apply_result.outgoing_receipts)?,
+        };
+        let header = ShardChunkHeaderV3::from_inner(
+            ShardChunkHeaderInner::V3(header_inner),
+            validator_signer,
+        );
+        let encoded_chunk = EncodedShardChunk::V2(EncodedShardChunkV2 {
+            header: ShardChunkHeader::V3(header),
+            content,
+        });
+
+        debug!(
+            target: "client",
+            me=%validator_signer.validator_id(),
+            chunk_hash=%encoded_chunk.chunk_hash().0,
+            %prev_block_hash,
+            "Produced post-state-root chunk with {} txs and {} receipts",
+            num_filtered_transactions,
+            apply_result.outgoing_receipts.len(),
+        );
+
+        Ok((encoded_chunk, merkle_paths, apply_result.outgoing_receipts))
+    }
+
+    /// Calculates the root of receipt proofs.
+    /// All receipts are groupped by receiver_id and hash is calculated
+    /// for each such group. Then we merkalize these hashes to calculate
+    /// the receipts root.
+    ///
+    /// Receipts root is used in the following ways:
+    /// 1. Someone who cares about shard will download all the receipts
+    ///    and checks if those correspond to receipts_root.
+    /// 2. Anyone who asks for one's incoming receipts will receive a piece
+    ///    of incoming receipts only with merkle receipts proofs which can
+    ///    be checked locally.
+    fn calculate_receipts_root(
+        &self,
+        epoch_id: &EpochId,
+        receipts: &[Receipt],
+    ) -> Result<CryptoHash, Error> {
+        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
+        let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
+        let (receipts_root, _) = merklize(&receipts_hashes);
+        Ok(receipts_root)
     }
 
     #[cfg(feature = "test_features")]
@@ -911,7 +1093,8 @@ impl Client {
     fn prepare_transactions(
         &mut self,
         shard_uid: ShardUId,
-        chunk_extra: &ChunkExtra,
+        gas_limit: Gas,
+        state_root: StateRoot,
         prev_block_header: &BlockHeader,
     ) -> Result<Vec<SignedTransaction>, Error> {
         let Self { chain, sharded_tx_pool, epoch_manager, runtime_adapter: runtime, .. } = self;
@@ -924,10 +1107,10 @@ impl Client {
             let transaction_validity_period = chain.transaction_validity_period;
             runtime.prepare_transactions(
                 prev_block_header.gas_price(),
-                chunk_extra.gas_limit(),
+                gas_limit,
                 &next_epoch_id,
                 shard_id,
-                *chunk_extra.state_root(),
+                state_root,
                 // while the height of the next block that includes the chunk might not be prev_height + 1,
                 // passing it will result in a more conservative check and will not accidentally allow
                 // invalid transactions to be included.
