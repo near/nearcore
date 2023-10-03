@@ -801,22 +801,6 @@ impl StateResponseInfo {
     }
 }
 
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    borsh::BorshSerialize,
-    borsh::BorshDeserialize,
-    serde::Serialize,
-)]
-pub enum AccountOrPeerIdOrHash {
-    AccountId(AccountId),
-    PeerId(PeerId),
-    Hash(CryptoHash),
-}
-
 pub(crate) struct RawRoutedMessage {
     pub target: PeerIdOrHash,
     pub body: RoutedMessageBody,

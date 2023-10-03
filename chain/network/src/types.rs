@@ -1,7 +1,7 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Disconnect, Encoding, Handshake, HandshakeFailureReason, PeerMessage,
-    RoutingTableUpdate, SignedAccountData,
+    Disconnect, Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
+    SignedAccountData,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
 use near_async::messaging::{
@@ -224,14 +224,9 @@ pub enum NetworkRequests {
     /// Request given block headers.
     BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
     /// Request state header for given shard at given state root.
-    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, target: AccountOrPeerIdOrHash },
+    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, peer_id: PeerId },
     /// Request state part for given shard at given state root.
-    StateRequestPart {
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        part_id: u64,
-        target: AccountOrPeerIdOrHash,
-    },
+    StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64, peer_id: PeerId },
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
     /// Announce account

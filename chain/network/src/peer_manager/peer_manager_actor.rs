@@ -2,8 +2,7 @@ use crate::client;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong,
-    RawRoutedMessage, RoutedMessageBody,
+    Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -764,12 +763,7 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequestHeader { shard_id, sync_hash, target } => {
-                let peer_id = match target {
-                    AccountOrPeerIdOrHash::AccountId(_) => return NetworkResponses::RouteNotFound,
-                    AccountOrPeerIdOrHash::PeerId(peer_id) => peer_id,
-                    AccountOrPeerIdOrHash::Hash(_) => return NetworkResponses::RouteNotFound,
-                };
+            NetworkRequests::StateRequestHeader { shard_id, sync_hash, peer_id } => {
                 if self.state.tier2.send_message(
                     peer_id,
                     Arc::new(PeerMessage::StateRequestHeader(shard_id, sync_hash)),
@@ -779,12 +773,7 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, target } => {
-                let peer_id = match target {
-                    AccountOrPeerIdOrHash::AccountId(_) => return NetworkResponses::RouteNotFound,
-                    AccountOrPeerIdOrHash::PeerId(peer_id) => peer_id,
-                    AccountOrPeerIdOrHash::Hash(_) => return NetworkResponses::RouteNotFound,
-                };
+            NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, peer_id } => {
                 if self.state.tier2.send_message(
                     peer_id,
                     Arc::new(PeerMessage::StateRequestPart(shard_id, sync_hash, part_id)),
