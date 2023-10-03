@@ -1,7 +1,7 @@
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetcherResult;
 use crate::trie::POISONED_LOCK_ERR;
-use crate::{metrics, DBCol, PrefetchApi, StorageError, Store};
+use crate::{metrics, DBCol, MissingTrieValueContext, PrefetchApi, StorageError, Store};
 use lru::LruCache;
 use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;
@@ -306,7 +306,11 @@ pub struct TrieMemoryPartialStorage {
 
 impl TrieStorage for TrieMemoryPartialStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let result = self.recorded_storage.get(hash).cloned().ok_or(StorageError::MissingTrieValue);
+        let result =
+            self.recorded_storage.get(hash).cloned().ok_or(StorageError::MissingTrieValue(
+                MissingTrieValueContext::TrieMemoryPartialStorage,
+                *hash,
+            ));
         if result.is_ok() {
             self.visited_nodes.borrow_mut().insert(*hash);
         }
@@ -532,7 +536,9 @@ fn read_node_from_db(
     let val = store
         .get(DBCol::State, key.as_ref())
         .map_err(|_| StorageError::StorageInternalError)?
-        .ok_or_else(|| StorageError::MissingTrieValue)?;
+        .ok_or_else(|| {
+            StorageError::MissingTrieValue(MissingTrieValueContext::TrieStorage, *hash)
+        })?;
     Ok(val.into())
 }
 
