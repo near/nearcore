@@ -683,7 +683,6 @@ pub fn setup_mock_all_validators(
                             sync_hash, ..
                         } => {
                             for (i, _) in validators_clone2.iter().enumerate() {
-                                if i == my_ord {
                                     let me = connectors1[my_ord].client_actor.clone();
                                     actix::spawn(
                                         connectors1[i]
@@ -706,7 +705,6 @@ pub fn setup_mock_all_validators(
                                                 future::ready(())
                                             }),
                                     );
-                                }
                             }
                         }
                         NetworkRequests::StateRequestPart {
@@ -715,7 +713,6 @@ pub fn setup_mock_all_validators(
                             part_id, ..
                         } => {
                             for (i, _) in validators_clone2.iter().enumerate() {
-                                if i == my_ord {
                                     let me = connectors1[my_ord].client_actor.clone();
                                     actix::spawn(
                                         connectors1[i]
@@ -739,7 +736,6 @@ pub fn setup_mock_all_validators(
                                                 future::ready(())
                                             }),
                                     );
-                                }
                             }
                         }
                         NetworkRequests::AnnounceAccount(announce_account) => {
