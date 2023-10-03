@@ -46,13 +46,6 @@ impl From<near_primitives::errors::EpochError> for Error {
     }
 }
 
-#[derive(Clone, Debug, serde::Serialize, PartialEq)]
-pub enum AccountOrPeerIdOrHash {
-    AccountId(AccountId),
-    PeerId(PeerId),
-    Hash(CryptoHash),
-}
-
 #[derive(Debug, serde::Serialize)]
 pub struct DownloadStatus {
     pub start_time: DateTime<Utc>,
@@ -61,7 +54,7 @@ pub struct DownloadStatus {
     pub error: bool,
     pub done: bool,
     pub state_requests_count: u64,
-    pub last_target: Option<AccountOrPeerIdOrHash>,
+    pub last_target: Option<PeerId>,
 }
 
 impl DownloadStatus {

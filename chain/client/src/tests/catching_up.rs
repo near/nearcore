@@ -13,11 +13,12 @@ use near_actix_test_utils::run_actix;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
 use near_crypto::{InMemorySigner, KeyType};
-use near_network::types::{AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, PeerInfo};
+use near_network::types::{AccountIdOrPeerTrackingShard, PeerInfo};
 use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
 use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::{hash as hash_func, CryptoHash};
+use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
@@ -95,7 +96,7 @@ pub struct StateRequestStruct {
     pub shard_id: u64,
     pub sync_hash: CryptoHash,
     pub part_id: Option<u64>,
-    pub target: AccountOrPeerIdOrHash,
+    pub peer_id: PeerId,
 }
 
 /// Sanity checks that the incoming and outgoing receipts are properly sent and received
@@ -251,15 +252,18 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                             //    being included in the block
                             return (NetworkResponses::NoResponse.into(), false);
                         }
-                        if let NetworkRequests::StateRequestHeader { shard_id, sync_hash, target } =
-                            msg
+                        if let NetworkRequests::StateRequestHeader {
+                            shard_id,
+                            sync_hash,
+                            peer_id,
+                        } = msg
                         {
                             if sync_hold {
                                 let srs = StateRequestStruct {
                                     shard_id: *shard_id,
                                     sync_hash: *sync_hash,
                                     part_id: None,
-                                    target: target.clone(),
+                                    peer_id: peer_id.clone(),
                                 };
                                 if !seen_hashes_with_state
                                     .contains(&hash_func(&srs.try_to_vec().unwrap()))
@@ -274,7 +278,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                             shard_id,
                             sync_hash,
                             part_id,
-                            target,
+                            peer_id,
                         } = msg
                         {
                             if sync_hold {
@@ -282,7 +286,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                                     shard_id: *shard_id,
                                     sync_hash: *sync_hash,
                                     part_id: Some(*part_id),
-                                    target: target.clone(),
+                                    peer_id: peer_id.clone(),
                                 };
                                 if !seen_hashes_with_state
                                     .contains(&hash_func(&srs.try_to_vec().unwrap()))
