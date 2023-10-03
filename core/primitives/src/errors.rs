@@ -79,13 +79,13 @@ impl std::error::Error for RuntimeError {}
 /// Contexts in which `StorageError::MissingTrieValue` error might occur.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MissingTrieValueContext {
-    /// A trie iterator found a node hash for which there is no corresponding value in storage.
+    /// Missing trie value when reading from TrieIterator.
     TrieIterator,
-    /// A hash found in a trie had no node while fetching from DB.
+    /// Missing trie value when reading from TriePrefetchingStorage.
     TriePrefetchingStorage,
-    /// Trie memory recorded storage does not have node of given hash.
+    /// Missing trie value when reading from TrieMemoryPartialStorage.
     TrieMemoryPartialStorage,
-    /// Missing value while reading trie node from DB.
+    /// Missing trie value when reading from TrieStorage.
     TrieStorage,
 }
 
