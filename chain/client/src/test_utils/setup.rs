@@ -510,7 +510,7 @@ pub fn setup_mock_all_validators(
                                             height: last_height2[i],
                                             hash: CryptoHash::default(),
                                         }),
-                                        tracked_shards: vec![],
+                                        tracked_shards: vec![0, 1, 2, 3],
                                         archival: true,
                                     },
                                 },
