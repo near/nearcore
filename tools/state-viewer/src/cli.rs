@@ -12,6 +12,7 @@ use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use strum::IntoStaticStr;
 
 #[derive(clap::Subcommand)]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
@@ -651,6 +652,44 @@ impl clap::ValueEnum for ViewTrieFormat {
     }
 }
 
+/// Possible record types in a state trie.
+#[derive(Clone, IntoStaticStr)]
+pub enum StateRecordType {
+    Account,
+    Data,
+    Contract,
+    AccessKey,
+    PostponedReceipt,
+    ReceivedData,
+    DelayedReceipt,
+}
+
+impl clap::ValueEnum for StateRecordType {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[
+            Self::Account,
+            Self::Data,
+            Self::Contract,
+            Self::AccessKey,
+            Self::PostponedReceipt,
+            Self::ReceivedData,
+            Self::DelayedReceipt,
+        ]
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        match self {
+            Self::Account => Some(clap::builder::PossibleValue::new("account")),
+            Self::Data => Some(clap::builder::PossibleValue::new("data")),
+            Self::Contract => Some(clap::builder::PossibleValue::new("contract")),
+            Self::AccessKey => Some(clap::builder::PossibleValue::new("access-key")),
+            Self::PostponedReceipt => Some(clap::builder::PossibleValue::new("postponed-receipt")),
+            Self::ReceivedData => Some(clap::builder::PossibleValue::new("received-data")),
+            Self::DelayedReceipt => Some(clap::builder::PossibleValue::new("delayed-receipt")),
+        }
+    }
+}
+
 #[derive(clap::Parser)]
 pub struct ViewTrieCmd {
     /// The format of the output. This can be either `full` or `pretty`.
@@ -679,20 +718,79 @@ pub struct ViewTrieCmd {
     /// For format=pretty this measures depth in terms of key nibbles.
     #[clap(long)]
     max_depth: u32,
+    /// Limits how many entries are printed to the output.
+    #[clap(long)]
+    limit: Option<u32>,
+    /// Filters output to only show records of given type.
+    #[clap(long)]
+    rtype: Option<StateRecordType>,
+    /// Will only print nodes with key being a prefix of or lexicographically greater than `from`.
+    /// Only works for the `full` format. The argument should be wrapped in parentheses using mixed encoding.
+    #[clap(long)]
+    from: Option<String>,
+    /// Will only print nodes with key being lexicographically less than or equal to `to`.
+    /// Only works for the `full` format. The argument should be wrapped in parentheses using mixed encoding.
+    #[clap(long)]
+    to: Option<String>,
 }
 
 impl ViewTrieCmd {
     pub fn run(self, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
+        let type_str: Option<&str> = self.rtype.map(|s| s.into());
+        let from_vec = self.from.as_ref().map(|s| {
+            Self::decode_mixed_hex_to_nibbles(s).expect("Failed to decode `from` argument.")
+        });
+        let to_vec = self.to.as_ref().map(|s| {
+            Self::decode_mixed_hex_to_nibbles(s).expect("Failed to decode `to` argument.")
+        });
 
         match self.format {
             ViewTrieFormat::Full => {
-                view_trie(store, hash, self.shard_id, self.shard_version, self.max_depth).unwrap();
+                view_trie(
+                    store,
+                    hash,
+                    self.shard_id,
+                    self.shard_version,
+                    self.max_depth,
+                    self.limit,
+                    type_str,
+                    from_vec.as_deref(),
+                    to_vec.as_deref(),
+                )
+                .unwrap();
             }
             ViewTrieFormat::Pretty => {
-                view_trie_leaves(store, hash, self.shard_id, self.shard_version, self.max_depth)
-                    .unwrap();
+                view_trie_leaves(
+                    store,
+                    hash,
+                    self.shard_id,
+                    self.shard_version,
+                    self.max_depth,
+                    self.limit,
+                    type_str,
+                )
+                .unwrap();
             }
         }
+    }
+
+    fn decode_mixed_hex_to_nibbles(s: &str) -> Option<Vec<u8>> {
+        let mut nibbles = Vec::new();
+        let mut chars = s.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '\\' && chars.peek() == Some(&'x') {
+                chars.next(); // consume 'x'
+                let hex1 = chars.next()?;
+                let hex2 = chars.next()?;
+                let byte = u8::from_str_radix(&format!("{}{}", hex1, hex2), 16).ok()?;
+                nibbles.push(byte >> 4);
+                nibbles.push(byte & 0x0F);
+            } else {
+                nibbles.push((ch as u8) >> 4);
+                nibbles.push((ch as u8) & 0x0F);
+            }
+        }
+        Some(nibbles)
     }
 }

@@ -17,7 +17,7 @@ use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 use near_primitives::state_record::StateRecord;
-use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::{col, TrieKey};
 pub use near_primitives::types::TrieNodesCount;
 use near_primitives::types::{StateRoot, StateRootNode};
 use near_vm_runner::ContractCode;
@@ -613,14 +613,34 @@ impl Trie {
         Ok(())
     }
 
-    // Prints the trie nodes starting from hash, up to max_depth depth.
-    // The node hash can be any node in the trie.
-    pub fn print_recursive(&self, f: &mut dyn std::io::Write, hash: &CryptoHash, max_depth: u32) {
+    /// Prints the trie nodes starting from `hash`, up to `max_depth` depth. The node hash can be any node in the trie.
+    /// Depending on arguments provided, can limit output to no more than `limit` entries,
+    /// or skip entries with trie node key (as nibbles) being less than `from` or greater than `to`.
+    pub fn print_recursive(
+        &self,
+        f: &mut dyn std::io::Write,
+        hash: &CryptoHash,
+        max_depth: u32,
+        limit: Option<u32>,
+        type_str: Option<&str>,
+        from: Option<&[u8]>,
+        to: Option<&[u8]>,
+    ) {
         match self.debug_retrieve_raw_node_or_value(hash) {
             Ok(NodeOrValue::Node(_)) => {
                 let mut prefix: Vec<u8> = Vec::new();
-                self.print_recursive_internal(f, hash, max_depth, &mut "".to_string(), &mut prefix)
-                    .expect("write failed");
+                self.print_recursive_internal(
+                    f,
+                    hash,
+                    &mut "".to_string(),
+                    &mut prefix,
+                    max_depth,
+                    &mut limit.unwrap_or(std::u32::MAX),
+                    type_str,
+                    from,
+                    to,
+                )
+                .expect("write failed");
             }
             Ok(NodeOrValue::Value(value_bytes)) => {
                 writeln!(
@@ -637,10 +657,18 @@ impl Trie {
         };
     }
 
-    // Prints the trie leaves starting from the state root node, up to max_depth depth.
-    // This method can only iterate starting from the root node and it only prints the
-    // leaf nodes but it shows output in more human friendly way.
-    pub fn print_recursive_leaves(&self, f: &mut dyn std::io::Write, max_depth: u32) {
+    /// Prints the trie leaves starting from the state root node, up to max_depth depth.
+    /// This method can only iterate starting from the root node and it only prints the
+    /// leaf nodes but it shows output in more human friendly way.
+    /// Optional arguments `limit` and `type_str` limits the output to at most `limit`
+    /// entries and shows trie nodes of type `type_str` only.
+    pub fn print_recursive_leaves(
+        &self,
+        f: &mut dyn std::io::Write,
+        max_depth: u32,
+        mut limit: Option<u32>,
+        type_str: Option<&str>,
+    ) {
         let iter = match self.iter_with_max_depth(max_depth as usize) {
             Ok(iter) => iter,
             Err(err) => {
@@ -649,6 +677,9 @@ impl Trie {
             }
         };
         for node in iter {
+            if let Some(0) = limit {
+                break;
+            }
             let (key, value) = match node {
                 Ok((key, value)) => (key, value),
                 Err(err) => {
@@ -664,6 +695,17 @@ impl Trie {
                 Err(_) => " ".repeat(key.len()),
             };
             let state_record = StateRecord::from_raw_key_value(key.clone(), value);
+            let record_type_string = state_record.as_ref().expect("").get_type_string();
+
+            if let Some(s) = type_str {
+                if s != record_type_string {
+                    continue;
+                }
+            }
+
+            if let Some(ref mut val) = limit {
+                *val -= 1;
+            }
 
             writeln!(f, "{} {state_record:?}", key_string).expect("write failed");
         }
@@ -687,12 +729,36 @@ impl Trie {
         &self,
         f: &mut dyn std::io::Write,
         hash: &CryptoHash,
-        max_depth: u32,
         spaces: &mut String,
         prefix: &mut Vec<u8>,
+        max_depth: u32,
+        limit: &mut u32,
+        type_str: Option<&str>,
+        from: Option<&[u8]>,
+        to: Option<&[u8]>,
     ) -> std::io::Result<()> {
-        if max_depth == 0 {
+        if max_depth == 0 || *limit == 0 {
             return Ok(());
+        }
+        *limit -= 1;
+
+        fn is_lex_greater_than_or_prefix_of(v1: &[u8], v2: &[u8]) -> bool {
+            if v1.len() <= v2.len() && v2.starts_with(v1) {
+                return true;
+            }
+            v1 > v2
+        }
+
+        if let Some(from_value) = from {
+            if !is_lex_greater_than_or_prefix_of(prefix, &from_value) {
+                return Ok(());
+            }
+        }
+
+        if let Some(to_value) = to {
+            if prefix.as_slice() > to_value {
+                return Ok(());
+            }
         }
 
         let (bytes, raw_node, mem_usage) = match self.retrieve_raw_node(hash, true) {
@@ -710,14 +776,31 @@ impl Trie {
                 assert!(remainder.is_empty());
                 let leaf_key =
                     chunks.into_iter().map(|chunk| (chunk[0] * 16) + chunk[1]).collect::<Vec<u8>>();
-                let state_record = StateRecord::from_raw_key_value(leaf_key, bytes.to_vec());
+                let state_record =
+                    StateRecord::from_raw_key_value(leaf_key.clone(), bytes.to_vec());
 
-                writeln!(
-                    f,
-                    "{spaces}Leaf {slice:?} {value:?} prefix:{} hash:{hash} mem_usage:{mem_usage} state_record:{:?}",
-                    Self::nibbles_to_string(prefix),
-                    state_record.map(|sr|format!("{}", sr)),
-                )?;
+                fn types_match(type_str: Option<&str>, type_byte: u8) -> bool {
+                    if !type_str.is_some() {
+                        return true;
+                    }
+                    let trie_key_col = col::NON_DELAYED_RECEIPT_COLUMNS
+                        .iter()
+                        .find(|&&(byte, _)| byte == type_byte);
+                    if let Some(&(_, col_name)) = trie_key_col {
+                        return type_str == Some(col_name);
+                    }
+                    return false;
+                }
+
+                if types_match(type_str, leaf_key[0]) {
+                    writeln!(
+                        f,
+                        "{spaces}Leaf {slice:?} {value:?} prefix:{} hash:{hash} mem_usage:{mem_usage} state_record:{:?}",
+                        Self::nibbles_to_string(prefix),
+                        state_record.map(|sr|format!("{}", sr)),
+                    )?;
+                }
+
                 prefix.truncate(prefix.len() - slice.len());
                 return Ok(());
             }
@@ -749,7 +832,17 @@ impl Trie {
                 )?;
                 spaces.push_str("  ");
                 prefix.extend(slice.iter());
-                self.print_recursive_internal(f, &child, max_depth - 1, spaces, prefix)?;
+                self.print_recursive_internal(
+                    f,
+                    &child,
+                    spaces,
+                    prefix,
+                    max_depth - 1,
+                    limit,
+                    type_str,
+                    from,
+                    to,
+                )?;
                 prefix.truncate(prefix.len() - slice.len());
                 spaces.truncate(spaces.len() - 2);
                 return Ok(());
@@ -760,7 +853,17 @@ impl Trie {
             writeln!(f, "{spaces} {idx:01x}->")?;
             spaces.push_str("  ");
             prefix.push(idx);
-            self.print_recursive_internal(f, child, max_depth - 1, spaces, prefix)?;
+            self.print_recursive_internal(
+                f,
+                child,
+                spaces,
+                prefix,
+                max_depth - 1,
+                limit,
+                type_str,
+                from,
+                to,
+            )?;
             prefix.pop();
             spaces.truncate(spaces.len() - 2);
         }
