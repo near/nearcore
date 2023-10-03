@@ -110,6 +110,7 @@ pub enum ProtocolFeature {
     /// as it hardcodes preparation v2 code into the generated assembly.
     NearVmRuntime,
     BlockHeaderV4,
+    SimpleNightshadeV2,
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
@@ -120,8 +121,6 @@ pub enum ProtocolFeature {
     FixContractLoadingCost,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
-    #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
-    SimpleNightshadeV2,
     RestrictTla,
     /// Enables block production with post-state-root.
     /// NEP: https://github.com/near/NEPs/pull/507
@@ -172,6 +171,7 @@ impl ProtocolFeature {
             ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
             ProtocolFeature::BlockHeaderV4 => 63,
             ProtocolFeature::RestrictTla => 64,
+            ProtocolFeature::SimpleNightshadeV2 => 64,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -180,8 +180,6 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingCost => 129,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
-            #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
-            ProtocolFeature::SimpleNightshadeV2 => 135,
             ProtocolFeature::PostStateRoot => 136,
             ProtocolFeature::TestnetFewerBlockProducers => 140,
         }

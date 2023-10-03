@@ -20,8 +20,6 @@ use near_primitives::transaction::{
 use near_primitives::types::{BlockHeight, NumShards, ProtocolVersion, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolFeature;
-#[cfg(not(feature = "protocol_feature_simple_nightshade_v2"))]
-use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryRequest};
 use near_primitives_core::num_rational::Rational32;
 use near_store::test_utils::{gen_account, gen_unique_accounts};
@@ -38,12 +36,8 @@ use tracing::debug;
 const SIMPLE_NIGHTSHADE_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshade.protocol_version();
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshadeV2.protocol_version();
-
-#[cfg(not(feature = "protocol_feature_simple_nightshade_v2"))]
-const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion = PROTOCOL_VERSION + 1;
 
 const P_CATCHUP: f64 = 0.2;
 
@@ -853,19 +847,16 @@ fn test_shard_layout_upgrade_simple_v1() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V1, 42);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_42() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 42);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_43() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 43);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_44() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44);
@@ -1139,7 +1130,6 @@ fn test_shard_layout_upgrade_cross_contract_calls_v1() {
 
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_42() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 42);
@@ -1147,7 +1137,6 @@ fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_42() {
 
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_43() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 43);
@@ -1155,7 +1144,6 @@ fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_43() {
 
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_44() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 44);
@@ -1215,19 +1203,16 @@ fn test_shard_layout_upgrade_incoming_receipts_impl_v1() {
 // TODO(resharding) Add another test like this but drop more chunks and at
 // random. The _missing_chunks tests below test only the case when all chunks
 // are missing in block but can likely be adjusted for this case.
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_42() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 42);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_43() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 43);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_44() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 44);
