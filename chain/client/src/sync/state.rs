@@ -516,7 +516,7 @@ impl StateSync {
     }
 
     /// Find possible targets to download state from.
-    /// Candidates are validators at current epoch and peers at highest height.
+    /// Candidates are peers at highest height.
     /// Only select candidates that we have no pending request currently ongoing.
     fn possible_targets(
         &mut self,
