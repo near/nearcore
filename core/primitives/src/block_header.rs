@@ -215,8 +215,8 @@ pub struct BlockHeaderInnerRestV5 {
     pub prev_validator_proposals: Vec<ValidatorStake>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
-    /// Gas price. Same for all chunks
-    pub gas_price: Balance,
+    /// Gas price for all chunks in the next block.
+    pub next_gas_price: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -1050,7 +1050,7 @@ impl BlockHeader {
             BlockHeader::BlockHeaderV2(header) => header.inner_rest.gas_price,
             BlockHeader::BlockHeaderV3(header) => header.inner_rest.gas_price,
             BlockHeader::BlockHeaderV4(header) => header.inner_rest.gas_price,
-            BlockHeader::BlockHeaderV5(header) => header.inner_rest.gas_price,
+            BlockHeader::BlockHeaderV5(header) => header.inner_rest.next_gas_price,
         }
     }
 
