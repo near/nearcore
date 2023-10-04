@@ -472,7 +472,7 @@ fn rocksdb_read_options() -> ReadOptions {
     read_options
 }
 
-fn is_index_block_cache(db_col: DBCol) -> bool {
+fn should_cache_index_block(db_col: DBCol) -> bool {
     // If true then we enable caching of index blocks inside block cache
     match db_col {
         DBCol::FlatState => false,
@@ -488,7 +488,7 @@ fn rocksdb_block_based_options(store_config: &StoreConfig, db_col: DBCol) -> Blo
     // We create block_cache for each of the columns, so the total cache size is (num_of_columns - 2) * 32MiB
     // Plus the 128MiB from FlatState and 512MiB from State columns
     block_opts.set_block_cache(&Cache::new_lru_cache(cache_size.as_u64().try_into().unwrap()));
-    if is_index_block_cache(db_col) {
+    if should_cache_index_block(db_col) {
         block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
         block_opts.set_cache_index_and_filter_blocks(true);
     } else {
