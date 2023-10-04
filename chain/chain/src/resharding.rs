@@ -19,6 +19,7 @@ use near_store::flat::{
     store_helper, BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
 };
 use near_store::split_state::get_delayed_receipts;
+use near_store::trie::SnapshotError;
 use near_store::{ShardTries, ShardUId, Store, Trie, TrieDBStorage, TrieStorage};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
@@ -205,6 +206,15 @@ impl Chain {
         Ok(())
     }
 
+    /// Function to check whether the snapshot is ready for resharding or not. We return true if the snapshot is not
+    /// ready and we need to retry/reschedule the resharding job.
+    pub fn retry_build_state_for_split_shards(state_split_request: &StateSplitRequest) -> bool {
+        let StateSplitRequest { tries, prev_prev_hash, .. } = state_split_request;
+        tries.get_state_snapshot(prev_prev_hash).is_err_and(|e| {
+            e == SnapshotError::SnapshotNotFound || e == SnapshotError::LockWouldBlock
+        })
+    }
+
     pub fn build_state_for_split_shards(
         state_split_request: StateSplitRequest,
     ) -> StateSplitResponse {
@@ -248,7 +258,9 @@ impl Chain {
         // The snapshot when created has the flat head as of `prev_prev_hash`, i.e. the hash as
         // of the second last block of the previous epoch. Hence we need to append the detla
         // changes on top of it.
-        let (snapshot_store, flat_storage_manager) = tries.get_state_snapshot(&prev_prev_hash)?;
+        let (snapshot_store, flat_storage_manager) = tries
+            .get_state_snapshot(&prev_prev_hash)
+            .map_err(|e| StorageInconsistentState(e.to_string()))?;
         let flat_storage_chunk_view =
             flat_storage_manager.chunk_view(shard_uid, prev_prev_hash).ok_or_else(|| {
                 StorageInconsistentState("Chunk view missing for snapshot flat storage".to_string())

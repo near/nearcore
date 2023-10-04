@@ -7,13 +7,46 @@ use crate::{Store, StoreConfig};
 use near_primitives::block::Block;
 use near_primitives::errors::EpochError;
 use near_primitives::errors::StorageError;
-use near_primitives::errors::StorageError::StorageInconsistentState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 
+use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::TryLockError;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum SnapshotError {
+    IncorrectSnapshotRequested(CryptoHash, CryptoHash),
+    SnapshotNotFound,
+    LockWouldBlock,
+    Other(String),
+}
+
+impl std::fmt::Display for SnapshotError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SnapshotError::IncorrectSnapshotRequested(requested, available) => write!(
+                f,
+                "Wrong state snapshot. Requested: {:?}, Available: {:?}",
+                requested, available
+            ),
+            SnapshotError::SnapshotNotFound => write!(f, "No state snapshot available"),
+            SnapshotError::LockWouldBlock => {
+                write!(f, "Accessing state snapshot would block. Retry in a few seconds.")
+            }
+            SnapshotError::Other(err_msg) => write!(f, "{}", err_msg),
+        }
+    }
+}
+
+impl Error for SnapshotError {}
+
+impl From<SnapshotError> for StorageError {
+    fn from(err: SnapshotError) -> Self {
+        StorageError::StorageInconsistentState(err.to_string())
+    }
+}
 
 /// Snapshot of the state at the epoch boundary.
 pub struct StateSnapshot {
@@ -86,28 +119,24 @@ impl ShardTries {
     pub fn get_state_snapshot(
         &self,
         block_hash: &CryptoHash,
-    ) -> Result<(Store, FlatStorageManager), StorageError> {
+    ) -> Result<(Store, FlatStorageManager), SnapshotError> {
         // Taking this lock can last up to 10 seconds, if the snapshot happens to be re-created.
         match self.state_snapshot().try_read() {
             Ok(guard) => {
                 if let Some(data) = guard.as_ref() {
                     if &data.prev_block_hash != block_hash {
-                        return Err(StorageInconsistentState(format!(
-                            "Wrong state snapshot. Requested: {:?}, Available: {:?}",
-                            block_hash, data.prev_block_hash
-                        )));
+                        return Err(SnapshotError::IncorrectSnapshotRequested(
+                            *block_hash,
+                            data.prev_block_hash,
+                        ));
                     }
                     Ok((data.store.clone(), data.flat_storage_manager.clone()))
                 } else {
-                    Err(StorageInconsistentState("No state snapshot available".to_string()))
+                    Err(SnapshotError::SnapshotNotFound)
                 }
             }
-            Err(TryLockError::WouldBlock) => Err(StorageInconsistentState(
-                "Accessing state snapshot would block. Retry in a few seconds.".to_string(),
-            )),
-            Err(err) => {
-                Err(StorageInconsistentState(format!("Can't access state snapshot: {err:?}")))
-            }
+            Err(TryLockError::WouldBlock) => Err(SnapshotError::LockWouldBlock),
+            Err(err) => Err(SnapshotError::Other(err.to_string())),
         }
     }
 
