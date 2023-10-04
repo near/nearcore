@@ -4245,6 +4245,7 @@ impl Chain {
         shard_id: ShardId,
         num_parts: u64,
     ) -> Result<CachedParts, Error> {
+        let _span = tracing::debug_span!(target: "chain", "get_cached_state_parts").entered();
         // DBCol::StateParts is keyed by StatePartKey: (BlockHash || ShardId || PartId (u64)).
         let lower_bound = StatePartKey(sync_hash, shard_id, 0);
         let lower_bound = lower_bound.try_to_vec()?;
