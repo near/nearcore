@@ -383,8 +383,8 @@ async fn run_single_check(
 
     tracing::info!(
         //target: "store", %shard_id, %epoch_height, %num_parts,
-        "Spawning threads to download and validate state parts: {}",
-        num_parts
+        "Spawning threads to download and validate state parts for shard_id: {}, epoch_height: {}, num_parts: {}",
+        shard_id, epoch_height, num_parts
     );
 
     let start = Instant::now();
@@ -394,17 +394,49 @@ async fn run_single_check(
         let epoch_id = epoch_id.clone();
         let external = external.clone();
         let handle = tokio::spawn(async move {
-            let _ = process_part(
-                part_id,
-                chain_id,
-                epoch_id,
-                epoch_height,
-                shard_id,
-                state_root,
-                num_parts,
-                external,
-            )
-            .await;
+            const MAX_RETRIES: u32 = 3;
+            let mut retries = 0;
+            loop {
+                let chain_id = chain_id.clone();
+                let epoch_id = epoch_id.clone();
+                let external = external.clone();
+                match process_part(
+                    part_id,
+                    chain_id,
+                    epoch_id,
+                    epoch_height,
+                    shard_id,
+                    state_root,
+                    num_parts,
+                    external,
+                ).await {
+                    Ok(_) => {
+                        tracing::info!(
+                            //target: "store", %shard_id, %epoch_height, %num_parts,
+                            "Success for shard_id: {}, epoch_height: {}, part_id: {}",
+                            shard_id, epoch_height, part_id
+                        );
+                        break;
+                    },
+                    Err(e) if retries < MAX_RETRIES => {
+                        tracing::info!(
+                            //target: "store", %shard_id, %epoch_height, %num_parts,
+                            "Failure for shard_id: {}, epoch_height: {}, part_id: {}, with error: {}. Retrying...",
+                            shard_id, epoch_height, part_id, e
+                        );
+                        retries += 1;
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    },
+                    Err(e) => {
+                        tracing::info!(
+                            //target: "store", %shard_id, %epoch_height, %num_parts,
+                            "Failure for shard_id: {}, epoch_height: {}, part_id: {}, with error: {}. No more retries",
+                            shard_id, epoch_height, part_id, e
+                        );
+                        break;
+                    },
+                }
+            }
         });
         handles.push(handle);
     }
