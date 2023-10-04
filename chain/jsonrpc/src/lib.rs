@@ -348,9 +348,6 @@ impl JsonRpcHandler {
             "EXPERIMENTAL_changes_in_block" => {
                 process_method_call(request, |params| self.changes_in_block(params)).await
             }
-            "EXPERIMENTAL_check_tx" => {
-                process_method_call(request, |params| self.check_tx(params)).await
-            }
             "EXPERIMENTAL_genesis_config" => {
                 process_method_call(request, |_params: ()| async {
                     Result::<_, std::convert::Infallible>::Ok(&self.genesis_config)
@@ -693,32 +690,6 @@ impl JsonRpcHandler {
             network_client_responses=> Err(
                 near_jsonrpc_primitives::types::transactions::RpcTransactionError::from_network_client_responses(
                     network_client_responses
-                )
-            )
-        }
-    }
-
-    async fn check_tx(
-        &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse,
-        near_jsonrpc_primitives::types::transactions::RpcTransactionError,
-    > {
-        match self.send_tx(request_data.clone().signed_transaction, true).await? {
-            ProcessTxResponse::ValidTx => {
-                Ok(near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse {
-                    transaction_hash: request_data.signed_transaction.get_hash(),
-                })
-            }
-            ProcessTxResponse::RequestRouted => {
-                Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::RequestRouted {
-                    transaction_hash: request_data.signed_transaction.get_hash(),
-                })
-            }
-            resp => Err(
-                near_jsonrpc_primitives::types::transactions::RpcTransactionError::from_network_client_responses(
-                   resp
                 )
             )
         }
