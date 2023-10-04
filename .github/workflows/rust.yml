@@ -20,8 +20,9 @@ jobs:
           - os: ubuntu-22.04-8core
             flags: "--features nightly,test_features"
           - os: macOS-m1
-            # FIXME: Integration tests don't work very well on m1 macs it seems…
-            flags: "--exclude integration-tests"
+            # FIXME: some of these tests don't work very well on MacOS at the moment. Should fix
+            # them at earliest convenience :)
+            flags: "--exclude integration-tests --exclude node-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse"
     timeout-minutes: 90
 
     steps:
