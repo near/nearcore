@@ -5,12 +5,11 @@ use serde_with::serde_as;
 use near_client_primitives::types::TxStatusError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::transactions::{
-    RpcBroadcastTransactionRequest, RpcTransactionError, RpcTransactionResponse,
-    RpcTransactionStatusCommonRequest, TransactionInfo,
+    RpcBroadcastTransactionRequest, RpcTransactionError, RpcTransactionStatusCommonRequest,
+    TransactionInfo,
 };
 use near_primitives::borsh::BorshDeserialize;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::views::FinalExecutionOutcomeViewEnum;
 
 use super::{Params, RpcFrom, RpcRequest};
 
@@ -50,12 +49,6 @@ impl RpcFrom<TxStatusError> for RpcTransactionError {
             TxStatusError::InternalError(debug_info) => Self::InternalError { debug_info },
             TxStatusError::TimeoutError => Self::TimeoutError,
         }
-    }
-}
-
-impl RpcFrom<FinalExecutionOutcomeViewEnum> for RpcTransactionResponse {
-    fn rpc_from(final_execution_outcome: FinalExecutionOutcomeViewEnum) -> Self {
-        Self { final_execution_outcome }
     }
 }
 

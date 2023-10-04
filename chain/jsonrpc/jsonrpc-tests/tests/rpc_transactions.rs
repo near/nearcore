@@ -13,7 +13,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockReference;
-use near_primitives::views::FinalExecutionStatus;
+use near_primitives::views::{FinalExecutionStatus, TxExecutionStatus};
 
 use near_jsonrpc_tests::{self as test_utils, test_with_client};
 
@@ -62,7 +62,9 @@ fn test_send_tx_async() {
                             .tx(tx_hash.to_string(), signer_account_id)
                             .map_err(|err| println!("Error: {:?}", err))
                             .map_ok(|result| {
-                                if let FinalExecutionStatus::SuccessValue(_) = result.status {
+                                if let FinalExecutionStatus::SuccessValue(_) =
+                                    result.final_execution_outcome.unwrap().into_outcome().status
+                                {
                                     System::current().stop();
                                 }
                             })
@@ -93,7 +95,15 @@ fn test_send_tx_commit() {
         );
         let bytes = tx.try_to_vec().unwrap();
         let result = client.broadcast_tx_commit(to_base64(&bytes)).await.unwrap();
-        assert_eq!(result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
+        assert_eq!(
+            result.final_execution_outcome.unwrap().into_outcome().status,
+            FinalExecutionStatus::SuccessValue(Vec::new())
+        );
+        assert!(
+            vec![TxExecutionStatus::Executed, TxExecutionStatus::Final]
+                .contains(&result.final_execution_status),
+            "All the receipts should be already executed"
+        );
     });
 }
 

@@ -3750,7 +3750,7 @@ impl Chain {
 
     pub fn check_blocks_final_and_canonical(
         &self,
-        block_headers: &[&BlockHeader],
+        block_headers: &[BlockHeader],
     ) -> Result<(), Error> {
         let last_final_block_hash = *self.head_header()?.last_final_block();
         let last_final_height = self.get_block_header(&last_final_block_hash)?.height();
