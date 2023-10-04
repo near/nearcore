@@ -7,9 +7,8 @@ use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
-pub use crate::trie::shard_tries::{
-    KeyForStateChanges, ShardTries, StateSnapshot, StateSnapshotConfig, WrappedTrieChanges,
-};
+pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
+pub use crate::trie::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -43,6 +42,7 @@ mod raw_node;
 mod shard_tries;
 pub mod split_state;
 mod state_parts;
+mod state_snapshot;
 mod trie_recording;
 mod trie_storage;
 #[cfg(test)]
