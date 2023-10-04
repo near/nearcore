@@ -14,7 +14,6 @@ use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
-use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
@@ -253,6 +252,7 @@ fn run_state_sync_with_dumped_parts(
         assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
         let state_sync_header =
             env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
+        let state_root = state_sync_header.chunk_prev_state_root();
         let num_parts = state_sync_header.num_state_parts();
 
         wait_or_timeout(100, 10000, || async {

@@ -15,7 +15,7 @@ use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
-use near_primitives::state_sync::{get_num_state_parts, StatePartKey};
+use near_primitives::state_sync::StatePartKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::MaybeValidated;
 use near_primitives_core::types::ShardId;
@@ -620,7 +620,8 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
 
             let state_sync_header =
                 env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
-            let num_parts = state_header.num_state_parts();
+            let num_parts = state_sync_header.num_state_parts();
+            let state_root = state_sync_header.chunk_prev_state_root();
             // Check that state parts can be obtained.
             let state_sync_parts: Vec<_> = (0..num_parts)
                 .map(|i| {

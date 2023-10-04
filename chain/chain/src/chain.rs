@@ -1,7 +1,6 @@
 use crate::block_processing_utils::{
     BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing, DoneApplyChunkCallback,
 };
-use borsh::BorshDeserialize;
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::lightclient::get_epoch_block_producers_view;
@@ -21,7 +20,7 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
-use borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Duration;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use itertools::Itertools;
@@ -57,7 +56,10 @@ use near_primitives::sharding::{
     ShardChunkHeader, ShardInfo, ShardProof, StateSyncInfo,
 };
 use near_primitives::state_part::PartId;
-use near_primitives::state_sync::{BitArray, CachedParts, get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey};
+use near_primitives::state_sync::{
+    get_num_state_parts, BitArray, CachedParts, ReceiptProofResponse, RootProof,
+    ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
+};
 use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -2974,28 +2976,26 @@ impl Chain {
 
         let (chunk, prev_chunk_header) = match chunk {
             ShardChunk::V1(chunk) => {
-                let prev_chunk_header = prev_chunk_header.and_then(|prev_header| match prev_header {
-                    ShardChunkHeader::V1(header) => Some(ShardChunkHeader::V1(header)),
-                    ShardChunkHeader::V2(_) => None,
-                    ShardChunkHeader::V3(_) => None,
-                });
+                let prev_chunk_header =
+                    prev_chunk_header.and_then(|prev_header| match prev_header {
+                        ShardChunkHeader::V1(header) => Some(ShardChunkHeader::V1(header)),
+                        _ => None,
+                    });
                 let chunk = ShardChunk::V1(chunk);
                 (chunk, prev_chunk_header)
             }
-            chunk @ ShardChunk::V2(_) => {
-                (chunk, prev_chunk_header)
-            }
+            chunk @ ShardChunk::V2(_) => (chunk, prev_chunk_header),
             ShardChunk::V3(_) => todo!("#9535"),
         };
 
         let shard_state_header = ShardStateSyncResponseHeaderV2 {
-                chunk,
-                chunk_proof,
-                prev_chunk_header,
-                prev_chunk_proof,
-                incoming_receipts_proofs,
-                root_proofs,
-                state_root_node,
+            chunk,
+            chunk_proof,
+            prev_chunk_header,
+            prev_chunk_proof,
+            incoming_receipts_proofs,
+            root_proofs,
+            state_root_node,
         };
 
         Ok(ShardStateSyncResponseHeader::V2(shard_state_header))
@@ -4239,7 +4239,12 @@ impl Chain {
         Ok(())
     }
 
-    pub fn get_cached_state_parts(&self, sync_hash: CryptoHash, shard_id: ShardId, num_parts: u64) -> Result<CachedParts, Error> {
+    pub fn get_cached_state_parts(
+        &self,
+        sync_hash: CryptoHash,
+        shard_id: ShardId,
+        num_parts: u64,
+    ) -> Result<CachedParts, Error> {
         // DBCol::StateParts is keyed by StatePartKey: (BlockHash || ShardId || PartId (u64)).
         let lower_bound = StatePartKey(sync_hash, shard_id, 0);
         let lower_bound = lower_bound.try_to_vec()?;
@@ -4247,7 +4252,9 @@ impl Chain {
         let upper_bound = upper_bound.try_to_vec()?;
         let mut num_cached_parts = 0;
         let mut bit_array = BitArray::new(num_parts);
-        for item in self.store.store().iter_range(DBCol::StateParts, Some(&lower_bound), Some(&upper_bound)) {
+        for item in
+            self.store.store().iter_range(DBCol::StateParts, Some(&lower_bound), Some(&upper_bound))
+        {
             let key = item?.0;
             let key = StatePartKey::try_from_slice(&key)?;
             let part_id = key.2;
@@ -4255,7 +4262,7 @@ impl Chain {
             bit_array.set_bit(part_id);
         }
         Ok(if num_cached_parts == 0 {
-           CachedParts::NoParts
+            CachedParts::NoParts
         } else if num_cached_parts == num_parts {
             CachedParts::AllParts
         } else {
@@ -4736,8 +4743,7 @@ impl Chain {
         // Do not replace with `get_block_header`.
         let sync_block = self.get_block(sync_hash)?;
         // The Epoch of sync_hash must be the current one.
-        if head.epoch_id == *sync_block.header().epoch_id()
-        {
+        if head.epoch_id == *sync_block.header().epoch_id() {
             let prev_hash = *sync_block.header().prev_hash();
             // If sync_hash is not on the Epoch boundary, it's malicious behavior
             Ok(self.epoch_manager.is_next_block_epoch_start(&prev_hash)?)
