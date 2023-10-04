@@ -6,9 +6,10 @@
 
 ### Breaking changes
 
-Response from `broadcast_tx_async` changed the type from String to Dict.
-The response has the same structure as in `broadcast_tx_commit`.
-It no longer contains transaction hash (which may be retrieved from Signed Transaction passed in request).
+* Response from `broadcast_tx_async` changed the type from String to Dict.
+  The response has the same structure as in `broadcast_tx_commit`.
+  It no longer contains transaction hash (which may be retrieved from Signed Transaction passed in request).
+* Removed `EXPERIMENTAL_check_tx` method. Use `tx` method instead
 
 ## 0.2.2
 
