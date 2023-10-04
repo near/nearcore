@@ -53,14 +53,14 @@ use near_primitives::types::{
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockView,
     MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, SplitStorageInfoView,
-    StateChangesKindsView, StateChangesView,
+    StateChangesKindsView, StateChangesView, TxExecutionStatus, TxStatusView,
 };
 use near_store::{DBCol, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
 use std::cmp::Ordering;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
@@ -417,17 +417,63 @@ impl ViewClientActor {
         }
     }
 
+    fn get_tx_execution_status(
+        &self,
+        execution_outcome: &FinalExecutionOutcomeView,
+    ) -> Result<TxExecutionStatus, TxStatusError> {
+        Ok(match execution_outcome.transaction_outcome.outcome.status {
+            // Return the lowest status the node can proof.
+            ExecutionStatusView::Unknown => TxExecutionStatus::None,
+            _ => {
+                if execution_outcome
+                    .receipts_outcome
+                    .iter()
+                    .all(|e| e.outcome.status != ExecutionStatusView::Unknown)
+                {
+                    let block_hashes: BTreeSet<CryptoHash> =
+                        execution_outcome.receipts_outcome.iter().map(|e| e.block_hash).collect();
+                    let mut headers = vec![];
+                    for block_hash in block_hashes {
+                        headers.push(self.chain.get_block_header(&block_hash)?);
+                    }
+                    // We can't sort and check only the last block;
+                    // previous blocks may be not in the canonical chain
+                    match self.chain.check_blocks_final_and_canonical(&headers) {
+                        Ok(_) => TxExecutionStatus::Final,
+                        Err(_) => TxExecutionStatus::Executed,
+                    }
+                } else {
+                    match self.chain.check_blocks_final_and_canonical(&[self
+                        .chain
+                        .get_block_header(&execution_outcome.transaction_outcome.block_hash)?])
+                    {
+                        Ok(_) => TxExecutionStatus::InclusionFinal,
+                        Err(_) => TxExecutionStatus::Inclusion,
+                    }
+                }
+            }
+        })
+    }
+
     fn get_tx_status(
         &mut self,
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
         fetch_receipt: bool,
-    ) -> Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError> {
+    ) -> Result<TxStatusView, TxStatusError> {
         {
+            // TODO(telezhnaya): take into account `fetch_receipt()`
+            // https://github.com/near/nearcore/issues/9545
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
             if let Some(res) = request_manager.tx_status_response.pop(&tx_hash) {
                 request_manager.tx_status_requests.pop(&tx_hash);
-                return Ok(Some(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(res)));
+                let status = self.get_tx_execution_status(&res)?;
+                return Ok(TxStatusView {
+                    execution_outcome: Some(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(
+                        res,
+                    )),
+                    status,
+                });
             }
         }
 
@@ -445,6 +491,7 @@ impl ViewClientActor {
         ) {
             match self.chain.get_final_transaction_result(&tx_hash) {
                 Ok(tx_result) => {
+                    let status = self.get_tx_execution_status(&tx_result)?;
                     let res = if fetch_receipt {
                         let final_result =
                             self.chain.get_final_transaction_result_with_receipt(tx_result)?;
@@ -454,11 +501,14 @@ impl ViewClientActor {
                     } else {
                         FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(tx_result)
                     };
-                    Ok(Some(res))
+                    Ok(TxStatusView { execution_outcome: Some(res), status })
                 }
                 Err(near_chain::Error::DBNotFoundErr(_)) => {
                     if self.chain.get_execution_outcome(&tx_hash).is_ok() {
-                        Ok(None)
+                        Ok(TxStatusView {
+                            execution_outcome: None,
+                            status: TxExecutionStatus::None,
+                        })
                     } else {
                         Err(TxStatusError::MissingTransaction(tx_hash))
                     }
@@ -481,7 +531,7 @@ impl ViewClientActor {
                     NetworkRequests::TxStatus(validator, signer_account_id, tx_hash),
                 ));
             }
-            Ok(None)
+            Ok(TxStatusView { execution_outcome: None, status: TxExecutionStatus::None })
         }
     }
 
@@ -647,7 +697,7 @@ impl Handler<WithSpanContext<GetChunk>> for ViewClientActor {
 }
 
 impl Handler<WithSpanContext<TxStatus>> for ViewClientActor {
-    type Result = Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError>;
+    type Result = Result<TxStatusView, TxStatusError>;
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<TxStatus>, _: &mut Self::Context) -> Self::Result {
@@ -1052,7 +1102,7 @@ impl Handler<WithSpanContext<GetBlockProof>> for ViewClientActor {
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlockProof"]).start_timer();
         let block_header = self.chain.get_block_header(&msg.block_hash)?;
         let head_block_header = self.chain.get_block_header(&msg.head_block_hash)?;
-        self.chain.check_blocks_final_and_canonical(&[&block_header, &head_block_header])?;
+        self.chain.check_blocks_final_and_canonical(&[block_header.clone(), head_block_header])?;
         let block_header_lite = block_header.into();
         let proof = self.chain.get_block_proof(&msg.block_hash, &msg.head_block_hash)?;
         Ok(GetBlockProofResponse { block_header_lite, proof })
@@ -1140,7 +1190,9 @@ impl Handler<WithSpanContext<TxStatusRequest>> for ViewClientActor {
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatusRequest"]).start_timer();
         let TxStatusRequest { tx_hash, signer_account_id } = msg;
-        if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id, false) {
+        if let Ok(Some(result)) =
+            self.get_tx_status(tx_hash, signer_account_id, false).map(|s| s.execution_outcome)
+        {
             Some(Box::new(result.into_outcome()))
         } else {
             None

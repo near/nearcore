@@ -1660,6 +1660,37 @@ impl ExecutionOutcomeWithIdView {
     }
 }
 
+pub struct TxStatusView {
+    pub execution_outcome: Option<FinalExecutionOutcomeViewEnum>,
+    pub status: TxExecutionStatus,
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+)]
+pub enum TxExecutionStatus {
+    /// Transaction is waiting to be included into the block
+    None,
+    /// Transaction is included into the block. The block may be not finalised yet
+    Inclusion,
+    /// Transaction is included into finalised block
+    InclusionFinal,
+    /// Transaction is included into finalised block +
+    /// All the transaction receipts finished their execution.
+    /// The corresponding blocks for each receipt may be not finalised yet
+    Executed,
+    /// Transaction is included into finalised block +
+    /// Execution of transaction receipts is finalised
+    Final,
+}
+
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, Debug)]
 #[serde(untagged)]
 pub enum FinalExecutionOutcomeViewEnum {
@@ -1676,12 +1707,28 @@ impl FinalExecutionOutcomeViewEnum {
     }
 }
 
-/// Final execution outcome of the transaction and all of subsequent the receipts.
+impl TxStatusView {
+    pub fn into_outcome(self) -> Option<FinalExecutionOutcomeView> {
+        self.execution_outcome.map(|outcome| match outcome {
+            FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(outcome) => outcome,
+            FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(outcome) => {
+                outcome.final_outcome
+            }
+        })
+    }
+}
+
+/// Execution outcome of the transaction and all of subsequent the receipts.
+/// Could be not finalised yet
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
 )]
 pub struct FinalExecutionOutcomeView {
-    /// Execution status. Contains the result in case of successful execution.
+    /// Execution status defined by chain.rs:get_final_transaction_result
+    /// FinalExecutionStatus::NotStarted - the tx is not converted to the receipt yet
+    /// FinalExecutionStatus::Started - we have at least 1 receipt, but the first leaf receipt_id (using dfs) hasn't finished the execution
+    /// FinalExecutionStatus::Failure - the result of the first leaf receipt_id
+    /// FinalExecutionStatus::SuccessValue - the result of the first leaf receipt_id
     pub status: FinalExecutionStatus,
     /// Signed Transaction
     pub transaction: SignedTransactionView,
