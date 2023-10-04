@@ -24,8 +24,7 @@ use near_primitives::sharding::{
     StateSyncInfo,
 };
 use near_primitives::state_sync::{
-    ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
-    StateSyncDumpProgress,
+    ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, StateSyncDumpProgress,
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,

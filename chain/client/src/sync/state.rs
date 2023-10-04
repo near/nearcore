@@ -1344,9 +1344,7 @@ mod test {
     use near_epoch_manager::EpochManagerAdapter;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::PeerInfo;
-    use near_primitives::state_sync::{
-        CachedParts, ShardStateSyncResponseHeader, ShardStateSyncResponseV3,
-    };
+    use near_primitives::state_sync::{CachedParts, ShardStateSyncResponseHeader, ShardStateSyncResponseV3};
     use near_primitives::{test_utils::TestBlockBuilder, types::EpochId};
 
     #[test]
@@ -1460,7 +1458,6 @@ mod test {
                 header: Some(state_sync_header),
                 part: None,
                 cached_parts: Some(CachedParts::AllParts),
-                can_generate: true,
             });
 
             state_sync.update_download_on_state_response_message(

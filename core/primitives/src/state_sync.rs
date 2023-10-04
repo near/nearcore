@@ -62,12 +62,12 @@ pub struct BitArray {
 impl BitArray {
     pub fn new(capacity: u64) -> Self {
         let num_bytes = (capacity + 7) / 8;
-        Self { data: vec![0; num_bytes as usize], capacity }
+        Self { data: vec![0;num_bytes as usize], capacity }
     }
 
     pub fn set_bit(&mut self, bit: u64) {
         assert!(bit < self.capacity);
-        self.data[(bit / 8) as usize] |= 1 << (bit % 8);
+        self.data[(bit/8) as usize] |= 1 << (bit%8);
     }
 }
 
@@ -179,12 +179,9 @@ pub struct ShardStateSyncResponseV2 {
 pub struct ShardStateSyncResponseV3 {
     pub header: Option<ShardStateSyncResponseHeaderV2>,
     pub part: Option<(u64, Vec<u8>)>,
-    /// Parts that can be provided **cheaply**.
+    // This is the field added in V3.
     // Can be `None` only if both `header` and `part` are `None`.
     pub cached_parts: Option<CachedParts>,
-    /// Whether the node can provide parts for this epoch of this shard.
-    /// Assumes that a node can either provide all state parts or no state parts.
-    pub can_generate: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -195,6 +192,14 @@ pub enum ShardStateSyncResponse {
 }
 
 impl ShardStateSyncResponse {
+    pub fn available_parts(&self) -> &Option<CachedParts> {
+        match self {
+            Self::V1(_response) => &None,
+            Self::V2(_response) => &None,
+            Self::V3(response) => &response.cached_parts,
+        }
+    }
+
     pub fn part_id(&self) -> Option<u64> {
         match self {
             Self::V1(response) => response.part_id(),
@@ -224,22 +229,6 @@ impl ShardStateSyncResponse {
             Self::V1(response) => response.part,
             Self::V2(response) => response.part,
             Self::V3(response) => response.part,
-        }
-    }
-
-    pub fn can_generate(&self) -> bool {
-        match self {
-            Self::V1(_response) => false,
-            Self::V2(_response) => false,
-            Self::V3(response) => response.can_generate,
-        }
-    }
-
-    pub fn cached_parts(&self) -> &Option<CachedParts> {
-        match self {
-            Self::V1(_response) => &None,
-            Self::V2(_response) => &None,
-            Self::V3(response) => &response.cached_parts,
         }
     }
 }
