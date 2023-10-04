@@ -42,10 +42,7 @@ use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::state_sync::{
-    ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV1,
-    ShardStateSyncResponseV2,
-};
+use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV1, ShardStateSyncResponseV3};
 use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
@@ -64,7 +61,7 @@ use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{error, info, warn};
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -510,7 +507,9 @@ impl ViewClientActor {
             .map_err(|e| e.into())
     }
 
-    fn check_state_sync_request(&self) -> bool {
+    /// Returns true if this request needs to be **dropped** due to exceeding a
+    /// rate limit of state sync requests.
+    fn throttle_state_sync_request(&self) -> bool {
         let mut cache = self.state_request_cache.lock().expect(POISONED_LOCK_ERR);
         let now = StaticClock::instant();
         while let Some(&instant) = cache.front() {
@@ -523,10 +522,15 @@ impl ViewClientActor {
             }
         }
         if cache.len() >= Self::MAX_NUM_STATE_REQUESTS {
-            return false;
+            return true;
         }
         cache.push_back(now);
-        true
+        false
+    }
+
+    fn has_state_snapshot(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
+        self.runtime.get_tries().get_state_snapshot(sync_hash).map_err(|err| Error::Other(err.to_string()))?;
+        Ok(true)
     }
 }
 
@@ -1234,78 +1238,67 @@ impl Handler<WithSpanContext<StateRequestHeader>> for ViewClientActor {
             .with_label_values(&["StateRequestHeader"])
             .start_timer();
         let StateRequestHeader { shard_id, sync_hash } = msg;
-        if !self.check_state_sync_request() {
+        if self.throttle_state_sync_request() {
             return None;
         }
-        let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
+        if let Err(err) = self.has_state_snapshot(&sync_hash) {
+            tracing::debug!(target: "sync", ?err, ?sync_hash, "Node doesn't have a matching state snapshot");
+            return None;
+        }
+        let header = match self.chain.check_sync_hash_validity(&sync_hash) {
             Ok(true) => {
                 let header = match self.chain.get_state_response_header(shard_id, sync_hash) {
                     Ok(header) => Some(header),
-                    Err(e) => {
-                        error!(target: "sync", "Cannot build sync header (get_state_response_header): {}", e);
+                    Err(err) => {
+                        error!(target: "sync", ?err, "Cannot build state sync header");
                         None
                     }
                 };
-                match header {
-                    None => ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
-                        header: None,
-                        part: None,
-                    }),
-                    Some(ShardStateSyncResponseHeader::V1(header)) => {
-                        ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
-                            header: Some(header),
-                            part: None,
-                        })
-                    }
-                    Some(ShardStateSyncResponseHeader::V2(header)) => {
-                        ShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
-                            header: Some(header),
-                            part: None,
-                        })
-                    }
-                }
+                header
             }
             Ok(false) => {
-                warn!(target: "sync", "sync_hash {:?} didn't pass validation, possible malicious behavior", sync_hash);
+                warn!(target: "sync", ?sync_hash, "sync_hash didn't pass validation, possible malicious behavior");
                 return None;
             }
-            Err(e) => match e {
-                near_chain::Error::DBNotFoundErr(_) => {
-                    // This case may appear in case of latency in epoch switching.
-                    // Request sender is ready to sync but we still didn't get the block.
-                    info!(target: "sync", "Can't get sync_hash block {:?} for state request header", sync_hash);
-                    ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
-                        header: None,
-                        part: None,
-                    })
-                }
-                _ => {
-                    error!(target: "sync", "Failed to verify sync_hash {:?} validity, {:?}", sync_hash, e);
-                    ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
-                        header: None,
-                        part: None,
-                    })
-                }
+            Err(near_chain::Error::DBNotFoundErr(_)) => {
+                // This case may appear in case of latency in epoch switching.
+                // Request sender is ready to sync but we still didn't get the block.
+                info!(target: "sync", ?sync_hash, "Can't get sync_hash block for state request header");
+                None
+            }
+            Err(_) => {
+                error!(target: "sync", ?err, ?sync_hash, "Failed to verify sync_hash validity");
+                None
             },
         };
-        match state_response {
-            ShardStateSyncResponse::V1(state_response) => {
-                let info = StateResponseInfo::V1(StateResponseInfoV1 {
-                    shard_id,
-                    sync_hash,
-                    state_response,
-                });
-                Some(StateResponse(Box::new(info)))
-            }
-            state_response @ ShardStateSyncResponse::V2(_) => {
-                let info = StateResponseInfo::V2(StateResponseInfoV2 {
-                    shard_id,
-                    sync_hash,
-                    state_response,
-                });
-                Some(StateResponse(Box::new(info)))
-            }
-        }
+        let (header, cached_parts) = match header {
+            Some(header) => {
+                let num_parts = header.num_state_parts();
+                match header {
+                    ShardStateSyncResponseHeader::V2(inner) => {
+                        match self.chain.get_cached_state_parts(sync_hash, shard_id, num_parts) {
+                            Ok(cached_parts) => (Some(inner), Some(cached_parts)),
+                            Err(err) => {
+                                tracing::error!(target: "sync", ?err, ?sync_hash, shard_id, "Failed to get cached state parts");
+                                (Some(inner), None)
+                            }
+                        }
+                    }
+                    _ => {
+                        tracing::error!(target: "sync", ?sync_hash, shard_id, "Invalid state sync header format");
+                        (None, None)
+                    }
+                }
+            },
+            None => (None, None)
+        };
+        let state_response = ShardStateSyncResponse::V3(ShardStateSyncResponseV3{
+                header,
+                part: None,
+            cached_parts,
+        });
+        let info = StateResponseInfo::V2(StateResponseInfoV2{shard_id, sync_hash, state_response});
+        Some(StateResponse(Box::new(info)))
     }
 }
 
@@ -1324,7 +1317,11 @@ impl Handler<WithSpanContext<StateRequestPart>> for ViewClientActor {
             .with_label_values(&["StateRequestPart"])
             .start_timer();
         let StateRequestPart { shard_id, sync_hash, part_id } = msg;
-        if !self.check_state_sync_request() {
+        if self.throttle_state_sync_request() {
+            return None;
+        }
+        if let Err(err) = self.has_state_snapshot(&sync_hash) {
+            tracing::debug!(target: "sync", ?err, ?sync_hash, "Node doesn't have a matching state snapshot");
             return None;
         }
         tracing::debug!(target: "sync", ?shard_id, ?sync_hash, ?part_id, "Computing state request part");
@@ -1338,25 +1335,23 @@ impl Handler<WithSpanContext<StateRequestPart>> for ViewClientActor {
                     }
                 };
 
-                trace!(target: "sync", "Finish computation for state request part {} {} {}", shard_id, sync_hash, part_id);
+                tracing::trace!(target: "sync", ?sync_hash, shard_id, part_id, "Finish computation for state request part");
                 ShardStateSyncResponseV1 { header: None, part }
             }
             Ok(false) => {
-                warn!(target: "sync", "sync_hash {:?} didn't pass validation, possible malicious behavior", sync_hash);
+                warn!(target: "sync", ?sync_hash, "sync_hash didn't pass validation, possible malicious behavior");
                 return None;
             }
-            Err(e) => match e {
-                near_chain::Error::DBNotFoundErr(_) => {
-                    // This case may appear in case of latency in epoch switching.
-                    // Request sender is ready to sync but we still didn't get the block.
-                    info!(target: "sync", "Can't get sync_hash block {:?} for state request part", sync_hash);
-                    ShardStateSyncResponseV1 { header: None, part: None }
-                }
-                _ => {
-                    error!(target: "sync", "Failed to verify sync_hash {:?} validity, {:?}", sync_hash, e);
-                    ShardStateSyncResponseV1 { header: None, part: None }
-                }
-            },
+            Err(near_chain::Error::DBNotFoundErr(_)) => {
+                // This case may appear in case of latency in epoch switching.
+                // Request sender is ready to sync but we still didn't get the block.
+                info!(target: "sync", ?sync_hash, "Can't get sync_hash block for state request part");
+                ShardStateSyncResponseV1 { header: None, part: None }
+            }
+            Err(_) => {
+                error!(target: "sync", ?err, ?sync_hash, "Failed to verify sync_hash validity");
+                ShardStateSyncResponseV1 { header: None, part: None }
+            }
         };
         let info =
             StateResponseInfo::V1(StateResponseInfoV1 { shard_id, sync_hash, state_response });
@@ -1414,8 +1409,8 @@ impl Handler<WithSpanContext<AnnounceAccountRequest>> for ViewClientActor {
                 // (account_id,epoch_id) pair.
                 // We currently do NOT ban the peer for either.
                 // TODO(gprusak): consider whether we should change that.
-                Err(e) => {
-                    debug!(target: "view_client", "Failed to validate account announce signature: {}", e);
+                Err(err) => {
+                    tracing::debug!(target: "view_client", ?err, "Failed to validate account announce signature");
                 }
             }
         }

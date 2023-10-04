@@ -253,10 +253,7 @@ fn run_state_sync_with_dumped_parts(
         assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
         let state_sync_header =
             env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
-        let state_root = state_sync_header.chunk_prev_state_root();
-        let state_root_node =
-            env.clients[0].runtime_adapter.get_state_root_node(0, &sync_hash, &state_root).unwrap();
-        let num_parts = get_num_state_parts(state_root_node.memory_usage);
+        let num_parts = state_sync_header.num_state_parts();
 
         wait_or_timeout(100, 10000, || async {
             let mut all_parts_present = true;

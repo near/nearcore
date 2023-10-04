@@ -620,9 +620,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
 
             let state_sync_header =
                 env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
-            let state_root = state_sync_header.chunk_prev_state_root();
-            let state_root_node = state_sync_header.state_root_node();
-            let num_parts = get_num_state_parts(state_root_node.memory_usage);
+            let num_parts = state_header.num_state_parts();
             // Check that state parts can be obtained.
             let state_sync_parts: Vec<_> = (0..num_parts)
                 .map(|i| {
