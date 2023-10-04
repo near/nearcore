@@ -461,14 +461,6 @@ async fn process_part(
     external: ExternalConnection,
 ) -> anyhow::Result<()> {
     tracing::info!("process_part for {} started", part_id);
-    if part_id == 0 {
-        crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_VALID
-            .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
-            .set(0);
-        crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_INVALID
-            .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
-            .set(0);
-    }
     let location =
         external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, part_id, num_parts);
     let part = external.get_part(shard_id, &location).await?;
