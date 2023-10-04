@@ -4290,6 +4290,7 @@ dependencies = [
  "rayon",
  "rlimit",
  "rocksdb",
+ "rustix 0.37.20",
  "serde",
  "serde_json",
  "strum",

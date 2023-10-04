@@ -54,6 +54,7 @@ near-chain.workspace = true
 near-chunks.workspace = true
 rand.workspace = true
 thiserror.workspace = true
+rustix = { workspace = true, features = ["process"] }
 
 [[bench]]
 name = "trie_bench"
