@@ -48,6 +48,15 @@ impl From<SnapshotError> for StorageError {
     }
 }
 
+impl<T> From<TryLockError<T>> for SnapshotError {
+    fn from(err: TryLockError<T>) -> Self {
+        match err {
+            TryLockError::Poisoned(_) => SnapshotError::Other("Poisoned lock".to_string()),
+            TryLockError::WouldBlock => SnapshotError::LockWouldBlock,
+        }
+    }
+}
+
 /// Snapshot of the state at the epoch boundary.
 pub struct StateSnapshot {
     /// The state snapshot represents the state including changes of the next block of this block.
@@ -121,23 +130,15 @@ impl ShardTries {
         block_hash: &CryptoHash,
     ) -> Result<(Store, FlatStorageManager), SnapshotError> {
         // Taking this lock can last up to 10 seconds, if the snapshot happens to be re-created.
-        match self.state_snapshot().try_read() {
-            Ok(guard) => {
-                if let Some(data) = guard.as_ref() {
-                    if &data.prev_block_hash != block_hash {
-                        return Err(SnapshotError::IncorrectSnapshotRequested(
-                            *block_hash,
-                            data.prev_block_hash,
-                        ));
-                    }
-                    Ok((data.store.clone(), data.flat_storage_manager.clone()))
-                } else {
-                    Err(SnapshotError::SnapshotNotFound)
-                }
-            }
-            Err(TryLockError::WouldBlock) => Err(SnapshotError::LockWouldBlock),
-            Err(err) => Err(SnapshotError::Other(err.to_string())),
+        let guard = self.state_snapshot().try_read()?;
+        let data = guard.as_ref().ok_or(SnapshotError::SnapshotNotFound)?;
+        if &data.prev_block_hash != block_hash {
+            return Err(SnapshotError::IncorrectSnapshotRequested(
+                *block_hash,
+                data.prev_block_hash,
+            ));
         }
+        Ok((data.store.clone(), data.flat_storage_manager.clone()))
     }
 
     /// Makes a snapshot of the current state of the DB.
