@@ -773,7 +773,7 @@ fn generate_create_accounts_txs(
             KeyType::ED25519,
             &signer_account.to_string(),
         );
-        let account_id = gen_account(&mut rng, b"abcdefghijkmn");
+        let account_id = gen_account(&mut rng);
         if all_accounts.insert(account_id.clone()) {
             let signer = InMemorySigner::from_seed(
                 account_id.clone(),
@@ -1012,7 +1012,7 @@ fn generate_cross_contract_tx(
     new_accounts: &mut HashMap<CryptoHash, AccountId>,
     nonce: &mut u64,
 ) -> Option<SignedTransaction> {
-    let account_id = gen_account(rng, b"abcdefghijkmn");
+    let account_id = gen_account(rng);
     if !all_accounts.insert(account_id.clone()) {
         return None;
     }
