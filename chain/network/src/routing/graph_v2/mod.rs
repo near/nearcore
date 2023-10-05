@@ -36,6 +36,7 @@ pub enum NetworkTopologyChange {
     PeerConnected(PeerId, Edge),
     PeerDisconnected(PeerId),
     PeerAdvertisedDistances(network_protocol::DistanceVector),
+    EdgeNonceRefresh(Vec<Edge>),
 }
 
 /// Locally stored properties of a received network_protocol::DistanceVector message
@@ -348,6 +349,24 @@ impl Inner {
         return is_valid;
     }
 
+    /// Updates the local state of the edge cache with the nonces for the given edges.
+    fn handle_edge_nonce_refresh(&mut self, edges: &Vec<Edge>) -> bool {
+        for e in edges {
+            // TODO(saketh): deprecate tombstones entirely
+            if e.edge_type() != EdgeState::Active {
+                return false;
+            }
+
+            // TODO (saketh): After V1 routing is deprecated, we will need to actually perform
+            // edge verification here. For now, edges make it here after already being verified.
+            if !self.edge_cache.has_edge_nonce_or_newer(e) {
+                self.edge_cache.write_verified_nonce(e);
+            }
+        }
+
+        return true;
+    }
+
     /// Handles disconnection of a peer.
     /// - Updates the state of `local_edges`.
     /// - Erases the peer's latest spanning tree, if there is one, from `edge_cache`.
@@ -424,6 +443,7 @@ impl Inner {
             NetworkTopologyChange::PeerAdvertisedDistances(distance_vector) => {
                 self.handle_distance_vector(distance_vector)
             }
+            NetworkTopologyChange::EdgeNonceRefresh(edges) => self.handle_edge_nonce_refresh(edges),
         }
     }
 
