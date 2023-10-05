@@ -1,6 +1,5 @@
 env:
   RUST_BACKTRACE: short
-  RUSTFLAGS: -D warnings
 
 steps:
   - label: "protobuf backward compatibility"

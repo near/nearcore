@@ -27,9 +27,8 @@ jobs:
     steps:
       # Some of the tests allocate really sparse maps, so heuristic-based overcommit limits are not
       # appropriate here.
-      - run: |
-          cat /proc/meminfo || true
-          sudo sysctl vm.overcommit_memory=1 || true
+      # FIXME(#9634): remove this once the issue is resolved.
+      - run: sudo sysctl vm.overcommit_memory=1 || true
       - uses: actions/checkout@v2
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
@@ -39,4 +38,4 @@ jobs:
           crate: cargo-deny
       - run: cargo nextest run --locked --workspace -p '*' --cargo-profile quick-release --profile ci ${{ matrix.flags }}
         env:
-          RUST_BACKTRACE: 1
+          RUST_BACKTRACE: short

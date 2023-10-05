@@ -53,6 +53,7 @@ fn clippy() {
     cmd.args(&["clippy", "--all-targets", "--all-features", "--"]);
     cmd.args(&[
         "-Aclippy::all",
+        "-Dwarnings",
         "-Dclippy::clone_on_copy",
         "-Dclippy::correctness",
         "-Dclippy::derivable_impls",
