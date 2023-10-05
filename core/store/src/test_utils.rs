@@ -167,7 +167,7 @@ pub fn test_populate_store_rc(store: &Store, data: &[(DBCol, Vec<u8>, Vec<u8>)])
 }
 
 fn gen_alphabet() -> Vec<u8> {
-    let alphabet = 'a'..'z';
+    let alphabet = 'a'..='z';
     alphabet.map(|c| c as u8).collect_vec()
 }
 
