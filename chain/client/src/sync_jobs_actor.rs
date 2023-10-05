@@ -155,11 +155,12 @@ impl actix::Handler<WithSpanContext<StateSplitRequest>> for SyncJobsActor {
         msg: WithSpanContext<StateSplitRequest>,
         context: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, state_split_request) = handler_debug_span!(target: "client", msg);
+        let (_span, mut state_split_request) = handler_debug_span!(target: "client", msg);
         if Chain::retry_build_state_for_split_shards(&state_split_request) {
             // Actix implementation let's us send message to ourselves with a delay.
             // In case snapshots are not ready yet, we will retry resharding later.
             tracing::debug!(target: "client", ?state_split_request, "Snapshot missing, retrying resharding later");
+            state_split_request.curr_poll_time += RESHARDING_RETRY_TIME;
             context.notify_later(state_split_request.with_span_context(), RESHARDING_RETRY_TIME);
         } else {
             tracing::debug!(target: "client", ?state_split_request, "Starting resharding");

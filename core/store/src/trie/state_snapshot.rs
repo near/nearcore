@@ -17,9 +17,14 @@ use std::sync::TryLockError;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SnapshotError {
+    // The requested hash and the snapshot hash don't match.
     IncorrectSnapshotRequested(CryptoHash, CryptoHash),
-    SnapshotNotFound,
+    // Snapshot doesn't exist at all.
+    SnapshotNotFound(CryptoHash),
+    // Lock for snapshot acquired by another process.
+    // Most likely the StateSnapshotActor is creating a snapshot or doing compaction.
     LockWouldBlock,
+    // Any other unexpected error
     Other(String),
 }
 
@@ -28,10 +33,12 @@ impl std::fmt::Display for SnapshotError {
         match self {
             SnapshotError::IncorrectSnapshotRequested(requested, available) => write!(
                 f,
-                "Wrong state snapshot. Requested: {:?}, Available: {:?}",
+                "Wrong snapshot hash. Requested: {:?}, Available: {:?}",
                 requested, available
             ),
-            SnapshotError::SnapshotNotFound => write!(f, "No state snapshot available"),
+            SnapshotError::SnapshotNotFound(hash) => {
+                write!(f, "No state snapshot available. Requested: {:?}", hash)
+            }
             SnapshotError::LockWouldBlock => {
                 write!(f, "Accessing state snapshot would block. Retry in a few seconds.")
             }
@@ -131,7 +138,7 @@ impl ShardTries {
     ) -> Result<(Store, FlatStorageManager), SnapshotError> {
         // Taking this lock can last up to 10 seconds, if the snapshot happens to be re-created.
         let guard = self.state_snapshot().try_read()?;
-        let data = guard.as_ref().ok_or(SnapshotError::SnapshotNotFound)?;
+        let data = guard.as_ref().ok_or(SnapshotError::SnapshotNotFound(*block_hash))?;
         if &data.prev_block_hash != block_hash {
             return Err(SnapshotError::IncorrectSnapshotRequested(
                 *block_hash,
