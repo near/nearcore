@@ -179,9 +179,12 @@ pub struct ShardStateSyncResponseV2 {
 pub struct ShardStateSyncResponseV3 {
     pub header: Option<ShardStateSyncResponseHeaderV2>,
     pub part: Option<(u64, Vec<u8>)>,
-    // This is the field added in V3.
+    /// Parts that can be provided **cheaply**.
     // Can be `None` only if both `header` and `part` are `None`.
     pub cached_parts: Option<CachedParts>,
+    /// Whether the node can provide parts for this epoch of this shard.
+    /// Assumes that a node can either provide all state parts or no state parts.
+    pub can_generate: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]

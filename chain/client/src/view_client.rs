@@ -1299,56 +1299,66 @@ impl Handler<WithSpanContext<StateRequestHeader>> for ViewClientActor {
         if self.throttle_state_sync_request() {
             return None;
         }
-        if let Err(err) = self.has_state_snapshot(&sync_hash) {
-            tracing::debug!(target: "sync", ?err, ?sync_hash, "Node doesn't have a matching state snapshot");
-            return None;
-        }
         let header = match self.chain.check_sync_hash_validity(&sync_hash) {
-            Ok(true) => {
-                let header = match self.chain.get_state_response_header(shard_id, sync_hash) {
-                    Ok(header) => header,
-                    Err(err) => {
-                        error!(target: "sync", ?err, "Cannot build state sync header");
-                        return None;
-                    }
-                };
-                header
-            }
+            Ok(true) => match self.chain.get_state_response_header(shard_id, sync_hash) {
+                Ok(header) => Some(header),
+                Err(err) => {
+                    error!(target: "sync", ?err, "Cannot build state sync header");
+                    None
+                }
+            },
             Ok(false) => {
                 warn!(target: "sync", ?sync_hash, "sync_hash didn't pass validation, possible malicious behavior");
+                // Don't respond to the node, because the request was malformed.
                 return None;
             }
             Err(near_chain::Error::DBNotFoundErr(_)) => {
                 // This case may appear in case of latency in epoch switching.
                 // Request sender is ready to sync but we still didn't get the block.
                 info!(target: "sync", ?sync_hash, "Can't get sync_hash block for state request header");
-                return None;
+                None
             }
             Err(err) => {
                 error!(target: "sync", ?err, ?sync_hash, "Failed to verify sync_hash validity");
-                return None;
-            }
-        };
-        let num_parts = header.num_state_parts();
-        let cached_parts = match self.chain.get_cached_state_parts(sync_hash, shard_id, num_parts) {
-            Ok(cached_parts) => Some(cached_parts),
-            Err(err) => {
-                tracing::error!(target: "sync", ?err, ?sync_hash, shard_id, "Failed to get cached state parts");
                 None
             }
         };
-        let header = match header {
-            ShardStateSyncResponseHeader::V2(inner) => inner,
-            _ => {
-                tracing::error!(target: "sync", ?sync_hash, shard_id, "Invalid state sync header format");
-                return None;
+        let state_response = match header {
+            Some(header) => {
+                let num_parts = header.num_state_parts();
+                let cached_parts = match self
+                    .chain
+                    .get_cached_state_parts(sync_hash, shard_id, num_parts)
+                {
+                    Ok(cached_parts) => Some(cached_parts),
+                    Err(err) => {
+                        tracing::error!(target: "sync", ?err, ?sync_hash, shard_id, "Failed to get cached state parts");
+                        None
+                    }
+                };
+                let header = match header {
+                    ShardStateSyncResponseHeader::V2(inner) => inner,
+                    _ => {
+                        tracing::error!(target: "sync", ?sync_hash, shard_id, "Invalid state sync header format");
+                        return None;
+                    }
+                };
+
+                let can_generate = self.has_state_snapshot(&sync_hash).is_ok();
+                ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
+                    header: Some(header),
+                    part: None,
+                    cached_parts,
+                    can_generate,
+                })
             }
+            None => ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
+                header: None,
+                part: None,
+                cached_parts: None,
+                can_generate: false,
+            }),
         };
-        let state_response = ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
-            header: Some(header),
-            part: None,
-            cached_parts,
-        });
         let info =
             StateResponseInfo::V2(StateResponseInfoV2 { shard_id, sync_hash, state_response });
         Some(StateResponse(Box::new(info)))
