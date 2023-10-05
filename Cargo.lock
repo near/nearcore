@@ -3739,6 +3739,8 @@ dependencies = [
  "near-primitives",
  "near-store",
  "nearcore",
+ "serde",
+ "serde_json",
  "strum",
  "tracing",
 ]
