@@ -208,4 +208,19 @@ pub struct ShardChunkHeaderInnerV3 {
     pub tx_root: CryptoHash,
     /// Validator proposals from the previous chunk.
     pub prev_validator_proposals: Vec<ValidatorStake>,
+
+    /// State root after applying this chunk.
+    pub post_state_root: StateRoot,
+    /// Gas limit for the next chunk.
+    pub next_gas_limit: Gas,
+    /// Gas used in this chunk.
+    pub gas_used: Gas,
+    /// Validator proposals from this chunk.
+    pub validator_proposals: Vec<ValidatorStake>,
+    /// Root of the outcomes from execution transactions and results of this chunk.
+    pub outcome_root: CryptoHash,
+    /// Total balance burnt in this chunk.
+    pub balance_burnt: Balance,
+    /// This chunk's outgoing receipts merkle root.
+    pub outgoing_receipts_root: CryptoHash,
 }

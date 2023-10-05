@@ -2,12 +2,8 @@
 // code so we're in the clear.
 #![allow(clippy::arc_with_non_send_sync)]
 
-use std::cmp::max;
-use std::collections::{HashMap, HashSet};
-use std::ops::DerefMut;
-use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
-
+use super::block_stats::BlockStats;
+use super::peer_manager_mock::PeerManagerMock;
 use crate::adapter::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
     BlockResponse, SetNetworkInfo, StateRequestHeader, StateRequestPart,
@@ -34,12 +30,12 @@ use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::types::{AccountOrPeerIdOrHash, PeerInfo, PeerType};
 use near_network::types::{BlockInfo, PeerChainInfo};
 use near_network::types::{
     ConnectedPeerInfo, FullPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
+use near_network::types::{PeerInfo, PeerType};
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::epoch_manager::RngSeed;
@@ -56,9 +52,11 @@ use near_telemetry::TelemetryActor;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
-
-use super::block_stats::BlockStats;
-use super::peer_manager_mock::PeerManagerMock;
+use std::cmp::max;
+use std::collections::{HashMap, HashSet};
+use std::ops::DerefMut;
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 
 pub const TEST_SEED: RngSeed = [3; 32];
 
@@ -512,7 +510,7 @@ pub fn setup_mock_all_validators(
                                             height: last_height2[i],
                                             hash: CryptoHash::default(),
                                         }),
-                                        tracked_shards: vec![],
+                                        tracked_shards: vec![0, 1, 2, 3],
                                         archival: true,
                                     },
                                 },
@@ -682,15 +680,9 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::StateRequestHeader {
                             shard_id,
-                            sync_hash,
-                            target: target_account_id,
+                            sync_hash, ..
                         } => {
-                            let target_account_id = match target_account_id {
-                                AccountOrPeerIdOrHash::AccountId(x) => x,
-                                _ => panic!(),
-                            };
-                            for (i, name) in validators_clone2.iter().enumerate() {
-                                if name == target_account_id {
+                            for (i, _) in validators_clone2.iter().enumerate() {
                                     let me = connectors1[my_ord].client_actor.clone();
                                     actix::spawn(
                                         connectors1[i]
@@ -700,7 +692,7 @@ pub fn setup_mock_all_validators(
                                                     shard_id: *shard_id,
                                                     sync_hash: *sync_hash,
                                                 }
-                                                .with_span_context(),
+                                                    .with_span_context(),
                                             )
                                             .then(move |response| {
                                                 let response = response.unwrap();
@@ -713,21 +705,14 @@ pub fn setup_mock_all_validators(
                                                 future::ready(())
                                             }),
                                     );
-                                }
                             }
                         }
                         NetworkRequests::StateRequestPart {
                             shard_id,
                             sync_hash,
-                            part_id,
-                            target: target_account_id,
+                            part_id, ..
                         } => {
-                            let target_account_id = match target_account_id {
-                                AccountOrPeerIdOrHash::AccountId(x) => x,
-                                _ => panic!(),
-                            };
-                            for (i, name) in validators_clone2.iter().enumerate() {
-                                if name == target_account_id {
+                            for (i, _) in validators_clone2.iter().enumerate() {
                                     let me = connectors1[my_ord].client_actor.clone();
                                     actix::spawn(
                                         connectors1[i]
@@ -738,7 +723,7 @@ pub fn setup_mock_all_validators(
                                                     sync_hash: *sync_hash,
                                                     part_id: *part_id,
                                                 }
-                                                .with_span_context(),
+                                                    .with_span_context(),
                                             )
                                             .then(move |response| {
                                                 let response = response.unwrap();
@@ -751,7 +736,6 @@ pub fn setup_mock_all_validators(
                                                 future::ready(())
                                             }),
                                     );
-                                }
                             }
                         }
                         NetworkRequests::AnnounceAccount(announce_account) => {

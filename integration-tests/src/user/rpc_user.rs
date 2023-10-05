@@ -140,7 +140,7 @@ impl User for RpcUser {
             thread::sleep(Duration::from_millis(50));
         }
         match result {
-            Ok(outcome) => Ok(outcome),
+            Ok(outcome) => Ok(outcome.final_execution_outcome.unwrap().into_outcome()),
             Err(err) => Err(serde_json::from_value::<ServerError>(err.data.unwrap()).unwrap()),
         }
     }
@@ -186,7 +186,11 @@ impl User for RpcUser {
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
         let account_id = self.account_id.clone();
         let hash = hash.to_string();
-        self.actix(move |client| client.tx(hash, account_id)).unwrap()
+        self.actix(move |client| client.tx(hash, account_id))
+            .unwrap()
+            .final_execution_outcome
+            .unwrap()
+            .into_outcome()
     }
 
     fn get_state_root(&self) -> CryptoHash {

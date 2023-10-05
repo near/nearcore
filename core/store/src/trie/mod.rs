@@ -7,9 +7,8 @@ use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
-pub use crate::trie::shard_tries::{
-    KeyForStateChanges, ShardTries, StateSnapshot, StateSnapshotConfig, WrappedTrieChanges,
-};
+pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
+pub use crate::trie::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -36,12 +35,14 @@ mod config;
 mod from_flat;
 mod insert_delete;
 pub mod iterator;
+pub mod mem;
 mod nibble_slice;
 mod prefetching_trie_storage;
 mod raw_node;
 mod shard_tries;
 pub mod split_state;
 mod state_parts;
+mod state_snapshot;
 mod trie_recording;
 mod trie_storage;
 #[cfg(test)]
@@ -1118,13 +1119,14 @@ pub mod estimator {
 
 #[cfg(test)]
 mod tests {
+    use assert_matches::assert_matches;
     use rand::Rng;
 
     use crate::test_utils::{
         create_test_store, create_tries, create_tries_complex, gen_changes, simplify_changes,
         test_populate_trie,
     };
-    use crate::DBCol;
+    use crate::{DBCol, MissingTrieValueContext};
 
     use super::*;
 
@@ -1459,7 +1461,13 @@ mod tests {
 
         assert_eq!(trie3.get(b"dog"), Ok(Some(b"puppy".to_vec())));
         assert_eq!(trie3.get(b"horse"), Ok(Some(b"stallion".to_vec())));
-        assert_eq!(trie3.get(b"doge"), Err(StorageError::MissingTrieValue));
+        assert_matches!(
+            trie3.get(b"doge"),
+            Err(StorageError::MissingTrieValue(
+                MissingTrieValueContext::TrieMemoryPartialStorage,
+                _
+            ))
+        );
     }
 
     #[test]

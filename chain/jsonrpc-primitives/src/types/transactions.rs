@@ -42,7 +42,8 @@ pub enum RpcTransactionError {
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct RpcTransactionResponse {
     #[serde(flatten)]
-    pub final_execution_outcome: near_primitives::views::FinalExecutionOutcomeViewEnum,
+    pub final_execution_outcome: Option<near_primitives::views::FinalExecutionOutcomeViewEnum>,
+    pub final_execution_status: near_primitives::views::TxExecutionStatus,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
