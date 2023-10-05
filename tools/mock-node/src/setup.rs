@@ -287,7 +287,7 @@ mod tests {
     use near_o11y::testonly::init_integration_logger;
     use near_o11y::WithSpanContextExt;
     use near_primitives::transaction::SignedTransaction;
-    use near_store::test_utils::gen_account;
+    use near_store::test_utils::gen_account_from_alphabet;
     use nearcore::config::GenesisExt;
     use nearcore::{load_test_config, start_with_config, NEAR_BASE};
     use rand::thread_rng;
@@ -346,7 +346,7 @@ mod tests {
                                         let transaction = SignedTransaction::create_account(
                                             next_nonce,
                                             "test1".parse().unwrap(),
-                                            gen_account(&mut rng, b"abcdefghijklmn")
+                                            gen_account_from_alphabet(&mut rng, b"abcdefghijklmn")
                                                 .parse()
                                                 .unwrap(),
                                             5 * NEAR_BASE,
