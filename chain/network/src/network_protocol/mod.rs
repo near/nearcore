@@ -35,7 +35,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
-use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
+use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseV1};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -799,22 +799,6 @@ impl StateResponseInfo {
             Self::V2(info) => info.state_response,
         }
     }
-}
-
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    borsh::BorshSerialize,
-    borsh::BorshDeserialize,
-    serde::Serialize,
-)]
-pub enum AccountOrPeerIdOrHash {
-    AccountId(AccountId),
-    PeerId(PeerId),
-    Hash(CryptoHash),
 }
 
 pub(crate) struct RawRoutedMessage {

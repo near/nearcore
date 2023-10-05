@@ -29,12 +29,18 @@ pub(crate) fn test_builder() -> TestBuilder {
         view_config: None,
         output_data_receivers: vec![],
     };
+    let mut skip = HashSet::new();
+    if cfg!(not(target_arch = "x86_64")) {
+        skip.insert(VMKind::Wasmer0);
+        skip.insert(VMKind::Wasmer2);
+        skip.insert(VMKind::NearVm);
+    }
     TestBuilder {
         code: ContractCode::new(Vec::new(), None),
         context,
         method: "main".to_string(),
         protocol_versions: vec![u32::MAX],
-        skip: HashSet::new(),
+        skip,
         opaque_error: false,
         opaque_outcome: false,
     }

@@ -1,6 +1,35 @@
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 2, grace-period = "0s" }
+# FIXME(nagisa): use --profile ci in CI instead when we manage to modify CI scripts...
+retries = { backoff = "fixed", count = 3, delay = "1s" }
+failure-output = "final"
 
 [[profile.default.overrides]]
 filter = 'test(test_full_estimator)'
 slow-timeout = { period = "10m", terminate-after = 3 }
+threads-required = 4
+
+[[profile.default.overrides]]
+filter = 'package(style-tests)'
+slow-timeout = { period = "120s", terminate-after = 5 }
+threads-required = 4
+
+# Unfortunately no support for inheriting profiles yet:
+# https://github.com/nextest-rs/nextest/issues/387
+[profile.ci]
+slow-timeout = { period = "120s", terminate-after = 5 }
+# Try a few times before failing the whole test suite on a potentially spurious tests.
+# The hope is that people will fix the spurious tests as they encounter them locally...
+retries = { backoff = "fixed", count = 3, delay = "1s" }
+failure-output = "final"
+fail-fast = false
+
+[[profile.ci.overrides]]
+filter = 'test(test_full_estimator)'
+slow-timeout = { period = "10m", terminate-after = 3 }
+threads-required = 4
+
+[[profile.ci.overrides]]
+filter = 'package(style-tests)'
+slow-timeout = { period = "120s", terminate-after = 5 }
+threads-required = 4

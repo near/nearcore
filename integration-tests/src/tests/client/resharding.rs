@@ -1,20 +1,17 @@
-use borsh::BorshSerialize;
-use near_client::{Client, ProcessTxResponse};
-use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
-use near_primitives_core::num_rational::Rational32;
-use rand::rngs::StdRng;
-
 use crate::tests::client::process_blocks::set_block_protocol_version;
 use assert_matches::assert_matches;
+use borsh::BorshSerialize;
 use near_chain::near_chain_primitives::Error;
 use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::{run_catchup, TestEnv};
+use near_client::{Client, ProcessTxResponse};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, Tip};
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid};
@@ -27,16 +24,17 @@ use near_primitives::version::ProtocolFeature;
 #[cfg(not(feature = "protocol_feature_simple_nightshade_v2"))]
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryRequest};
+use near_primitives_core::num_rational::Rational32;
 use near_store::test_utils::{gen_account, gen_unique_accounts};
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
+use rand::rngs::StdRng;
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use tracing::debug;
-
-use super::utils::TestEnvNightshadeSetupExt;
 
 const SIMPLE_NIGHTSHADE_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshade.protocol_version();
@@ -160,7 +158,7 @@ impl DropChunkCondition {
 ///
 /// Note: if the test is extended to more epochs, garbage collection will
 /// kick in and delete data that is checked at the end of the test.
-struct TestShardUpgradeEnv {
+struct TestReshardingEnv {
     env: TestEnv,
     initial_accounts: Vec<AccountId>,
     init_txs: Vec<SignedTransaction>,
@@ -170,7 +168,7 @@ struct TestShardUpgradeEnv {
     rng: StdRng,
 }
 
-impl TestShardUpgradeEnv {
+impl TestReshardingEnv {
     fn new(
         epoch_length: u64,
         num_validators: usize,
@@ -196,9 +194,11 @@ impl TestShardUpgradeEnv {
         let env = TestEnv::builder(chain_genesis)
             .clients_count(num_clients)
             .validator_seats(num_validators)
+            .real_stores()
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
             .track_all_shards()
+            .use_state_snapshots()
             .build();
         assert_eq!(env.validators.len(), num_validators);
         Self {
@@ -811,7 +811,7 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_se
     // setup
     let epoch_length = 5;
     let mut test_env =
-        TestShardUpgradeEnv::new(epoch_length, 2, 2, 100, None, genesis_protocol_version, rng_seed);
+        TestReshardingEnv::new(epoch_length, 2, 2, 100, None, genesis_protocol_version, rng_seed);
     test_env.set_init_tx(vec![]);
 
     let mut nonce = 100;
@@ -879,8 +879,8 @@ fn create_test_env_for_cross_contract_test(
     genesis_protocol_version: ProtocolVersion,
     epoch_length: u64,
     rng_seed: u64,
-) -> TestShardUpgradeEnv {
-    TestShardUpgradeEnv::new(
+) -> TestReshardingEnv {
+    TestReshardingEnv::new(
         epoch_length,
         4,
         4,
@@ -893,7 +893,7 @@ fn create_test_env_for_cross_contract_test(
 
 /// Return test_env and a map from tx hash to the new account that will be added by this transaction
 fn setup_test_env_with_cross_contract_txs(
-    test_env: &mut TestShardUpgradeEnv,
+    test_env: &mut TestReshardingEnv,
     epoch_length: u64,
 ) -> HashMap<CryptoHash, AccountId> {
     let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
@@ -1302,3 +1302,4 @@ fn test_shard_layout_upgrade_missing_chunks_high_missing_prob() {
 }
 
 // TODO(resharding) add a test with missing blocks
+// TODO(resharding) add a test with deleting accounts and delayed receipts check

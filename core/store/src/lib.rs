@@ -20,7 +20,7 @@ pub use db::{
 use near_crypto::PublicKey;
 use near_fmt::{AbbrBytes, StorageKey};
 use near_primitives::account::{AccessKey, Account};
-pub use near_primitives::errors::StorageError;
+pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
 pub use near_primitives::shard_layout::ShardUId;
