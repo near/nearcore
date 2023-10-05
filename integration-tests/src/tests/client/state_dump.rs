@@ -225,9 +225,9 @@ fn run_state_sync_with_dumped_parts(
         let final_block_header = env.clients[0].chain.get_block_header(final_block_hash).unwrap();
 
         tracing::info!(
-            "dumping node: dump_node_head_height is {}, final_block_height is {}",
             dump_node_head_height,
-            final_block_header.height()
+            final_block_height = final_block_header.height(),
+            "dumping node"
         );
 
         // check if final block is in the same epoch as head for dumping node
@@ -367,7 +367,7 @@ fn run_state_sync_with_dumped_parts(
 }
 
 #[test]
-/// This test verifies that after state sync, the syncing node has the data that ccoresponds to the state of the epoch previous to the dumping node's final block.
+/// This test verifies that after state sync, the syncing node has the data that corresponds to the state of the epoch previous to the dumping node's final block.
 /// Specifically, it tests that the above holds true in both conditions:
 /// - the dumping node's head is in new epoch but final block is not;
 /// - the dumping node's head and final block are in same epoch

@@ -4737,20 +4737,24 @@ impl Chain {
         self.invalid_blocks.contains(hash)
     }
 
-    /// Check if can sync with sync_hash
+    /// Check that sync_hash is the frst block of an epoch.
     pub fn check_sync_hash_validity(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
-        let head = self.head()?;
         // It's important to check that Block exists because we will sync with it.
-        // Do not replace with `get_block_header`.
+        // Do not replace with `get_block_header()`.
         let sync_block = self.get_block(sync_hash)?;
-        // The Epoch of sync_hash must be the current one.
-        if head.epoch_id == *sync_block.header().epoch_id() {
-            let prev_hash = *sync_block.header().prev_hash();
-            // If sync_hash is not on the Epoch boundary, it's malicious behavior
-            Ok(self.epoch_manager.is_next_block_epoch_start(&prev_hash)?)
-        } else {
-            Ok(false) // invalid Epoch of sync_hash, possible malicious behavior
-        }
+        let prev_hash = *sync_block.header().prev_hash();
+        let is_first_block_of_epoch = self.epoch_manager.is_next_block_epoch_start(&prev_hash);
+        tracing::debug!(
+            target: "chain",
+            ?sync_hash,
+            ?prev_hash,
+            sync_hash_epoch_id = ?sync_block.header().epoch_id(),
+            sync_hash_next_epoch_id = ?sync_block.header().next_epoch_id(),
+            ?is_first_block_of_epoch,
+            "check_sync_hash_validity");
+
+        // If sync_hash is not on the Epoch boundary, it's malicious behavior
+        Ok(is_first_block_of_epoch?)
     }
 
     /// Get transaction result for given hash of transaction or receipt id on the canonical chain

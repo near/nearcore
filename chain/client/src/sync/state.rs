@@ -1460,6 +1460,7 @@ mod test {
                 header: Some(state_sync_header),
                 part: None,
                 cached_parts: Some(CachedParts::AllParts),
+                can_generate: true,
             });
 
             state_sync.update_download_on_state_response_message(
