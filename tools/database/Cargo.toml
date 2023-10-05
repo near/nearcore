@@ -29,12 +29,14 @@ near-primitives.workspace = true
 nightly = [
   "nightly_protocol",
   "near-chain-configs/nightly",
+  "near-epoch-manager/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
   "nearcore/nightly",
 ]
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
+  "near-epoch-manager/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
   "nearcore/nightly_protocol",

@@ -14,53 +14,53 @@ use near_primitives::state::FlatStateValue;
 /// The algorithm maintains a list of segments, where each segment represents
 /// a subpath of the last key (where path means a sequence of nibbles), and
 /// the segments' subpaths join together to form the last key.
-///
-/// To understand the algorithm, conceptually imagine a tree like this:
-///                  
-///                X
-///               / \
-///              O   X
-///                 / \
-///                /   \
-///               O     \
-///              / \     \
-///             O   O     X
-///                      / \
-///                     O   X
-/// Nodes marked with X are `TrieConstructionSegment`s, whereas nodes marked
-/// with O are already constructed, `MemTrieNodeId`s. As we build out the trie,
-/// X's will become O's. A `TrieConstructionSegment` represents an `X` along
-/// with the tail segment(s) immediately below it (as opposed to above). So
-/// the first segment in the above drawing would represent:
-///
-///                X
-///               / \
-///              O
-///
-/// this is a branch node (possibly with a leaf value), with a single child
-/// on the left (so `children` array has a single element), with the current
-/// `trail` being the edge sticking out to the right.
-///
-/// Notice that the X's always form the rightmost path of the trie. This is
-/// because anything to the left have already been determined so they are
-/// immutable. The algorithm assumes that keys are ingested in order, so we
-/// are always constructing further to the right. Suppose we encounter a new
-/// key that shares a prefix with the first segment but diverges in the middle
-/// of the second segment, like so:
-///
-///                X                                 X
-///               / \                               / \
-///              O   X                             O   X
-///                 / \                               / \
-///                /   \ <--- diverges here          /   X----+
-///               O     \                           O     \    \
-///              / \     \                         / \     \    \
-///             O   O     X         ====>         O   O     O    X
-///                      / \                               / \
-///                     O   X                             O   O
-///
-/// As the bottom two segments are no longer part of the right-most path, they
-/// are converted to concrete TrieMemNodeId's.
+//
+// To understand the algorithm, conceptually imagine a tree like this:
+//
+//                X
+//               / \
+//              O   X
+//                 / \
+//                /   \
+//               O     \
+//              / \     \
+//             O   O     X
+//                      / \
+//                     O   X
+// Nodes marked with X are `TrieConstructionSegment`s, whereas nodes marked
+// with O are already constructed, `MemTrieNodeId`s. As we build out the trie,
+// X's will become O's. A `TrieConstructionSegment` represents an `X` along
+// with the tail segment(s) immediately below it (as opposed to above). So
+// the first segment in the above drawing would represent:
+//
+//                X
+//               / \
+//              O
+//
+// this is a branch node (possibly with a leaf value), with a single child
+// on the left (so `children` array has a single element), with the current
+// `trail` being the edge sticking out to the right.
+//
+// Notice that the X's always form the rightmost path of the trie. This is
+// because anything to the left have already been determined so they are
+// immutable. The algorithm assumes that keys are ingested in order, so we
+// are always constructing further to the right. Suppose we encounter a new
+// key that shares a prefix with the first segment but diverges in the middle
+// of the second segment, like so:
+//
+//                X                                 X
+//               / \                               / \
+//              O   X                             O   X
+//                 / \                               / \
+//                /   \ <--- diverges here          /   X----+
+//               O     \                           O     \    \
+//              / \     \                         / \     \    \
+//             O   O     X         ====>         O   O     O    X
+//                      / \                               / \
+//                     O   X                             O   O
+//
+// As the bottom two segments are no longer part of the right-most path, they
+// are converted to concrete TrieMemNodeId's.
 pub struct TrieConstructor<'a> {
     arena: &'a mut Arena,
     segments: Vec<TrieConstructionSegment>,

@@ -12,6 +12,12 @@ use crate::trie::mem::arena::metrics::{
 pub struct Allocator {
     freelists: [usize; NUM_ALLOCATION_CLASSES],
     next_ptr: usize,
+
+    // Stats. Note that keep the bytes and count locally too because the
+    // gauges are process-wide, so stats-keeping directly with those may not be
+    // accurate in case multiple instances of the allocator share the same name.
+    active_allocs_bytes: usize,
+    active_allocs_count: usize,
     active_allocs_bytes_gauge: IntGauge,
     active_allocs_count_gauge: IntGauge,
     memory_usage_gauge: IntGauge,
@@ -52,6 +58,8 @@ impl Allocator {
         Self {
             freelists: [usize::MAX; NUM_ALLOCATION_CLASSES],
             next_ptr: 0,
+            active_allocs_bytes: 0,
+            active_allocs_count: 0,
             active_allocs_bytes_gauge: MEM_TRIE_ARENA_ACTIVE_ALLOCS_BYTES
                 .with_label_values(&[&name]),
             active_allocs_count_gauge: MEM_TRIE_ARENA_ACTIVE_ALLOCS_COUNT
@@ -63,8 +71,10 @@ impl Allocator {
     /// Allocates a slice of the given size in the arena.
     pub fn allocate<'a>(&mut self, arena: &'a mut ArenaMemory, size: usize) -> ArenaSliceMut<'a> {
         assert!(size <= MAX_ALLOC_SIZE, "Cannot allocate {} bytes", size);
-        self.active_allocs_bytes_gauge.add(size as i64);
-        self.active_allocs_count_gauge.inc();
+        self.active_allocs_bytes += size;
+        self.active_allocs_count += 1;
+        self.active_allocs_bytes_gauge.set(self.active_allocs_bytes as i64);
+        self.active_allocs_count_gauge.set(self.active_allocs_count as i64);
         let size_class = allocation_class(size);
         let allocation_size = allocation_size(size_class);
         if self.freelists[size_class] == usize::MAX {
@@ -91,8 +101,10 @@ impl Allocator {
     /// Deallocates the given slice from the arena; the slice's `pos` and `len`
     /// must be the same as an allocation that was returned earlier.
     pub fn deallocate(&mut self, arena: &mut ArenaMemory, pos: usize, len: usize) {
-        self.active_allocs_bytes_gauge.sub(len as i64);
-        self.active_allocs_count_gauge.dec();
+        self.active_allocs_bytes -= len;
+        self.active_allocs_count -= 1;
+        self.active_allocs_bytes_gauge.set(self.active_allocs_bytes as i64);
+        self.active_allocs_count_gauge.set(self.active_allocs_count as i64);
         let size_class = allocation_class(len);
         arena
             .slice_mut(pos, allocation_size(size_class))
@@ -102,17 +114,15 @@ impl Allocator {
 
     /// For testing.
     pub fn num_active_allocs(&self) -> usize {
-        self.active_allocs_count_gauge.get() as usize
+        self.active_allocs_count
     }
 }
 
 #[cfg(test)]
 mod test {
-    use std::mem::size_of;
-
-    use crate::trie::mem::arena::Arena;
-
     use super::MAX_ALLOC_SIZE;
+    use crate::trie::mem::arena::Arena;
+    use std::mem::size_of;
 
     #[test]
     fn test_allocate_deallocate() {
