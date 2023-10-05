@@ -6,8 +6,10 @@ use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, ExternalStorageConfig, Genesis, SyncConfig};
+use near_client::adapter::{StateRequestHeader, StateRequestPart, StateResponse};
 use near_client::test_utils::TestEnv;
 use near_client::{GetBlock, ProcessTxResponse};
+use near_client_primitives::types::GetValidatorInfo;
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout, WaitOrTimeoutActor};
@@ -15,8 +17,9 @@ use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
-use near_primitives::state_sync::StatePartKey;
+use near_primitives::state_sync::{CachedParts, StatePartKey};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{BlockId, BlockReference, EpochId, EpochReference};
 use near_primitives::utils::MaybeValidated;
 use near_primitives_core::types::ShardId;
 use near_store::DBCol;
@@ -709,5 +712,121 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 }
             }
         }
+    });
+}
+
+#[test]
+// Tests StateRequestHeader and StateRequestPart.
+fn test_state_sync_headers() {
+    heavy_test(|| {
+        init_test_logger();
+
+        run_actix(async {
+            let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
+            // Increase epoch_length if the test is flaky.
+            genesis.config.epoch_length = 50;
+
+            let mut near1 =
+                load_test_config("test1", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
+            near1.client_config.min_num_peers = 0;
+            near1.client_config.epoch_sync_enabled = false;
+            near1.client_config.tracked_shards = vec![0]; // Track all shards.
+            let dir1 =
+                tempfile::Builder::new().prefix("test_state_sync_headers").tempdir().unwrap();
+            near1.config.store.state_snapshot_enabled = true;
+            near1.config.store.state_snapshot_compaction_enabled = false;
+
+            let nearcore::NearNode { view_client: view_client1, .. } =
+                start_with_config(dir1.path(), near1).expect("start_with_config");
+
+            // First we need to find sync_hash. That is done in 3 steps:
+            // 1. Get the latest block
+            // 2. Query validators for the epoch_id of that block.
+            // 3. Get a block at 'epoch_start_height' that is found in the response of the validators method.
+            //
+            // Second, we request state sync header.
+            // Third, we request state sync part with part_id = 0.
+            wait_or_timeout(1000, 110000, || async {
+                match view_client1.send(GetBlock::latest().with_span_context()).await {
+                    Ok(Ok(b)) => {
+                        let epoch_id = b.header.epoch_id;
+                        tracing::info!(?epoch_id, "get_block latest");
+                        match view_client1.send(GetValidatorInfo { epoch_reference: EpochReference::EpochId(EpochId(epoch_id)) }.with_span_context()).await {
+                            Ok(Ok(v)) => {
+                                let epoch_start_height = v.epoch_start_height;
+                                tracing::info!(?epoch_id, epoch_start_height, "validators");
+                                match view_client1.send(GetBlock(BlockReference::BlockId(BlockId::Height(epoch_start_height))).with_span_context()).await {
+                                    Ok(Ok(b2)) => {
+                                        // Found sync_hash.
+                                        let sync_hash = b2.header.hash;
+                                        let num_shards = b2.chunks.len();
+                                        tracing::info!(?epoch_id, epoch_start_height, ?sync_hash, num_shards, prev_hash = ?b2.header.prev_hash, "get_block sync_hash");
+                                        let mut got_headers = vec![false; num_shards];
+                                        let mut got_parts = vec![false; num_shards];
+                                        for shard_id in 0..num_shards {
+                                            match view_client1.send(StateRequestHeader {
+                                                shard_id: shard_id as ShardId,
+                                                sync_hash,
+                                            }.with_span_context()).await {
+                                                Ok(Some(StateResponse(state_response_info))) => {
+                                                    let state_response = state_response_info.take_state_response();
+                                                    let cached_parts = state_response.cached_parts().clone();
+                                                    let can_generate = state_response.can_generate();
+                                                    assert!(state_response.part().is_none());
+                                                    if let Some(_header) = state_response.take_header() {
+                                                        tracing::info!(?epoch_id, epoch_start_height, ?sync_hash, num_shards, shard_id, ?cached_parts, can_generate, "StateRequestHeader got header");
+                                                        if can_generate {
+                                                            got_headers[shard_id] = true;
+                                                            match view_client1.send(StateRequestPart {
+                                                                shard_id: shard_id as ShardId,
+                                                                sync_hash,
+                                                                part_id: 0
+                                                            }.with_span_context()).await {
+                                                                Ok(Some(StateResponse(state_response_info))) => {
+                                                                    let state_response = state_response_info.take_state_response();
+                                                                    let cached_parts = state_response.cached_parts().clone();
+                                                                    let can_generate = state_response.can_generate();
+                                                                    let part = state_response.part().clone();
+                                                                    assert!(state_response.take_header().is_none());
+                                                                    if let Some((part_id, _part)) = part {
+                                                                        tracing::info!(?epoch_id, epoch_start_height, ?sync_hash, num_shards, shard_id, ?cached_parts, can_generate, part_id, "StateRequestHeader got part");
+                                                                        if can_generate && cached_parts == Some(CachedParts::AllParts) && part_id == 0 {
+                                                                            got_parts[shard_id] = true;
+                                                                        }
+                                                                    } else {
+                                                                        tracing::info!(?epoch_id, epoch_start_height, ?sync_hash, num_shards, shard_id, ?cached_parts, can_generate, "StateRequestHeader no part");
+                                                                    }
+                                                                }
+                                                                Err(_) => {}
+                                                                _ => {}
+                                                            }
+                                                        }
+                                                    } else {
+                                                        tracing::info!(?epoch_id, epoch_start_height, ?sync_hash, num_shards, shard_id, ?cached_parts, can_generate, "StateRequestHeader no header");
+                                                    }
+                                                }
+                                                Err(_) => {}
+                                                _ => {}
+                                            }
+                                        }
+                                        if got_parts.iter().all(|&x|x) {
+                                            return ControlFlow::Break(());
+                                        }
+                                    }
+                                    Err(_) => {}
+                                    _ => {}
+                                }
+                            }
+                            Err(_) => {}
+                            _ => {}
+                        }
+                    }
+                    Err(_) => {}
+                    _ => {}
+                };
+                return ControlFlow::Continue(());
+            }).await.unwrap();
+            System::current().stop();
+        });
     });
 }

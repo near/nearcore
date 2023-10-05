@@ -533,11 +533,12 @@ impl ViewClientActor {
 
     fn has_state_snapshot(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
         let header = self.chain.get_block_header(sync_hash)?;
-        let prev_hash = header.prev_hash();
-        self.runtime
-            .get_tries()
-            .get_state_snapshot(prev_hash)
-            .map_err(|err| Error::Other(err.to_string()))?;
+        let prev_header = self.chain.get_block_header(header.prev_hash())?;
+        let prev_prev_hash = prev_header.prev_hash();
+        self.runtime.get_tries().get_state_snapshot(prev_prev_hash).map_err(|err| {
+            tracing::debug!(target: "client", ?err, ?sync_hash, "has_state_snapshot");
+            Error::Other(err.to_string())
+        })?;
         Ok(true)
     }
 }
@@ -1260,7 +1261,7 @@ impl Handler<WithSpanContext<StateRequestHeader>> for ViewClientActor {
             },
             Ok(false) => {
                 warn!(target: "sync", ?sync_hash, "sync_hash didn't pass validation, possible malicious behavior");
-                // Don't respond to the node, because the request was malformed.
+                // Don't respond to the node, because the request is malformed.
                 return None;
             }
             Err(near_chain::Error::DBNotFoundErr(_)) => {
@@ -1340,36 +1341,58 @@ impl Handler<WithSpanContext<StateRequestPart>> for ViewClientActor {
             return None;
         }
         tracing::debug!(target: "sync", ?shard_id, ?sync_hash, ?part_id, "Computing state request part");
-        let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
+        let part = match self.chain.check_sync_hash_validity(&sync_hash) {
             Ok(true) => {
                 let part = match self.chain.get_state_response_part(shard_id, part_id, sync_hash) {
                     Ok(part) => Some((part_id, part)),
-                    Err(e) => {
-                        error!(target: "sync", "Cannot build sync part #{:?} (get_state_response_part): {}", part_id, e);
+                    Err(err) => {
+                        error!(target: "sync", ?err, ?sync_hash, shard_id, part_id, "Cannot build state part");
                         None
                     }
                 };
 
-                tracing::trace!(target: "sync", ?sync_hash, shard_id, part_id, "Finish computation for state request part");
-                ShardStateSyncResponseV1 { header: None, part }
+                tracing::trace!(target: "sync", ?sync_hash, shard_id, part_id, "Finished computation for state request part");
+                part
             }
             Ok(false) => {
-                warn!(target: "sync", ?sync_hash, "sync_hash didn't pass validation, possible malicious behavior");
+                warn!(target: "sync", ?sync_hash, shard_id, "sync_hash didn't pass validation, possible malicious behavior");
+                // Do not respond, possible malicious behavior.
                 return None;
             }
             Err(near_chain::Error::DBNotFoundErr(_)) => {
                 // This case may appear in case of latency in epoch switching.
                 // Request sender is ready to sync but we still didn't get the block.
                 info!(target: "sync", ?sync_hash, "Can't get sync_hash block for state request part");
-                ShardStateSyncResponseV1 { header: None, part: None }
+                None
             }
             Err(err) => {
                 error!(target: "sync", ?err, ?sync_hash, "Failed to verify sync_hash validity");
-                ShardStateSyncResponseV1 { header: None, part: None }
+                None
             }
         };
+        let num_parts = part.as_ref().and_then(|_| match self.chain.get_state_response_header(shard_id, sync_hash) {
+            Ok(header) => Some(header.num_state_parts()),
+            Err(err) => {
+                tracing::error!(target: "sync", ?err, ?sync_hash, shard_id, "Failed to get num state parts");
+                None
+            }
+        });
+        let cached_parts = num_parts.and_then(|num_parts|
+            match self.chain.get_cached_state_parts(sync_hash, shard_id, num_parts) {
+                Ok(cached_parts) => Some(cached_parts),
+                Err(err) => {
+                    tracing::error!(target: "sync", ?err, ?sync_hash, shard_id, "Failed to get cached state parts");
+                    None
+                }
+            });
+        let state_response = ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
+            header: None,
+            part,
+            cached_parts,
+            can_generate: true,
+        });
         let info =
-            StateResponseInfo::V1(StateResponseInfoV1 { shard_id, sync_hash, state_response });
+            StateResponseInfo::V2(StateResponseInfoV2 { shard_id, sync_hash, state_response });
         Some(StateResponse(Box::new(info)))
     }
 }
