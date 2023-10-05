@@ -532,9 +532,10 @@ impl ViewClientActor {
     }
 
     fn has_state_snapshot(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
+        let prev_hash = self.chain.get_block_header(sync_hash)?.prev_hash();
         self.runtime
             .get_tries()
-            .get_state_snapshot(sync_hash)
+            .get_state_snapshot(prev_hash)
             .map_err(|err| Error::Other(err.to_string()))?;
         Ok(true)
     }
@@ -1245,6 +1246,7 @@ impl Handler<WithSpanContext<StateRequestHeader>> for ViewClientActor {
             .start_timer();
         let StateRequestHeader { shard_id, sync_hash } = msg;
         if self.throttle_state_sync_request() {
+            tracing::debug!(target: "sync", ?err, ?sync_hash, "Node doesn't have a matching state snapshot");
             return None;
         }
         if let Err(err) = self.has_state_snapshot(&sync_hash) {
