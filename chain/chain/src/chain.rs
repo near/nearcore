@@ -878,7 +878,7 @@ impl Chain {
         let block_timestamp = prev_block.header().raw_timestamp();
         let block_hash = prev_block_hash;
         let random_seed = *prev_block.header().random_value();
-        let gas_price = prev_block.header().gas_price();
+        let gas_price = prev_block.header().next_gas_price();
 
         self.runtime_adapter.apply_transactions(
             shard_id,
@@ -2532,7 +2532,7 @@ impl Chain {
         let prev = self.get_previous_header(header)?;
         let prev_hash = *prev.hash();
         let prev_prev_hash = *prev.prev_hash();
-        let prev_gas_price = prev.gas_price();
+        let gas_price = prev.next_gas_price();
         let prev_random_value = *prev.random_value();
         let prev_height = prev.height();
 
@@ -2574,7 +2574,7 @@ impl Chain {
 
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
         if !block.verify_gas_price(
-            prev_gas_price,
+            gas_price,
             self.block_economics_config.min_gas_price(protocol_version),
             self.block_economics_config.max_gas_price(protocol_version),
             self.block_economics_config.gas_price_adjustment_rate(protocol_version),
@@ -4117,7 +4117,7 @@ impl Chain {
         let block_hash = *block.hash();
         let challenges_result = block.header().challenges_result().clone();
         let block_timestamp = block.header().raw_timestamp();
-        let gas_price = prev_block.header().gas_price();
+        let gas_price = prev_block.header().next_gas_price();
         let random_seed = *block.header().random_value();
         let height = chunk_header.height_included();
         let prev_block_hash = *chunk_header.prev_block_hash();
@@ -4192,7 +4192,7 @@ impl Chain {
         let block_hash = *block.hash();
         let challenges_result = block.header().challenges_result().clone();
         let block_timestamp = block.header().raw_timestamp();
-        let gas_price = block.header().gas_price();
+        let gas_price = block.header().next_gas_price();
         let random_seed = *block.header().random_value();
         let height = block.header().height();
         let prev_block_hash = *prev_block.hash();
@@ -5674,9 +5674,9 @@ impl<'a> ChainUpdate<'a> {
         let receipts = collect_receipts_from_response(&receipt_proof_response);
         // Prev block header should be present during state sync, since headers have been synced at this point.
         let gas_price = if block_header.height() == self.chain_store_update.get_genesis_height() {
-            block_header.gas_price()
+            block_header.next_gas_price()
         } else {
-            self.chain_store_update.get_block_header(block_header.prev_hash())?.gas_price()
+            self.chain_store_update.get_block_header(block_header.prev_hash())?.next_gas_price()
         };
 
         let chunk_header = chunk.cloned_header();
@@ -5791,7 +5791,7 @@ impl<'a> ChainUpdate<'a> {
             &[],
             &[],
             chunk_extra.validator_proposals(),
-            prev_block_header.gas_price(),
+            prev_block_header.next_gas_price(),
             chunk_extra.gas_limit(),
             block_header.challenges_result(),
             *block_header.random_value(),

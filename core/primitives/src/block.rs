@@ -254,8 +254,8 @@ impl Block {
                 chunk_mask.push(false);
             }
         }
-        let new_gas_price = Self::compute_new_gas_price(
-            prev.gas_price(),
+        let next_gas_price = Self::compute_next_gas_price(
+            prev.next_gas_price(),
             gas_used,
             gas_limit,
             gas_price_adjustment_rate,
@@ -314,7 +314,7 @@ impl Block {
             block_ordinal,
             epoch_id,
             next_epoch_id,
-            new_gas_price,
+            next_gas_price,
             new_total_supply,
             challenges_result,
             signer,
@@ -354,29 +354,29 @@ impl Block {
 
     pub fn verify_gas_price(
         &self,
-        prev_gas_price: Balance,
+        gas_price: Balance,
         min_gas_price: Balance,
         max_gas_price: Balance,
         gas_price_adjustment_rate: Rational32,
     ) -> bool {
         let gas_used = Self::compute_gas_used(self.chunks().iter(), self.header().height());
         let gas_limit = Self::compute_gas_limit(self.chunks().iter(), self.header().height());
-        let expected_price = Self::compute_new_gas_price(
-            prev_gas_price,
+        let expected_price = Self::compute_next_gas_price(
+            gas_price,
             gas_used,
             gas_limit,
             gas_price_adjustment_rate,
             min_gas_price,
             max_gas_price,
         );
-        self.header().gas_price() == expected_price
+        self.header().next_gas_price() == expected_price
     }
 
-    /// Computes the new gas price according to the formula:
-    ///   gas_price = prev_gas_price * (1 + (gas_used/gas_limit - 1/2) * adjustment_rate)
+    /// Computes gas price for applying chunks in the next block according to the formula:
+    ///   next_gas_price = gas_price * (1 + (gas_used/gas_limit - 1/2) * adjustment_rate)
     /// and clamped between min_gas_price and max_gas_price.
-    pub fn compute_new_gas_price(
-        prev_gas_price: Balance,
+    pub fn compute_next_gas_price(
+        gas_price: Balance,
         gas_used: Gas,
         gas_limit: Gas,
         gas_price_adjustment_rate: Rational32,
@@ -385,7 +385,7 @@ impl Block {
     ) -> Balance {
         // If block was skipped, the price does not change.
         if gas_limit == 0 {
-            return prev_gas_price;
+            return gas_price;
         }
 
         let gas_used = u128::from(gas_used);
@@ -399,10 +399,10 @@ impl Block {
             + 2 * adjustment_rate_numer * gas_used
             - adjustment_rate_numer * gas_limit;
         let denominator = 2 * adjustment_rate_denom * gas_limit;
-        let new_gas_price =
-            U256::from(prev_gas_price) * U256::from(numerator) / U256::from(denominator);
+        let next_gas_price =
+            U256::from(gas_price) * U256::from(numerator) / U256::from(denominator);
 
-        new_gas_price.clamp(U256::from(min_gas_price), U256::from(max_gas_price)).as_u128()
+        next_gas_price.clamp(U256::from(min_gas_price), U256::from(max_gas_price)).as_u128()
     }
 
     pub fn compute_state_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(

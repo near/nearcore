@@ -789,7 +789,7 @@ impl From<BlockHeader> for BlockHeaderView {
             } else {
                 None
             },
-            gas_price: header.gas_price(),
+            gas_price: header.next_gas_price(),
             rent_paid: 0,
             validator_reward: 0,
             total_supply: header.total_supply(),

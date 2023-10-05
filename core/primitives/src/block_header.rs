@@ -215,7 +215,7 @@ pub struct BlockHeaderInnerRestV5 {
     pub prev_validator_proposals: Vec<ValidatorStake>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
-    /// Gas price for all chunks in the next block.
+    /// Gas price for chunks in the next block.
     pub next_gas_price: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
@@ -496,7 +496,7 @@ impl BlockHeader {
         block_ordinal: NumBlocks,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
-        gas_price: Balance,
+        next_gas_price: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
         signer: &dyn ValidatorSigner,
@@ -539,7 +539,7 @@ impl BlockHeader {
                     .map(|v| v.into_v1())
                     .collect(),
                 chunk_mask,
-                gas_price,
+                gas_price: next_gas_price,
                 total_supply,
                 challenges_result,
                 last_final_block,
@@ -571,7 +571,7 @@ impl BlockHeader {
                     .map(|v| v.into_v1())
                     .collect(),
                 chunk_mask,
-                gas_price,
+                gas_price: next_gas_price,
                 total_supply,
                 challenges_result,
                 last_final_block,
@@ -600,7 +600,7 @@ impl BlockHeader {
                 random_value,
                 prev_validator_proposals,
                 chunk_mask,
-                gas_price,
+                gas_price: next_gas_price,
                 block_ordinal,
                 total_supply,
                 challenges_result,
@@ -633,7 +633,7 @@ impl BlockHeader {
                 random_value,
                 prev_validator_proposals,
                 chunk_mask,
-                gas_price,
+                gas_price: next_gas_price,
                 block_ordinal,
                 total_supply,
                 challenges_result,
@@ -1044,7 +1044,7 @@ impl BlockHeader {
     }
 
     #[inline]
-    pub fn gas_price(&self) -> Balance {
+    pub fn next_gas_price(&self) -> Balance {
         match self {
             BlockHeader::BlockHeaderV1(header) => header.inner_rest.gas_price,
             BlockHeader::BlockHeaderV2(header) => header.inner_rest.gas_price,
