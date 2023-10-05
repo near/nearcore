@@ -1,15 +1,22 @@
 use crate::storage_mutator::StorageMutator;
 use near_chain::types::Tip;
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode};
+use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::AccessKey;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::{
     account::Account, borsh::BorshSerialize, hash::CryptoHash, types::AccountInfo,
 };
-use near_store::{flat::FlatStorageStatus, DBCol, Mode, NodeStorage, HEAD_KEY};
-use nearcore::{load_config, NightshadeRuntime, NEAR_BASE};
+use near_store::{
+    checkpoint_hot_storage_and_cleanup_columns, flat::FlatStorageStatus, DBCol, HEAD_KEY,
+};
+use nearcore::{load_config, open_storage, NightshadeRuntime, NEAR_BASE};
+use serde::Deserialize;
+use std::fs::File;
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use strum::IntoEnumIterator;
 
@@ -19,6 +26,17 @@ pub struct ForkNetworkCommand {
     pub reset: bool,
     #[arg(short, long, default_value = "1000")]
     pub epoch_length: u64,
+    /// Path to the JSON list of the first epoch validators and their public keys relative to `home_dir`.
+    #[arg(short, long)]
+    pub validators: PathBuf,
+    #[arg(long, default_value = "-fork")]
+    pub chain_id_suffix: String,
+}
+
+#[derive(Deserialize)]
+struct Validator {
+    account_id: AccountId,
+    public_key: PublicKey,
 }
 
 impl ForkNetworkCommand {
@@ -28,68 +46,27 @@ impl ForkNetworkCommand {
         genesis_validation: GenesisValidationMode,
     ) -> anyhow::Result<()> {
         if self.reset {
-            let near_config = load_config(home_dir, GenesisValidationMode::UnsafeFast)
-                .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-
-            let store_path = home_dir
-                .join(near_config.config.store.path.clone().unwrap_or(PathBuf::from("data")));
-            let fork_snapshot_path = store_path.join("fork-snapshot");
-            if !Path::new(&fork_snapshot_path).exists() {
-                panic!("Fork snapshot does not exist");
-            }
-            println!("Removing all current data");
-            for entry in std::fs::read_dir(&store_path)? {
-                let entry = entry?;
-                if entry.file_type()?.is_file() {
-                    std::fs::remove_file(&entry.path())?;
-                }
-            }
-            println!("Restoring fork snapshot");
-            for entry in std::fs::read_dir(&fork_snapshot_path)? {
-                let entry = entry?;
-                std::fs::rename(&entry.path(), &store_path.join(entry.file_name()))?;
-            }
-            std::fs::remove_dir(&fork_snapshot_path)?;
-
-            println!("Restoring genesis file");
-            let genesis_path = home_dir.join(near_config.config.genesis_file.clone() + ".backup");
-            let original_genesis_path = home_dir.join(&near_config.config.genesis_file);
-            std::fs::rename(&genesis_path, &original_genesis_path)?;
-            return Ok(());
+            return self.reset(home_dir);
         }
-        let near_config = load_config(home_dir, genesis_validation)
+        // Load config and check flat storage param
+        let mut near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         if !near_config.config.store.flat_storage_creation_enabled {
             panic!("Flat storage must be enabled");
         }
 
-        if near_config.validator_signer.is_none() {
-            panic!("Validator ID is required; please set up validator_keys.json");
-        }
-
-        let store_opener = NodeStorage::opener(
-            home_dir,
-            near_config.config.archive,
-            &near_config.config.store,
-            None,
-        );
+        // open storage with migration
+        let storage = open_storage(&home_dir, &mut near_config).unwrap();
+        let store = storage.get_hot_store();
 
         let store_path =
             home_dir.join(near_config.config.store.path.clone().unwrap_or(PathBuf::from("data")));
         let fork_snapshot_path = store_path.join("fork-snapshot");
 
         println!("Creating snapshot of original db into {}", fork_snapshot_path.display());
-        let migration_snapshot_path = store_opener
-            .create_snapshots(Mode::ReadWrite)?
-            .0
-             .0
-            .clone()
-            .expect("Migration snapshot must be enabled");
-        std::fs::rename(&migration_snapshot_path, &fork_snapshot_path)?;
-
-        let storage = store_opener.open_in_mode(Mode::ReadWrite).unwrap();
-        let store = storage.get_hot_store();
+        // checkpointing only hot storage, because cold storage will not be changed
+        checkpoint_hot_storage_and_cleanup_columns(&store, &fork_snapshot_path, None).unwrap();
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
@@ -141,14 +118,6 @@ impl ForkNetworkCommand {
             .map(|chunk| chunk.prev_state_root())
             .collect::<Vec<_>>();
 
-        // TODO(robin-near): Make this part customizable via some kind of config file.
-        let self_validator = near_config.validator_signer.as_ref().unwrap();
-        let self_account = AccountInfo {
-            account_id: self_validator.validator_id().clone(),
-            amount: 50_000 * NEAR_BASE,
-            public_key: self_validator.public_key(),
-        };
-
         let mut storage_mutator = StorageMutator::new(
             epoch_manager.clone(),
             &*runtime,
@@ -160,16 +129,36 @@ impl ForkNetworkCommand {
         let runtime_config_store = RuntimeConfigStore::new(None);
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
         let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
+
+        let mut new_validator_accounts = vec![];
+
         let liquid_balance = 100_000_000 * NEAR_BASE;
-        storage_mutator.set_account(
-            self_validator.validator_id().clone(),
-            Account::new(liquid_balance, self_account.amount, CryptoHash::default(), storage_bytes),
-        )?;
-        storage_mutator.set_access_key(
-            self_account.account_id.clone(),
-            self_account.public_key.clone(),
-            AccessKey::full_access(),
-        )?;
+        let new_validators: Vec<Validator> = serde_json::from_reader(BufReader::new(
+            File::open(home_dir.join(self.validators)).expect("Failed to open validators JSON"),
+        ))
+        .expect("Failed to read validators JSON");
+        for validator in new_validators.into_iter() {
+            let validator_account = AccountInfo {
+                account_id: validator.account_id,
+                amount: 50_000 * NEAR_BASE,
+                public_key: validator.public_key,
+            };
+            new_validator_accounts.push(validator_account.clone());
+            storage_mutator.set_account(
+                validator_account.account_id.clone(),
+                Account::new(
+                    liquid_balance,
+                    validator_account.amount,
+                    CryptoHash::default(),
+                    storage_bytes,
+                ),
+            )?;
+            storage_mutator.set_access_key(
+                validator_account.account_id,
+                validator_account.public_key,
+                AccessKey::full_access(),
+            )?;
+        }
 
         let new_state_roots = storage_mutator.commit()?;
 
@@ -179,7 +168,7 @@ impl ForkNetworkCommand {
         let original_config = near_config.genesis.config.clone();
 
         let new_config = GenesisConfig {
-            chain_id: original_config.chain_id.clone() + "-fork",
+            chain_id: original_config.chain_id.clone() + self.chain_id_suffix.as_str(),
             genesis_height: fork_head_block.header().height(),
             genesis_time: fork_head_block.header().timestamp(),
             epoch_length: self.epoch_length,
@@ -204,7 +193,7 @@ impl ForkNetworkCommand {
             minimum_stake_ratio: epoch_config.validator_selection_config.minimum_stake_ratio,
             dynamic_resharding: false,
             protocol_version: epoch_info.protocol_version(),
-            validators: vec![self_account],
+            validators: new_validator_accounts,
             gas_price_adjustment_rate: original_config.gas_price_adjustment_rate,
             gas_limit: original_config.gas_limit,
             max_gas_price: original_config.max_gas_price,
@@ -241,5 +230,37 @@ impl ForkNetworkCommand {
 
         println!("All Done! Run the node normally to start the forked network.");
         Ok(())
+    }
+
+    fn reset(self, home_dir: &Path) -> anyhow::Result<()> {
+        let near_config = load_config(home_dir, GenesisValidationMode::UnsafeFast)
+            .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+
+        let store_path =
+            home_dir.join(near_config.config.store.path.clone().unwrap_or(PathBuf::from("data")));
+        // '/data' prefix comes from the use of `checkpoint_hot_storage_and_cleanup_columns` fn
+        let fork_snapshot_path = store_path.join("fork-snapshot/data");
+        if !Path::new(&fork_snapshot_path).exists() {
+            panic!("Fork snapshot does not exist");
+        }
+        println!("Removing all current data");
+        for entry in std::fs::read_dir(&store_path)? {
+            let entry = entry?;
+            if entry.file_type()?.is_file() {
+                std::fs::remove_file(&entry.path())?;
+            }
+        }
+        println!("Restoring fork snapshot");
+        for entry in std::fs::read_dir(&fork_snapshot_path)? {
+            let entry = entry?;
+            std::fs::rename(&entry.path(), &store_path.join(entry.file_name()))?;
+        }
+        std::fs::remove_dir(&fork_snapshot_path)?;
+
+        println!("Restoring genesis file");
+        let genesis_path = home_dir.join(near_config.config.genesis_file.clone() + ".backup");
+        let original_genesis_path = home_dir.join(&near_config.config.genesis_file);
+        std::fs::rename(&genesis_path, &original_genesis_path)?;
+        return Ok(());
     }
 }
