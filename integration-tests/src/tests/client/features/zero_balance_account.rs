@@ -23,7 +23,7 @@ use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
 
 /// Assert that an account exists and has zero balance
-fn assert_zero_balance_account(env: &mut TestEnv, account_id: &AccountId) {
+fn assert_zero_balance_account(env: &TestEnv, account_id: &AccountId) {
     let head = env.clients[0].chain.head().unwrap();
     let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
     let response = env.clients[0]

@@ -870,9 +870,7 @@ pub(crate) fn state_part_header_exists(
 
 // Final checks
 
-pub(crate) fn block_height_cmp_tail_final(
-    sv: &mut StoreValidator,
-) -> Result<(), StoreValidatorError> {
+pub(crate) fn block_height_cmp_tail_final(sv: &StoreValidator) -> Result<(), StoreValidatorError> {
     let len = sv.inner.block_heights_less_tail.len();
     if len >= 2 {
         let blocks = &sv.inner.block_heights_less_tail;
@@ -881,7 +879,7 @@ pub(crate) fn block_height_cmp_tail_final(
     Ok(())
 }
 
-pub(crate) fn tx_refcount_final(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
+pub(crate) fn tx_refcount_final(sv: &StoreValidator) -> Result<(), StoreValidatorError> {
     if let Some(tx_refcount) = sv.inner.tx_refcount.iter().next() {
         err!(
             "Found {:?} Txs that are not counted, e.g. {:?}",
@@ -892,7 +890,7 @@ pub(crate) fn tx_refcount_final(sv: &mut StoreValidator) -> Result<(), StoreVali
     Ok(())
 }
 
-pub(crate) fn receipt_refcount_final(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
+pub(crate) fn receipt_refcount_final(sv: &StoreValidator) -> Result<(), StoreValidatorError> {
     if let Some(receipt_refcount) = sv.inner.receipt_refcount.iter().next() {
         err!(
             "Found {:?} receipts that are not counted, e.g. {:?}",
@@ -903,7 +901,7 @@ pub(crate) fn receipt_refcount_final(sv: &mut StoreValidator) -> Result<(), Stor
     Ok(())
 }
 
-pub(crate) fn block_refcount_final(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
+pub(crate) fn block_refcount_final(sv: &StoreValidator) -> Result<(), StoreValidatorError> {
     let block_refcount_len = sv.inner.block_refcount.len();
     if block_refcount_len >= 2 {
         err!(
