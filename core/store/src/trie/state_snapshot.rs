@@ -1,5 +1,5 @@
 use crate::db::STATE_SNAPSHOT_KEY;
-use crate::flat::{FlatStorageManager, FlatStorageStatus};
+use crate::flat::FlatStorageManager;
 use crate::Mode;
 use crate::{checkpoint_hot_storage_and_cleanup_columns, metrics, DBCol, NodeStorage};
 use crate::{option_to_not_found, ShardTries};
@@ -9,6 +9,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
+
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -119,11 +120,6 @@ impl StateSnapshot {
             }
         }
         Self { prev_block_hash, store, flat_storage_manager }
-    }
-
-    /// Returns status of a shard of a flat storage in the state snapshot.
-    pub fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus {
-        self.flat_storage_manager.get_flat_storage_status(shard_uid)
     }
 }
 
