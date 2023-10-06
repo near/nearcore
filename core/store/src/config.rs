@@ -1,10 +1,18 @@
+use crate::trie::{
+    DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
+};
+use crate::DBCol;
 use near_primitives::shard_layout::ShardUId;
 use std::time::Duration;
 use std::{collections::HashMap, iter::FromIterator};
 
-use crate::trie::{
-    DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
-};
+/// Cache size for DBCol::FlatState column
+/// Default value: 128MiB
+/// This value was tuned in after we removed filter and index block from block cache
+/// and slightly improved read speed for FlatState and reduced memory footprint in
+/// #9389
+/// This is purposefully hardcoded to avoid additional config.json parameters.
+const FLAT_COLUMN_BLOCK_CACHE_SIZE: bytesize::ByteSize = bytesize::ByteSize::mib(128);
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -164,10 +172,10 @@ impl StoreConfig {
     }
 
     /// Returns cache size for given column.
-    pub const fn col_cache_size(&self, col: crate::DBCol) -> bytesize::ByteSize {
+    pub const fn col_cache_size(&self, col: DBCol) -> bytesize::ByteSize {
         match col {
-            crate::DBCol::State => self.col_state_cache_size,
-            crate::DBCol::FlatState => self.col_state_cache_size,
+            DBCol::State => self.col_state_cache_size,
+            DBCol::FlatState => FLAT_COLUMN_BLOCK_CACHE_SIZE,
             _ => bytesize::ByteSize::mib(32),
         }
     }
