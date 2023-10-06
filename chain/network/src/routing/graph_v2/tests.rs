@@ -624,7 +624,7 @@ async fn test_distance_vector_nonce_expiration() {
         prune_edges_after: Some(PRUNE_EDGES_AFTER),
     }));
 
-    let initial_nonce = clock.now_utc().unix_timestamp() as u64;
+    let initial_nonce = Edge::create_fresh_nonce(&clock.clock());
 
     // Add a peer node1 which advertises node2 behind it; 0--1--2
     let node1 = random_peer_id();
@@ -663,7 +663,7 @@ async fn test_distance_vector_nonce_refresh() {
         prune_edges_after: Some(PRUNE_EDGES_AFTER),
     }));
 
-    let initial_nonce = clock.now_utc().unix_timestamp() as u64;
+    let initial_nonce = Edge::create_fresh_nonce(&clock.clock());
 
     // Add a peer node1 which advertises node2 behind it; 0--1--2
     let node1 = random_peer_id();
@@ -684,23 +684,37 @@ async fn test_distance_vector_nonce_refresh() {
 
     // Advance the clock, then refresh the nonces on the stored edges;
     clock.advance(PRUNE_EDGES_AFTER / 2);
-
-    let refreshed_nonce = clock.now_utc().unix_timestamp() as u64;
-
+    let refreshed_nonce = Edge::create_fresh_nonce(&clock.clock());
     let edge01 = Edge::make_fake_edge(node0.clone(), node1.clone(), refreshed_nonce);
     let edge12 = Edge::make_fake_edge(node1.clone(), node2, refreshed_nonce);
 
     graph
-        .process_network_event(NetworkTopologyChange::EdgeNonceRefresh(vec![edge01, edge12]))
-        .await
-        .unwrap();
+        .process_network_event(NetworkTopologyChange::EdgeNonceRefresh(vec![
+            edge01,
+            edge12.clone(),
+        ]))
+        .await;
 
     // Further advance the clock until the edges in the original DistanceVector shared by node1 expire
     clock.advance(PRUNE_EDGES_AFTER / 2 + time::Duration::seconds(1));
 
-    // Recompute routes
+    // Recompute routes and check that the distance vector did not expire
     graph.recompute_routes(&clock.clock()).await;
-
-    // Check that the distance vector did not expire
     assert!(graph.has_distance_vector(&node1));
+
+    // Advance the clock again, then refresh only edge01
+    clock.advance(PRUNE_EDGES_AFTER / 2);
+    let refreshed_nonce = Edge::create_fresh_nonce(&clock.clock());
+    let edge01 = Edge::make_fake_edge(node0.clone(), node1.clone(), refreshed_nonce);
+
+    graph
+        .process_network_event(NetworkTopologyChange::EdgeNonceRefresh(vec![edge01, edge12]))
+        .await;
+
+    // Further advance the clock so that edge12 expires
+    clock.advance(PRUNE_EDGES_AFTER / 2 + time::Duration::seconds(1));
+
+    // Recompute routes and check that the distance vector expires
+    graph.recompute_routes(&clock.clock()).await;
+    assert!(!graph.has_distance_vector(&node1));
 }

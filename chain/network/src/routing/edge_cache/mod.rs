@@ -285,8 +285,8 @@ impl EdgeCache {
     /// If we have a tree stored for the given peer,
     /// returns the min nonce among the edges in the tree.
     ///
-    /// Returns None if no tree is stored, or if no nonce
-    /// is available for any of the edges in the tree.
+    /// Returns None if no tree is stored.
+    /// Returns None if for any edge in the tree, no nonce is available.
     pub fn get_min_nonce(&mut self, peer_id: &PeerId) -> Option<u64> {
         let edge_keys = self.active_trees.get(peer_id)?;
 

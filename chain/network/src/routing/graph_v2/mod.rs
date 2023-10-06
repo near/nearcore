@@ -353,7 +353,7 @@ impl Inner {
         for e in edges {
             // TODO(saketh): deprecate tombstones entirely
             if e.edge_type() != EdgeState::Active {
-                return false;
+                continue;
             }
 
             // TODO (saketh): After V1 routing is deprecated, we will need to actually perform
