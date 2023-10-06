@@ -15,8 +15,8 @@ use near_primitives::{
 use near_store::{flat::FlatStateChanges, ShardTries, TrieUpdate};
 use nearcore::NightshadeRuntime;
 
-/// Object that updates the existing state.
-/// Combines all changes, commits them and returns new state roots of all shards.
+/// Object that updates the existing state. Combines all changes, commits them
+/// and returns new state roots.
 pub(crate) struct StorageMutator {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     epoch_id: EpochId,
