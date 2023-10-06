@@ -15,7 +15,7 @@ use near_primitives::types::ShardId;
 use near_store::DBCol;
 use std::time::Duration;
 
-const RESHARDING_RETRY_TIME: Duration = Duration::from_secs(10);
+const RESHARDING_RETRY_TIME: Duration = Duration::from_secs(30);
 
 pub(crate) struct SyncJobsActor {
     pub(crate) client_addr: actix::Addr<ClientActor>,

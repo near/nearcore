@@ -17,6 +17,8 @@ use std::sync::TryLockError;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SnapshotError {
+    // Snapshot is disabled.
+    SnapshotConfigDisabled,
     // The requested hash and the snapshot hash don't match.
     IncorrectSnapshotRequested(CryptoHash, CryptoHash),
     // Snapshot doesn't exist at all.
@@ -31,6 +33,9 @@ pub enum SnapshotError {
 impl std::fmt::Display for SnapshotError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            SnapshotError::SnapshotConfigDisabled => {
+                write!(f, "State snapshots are disabled in the config")
+            }
             SnapshotError::IncorrectSnapshotRequested(requested, available) => write!(
                 f,
                 "Wrong snapshot hash. Requested: {:?}, Available: {:?}",
@@ -119,7 +124,7 @@ impl StateSnapshot {
 }
 
 /// Information needed to make a state snapshot.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum StateSnapshotConfig {
     /// Don't make any state snapshots.
     Disabled,
@@ -136,6 +141,9 @@ impl ShardTries {
         &self,
         block_hash: &CryptoHash,
     ) -> Result<(Store, FlatStorageManager), SnapshotError> {
+        if *self.state_snapshot_config() == StateSnapshotConfig::Disabled {
+            return Err(SnapshotError::SnapshotConfigDisabled);
+        }
         // Taking this lock can last up to 10 seconds, if the snapshot happens to be re-created.
         let guard = self.state_snapshot().try_read()?;
         let data = guard.as_ref().ok_or(SnapshotError::SnapshotNotFound(*block_hash))?;
