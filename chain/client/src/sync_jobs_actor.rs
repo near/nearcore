@@ -1,4 +1,5 @@
 use crate::ClientActor;
+use actix::AsyncContext;
 use borsh::BorshSerialize;
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
@@ -12,6 +13,9 @@ use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::ShardId;
 use near_store::DBCol;
+use std::time::Duration;
+
+const RESHARDING_RETRY_TIME: Duration = Duration::from_secs(30);
 
 pub(crate) struct SyncJobsActor {
     pub(crate) client_addr: actix::Addr<ClientActor>,
@@ -149,11 +153,19 @@ impl actix::Handler<WithSpanContext<StateSplitRequest>> for SyncJobsActor {
     fn handle(
         &mut self,
         msg: WithSpanContext<StateSplitRequest>,
-        _: &mut Self::Context,
+        context: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "client", msg);
-        tracing::debug!(target: "client", ?msg);
-        let response = Chain::build_state_for_split_shards(msg);
-        self.client_addr.do_send(response.with_span_context());
+        let (_span, mut state_split_request) = handler_debug_span!(target: "client", msg);
+        if Chain::retry_build_state_for_split_shards(&state_split_request) {
+            // Actix implementation let's us send message to ourselves with a delay.
+            // In case snapshots are not ready yet, we will retry resharding later.
+            tracing::debug!(target: "client", ?state_split_request, "Snapshot missing, retrying resharding later");
+            state_split_request.curr_poll_time += RESHARDING_RETRY_TIME;
+            context.notify_later(state_split_request.with_span_context(), RESHARDING_RETRY_TIME);
+        } else {
+            tracing::debug!(target: "client", ?state_split_request, "Starting resharding");
+            let response = Chain::build_state_for_split_shards(state_split_request);
+            self.client_addr.do_send(response.with_span_context());
+        }
     }
 }

@@ -19,14 +19,17 @@ use near_store::flat::{
     store_helper, BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
 };
 use near_store::split_state::get_delayed_receipts;
+use near_store::trie::SnapshotError;
 use near_store::{ShardTries, ShardUId, Store, Trie, TrieDBStorage, TrieStorage};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::debug;
 
 // This is the approx batch size of the trie key, value pair entries that are written to the child shard trie.
 const RESHARDING_BATCH_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(300 * bytesize::MIB);
+const MAX_RESHARDING_POLL_TIME: Duration = Duration::from_secs(5 * 60 * 60); // 5 hrs
 
 /// StateSplitRequest has all the information needed to start a resharding job. This message is sent
 /// from ClientActor to SyncJobsActor. We do not want to stall the ClientActor with a long running
@@ -46,6 +49,8 @@ pub struct StateSplitRequest {
     // state root of the parent shardUId. This is different from block sync_hash
     pub state_root: StateRoot,
     pub next_epoch_shard_layout: ShardLayout,
+    // Time we've spent polling for the state snapshot to be ready. We autofail after a certain time.
+    pub curr_poll_time: Duration,
 }
 
 // Skip `runtime_adapter`, because it's a complex object that has complex logic
@@ -196,6 +201,7 @@ impl Chain {
             shard_uid,
             state_root,
             next_epoch_shard_layout,
+            curr_poll_time: Duration::ZERO,
         });
 
         RESHARDING_STATUS
@@ -203,6 +209,24 @@ impl Chain {
             .set(ReshardingStatus::Scheduled.into());
 
         Ok(())
+    }
+
+    /// Function to check whether the snapshot is ready for resharding or not. We return true if the snapshot is not
+    /// ready and we need to retry/reschedule the resharding job.
+    pub fn retry_build_state_for_split_shards(state_split_request: &StateSplitRequest) -> bool {
+        let StateSplitRequest { tries, prev_prev_hash, curr_poll_time, .. } = state_split_request;
+        // Do not retry if we have spent more than MAX_RESHARDING_POLL_TIME
+        // The error would be caught in build_state_for_split_shards and propagated to client actor
+        if curr_poll_time > &MAX_RESHARDING_POLL_TIME {
+            return false;
+        }
+        tries.get_state_snapshot(prev_prev_hash).is_err_and(|err| match err {
+            SnapshotError::SnapshotNotFound(_) => true,
+            SnapshotError::LockWouldBlock => true,
+            SnapshotError::SnapshotConfigDisabled => false,
+            SnapshotError::IncorrectSnapshotRequested(_, _) => false,
+            SnapshotError::Other(_) => false,
+        })
     }
 
     pub fn build_state_for_split_shards(
@@ -248,7 +272,9 @@ impl Chain {
         // The snapshot when created has the flat head as of `prev_prev_hash`, i.e. the hash as
         // of the second last block of the previous epoch. Hence we need to append the detla
         // changes on top of it.
-        let (snapshot_store, flat_storage_manager) = tries.get_state_snapshot(&prev_prev_hash)?;
+        let (snapshot_store, flat_storage_manager) = tries
+            .get_state_snapshot(&prev_prev_hash)
+            .map_err(|err| StorageInconsistentState(err.to_string()))?;
         let flat_storage_chunk_view =
             flat_storage_manager.chunk_view(shard_uid, prev_prev_hash).ok_or_else(|| {
                 StorageInconsistentState("Chunk view missing for snapshot flat storage".to_string())
@@ -260,7 +286,7 @@ impl Chain {
             });
 
         let delta = store_helper::get_delta_changes(&snapshot_store, shard_uid, prev_hash)
-            .map_err(|e| StorageInconsistentState(e.to_string()))?
+            .map_err(|err| StorageInconsistentState(err.to_string()))?
             .ok_or_else(|| {
                 StorageInconsistentState("Delta missing for snapshot flat storage".to_string())
             })?;

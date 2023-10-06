@@ -13,7 +13,9 @@ use near_primitives::{
 use near_store::{flat::FlatStateChanges, ShardTries, TrieUpdate};
 use nearcore::NightshadeRuntime;
 
-pub struct StorageMutator {
+/// Object that updates the existing state. Combines all changes, commits them
+/// and returns new state roots.
+pub(crate) struct StorageMutator {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     epoch_id: EpochId,
     tries: Vec<TrieUpdate>,
@@ -21,7 +23,7 @@ pub struct StorageMutator {
 }
 
 impl StorageMutator {
-    pub fn new(
+    pub(crate) fn new(
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime: &NightshadeRuntime,
         epoch_id: &EpochId,
@@ -49,13 +51,17 @@ impl StorageMutator {
         })
     }
 
-    pub fn set_account(&mut self, account_id: AccountId, value: Account) -> anyhow::Result<()> {
+    pub(crate) fn set_account(
+        &mut self,
+        account_id: AccountId,
+        value: Account,
+    ) -> anyhow::Result<()> {
         let shard_id = self.epoch_manager.account_id_to_shard_id(&account_id, &self.epoch_id)?;
         self.tries[shard_id as usize].set(TrieKey::Account { account_id }, value.try_to_vec()?);
         Ok(())
     }
 
-    pub fn set_access_key(
+    pub(crate) fn set_access_key(
         &mut self,
         account_id: AccountId,
         public_key: PublicKey,
@@ -67,7 +73,7 @@ impl StorageMutator {
         Ok(())
     }
 
-    pub fn commit(self) -> anyhow::Result<Vec<StateRoot>> {
+    pub(crate) fn commit(self) -> anyhow::Result<Vec<StateRoot>> {
         let shard_layout = self.epoch_manager.get_shard_layout(&self.epoch_id)?;
         let all_shard_uids = shard_layout.get_shard_uids();
         let mut state_roots = Vec::new();
