@@ -11,7 +11,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
-use tracing::info;
 
 /// Have that many iterations in the timer instead of `loop` to prevent potential bugs from blocking
 /// the node
@@ -697,8 +696,8 @@ impl Doomslug {
         now: Instant,
         target_height: BlockHeight,
         has_enough_chunks: bool,
-        log_block_production_info: bool,
     ) -> bool {
+        let _span = tracing::debug_span!(target: "doomslug", "ready_to_produce_block", has_enough_chunks, target_height).entered();
         let hash_or_height =
             ApprovalInner::new(&self.tip.block_hash, self.tip.height, target_height);
         if let Some(approval_trackers_at_height) = self.approval_tracking.get_mut(&target_height) {
@@ -711,9 +710,7 @@ impl Doomslug {
                     DoomslugBlockProductionReadiness::NotReady => false,
                     DoomslugBlockProductionReadiness::ReadySince(when) => {
                         if has_enough_chunks {
-                            if log_block_production_info {
-                                info!("ready to produce block @ {}, has enough approvals for {:?}, has enough chunks", target_height, now.saturating_duration_since(when));
-                            }
+                            tracing::info!(target: "doomslug", target_height, enough_approvals_for = ?now.saturating_duration_since(when), "ready to produce block, has enough chunks");
                             true
                         } else {
                             let delay = self.timer.get_delay(
@@ -721,21 +718,21 @@ impl Doomslug {
                             ) / 6;
 
                             let ready = now > when + delay;
-                            if log_block_production_info {
-                                if ready {
-                                    info!("ready to produce block @ {}, has enough approvals for {:?}, does not have enough chunks", target_height, now.saturating_duration_since(when));
-                                } else {
-                                    info!("not ready to produce block @ {}, need to wait {:?}, has enough approvals for {:?}", target_height, (when + delay).saturating_duration_since(now), now.saturating_duration_since(when));
-                                }
+                            if ready {
+                                tracing::info!(target: "doomslug", target_height, enough_approvals_for = ?now.saturating_duration_since(when), "ready to produce block, does not have enough chunks");
+                            } else {
+                                tracing::info!(target: "doomslug", target_height, need_to_wait_for = ?(when + delay).saturating_duration_since(now), enough_approvals_for = ?now.saturating_duration_since(when), "not ready to produce block, need to wait");
                             }
                             ready
                         }
                     }
                 }
             } else {
+                tracing::debug!(target: "doomslug", target_height, ?hash_or_height, "No approval tracker");
                 false
             }
         } else {
+            tracing::debug!(target: "doomslug", target_height, "No approval trackers at height");
             false
         }
     }

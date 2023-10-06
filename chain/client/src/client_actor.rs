@@ -1017,15 +1017,6 @@ impl ClientActor {
 
         let epoch_id =
             self.client.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
-        let log_block_production_info =
-            if self.client.epoch_manager.is_next_block_epoch_start(&head.last_block_hash)? {
-                true
-            } else {
-                // the next block is still the same epoch
-                let epoch_start_height =
-                    self.client.epoch_manager.get_epoch_start_height(&head.last_block_hash)?;
-                latest_known.height - epoch_start_height < EPOCH_START_INFO_BLOCKS
-            };
 
         // We try to produce block for multiple heights (up to the highest height for which we've seen 2/3 of approvals).
         if latest_known.height + 1 <= self.client.doomslug.get_largest_height_crossing_threshold() {
@@ -1071,7 +1062,6 @@ impl ClientActor {
                     StaticClock::instant(),
                     height,
                     have_all_chunks,
-                    log_block_production_info,
                 ) {
                     if let Err(err) = self.produce_block(height) {
                         // If there is an error, report it and let it retry on the next loop step.
@@ -1219,6 +1209,7 @@ impl ClientActor {
     }
 
     fn try_handle_block_production(&mut self) {
+        let _span = tracing::debug_span!(target: "client", "try_handle_block_production").entered();
         if let Err(err) = self.handle_block_production() {
             tracing::error!(target: "client", ?err, "Handle block production failed")
         }
