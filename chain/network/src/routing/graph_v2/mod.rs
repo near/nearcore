@@ -45,7 +45,6 @@ struct PeerDistances {
     /// Advertised distances indexed by the local EdgeCache's peer to id mapping.
     pub distance: Vec<Option<u32>>,
     /// The lowest nonce among all edges used to validate the distances.
-    /// For simplicity, used to expire the entire distance vector at once.
     pub min_nonce: u64,
 }
 
@@ -528,8 +527,16 @@ impl Inner {
 
             let peers_to_remove: Vec<PeerId> = self
                 .peer_distances
-                .iter()
+                .iter_mut()
                 .filter_map(|(peer, entry)| {
+                    // If the tree's min_nonce is too old, first try refreshing it
+                    // from the latest nonces in the edge cache.
+                    if entry.min_nonce < prune_nonces_older_than {
+                        if let Some(refreshed_min_nonce) = self.edge_cache.get_min_nonce(peer) {
+                            entry.min_nonce = refreshed_min_nonce;
+                        }
+                    }
+
                     if entry.min_nonce < prune_nonces_older_than {
                         Some(peer.clone())
                     } else {
