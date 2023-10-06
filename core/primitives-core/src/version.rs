@@ -15,6 +15,8 @@ pub enum ProtocolFeature {
     /// Add `AccessKey` nonce range by setting nonce to `(block_height - 1) * 1e6`, see
     /// <https://github.com/near/nearcore/issues/3779>.
     AccessKeyNonceRange,
+    /// Don't process any receipts for shard when chunk is not present.
+    /// Always use gas price computed in the previous block.
     FixApplyChunks,
     LowerStorageCost,
     DeleteActionRestriction,
