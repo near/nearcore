@@ -242,7 +242,6 @@ impl ShardStateSyncResponse {
             Self::V3(response) => &response.cached_parts,
         }
     }
-
 }
 
 impl ShardStateSyncResponseV1 {

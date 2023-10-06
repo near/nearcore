@@ -747,85 +747,163 @@ fn test_state_sync_headers() {
             // Second, we request state sync header.
             // Third, we request state sync part with part_id = 0.
             wait_or_timeout(1000, 110000, || async {
-                match view_client1.send(GetBlock::latest().with_span_context()).await {
-                    Ok(Ok(b)) => {
-                        let epoch_id = b.header.epoch_id;
-                        tracing::info!(?epoch_id, "get_block latest");
-                        match view_client1.send(GetValidatorInfo { epoch_reference: EpochReference::EpochId(EpochId(epoch_id)) }.with_span_context()).await {
-                            Ok(Ok(v)) => {
-                                let epoch_start_height = v.epoch_start_height;
-                                tracing::info!(?epoch_id, epoch_start_height, "validators");
-                                match view_client1.send(GetBlock(BlockReference::BlockId(BlockId::Height(epoch_start_height))).with_span_context()).await {
-                                    Ok(Ok(b2)) => {
-                                        // Found sync_hash.
-                                        let sync_hash = b2.header.hash;
-                                        let num_shards = b2.chunks.len();
-                                        tracing::info!(?epoch_id, epoch_start_height, ?sync_hash, num_shards, prev_hash = ?b2.header.prev_hash, "get_block sync_hash");
-                                        let mut got_headers = vec![false; num_shards];
-                                        let mut got_parts = vec![false; num_shards];
-                                        for shard_id in 0..num_shards {
-                                            match view_client1.send(StateRequestHeader {
-                                                shard_id: shard_id as ShardId,
-                                                sync_hash,
-                                            }.with_span_context()).await {
-                                                Ok(Some(StateResponse(state_response_info))) => {
-                                                    let state_response = state_response_info.take_state_response();
-                                                    let cached_parts = state_response.cached_parts().clone();
-                                                    let can_generate = state_response.can_generate();
-                                                    assert!(state_response.part().is_none());
-                                                    if let Some(_header) = state_response.take_header() {
-                                                        tracing::info!(?epoch_id, epoch_start_height, ?sync_hash, num_shards, shard_id, ?cached_parts, can_generate, "StateRequestHeader got header");
-                                                        if can_generate {
-                                                            got_headers[shard_id] = true;
-                                                            match view_client1.send(StateRequestPart {
-                                                                shard_id: shard_id as ShardId,
-                                                                sync_hash,
-                                                                part_id: 0
-                                                            }.with_span_context()).await {
-                                                                Ok(Some(StateResponse(state_response_info))) => {
-                                                                    let state_response = state_response_info.take_state_response();
-                                                                    let cached_parts = state_response.cached_parts().clone();
-                                                                    let can_generate = state_response.can_generate();
-                                                                    let part = state_response.part().clone();
-                                                                    assert!(state_response.take_header().is_none());
-                                                                    if let Some((part_id, _part)) = part {
-                                                                        tracing::info!(?epoch_id, epoch_start_height, ?sync_hash, num_shards, shard_id, ?cached_parts, can_generate, part_id, "StateRequestHeader got part");
-                                                                        if can_generate && cached_parts == Some(CachedParts::AllParts) && part_id == 0 {
-                                                                            got_parts[shard_id] = true;
-                                                                        }
-                                                                    } else {
-                                                                        tracing::info!(?epoch_id, epoch_start_height, ?sync_hash, num_shards, shard_id, ?cached_parts, can_generate, "StateRequestHeader no part");
-                                                                    }
-                                                                }
-                                                                Err(_) => {}
-                                                                _ => {}
-                                                            }
-                                                        }
-                                                    } else {
-                                                        tracing::info!(?epoch_id, epoch_start_height, ?sync_hash, num_shards, shard_id, ?cached_parts, can_generate, "StateRequestHeader no header");
-                                                    }
-                                                }
-                                                Err(_) => {}
-                                                _ => {}
-                                            }
-                                        }
-                                        if got_parts.iter().all(|&x|x) {
-                                            return ControlFlow::Break(());
-                                        }
-                                    }
-                                    Err(_) => {}
-                                    _ => {}
-                                }
-                            }
-                            Err(_) => {}
-                            _ => {}
-                        }
-                    }
-                    Err(_) => {}
-                    _ => {}
+                let epoch_id = match view_client1.send(GetBlock::latest().with_span_context()).await
+                {
+                    Ok(Ok(b)) => Some(b.header.epoch_id),
+                    _ => None,
                 };
-                return ControlFlow::Continue(());
-            }).await.unwrap();
+                // async is hard, will use this construct to reduce nestedness.
+                let epoch_id = match epoch_id {
+                    Some(x) => x,
+                    None => return ControlFlow::<(), ()>::Continue(()),
+                };
+                tracing::info!(?epoch_id, "got epoch_id");
+
+                let epoch_start_height = match view_client1
+                    .send(
+                        GetValidatorInfo {
+                            epoch_reference: EpochReference::EpochId(EpochId(epoch_id)),
+                        }
+                        .with_span_context(),
+                    )
+                    .await
+                {
+                    Ok(Ok(v)) => Some(v.epoch_start_height),
+                    _ => None,
+                };
+                let epoch_start_height = match epoch_start_height {
+                    Some(x) => x,
+                    None => return ControlFlow::<(), ()>::Continue(()),
+                };
+                tracing::info!(epoch_start_height, "got epoch_start_height");
+
+                let sync_hash_and_num_shards = match view_client1
+                    .send(
+                        GetBlock(BlockReference::BlockId(BlockId::Height(epoch_start_height)))
+                            .with_span_context(),
+                    )
+                    .await
+                {
+                    Ok(Ok(b)) => Some((b.header.hash, b.chunks.len())),
+                    _ => None,
+                };
+                let (sync_hash, num_shards) = match sync_hash_and_num_shards {
+                    Some(x) => x,
+                    None => return ControlFlow::<(), ()>::Continue(()),
+                };
+                tracing::info!(?sync_hash, num_shards, "got sync_hash");
+
+                for shard_id in 0..num_shards {
+                    // Make StateRequestHeader and expect that the response contains a header and `can_generate` is true.
+                    let state_response_info = match view_client1
+                        .send(
+                            StateRequestHeader { shard_id: shard_id as ShardId, sync_hash }
+                                .with_span_context(),
+                        )
+                        .await
+                    {
+                        Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
+                        _ => None,
+                    };
+                    let state_response_info = match state_response_info {
+                        Some(x) => x,
+                        None => return ControlFlow::<(), ()>::Continue(()),
+                    };
+                    let state_response = state_response_info.take_state_response();
+                    let cached_parts = state_response.cached_parts().clone();
+                    let can_generate = state_response.can_generate();
+                    assert!(state_response.part().is_none());
+                    if let Some(_header) = state_response.take_header() {
+                        if !can_generate {
+                            tracing::info!(
+                                ?sync_hash,
+                                shard_id,
+                                ?cached_parts,
+                                can_generate,
+                                "got header but cannot generate"
+                            );
+                            return ControlFlow::<(), ()>::Continue(());
+                        }
+                        tracing::info!(
+                            ?sync_hash,
+                            shard_id,
+                            ?cached_parts,
+                            can_generate,
+                            "got header"
+                        );
+                    } else {
+                        tracing::info!(
+                            ?sync_hash,
+                            shard_id,
+                            ?cached_parts,
+                            can_generate,
+                            "got no header"
+                        );
+                        return ControlFlow::<(), ()>::Continue(());
+                    }
+
+                    // Make StateRequestPart and expect that the response contains a part and `can_generate` is true and part_id = 0 and the node has all parts cached.
+                    let state_response_info = match view_client1
+                        .send(
+                            StateRequestPart {
+                                shard_id: shard_id as ShardId,
+                                sync_hash,
+                                part_id: 0,
+                            }
+                            .with_span_context(),
+                        )
+                        .await
+                    {
+                        Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
+                        _ => None,
+                    };
+                    let state_response_info = match state_response_info {
+                        Some(x) => x,
+                        None => return ControlFlow::<(), ()>::Continue(()),
+                    };
+                    let state_response = state_response_info.take_state_response();
+                    let cached_parts = state_response.cached_parts().clone();
+                    let can_generate = state_response.can_generate();
+                    let part = state_response.part().clone();
+                    assert!(state_response.take_header().is_none());
+                    if let Some((part_id, _part)) = part {
+                        if !can_generate
+                            || cached_parts != Some(CachedParts::AllParts)
+                            || part_id != 0
+                        {
+                            tracing::info!(
+                                ?sync_hash,
+                                shard_id,
+                                ?cached_parts,
+                                can_generate,
+                                part_id,
+                                "got part but shard info is unexpected"
+                            );
+                            return ControlFlow::<(), ()>::Continue(());
+                        }
+                        tracing::info!(
+                            ?sync_hash,
+                            shard_id,
+                            ?cached_parts,
+                            can_generate,
+                            part_id,
+                            "got part"
+                        );
+                    } else {
+                        tracing::info!(
+                            ?sync_hash,
+                            shard_id,
+                            ?cached_parts,
+                            can_generate,
+                            "got no part"
+                        );
+                        return ControlFlow::<(), ()>::Continue(());
+                    }
+                }
+                return ControlFlow::Break(());
+            })
+            .await
+            .unwrap();
             System::current().stop();
         });
     });
