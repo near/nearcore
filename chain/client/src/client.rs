@@ -851,7 +851,6 @@ impl Client {
             *chunk_extra.state_root(),
             &prev_block_header,
         )?;
-        let transactions = transactions;
         #[cfg(feature = "test_features")]
         let transactions = Self::maybe_insert_invalid_transaction(
             transactions,
