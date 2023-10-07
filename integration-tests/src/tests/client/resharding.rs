@@ -667,7 +667,7 @@ fn check_outgoing_receipts_reassigned_impl(
 /// Checks that account exists in the state after `block` is processed
 /// This function checks both state_root from chunk extra and state root from chunk header, if
 /// the corresponding chunk is included in the block
-fn check_account(env: &mut TestEnv, account_id: &AccountId, block: &Block) {
+fn check_account(env: &TestEnv, account_id: &AccountId, block: &Block) {
     tracing::trace!(target: "test", ?account_id, block_height=block.header().height(), "checking account");
     let prev_hash = block.header().prev_hash();
     let shard_layout =

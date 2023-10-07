@@ -3581,7 +3581,7 @@ mod contract_precompilation_tests {
 
     const EPOCH_LENGTH: u64 = 25;
 
-    fn state_sync_on_height(env: &mut TestEnv, height: BlockHeight) {
+    fn state_sync_on_height(env: &TestEnv, height: BlockHeight) {
         let sync_block = env.clients[0].chain.get_block_by_height(height).unwrap();
         let sync_hash = *sync_block.hash();
         let state_sync_header =

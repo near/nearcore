@@ -42,7 +42,7 @@ use std::fmt;
 ///   assert_eq!(n2.mid(3).common_prefix(&n1), 3);
 /// }
 /// ```
-#[derive(Copy, Clone, Eq, Ord)]
+#[derive(Copy, Clone, Eq)]
 pub struct NibbleSlice<'a> {
     data: &'a [u8],
     offset: usize,
@@ -211,17 +211,23 @@ impl PartialEq for NibbleSlice<'_> {
     }
 }
 
-impl PartialOrd for NibbleSlice<'_> {
-    fn partial_cmp(&self, them: &Self) -> Option<Ordering> {
+impl Ord for NibbleSlice<'_> {
+    fn cmp(&self, them: &Self) -> Ordering {
         let s = min(self.len(), them.len());
         for i in 0..s {
-            match self.at(i).partial_cmp(&them.at(i)).unwrap() {
-                Ordering::Less => return Some(Ordering::Less),
-                Ordering::Greater => return Some(Ordering::Greater),
+            match self.at(i).cmp(&them.at(i)) {
+                Ordering::Less => return Ordering::Less,
+                Ordering::Greater => return Ordering::Greater,
                 _ => {}
             }
         }
-        self.len().partial_cmp(&them.len())
+        self.len().cmp(&them.len())
+    }
+}
+
+impl PartialOrd for NibbleSlice<'_> {
+    fn partial_cmp(&self, them: &Self) -> Option<Ordering> {
+        Some(self.cmp(them))
     }
 }
 
