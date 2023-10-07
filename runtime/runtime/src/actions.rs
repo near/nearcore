@@ -870,7 +870,7 @@ pub(crate) fn check_actor_permissions(
 
 pub(crate) fn check_account_existence(
     action: &Action,
-    account: &mut Option<Account>,
+    account: &Option<Account>,
     account_id: &AccountId,
     config: &RuntimeConfig,
     is_the_only_action: bool,

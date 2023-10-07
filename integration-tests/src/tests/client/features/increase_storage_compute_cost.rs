@@ -406,10 +406,7 @@ fn produce_saturated_chunk(
 }
 
 /// fetch chunk for shard 0 and specified block height
-fn chunk_info(
-    env: &mut TestEnv,
-    height: u64,
-) -> std::sync::Arc<near_primitives::sharding::ShardChunk> {
+fn chunk_info(env: &TestEnv, height: u64) -> std::sync::Arc<near_primitives::sharding::ShardChunk> {
     let block = &env.clients[0].chain.get_block_by_height(height).unwrap();
     let chunks = &block.chunks();
     assert_eq!(chunks.len(), 1, "test assumes single shard");
