@@ -1,0 +1,42 @@
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  merge_group:
+
+jobs:
+  cargo_nextest:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04-8core
+            flags: ""
+          - os: ubuntu-22.04-8core
+            flags: "--features nightly,test_features"
+          - os: macOS-m1
+            # FIXME: some of these tests don't work very well on MacOS at the moment. Should fix
+            # them at earliest convenience :)
+            flags: "--exclude integration-tests --exclude node-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse"
+    timeout-minutes: 90
+
+    steps:
+      # Some of the tests allocate really sparse maps, so heuristic-based overcommit limits are not
+      # appropriate here.
+      # FIXME(#9634): remove this once the issue is resolved.
+      - run: sudo sysctl vm.overcommit_memory=1 || true
+      - uses: actions/checkout@v2
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: cargo-nextest
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: cargo-deny
+      - run: cargo nextest run --locked --workspace -p '*' --cargo-profile quick-release --profile ci ${{ matrix.flags }}
+        env:
+          RUST_BACKTRACE: short
