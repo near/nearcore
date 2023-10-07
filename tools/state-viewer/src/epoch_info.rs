@@ -35,7 +35,7 @@ pub(crate) fn print_epoch_info(
     validator_account_id: Option<AccountId>,
     kickouts_summary: bool,
     store: Store,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
 ) {
     let epoch_ids = get_epoch_ids(epoch_selection, store, chain_store, epoch_manager);
@@ -84,7 +84,7 @@ pub(crate) fn print_epoch_info(
 fn display_block_and_chunk_producers(
     epoch_id: &EpochId,
     epoch_info: &EpochInfo,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
 ) -> Result<(), anyhow::Error> {
     let block_height_range: Range<BlockHeight> =
@@ -145,7 +145,7 @@ fn get_block_height_range(
 fn get_epoch_ids(
     epoch_selection: EpochSelection,
     store: Store,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
 ) -> Vec<EpochId> {
     match epoch_selection {
@@ -220,7 +220,7 @@ fn display_epoch_info(
     epoch_info: &EpochInfo,
     validator_account_id: &Option<AccountId>,
     head_epoch_height: &EpochHeight,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
 ) -> Result<(), anyhow::Error> {
     if epoch_info.epoch_height() >= *head_epoch_height {
@@ -237,7 +237,7 @@ fn display_validator_info(
     epoch_id: &EpochId,
     epoch_info: &EpochInfo,
     account_id: AccountId,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
 ) -> Result<(), anyhow::Error> {
     if let Some(kickout) = epoch_info.validator_kickout().get(&account_id) {

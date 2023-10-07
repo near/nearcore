@@ -2279,7 +2279,7 @@ mod test {
 
     /// Make ShardsManager request a chunk when run as the given account ID.
     fn run_request_chunks_with_account(
-        fixture: &mut ChunkTestFixture,
+        fixture: &ChunkTestFixture,
         account_id: Option<AccountId>,
     ) -> RequestChunksResult {
         let clock = FakeClock::default();

@@ -862,7 +862,7 @@ impl StateSync {
         shard_id: ShardId,
         shard_sync_download: &mut ShardSyncDownload,
         sync_hash: CryptoHash,
-        chain: &mut Chain,
+        chain: &Chain,
         now: DateTime<Utc>,
     ) -> Result<(bool, bool), near_chain::Error> {
         let mut download_timeout = false;
@@ -1060,7 +1060,7 @@ impl StateSync {
         shard_id: ShardId,
         shard_sync_download: &mut ShardSyncDownload,
         sync_hash: CryptoHash,
-        chain: &mut Chain,
+        chain: &Chain,
         state_split_scheduler: &dyn Fn(StateSplitRequest),
         me: &Option<AccountId>,
     ) -> Result<(), near_chain::Error> {
