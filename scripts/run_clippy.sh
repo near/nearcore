@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-exec cargo nextest run -p style-tests clippy --no-capture
+exec cargo nextest run -p style-tests clippy
