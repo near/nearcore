@@ -69,7 +69,7 @@ pub(crate) fn generate<P: AsRef<Path>>(secret_file_out: P) -> anyhow::Result<[u8
     Ok(secret)
 }
 
-pub(crate) fn write_empty<P: AsRef<Path>>(secret_file_out: P) -> anyhow::Result<()> {
+pub fn write_empty<P: AsRef<Path>>(secret_file_out: P) -> anyhow::Result<()> {
     let mut out = File::create(secret_file_out)?;
     let config = MirrorSecretConfig { key_map_secret: None };
     let str = serde_json::to_string_pretty(&config)?;
