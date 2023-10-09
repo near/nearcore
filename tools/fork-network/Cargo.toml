@@ -9,11 +9,9 @@ license.workspace = true
 publish = false
 
 [dependencies]
-actix.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
-rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 strum.workspace = true
@@ -26,7 +24,6 @@ near-epoch-manager.workspace = true
 near-mirror.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
-near-o11y.workspace = true
 nearcore.workspace = true
 
 [features]
@@ -35,8 +32,6 @@ nightly = [
   "near-chain-configs/nightly",
   "near-chain/nightly",
   "near-epoch-manager/nightly",
-  "near-mirror/nightly",
-  "near-o11y/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
   "nearcore/nightly",
@@ -45,8 +40,6 @@ nightly_protocol = [
   "near-chain-configs/nightly_protocol",
   "near-chain/nightly_protocol",
   "near-epoch-manager/nightly_protocol",
-  "near-mirror/nightly_protocol",
-  "near-o11y/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
   "nearcore/nightly_protocol",
