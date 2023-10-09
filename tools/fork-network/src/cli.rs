@@ -4,6 +4,8 @@ use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode};
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_mirror::key_mapping::{map_account, map_key};
+use near_o11y::default_subscriber_with_opentelemetry;
+use near_o11y::env_filter::make_env_filter;
 use near_primitives::account::Account;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::block::{Block, BlockHeader};
@@ -20,6 +22,7 @@ use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_account_k
 use near_primitives::types::AccountInfo;
 use near_primitives::types::{AccountId, ShardId, StateRoot};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::db::RocksDB;
 use near_store::flat::store_helper;
 use near_store::flat::FlatStorageStatus;
 use near_store::{
@@ -56,7 +59,7 @@ pub struct ForkNetworkCommand {
     pub epoch_length: u64,
     /// Path to the JSON list of the first epoch validators and their public keys relative to `home_dir`.
     #[arg(short, long)]
-    pub validators: Option<PathBuf>,
+    pub validators: PathBuf,
     #[arg(long, default_value = "-fork")]
     pub chain_id_suffix: String,
 }
@@ -70,19 +73,29 @@ struct Validator {
 type MakeStorageMutatorFn = Arc<dyn Fn() -> anyhow::Result<StorageMutator> + Send + Sync>;
 
 impl ForkNetworkCommand {
-    pub fn run(
+    async fn run_impl(
         self,
+        mut near_config: &mut NearConfig,
+        verbose_target: Option<&str>,
+        o11y_opts: &near_o11y::Options,
         home_dir: &Path,
-        genesis_validation: GenesisValidationMode,
     ) -> anyhow::Result<()> {
+        // As we're running multiple threads, we need to initialize the logging
+        // system to handle logging from all threads.
+        let _subscriber_guard = default_subscriber_with_opentelemetry(
+            make_env_filter(verbose_target).unwrap(),
+            o11y_opts,
+            near_config.client_config.chain_id.clone(),
+            near_config.network_config.node_key.public_key().clone(),
+            None,
+        )
+        .await
+        .global();
+
         if self.reset {
             // Reset and do nothing else.
             return self.reset(home_dir);
         }
-
-        // Load config and check flat storage param
-        let mut near_config = load_config(home_dir, genesis_validation)
-            .unwrap_or_else(|e| panic!("Error loading config: {e:#}"));
 
         if !near_config.config.store.flat_storage_creation_enabled {
             panic!("Flat storage must be enabled");
@@ -93,15 +106,11 @@ impl ForkNetworkCommand {
         let storage = open_storage(&home_dir, &mut near_config).unwrap();
         let store = storage.get_hot_store();
 
-        File::open(home_dir.join(self.validators.as_ref().unwrap())).expect(
-            "Failed to open validators JSON, --validators needs to be provided and needs to exist",
-        );
-
         let store_path =
             home_dir.join(near_config.config.store.path.clone().unwrap_or(PathBuf::from("data")));
         let fork_snapshot_path = store_path.join("fork-snapshot");
 
-        println!("Creating snapshot of original db into {}", fork_snapshot_path.display());
+        tracing::info!(destination = ?fork_snapshot_path, "Creating snapshot of original db");
         // checkpointing only hot storage, because cold storage will not be changed
         checkpoint_hot_storage_and_cleanup_columns(&store, &fork_snapshot_path, None).unwrap();
 
@@ -113,7 +122,7 @@ impl ForkNetworkCommand {
 
         let fork_head = get_fork_head(&all_shard_uids, store.clone())?;
 
-        println!("Forking from the flat storage final head: {fork_head}");
+        tracing::info!(?fork_head, "Forking from the flat storage final head");
 
         let fork_head_block =
             store.get_ser::<Block>(DBCol::Block, &fork_head.try_to_vec().unwrap())?.unwrap();
@@ -127,7 +136,7 @@ impl ForkNetworkCommand {
             epoch_manager.clone(),
         )?;
 
-        println!("Creating a new genesis");
+        tracing::info!("Creating a new genesis");
         backup_genesis_file(home_dir, &near_config)?;
         self.make_and_write_genesis(
             fork_head_block.header(),
@@ -138,7 +147,9 @@ impl ForkNetworkCommand {
             &near_config,
         )?;
 
-        println!("Delete all columns in the original DB other than DbVersion, State and FlatState");
+        tracing::info!(
+            "Delete all columns in the original DB other than DbVersion, State and FlatState"
+        );
         let mut update = store.store_update();
         for col in DBCol::iter() {
             match col {
@@ -150,7 +161,30 @@ impl ForkNetworkCommand {
         }
         update.commit()?;
 
-        println!("All Done! Run the node normally to start the forked network.");
+        tracing::info!("All Done! Run the node normally to start the forked network.");
+        Ok(())
+    }
+
+    pub fn run(
+        self,
+        home_dir: &Path,
+        genesis_validation: GenesisValidationMode,
+        verbose_target: Option<&str>,
+        o11y_opts: &near_o11y::Options,
+    ) -> anyhow::Result<()> {
+        // Load config and check flat storage param
+        let mut near_config = load_config(home_dir, genesis_validation)
+            .unwrap_or_else(|e| panic!("Error loading config: {e:#}"));
+
+        let sys = actix::System::new();
+        sys.block_on(async move {
+            self.run_impl(&mut near_config, verbose_target, o11y_opts, home_dir).await.unwrap();
+            actix::System::current().stop();
+        });
+        sys.run().unwrap();
+        tracing::info!("Waiting for RocksDB to gracefully shutdown");
+        RocksDB::block_until_all_instances_are_dropped();
+        tracing::info!("exit");
         Ok(())
     }
 
@@ -170,22 +204,23 @@ impl ForkNetworkCommand {
         if !Path::new(&fork_snapshot_path).exists() {
             panic!("Fork snapshot does not exist");
         }
-        println!("Removing all current data");
+        tracing::info!("Removing all current data");
         for entry in std::fs::read_dir(&store_path)? {
             let entry = entry?;
             if entry.file_type()?.is_file() {
                 std::fs::remove_file(&entry.path())?;
             }
         }
-        println!("Restoring fork snapshot");
+        tracing::info!("Restoring fork snapshot");
         for entry in std::fs::read_dir(&fork_snapshot_path)? {
             let entry = entry?;
             std::fs::rename(&entry.path(), &store_path.join(entry.file_name()))?;
         }
         std::fs::remove_dir(&fork_snapshot_path)?;
 
-        println!("Restoring genesis file");
+        tracing::info!("Restoring genesis file");
         restore_backup_genesis_file(home_dir, &near_config)?;
+        tracing::info!("Reset complete");
         return Ok(());
     }
 
@@ -401,8 +436,7 @@ impl ForkNetworkCommand {
         let liquid_balance = 100_000_000 * NEAR_BASE;
         let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
         let new_validators: Vec<Validator> = serde_json::from_reader(BufReader::new(
-            File::open(home_dir.join(self.validators.as_ref().unwrap()))
-                .expect("Failed to open validators JSON"),
+            File::open(home_dir.join(&self.validators)).expect("Failed to open validators JSON"),
         ))
         .expect("Failed to read validators JSON");
         let mut storage_mutator = make_storage_mutator()?;
@@ -490,10 +524,9 @@ impl ForkNetworkCommand {
         let genesis_file = &near_config.config.genesis_file;
         let original_genesis_file = home_dir.join(&genesis_file);
 
-        println!("Writing new genesis to {}", original_genesis_file.display());
+        tracing::info!(?original_genesis_file, "Writing new genesis");
         genesis.to_file(&original_genesis_file);
 
-        println!("All Done! Run the node normally to start the forked network.");
         Ok(())
     }
 }
@@ -530,7 +563,7 @@ fn backup_genesis_file(home_dir: &Path, near_config: &NearConfig) -> anyhow::Res
     let genesis_file = &near_config.config.genesis_file;
     let original_genesis_file = home_dir.join(&genesis_file);
     let backup_genesis_file = backup_genesis_file_path(home_dir, &genesis_file);
-    println!("Backing up old genesis. {original_genesis_file:?} -> {backup_genesis_file:?}");
+    tracing::info!(?original_genesis_file, ?backup_genesis_file, "Backing up old genesis.");
     std::fs::rename(&original_genesis_file, &backup_genesis_file)?;
     Ok(())
 }
@@ -539,9 +572,7 @@ fn restore_backup_genesis_file(home_dir: &Path, near_config: &NearConfig) -> any
     let genesis_file = &near_config.config.genesis_file;
     let backup_genesis_file = backup_genesis_file_path(home_dir, &genesis_file);
     let original_genesis_file = home_dir.join(&genesis_file);
-    println!(
-        "Restoring genesis from a backup. {backup_genesis_file:?} -> {original_genesis_file:?}"
-    );
+    tracing::info!(?backup_genesis_file, ?original_genesis_file, "Restoring genesis from a backup");
     std::fs::rename(&backup_genesis_file, &original_genesis_file)?;
     Ok(())
 }
