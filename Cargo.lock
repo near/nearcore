@@ -3772,6 +3772,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "nearcore",
+ "rayon",
  "serde",
  "serde_json",
  "strum",
