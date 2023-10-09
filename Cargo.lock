@@ -3736,6 +3736,7 @@ dependencies = [
  "near-chain-configs",
  "near-crypto",
  "near-epoch-manager",
+ "near-mirror",
  "near-primitives",
  "near-store",
  "nearcore",
