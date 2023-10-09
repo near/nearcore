@@ -28,11 +28,11 @@ impl StorageMutator {
     pub(crate) fn new(
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime: &NightshadeRuntime,
-        epoch_id: &EpochId,
+        epoch_id: EpochId,
         prev_block_hash: CryptoHash,
-        state_roots: &[StateRoot],
+        state_roots: Vec<StateRoot>,
     ) -> anyhow::Result<Self> {
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
         let num_shards = shard_layout.num_shards();
         let mut trie_updates = Vec::with_capacity(num_shards as usize);
         for shard_id in 0..num_shards {
@@ -45,12 +45,7 @@ impl StorageMutator {
             let trie_update = TrieUpdate::new(trie);
             trie_updates.push(trie_update);
         }
-        Ok(Self {
-            epoch_manager,
-            epoch_id: epoch_id.clone(),
-            tries: trie_updates,
-            shard_tries: runtime.get_tries(),
-        })
+        Ok(Self { epoch_manager, epoch_id, tries: trie_updates, shard_tries: runtime.get_tries() })
     }
 
     pub(crate) fn set_account(
