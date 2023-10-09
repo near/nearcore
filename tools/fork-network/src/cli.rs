@@ -4,8 +4,8 @@ use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode};
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_mirror::key_mapping::{map_account, map_key};
+use near_primitives::account::AccessKey;
 use near_primitives::account::Account;
-use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::borsh::BorshSerialize;
 use near_primitives::hash::CryptoHash;
@@ -25,7 +25,6 @@ use near_store::{
 };
 use nearcore::{load_config, open_storage, NearConfig, NightshadeRuntime, NEAR_BASE};
 use serde::Deserialize;
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
@@ -53,7 +52,7 @@ pub struct ForkNetworkCommand {
     pub epoch_length: u64,
     /// Path to the JSON list of the first epoch validators and their public keys relative to `home_dir`.
     #[arg(short, long)]
-    pub validators: PathBuf,
+    pub validators: Option<PathBuf>,
     #[arg(long, default_value = "-fork")]
     pub chain_id_suffix: String,
 }
@@ -82,10 +81,15 @@ impl ForkNetworkCommand {
         if !near_config.config.store.flat_storage_creation_enabled {
             panic!("Flat storage must be enabled");
         }
+        near_config.config.store.state_snapshot_enabled = false;
 
         // Open storage with migration
         let storage = open_storage(&home_dir, &mut near_config).unwrap();
         let store = storage.get_hot_store();
+
+        File::open(home_dir.join(self.validators.as_ref().unwrap())).expect(
+            "Failed to open validators JSON, --validators needs to be provided and needs to exist",
+        );
 
         let store_path =
             home_dir.join(near_config.config.store.path.clone().unwrap_or(PathBuf::from("data")));
@@ -226,12 +230,11 @@ impl ForkNetworkCommand {
         storage_mutator: &mut StorageMutator,
     ) -> anyhow::Result<()> {
         // Doesn't support secrets.
-        let mut has_full_key = HashSet::new();
-        let mut accounts = HashSet::new();
-
         for shard_uid in all_shard_uids {
             let trie_storage = TrieDBStorage::new(store.clone(), *shard_uid);
             let mut index_delayed_receipt = 0;
+            let mut didnt_parse = 0;
+            let mut parsed = 0;
             for item in store_helper::iter_flat_state_entries(*shard_uid, &store, None, None) {
                 let (key, value) = match item {
                     Ok((key, FlatStateValue::Ref(ref_value))) => {
@@ -240,90 +243,101 @@ impl ForkNetworkCommand {
                     Ok((key, FlatStateValue::Inlined(value))) => (key, value),
                     otherwise => panic!("Unexpected flat state value: {otherwise:?}"),
                 };
-                match StateRecord::from_raw_key_value(key, value).unwrap() {
-                    StateRecord::AccessKey { account_id, public_key, access_key } => {
-                        if !account_id.is_implicit()
-                            && access_key.permission == AccessKeyPermission::FullAccess
-                        {
-                            has_full_key.insert(account_id.clone());
-                        }
-
-                        let new_account_id = map_account(&account_id, None);
-                        let replacement = map_key(&public_key, None);
-                        storage_mutator.delete_access_key(account_id, public_key)?;
-                        storage_mutator.set_access_key(
-                            new_account_id,
-                            replacement.public_key(),
-                            access_key.clone(),
-                        )?;
-                    }
-
-                    StateRecord::Account { account_id, account } => {
-                        if account_id.is_implicit() {
+                if let Some(sr) = StateRecord::from_raw_key_value(key.clone(), value.clone()) {
+                    match sr {
+                        StateRecord::AccessKey { account_id, public_key, access_key } => {
                             let new_account_id = map_account(&account_id, None);
-                            storage_mutator.delete_account(account_id)?;
-                            storage_mutator.set_account(new_account_id, account)?;
-                        } else {
-                            accounts.insert(account_id.clone());
-                        }
-                    }
-                    StateRecord::Data { account_id, data_key, value } => {
-                        if account_id.is_implicit() {
-                            let new_account_id = map_account(&account_id, None);
-                            storage_mutator.delete_data(account_id, &data_key)?;
-                            storage_mutator.set_data(new_account_id, &data_key, value)?;
-                        }
-                    }
-                    StateRecord::Contract { account_id, code } => {
-                        if account_id.is_implicit() {
-                            let new_account_id = map_account(&account_id, None);
-                            storage_mutator.delete_code(account_id)?;
-                            storage_mutator.set_code(new_account_id, code)?;
-                        }
-                    }
-                    StateRecord::PostponedReceipt(receipt) => {
-                        if receipt.predecessor_id.is_implicit() || receipt.receiver_id.is_implicit()
-                        {
-                            let new_receipt = Receipt {
-                                predecessor_id: map_account(&receipt.predecessor_id, None),
-                                receiver_id: map_account(&receipt.receiver_id, None),
-                                receipt_id: receipt.receipt_id,
-                                receipt: receipt.receipt.clone(),
-                            };
-                            storage_mutator.delete_postponed_receipt(receipt)?;
-                            storage_mutator.set_postponed_receipt(&new_receipt)?;
-                        }
-                    }
-                    StateRecord::ReceivedData { account_id, data_id, data } => {
-                        if account_id.is_implicit() {
-                            let new_account_id = map_account(&account_id, None);
-                            storage_mutator.delete_received_data(account_id, data_id)?;
-                            storage_mutator.set_received_data(new_account_id, data_id, &data)?;
-                        }
-                    }
-                    StateRecord::DelayedReceipt(receipt) => {
-                        if receipt.predecessor_id.is_implicit() || receipt.receiver_id.is_implicit()
-                        {
-                            let new_receipt = Receipt {
-                                predecessor_id: map_account(&receipt.predecessor_id, None),
-                                receiver_id: map_account(&receipt.receiver_id, None),
-                                receipt_id: receipt.receipt_id,
-                                receipt: receipt.receipt,
-                            };
-                            storage_mutator.delete_delayed_receipt(
-                                shard_uid.shard_id as ShardId,
-                                index_delayed_receipt,
-                            )?;
-                            storage_mutator.set_delayed_receipt(
-                                shard_uid.shard_id as ShardId,
-                                index_delayed_receipt,
-                                &new_receipt,
+                            let replacement = map_key(&public_key, None);
+                            storage_mutator.delete_access_key(account_id, public_key)?;
+                            storage_mutator.set_access_key(
+                                new_account_id,
+                                replacement.public_key(),
+                                access_key.clone(),
                             )?;
                         }
-                        index_delayed_receipt += 1;
+
+                        StateRecord::Account { account_id, account } => {
+                            if account_id.is_implicit() {
+                                let new_account_id = map_account(&account_id, None);
+                                storage_mutator.delete_account(account_id)?;
+                                storage_mutator.set_account(new_account_id, account)?;
+                            }
+                        }
+                        StateRecord::Data { account_id, data_key, value } => {
+                            if account_id.is_implicit() {
+                                let new_account_id = map_account(&account_id, None);
+                                storage_mutator.delete_data(account_id, &data_key)?;
+                                storage_mutator.set_data(new_account_id, &data_key, value)?;
+                            }
+                        }
+                        StateRecord::Contract { account_id, code } => {
+                            if account_id.is_implicit() {
+                                let new_account_id = map_account(&account_id, None);
+                                storage_mutator.delete_code(account_id)?;
+                                storage_mutator.set_code(new_account_id, code)?;
+                            }
+                        }
+                        StateRecord::PostponedReceipt(receipt) => {
+                            if receipt.predecessor_id.is_implicit()
+                                || receipt.receiver_id.is_implicit()
+                            {
+                                let new_receipt = Receipt {
+                                    predecessor_id: map_account(&receipt.predecessor_id, None),
+                                    receiver_id: map_account(&receipt.receiver_id, None),
+                                    receipt_id: receipt.receipt_id,
+                                    receipt: receipt.receipt.clone(),
+                                };
+                                storage_mutator.delete_postponed_receipt(receipt)?;
+                                storage_mutator.set_postponed_receipt(&new_receipt)?;
+                            }
+                        }
+                        StateRecord::ReceivedData { account_id, data_id, data } => {
+                            if account_id.is_implicit() {
+                                let new_account_id = map_account(&account_id, None);
+                                storage_mutator.delete_received_data(account_id, data_id)?;
+                                storage_mutator.set_received_data(
+                                    new_account_id,
+                                    data_id,
+                                    &data,
+                                )?;
+                            }
+                        }
+                        StateRecord::DelayedReceipt(receipt) => {
+                            if receipt.predecessor_id.is_implicit()
+                                || receipt.receiver_id.is_implicit()
+                            {
+                                let new_receipt = Receipt {
+                                    predecessor_id: map_account(&receipt.predecessor_id, None),
+                                    receiver_id: map_account(&receipt.receiver_id, None),
+                                    receipt_id: receipt.receipt_id,
+                                    receipt: receipt.receipt,
+                                };
+                                storage_mutator.delete_delayed_receipt(
+                                    shard_uid.shard_id as ShardId,
+                                    index_delayed_receipt,
+                                )?;
+                                storage_mutator.set_delayed_receipt(
+                                    shard_uid.shard_id as ShardId,
+                                    index_delayed_receipt,
+                                    &new_receipt,
+                                )?;
+                            }
+                            index_delayed_receipt += 1;
+                        }
                     }
+                    parsed += 1;
+                } else {
+                    tracing::debug!(col = key[0], "didn't parse");
+                    didnt_parse += 1;
                 }
             }
+            tracing::info!(
+                ?shard_uid,
+                parsed,
+                didnt_parse,
+                total = parsed + didnt_parse,
+                "Shard prepared"
+            );
         }
         Ok(())
     }
@@ -339,7 +353,8 @@ impl ForkNetworkCommand {
         let liquid_balance = 100_000_000 * NEAR_BASE;
         let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
         let new_validators: Vec<Validator> = serde_json::from_reader(BufReader::new(
-            File::open(home_dir.join(&self.validators)).expect("Failed to open validators JSON"),
+            File::open(home_dir.join(self.validators.as_ref().unwrap()))
+                .expect("Failed to open validators JSON"),
         ))
         .expect("Failed to read validators JSON");
         for validator in new_validators.into_iter() {
