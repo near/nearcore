@@ -9,6 +9,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+actix.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
@@ -25,6 +26,7 @@ near-epoch-manager.workspace = true
 near-mirror.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
+near-o11y.workspace = true
 nearcore.workspace = true
 
 [features]
