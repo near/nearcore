@@ -11,11 +11,8 @@ use near_fork_network::cli::ForkNetworkCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
 use near_network::tcp;
-use near_o11y::tracing_subscriber::EnvFilter;
-use near_o11y::{
-    default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
-    EnvFilterBuilder,
-};
+use near_o11y::env_filter::make_env_filter;
+use near_o11y::{default_subscriber, default_subscriber_with_opentelemetry};
 use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
@@ -133,7 +130,12 @@ impl NeardCmd {
                 cmd.run(&home_dir)?;
             }
             NeardSubCommand::ForkNetwork(cmd) => {
-                cmd.run(&home_dir, genesis_validation)?;
+                cmd.run(
+                    &home_dir,
+                    genesis_validation,
+                    neard_cmd.opts.verbose_target(),
+                    &neard_cmd.opts.o11y,
+                )?;
             }
         };
         Ok(())
@@ -796,18 +798,6 @@ impl VerifyProofSubCommand {
             light_block_merkle_root,
         ))
     }
-}
-
-fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, BuildEnvFilterError> {
-    let env_filter = EnvFilterBuilder::from_env().verbose(verbose).finish()?;
-    // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
-    // This is hidden by default so we enable it for sandbox node.
-    let env_filter = if cfg!(feature = "sandbox") {
-        env_filter.add_directive("sandbox=debug".parse().unwrap())
-    } else {
-        env_filter
-    };
-    Ok(env_filter)
 }
 
 #[derive(clap::Parser)]
