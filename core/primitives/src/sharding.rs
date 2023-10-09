@@ -1014,7 +1014,7 @@ impl EncodedShardChunk {
     }
 
     pub fn encode_transaction_receipts(
-        rs: &mut ReedSolomonWrapper,
+        rs: &ReedSolomonWrapper,
         transactions: Vec<SignedTransaction>,
         outgoing_receipts: &[Receipt],
     ) -> Result<(Vec<Option<Box<[u8]>>>, u64), std::io::Error> {

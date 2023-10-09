@@ -144,7 +144,7 @@ struct StateMachine {
 }
 
 async fn check_routing_table(
-    info: &mut RunningInfo,
+    info: &RunningInfo,
     u: usize,
     want: Vec<(usize, Vec<usize>)>,
 ) -> anyhow::Result<ControlFlow> {

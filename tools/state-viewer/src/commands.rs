@@ -518,7 +518,7 @@ pub(crate) fn check_apply_block_result(
     block: &Block,
     apply_result: &ApplyTransactionResult,
     epoch_manager: &EpochManagerHandle,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     shard_id: ShardId,
 ) -> anyhow::Result<()> {
     let height = block.header().height();

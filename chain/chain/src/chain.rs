@@ -70,7 +70,7 @@ use near_primitives::types::{
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
@@ -878,7 +878,7 @@ impl Chain {
         let block_timestamp = prev_block.header().raw_timestamp();
         let block_hash = prev_block_hash;
         let random_seed = *prev_block.header().random_value();
-        let gas_price = prev_block.header().next_gas_price();
+        let next_gas_price = prev_block.header().next_gas_price();
 
         self.runtime_adapter.apply_transactions(
             shard_id,
@@ -890,7 +890,7 @@ impl Chain {
             &receipts,
             transactions,
             last_validator_proposals,
-            gas_price,
+            next_gas_price,
             gas_limit,
             &vec![],
             random_seed,
@@ -4117,7 +4117,7 @@ impl Chain {
         let block_hash = *block.hash();
         let challenges_result = block.header().challenges_result().clone();
         let block_timestamp = block.header().raw_timestamp();
-        let gas_price = prev_block.header().next_gas_price();
+        let next_gas_price = prev_block.header().next_gas_price();
         let random_seed = *block.header().random_value();
         let height = chunk_header.height_included();
         let prev_block_hash = *chunk_header.prev_block_hash();
@@ -4140,7 +4140,7 @@ impl Chain {
                 &receipts,
                 chunk.transactions(),
                 chunk_inner.prev_validator_proposals(),
-                gas_price,
+                next_gas_price,
                 gas_limit,
                 &challenges_result,
                 random_seed,
@@ -4187,15 +4187,22 @@ impl Chain {
         split_state_roots: Option<HashMap<ShardUId, CryptoHash>>,
     ) -> Result<Option<ApplyChunkJob>, Error> {
         let shard_id = shard_uid.shard_id();
-        let new_extra = self.get_chunk_extra(prev_block.hash(), &shard_uid)?;
+        let prev_block_hash = *prev_block.hash();
+        let new_extra = self.get_chunk_extra(&prev_block_hash, &shard_uid)?;
 
         let block_hash = *block.hash();
         let challenges_result = block.header().challenges_result().clone();
         let block_timestamp = block.header().raw_timestamp();
-        let gas_price = block.header().next_gas_price();
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+
+        let next_gas_price = if protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version() {
+            prev_block.header().next_gas_price()
+        } else {
+            block.header().next_gas_price()
+        };
         let random_seed = *block.header().random_value();
         let height = block.header().height();
-        let prev_block_hash = *prev_block.hash();
 
         Ok(Some(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
             let _span = tracing::debug_span!(
@@ -4214,7 +4221,7 @@ impl Chain {
                 &[],
                 &[],
                 new_extra.validator_proposals(),
-                gas_price,
+                next_gas_price,
                 new_extra.gas_limit(),
                 &challenges_result,
                 random_seed,
