@@ -187,12 +187,14 @@ impl StorageMutator {
     }
 
     pub(crate) fn commit(self) -> anyhow::Result<Vec<StateRoot>> {
+        tracing::info!("StorageMutator::commit");
         let shard_layout = self.epoch_manager.get_shard_layout(&self.epoch_id)?;
         let all_shard_uids = shard_layout.get_shard_uids();
         let mut state_roots = Vec::new();
 
         let mut update = self.shard_tries.store_update();
         for (mut trie_update, shard_uid) in self.tries.into_iter().zip(all_shard_uids.into_iter()) {
+            tracing::info!(?shard_uid, "finalizing");
             trie_update.commit(near_primitives::types::StateChangeCause::Migration);
             let (_, trie_updates, raw_changes) = trie_update.finalize()?;
             let state_root = self.shard_tries.apply_all(&trie_updates, shard_uid, &mut update);
@@ -200,7 +202,9 @@ impl StorageMutator {
             let flat_state_changes = FlatStateChanges::from_state_changes(&raw_changes);
             flat_state_changes.apply_to_flat_state(&mut update, shard_uid);
         }
+        tracing::info!("committing");
         update.commit()?;
+        tracing::info!("commit is done");
         Ok(state_roots)
     }
 }
