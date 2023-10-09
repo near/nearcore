@@ -3,6 +3,8 @@ use std::sync::Arc;
 use near_chain::types::RuntimeAdapter;
 use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::receipt::Receipt;
+use near_primitives::types::{ShardId, StoreKey, StoreValue};
 use near_primitives::{
     account::{AccessKey, Account},
     borsh::{self},
@@ -61,6 +63,12 @@ impl StorageMutator {
         Ok(())
     }
 
+    pub(crate) fn delete_account(&mut self, account_id: AccountId) -> anyhow::Result<()> {
+        let shard_id = self.epoch_manager.account_id_to_shard_id(&account_id, &self.epoch_id)?;
+        self.tries[shard_id as usize].remove(TrieKey::Account { account_id });
+        Ok(())
+    }
+
     pub(crate) fn set_access_key(
         &mut self,
         account_id: AccountId,
@@ -70,6 +78,116 @@ impl StorageMutator {
         let shard_id = self.epoch_manager.account_id_to_shard_id(&account_id, &self.epoch_id)?;
         self.tries[shard_id as usize]
             .set(TrieKey::AccessKey { account_id, public_key }, borsh::to_vec(&access_key)?);
+        Ok(())
+    }
+
+    pub(crate) fn delete_access_key(
+        &mut self,
+        account_id: AccountId,
+        public_key: PublicKey,
+    ) -> anyhow::Result<()> {
+        let shard_id = self.epoch_manager.account_id_to_shard_id(&account_id, &self.epoch_id)?;
+        self.tries[shard_id as usize].remove(TrieKey::AccessKey { account_id, public_key });
+        Ok(())
+    }
+
+    pub(crate) fn set_data(
+        &mut self,
+        account_id: AccountId,
+        data_key: &StoreKey,
+        value: StoreValue,
+    ) -> anyhow::Result<()> {
+        let shard_id = self.epoch_manager.account_id_to_shard_id(&account_id, &self.epoch_id)?;
+        self.tries[shard_id as usize]
+            .set(TrieKey::ContractData { account_id, key: data_key.to_vec() }, value.try_to_vec()?);
+        Ok(())
+    }
+
+    pub(crate) fn delete_data(
+        &mut self,
+        account_id: AccountId,
+        data_key: &StoreKey,
+    ) -> anyhow::Result<()> {
+        let shard_id = self.epoch_manager.account_id_to_shard_id(&account_id, &self.epoch_id)?;
+        self.tries[shard_id as usize]
+            .remove(TrieKey::ContractData { account_id, key: data_key.to_vec() });
+        Ok(())
+    }
+
+    pub(crate) fn set_code(&mut self, account_id: AccountId, value: Vec<u8>) -> anyhow::Result<()> {
+        let shard_id = self.epoch_manager.account_id_to_shard_id(&account_id, &self.epoch_id)?;
+        self.tries[shard_id as usize].set(TrieKey::ContractCode { account_id }, value);
+        Ok(())
+    }
+
+    pub(crate) fn delete_code(&mut self, account_id: AccountId) -> anyhow::Result<()> {
+        let shard_id = self.epoch_manager.account_id_to_shard_id(&account_id, &self.epoch_id)?;
+        self.tries[shard_id as usize].remove(TrieKey::ContractCode { account_id });
+        Ok(())
+    }
+
+    pub(crate) fn set_postponed_receipt(&mut self, receipt: &Receipt) -> anyhow::Result<()> {
+        let shard_id =
+            self.epoch_manager.account_id_to_shard_id(&receipt.receiver_id, &self.epoch_id)?;
+        self.tries[shard_id as usize].set(
+            TrieKey::PostponedReceipt {
+                receiver_id: receipt.receiver_id.clone(),
+                receipt_id: receipt.receipt_id,
+            },
+            receipt.try_to_vec().unwrap(),
+        );
+        Ok(())
+    }
+
+    pub(crate) fn delete_postponed_receipt(&mut self, receipt: Box<Receipt>) -> anyhow::Result<()> {
+        let shard_id =
+            self.epoch_manager.account_id_to_shard_id(&receipt.receiver_id, &self.epoch_id)?;
+        self.tries[shard_id as usize].remove(TrieKey::PostponedReceipt {
+            receiver_id: receipt.receiver_id,
+            receipt_id: receipt.receipt_id,
+        });
+        Ok(())
+    }
+
+    pub(crate) fn set_received_data(
+        &mut self,
+        account_id: AccountId,
+        data_id: CryptoHash,
+        data: &Option<Vec<u8>>,
+    ) -> anyhow::Result<()> {
+        let shard_id = self.epoch_manager.account_id_to_shard_id(&account_id, &self.epoch_id)?;
+        self.tries[shard_id as usize]
+            .set(TrieKey::ReceivedData { receiver_id: account_id, data_id }, data.try_to_vec()?);
+        Ok(())
+    }
+
+    pub(crate) fn delete_received_data(
+        &mut self,
+        account_id: AccountId,
+        data_id: CryptoHash,
+    ) -> anyhow::Result<()> {
+        let shard_id = self.epoch_manager.account_id_to_shard_id(&account_id, &self.epoch_id)?;
+        self.tries[shard_id as usize]
+            .remove(TrieKey::ReceivedData { receiver_id: account_id, data_id });
+        Ok(())
+    }
+
+    pub(crate) fn set_delayed_receipt(
+        &mut self,
+        shard_id: ShardId,
+        index: u64,
+        receipt: &Receipt,
+    ) -> anyhow::Result<()> {
+        self.tries[shard_id as usize].set(TrieKey::DelayedReceipt { index }, receipt.try_to_vec()?);
+        Ok(())
+    }
+
+    pub(crate) fn delete_delayed_receipt(
+        &mut self,
+        shard_id: ShardId,
+        index: u64,
+    ) -> anyhow::Result<()> {
+        self.tries[shard_id as usize].remove(TrieKey::DelayedReceipt { index });
         Ok(())
     }
 
