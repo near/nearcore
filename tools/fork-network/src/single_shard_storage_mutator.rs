@@ -158,8 +158,8 @@ impl SingleShardStorageMutator {
         Ok(())
     }
 
-    pub(crate) fn should_commit(&self) -> bool {
-        self.num_changes >= 1_000_000
+    pub(crate) fn should_commit(&self, batch_size: u64) -> bool {
+        self.num_changes >= batch_size
     }
 
     pub(crate) fn commit(mut self, shard_uid: &ShardUId) -> anyhow::Result<StateRoot> {

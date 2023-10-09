@@ -63,6 +63,8 @@ pub struct ForkNetworkCommand {
     pub validators: PathBuf,
     #[arg(long, default_value = "-fork")]
     pub chain_id_suffix: String,
+    #[arg(short, long, default_value = "100000")]
+    pub batch_size: u64,
 }
 
 #[derive(Deserialize)]
@@ -396,7 +398,7 @@ impl ForkNetworkCommand {
             } else {
                 records_not_parsed += 1;
             }
-            if storage_mutator.should_commit() {
+            if storage_mutator.should_commit(self.batch_size) {
                 let state_root = storage_mutator.commit(&shard_uid)?;
                 storage_mutator = make_storage_mutator(shard_id, state_root)?;
             }
@@ -433,7 +435,7 @@ impl ForkNetworkCommand {
                         AccessKey::full_access(),
                     )?;
                     num_added += 1;
-                    if storage_mutator.should_commit() {
+                    if storage_mutator.should_commit(self.batch_size) {
                         let state_root = storage_mutator.commit(&shard_uid)?;
                         storage_mutator = make_storage_mutator(shard_id, state_root)?;
                     }
