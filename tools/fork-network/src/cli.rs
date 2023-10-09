@@ -3,20 +3,29 @@ use near_chain::types::Tip;
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode};
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-use near_primitives::account::AccessKey;
+use near_mirror::key_mapping::{map_account, map_key};
+use near_primitives::account::Account;
+use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::block::{Block, BlockHeader};
+use near_primitives::borsh::BorshSerialize;
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::Receipt;
+use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::{AccountId, StateRoot};
+use near_primitives::state::FlatStateValue;
+use near_primitives::state_record::StateRecord;
+use near_primitives::types::AccountInfo;
+use near_primitives::types::{AccountId, ShardId, StateRoot};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::{
-    account::Account, borsh::BorshSerialize, hash::CryptoHash, types::AccountInfo,
-};
+use near_store::flat::store_helper;
+use near_store::flat::FlatStorageStatus;
 use near_store::{
-    checkpoint_hot_storage_and_cleanup_columns, flat::FlatStorageStatus, DBCol, Store, HEAD_KEY,
+    checkpoint_hot_storage_and_cleanup_columns, DBCol, Store, TrieDBStorage, TrieStorage, HEAD_KEY,
 };
 use nearcore::{load_config, open_storage, NearConfig, NightshadeRuntime, NEAR_BASE};
 use serde::Deserialize;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
@@ -101,6 +110,7 @@ impl ForkNetworkCommand {
 
         let (new_state_roots, new_validator_accounts) = self.mutate_state(
             &fork_head_block,
+            &all_shard_uids,
             home_dir,
             store.clone(),
             &near_config,
@@ -173,13 +183,18 @@ impl ForkNetworkCommand {
     fn mutate_state(
         &self,
         fork_head_block: &Block,
+        all_shard_uids: &[ShardUId],
         home_dir: &Path,
         store: Store,
         near_config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> anyhow::Result<(Vec<StateRoot>, Vec<AccountInfo>)> {
-        let runtime =
-            NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone());
+        let runtime = NightshadeRuntime::from_config(
+            home_dir,
+            store.clone(),
+            &near_config,
+            epoch_manager.clone(),
+        );
         let prev_state_roots = fork_head_block
             .chunks()
             .iter()
@@ -195,11 +210,134 @@ impl ForkNetworkCommand {
 
         let runtime_config_store = RuntimeConfigStore::new(None);
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
-        let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
 
+        self.prepare_state(&all_shard_uids, store, &mut storage_mutator)?;
+        let new_validator_accounts =
+            self.add_validator_accounts(&mut storage_mutator, runtime_config, home_dir)?;
+
+        let new_state_roots = storage_mutator.commit()?;
+        Ok((new_state_roots, new_validator_accounts))
+    }
+
+    fn prepare_state(
+        &self,
+        all_shard_uids: &[ShardUId],
+        store: Store,
+        storage_mutator: &mut StorageMutator,
+    ) -> anyhow::Result<()> {
+        // Doesn't support secrets.
+        let mut has_full_key = HashSet::new();
+        let mut accounts = HashSet::new();
+
+        for shard_uid in all_shard_uids {
+            let trie_storage = TrieDBStorage::new(store.clone(), *shard_uid);
+            let mut index_delayed_receipt = 0;
+            for item in store_helper::iter_flat_state_entries(*shard_uid, &store, None, None) {
+                let (key, value) = match item {
+                    Ok((key, FlatStateValue::Ref(ref_value))) => {
+                        (key, trie_storage.retrieve_raw_bytes(&ref_value.hash)?.to_vec())
+                    }
+                    Ok((key, FlatStateValue::Inlined(value))) => (key, value),
+                    otherwise => panic!("Unexpected flat state value: {otherwise:?}"),
+                };
+                match StateRecord::from_raw_key_value(key, value).unwrap() {
+                    StateRecord::AccessKey { account_id, public_key, access_key } => {
+                        if !account_id.is_implicit()
+                            && access_key.permission == AccessKeyPermission::FullAccess
+                        {
+                            has_full_key.insert(account_id.clone());
+                        }
+
+                        let new_account_id = map_account(&account_id, None);
+                        let replacement = map_key(&public_key, None);
+                        storage_mutator.delete_access_key(account_id, public_key)?;
+                        storage_mutator.set_access_key(
+                            new_account_id,
+                            replacement.public_key(),
+                            access_key.clone(),
+                        )?;
+                    }
+
+                    StateRecord::Account { account_id, account } => {
+                        if account_id.is_implicit() {
+                            let new_account_id = map_account(&account_id, None);
+                            storage_mutator.delete_account(account_id)?;
+                            storage_mutator.set_account(new_account_id, account)?;
+                        } else {
+                            accounts.insert(account_id.clone());
+                        }
+                    }
+                    StateRecord::Data { account_id, data_key, value } => {
+                        if account_id.is_implicit() {
+                            let new_account_id = map_account(&account_id, None);
+                            storage_mutator.delete_data(account_id, &data_key)?;
+                            storage_mutator.set_data(new_account_id, &data_key, value)?;
+                        }
+                    }
+                    StateRecord::Contract { account_id, code } => {
+                        if account_id.is_implicit() {
+                            let new_account_id = map_account(&account_id, None);
+                            storage_mutator.delete_code(account_id)?;
+                            storage_mutator.set_code(new_account_id, code)?;
+                        }
+                    }
+                    StateRecord::PostponedReceipt(receipt) => {
+                        if receipt.predecessor_id.is_implicit() || receipt.receiver_id.is_implicit()
+                        {
+                            let new_receipt = Receipt {
+                                predecessor_id: map_account(&receipt.predecessor_id, None),
+                                receiver_id: map_account(&receipt.receiver_id, None),
+                                receipt_id: receipt.receipt_id,
+                                receipt: receipt.receipt.clone(),
+                            };
+                            storage_mutator.delete_postponed_receipt(receipt)?;
+                            storage_mutator.set_postponed_receipt(&new_receipt)?;
+                        }
+                    }
+                    StateRecord::ReceivedData { account_id, data_id, data } => {
+                        if account_id.is_implicit() {
+                            let new_account_id = map_account(&account_id, None);
+                            storage_mutator.delete_received_data(account_id, data_id)?;
+                            storage_mutator.set_received_data(new_account_id, data_id, &data)?;
+                        }
+                    }
+                    StateRecord::DelayedReceipt(receipt) => {
+                        if receipt.predecessor_id.is_implicit() || receipt.receiver_id.is_implicit()
+                        {
+                            let new_receipt = Receipt {
+                                predecessor_id: map_account(&receipt.predecessor_id, None),
+                                receiver_id: map_account(&receipt.receiver_id, None),
+                                receipt_id: receipt.receipt_id,
+                                receipt: receipt.receipt,
+                            };
+                            storage_mutator.delete_delayed_receipt(
+                                shard_uid.shard_id as ShardId,
+                                index_delayed_receipt,
+                            )?;
+                            storage_mutator.set_delayed_receipt(
+                                shard_uid.shard_id as ShardId,
+                                index_delayed_receipt,
+                                &new_receipt,
+                            )?;
+                        }
+                        index_delayed_receipt += 1;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn add_validator_accounts(
+        &self,
+        storage_mutator: &mut StorageMutator,
+        runtime_config: &Arc<RuntimeConfig>,
+        home_dir: &Path,
+    ) -> anyhow::Result<Vec<AccountInfo>> {
         let mut new_validator_accounts = vec![];
 
         let liquid_balance = 100_000_000 * NEAR_BASE;
+        let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
         let new_validators: Vec<Validator> = serde_json::from_reader(BufReader::new(
             File::open(home_dir.join(&self.validators)).expect("Failed to open validators JSON"),
         ))
@@ -226,9 +364,7 @@ impl ForkNetworkCommand {
                 AccessKey::full_access(),
             )?;
         }
-
-        let new_state_roots = storage_mutator.commit()?;
-        Ok((new_state_roots, new_validator_accounts))
+        Ok(new_validator_accounts)
     }
 
     /// Makes a new genesis and writes it to `~/.near/genesis.json`.
