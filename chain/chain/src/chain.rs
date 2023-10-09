@@ -4196,11 +4196,12 @@ impl Chain {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
-        let next_gas_price = if protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version() {
-            prev_block.header().next_gas_price()
-        } else {
-            block.header().next_gas_price()
-        };
+        let next_gas_price =
+            if protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version() {
+                prev_block.header().next_gas_price()
+            } else {
+                block.header().next_gas_price()
+            };
         let random_seed = *block.header().random_value();
         let height = block.header().height();
 
