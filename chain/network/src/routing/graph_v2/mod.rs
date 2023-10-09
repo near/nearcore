@@ -36,6 +36,7 @@ pub enum NetworkTopologyChange {
     PeerConnected(PeerId, Edge),
     PeerDisconnected(PeerId),
     PeerAdvertisedDistances(network_protocol::DistanceVector),
+    EdgeNonceRefresh(Vec<Edge>),
 }
 
 /// Locally stored properties of a received network_protocol::DistanceVector message
@@ -44,7 +45,6 @@ struct PeerDistances {
     /// Advertised distances indexed by the local EdgeCache's peer to id mapping.
     pub distance: Vec<Option<u32>>,
     /// The lowest nonce among all edges used to validate the distances.
-    /// For simplicity, used to expire the entire distance vector at once.
     pub min_nonce: u64,
 }
 
@@ -348,6 +348,24 @@ impl Inner {
         return is_valid;
     }
 
+    /// Updates the local state of the edge cache with the nonces for the given edges.
+    fn handle_edge_nonce_refresh(&mut self, edges: &Vec<Edge>) -> bool {
+        for e in edges {
+            // TODO(saketh): deprecate tombstones entirely
+            if e.edge_type() != EdgeState::Active {
+                continue;
+            }
+
+            // TODO (saketh): After V1 routing is deprecated, we will need to actually perform
+            // edge verification here. For now, edges make it here after already being verified.
+            if !self.edge_cache.has_edge_nonce_or_newer(e) {
+                self.edge_cache.write_verified_nonce(e);
+            }
+        }
+
+        return true;
+    }
+
     /// Handles disconnection of a peer.
     /// - Updates the state of `local_edges`.
     /// - Erases the peer's latest spanning tree, if there is one, from `edge_cache`.
@@ -424,6 +442,7 @@ impl Inner {
             NetworkTopologyChange::PeerAdvertisedDistances(distance_vector) => {
                 self.handle_distance_vector(distance_vector)
             }
+            NetworkTopologyChange::EdgeNonceRefresh(edges) => self.handle_edge_nonce_refresh(edges),
         }
     }
 
@@ -508,8 +527,16 @@ impl Inner {
 
             let peers_to_remove: Vec<PeerId> = self
                 .peer_distances
-                .iter()
+                .iter_mut()
                 .filter_map(|(peer, entry)| {
+                    // If the tree's min_nonce is too old, first try refreshing it
+                    // from the latest nonces in the edge cache.
+                    if entry.min_nonce < prune_nonces_older_than {
+                        if let Some(refreshed_min_nonce) = self.edge_cache.get_min_nonce(peer) {
+                            entry.min_nonce = refreshed_min_nonce;
+                        }
+                    }
+
                     if entry.min_nonce < prune_nonces_older_than {
                         Some(peer.clone())
                     } else {

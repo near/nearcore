@@ -56,6 +56,14 @@ impl GraphV2 {
         assert!(!oks[0]);
     }
 
+    pub(crate) async fn recompute_routes(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+    ) -> Option<network_protocol::DistanceVector> {
+        let (to_broadcast, _) = self.batch_process_network_changes(&clock, vec![]).await;
+        to_broadcast
+    }
+
     // Checks that the DistanceVector message for the local node is valid
     // and correctly advertises the node's available routes.
     pub(crate) fn verify_own_distance_vector(
@@ -77,5 +85,9 @@ impl GraphV2 {
             expected_distances_by_id,
             inner.validate_routing_distances(distance_vector).unwrap()
         );
+    }
+
+    pub(crate) fn has_distance_vector(&self, peer_id: &PeerId) -> bool {
+        self.inner.lock().peer_distances.contains_key(peer_id)
     }
 }
