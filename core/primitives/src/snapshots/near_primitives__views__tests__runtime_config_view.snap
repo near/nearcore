@@ -3,7 +3,7 @@ source: core/primitives/src/views.rs
 expression: "&view"
 ---
 {
-  "storage_amount_per_byte": "90900000000000000000",
+  "storage_amount_per_byte": "10000000000000000000",
   "transaction_costs": {
     "action_receipt_creation_config": {
       "send_sir": 108059500000,
@@ -12,14 +12,14 @@ expression: "&view"
     },
     "data_receipt_creation_config": {
       "base_cost": {
-        "send_sir": 4697339419375,
-        "send_not_sir": 4697339419375,
-        "execution": 4697339419375
+        "send_sir": 36486732312,
+        "send_not_sir": 36486732312,
+        "execution": 36486732312
       },
       "cost_per_byte": {
-        "send_sir": 59357464,
-        "send_not_sir": 59357464,
-        "execution": 59357464
+        "send_sir": 17212011,
+        "send_not_sir": 17212011,
+        "execution": 17212011
       }
     },
     "action_creation_config": {
@@ -36,7 +36,7 @@ expression: "&view"
       "deploy_contract_cost_per_byte": {
         "send_sir": 6812999,
         "send_not_sir": 6812999,
-        "execution": 6812999
+        "execution": 64572944
       },
       "function_call_cost": {
         "send_sir": 2319861500000,
@@ -211,7 +211,7 @@ expression: "&view"
     }
   },
   "account_creation_config": {
-    "min_allowed_top_level_account_length": 0,
+    "min_allowed_top_level_account_length": 32,
     "registrar_account_id": "registrar"
   }
 }

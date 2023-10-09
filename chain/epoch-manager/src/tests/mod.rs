@@ -1362,7 +1362,7 @@ fn test_epoch_info_aggregator_reorg_beginning_of_epoch() {
 }
 
 fn count_missing_blocks(
-    epoch_manager: &mut EpochManager,
+    epoch_manager: &EpochManager,
     epoch_id: &EpochId,
     height_range: std::ops::Range<u64>,
     produced_heights: &[u64],
