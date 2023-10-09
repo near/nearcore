@@ -13,6 +13,7 @@ use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV2,
     ReedSolomonWrapper, ShardChunkHeader,
 };
+use near_primitives::state::StateWitness;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, EpochId, ShardId};
@@ -147,6 +148,8 @@ impl ChunkTestFixture {
             &receipts,
             receipts_root,
             MerkleHash::default(),
+            StateWitness::default(), // deprecated test setup?
+            // may be nice to test full setup
             &signer,
             &mut rs,
             PROTOCOL_VERSION,

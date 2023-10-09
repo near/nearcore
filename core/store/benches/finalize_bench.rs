@@ -28,6 +28,7 @@ use near_primitives::sharding::{
     PartialEncodedChunkV2, ReceiptProof, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
     ShardChunkHeaderV3, ShardChunkV2, ShardProof,
 };
+use near_primitives::state::StateWitness;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::AccountId;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -193,6 +194,7 @@ fn create_encoded_shard_chunk(
         receipts,
         Default::default(),
         Default::default(),
+        StateWitness::default(), // add SW for bench
         &validator_signer(),
         &mut rs,
         100,

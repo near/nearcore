@@ -114,6 +114,7 @@ use near_primitives::sharding::{
     PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptList, ReceiptProof, ReedSolomonWrapper,
     ShardChunk, ShardChunkHeader, ShardProof,
 };
+use near_primitives::state::StateWitness;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -948,10 +949,12 @@ impl ShardsManager {
         // Construct EncodedShardChunk.  If we earlier determined that we will
         // need parity parts, instruct the constructor to calculate them as
         // well.  Otherwise we won’t bother.
+        let state_witness = chunk.prev_state_witness().unwrap_or_default();
         let (parts, encoded_length) = match EncodedShardChunk::encode_transaction_receipts(
             &mut self.rs,
             chunk.transactions().to_vec(),
             &outgoing_receipts,
+            state_witness,
         ) {
             Ok(result) => result,
             Err(err) => {
@@ -1818,6 +1821,7 @@ impl ShardsManager {
         prev_outgoing_receipts: &[Receipt],
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
+        state_witness: StateWitness,
         signer: &dyn ValidatorSigner,
         rs: &mut ReedSolomonWrapper,
         protocol_version: ProtocolVersion,
@@ -1833,6 +1837,7 @@ impl ShardsManager {
             gas_limit,
             prev_balance_burnt,
             tx_root,
+            state_witness,
             prev_validator_proposals,
             transactions,
             prev_outgoing_receipts,

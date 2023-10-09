@@ -21,6 +21,7 @@ use crate::sharding::{
     ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
     ShardChunkHeaderV1,
 };
+use crate::state::StateWitness;
 use crate::types::{Balance, BlockHeight, EpochId, Gas, NumBlocks, NumShards, StateRoot};
 use crate::utils::to_timestamp;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
@@ -116,6 +117,7 @@ pub fn genesis_chunks(
                 initial_gas_limit,
                 0,
                 CryptoHash::default(),
+                StateWitness::default(), // default for genesis chunks, nothing to attest for
                 vec![],
                 vec![],
                 &[],

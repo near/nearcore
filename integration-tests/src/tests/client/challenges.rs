@@ -24,6 +24,7 @@ use near_primitives::num_rational::Ratio;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
+use near_primitives::state::StateWitness;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, EpochId};
@@ -395,6 +396,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         &[],
         last_block.chunks()[0].prev_outgoing_receipts_root(),
         CryptoHash::default(),
+        StateWitness::default(), // bad test anyway
         &validator_signer,
         &mut rs,
         PROTOCOL_VERSION,

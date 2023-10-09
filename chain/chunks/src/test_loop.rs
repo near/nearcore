@@ -16,6 +16,7 @@ use near_network::{
     test_loop::SupportsRoutingLookup,
     types::{NetworkRequests, PeerManagerMessageRequest},
 };
+use near_primitives::state::StateWitness;
 use near_primitives::{
     hash::CryptoHash,
     merkle::{self, MerklePath},
@@ -267,6 +268,7 @@ impl MockChainForShardsManager {
         let signer = create_test_signer(chunk_producer.as_str());
         let data_parts = self.epoch_manager.num_data_parts();
         let parity_parts = self.epoch_manager.num_total_parts() - data_parts;
+        let state_witness = StateWitness::default(); // TODO: fix for testing, keep track of witnesses
         let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
         let (chunk, merkle_paths) = ShardsManager::create_encoded_shard_chunk(
             self.tip.last_block_hash,
@@ -282,6 +284,7 @@ impl MockChainForShardsManager {
             &receipts,
             receipts_root,
             MerkleHash::default(),
+            state_witness,
             &signer,
             &mut rs,
             PROTOCOL_VERSION,

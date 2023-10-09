@@ -67,6 +67,7 @@ pub struct StateSyncInfo {
 }
 
 pub mod shard_chunk_header_inner;
+use crate::state::StateWitness;
 pub use shard_chunk_header_inner::{
     ShardChunkHeaderInner, ShardChunkHeaderInnerV1, ShardChunkHeaderInnerV2,
 };
@@ -670,6 +671,7 @@ pub struct ShardChunkV3 {
     pub header: ShardChunkHeader,
     pub transactions: Vec<SignedTransaction>,
     pub outgoing_receipts: Vec<Receipt>,
+    pub prev_state_witness: StateWitness,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
@@ -848,6 +850,13 @@ impl ShardChunk {
             Self::V3(chunk) => chunk.header.compute_hash(),
         }
     }
+
+    pub fn prev_state_witness(&self) -> Option<StateWitness> {
+        match self {
+            Self::V3(chunk) => Some(chunk.prev_state_witness.clone()),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Default, BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
@@ -886,8 +895,9 @@ impl EncodedShardChunkBody {
 #[derive(BorshSerialize, Debug, Clone)]
 pub struct ReceiptList<'a>(pub ShardId, pub &'a [Receipt]);
 
+// and witness
 #[derive(BorshSerialize, BorshDeserialize)]
-struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>);
+struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>, StateWitness);
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct EncodedShardChunkV1 {
@@ -1014,12 +1024,14 @@ impl EncodedShardChunk {
     }
 
     pub fn encode_transaction_receipts(
+        // and witness.
         rs: &ReedSolomonWrapper,
         transactions: Vec<SignedTransaction>,
         outgoing_receipts: &[Receipt],
+        state_witness: StateWitness,
     ) -> Result<(Vec<Option<Box<[u8]>>>, u64), std::io::Error> {
-        let mut bytes =
-            TransactionReceipt(transactions, outgoing_receipts.to_vec()).try_to_vec()?;
+        let mut bytes = TransactionReceipt(transactions, outgoing_receipts.to_vec(), state_witness)
+            .try_to_vec()?;
 
         let mut parts = Vec::with_capacity(rs.total_shard_count());
         let data_parts = rs.data_shard_count();
@@ -1055,6 +1067,7 @@ impl EncodedShardChunk {
         gas_limit: Gas,
         prev_balance_burnt: Balance,
         tx_root: CryptoHash,
+        state_witness: StateWitness,
         prev_validator_proposals: Vec<ValidatorStake>,
         transactions: Vec<SignedTransaction>,
         prev_outgoing_receipts: &[Receipt],
@@ -1062,8 +1075,12 @@ impl EncodedShardChunk {
         signer: &dyn ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Result<(Self, Vec<MerklePath>), std::io::Error> {
-        let (transaction_receipts_parts, encoded_length) =
-            Self::encode_transaction_receipts(rs, transactions, prev_outgoing_receipts)?;
+        let (transaction_receipts_parts, encoded_length) = Self::encode_transaction_receipts(
+            rs,
+            transactions,
+            prev_outgoing_receipts,
+            state_witness,
+        )?;
 
         let mut content = EncodedShardChunkBody { parts: transaction_receipts_parts };
         content.reconstruct(rs).unwrap();

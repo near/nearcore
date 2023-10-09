@@ -18,6 +18,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
+use near_primitives::state::StateWitness;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::MaybeValidated;
@@ -95,6 +96,7 @@ fn create_chunk_on_height_for_shard(
             &client.epoch_manager.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
             Chain::get_prev_chunk_header(client.epoch_manager.as_ref(), &last_block, shard_id)
                 .unwrap(),
+            StateWitness::default(), // TODO: take it from somewhere
             next_height,
             shard_id,
         )
@@ -130,6 +132,7 @@ pub fn create_chunk(
             *last_block.hash(),
             last_block.header().epoch_id(),
             last_block.chunks()[0].clone(),
+            StateWitness::default(), // TODO: take it from somewhere
             next_height,
             0,
         )
@@ -147,6 +150,7 @@ pub fn create_chunk(
         let total_parts = client.chain.epoch_manager.num_total_parts();
         let data_parts = client.chain.epoch_manager.num_data_parts();
         let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
+        let state_witness = decoded_chunk.prev_state_witness().unwrap_or_default();
         let parity_parts = total_parts - data_parts;
         let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
 
@@ -163,6 +167,7 @@ pub fn create_chunk(
             header.gas_limit(),
             header.prev_balance_burnt(),
             tx_root,
+            state_witness,
             header.prev_validator_proposals().collect(),
             transactions,
             decoded_chunk.prev_outgoing_receipts(),
