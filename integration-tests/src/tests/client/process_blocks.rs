@@ -1243,7 +1243,7 @@ fn test_invalid_gas_price() {
     let signer = Arc::new(create_test_signer("test1"));
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
-    b1.mut_header().get_mut().inner_rest.gas_price = 0;
+    b1.mut_header().get_mut().inner_rest.next_gas_price = 0;
     b1.mut_header().resign(&*signer);
 
     let res = client.process_block_test(b1.into(), Provenance::NONE);
