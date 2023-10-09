@@ -11,7 +11,7 @@ mod tests;
 
 // Connections in the network are bi-directional between a pair of peers (peer0, peer1).
 // For keys in the EdgeCache, we maintain the invariant that peer0 < peer1
-#[derive(Clone, Eq, Hash, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq, Debug)]
 pub(crate) struct EdgeKey {
     peer0: PeerId,
     peer1: PeerId,
@@ -280,6 +280,24 @@ impl EdgeCache {
                 self.remove_active_edge(key);
             }
         }
+    }
+
+    /// If we have a tree stored for the given peer,
+    /// returns the min nonce among the edges in the tree.
+    ///
+    /// Returns None if no tree is stored.
+    /// Returns None if for any edge in the tree, no nonce is available.
+    pub fn get_min_nonce(&mut self, peer_id: &PeerId) -> Option<u64> {
+        let edge_keys = self.active_trees.get(peer_id)?;
+
+        let mut min_nonce: Option<u64> = None;
+
+        for key in edge_keys {
+            let nonce = *self.verified_nonces.get(key)?;
+            min_nonce = Some(min_nonce.map_or(nonce, |min_val| std::cmp::min(min_val, nonce)));
+        }
+
+        min_nonce
     }
 
     /// Removes the tree stored for the given peer, if there is one.
