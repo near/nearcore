@@ -101,7 +101,7 @@ impl FlatStateValue {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default, PartialEq, Eq)]
 pub struct StateWitness {
     // TODO
     pub data: Vec<u8>,
