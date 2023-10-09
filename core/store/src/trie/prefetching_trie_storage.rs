@@ -473,7 +473,7 @@ impl PrefetchApi {
                             Trie::new(Rc::new(prefetcher_storage.clone()), trie_root, None);
                         let storage_key = trie_key.to_vec();
                         metric_prefetch_sent.inc();
-                        if let Ok(_maybe_value) = prefetcher_trie.get(&storage_key) {
+                        if let Ok(_maybe_value) = prefetcher_trie.get(&storage_key, None) {
                             near_o11y::io_trace!(count: "prefetch");
                         } else {
                             // This may happen in rare occasions and can be ignored safely.

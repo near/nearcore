@@ -298,7 +298,7 @@ pub fn get_delayed_receipts(
         && delayed_receipt_indices.first_index < delayed_receipt_indices.next_available_index
     {
         let key = TrieKey::DelayedReceipt { index: delayed_receipt_indices.first_index };
-        let data = state_update.get(&key)?.ok_or_else(|| {
+        let data = state_update.get(&key, None)?.ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "Delayed receipt #{} should be in the state",
                 delayed_receipt_indices.first_index

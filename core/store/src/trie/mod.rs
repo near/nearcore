@@ -20,7 +20,7 @@ use near_primitives::state::ValueRef;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 pub use near_primitives::types::TrieNodesCount;
-use near_primitives::types::{StateRoot, StateRootNode};
+use near_primitives::types::{StateRoot, StateRootNode, AccountId};
 use near_vm_runner::ContractCode;
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
@@ -534,6 +534,7 @@ impl Trie {
     fn internal_retrieve_trie_node(
         &self,
         hash: &CryptoHash,
+        account_id: Option<AccountId>,
         use_accounting_cache: bool,
     ) -> Result<Arc<[u8]>, StorageError> {
         let result = if use_accounting_cache {
@@ -598,7 +599,7 @@ impl Trie {
     ) -> Result<(), StorageError> {
         match value {
             ValueHandle::HashAndSize(value) => {
-                let bytes = self.internal_retrieve_trie_node(&value.hash, true)?;
+                let bytes = self.internal_retrieve_trie_node(&value.hash, None, true)?;
                 memory
                     .refcount_changes
                     .entry(value.hash)
@@ -694,7 +695,7 @@ impl Trie {
             return Ok(());
         }
 
-        let (bytes, raw_node, mem_usage) = match self.retrieve_raw_node(hash, true) {
+        let (bytes, raw_node, mem_usage) = match self.retrieve_raw_node(hash, None, true) {
             Ok(Some((bytes, raw_node))) => (bytes, raw_node.node, raw_node.memory_usage),
             Ok(None) => return writeln!(f, "{spaces}EmptyNode"),
             Err(err) => return writeln!(f, "{spaces}error {err}"),
@@ -770,13 +771,13 @@ impl Trie {
     fn retrieve_raw_node(
         &self,
         hash: &CryptoHash,
+        account_id: Option<AccountId>,
         use_accounting_cache: bool,
     ) -> Result<Option<(std::sync::Arc<[u8]>, RawTrieNodeWithSize)>, StorageError> {
         if hash == &Self::EMPTY_ROOT {
             return Ok(None);
         }
-        let bytes = self.internal_retrieve_trie_node(hash, use_accounting_cache)?;
-        let node = RawTrieNodeWithSize::try_from_slice(&bytes).map_err(|err| {
+        let bytes = self.internal_retrieve_trie_node(hash, account_id, use_accounting_cache)?; let node = RawTrieNodeWithSize::try_from_slice(&bytes).map_err(|err| {
             StorageError::StorageInconsistentState(format!("Failed to decode node {hash}: {err}"))
         })?;
         Ok(Some((bytes, node)))
@@ -789,7 +790,7 @@ impl Trie {
         &self,
         hash: &CryptoHash,
     ) -> Result<NodeOrValue, StorageError> {
-        let bytes = self.internal_retrieve_trie_node(hash, true)?;
+        let bytes = self.internal_retrieve_trie_node(hash, None, true)?;
         match RawTrieNodeWithSize::try_from_slice(&bytes) {
             Ok(node) => Ok(NodeOrValue::Node(node)),
             Err(_) => Ok(NodeOrValue::Value(bytes)),
@@ -801,7 +802,7 @@ impl Trie {
         memory: &mut NodesStorage,
         hash: &CryptoHash,
     ) -> Result<StorageHandle, StorageError> {
-        match self.retrieve_raw_node(hash, true)? {
+        match self.retrieve_raw_node(hash, None, true)? {
             None => Ok(memory.store(TrieNodeWithSize::empty())),
             Some((bytes, node)) => {
                 let result = memory.store(TrieNodeWithSize::from_raw(node));
@@ -821,14 +822,14 @@ impl Trie {
         &self,
         hash: &CryptoHash,
     ) -> Result<(Option<std::sync::Arc<[u8]>>, TrieNodeWithSize), StorageError> {
-        match self.retrieve_raw_node(hash, true)? {
+        match self.retrieve_raw_node(hash, None, true)? {
             None => Ok((None, TrieNodeWithSize::empty())),
             Some((bytes, node)) => Ok((Some(bytes), TrieNodeWithSize::from_raw(node))),
         }
     }
 
     pub fn retrieve_root_node(&self) -> Result<StateRootNode, StorageError> {
-        match self.retrieve_raw_node(&self.root, true)? {
+        match self.retrieve_raw_node(&self.root, None, true)? {
             None => Ok(StateRootNode::empty()),
             Some((bytes, node)) => {
                 Ok(StateRootNode { data: bytes, memory_usage: node.memory_usage })
@@ -843,7 +844,7 @@ impl Trie {
     ) -> Result<Option<ValueRef>, StorageError> {
         let mut hash = self.root;
         loop {
-            let node = match self.retrieve_raw_node(&hash, use_accounting_cache)? {
+            let node = match self.retrieve_raw_node(&hash, None, use_accounting_cache)? {
                 None => return Ok(None),
                 Some((_bytes, node)) => node.node,
             };
@@ -918,7 +919,7 @@ impl Trie {
 
         // The rest of the logic is very similar to the standard lookup() function, except
         // we return the raw node and don't expect to hit a leaf.
-        let mut node = self.retrieve_raw_node(&self.root, true)?;
+        let mut node = self.retrieve_raw_node(&self.root, None, true)?;
         while !key.is_empty() {
             match node {
                 Some((_, raw_node)) => match raw_node.node {
@@ -930,7 +931,7 @@ impl Trie {
                         let child = children[key.at(0)];
                         match child {
                             Some(child) => {
-                                node = self.retrieve_raw_node(&child, true)?;
+                                node = self.retrieve_raw_node(&child, None, true)?;
                                 key = key.mid(1);
                             }
                             None => return Ok(None),
@@ -939,7 +940,7 @@ impl Trie {
                     RawTrieNode::Extension(existing_key, child) => {
                         let existing_key = NibbleSlice::from_encoded(&existing_key).0;
                         if key.starts_with(&existing_key) {
-                            node = self.retrieve_raw_node(&child, true)?;
+                            node = self.retrieve_raw_node(&child, None, true)?;
                             key = key.mid(existing_key.len());
                         } else {
                             return Ok(None);
@@ -957,8 +958,8 @@ impl Trie {
 
     /// Returns the raw bytes corresponding to a ValueRef that came from a node with
     /// value (either Leaf or BranchWithValue).
-    pub fn retrieve_value(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
-        let bytes = self.internal_retrieve_trie_node(hash, true)?;
+    pub fn retrieve_value(&self, hash: &CryptoHash, account_id: Option<AccountId>) -> Result<Vec<u8>, StorageError> {
+        let bytes = self.internal_retrieve_trie_node(hash, account_id, true)?;
         Ok(bytes.to_vec())
     }
 
@@ -1003,10 +1004,10 @@ impl Trie {
         }
     }
 
-    pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
+    pub fn get(&self, key: &[u8], account_id: Option<AccountId>) -> Result<Option<Vec<u8>>, StorageError> {
         match self.get_ref(key, KeyLookupMode::FlatStorage)? {
             Some(ValueRef { hash, .. }) => {
-                self.internal_retrieve_trie_node(&hash, true).map(|bytes| Some(bytes.to_vec()))
+                self.internal_retrieve_trie_node(&hash, account_id, true).map(|bytes| Some(bytes.to_vec()))
             }
             None => Ok(None),
         }
@@ -1087,7 +1088,7 @@ impl Trie {
 
 impl TrieAccess for Trie {
     fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        Trie::get(self, &key.to_vec())
+        Trie::get(self, &key.to_vec(), key.get_account_id())
     }
 }
 
@@ -1146,7 +1147,7 @@ mod tests {
         let trie = tries.get_trie_for_shard(shard_uid, root);
         store_update.commit().unwrap();
         for (key, _) in changes {
-            assert_eq!(trie.get(&key), Ok(None));
+            assert_eq!(trie.get(&key, None), Ok(None));
         }
         root
     }
@@ -1157,7 +1158,7 @@ mod tests {
         let tries = create_tries_complex(SHARD_VERSION, 2);
         let shard_uid = ShardUId { version: SHARD_VERSION, shard_id: 0 };
         let trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
-        assert_eq!(trie.get(&[122]), Ok(None));
+        assert_eq!(trie.get(&[122], None), Ok(None));
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
             (b"docu".to_vec(), Some(b"value".to_vec())),
@@ -1431,7 +1432,7 @@ mod tests {
 
         let tries2 = ShardTries::test(store, 1);
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard(), root);
-        assert_eq!(trie2.get(b"doge"), Ok(Some(b"coin".to_vec())));
+        assert_eq!(trie2.get(b"doge", None), Ok(Some(b"coin".to_vec())));
     }
 
     // TODO: somehow also test that we don't record unnecessary nodes
@@ -1451,15 +1452,15 @@ mod tests {
         let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
 
         let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
-        trie2.get(b"dog").unwrap();
-        trie2.get(b"horse").unwrap();
+        trie2.get(b"dog", None).unwrap();
+        trie2.get(b"horse", None).unwrap();
         let partial_storage = trie2.recorded_storage();
 
         let trie3 = Trie::from_recorded_storage(partial_storage.unwrap(), root, false);
 
-        assert_eq!(trie3.get(b"dog"), Ok(Some(b"puppy".to_vec())));
-        assert_eq!(trie3.get(b"horse"), Ok(Some(b"stallion".to_vec())));
-        assert_eq!(trie3.get(b"doge"), Err(StorageError::MissingTrieValue));
+        assert_eq!(trie3.get(b"dog", None), Ok(Some(b"puppy".to_vec())));
+        assert_eq!(trie3.get(b"horse", None), Ok(Some(b"stallion".to_vec())));
+        assert_eq!(trie3.get(b"doge", None), Err(StorageError::MissingTrieValue));
     }
 
     #[test]
@@ -1475,7 +1476,7 @@ mod tests {
         // Trie: extension -> branch -> 2 leaves
         {
             let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
-            trie2.get(b"doge").unwrap();
+            trie2.get(b"doge", None).unwrap();
             // record extension, branch and one leaf with value, but not the other
             assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 4);
         }
@@ -1513,6 +1514,6 @@ mod tests {
         store2.load_state_from_file(&dir.path().join("test.bin")).unwrap();
         let tries2 = ShardTries::test(store2, 1);
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard(), root);
-        assert_eq!(trie2.get(b"doge").unwrap().unwrap(), b"coin");
+        assert_eq!(trie2.get(b"doge", None).unwrap().unwrap(), b"coin");
     }
 }

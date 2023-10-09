@@ -230,7 +230,7 @@ impl Trie {
             .start_timer();
         let looked_up_value_refs: Vec<_> = value_refs
             .iter()
-            .map(|(k, hash)| Ok((k.clone(), Some(state_trie.retrieve_value(hash)?.to_vec()))))
+            .map(|(k, hash)| Ok((k.clone(), Some(state_trie.retrieve_value(hash, None)?.to_vec()))))
             .collect::<Result<_, StorageError>>()
             .unwrap();
         all_state_part_items.extend(looked_up_value_refs.iter().cloned());
@@ -461,7 +461,7 @@ impl Trie {
         let mut flat_state_delta = FlatStateChanges::default();
         let mut contract_codes = Vec::new();
         for TrieTraversalItem { hash, key } in trie_traversal_items {
-            let value = trie.retrieve_value(&hash)?;
+            let value = trie.retrieve_value(&hash, None)?;
             map.entry(hash).or_insert_with(|| (value.to_vec(), 0)).1 += 1;
             if let Some(trie_key) = key {
                 let flat_state_value = FlatStateValue::on_disk(&value);
@@ -554,7 +554,7 @@ mod tests {
         for part_id in 1..num_parts {
             let nibbles_boundary = trie.find_state_part_boundary(part_id, num_parts).unwrap();
             let key_boundary = NibbleSlice::nibbles_to_bytes(&nibbles_boundary);
-            assert_matches!(trie.get(&key_boundary), Ok(Some(_)));
+            assert_matches!(trie.get(&key_boundary, None), Ok(Some(_)));
         }
 
         let nibbles_boundary = trie.find_state_part_boundary(num_parts, num_parts).unwrap();
@@ -622,7 +622,7 @@ mod tests {
                 if let Some((_bytes, rc)) = insertions.get_mut(hash) {
                     *rc += 1;
                 } else {
-                    let bytes = trie.retrieve_value(hash)?;
+                    let bytes = trie.retrieve_value(hash, None)?;
                     insertions.insert(*hash, (bytes.to_vec(), 1));
                 }
                 Ok(())
@@ -831,7 +831,7 @@ mod tests {
                     trie_recording.find_state_part_boundary(part_id, num_parts).unwrap();
                 let left_key_boundary = NibbleSlice::nibbles_to_bytes(&left_nibbles_boundary);
                 if part_id != 0 {
-                    assert_matches!(trie.get(&left_key_boundary), Ok(Some(_)));
+                    assert_matches!(trie.get(&left_key_boundary, None), Ok(Some(_)));
                 }
                 let PartialState::TrieValues(proof_nodes) =
                     trie_recording.recorded_storage().unwrap().nodes;

@@ -174,7 +174,7 @@ impl ContractAccount {
     ) -> Result<Self> {
         let code = if filter.code_size {
             Some(
-                trie.retrieve_value(&value_hash)
+                trie.retrieve_value(&value_hash, Some(account_id.clone()))
                     .map_err(|err| ContractAccountError::NoCode(err, account_id.clone()))?,
             )
         } else {

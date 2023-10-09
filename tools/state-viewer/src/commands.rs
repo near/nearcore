@@ -306,7 +306,7 @@ pub(crate) fn dump_account_storage(
             account_id: account_id.parse().unwrap(),
             key: storage_key.as_bytes().to_vec(),
         };
-        let item = trie.get(&key.to_vec());
+        let item = trie.get(&key.to_vec(), None);
         let value = item.unwrap();
         if let Some(value) = value {
             let record = StateRecord::from_raw_key_value(key.to_vec(), value).unwrap();

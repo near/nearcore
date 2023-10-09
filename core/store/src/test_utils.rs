@@ -114,7 +114,7 @@ pub fn test_populate_trie(
     let deduped = simplify_changes(&changes);
     let trie = tries.get_trie_for_shard(shard_uid, root);
     for (key, value) in deduped {
-        assert_eq!(trie.get(&key), Ok(value));
+        assert_eq!(trie.get(&key, None), Ok(value));
     }
     root
 }

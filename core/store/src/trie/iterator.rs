@@ -369,7 +369,7 @@ impl<'a> TrieIterator<'a> {
                     if self.key_nibbles[prefix..] >= path_end[prefix..] {
                         break;
                     }
-                    self.trie.retrieve_value(&hash)?;
+                    self.trie.retrieve_value(&hash, None)?;
                     nodes_list.push(TrieTraversalItem {
                         hash,
                         key: self.has_value().then(|| self.key()),
@@ -414,7 +414,7 @@ impl<'a> Iterator for TrieIterator<'a> {
                 },
                 (IterStep::Value(hash), true) => {
                     return Some(
-                        self.trie.retrieve_value(&hash).map(|value| (self.key(), value.to_vec())),
+                        self.trie.retrieve_value(&hash, None).map(|value| (self.key(), value.to_vec())),
                     )
                 }
             }

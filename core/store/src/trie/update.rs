@@ -7,7 +7,7 @@ use near_primitives::state::ValueRef;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
-    TrieCacheMode,
+    TrieCacheMode, AccountId,
 };
 use std::collections::BTreeMap;
 mod iterator;
@@ -46,7 +46,7 @@ impl<'a> TrieUpdateValuePtr<'a> {
         match self {
             TrieUpdateValuePtr::MemoryRef(value) => Ok(value.to_vec()),
             TrieUpdateValuePtr::HashAndSize(trie, _, hash) => {
-                trie.internal_retrieve_trie_node(hash, true).map(|bytes| bytes.to_vec())
+                trie.internal_retrieve_trie_node(hash, None, true).map(|bytes| bytes.to_vec())
             }
         }
     }
@@ -82,7 +82,7 @@ impl TrieUpdate {
         })
     }
 
-    pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
+    pub fn get(&self, key: &TrieKey, account_id: Option<AccountId>) -> Result<Option<Vec<u8>>, StorageError> {
         let key = key.to_vec();
         if let Some(key_value) = self.prospective.get(&key) {
             return Ok(key_value.value.as_ref().map(<Vec<u8>>::clone));
@@ -91,7 +91,7 @@ impl TrieUpdate {
                 return Ok(data.as_ref().map(<Vec<u8>>::clone));
             }
         }
-        self.trie.get(&key)
+        self.trie.get(&key, account_id)
     }
 
     pub fn set(&mut self, trie_key: TrieKey, value: Vec<u8>) {
@@ -163,7 +163,7 @@ impl TrieUpdate {
 
 impl crate::TrieAccess for TrieUpdate {
     fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        TrieUpdate::get(self, key)
+        TrieUpdate::get(self, key, key.get_account_id())
     }
 }
 
@@ -195,7 +195,7 @@ mod tests {
         let new_root = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID, &mut store_update);
         store_update.commit().unwrap();
         let trie_update2 = tries.new_trie_update(COMPLEX_SHARD_UID, new_root);
-        assert_eq!(trie_update2.get(&test_key(b"dog".to_vec())), Ok(Some(b"puppy".to_vec())));
+        assert_eq!(trie_update2.get(&test_key(b"dog".to_vec()), None), Ok(Some(b"puppy".to_vec())));
         let values = trie_update2
             .iter(&test_key(b"dog".to_vec()).to_vec())
             .unwrap()
