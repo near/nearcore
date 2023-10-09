@@ -21,7 +21,6 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
-
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
     Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
