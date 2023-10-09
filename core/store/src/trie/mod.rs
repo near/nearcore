@@ -1095,7 +1095,7 @@ impl TrieAccess for Trie {
 /// Methods used in the runtime-parameter-estimator for measuring trie internal
 /// operations.
 pub mod estimator {
-    use borsh::{BorshDeserialize, BorshSerialize};
+    use borsh::BorshDeserialize;
     use near_primitives::hash::CryptoHash;
 
     /// Create an encoded extension node with the given value as the key.
@@ -1104,7 +1104,7 @@ pub mod estimator {
         let hash = CryptoHash::hash_bytes(&key);
         let node = super::RawTrieNode::Extension(key, hash);
         let node = super::RawTrieNodeWithSize { node, memory_usage: 1 };
-        node.try_to_vec().unwrap()
+        borsh::to_vec(&node).unwrap()
     }
     /// Decode am extension node and return its inner key.
     /// This serves no purpose other than for the estimator.

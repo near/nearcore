@@ -2,7 +2,7 @@
 extern crate bencher;
 
 use bencher::{black_box, Bencher};
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshDeserialize;
 use near_primitives::static_clock::StaticClock;
 
 use near_crypto::{KeyType, PublicKey, Signature};
@@ -79,14 +79,14 @@ fn create_account() -> Account {
 fn serialize_tx(bench: &mut Bencher) {
     let t = create_transaction();
     bench.iter(|| {
-        let bytes = t.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&t).unwrap();
         assert!(!bytes.is_empty());
     });
 }
 
 fn deserialize_tx(bench: &mut Bencher) {
     let t = create_transaction();
-    let bytes = t.try_to_vec().unwrap();
+    let bytes = borsh::to_vec(&t).unwrap();
     bench.iter(|| {
         let nt = SignedTransaction::try_from_slice(&bytes).unwrap();
         assert_eq!(nt, t);
@@ -96,14 +96,14 @@ fn deserialize_tx(bench: &mut Bencher) {
 fn serialize_block(bench: &mut Bencher) {
     let b = create_block();
     bench.iter(|| {
-        let bytes = b.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&b).unwrap();
         assert!(!bytes.is_empty());
     });
 }
 
 fn deserialize_block(bench: &mut Bencher) {
     let b = create_block();
-    let bytes = b.try_to_vec().unwrap();
+    let bytes = borsh::to_vec(&b).unwrap();
     bench.iter(|| {
         let nb = Block::try_from_slice(&bytes).unwrap();
         assert_eq!(nb, b);
@@ -113,14 +113,14 @@ fn deserialize_block(bench: &mut Bencher) {
 fn serialize_account(bench: &mut Bencher) {
     let acc = create_account();
     bench.iter(|| {
-        let bytes = acc.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&acc).unwrap();
         assert!(!bytes.is_empty());
     });
 }
 
 fn deserialize_account(bench: &mut Bencher) {
     let acc = create_account();
-    let bytes = acc.try_to_vec().unwrap();
+    let bytes = borsh::to_vec(&acc).unwrap();
     bench.iter(|| {
         let nacc = Account::try_from_slice(&bytes).unwrap();
         assert_eq!(nacc, acc);

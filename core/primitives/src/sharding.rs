@@ -105,7 +105,7 @@ impl ShardChunkHeaderV2 {
     }
 
     pub fn compute_hash(inner: &ShardChunkHeaderInnerV1) -> ChunkHash {
-        let inner_bytes = inner.try_to_vec().expect("Failed to serialize");
+        let inner_bytes = borsh::to_vec(&inner).expect("Failed to serialize");
         let inner_hash = hash(&inner_bytes);
 
         ChunkHash(combine_hash(&inner_hash, &inner.encoded_merkle_root))
@@ -169,7 +169,7 @@ impl ShardChunkHeaderV3 {
     }
 
     pub fn compute_hash(inner: &ShardChunkHeaderInner) -> ChunkHash {
-        let inner_bytes = inner.try_to_vec().expect("Failed to serialize");
+        let inner_bytes = borsh::to_vec(&inner).expect("Failed to serialize");
         let inner_hash = hash(&inner_bytes);
 
         ChunkHash(combine_hash(&inner_hash, inner.encoded_merkle_root()))
@@ -235,9 +235,9 @@ impl ShardChunkHeader {
 
     pub fn inner_header_hash(&self) -> CryptoHash {
         let inner_bytes = match self {
-            Self::V1(header) => header.inner.try_to_vec(),
-            Self::V2(header) => header.inner.try_to_vec(),
-            Self::V3(header) => header.inner.try_to_vec(),
+            Self::V1(header) => borsh::to_vec(&header.inner),
+            Self::V2(header) => borsh::to_vec(&header.inner),
+            Self::V3(header) => borsh::to_vec(&header.inner),
         };
         hash(&inner_bytes.expect("Failed to serialize"))
     }
@@ -430,7 +430,7 @@ impl ShardChunkHeaderV1 {
     }
 
     pub fn compute_hash(inner: &ShardChunkHeaderInnerV1) -> ChunkHash {
-        let inner_bytes = inner.try_to_vec().expect("Failed to serialize");
+        let inner_bytes = borsh::to_vec(&inner).expect("Failed to serialize");
         let inner_hash = hash(&inner_bytes);
 
         ChunkHash(inner_hash)
@@ -1019,7 +1019,7 @@ impl EncodedShardChunk {
         outgoing_receipts: &[Receipt],
     ) -> Result<(Vec<Option<Box<[u8]>>>, u64), std::io::Error> {
         let mut bytes =
-            TransactionReceipt(transactions, outgoing_receipts.to_vec()).try_to_vec()?;
+            borsh::to_vec(&TransactionReceipt(transactions, outgoing_receipts.to_vec()))?;
 
         let mut parts = Vec::with_capacity(rs.total_shard_count());
         let data_parts = rs.data_shard_count();

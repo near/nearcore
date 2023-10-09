@@ -390,7 +390,6 @@ impl<
 mod tests {
     use super::*;
     use crate::network_protocol::{RawRoutedMessage, RoutedMessage, RoutedMessageBody};
-    use borsh::BorshSerialize as _;
 
     const ALLOWED_SIZE: usize = 1 << 20;
     const NOTIFY_SIZE: usize = 1024;
@@ -450,7 +449,7 @@ mod tests {
     fn routed_message_body_compatibility_smoke_test() {
         #[track_caller]
         fn check(msg: RoutedMessageBody, expected: &[u8]) {
-            let actual = msg.try_to_vec().unwrap();
+            let actual = borsh::to_vec(&msg).unwrap();
             assert_eq!(actual.as_slice(), expected);
         }
 

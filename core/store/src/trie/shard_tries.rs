@@ -5,7 +5,7 @@ use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
 use crate::{metrics, DBCol, PrefetchApi};
 use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
-use borsh::BorshSerialize;
+
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{self, ShardUId, ShardVersion};
@@ -461,7 +461,7 @@ impl WrappedTrieChanges {
             store_update.set(
                 DBCol::StateChanges,
                 storage_key.as_ref(),
-                &change_with_trie_key.try_to_vec().expect("Borsh serialize cannot fail"),
+                &borsh::to_vec(&change_with_trie_key).expect("Borsh serialize cannot fail"),
             );
         }
     }

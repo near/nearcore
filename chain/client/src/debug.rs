@@ -2,7 +2,7 @@
 //! without backwards compatibility.
 use crate::ClientActor;
 use actix::{Context, Handler};
-use borsh::BorshSerialize;
+
 use itertools::Itertools;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::{near_chain_primitives, Chain, ChainStoreAccess};
@@ -255,7 +255,7 @@ impl ClientActor {
 
         let state_header_exists: Vec<bool> = (0..block.chunks().len())
             .map(|shard_id| {
-                let key = StateHeaderKey(shard_id as u64, *block.hash()).try_to_vec();
+                let key = borsh::to_vec(&StateHeaderKey(shard_id as u64, *block.hash()));
                 match key {
                     Ok(key) => {
                         matches!(

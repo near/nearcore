@@ -1,7 +1,7 @@
 use super::{MemTrieNodePtr, MemTrieNodeView};
 use crate::trie::TRIE_COSTS;
 use crate::{RawTrieNode, RawTrieNodeWithSize};
-use borsh::BorshSerialize;
+
 use near_primitives::hash::{hash, CryptoHash};
 
 impl<'a> MemTrieNodeView<'a> {
@@ -10,7 +10,7 @@ impl<'a> MemTrieNodeView<'a> {
         match self {
             Self::Leaf { .. } => {
                 let node = self.clone().to_raw_trie_node_with_size();
-                hash(&node.try_to_vec().unwrap())
+                hash(&borsh::to_vec(&node).unwrap())
             }
             Self::Extension { hash, .. }
             | Self::Branch { hash, .. }

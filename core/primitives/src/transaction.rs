@@ -48,7 +48,7 @@ pub struct Transaction {
 impl Transaction {
     /// Computes a hash of the transaction for signing and size of serialized transaction
     pub fn get_hash_and_size(&self) -> (CryptoHash, u64) {
-        let bytes = self.try_to_vec().expect("Failed to deserialize");
+        let bytes = borsh::to_vec(&self).expect("Failed to deserialize");
         (hash(&bytes), bytes.len() as u64)
     }
 }
@@ -313,7 +313,7 @@ mod tests {
         let invalid_keys = vec![wrong_public_key];
         assert!(!verify_transaction_signature(&transaction, &invalid_keys));
 
-        let bytes = transaction.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&transaction).unwrap();
         let decoded_tx = SignedTransaction::try_from_slice(&bytes).unwrap();
         assert!(verify_transaction_signature(&decoded_tx, &valid_keys));
     }
@@ -362,7 +362,7 @@ mod tests {
         };
         let signed_tx = SignedTransaction::new(Signature::empty(KeyType::ED25519), transaction);
         let new_signed_tx =
-            SignedTransaction::try_from_slice(&signed_tx.try_to_vec().unwrap()).unwrap();
+            SignedTransaction::try_from_slice(&borsh::to_vec(&signed_tx).unwrap()).unwrap();
 
         assert_eq!(
             new_signed_tx.get_hash().to_string(),

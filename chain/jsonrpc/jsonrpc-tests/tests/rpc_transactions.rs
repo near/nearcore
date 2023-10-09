@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use actix::{Actor, System};
-use borsh::BorshSerialize;
+
 use futures::{future, FutureExt, TryFutureExt};
 
 use near_actix_test_utils::run_actix;
@@ -44,7 +44,7 @@ fn test_send_tx_async() {
                 100,
                 block_hash,
             );
-            let bytes = tx.try_to_vec().unwrap();
+            let bytes = borsh::to_vec(&tx).unwrap();
             let tx_hash = tx.get_hash().to_string();
             *tx_hash2_1.lock().unwrap() = Some(tx.get_hash());
             client
@@ -93,7 +93,7 @@ fn test_send_tx_commit() {
             100,
             block_hash,
         );
-        let bytes = tx.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&tx).unwrap();
         let result = client.broadcast_tx_commit(to_base64(&bytes)).await.unwrap();
         assert_eq!(
             result.final_execution_outcome.unwrap().into_outcome().status,
@@ -146,7 +146,7 @@ fn test_expired_tx() {
                                     100,
                                     block_hash,
                                 );
-                                let bytes = tx.try_to_vec().unwrap();
+                                let bytes = borsh::to_vec(&tx).unwrap();
                                 actix::spawn(
                                     client
                                         .broadcast_tx_commit(to_base64(&bytes))
@@ -190,7 +190,7 @@ fn test_replay_protection() {
             100,
             hash(&[1]),
         );
-        let bytes = tx.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&tx).unwrap();
         if let Ok(_) = client.broadcast_tx_commit(to_base64(&bytes)).await {
             panic!("transaction should not succeed");
         }

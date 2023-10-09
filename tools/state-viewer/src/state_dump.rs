@@ -1,4 +1,3 @@
-use borsh::BorshSerialize;
 use chrono::Utc;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::{Genesis, GenesisChangeConfig, GenesisConfig};
@@ -157,7 +156,7 @@ pub fn state_dump_redis(
                         block_hash.as_ref(),
                         block_height,
                     )?;
-                    let value = account.try_to_vec().unwrap();
+                    let value = borsh::to_vec(&account).unwrap();
                     redis_connection.set(
                         [b"account-data:", redis_key, b":", block_hash.as_ref()].concat(),
                         value,

@@ -1,4 +1,4 @@
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshDeserialize;
 use near_primitives::types::StateRoot;
 use near_store::db::TestDB;
 use near_store::Store;
@@ -44,7 +44,7 @@ impl StateDump {
             let mut roots_files = dir;
             roots_files.push(GENESIS_ROOTS_FILE);
             let mut file = File::create(roots_files)?;
-            let data = self.roots.try_to_vec()?;
+            let data = borsh::to_vec(&self.roots)?;
             file.write_all(&data)?;
         }
         Ok(())

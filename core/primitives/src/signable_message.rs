@@ -95,7 +95,7 @@ impl<'a, T: BorshSerialize> SignableMessage<'a, T> {
     }
 
     pub fn sign(&self, signer: &dyn Signer) -> Signature {
-        let bytes = self.try_to_vec().expect("Failed to deserialize");
+        let bytes = borsh::to_vec(&self).expect("Failed to deserialize");
         let hash = hash(&bytes);
         signer.sign(hash.as_bytes())
     }

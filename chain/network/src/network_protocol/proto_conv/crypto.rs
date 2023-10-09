@@ -1,6 +1,6 @@
 /// Conversion functions for messages representing crypto primitives.
 use crate::network_protocol::proto;
-use borsh::{BorshDeserialize as _, BorshSerialize as _};
+use borsh::BorshDeserialize as _;
 use near_crypto::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -30,7 +30,7 @@ pub type ParsePublicKeyError = std::io::Error;
 
 impl From<&PublicKey> for proto::PublicKey {
     fn from(x: &PublicKey) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Self::default() }
     }
 }
 
@@ -60,7 +60,7 @@ pub type ParseSignatureError = std::io::Error;
 
 impl From<&near_crypto::Signature> for proto::Signature {
     fn from(x: &near_crypto::Signature) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Self::default() }
     }
 }
 
