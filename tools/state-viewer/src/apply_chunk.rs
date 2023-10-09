@@ -10,7 +10,7 @@ use near_primitives::merkle::combine_hash;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout;
 use near_primitives::sharding::{ChunkHash, ReceiptProof};
-use near_primitives::syncing::ReceiptProofResponse;
+use near_primitives::state_sync::ReceiptProofResponse;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
@@ -163,7 +163,7 @@ fn find_tx_or_receipt(
     hash: &CryptoHash,
     block_hash: &CryptoHash,
     epoch_manager: &EpochManagerHandle,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
 ) -> anyhow::Result<Option<(HashType, ShardId)>> {
     let block = chain_store.get_block(block_hash)?;
     let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();

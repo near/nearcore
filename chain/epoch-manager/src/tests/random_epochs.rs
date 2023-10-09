@@ -108,7 +108,7 @@ fn random_slashes<RngImpl: Rng>(rng: &mut RngImpl) -> Vec<SlashedValidator> {
 }
 
 fn validate(
-    epoch_manager: &mut EpochManager,
+    epoch_manager: &EpochManager,
     heights: Vec<u64>,
     slashes_per_block: Vec<Vec<SlashedValidator>>,
 ) {
@@ -224,7 +224,7 @@ fn verify_epochs(epoch_infos: &[Arc<EpochInfo>]) {
     }
 }
 
-fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &[Arc<BlockInfo>]) {
+fn verify_proposals(epoch_manager: &EpochManager, block_infos: &[Arc<BlockInfo>]) {
     let mut proposals = BTreeMap::default();
     for i in 1..block_infos.len() {
         let prev_block_info = &block_infos[i - 1];
@@ -255,7 +255,7 @@ fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &[Arc<BlockIn
 }
 
 fn verify_slashes(
-    epoch_manager: &mut EpochManager,
+    epoch_manager: &EpochManager,
     block_infos: &[Arc<BlockInfo>],
     slashes_per_block: &[Vec<SlashedValidator>],
 ) {
@@ -312,7 +312,7 @@ fn verify_slashes(
 }
 
 fn verify_block_stats(
-    epoch_manager: &mut EpochManager,
+    epoch_manager: &EpochManager,
     heights: Vec<u64>,
     block_infos: &[Arc<BlockInfo>],
     block_hashes: &[CryptoHash],

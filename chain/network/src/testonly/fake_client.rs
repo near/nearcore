@@ -9,7 +9,7 @@ use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunkPart};
-use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV2};
+use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseV2};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;

@@ -76,6 +76,19 @@ impl std::fmt::Display for RuntimeError {
 
 impl std::error::Error for RuntimeError {}
 
+/// Contexts in which `StorageError::MissingTrieValue` error might occur.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MissingTrieValueContext {
+    /// Missing trie value when reading from TrieIterator.
+    TrieIterator,
+    /// Missing trie value when reading from TriePrefetchingStorage.
+    TriePrefetchingStorage,
+    /// Missing trie value when reading from TrieMemoryPartialStorage.
+    TrieMemoryPartialStorage,
+    /// Missing trie value when reading from TrieStorage.
+    TrieStorage,
+}
+
 /// Errors which may occur during working with trie storages, storing
 /// trie values (trie nodes and state values) by their hashes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,8 +96,7 @@ pub enum StorageError {
     /// Key-value db internal failure
     StorageInternalError,
     /// Requested trie value by its hash which is missing in storage.
-    /// TODO (#8997): consider including hash of trie node.
-    MissingTrieValue,
+    MissingTrieValue(MissingTrieValueContext, CryptoHash),
     /// Found trie node which shouldn't be part of state. Raised during
     /// validation of state sync parts where incorrect node was passed.
     /// TODO (#8997): consider including hash of trie node.

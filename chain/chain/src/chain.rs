@@ -56,20 +56,21 @@ use near_primitives::sharding::{
     ShardChunkHeader, ShardInfo, ShardProof, StateSyncInfo,
 };
 use near_primitives::state_part::PartId;
-use near_primitives::static_clock::StaticClock;
-use near_primitives::syncing::{
+use near_primitives::state_sync::{
     get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
     ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
 };
+use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
     NumBlocks, NumShards, ShardId, StateChangesForSplitStates, StateRoot,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
@@ -829,6 +830,75 @@ impl Chain {
 
         chain_store_update.commit()?;
         Ok(())
+    }
+
+    pub fn apply_chunk_for_post_state_root(
+        &self,
+        shard_id: ShardId,
+        prev_state_root: StateRoot,
+        block_height: BlockHeight,
+        prev_block: &Block,
+        transactions: &[SignedTransaction],
+        last_validator_proposals: ValidatorStakeIter,
+        gas_limit: Gas,
+        last_chunk_height_included: BlockHeight,
+    ) -> Result<ApplyTransactionResult, Error> {
+        let prev_block_hash = prev_block.hash();
+        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
+            self.store(),
+            self.epoch_manager.as_ref(),
+            prev_block_hash,
+            shard_id,
+        )?;
+        // TODO(post-state-root):
+        // This misses outgoing receipts from the last non-post-state-root block B.
+        // Before post-state-root incoming receipts store receipts that are supposed to be applied
+        // in this block, which corresponds to the outgoing receipts from the previous block.
+        // After post-state-root incoming receipts store receipts that are the result of executing
+        // that block, which corresponds to the outgoing receipts from the current block.
+        // So considering which outgoing receipts correspond to the incoming receipts for the blocks:
+        // * ...
+        // * pre-state-root  block B-1: outgoing B-2 -> incoming B-1
+        // * pre-state-root  block B:   outgoing B-1 -> incoming B
+        // * post-state-root block B+1: outgoing B+1 -> incoming B+1
+        // * post-state-root block B+2: outgoing B+2 -> incoming B+2
+        // * ...
+        // We can see that outgoing receipts of block B are not stored anywhere in the incoming receipts.
+        // These receipts can be obtained from the db using get_outgoing_receipts_for_shard since we
+        // currently track all shard. This will be implemented later along with an intergation test
+        // to reproduce the issue.
+        let receipts =
+            collect_receipts_from_response(&self.store.get_incoming_receipts_for_shard(
+                self.epoch_manager.as_ref(),
+                shard_id,
+                *prev_block_hash,
+                last_chunk_height_included,
+            )?);
+        // TODO(post-state-root): block-level fields, take values from the previous block for now
+        let block_timestamp = prev_block.header().raw_timestamp();
+        let block_hash = prev_block_hash;
+        let random_seed = *prev_block.header().random_value();
+        let gas_price = prev_block.header().gas_price();
+
+        self.runtime_adapter.apply_transactions(
+            shard_id,
+            &prev_state_root,
+            block_height,
+            block_timestamp,
+            prev_block_hash,
+            &block_hash,
+            &receipts,
+            transactions,
+            last_validator_proposals,
+            gas_price,
+            gas_limit,
+            &vec![],
+            random_seed,
+            true,
+            is_first_block_with_chunk_of_version,
+            Default::default(),
+            true,
+        )
     }
 
     pub fn save_orphan(
@@ -3680,7 +3750,7 @@ impl Chain {
 
     pub fn check_blocks_final_and_canonical(
         &self,
-        block_headers: &[&BlockHeader],
+        block_headers: &[BlockHeader],
     ) -> Result<(), Error> {
         let last_final_block_hash = *self.head_header()?.last_final_block();
         let last_final_height = self.get_block_header(&last_final_block_hash)?.height();
@@ -4117,15 +4187,22 @@ impl Chain {
         split_state_roots: Option<HashMap<ShardUId, CryptoHash>>,
     ) -> Result<Option<ApplyChunkJob>, Error> {
         let shard_id = shard_uid.shard_id();
-        let new_extra = self.get_chunk_extra(prev_block.hash(), &shard_uid)?;
+        let prev_block_hash = *prev_block.hash();
+        let new_extra = self.get_chunk_extra(&prev_block_hash, &shard_uid)?;
 
         let block_hash = *block.hash();
         let challenges_result = block.header().challenges_result().clone();
         let block_timestamp = block.header().raw_timestamp();
-        let gas_price = block.header().gas_price();
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+
+        let gas_price = if protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version() {
+            prev_block.header().gas_price()
+        } else {
+            block.header().gas_price()
+        };
         let random_seed = *block.header().random_value();
         let height = block.header().height();
-        let prev_block_hash = *prev_block.hash();
 
         Ok(Some(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
             let _span = tracing::debug_span!(

@@ -1,4 +1,3 @@
-use super::utils::TestEnvNightshadeSetupExt;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -12,6 +11,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, BlockHeight, Nonce};
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 fn test_setup() -> (TestEnv, InMemorySigner) {
     let epoch_length = 5;

@@ -138,7 +138,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                 spawn_interruptible(client.broadcast_tx_commit(to_base64(&bytes)).then(
                     move |res| {
                         let final_transaction_outcome = match res {
-                            Ok(outcome) => outcome,
+                            Ok(outcome) => outcome.final_execution_outcome.unwrap().into_outcome(),
                             Err(_) => return future::ready(()),
                         };
                         spawn_interruptible(sleep(Duration::from_secs(1)).then(move |_| {
@@ -609,7 +609,6 @@ fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
         );
 
         let client = new_client(&format!("http://{}", rpc_addrs[1]));
-        let bytes = transaction.try_to_vec().unwrap();
 
         spawn_interruptible(async move {
             loop {
@@ -617,7 +616,7 @@ fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
                         let _ = client
-                            .EXPERIMENTAL_check_tx(to_base64(&bytes))
+                            .tx(transaction.get_hash().to_string(), "near.1".parse().unwrap())
                             .map_err(|err| {
                                 assert_eq!(
                                     err.data.unwrap(),

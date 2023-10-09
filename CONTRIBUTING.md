@@ -49,7 +49,7 @@ If you are looking for relatively simple tasks to familiarise yourself with
 `nearcore`, please check out issues labeled with the `C-good-first-issue` label
 [here](https://github.com/near/nearcore/labels/C-good-first-issue).  If you see
 one that looks interesting and is unassigned or has not been actively worked on
-in some time, please ask to have the issue be assigned to you and someone from
+in some time, please ask to have the issue assigned to you and someone from
 the team should help you get started.  We do not always keep the issue tracker
 up-to-date, so if you do not find an interesting task to work on, please ask for
 help on our zulip channel.
@@ -142,7 +142,7 @@ Once your change ends up in master, it will be released with the rest of the
 changes by other contributors on the regular release schedules.
 
 On [betanet](https://docs.near.org/docs/concepts/networks#betanet) we run
-nightly build from master with all the nightly protocol feature enabled. Every
+nightly build from master with all the nightly protocol features enabled. Every
 five weeks, we stabilize some protocol features and make a release candidate for
 testnet.  The process for feature stabilization can be found in [this
 document](docs/protocol_upgrade.md).  After the release candidate has been

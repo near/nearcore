@@ -1660,6 +1660,37 @@ impl ExecutionOutcomeWithIdView {
     }
 }
 
+pub struct TxStatusView {
+    pub execution_outcome: Option<FinalExecutionOutcomeViewEnum>,
+    pub status: TxExecutionStatus,
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+)]
+pub enum TxExecutionStatus {
+    /// Transaction is waiting to be included into the block
+    None,
+    /// Transaction is included into the block. The block may be not finalised yet
+    Inclusion,
+    /// Transaction is included into finalised block
+    InclusionFinal,
+    /// Transaction is included into finalised block +
+    /// All the transaction receipts finished their execution.
+    /// The corresponding blocks for each receipt may be not finalised yet
+    Executed,
+    /// Transaction is included into finalised block +
+    /// Execution of transaction receipts is finalised
+    Final,
+}
+
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, Debug)]
 #[serde(untagged)]
 pub enum FinalExecutionOutcomeViewEnum {
@@ -1676,12 +1707,28 @@ impl FinalExecutionOutcomeViewEnum {
     }
 }
 
-/// Final execution outcome of the transaction and all of subsequent the receipts.
+impl TxStatusView {
+    pub fn into_outcome(self) -> Option<FinalExecutionOutcomeView> {
+        self.execution_outcome.map(|outcome| match outcome {
+            FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(outcome) => outcome,
+            FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(outcome) => {
+                outcome.final_outcome
+            }
+        })
+    }
+}
+
+/// Execution outcome of the transaction and all of subsequent the receipts.
+/// Could be not finalised yet
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
 )]
 pub struct FinalExecutionOutcomeView {
-    /// Execution status. Contains the result in case of successful execution.
+    /// Execution status defined by chain.rs:get_final_transaction_result
+    /// FinalExecutionStatus::NotStarted - the tx is not converted to the receipt yet
+    /// FinalExecutionStatus::Started - we have at least 1 receipt, but the first leaf receipt_id (using dfs) hasn't finished the execution
+    /// FinalExecutionStatus::Failure - the result of the first leaf receipt_id
+    /// FinalExecutionStatus::SuccessValue - the result of the first leaf receipt_id
     pub status: FinalExecutionStatus,
     /// Signed Transaction
     pub transaction: SignedTransactionView,
@@ -2866,31 +2913,29 @@ impl From<ExtCostsConfigView> for near_primitives_core::config::ExtCostsConfig {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(not(feature = "nightly"))]
     use super::ExecutionMetadataView;
-    #[cfg(not(feature = "nightly"))]
     use crate::transaction::ExecutionMetadata;
-    #[cfg(not(feature = "nightly"))]
     use near_vm_runner::{ProfileDataV2, ProfileDataV3};
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
     #[test]
-    #[cfg(not(feature = "nightly"))]
+    #[cfg_attr(feature = "nightly", ignore)]
     fn test_runtime_config_view() {
         use crate::runtime::config::RuntimeConfig;
+        use crate::runtime::config_store::RuntimeConfigStore;
         use crate::views::RuntimeConfigView;
+        use near_primitives_core::version::PROTOCOL_VERSION;
 
-        // FIXME(#8202): This is snapshotting a config used for *tests*, rather than proper
-        // production configurations. That seems… subpar?
-        let config = RuntimeConfig::test();
-        let view = RuntimeConfigView::from(config);
+        let config_store = RuntimeConfigStore::new(None);
+        let config = config_store.get_config(PROTOCOL_VERSION);
+        let view = RuntimeConfigView::from(RuntimeConfig::clone(config));
         insta::assert_json_snapshot!(&view);
     }
 
     /// `ExecutionMetadataView` with profile V1 displayed on the RPC should not change.
     #[test]
-    #[cfg(not(feature = "nightly"))]
+    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v1_view() {
         let metadata = ExecutionMetadata::V1;
         let view = ExecutionMetadataView::from(metadata);
@@ -2899,7 +2944,7 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V2 displayed on the RPC should not change.
     #[test]
-    #[cfg(not(feature = "nightly"))]
+    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v2_view() {
         let metadata = ExecutionMetadata::V2(ProfileDataV2::test());
         let view = ExecutionMetadataView::from(metadata);
@@ -2908,7 +2953,7 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V3 displayed on the RPC should not change.
     #[test]
-    #[cfg(not(feature = "nightly"))]
+    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v3_view() {
         let metadata = ExecutionMetadata::V3(ProfileDataV3::test());
         let view = ExecutionMetadataView::from(metadata);

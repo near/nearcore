@@ -25,6 +25,7 @@ use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQuery};
 use near_jsonrpc_primitives::types::query::RpcQueryRequest;
 use near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse;
+use near_jsonrpc_primitives::types::transactions::RpcTransactionResponse;
 use near_network::tcp;
 use near_network::PeerManagerActor;
 use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
@@ -32,7 +33,7 @@ use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives::views::{FinalExecutionOutcomeViewEnum, QueryRequest};
+use near_primitives::views::{QueryRequest, TxExecutionStatus};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -312,11 +313,7 @@ impl JsonRpcHandler {
             // Handlers ordered alphabetically
             "block" => process_method_call(request, |params| self.block(params)).await,
             "broadcast_tx_async" => {
-                process_method_call(request, |params| async {
-                    let tx = self.send_tx_async(params).await.to_string();
-                    Result::<_, std::convert::Infallible>::Ok(tx)
-                })
-                .await
+                process_method_call(request, |params| self.send_tx_async(params)).await
             }
             "broadcast_tx_commit" => {
                 process_method_call(request, |params| self.send_tx_commit(params)).await
@@ -350,9 +347,6 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_changes_in_block" => {
                 process_method_call(request, |params| self.changes_in_block(params)).await
-            }
-            "EXPERIMENTAL_check_tx" => {
-                process_method_call(request, |params| self.check_tx(params)).await
             }
             "EXPERIMENTAL_genesis_config" => {
                 process_method_call(request, |_params: ()| async {
@@ -473,9 +467,11 @@ impl JsonRpcHandler {
     async fn send_tx_async(
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest,
-    ) -> CryptoHash {
+    ) -> Result<
+        near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
+        near_jsonrpc_primitives::types::transactions::RpcTransactionError,
+    > {
         let tx = request_data.signed_transaction;
-        let hash = tx.get_hash();
         self.client_addr.do_send(
             ProcessTxRequest {
                 transaction: tx,
@@ -484,7 +480,10 @@ impl JsonRpcHandler {
             }
             .with_span_context(),
         );
-        hash
+        Ok(RpcTransactionResponse {
+            final_execution_outcome: None,
+            final_execution_status: TxExecutionStatus::None,
+        })
     }
 
     async fn tx_exists(
@@ -504,8 +503,10 @@ impl JsonRpcHandler {
                     })
                     .await
                 {
-                    Ok(Some(_)) => {
-                        return Ok(true);
+                    Ok(status) => {
+                        if let Some(_) = status.execution_outcome {
+                            return Ok(true);
+                        }
                     }
                     Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
                         ..
@@ -534,7 +535,7 @@ impl JsonRpcHandler {
         tx_info: near_jsonrpc_primitives::types::transactions::TransactionInfo,
         fetch_receipt: bool,
     ) -> Result<
-        FinalExecutionOutcomeViewEnum,
+        near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
         let (tx_hash, account_id) = match &tx_info {
@@ -555,8 +556,15 @@ impl JsonRpcHandler {
                     })
                     .await;
                 match tx_status_result {
-                    Ok(Some(outcome)) => break Ok(outcome),
-                    Ok(None) => {} // No such transaction recorded on chain yet
+                    Ok(result) => {
+                        if let Some(outcome) = result.execution_outcome {
+                            break Ok(RpcTransactionResponse {
+                                final_execution_outcome: Some(outcome),
+                                final_execution_status: result.status,
+                            })
+                        }
+                        // else: No such transaction recorded on chain yet
+                    },
                     Err(err @ near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
                         ..
                     }) => {
@@ -601,11 +609,7 @@ impl JsonRpcHandler {
             loop {
                 match self.tx_status_fetch(tx_info.clone(), false).await {
                     Ok(tx_status) => {
-                        break Ok(
-                            near_jsonrpc_primitives::types::transactions::RpcTransactionResponse {
-                                final_execution_outcome: tx_status,
-                            },
-                        )
+                        break Ok(tx_status)
                     }
                     // If transaction is missing, keep polling.
                     Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
@@ -691,32 +695,6 @@ impl JsonRpcHandler {
         }
     }
 
-    async fn check_tx(
-        &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse,
-        near_jsonrpc_primitives::types::transactions::RpcTransactionError,
-    > {
-        match self.send_tx(request_data.clone().signed_transaction, true).await? {
-            ProcessTxResponse::ValidTx => {
-                Ok(near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse {
-                    transaction_hash: request_data.signed_transaction.get_hash(),
-                })
-            }
-            ProcessTxResponse::RequestRouted => {
-                Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::RequestRouted {
-                    transaction_hash: request_data.signed_transaction.get_hash(),
-                })
-            }
-            resp => Err(
-                near_jsonrpc_primitives::types::transactions::RpcTransactionError::from_network_client_responses(
-                   resp
-                )
-            )
-        }
-    }
-
     async fn send_tx_commit(
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest,
@@ -735,9 +713,7 @@ impl JsonRpcHandler {
             .await
         {
             Ok(outcome) => {
-                return Ok(near_jsonrpc_primitives::types::transactions::RpcTransactionResponse {
-                    final_execution_outcome: outcome,
-                });
+                return Ok(outcome);
             }
             Err(err @ near_jsonrpc_primitives::types::transactions::RpcTransactionError::InvalidTransaction {
                 ..

@@ -472,17 +472,30 @@ fn rocksdb_read_options() -> ReadOptions {
     read_options
 }
 
-fn rocksdb_block_based_options(
-    block_size: bytesize::ByteSize,
-    cache_size: bytesize::ByteSize,
-) -> BlockBasedOptions {
+/// If true then we enable caching of index blocks inside block cache
+fn use_block_cache_for_index_and_filter_blocks(db_col: DBCol) -> bool {
+    match db_col {
+        DBCol::FlatState => false,
+        _ => true,
+    }
+}
+
+fn rocksdb_block_based_options(store_config: &StoreConfig, db_col: DBCol) -> BlockBasedOptions {
+    let cache_size = store_config.col_cache_size(db_col);
+
     let mut block_opts = BlockBasedOptions::default();
-    block_opts.set_block_size(block_size.as_u64().try_into().unwrap());
-    // We create block_cache for each of 47 columns, so the total cache size is 32 * 47 = 1504mb
+    block_opts.set_block_size(store_config.block_size.as_u64().try_into().unwrap());
+    // We create block_cache for each of the columns, so the total cache size is (num_of_columns - 2) * 32MiB
+    // Plus the 128MiB from FlatState and 512MiB from State columns
     block_opts.set_block_cache(&Cache::new_lru_cache(cache_size.as_u64().try_into().unwrap()));
-    block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
-    block_opts.set_cache_index_and_filter_blocks(true);
+    if use_block_cache_for_index_and_filter_blocks(db_col) {
+        block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
+        block_opts.set_cache_index_and_filter_blocks(true);
+    } else {
+        block_opts.set_cache_index_and_filter_blocks(false);
+    }
     block_opts.set_bloom_filter(10.0, true);
+
     block_opts
 }
 
@@ -490,11 +503,7 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     let mut opts = Options::default();
     set_compression_options(&mut opts);
     opts.set_level_compaction_dynamic_level_bytes(true);
-    let cache_size = store_config.col_cache_size(col);
-    opts.set_block_based_table_factory(&rocksdb_block_based_options(
-        store_config.block_size,
-        cache_size,
-    ));
+    opts.set_block_based_table_factory(&rocksdb_block_based_options(store_config, col));
 
     // Note that this function changes a lot of rustdb parameters including:
     //      write_buffer_size = memtable_memory_budget / 4
