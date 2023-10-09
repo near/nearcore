@@ -83,10 +83,7 @@ fn map_secp256k1(
 // transactions on the target chain.  If secret is None, then we just
 // use the bytes of the public key directly, otherwise we feed the
 // public key to a key derivation function.
-pub(crate) fn map_key(
-    key: &PublicKey,
-    secret: Option<&[u8; crate::secret::SECRET_LEN]>,
-) -> SecretKey {
+pub fn map_key(key: &PublicKey, secret: Option<&[u8; crate::secret::SECRET_LEN]>) -> SecretKey {
     match key {
         PublicKey::ED25519(k) => SecretKey::ED25519(map_ed25519(k, secret)),
         PublicKey::SECP256K1(k) => SecretKey::SECP256K1(map_secp256k1(k, secret)),
@@ -96,7 +93,7 @@ pub(crate) fn map_key(
 // If it's an implicit account, interprets it as an ed25519 public key, maps that and then returns
 // the resulting implicit account. Otherwise does nothing. We do this so that transactions creating
 // an implicit account by sending money will generate an account that we can control
-pub(crate) fn map_account(
+pub fn map_account(
     account_id: &AccountId,
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
 ) -> AccountId {
