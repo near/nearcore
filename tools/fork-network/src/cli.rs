@@ -1,3 +1,4 @@
+use crate::single_shard_storage_mutator::SingleShardStorageMutator;
 use crate::storage_mutator::StorageMutator;
 use near_chain::types::Tip;
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode};
@@ -70,7 +71,8 @@ struct Validator {
     public_key: PublicKey,
 }
 
-type MakeStorageMutatorFn = Arc<dyn Fn() -> anyhow::Result<StorageMutator> + Send + Sync>;
+type MakeSingleShardStorageMutatorFn =
+    Arc<dyn Fn(ShardId, StateRoot) -> anyhow::Result<SingleShardStorageMutator> + Send + Sync>;
 
 impl ForkNetworkCommand {
     async fn run_impl(
@@ -248,23 +250,30 @@ impl ForkNetworkCommand {
 
         let epoch_id = fork_head_block.header().epoch_id().clone();
         let prev_hash = *fork_head_block.header().prev_hash();
-        let make_storage_mutator: MakeStorageMutatorFn = Arc::new(move || {
-            StorageMutator::new(
-                epoch_manager.clone(),
-                &runtime,
-                epoch_id.clone(),
-                prev_hash,
-                prev_state_roots.clone(),
-            )
-        });
+        let runtime1 = runtime.clone();
+        let make_storage_mutator: MakeSingleShardStorageMutatorFn =
+            Arc::new(move |shard_id, prev_state_root| {
+                SingleShardStorageMutator::new(
+                    shard_id,
+                    &runtime1.clone(),
+                    prev_hash,
+                    prev_state_root,
+                )
+            });
 
         let runtime_config_store = RuntimeConfigStore::new(None);
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
 
-        let _tmp_state_roots =
-            self.prepare_state(&all_shard_uids, store, make_storage_mutator.clone())?;
+        let tmp_state_roots = self.prepare_state(
+            &all_shard_uids,
+            store,
+            &prev_state_roots,
+            make_storage_mutator.clone(),
+        )?;
+        let storage_mutator =
+            StorageMutator::new(epoch_manager, &runtime, epoch_id, prev_hash, tmp_state_roots)?;
         let (new_state_roots, new_validator_accounts) =
-            self.add_validator_accounts(runtime_config, home_dir, make_storage_mutator)?;
+            self.add_validator_accounts(runtime_config, home_dir, storage_mutator)?;
 
         Ok((new_state_roots, new_validator_accounts))
     }
@@ -273,16 +282,26 @@ impl ForkNetworkCommand {
         &self,
         shard_uid: ShardUId,
         store: Store,
-        make_storage_mutator: MakeStorageMutatorFn,
-    ) -> anyhow::Result<()> {
+        prev_state_root: StateRoot,
+        make_storage_mutator: MakeSingleShardStorageMutatorFn,
+    ) -> anyhow::Result<StateRoot> {
         // Doesn't support secrets.
         tracing::info!(?shard_uid);
-        let mut storage_mutator = make_storage_mutator()?;
+        let shard_id = shard_uid.shard_id as ShardId;
+        let mut storage_mutator: SingleShardStorageMutator =
+            make_storage_mutator(shard_id, prev_state_root)?;
         let mut has_full_key = HashSet::new();
         let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
         let mut index_delayed_receipt = 0;
-        let mut didnt_parse = 0;
-        let mut parsed = 0;
+        let mut records_not_parsed = 0;
+        let mut records_parsed = 0;
+        let mut access_keys_updated = 0;
+        let mut accounts_implicit_updated = 0;
+        let mut contract_data_updated = 0;
+        let mut contract_code_updated = 0;
+        let mut postponed_receipts_updated = 0;
+        let mut delayed_receipts_updated = 0;
+        let mut received_data_updated = 0;
         for item in store_helper::iter_flat_state_entries(shard_uid, &store, None, None) {
             let (key, value) = match item {
                 Ok((key, FlatStateValue::Ref(ref_value))) => {
@@ -307,6 +326,7 @@ impl ForkNetworkCommand {
                             replacement.public_key(),
                             access_key.clone(),
                         )?;
+                        access_keys_updated += 1;
                     }
 
                     StateRecord::Account { account_id, account } => {
@@ -314,6 +334,7 @@ impl ForkNetworkCommand {
                             let new_account_id = map_account(&account_id, None);
                             storage_mutator.delete_account(account_id)?;
                             storage_mutator.set_account(new_account_id, account)?;
+                            accounts_implicit_updated += 1;
                         }
                     }
                     StateRecord::Data { account_id, data_key, value } => {
@@ -321,6 +342,7 @@ impl ForkNetworkCommand {
                             let new_account_id = map_account(&account_id, None);
                             storage_mutator.delete_data(account_id, &data_key)?;
                             storage_mutator.set_data(new_account_id, &data_key, value)?;
+                            contract_data_updated += 1;
                         }
                     }
                     StateRecord::Contract { account_id, code } => {
@@ -328,6 +350,7 @@ impl ForkNetworkCommand {
                             let new_account_id = map_account(&account_id, None);
                             storage_mutator.delete_code(account_id)?;
                             storage_mutator.set_code(new_account_id, code)?;
+                            contract_code_updated += 1;
                         }
                     }
                     StateRecord::PostponedReceipt(receipt) => {
@@ -341,6 +364,7 @@ impl ForkNetworkCommand {
                             };
                             storage_mutator.delete_postponed_receipt(receipt)?;
                             storage_mutator.set_postponed_receipt(&new_receipt)?;
+                            postponed_receipts_updated += 1;
                         }
                     }
                     StateRecord::ReceivedData { account_id, data_id, data } => {
@@ -348,6 +372,7 @@ impl ForkNetworkCommand {
                             let new_account_id = map_account(&account_id, None);
                             storage_mutator.delete_received_data(account_id, data_id)?;
                             storage_mutator.set_received_data(new_account_id, data_id, &data)?;
+                            received_data_updated += 1;
                         }
                     }
                     StateRecord::DelayedReceipt(receipt) => {
@@ -359,37 +384,45 @@ impl ForkNetworkCommand {
                                 receipt_id: receipt.receipt_id,
                                 receipt: receipt.receipt,
                             };
-                            storage_mutator.delete_delayed_receipt(
-                                shard_uid.shard_id as ShardId,
-                                index_delayed_receipt,
-                            )?;
-                            storage_mutator.set_delayed_receipt(
-                                shard_uid.shard_id as ShardId,
-                                index_delayed_receipt,
-                                &new_receipt,
-                            )?;
+                            storage_mutator.delete_delayed_receipt(index_delayed_receipt)?;
+                            storage_mutator
+                                .set_delayed_receipt(index_delayed_receipt, &new_receipt)?;
+                            delayed_receipts_updated += 1;
                         }
                         index_delayed_receipt += 1;
                     }
                 }
-                parsed += 1;
+                records_parsed += 1;
             } else {
-                didnt_parse += 1;
+                records_not_parsed += 1;
+            }
+            if storage_mutator.should_commit() {
+                let state_root = storage_mutator.commit(&shard_uid)?;
+                storage_mutator = make_storage_mutator(shard_id, state_root)?;
             }
         }
+
         tracing::info!(
             ?shard_uid,
-            parsed,
-            didnt_parse,
-            total = parsed + didnt_parse,
+            records_parsed,
+            records_not_parsed,
+            accounts_implicit_updated,
+            access_keys_updated,
+            contract_code_updated,
+            contract_data_updated,
+            postponed_receipts_updated,
+            delayed_receipts_updated,
+            received_data_updated,
             num_has_full_key = has_full_key.len(),
             "Pass 1 done"
         );
 
         let mut num_added = 0;
+        let mut num_accounts = 0;
         for item in store_helper::iter_flat_state_entries(shard_uid, &store, None, None) {
             if let Ok((key, _)) = item {
                 if key[0] == col::ACCOUNT {
+                    num_accounts += 1;
                     let account_id = parse_account_id_from_account_key(&key).unwrap();
                     if has_full_key.contains(&account_id) {
                         continue;
@@ -400,36 +433,51 @@ impl ForkNetworkCommand {
                         AccessKey::full_access(),
                     )?;
                     num_added += 1;
+                    if storage_mutator.should_commit() {
+                        let state_root = storage_mutator.commit(&shard_uid)?;
+                        storage_mutator = make_storage_mutator(shard_id, state_root)?;
+                    }
                 }
             }
         }
-        tracing::info!(?shard_uid, num_added, "Pass 2 done");
+        tracing::info!(?shard_uid, num_accounts, num_added, "Pass 2 done");
 
-        storage_mutator.commit()?;
+        let state_root = storage_mutator.commit(&shard_uid)?;
 
         tracing::info!(?shard_uid, "Commit done");
-        Ok(())
+        Ok(state_root)
     }
 
     fn prepare_state(
         &self,
         all_shard_uids: &[ShardUId],
         store: Store,
-        make_storage_mutator: MakeStorageMutatorFn,
-    ) -> anyhow::Result<()> {
-        all_shard_uids.into_par_iter().for_each(|shard_uid| {
-            self.prepare_shard_state(*shard_uid, store.clone(), make_storage_mutator.clone())
-                .unwrap()
-        });
-        tracing::info!("All done");
-        Ok(())
+        prev_state_roots: &[StateRoot],
+        make_storage_mutator: MakeSingleShardStorageMutatorFn,
+    ) -> anyhow::Result<Vec<StateRoot>> {
+        let state_roots = all_shard_uids
+            .into_par_iter()
+            .map(|shard_uid| {
+                let state_root = self
+                    .prepare_shard_state(
+                        *shard_uid,
+                        store.clone(),
+                        prev_state_roots[shard_uid.shard_id as usize],
+                        make_storage_mutator.clone(),
+                    )
+                    .unwrap();
+                state_root
+            })
+            .collect();
+        tracing::info!(?state_roots, "All done");
+        Ok(state_roots)
     }
 
     fn add_validator_accounts(
         &self,
         runtime_config: &Arc<RuntimeConfig>,
         home_dir: &Path,
-        make_storage_mutator: MakeStorageMutatorFn,
+        mut storage_mutator: StorageMutator,
     ) -> anyhow::Result<(Vec<StateRoot>, Vec<AccountInfo>)> {
         let mut new_validator_accounts = vec![];
 
@@ -439,7 +487,6 @@ impl ForkNetworkCommand {
             File::open(home_dir.join(&self.validators)).expect("Failed to open validators JSON"),
         ))
         .expect("Failed to read validators JSON");
-        let mut storage_mutator = make_storage_mutator()?;
         for validator in new_validators.into_iter() {
             let validator_account = AccountInfo {
                 account_id: validator.account_id,
@@ -448,7 +495,7 @@ impl ForkNetworkCommand {
             };
             new_validator_accounts.push(validator_account.clone());
             storage_mutator.set_account(
-                validator_account.account_id.clone(),
+                &validator_account.account_id.clone(),
                 Account::new(
                     liquid_balance,
                     validator_account.amount,
@@ -457,7 +504,7 @@ impl ForkNetworkCommand {
                 ),
             )?;
             storage_mutator.set_access_key(
-                validator_account.account_id,
+                &validator_account.account_id,
                 validator_account.public_key,
                 AccessKey::full_access(),
             )?;
