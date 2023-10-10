@@ -4308,6 +4308,7 @@ impl Chain {
         Ok(())
     }
 
+    /// Returns a description of state parts cached for the given shard of the given epoch.
     pub fn get_cached_state_parts(
         &self,
         sync_hash: CryptoHash,

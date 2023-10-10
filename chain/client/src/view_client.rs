@@ -582,6 +582,7 @@ impl ViewClientActor {
     }
 
     fn has_state_snapshot(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
+        // TODO(nikurt): Check that a shard is tracked.
         self.runtime
             .get_tries()
             .get_state_snapshot(sync_hash)
