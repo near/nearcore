@@ -195,7 +195,7 @@ pub enum ShardStateSyncResponse {
 }
 
 impl ShardStateSyncResponse {
-    pub fn available_parts(&self) -> &Option<CachedParts> {
+    pub fn cached_parts(&self) -> &Option<CachedParts> {
         match self {
             Self::V1(_response) => &None,
             Self::V2(_response) => &None,
