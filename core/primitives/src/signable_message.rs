@@ -55,7 +55,7 @@ pub struct MessageDiscriminant {
 /// Only used for constructing a signature, not used to transmit messages. The
 /// discriminant prefix is implicit and should be known by the receiver based on
 /// the context in which the message is received.
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize)]
 pub struct SignableMessage<'a, T> {
     pub discriminant: MessageDiscriminant,
     pub msg: &'a T,
@@ -95,7 +95,7 @@ impl<'a, T: BorshSerialize> SignableMessage<'a, T> {
     }
 
     pub fn sign(&self, signer: &dyn Signer) -> Signature {
-        let bytes = self.try_to_vec().expect("Failed to deserialize");
+        let bytes = borsh::to_vec(&self).expect("Failed to deserialize");
         let hash = hash(&bytes);
         signer.sign(hash.as_bytes())
     }

@@ -4,7 +4,7 @@ use super::*;
 use crate::network_protocol::proto;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::{Edge, PartialEdgeInfo, PeerInfo};
-use borsh::{BorshDeserialize as _, BorshSerialize as _};
+use borsh::BorshDeserialize as _;
 use near_primitives::network::AnnounceAccount;
 use protobuf::MessageField as MF;
 use std::net::{IpAddr, SocketAddr};
@@ -77,11 +77,11 @@ impl TryFrom<&proto::PeerAddr> for PeerAddr {
 
 impl From<&PeerInfo> for proto::PeerInfo {
     fn from(x: &PeerInfo) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Self::default() }
     }
 }
 
-pub type ParsePeerInfoError = borsh::maybestd::io::Error;
+pub type ParsePeerInfoError = std::io::Error;
 
 impl TryFrom<&proto::PeerInfo> for PeerInfo {
     type Error = ParsePeerInfoError;
@@ -92,11 +92,11 @@ impl TryFrom<&proto::PeerInfo> for PeerInfo {
 
 ////////////////////////////////////////
 
-pub type ParsePartialEdgeInfoError = borsh::maybestd::io::Error;
+pub type ParsePartialEdgeInfoError = std::io::Error;
 
 impl From<&PartialEdgeInfo> for proto::PartialEdgeInfo {
     fn from(x: &PartialEdgeInfo) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Self::default() }
     }
 }
 
@@ -109,11 +109,11 @@ impl TryFrom<&proto::PartialEdgeInfo> for PartialEdgeInfo {
 
 ////////////////////////////////////////
 
-pub type ParseEdgeError = borsh::maybestd::io::Error;
+pub type ParseEdgeError = std::io::Error;
 
 impl From<&Edge> for proto::Edge {
     fn from(x: &Edge) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Self::default() }
     }
 }
 
@@ -126,11 +126,11 @@ impl TryFrom<&proto::Edge> for Edge {
 
 ////////////////////////////////////////
 
-pub type ParseAnnounceAccountError = borsh::maybestd::io::Error;
+pub type ParseAnnounceAccountError = std::io::Error;
 
 impl From<&AnnounceAccount> for proto::AnnounceAccount {
     fn from(x: &AnnounceAccount) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Self::default() }
     }
 }
 

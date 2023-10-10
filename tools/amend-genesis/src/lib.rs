@@ -1,5 +1,5 @@
 use anyhow::Context;
-use borsh::BorshSerialize;
+
 use near_chain_configs::{Genesis, GenesisValidationMode};
 use near_crypto::PublicKey;
 use near_primitives::hash::CryptoHash;
@@ -107,7 +107,7 @@ impl AccountRecords {
                 for (public_key, access_key) in self.keys {
                     let storage_usage = account.storage_usage()
                         + public_key.len() as u64
-                        + access_key.try_to_vec().unwrap().len() as u64
+                        + borsh::object_length(&access_key).unwrap() as u64
                         + num_extra_bytes_record;
                     account.set_storage_usage(storage_usage);
 

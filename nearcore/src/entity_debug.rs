@@ -1,6 +1,6 @@
 use crate::entity_debug_serializer::serialize_entity;
 use anyhow::anyhow;
-use borsh::BorshSerialize;
+
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, BlockHeader};
 use near_epoch_manager::EpochManagerAdapter;
@@ -44,7 +44,7 @@ impl EntityDebugHandlerImpl {
             EntityQuery::BlockByHash { block_hash } => {
                 let block = self
                     .store
-                    .get_ser::<Block>(DBCol::Block, &block_hash.try_to_vec().unwrap())?
+                    .get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())?
                     .ok_or_else(|| anyhow!("Block not found"))?;
                 let author = self
                     .epoch_manager
@@ -54,21 +54,27 @@ impl EntityDebugHandlerImpl {
             EntityQuery::BlockHashByHeight { block_height } => {
                 let block_hash = self
                     .store
-                    .get_ser::<CryptoHash>(DBCol::BlockHeight, &block_height.try_to_vec().unwrap())?
+                    .get_ser::<CryptoHash>(
+                        DBCol::BlockHeight,
+                        &borsh::to_vec(&block_height).unwrap(),
+                    )?
                     .ok_or_else(|| anyhow!("Block height not found"))?;
                 Ok(serialize_entity(&block_hash))
             }
             EntityQuery::BlockHeaderByHash { block_hash } => {
                 let block_header = self
                     .store
-                    .get_ser::<BlockHeader>(DBCol::BlockHeader, &block_hash.try_to_vec().unwrap())?
+                    .get_ser::<BlockHeader>(
+                        DBCol::BlockHeader,
+                        &borsh::to_vec(&block_hash).unwrap(),
+                    )?
                     .ok_or_else(|| anyhow!("Block header not found"))?;
                 Ok(serialize_entity(&BlockHeaderView::from(block_header)))
             }
             EntityQuery::ChunkByHash { chunk_hash } => {
                 let chunk = self
                     .store
-                    .get_ser::<ShardChunk>(DBCol::Chunks, &chunk_hash.try_to_vec().unwrap())?
+                    .get_ser::<ShardChunk>(DBCol::Chunks, &borsh::to_vec(&chunk_hash).unwrap())?
                     .ok_or_else(|| anyhow!("Chunk not found"))?;
                 let epoch_id =
                     self.epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block())?;
@@ -99,7 +105,7 @@ impl EntityDebugHandlerImpl {
                     .store
                     .get_ser::<FlatStateChanges>(
                         DBCol::FlatStateChanges,
-                        &KeyForFlatStateDelta { block_hash, shard_uid }.try_to_vec().unwrap(),
+                        &borsh::to_vec(&KeyForFlatStateDelta { block_hash, shard_uid }).unwrap(),
                     )?
                     .ok_or_else(|| anyhow!("Flat state changes not found"))?;
                 let mut changes_view = Vec::new();
@@ -118,7 +124,7 @@ impl EntityDebugHandlerImpl {
                     .store
                     .get_ser::<FlatStateDeltaMetadata>(
                         DBCol::FlatStateDeltaMetadata,
-                        &KeyForFlatStateDelta { block_hash, shard_uid }.try_to_vec().unwrap(),
+                        &borsh::to_vec(&KeyForFlatStateDelta { block_hash, shard_uid }).unwrap(),
                     )?
                     .ok_or_else(|| anyhow!("Flat state delta metadata not found"))?;
                 Ok(serialize_entity(&metadata))
@@ -128,7 +134,7 @@ impl EntityDebugHandlerImpl {
                     .store
                     .get_ser::<FlatStorageStatus>(
                         DBCol::FlatStorageStatus,
-                        &shard_uid.try_to_vec().unwrap(),
+                        &borsh::to_vec(&shard_uid).unwrap(),
                     )?
                     .ok_or_else(|| anyhow!("Flat storage status not found"))?;
                 Ok(serialize_entity(&status))
@@ -139,7 +145,7 @@ impl EntityDebugHandlerImpl {
                     .store
                     .iter_prefix_ser::<ExecutionOutcomeWithProof>(
                         DBCol::TransactionResultForBlock,
-                        &outcome_id.try_to_vec().unwrap(),
+                        &borsh::to_vec(&outcome_id).unwrap(),
                     )
                     .next()
                     .ok_or_else(|| anyhow!("Outcome not found"))??;
@@ -162,7 +168,7 @@ impl EntityDebugHandlerImpl {
             EntityQuery::ReceiptById { receipt_id } => {
                 let receipt = self
                     .store
-                    .get_ser::<Receipt>(DBCol::Receipts, &receipt_id.try_to_vec().unwrap())?
+                    .get_ser::<Receipt>(DBCol::Receipts, &borsh::to_vec(&receipt_id).unwrap())?
                     .ok_or_else(|| anyhow!("Receipt not found"))?;
                 Ok(serialize_entity(&ReceiptView::from(receipt)))
             }
@@ -209,7 +215,7 @@ impl EntityDebugHandlerImpl {
                     .store
                     .get_ser::<SignedTransaction>(
                         DBCol::Transactions,
-                        &transaction_hash.try_to_vec().unwrap(),
+                        &borsh::to_vec(&transaction_hash).unwrap(),
                     )?
                     .ok_or_else(|| anyhow!("Transaction not found"))?;
                 Ok(serialize_entity(&SignedTransactionView::from(transaction)))
@@ -313,7 +319,7 @@ impl EntityDebugHandlerImpl {
             EntityQuery::TrieRootByChunkHash { chunk_hash } => {
                 let chunk = self
                     .store
-                    .get_ser::<ShardChunk>(DBCol::Chunks, &chunk_hash.try_to_vec().unwrap())?
+                    .get_ser::<ShardChunk>(DBCol::Chunks, &borsh::to_vec(&chunk_hash).unwrap())?
                     .ok_or_else(|| anyhow!("Chunk not found"))?;
                 let shard_layout = self
                     .epoch_manager

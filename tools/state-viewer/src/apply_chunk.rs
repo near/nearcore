@@ -101,7 +101,7 @@ pub(crate) fn apply_chunk(
         None => prev_height + 1,
     };
     let prev_timestamp = prev_block.header().raw_timestamp();
-    let gas_price = prev_block.header().gas_price();
+    let gas_price = prev_block.header().next_gas_price();
     let receipts = get_incoming_receipts(
         chain_store,
         epoch_manager,

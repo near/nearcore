@@ -261,7 +261,7 @@ where
     T: Clone + BorshSerialize,
 {
     let memory_range = 200_000_000;
-    let num_chunks = memory_range / chunk.try_to_vec().unwrap().len();
+    let num_chunks = memory_range / borsh::object_length(&chunk).unwrap();
     let chunks: Vec<_> = std::iter::repeat(chunk).take(num_chunks).collect();
     chunks
 }

@@ -3,7 +3,7 @@ use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
 use crate::logic::types::Gas;
 use crate::logic::{Config, MemSlice};
 use crate::logic::{HostError, VMLogicError};
-use borsh::BorshSerialize;
+
 use expect_test::expect;
 use near_primitives_core::config::{ActionCosts, ExtCosts};
 use near_primitives_core::runtime::fees::Fee;
@@ -721,11 +721,12 @@ fn op_limit(gas_limit: Gas) -> u32 {
 }
 
 fn test_pk() -> Vec<u8> {
-    let pk = "ed25519:22W5rKuvbMRphnDoCj6nfrWhRKvh9Xf9SWXfGHaeXGde"
-        .parse::<near_crypto::PublicKey>()
-        .unwrap()
-        .try_to_vec()
-        .unwrap();
+    let pk = borsh::to_vec(
+        &"ed25519:22W5rKuvbMRphnDoCj6nfrWhRKvh9Xf9SWXfGHaeXGde"
+            .parse::<near_crypto::PublicKey>()
+            .unwrap(),
+    )
+    .unwrap();
     pk
 }
 

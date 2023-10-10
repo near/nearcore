@@ -1242,7 +1242,7 @@ fn test_invalid_gas_price() {
     let signer = Arc::new(create_test_signer("test1"));
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
-    b1.mut_header().get_mut().inner_rest.gas_price = 0;
+    b1.mut_header().get_mut().inner_rest.next_gas_price = 0;
     b1.mut_header().resign(&*signer);
 
     let res = client.process_block_test(b1.into(), Provenance::NONE);
@@ -1456,7 +1456,7 @@ fn test_minimum_gas_price() {
         env.produce_block(0, i);
     }
     let block = env.clients[0].chain.get_block_by_height(100).unwrap();
-    assert!(block.header().gas_price() >= min_gas_price);
+    assert!(block.header().next_gas_price() >= min_gas_price);
 }
 
 fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
@@ -2164,7 +2164,7 @@ fn test_gas_price_overflow() {
         );
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
-        assert!(block.header().gas_price() <= max_gas_price);
+        assert!(block.header().next_gas_price() <= max_gas_price);
         env.process_block(0, block, Provenance::PRODUCED);
     }
 }
@@ -2589,7 +2589,7 @@ fn test_catchup_gas_price_change() {
         tracing::error!("process_block:{i}:1");
     }
 
-    assert_ne!(blocks[3].header().gas_price(), blocks[4].header().gas_price());
+    assert_ne!(blocks[3].header().next_gas_price(), blocks[4].header().next_gas_price());
     assert!(env.clients[1]
         .chain
         .get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard())
@@ -2617,7 +2617,6 @@ fn test_catchup_gas_price_change() {
     }
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
     let f = move |msg: ApplyStatePartsRequest| {
-        use borsh::BorshSerialize;
         let store = rt.store();
 
         let shard_id = msg.shard_uid.shard_id as ShardId;
@@ -2626,7 +2625,7 @@ fn test_catchup_gas_price_change() {
             .remove_flat_storage_for_shard(msg.shard_uid)
             .unwrap());
         for part_id in 0..msg.num_parts {
-            let key = StatePartKey(msg.sync_hash, shard_id, part_id).try_to_vec().unwrap();
+            let key = borsh::to_vec(&StatePartKey(msg.sync_hash, shard_id, part_id)).unwrap();
             let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
 
             rt.apply_state_part(
@@ -3320,7 +3319,7 @@ fn test_not_broadcast_block_on_accept() {
 #[test]
 fn test_header_version_downgrade() {
     init_test_logger();
-    use borsh::ser::BorshSerialize;
+
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = 5;
     let chain_genesis = ChainGenesis::new(&genesis);
@@ -3347,8 +3346,8 @@ fn test_header_version_downgrade() {
                 header.inner_rest.latest_protocol_version = PROTOCOL_VERSION;
                 let (hash, signature) = validator_signer.sign_block_header_parts(
                     header.prev_hash,
-                    &header.inner_lite.try_to_vec().expect("Failed to serialize"),
-                    &header.inner_rest.try_to_vec().expect("Failed to serialize"),
+                    &borsh::to_vec(&header.inner_lite).expect("Failed to serialize"),
+                    &borsh::to_vec(&header.inner_rest).expect("Failed to serialize"),
                 );
                 header.hash = hash;
                 header.signature = signature;
