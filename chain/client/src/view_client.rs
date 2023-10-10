@@ -581,6 +581,7 @@ impl ViewClientActor {
     }
 
     fn has_state_snapshot(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
+        // TODO(nikurt): Handle resharding.
         let header = self.chain.get_block_header(sync_hash)?;
         let prev_header = self.chain.get_block_header(header.prev_hash())?;
         let prev_prev_hash = prev_header.prev_hash();
