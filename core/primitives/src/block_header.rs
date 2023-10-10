@@ -50,8 +50,8 @@ pub struct BlockHeaderInnerRest {
     pub prev_validator_proposals: Vec<ValidatorStakeV1>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
-    /// Gas price. Same for all chunks
-    pub gas_price: Balance,
+    /// Gas price for chunks in the next block.
+    pub next_gas_price: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -86,8 +86,8 @@ pub struct BlockHeaderInnerRestV2 {
     pub prev_validator_proposals: Vec<ValidatorStakeV1>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
-    /// Gas price. Same for all chunks
-    pub gas_price: Balance,
+    /// Gas price for chunks in the next block.
+    pub next_gas_price: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -125,8 +125,8 @@ pub struct BlockHeaderInnerRestV3 {
     pub prev_validator_proposals: Vec<ValidatorStake>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
-    /// Gas price. Same for all chunks
-    pub gas_price: Balance,
+    /// Gas price for chunks in the next block.
+    pub next_gas_price: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -170,8 +170,8 @@ pub struct BlockHeaderInnerRestV4 {
     pub prev_validator_proposals: Vec<ValidatorStake>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
-    /// Gas price. Same for all chunks
-    pub gas_price: Balance,
+    /// Gas price for chunks in the next block.
+    pub next_gas_price: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -215,8 +215,8 @@ pub struct BlockHeaderInnerRestV5 {
     pub prev_validator_proposals: Vec<ValidatorStake>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
-    /// Gas price. Same for all chunks
-    pub gas_price: Balance,
+    /// Gas price for chunks in the next block.
+    pub next_gas_price: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -496,7 +496,7 @@ impl BlockHeader {
         block_ordinal: NumBlocks,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
-        gas_price: Balance,
+        next_gas_price: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
         signer: &dyn ValidatorSigner,
@@ -539,7 +539,7 @@ impl BlockHeader {
                     .map(|v| v.into_v1())
                     .collect(),
                 chunk_mask,
-                gas_price,
+                next_gas_price,
                 total_supply,
                 challenges_result,
                 last_final_block,
@@ -571,7 +571,7 @@ impl BlockHeader {
                     .map(|v| v.into_v1())
                     .collect(),
                 chunk_mask,
-                gas_price,
+                next_gas_price,
                 total_supply,
                 challenges_result,
                 last_final_block,
@@ -600,7 +600,7 @@ impl BlockHeader {
                 random_value,
                 prev_validator_proposals,
                 chunk_mask,
-                gas_price,
+                next_gas_price,
                 block_ordinal,
                 total_supply,
                 challenges_result,
@@ -633,7 +633,7 @@ impl BlockHeader {
                 random_value,
                 prev_validator_proposals,
                 chunk_mask,
-                gas_price,
+                next_gas_price,
                 block_ordinal,
                 total_supply,
                 challenges_result,
@@ -697,7 +697,7 @@ impl BlockHeader {
                 random_value: CryptoHash::default(),
                 prev_validator_proposals: vec![],
                 chunk_mask: vec![],
-                gas_price: initial_gas_price,
+                next_gas_price: initial_gas_price,
                 total_supply: initial_total_supply,
                 challenges_result: vec![],
                 last_final_block: CryptoHash::default(),
@@ -726,7 +726,7 @@ impl BlockHeader {
                 random_value: CryptoHash::default(),
                 prev_validator_proposals: vec![],
                 chunk_mask: vec![true; chunks_included as usize],
-                gas_price: initial_gas_price,
+                next_gas_price: initial_gas_price,
                 total_supply: initial_total_supply,
                 challenges_result: vec![],
                 last_final_block: CryptoHash::default(),
@@ -756,7 +756,7 @@ impl BlockHeader {
                 prev_validator_proposals: vec![],
                 chunk_mask: vec![true; chunks_included as usize],
                 block_ordinal: 1, // It is guaranteed that Chain has the only Block which is Genesis
-                gas_price: initial_gas_price,
+                next_gas_price: initial_gas_price,
                 total_supply: initial_total_supply,
                 challenges_result: vec![],
                 last_final_block: CryptoHash::default(),
@@ -789,7 +789,7 @@ impl BlockHeader {
                 prev_validator_proposals: vec![],
                 chunk_mask: vec![true; chunks_included as usize],
                 block_ordinal: 1, // It is guaranteed that Chain has the only Block which is Genesis
-                gas_price: initial_gas_price,
+                next_gas_price: initial_gas_price,
                 total_supply: initial_total_supply,
                 challenges_result: vec![],
                 last_final_block: CryptoHash::default(),
@@ -1044,13 +1044,13 @@ impl BlockHeader {
     }
 
     #[inline]
-    pub fn gas_price(&self) -> Balance {
+    pub fn next_gas_price(&self) -> Balance {
         match self {
-            BlockHeader::BlockHeaderV1(header) => header.inner_rest.gas_price,
-            BlockHeader::BlockHeaderV2(header) => header.inner_rest.gas_price,
-            BlockHeader::BlockHeaderV3(header) => header.inner_rest.gas_price,
-            BlockHeader::BlockHeaderV4(header) => header.inner_rest.gas_price,
-            BlockHeader::BlockHeaderV5(header) => header.inner_rest.gas_price,
+            BlockHeader::BlockHeaderV1(header) => header.inner_rest.next_gas_price,
+            BlockHeader::BlockHeaderV2(header) => header.inner_rest.next_gas_price,
+            BlockHeader::BlockHeaderV3(header) => header.inner_rest.next_gas_price,
+            BlockHeader::BlockHeaderV4(header) => header.inner_rest.next_gas_price,
+            BlockHeader::BlockHeaderV5(header) => header.inner_rest.next_gas_price,
         }
     }
 

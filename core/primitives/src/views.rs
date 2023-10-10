@@ -789,7 +789,7 @@ impl From<BlockHeader> for BlockHeaderView {
             } else {
                 None
             },
-            gas_price: header.gas_price(),
+            gas_price: header.next_gas_price(),
             rent_paid: 0,
             validator_reward: 0,
             total_supply: header.total_supply(),
@@ -838,7 +838,7 @@ impl From<BlockHeaderView> for BlockHeader {
                     random_value: view.random_value,
                     prev_validator_proposals: validator_proposals,
                     chunk_mask: view.chunk_mask,
-                    gas_price: view.gas_price,
+                    next_gas_price: view.gas_price,
                     total_supply: view.total_supply,
                     challenges_result: view.challenges_result,
                     last_final_block: view.last_final_block,
@@ -868,7 +868,7 @@ impl From<BlockHeaderView> for BlockHeader {
                     random_value: view.random_value,
                     prev_validator_proposals: validator_proposals,
                     chunk_mask: view.chunk_mask,
-                    gas_price: view.gas_price,
+                    next_gas_price: view.gas_price,
                     total_supply: view.total_supply,
                     challenges_result: view.challenges_result,
                     last_final_block: view.last_final_block,
@@ -897,7 +897,7 @@ impl From<BlockHeaderView> for BlockHeader {
                         .map(Into::into)
                         .collect(),
                     chunk_mask: view.chunk_mask,
-                    gas_price: view.gas_price,
+                    next_gas_price: view.gas_price,
                     block_ordinal: view.block_ordinal.unwrap_or(0),
                     total_supply: view.total_supply,
                     challenges_result: view.challenges_result,
@@ -930,7 +930,7 @@ impl From<BlockHeaderView> for BlockHeader {
                         .map(Into::into)
                         .collect(),
                     chunk_mask: view.chunk_mask,
-                    gas_price: view.gas_price,
+                    next_gas_price: view.gas_price,
                     block_ordinal: view.block_ordinal.unwrap_or(0),
                     total_supply: view.total_supply,
                     challenges_result: view.challenges_result,

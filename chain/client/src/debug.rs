@@ -392,7 +392,7 @@ impl ClientActor {
         let mut blocks: HashMap<CryptoHash, DebugBlockStatus> = HashMap::new();
         let mut missed_heights: Vec<MissedHeightInfo> = Vec::new();
         let mut last_epoch_id = head.epoch_id;
-        let initial_gas_price = self.client.chain.genesis_block().header().gas_price();
+        let initial_gas_price = self.client.chain.genesis_block().header().next_gas_price();
 
         let mut height_to_fetch = starting_height.unwrap_or(header_head.height);
         let min_height_to_fetch =
@@ -489,7 +489,8 @@ impl ClientActor {
                         processing_time_ms: CryptoHashTimer::get_timer_value(block_hash)
                             .map(|s| s.as_millis() as u64),
                         block_timestamp: block_header.raw_timestamp(),
-                        gas_price_ratio: block_header.gas_price() as f64 / initial_gas_price as f64,
+                        gas_price_ratio: block_header.next_gas_price() as f64
+                            / initial_gas_price as f64,
                     },
                 );
                 // TODO(robin): using last epoch id when iterating in reverse height direction is
