@@ -459,7 +459,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
         CryptoHash::default(),
         fee_config.storage_usage_config.num_bytes_account
             + public_key.len() as u64
-            + borsh::to_vec(&access_key).unwrap().len() as u64
+            + borsh::object_length(&access_key).unwrap() as u64
             + fee_config.storage_usage_config.num_extra_bytes_record,
     ));
 
@@ -550,12 +550,12 @@ pub(crate) fn action_delete_key(
         let storage_usage_config = &fee_config.storage_usage_config;
         let storage_usage = if current_protocol_version >= DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION
         {
-            borsh::to_vec(&delete_key.public_key).unwrap().len() as u64
-                + borsh::to_vec(&access_key).unwrap().len() as u64
+            borsh::object_length(&delete_key.public_key).unwrap() as u64
+                + borsh::object_length(&access_key).unwrap() as u64
                 + storage_usage_config.num_extra_bytes_record
         } else {
-            borsh::to_vec(&delete_key.public_key).unwrap().len() as u64
-                + borsh::to_vec(&Some(access_key)).unwrap().len() as u64
+            borsh::object_length(&delete_key.public_key).unwrap() as u64
+                + borsh::object_length(&Some(access_key)).unwrap() as u64
                 + storage_usage_config.num_extra_bytes_record
         };
         // Remove access key
@@ -605,8 +605,8 @@ pub(crate) fn action_add_key(
         account
             .storage_usage()
             .checked_add(
-                borsh::to_vec(&add_key.public_key).unwrap().len() as u64
-                    + borsh::to_vec(&add_key.access_key).unwrap().len() as u64
+                borsh::object_length(&add_key.public_key).unwrap() as u64
+                    + borsh::object_length(&add_key.access_key).unwrap() as u64
                     + storage_config.num_extra_bytes_record,
             )
             .ok_or_else(|| {

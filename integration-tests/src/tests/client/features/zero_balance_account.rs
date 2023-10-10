@@ -322,12 +322,12 @@ fn test_storage_usage_components() {
     const FUNCTION_ACCESS_PERMISSION_STORAGE_USAGE: usize = 98;
 
     let edwards_public_key = PublicKey::from_seed(KeyType::ED25519, "seed");
-    assert_eq!(PUBLIC_KEY_STORAGE_USAGE, borsh::to_vec(&edwards_public_key).unwrap().len());
+    assert_eq!(PUBLIC_KEY_STORAGE_USAGE, borsh::object_length(&edwards_public_key).unwrap());
 
     let full_access_key = AccessKey::full_access();
     assert_eq!(
         FULL_ACCESS_PERMISSION_STORAGE_USAGE,
-        borsh::to_vec(&full_access_key).unwrap().len()
+        borsh::object_length(&full_access_key).unwrap()
     );
 
     let fn_access_key = AccessKey {
@@ -340,7 +340,7 @@ fn test_storage_usage_components() {
     };
     assert_eq!(
         FUNCTION_ACCESS_PERMISSION_STORAGE_USAGE,
-        borsh::to_vec(&fn_access_key).unwrap().len()
+        borsh::object_length(&fn_access_key).unwrap()
     );
 
     let config_store = RuntimeConfigStore::new(None);

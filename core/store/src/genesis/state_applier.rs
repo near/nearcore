@@ -52,8 +52,8 @@ impl<'a> StorageComputer<'a> {
                 let public_key: PublicKey = public_key.clone();
                 let access_key: AccessKey = access_key.clone();
                 let storage_usage = self.config.num_extra_bytes_record
-                    + borsh::to_vec(&public_key).unwrap().len() as u64
-                    + borsh::to_vec(&access_key).unwrap().len() as u64;
+                    + borsh::object_length(&public_key).unwrap() as u64
+                    + borsh::object_length(&access_key).unwrap() as u64;
                 Some((account_id.clone(), storage_usage))
             }
             StateRecord::PostponedReceipt(_) => None,
