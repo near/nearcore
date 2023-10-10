@@ -11,8 +11,8 @@ use near_primitives::types::{ShardId, StoreKey, StoreValue};
 use near_store::{flat::FlatStateChanges, ShardTries, TrieUpdate};
 use nearcore::NightshadeRuntime;
 
-/// Object that updates the existing state. Combines all changes, commits them
-/// and returns new state roots.
+/// Object that updates the existing state of a single shard.
+/// Combines all changes, commits them and returns the new state root.
 pub(crate) struct SingleShardStorageMutator {
     trie_update: TrieUpdate,
     shard_tries: ShardTries,
@@ -20,6 +20,7 @@ pub(crate) struct SingleShardStorageMutator {
 }
 
 impl SingleShardStorageMutator {
+    // `prev_block_hash` is ignored.
     pub(crate) fn new(
         shard_id: ShardId,
         runtime: &NightshadeRuntime,
