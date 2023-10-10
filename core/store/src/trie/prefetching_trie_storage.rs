@@ -222,7 +222,14 @@ impl TrieStorage for TriePrefetchingStorage {
     //    threads looking up the same value from DB.
     // 3. IO threads should release S and P as soon as possible, as they can
     //    block the main thread otherwise.
-    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
+    fn retrieve_raw_bytes(
+        &self,
+        hash: &CryptoHash,
+        account_id: Option<AccountId>,
+    ) -> Result<Arc<[u8]>, StorageError> {
+        // First try to get data from contract specific cache
+        // TODO(jbajic) do we want contract specific cache here?
+
         // Try to get value from shard cache containing most recently touched nodes.
         let mut shard_cache_guard = self.shard_cache.lock();
         if let Some(val) = shard_cache_guard.get(hash) {

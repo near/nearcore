@@ -18,7 +18,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{self, ShardUId, ShardVersion};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
+    AccountId, NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 use std::io;
 use std::path::{Path, PathBuf};

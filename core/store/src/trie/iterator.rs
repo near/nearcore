@@ -414,7 +414,9 @@ impl<'a> Iterator for TrieIterator<'a> {
                 },
                 (IterStep::Value(hash), true) => {
                     return Some(
-                        self.trie.retrieve_value(&hash, None).map(|value| (self.key(), value.to_vec())),
+                        self.trie
+                            .retrieve_value(&hash, None)
+                            .map(|value| (self.key(), value.to_vec())),
                     )
                 }
             }

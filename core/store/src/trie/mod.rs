@@ -20,7 +20,7 @@ use near_primitives::state::ValueRef;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 pub use near_primitives::types::TrieNodesCount;
-use near_primitives::types::{StateRoot, StateRootNode, AccountId};
+use near_primitives::types::{AccountId, StateRoot, StateRootNode};
 use near_vm_runner::ContractCode;
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
@@ -542,7 +542,7 @@ impl Trie {
                 .borrow_mut()
                 .retrieve_raw_bytes_with_accounting(hash, &*self.storage)?
         } else {
-            self.storage.retrieve_raw_bytes(hash)?
+            self.storage.retrieve_raw_bytes(hash, account_id)?
         };
         if let Some(recorder) = &self.recorder {
             recorder.borrow_mut().record(hash, result.clone());
@@ -777,7 +777,8 @@ impl Trie {
         if hash == &Self::EMPTY_ROOT {
             return Ok(None);
         }
-        let bytes = self.internal_retrieve_trie_node(hash, account_id, use_accounting_cache)?; let node = RawTrieNodeWithSize::try_from_slice(&bytes).map_err(|err| {
+        let bytes = self.internal_retrieve_trie_node(hash, account_id, use_accounting_cache)?;
+        let node = RawTrieNodeWithSize::try_from_slice(&bytes).map_err(|err| {
             StorageError::StorageInconsistentState(format!("Failed to decode node {hash}: {err}"))
         })?;
         Ok(Some((bytes, node)))
@@ -958,7 +959,11 @@ impl Trie {
 
     /// Returns the raw bytes corresponding to a ValueRef that came from a node with
     /// value (either Leaf or BranchWithValue).
-    pub fn retrieve_value(&self, hash: &CryptoHash, account_id: Option<AccountId>) -> Result<Vec<u8>, StorageError> {
+    pub fn retrieve_value(
+        &self,
+        hash: &CryptoHash,
+        account_id: Option<AccountId>,
+    ) -> Result<Vec<u8>, StorageError> {
         let bytes = self.internal_retrieve_trie_node(hash, account_id, true)?;
         Ok(bytes.to_vec())
     }
@@ -1004,11 +1009,15 @@ impl Trie {
         }
     }
 
-    pub fn get(&self, key: &[u8], account_id: Option<AccountId>) -> Result<Option<Vec<u8>>, StorageError> {
+    pub fn get(
+        &self,
+        key: &[u8],
+        account_id: Option<AccountId>,
+    ) -> Result<Option<Vec<u8>>, StorageError> {
         match self.get_ref(key, KeyLookupMode::FlatStorage)? {
-            Some(ValueRef { hash, .. }) => {
-                self.internal_retrieve_trie_node(&hash, account_id, true).map(|bytes| Some(bytes.to_vec()))
-            }
+            Some(ValueRef { hash, .. }) => self
+                .internal_retrieve_trie_node(&hash, account_id, true)
+                .map(|bytes| Some(bytes.to_vec())),
             None => Ok(None),
         }
     }

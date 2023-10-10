@@ -104,7 +104,7 @@ impl TrieAccountingCache {
             if let Some(metrics) = &self.metrics {
                 metrics.accounting_cache_misses.inc();
             }
-            let node = storage.retrieve_raw_bytes(hash)?;
+            let node = storage.retrieve_raw_bytes(hash, None)?;
 
             if self.enable {
                 self.cache.insert(*hash, node.clone());
