@@ -1105,7 +1105,7 @@ impl Client {
         let transactions = if let Some(mut iter) = sharded_tx_pool.get_pool_iterator(shard_uid) {
             let transaction_validity_period = chain.transaction_validity_period;
             runtime.prepare_transactions(
-                prev_block_header.gas_price(),
+                prev_block_header.next_gas_price(),
                 gas_limit,
                 &next_epoch_id,
                 shard_id,
@@ -2223,7 +2223,7 @@ impl Client {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
             return Ok(ProcessTxResponse::InvalidTx(e));
         }
-        let gas_price = cur_block_header.gas_price();
+        let gas_price = cur_block_header.next_gas_price();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
 
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
