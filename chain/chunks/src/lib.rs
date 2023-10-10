@@ -1583,7 +1583,7 @@ impl ShardsManager {
             if self.encoded_chunks.mark_chunk_for_inclusion(&chunk_hash) {
                 self.client_adapter.send(ShardsManagerResponse::ChunkHeaderReadyForInclusion {
                     chunk_header: header.clone(),
-                    chunk_producer,
+                    chunk_producer: chunk_producer.clone(),
                 });
             }
         }
@@ -1637,7 +1637,7 @@ impl ShardsManager {
             // Don't persist if we don't care about the shard, even if we accidentally got enough
             // parts to reconstruct the full shard.
             if cares_about_shard {
-                self.complete_chunk(partial_chunk, Some(shard_chunk));
+                self.complete_chunk(partial_chunk, Some((shard_chunk, chunk_producer)));
             } else {
                 self.complete_chunk(partial_chunk, None);
             }
@@ -1650,7 +1650,7 @@ impl ShardsManager {
     fn complete_chunk(
         &mut self,
         partial_chunk: PartialEncodedChunk,
-        shard_chunk: Option<ShardChunk>,
+        shard_chunk: Option<(ShardChunk, AccountId)>,
     ) {
         let chunk_hash = partial_chunk.chunk_hash();
         self.encoded_chunks.mark_entry_complete(&chunk_hash);

@@ -233,11 +233,22 @@ impl TestEnv {
         while let Some(msg) = self.client_adapters[id].pop() {
             match msg {
                 ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
+                    let chunk_header = partial_chunk.cloned_header();
+                    let (shard_chunk, chunk_producer) = match shard_chunk {
+                        Some((shard_chunk, chunk_producer)) => {
+                            (Some(shard_chunk), Some(chunk_producer))
+                        }
+                        None => (None, None),
+                    };
                     self.clients[id].on_chunk_completed(
                         partial_chunk,
                         shard_chunk,
                         Arc::new(|_| {}),
                     );
+                    if let Some(chunk_producer) = chunk_producer {
+                        self.clients[id]
+                            .on_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
+                    }
                 }
                 ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
                     self.clients[id].on_invalid_chunk(encoded_chunk);
@@ -246,8 +257,8 @@ impl TestEnv {
                     chunk_header,
                     chunk_producer,
                 } => {
-                    self.clients[id]
-                        .on_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
+                    let _ = chunk_header;
+                    let _ = chunk_producer;
                 }
             }
             any_processed = true;

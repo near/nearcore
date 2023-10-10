@@ -1511,6 +1511,7 @@ impl Client {
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header, StaticClock::utc());
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), partial_chunk.shard_id());
+        // not sure where to validate it - let's do it here?
         persist_chunk(partial_chunk, shard_chunk, self.chain.mut_store())
             .expect("Could not persist chunk");
         // We're marking chunk as accepted.

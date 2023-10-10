@@ -56,6 +56,7 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::sharding::ShardChunk;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::types::BlockHeight;
 use near_primitives::unwrap_or_return;
@@ -1817,11 +1818,22 @@ impl Handler<WithSpanContext<ShardsManagerResponse>> for ClientActor {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         match msg {
             ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
+                let chunk_header = partial_chunk.cloned_header();
+                let (shard_chunk, chunk_producer) = match shard_chunk {
+                    Some((shard_chunk, chunk_producer)) => {
+                        (Some(shard_chunk), Some(chunk_producer))
+                    }
+                    None => (None, None),
+                };
                 self.client.on_chunk_completed(
                     partial_chunk,
                     shard_chunk,
                     self.get_apply_chunks_done_callback(),
                 );
+                // mark ready on completion
+                if let Some(chunk_producer) = chunk_producer {
+                    self.client.on_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
+                }
             }
             ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
                 self.client.on_invalid_chunk(encoded_chunk);
@@ -1830,7 +1842,9 @@ impl Handler<WithSpanContext<ShardsManagerResponse>> for ClientActor {
                 chunk_header,
                 chunk_producer,
             } => {
-                self.client.on_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
+                // do nothing. mark ready only on completion. not sure if this is fully correct
+                let _ = chunk_header;
+                let _ = chunk_producer;
             }
         }
     }

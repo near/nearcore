@@ -4016,7 +4016,7 @@ impl Chain {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         split_state_roots: Option<HashMap<ShardUId, CryptoHash>>,
     ) -> Result<Option<ApplyChunkJob>, Error> {
-        let prev_hash = block.header().prev_hash();
+        let prev_hash = prev_block.hash();
         let shard_id = shard_uid.shard_id();
 
         let prev_chunk_height_included = prev_chunk_header.height_included();
@@ -4039,17 +4039,18 @@ impl Chain {
                 target: "chain",
                 ?err,
                 prev_block_hash=?prev_hash,
-                block_hash=?block.header().hash(),
+                // block_hash=?block.header().hash(),
                 shard_id,
                 prev_chunk_height_included,
                 ?prev_chunk_extra,
                 ?chunk_header,
                 "Failed to validate chunk extra");
             byzantine_assert!(false);
-            match self.create_chunk_state_challenge(prev_block, block, chunk_header) {
-                Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
-                Err(err) => err,
-            }
+            // match self.create_chunk_state_challenge(prev_block, block, chunk_header) {
+            //     Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
+            //     Err(err) => err,
+            // }
+            Error::InvalidChunk
         })?;
         // we can't use hash from the current block here yet because the incoming receipts
         // for this block is not stored yet
@@ -4067,10 +4068,11 @@ impl Chain {
 
         let transactions = chunk.transactions();
         if !validate_transactions_order(transactions) {
-            let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
+            // let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
             let chunk_proof = ChunkProofs {
-                block_header: block.header().try_to_vec().expect("Failed to serialize"),
-                merkle_proof: merkle_paths[shard_id as usize].clone(),
+                // just don't use block for now
+                block_header: prev_block.header().try_to_vec().expect("Failed to serialize"), // block.header().try_to_vec().expect("Failed to serialize"),
+                merkle_proof: MerklePath::new(), //merkle_paths[shard_id as usize].clone(),
                 chunk: MaybeEncodedShardChunk::Decoded(chunk),
             };
             return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));

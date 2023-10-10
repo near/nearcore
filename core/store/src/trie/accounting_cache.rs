@@ -6,6 +6,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_vm_runner::logic::TrieNodesCount;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use crate::{metrics, TrieStorage};
 
@@ -46,6 +47,7 @@ pub struct TrieAccountingCache {
     /// Cache of trie node hash -> trie node body, or a leaf value hash ->
     /// leaf value.
     cache: HashMap<CryptoHash, Arc<[u8]>>,
+    big_contract_cache_ref: TrieCache // Arc<Mutex<TrieCacheInner>>
     /// The number of times a key was accessed by reading from the underlying
     /// storage. (This does not necessarily mean it was accessed from *disk*,
     /// as the underlying storage layer may have a best-effort cache.)

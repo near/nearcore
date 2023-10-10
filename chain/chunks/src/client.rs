@@ -22,7 +22,10 @@ pub enum ShardsManagerResponse {
     /// shards that we do track. On the other hand if we are tracking the shard this
     /// chunk is in, then being complete does mean having the full chunk, in which
     /// case the shard_chunk is also provided.
-    ChunkCompleted { partial_chunk: PartialEncodedChunk, shard_chunk: Option<ShardChunk> },
+    ChunkCompleted {
+        partial_chunk: PartialEncodedChunk,
+        shard_chunk: Option<(ShardChunk, AccountId)>,
+    },
     /// Notifies the client that we have collected a full chunk but the chunk cannot
     /// be properly decoded.
     InvalidChunk(EncodedShardChunk),
