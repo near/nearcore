@@ -273,7 +273,7 @@ impl ForkNetworkCommand {
             make_storage_mutator.clone(),
         )?;
         let storage_mutator =
-            StorageMutator::new(epoch_manager, &runtime, epoch_id, prev_hash, tmp_state_roots)?;
+            StorageMutator::new(epoch_manager, &runtime, &epoch_id, prev_hash, &tmp_state_roots)?;
         let (new_state_roots, new_validator_accounts) =
             self.add_validator_accounts(runtime_config, home_dir, storage_mutator)?;
 
@@ -507,7 +507,7 @@ impl ForkNetworkCommand {
             };
             new_validator_accounts.push(validator_account.clone());
             storage_mutator.set_account(
-                &validator_account.account_id.clone(),
+                validator_account.account_id.clone(),
                 Account::new(
                     liquid_balance,
                     validator_account.amount,
@@ -516,7 +516,7 @@ impl ForkNetworkCommand {
                 ),
             )?;
             storage_mutator.set_access_key(
-                &validator_account.account_id,
+                validator_account.account_id,
                 validator_account.public_key,
                 AccessKey::full_access(),
             )?;
