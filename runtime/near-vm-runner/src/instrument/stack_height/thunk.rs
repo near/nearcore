@@ -13,7 +13,7 @@ struct Thunk {
 }
 
 pub(crate) fn generate_thunks(
-    ctx: &mut Context,
+    ctx: &Context,
     module: elements::Module,
 ) -> Result<elements::Module, Error> {
     let module_ctx = ModuleCtx::new(&module);

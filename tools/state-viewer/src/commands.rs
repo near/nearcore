@@ -86,7 +86,7 @@ pub(crate) fn apply_block(
                 &receipts,
                 chunk.transactions(),
                 chunk_inner.prev_validator_proposals(),
-                prev_block.header().gas_price(),
+                prev_block.header().next_gas_price(),
                 chunk_inner.gas_limit(),
                 block.header().challenges_result(),
                 *block.header().random_value(),
@@ -111,7 +111,7 @@ pub(crate) fn apply_block(
                 &[],
                 &[],
                 chunk_extra.validator_proposals(),
-                block.header().gas_price(),
+                block.header().next_gas_price(),
                 chunk_extra.gas_limit(),
                 block.header().challenges_result(),
                 *block.header().random_value(),
@@ -518,7 +518,7 @@ pub(crate) fn check_apply_block_result(
     block: &Block,
     apply_result: &ApplyTransactionResult,
     epoch_manager: &EpochManagerHandle,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     shard_id: ShardId,
 ) -> anyhow::Result<()> {
     let height = block.header().height();

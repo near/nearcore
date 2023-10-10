@@ -31,9 +31,6 @@ def run(args: typing.Sequence[typing.Union[str, pathlib.Path]]) -> bool:
 def run_tools(*, check: bool) -> str:
     langs = []
 
-    if not run(('cargo', 'fmt') + (('--', '--check') if check else ())):
-        langs.append('Rust')
-
     try:
         import yapf as _
         has_yapf = True

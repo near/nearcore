@@ -1,17 +1,16 @@
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 2, grace-period = "0s" }
-# FIXME(nagisa): use --profile ci in CI instead when we manage to modify CI scripts...
-retries = { backoff = "fixed", count = 3, delay = "1s" }
-failure-output = "final"
 
 [[profile.default.overrides]]
 filter = 'test(test_full_estimator)'
 slow-timeout = { period = "10m", terminate-after = 3 }
-threads-required = 4
+retries = 0
+threads-required = 2
 
 [[profile.default.overrides]]
 filter = 'package(style-tests)'
 slow-timeout = { period = "120s", terminate-after = 5 }
+retries = 0
 threads-required = 4
 
 # Unfortunately no support for inheriting profiles yet:
@@ -27,9 +26,11 @@ fail-fast = false
 [[profile.ci.overrides]]
 filter = 'test(test_full_estimator)'
 slow-timeout = { period = "10m", terminate-after = 3 }
-threads-required = 4
+retries = 0
+threads-required = 2
 
 [[profile.ci.overrides]]
 filter = 'package(style-tests)'
 slow-timeout = { period = "120s", terminate-after = 5 }
+retries = 0
 threads-required = 4

@@ -50,8 +50,8 @@ pub struct BlockHeaderInnerRest {
     pub prev_validator_proposals: Vec<ValidatorStakeV1>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
-    /// Gas price. Same for all chunks
-    pub gas_price: Balance,
+    /// Gas price for chunks in the next block.
+    pub next_gas_price: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -86,8 +86,8 @@ pub struct BlockHeaderInnerRestV2 {
     pub prev_validator_proposals: Vec<ValidatorStakeV1>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
-    /// Gas price. Same for all chunks
-    pub gas_price: Balance,
+    /// Gas price for chunks in the next block.
+    pub next_gas_price: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -125,8 +125,8 @@ pub struct BlockHeaderInnerRestV3 {
     pub prev_validator_proposals: Vec<ValidatorStake>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
-    /// Gas price. Same for all chunks
-    pub gas_price: Balance,
+    /// Gas price for chunks in the next block.
+    pub next_gas_price: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -170,8 +170,8 @@ pub struct BlockHeaderInnerRestV4 {
     pub prev_validator_proposals: Vec<ValidatorStake>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
-    /// Gas price. Same for all chunks
-    pub gas_price: Balance,
+    /// Gas price for chunks in the next block.
+    pub next_gas_price: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -215,8 +215,8 @@ pub struct BlockHeaderInnerRestV5 {
     pub prev_validator_proposals: Vec<ValidatorStake>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
-    /// Gas price. Same for all chunks
-    pub gas_price: Balance,
+    /// Gas price for chunks in the next block.
+    pub next_gas_price: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
     /// List of challenges result from previous block.
@@ -298,7 +298,7 @@ impl Approval {
     }
 
     pub fn get_data_for_sig(inner: &ApprovalInner, target_height: BlockHeight) -> Vec<u8> {
-        [inner.try_to_vec().unwrap().as_ref(), target_height.to_le_bytes().as_ref()].concat()
+        [borsh::to_vec(&inner).unwrap().as_ref(), target_height.to_le_bytes().as_ref()].concat()
     }
 }
 
@@ -309,7 +309,7 @@ impl ApprovalMessage {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct BlockHeaderV1 {
     pub prev_hash: CryptoHash,
 
@@ -322,7 +322,7 @@ pub struct BlockHeaderV1 {
     pub signature: Signature,
 
     /// Cached value of hash for this block.
-    #[borsh_skip]
+    #[borsh(skip)]
     pub hash: CryptoHash,
 }
 
@@ -330,15 +330,15 @@ impl BlockHeaderV1 {
     pub fn init(&mut self) {
         self.hash = BlockHeader::compute_hash(
             self.prev_hash,
-            &self.inner_lite.try_to_vec().expect("Failed to serialize"),
-            &self.inner_rest.try_to_vec().expect("Failed to serialize"),
+            &borsh::to_vec(&self.inner_lite).expect("Failed to serialize"),
+            &borsh::to_vec(&self.inner_rest).expect("Failed to serialize"),
         );
     }
 }
 
 /// V1 -> V2: Remove `chunks_included` from `inner_reset`
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct BlockHeaderV2 {
     pub prev_hash: CryptoHash,
 
@@ -351,14 +351,14 @@ pub struct BlockHeaderV2 {
     pub signature: Signature,
 
     /// Cached value of hash for this block.
-    #[borsh_skip]
+    #[borsh(skip)]
     pub hash: CryptoHash,
 }
 
 /// V2 -> V3: Add `prev_height` to `inner_rest` and use new `ValidatorStake`
 // Add `block_ordinal` to `inner_rest`
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct BlockHeaderV3 {
     pub prev_hash: CryptoHash,
 
@@ -371,13 +371,13 @@ pub struct BlockHeaderV3 {
     pub signature: Signature,
 
     /// Cached value of hash for this block.
-    #[borsh_skip]
+    #[borsh(skip)]
     pub hash: CryptoHash,
 }
 
 /// V3 -> V4: Add hash of block body to inner_rest
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct BlockHeaderV4 {
     pub prev_hash: CryptoHash,
 
@@ -390,13 +390,13 @@ pub struct BlockHeaderV4 {
     pub signature: Signature,
 
     /// Cached value of hash for this block.
-    #[borsh_skip]
+    #[borsh(skip)]
     pub hash: CryptoHash,
 }
 
 /// V4 -> V5: Switch to post-state-root
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct BlockHeaderV5 {
     pub prev_hash: CryptoHash,
 
@@ -408,8 +408,8 @@ pub struct BlockHeaderV5 {
     /// Signature of the block producer.
     pub signature: Signature,
 
-    /// Cached value of hash for this block.
-    #[borsh_skip]
+    /// Cached value of hash for this block
+    #[borsh(skip)]
     pub hash: CryptoHash,
 }
 
@@ -417,8 +417,8 @@ impl BlockHeaderV2 {
     pub fn init(&mut self) {
         self.hash = BlockHeader::compute_hash(
             self.prev_hash,
-            &self.inner_lite.try_to_vec().expect("Failed to serialize"),
-            &self.inner_rest.try_to_vec().expect("Failed to serialize"),
+            &borsh::to_vec(&self.inner_lite).expect("Failed to serialize"),
+            &borsh::to_vec(&self.inner_rest).expect("Failed to serialize"),
         );
     }
 }
@@ -427,8 +427,8 @@ impl BlockHeaderV3 {
     pub fn init(&mut self) {
         self.hash = BlockHeader::compute_hash(
             self.prev_hash,
-            &self.inner_lite.try_to_vec().expect("Failed to serialize"),
-            &self.inner_rest.try_to_vec().expect("Failed to serialize"),
+            &borsh::to_vec(&self.inner_lite).expect("Failed to serialize"),
+            &borsh::to_vec(&self.inner_rest).expect("Failed to serialize"),
         );
     }
 }
@@ -437,8 +437,8 @@ impl BlockHeaderV4 {
     pub fn init(&mut self) {
         self.hash = BlockHeader::compute_hash(
             self.prev_hash,
-            &self.inner_lite.try_to_vec().expect("Failed to serialize"),
-            &self.inner_rest.try_to_vec().expect("Failed to serialize"),
+            &borsh::to_vec(&self.inner_lite).expect("Failed to serialize"),
+            &borsh::to_vec(&self.inner_rest).expect("Failed to serialize"),
         );
     }
 }
@@ -447,8 +447,8 @@ impl BlockHeaderV5 {
     pub fn init(&mut self) {
         self.hash = BlockHeader::compute_hash(
             self.prev_hash,
-            &self.inner_lite.try_to_vec().expect("Failed to serialize"),
-            &self.inner_rest.try_to_vec().expect("Failed to serialize"),
+            &borsh::to_vec(&self.inner_lite).expect("Failed to serialize"),
+            &borsh::to_vec(&self.inner_rest).expect("Failed to serialize"),
         );
     }
 }
@@ -496,7 +496,7 @@ impl BlockHeader {
         block_ordinal: NumBlocks,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
-        gas_price: Balance,
+        next_gas_price: Balance,
         total_supply: Balance,
         challenges_result: ChallengesResult,
         signer: &dyn ValidatorSigner,
@@ -539,7 +539,7 @@ impl BlockHeader {
                     .map(|v| v.into_v1())
                     .collect(),
                 chunk_mask,
-                gas_price,
+                next_gas_price,
                 total_supply,
                 challenges_result,
                 last_final_block,
@@ -549,8 +549,8 @@ impl BlockHeader {
             };
             let (hash, signature) = signer.sign_block_header_parts(
                 prev_hash,
-                &inner_lite.try_to_vec().expect("Failed to serialize"),
-                &inner_rest.try_to_vec().expect("Failed to serialize"),
+                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
             );
             Self::BlockHeaderV1(Arc::new(BlockHeaderV1 {
                 prev_hash,
@@ -571,7 +571,7 @@ impl BlockHeader {
                     .map(|v| v.into_v1())
                     .collect(),
                 chunk_mask,
-                gas_price,
+                next_gas_price,
                 total_supply,
                 challenges_result,
                 last_final_block,
@@ -581,8 +581,8 @@ impl BlockHeader {
             };
             let (hash, signature) = signer.sign_block_header_parts(
                 prev_hash,
-                &inner_lite.try_to_vec().expect("Failed to serialize"),
-                &inner_rest.try_to_vec().expect("Failed to serialize"),
+                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
             );
             Self::BlockHeaderV2(Arc::new(BlockHeaderV2 {
                 prev_hash,
@@ -600,7 +600,7 @@ impl BlockHeader {
                 random_value,
                 prev_validator_proposals,
                 chunk_mask,
-                gas_price,
+                next_gas_price,
                 block_ordinal,
                 total_supply,
                 challenges_result,
@@ -613,8 +613,8 @@ impl BlockHeader {
             };
             let (hash, signature) = signer.sign_block_header_parts(
                 prev_hash,
-                &inner_lite.try_to_vec().expect("Failed to serialize"),
-                &inner_rest.try_to_vec().expect("Failed to serialize"),
+                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
             );
             Self::BlockHeaderV3(Arc::new(BlockHeaderV3 {
                 prev_hash,
@@ -633,7 +633,7 @@ impl BlockHeader {
                 random_value,
                 prev_validator_proposals,
                 chunk_mask,
-                gas_price,
+                next_gas_price,
                 block_ordinal,
                 total_supply,
                 challenges_result,
@@ -646,8 +646,8 @@ impl BlockHeader {
             };
             let (hash, signature) = signer.sign_block_header_parts(
                 prev_hash,
-                &inner_lite.try_to_vec().expect("Failed to serialize"),
-                &inner_rest.try_to_vec().expect("Failed to serialize"),
+                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
             );
             Self::BlockHeaderV4(Arc::new(BlockHeaderV4 {
                 prev_hash,
@@ -697,7 +697,7 @@ impl BlockHeader {
                 random_value: CryptoHash::default(),
                 prev_validator_proposals: vec![],
                 chunk_mask: vec![],
-                gas_price: initial_gas_price,
+                next_gas_price: initial_gas_price,
                 total_supply: initial_total_supply,
                 challenges_result: vec![],
                 last_final_block: CryptoHash::default(),
@@ -707,8 +707,8 @@ impl BlockHeader {
             };
             let hash = BlockHeader::compute_hash(
                 CryptoHash::default(),
-                &inner_lite.try_to_vec().expect("Failed to serialize"),
-                &inner_rest.try_to_vec().expect("Failed to serialize"),
+                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
             );
             Self::BlockHeaderV1(Arc::new(BlockHeaderV1 {
                 prev_hash: CryptoHash::default(),
@@ -726,7 +726,7 @@ impl BlockHeader {
                 random_value: CryptoHash::default(),
                 prev_validator_proposals: vec![],
                 chunk_mask: vec![true; chunks_included as usize],
-                gas_price: initial_gas_price,
+                next_gas_price: initial_gas_price,
                 total_supply: initial_total_supply,
                 challenges_result: vec![],
                 last_final_block: CryptoHash::default(),
@@ -736,8 +736,8 @@ impl BlockHeader {
             };
             let hash = BlockHeader::compute_hash(
                 CryptoHash::default(),
-                &inner_lite.try_to_vec().expect("Failed to serialize"),
-                &inner_rest.try_to_vec().expect("Failed to serialize"),
+                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
             );
             Self::BlockHeaderV2(Arc::new(BlockHeaderV2 {
                 prev_hash: CryptoHash::default(),
@@ -756,7 +756,7 @@ impl BlockHeader {
                 prev_validator_proposals: vec![],
                 chunk_mask: vec![true; chunks_included as usize],
                 block_ordinal: 1, // It is guaranteed that Chain has the only Block which is Genesis
-                gas_price: initial_gas_price,
+                next_gas_price: initial_gas_price,
                 total_supply: initial_total_supply,
                 challenges_result: vec![],
                 last_final_block: CryptoHash::default(),
@@ -768,8 +768,8 @@ impl BlockHeader {
             };
             let hash = BlockHeader::compute_hash(
                 CryptoHash::default(),
-                &inner_lite.try_to_vec().expect("Failed to serialize"),
-                &inner_rest.try_to_vec().expect("Failed to serialize"),
+                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
             );
             Self::BlockHeaderV3(Arc::new(BlockHeaderV3 {
                 prev_hash: CryptoHash::default(),
@@ -789,7 +789,7 @@ impl BlockHeader {
                 prev_validator_proposals: vec![],
                 chunk_mask: vec![true; chunks_included as usize],
                 block_ordinal: 1, // It is guaranteed that Chain has the only Block which is Genesis
-                gas_price: initial_gas_price,
+                next_gas_price: initial_gas_price,
                 total_supply: initial_total_supply,
                 challenges_result: vec![],
                 last_final_block: CryptoHash::default(),
@@ -801,8 +801,8 @@ impl BlockHeader {
             };
             let hash = BlockHeader::compute_hash(
                 CryptoHash::default(),
-                &inner_lite.try_to_vec().expect("Failed to serialize"),
-                &inner_rest.try_to_vec().expect("Failed to serialize"),
+                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
             );
             Self::BlockHeaderV4(Arc::new(BlockHeaderV4 {
                 prev_hash: CryptoHash::default(),
@@ -1044,13 +1044,13 @@ impl BlockHeader {
     }
 
     #[inline]
-    pub fn gas_price(&self) -> Balance {
+    pub fn next_gas_price(&self) -> Balance {
         match self {
-            BlockHeader::BlockHeaderV1(header) => header.inner_rest.gas_price,
-            BlockHeader::BlockHeaderV2(header) => header.inner_rest.gas_price,
-            BlockHeader::BlockHeaderV3(header) => header.inner_rest.gas_price,
-            BlockHeader::BlockHeaderV4(header) => header.inner_rest.gas_price,
-            BlockHeader::BlockHeaderV5(header) => header.inner_rest.gas_price,
+            BlockHeader::BlockHeaderV1(header) => header.inner_rest.next_gas_price,
+            BlockHeader::BlockHeaderV2(header) => header.inner_rest.next_gas_price,
+            BlockHeader::BlockHeaderV3(header) => header.inner_rest.next_gas_price,
+            BlockHeader::BlockHeaderV4(header) => header.inner_rest.next_gas_price,
+            BlockHeader::BlockHeaderV5(header) => header.inner_rest.next_gas_price,
         }
     }
 
@@ -1193,19 +1193,19 @@ impl BlockHeader {
     pub fn inner_lite_bytes(&self) -> Vec<u8> {
         match self {
             BlockHeader::BlockHeaderV1(header) => {
-                header.inner_lite.try_to_vec().expect("Failed to serialize")
+                borsh::to_vec(&header.inner_lite).expect("Failed to serialize")
             }
             BlockHeader::BlockHeaderV2(header) => {
-                header.inner_lite.try_to_vec().expect("Failed to serialize")
+                borsh::to_vec(&header.inner_lite).expect("Failed to serialize")
             }
             BlockHeader::BlockHeaderV3(header) => {
-                header.inner_lite.try_to_vec().expect("Failed to serialize")
+                borsh::to_vec(&header.inner_lite).expect("Failed to serialize")
             }
             BlockHeader::BlockHeaderV4(header) => {
-                header.inner_lite.try_to_vec().expect("Failed to serialize")
+                borsh::to_vec(&header.inner_lite).expect("Failed to serialize")
             }
             BlockHeader::BlockHeaderV5(header) => {
-                header.inner_lite.try_to_vec().expect("Failed to serialize")
+                borsh::to_vec(&header.inner_lite).expect("Failed to serialize")
             }
         }
     }
@@ -1213,19 +1213,19 @@ impl BlockHeader {
     pub fn inner_rest_bytes(&self) -> Vec<u8> {
         match self {
             BlockHeader::BlockHeaderV1(header) => {
-                header.inner_rest.try_to_vec().expect("Failed to serialize")
+                borsh::to_vec(&header.inner_rest).expect("Failed to serialize")
             }
             BlockHeader::BlockHeaderV2(header) => {
-                header.inner_rest.try_to_vec().expect("Failed to serialize")
+                borsh::to_vec(&header.inner_rest).expect("Failed to serialize")
             }
             BlockHeader::BlockHeaderV3(header) => {
-                header.inner_rest.try_to_vec().expect("Failed to serialize")
+                borsh::to_vec(&header.inner_rest).expect("Failed to serialize")
             }
             BlockHeader::BlockHeaderV4(header) => {
-                header.inner_rest.try_to_vec().expect("Failed to serialize")
+                borsh::to_vec(&header.inner_rest).expect("Failed to serialize")
             }
             BlockHeader::BlockHeaderV5(header) => {
-                header.inner_rest.try_to_vec().expect("Failed to serialize")
+                borsh::to_vec(&header.inner_rest).expect("Failed to serialize")
             }
         }
     }

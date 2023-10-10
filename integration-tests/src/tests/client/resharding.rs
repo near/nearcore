@@ -1,6 +1,5 @@
 use crate::tests::client::process_blocks::set_block_protocol_version;
 use assert_matches::assert_matches;
-use borsh::BorshSerialize;
 use near_chain::near_chain_primitives::Error;
 use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
@@ -667,7 +666,7 @@ fn check_outgoing_receipts_reassigned_impl(
 /// Checks that account exists in the state after `block` is processed
 /// This function checks both state_root from chunk extra and state root from chunk header, if
 /// the corresponding chunk is included in the block
-fn check_account(env: &mut TestEnv, account_id: &AccountId, block: &Block) {
+fn check_account(env: &TestEnv, account_id: &AccountId, block: &Block) {
     tracing::trace!(target: "test", ?account_id, block_height=block.header().height(), "checking account");
     let prev_hash = block.header().prev_hash();
     let shard_layout =
@@ -773,7 +772,7 @@ fn generate_create_accounts_txs(
             KeyType::ED25519,
             &signer_account.to_string(),
         );
-        let account_id = gen_account(&mut rng, b"abcdefghijkmn");
+        let account_id = gen_account(&mut rng);
         if all_accounts.insert(account_id.clone()) {
             let signer = InMemorySigner::from_seed(
                 account_id.clone(),
@@ -1012,7 +1011,7 @@ fn generate_cross_contract_tx(
     new_accounts: &mut HashMap<CryptoHash, AccountId>,
     nonce: &mut u64,
 ) -> Option<SignedTransaction> {
-    let account_id = gen_account(rng, b"abcdefghijkmn");
+    let account_id = gen_account(rng);
     if !all_accounts.insert(account_id.clone()) {
         return None;
     }
@@ -1074,7 +1073,7 @@ fn gen_cross_contract_tx_impl(
                 }, "id": 0 },
                 {"action_add_key_with_full_access": {
                     "promise_index": 0,
-                    "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
+                    "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
                     "nonce": 0,
                 }, "id": 0 }
             ],

@@ -40,7 +40,7 @@ pub use self::validator_schedule::ValidatorSchedule;
 
 /// Wait for all blocks that started processing to be ready for postprocessing
 /// Returns true if there are new blocks that are ready
-pub fn wait_for_all_blocks_in_processing(chain: &mut Chain) -> bool {
+pub fn wait_for_all_blocks_in_processing(chain: &Chain) -> bool {
     chain.blocks_in_processing.wait_for_all_blocks()
 }
 
@@ -49,7 +49,7 @@ pub fn is_block_in_processing(chain: &Chain, block_hash: &CryptoHash) -> bool {
 }
 
 pub fn wait_for_block_in_processing(
-    chain: &mut Chain,
+    chain: &Chain,
     hash: &CryptoHash,
 ) -> Result<(), BlockNotInPoolError> {
     chain.blocks_in_processing.wait_for_block(hash)

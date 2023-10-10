@@ -101,7 +101,7 @@ pub(crate) fn apply_chunk(
         None => prev_height + 1,
     };
     let prev_timestamp = prev_block.header().raw_timestamp();
-    let gas_price = prev_block.header().gas_price();
+    let gas_price = prev_block.header().next_gas_price();
     let receipts = get_incoming_receipts(
         chain_store,
         epoch_manager,
@@ -163,7 +163,7 @@ fn find_tx_or_receipt(
     hash: &CryptoHash,
     block_hash: &CryptoHash,
     epoch_manager: &EpochManagerHandle,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
 ) -> anyhow::Result<Option<(HashType, ShardId)>> {
     let block = chain_store.get_block(block_hash)?;
     let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();

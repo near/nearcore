@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use near_primitives::state::{FlatStateValue, ValueRef};
 use near_primitives::trie_key::TrieKey;
 use rand::seq::SliceRandom;
@@ -165,6 +166,11 @@ pub fn test_populate_store_rc(store: &Store, data: &[(DBCol, Vec<u8>, Vec<u8>)])
     update.commit().expect("db commit failed");
 }
 
+fn gen_alphabet() -> Vec<u8> {
+    let alphabet = 'a'..='z';
+    alphabet.map(|c| c as u8).collect_vec()
+}
+
 fn gen_accounts_from_alphabet(
     rng: &mut impl Rng,
     min_size: usize,
@@ -172,18 +178,23 @@ fn gen_accounts_from_alphabet(
     alphabet: &[u8],
 ) -> Vec<AccountId> {
     let size = rng.gen_range(min_size..=max_size);
-    std::iter::repeat_with(|| gen_account(rng, alphabet)).take(size).collect()
+    std::iter::repeat_with(|| gen_account_from_alphabet(rng, alphabet)).take(size).collect()
 }
 
-pub fn gen_account(rng: &mut impl Rng, alphabet: &[u8]) -> AccountId {
+pub fn gen_account_from_alphabet(rng: &mut impl Rng, alphabet: &[u8]) -> AccountId {
     let str_length = rng.gen_range(4..8);
     let s: Vec<u8> = (0..str_length).map(|_| *alphabet.choose(rng).unwrap()).collect();
     from_utf8(&s).unwrap().parse().unwrap()
 }
 
+pub fn gen_account(rng: &mut impl Rng) -> AccountId {
+    let alphabet = gen_alphabet();
+    gen_account_from_alphabet(rng, &alphabet)
+}
+
 pub fn gen_unique_accounts(rng: &mut impl Rng, min_size: usize, max_size: usize) -> Vec<AccountId> {
-    let alphabet = b"abcdefghijklmn";
-    let mut accounts = gen_accounts_from_alphabet(rng, min_size, max_size, alphabet);
+    let alphabet = gen_alphabet();
+    let mut accounts = gen_accounts_from_alphabet(rng, min_size, max_size, &alphabet);
     accounts.sort();
     accounts.dedup();
     accounts.shuffle(rng);
@@ -191,8 +202,8 @@ pub fn gen_unique_accounts(rng: &mut impl Rng, min_size: usize, max_size: usize)
 }
 
 pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
-    let alphabet = &b"abcdefgh"[0..rng.gen_range(4..8)];
-    let accounts = gen_accounts_from_alphabet(rng, 1, max_size, alphabet);
+    let alphabet = gen_alphabet();
+    let accounts = gen_accounts_from_alphabet(rng, 1, max_size, &alphabet);
     accounts
         .iter()
         .map(|account_id| Receipt {
@@ -209,8 +220,8 @@ pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
 /// Keys are randomly constructed from alphabet, and they have max_length size.
 fn gen_changes_helper(
     rng: &mut impl Rng,
-    max_size: usize,
     alphabet: &[u8],
+    max_size: usize,
     max_length: u64,
 ) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
     let mut state: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
@@ -240,15 +251,15 @@ fn gen_changes_helper(
 }
 
 pub fn gen_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
-    let alphabet = &b"abcdefgh"[0..rng.gen_range(2..8)];
+    let alphabet = gen_alphabet();
     let max_length = rng.gen_range(2..8);
-    gen_changes_helper(rng, max_size, alphabet, max_length)
+    gen_changes_helper(rng, &alphabet, max_size, max_length)
 }
 
 pub fn gen_larger_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
-    let alphabet = b"abcdefghijklmnopqrst";
+    let alphabet = gen_alphabet();
     let max_length = rng.gen_range(10..20);
-    gen_changes_helper(rng, max_size, alphabet, max_length)
+    gen_changes_helper(rng, &alphabet, max_size, max_length)
 }
 
 pub fn simplify_changes(changes: &[(Vec<u8>, Option<Vec<u8>>)]) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
