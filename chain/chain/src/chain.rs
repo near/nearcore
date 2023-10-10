@@ -4076,14 +4076,8 @@ impl Chain {
             return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
         }
 
-        // if we are running mock_node, ignore this check because
-        // this check may require old block headers, which may not exist in storage
-        // of the client in the mock network
-        #[cfg(not(feature = "mock_node"))]
         let protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
-
-        #[cfg(not(feature = "mock_node"))]
         if checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
             let transaction_validity_period = self.transaction_validity_period;
             for transaction in transactions {
