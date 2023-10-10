@@ -3308,42 +3308,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mock-node"
-version = "0.0.0"
-dependencies = [
- "actix",
- "actix-rt",
- "anyhow",
- "clap 4.2.4",
- "futures",
- "near-actix-test-utils",
- "near-async",
- "near-chain",
- "near-chain-configs",
- "near-chunks",
- "near-client",
- "near-crypto",
- "near-epoch-manager",
- "near-jsonrpc",
- "near-jsonrpc-client",
- "near-network",
- "near-o11y",
- "near-performance-metrics",
- "near-primitives",
- "near-store",
- "near-telemetry",
- "nearcore",
- "pin-project",
- "rand 0.8.5",
- "rayon",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "more-asserts"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
