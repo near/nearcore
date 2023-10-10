@@ -2597,19 +2597,23 @@ impl Chain {
             self.verify_challenges(block.challenges(), header.epoch_id(), header.prev_hash())?;
 
         let prev_block = self.get_block(&prev_hash)?;
+        let prev_prev_block = self.get_block(prev_block.header().prev_hash())?;
 
         self.validate_chunk_headers(&block, &prev_block)?;
 
         self.ping_missing_chunks(me, prev_hash, block)?;
-        let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
+        // let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
+        let incoming_receipts = self.collect_incoming_receipts_from_block(me, &prev_block)?;
 
         // Check if block can be finalized and drop it otherwise.
         self.check_if_finalizable(header)?;
 
         let apply_chunk_work = self.apply_chunks_preprocessing(
             me,
-            block,
+            // block,
+            // &prev_block,
             &prev_block,
+            &prev_prev_block,
             &incoming_receipts,
             // If we have the state for shards in the next epoch already downloaded, apply the state transition
             // for these states as well
@@ -5279,6 +5283,7 @@ impl<'a> ChainUpdate<'a> {
         block: &Block,
         result: ApplyChunkResult,
     ) -> Result<(), Error> {
+        // consider taking block data from apply_result.block_hash
         let block_hash = block.hash();
         let prev_hash = block.header().prev_hash();
         let height = block.header().height();
