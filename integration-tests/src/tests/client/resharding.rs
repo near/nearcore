@@ -1,6 +1,5 @@
 use crate::tests::client::process_blocks::set_block_protocol_version;
 use assert_matches::assert_matches;
-use borsh::BorshSerialize;
 use near_chain::near_chain_primitives::Error;
 use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
