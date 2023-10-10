@@ -622,21 +622,22 @@ impl Trie {
         f: &mut dyn std::io::Write,
         hash: &CryptoHash,
         max_depth: u32,
-        mut limit: Option<u32>,
+        limit: Option<u32>,
         record_type: Option<u8>,
-        from: Option<&AccountId>,
-        to: Option<&AccountId>,
+        from: &Option<&AccountId>,
+        to: &Option<&AccountId>,
     ) {
         match self.debug_retrieve_raw_node_or_value(hash) {
             Ok(NodeOrValue::Node(_)) => {
                 let mut prefix: Vec<u8> = Vec::new();
+                let mut limit = limit.unwrap_or(u32::MAX);
                 self.print_recursive_internal(
                     f,
                     hash,
                     &mut "".to_string(),
                     &mut prefix,
                     max_depth,
-                    limit.as_mut(),
+                    &mut limit,
                     record_type,
                     from,
                     to,
@@ -670,8 +671,8 @@ impl Trie {
         max_depth: u32,
         limit: Option<u32>,
         record_type: Option<u8>,
-        from: Option<&AccountId>,
-        to: Option<&AccountId>,
+        from: &Option<&AccountId>,
+        to: &Option<&AccountId>,
     ) {
         let mut limit = limit.unwrap_or(u32::MAX);
         let from = from.cloned();
@@ -682,7 +683,7 @@ impl Trie {
                 return true;
             }
             let (partial_key, _) = Self::nibbles_to_bytes(&key_nibbles);
-            Self::should_prune_view_trie(&partial_key, record_type, from.as_ref(), to.as_ref())
+            Self::should_prune_view_trie(&partial_key, record_type, &from.as_ref(), &to.as_ref())
         };
 
         let iter = match self.iter_with_prune_condition(Some(Box::new(prune_condition))) {
@@ -743,8 +744,8 @@ impl Trie {
     /// Although prefix of `from` is lexicographically less than `from`, pruning such subtree would cut off `from`.
     fn is_out_of_account_id_bounds(
         account_id_prefix: &[u8],
-        from: Option<&AccountId>,
-        to: Option<&AccountId>,
+        from: &Option<&AccountId>,
+        to: &Option<&AccountId>,
     ) -> bool {
         if let Some(from) = from {
             if !from.as_bytes().starts_with(account_id_prefix)
@@ -766,8 +767,8 @@ impl Trie {
     fn should_prune_view_trie(
         node_key: &Vec<u8>,
         record_type: Option<u8>,
-        from: Option<&AccountId>,
-        to: Option<&AccountId>,
+        from: &Option<&AccountId>,
+        to: &Option<&AccountId>,
     ) -> bool {
         if node_key.is_empty() {
             return false;
@@ -779,11 +780,9 @@ impl Trie {
                 return true;
             }
         }
-        if from.is_some() || to.is_some() {
-            if let Ok(account_id_prefix) = parse_account_id_prefix(column, &node_key) {
-                if Self::is_out_of_account_id_bounds(account_id_prefix, from, to) {
-                    return true;
-                }
+        if let Ok(account_id_prefix) = parse_account_id_prefix(column, &node_key) {
+            if Self::is_out_of_account_id_bounds(account_id_prefix, from, to) {
+                return true;
             }
         }
         false
@@ -796,17 +795,15 @@ impl Trie {
         spaces: &mut String,
         prefix: &mut Vec<u8>,
         max_depth: u32,
-        mut limit: Option<&mut u32>,
+        limit: &mut u32,
         record_type: Option<u8>,
-        from: Option<&AccountId>,
-        to: Option<&AccountId>,
+        from: &Option<&AccountId>,
+        to: &Option<&AccountId>,
     ) -> std::io::Result<()> {
-        if max_depth == 0 || limit == Some(&mut 0) {
+        if max_depth == 0 || *limit == 0 {
             return Ok(());
         }
-        if let Some(limit) = limit.as_mut() {
-            **limit -= 1;
-        }
+        *limit -= 1;
 
         let (bytes, raw_node, mem_usage) = match self.retrieve_raw_node(hash, true) {
             Ok(Some((bytes, raw_node))) => (bytes, raw_node.node, raw_node.memory_usage),
@@ -875,10 +872,7 @@ impl Trie {
                         spaces,
                         prefix,
                         max_depth - 1,
-                        match limit.as_mut() {
-                            Some(v) => Some(v),
-                            None => None,
-                        },
+                        limit,
                         record_type,
                         from,
                         to,
@@ -901,10 +895,7 @@ impl Trie {
                 spaces,
                 prefix,
                 max_depth - 1,
-                match limit.as_mut() {
-                    Some(v) => Some(v),
-                    None => None,
-                },
+                limit,
                 record_type,
                 from,
                 to,

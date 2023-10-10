@@ -411,8 +411,8 @@ fn print_state_part(state_root: &StateRoot, _part_id: PartId, data: &[u8]) {
         u32::MAX,
         None,
         None,
-        None,
-        None,
+        &None,
+        &None,
     );
 }
 

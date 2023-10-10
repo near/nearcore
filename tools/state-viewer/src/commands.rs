@@ -881,8 +881,8 @@ pub(crate) fn view_trie(
         max_depth,
         limit,
         record_type,
-        from.as_ref(),
-        to.as_ref(),
+        &from.as_ref(),
+        &to.as_ref(),
     );
     Ok(())
 }
@@ -904,8 +904,8 @@ pub(crate) fn view_trie_leaves(
         max_depth,
         limit,
         record_type,
-        from.as_ref(),
-        to.as_ref(),
+        &from.as_ref(),
+        &to.as_ref(),
     );
     Ok(())
 }
