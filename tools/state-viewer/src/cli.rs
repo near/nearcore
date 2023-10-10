@@ -7,12 +7,12 @@ use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
+use near_primitives::trie_key::col;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use strum::IntoStaticStr;
 
 #[derive(clap::Subcommand)]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
@@ -653,39 +653,53 @@ impl clap::ValueEnum for ViewTrieFormat {
 }
 
 /// Possible record types in a state trie.
-#[derive(Clone, IntoStaticStr)]
-pub enum StateRecordType {
-    Account,
-    Data,
-    Contract,
-    AccessKey,
-    PostponedReceipt,
-    ReceivedData,
-    DelayedReceipt,
+#[derive(Clone)]
+#[repr(u8)]
+pub enum RecordType {
+    Account = col::ACCOUNT,
+    ContractCode = col::CONTRACT_CODE,
+    AccessKey = col::ACCESS_KEY,
+    ReceivedData = col::RECEIVED_DATA,
+    PostponedReceiptId = col::POSTPONED_RECEIPT_ID,
+    PendingDataCount = col::PENDING_DATA_COUNT,
+    PostponedReceipt = col::POSTPONED_RECEIPT,
+    DelayedReceiptIndices = col::DELAYED_RECEIPT_INDICES,
+    DelayedReceipt = col::DELAYED_RECEIPT,
+    ContractData = col::CONTRACT_DATA,
 }
 
-impl clap::ValueEnum for StateRecordType {
+impl clap::ValueEnum for RecordType {
     fn value_variants<'a>() -> &'a [Self] {
         &[
             Self::Account,
-            Self::Data,
-            Self::Contract,
+            Self::ContractCode,
             Self::AccessKey,
-            Self::PostponedReceipt,
             Self::ReceivedData,
+            Self::PostponedReceiptId,
+            Self::PendingDataCount,
+            Self::PostponedReceipt,
+            Self::DelayedReceiptIndices,
             Self::DelayedReceipt,
+            Self::ContractData,
         ]
     }
 
     fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
         match self {
             Self::Account => Some(clap::builder::PossibleValue::new("account")),
-            Self::Data => Some(clap::builder::PossibleValue::new("data")),
-            Self::Contract => Some(clap::builder::PossibleValue::new("contract")),
+            Self::ContractCode => Some(clap::builder::PossibleValue::new("contract-code")),
             Self::AccessKey => Some(clap::builder::PossibleValue::new("access-key")),
-            Self::PostponedReceipt => Some(clap::builder::PossibleValue::new("postponed-receipt")),
             Self::ReceivedData => Some(clap::builder::PossibleValue::new("received-data")),
+            Self::PostponedReceiptId => {
+                Some(clap::builder::PossibleValue::new("postponed-receipt-id"))
+            }
+            Self::PendingDataCount => Some(clap::builder::PossibleValue::new("pending-data-count")),
+            Self::PostponedReceipt => Some(clap::builder::PossibleValue::new("postponed-receipt")),
+            Self::DelayedReceiptIndices => {
+                Some(clap::builder::PossibleValue::new("delayed-receipt-indices"))
+            }
             Self::DelayedReceipt => Some(clap::builder::PossibleValue::new("delayed-receipt")),
+            Self::ContractData => Some(clap::builder::PossibleValue::new("contract-data")),
         }
     }
 }
@@ -721,29 +735,21 @@ pub struct ViewTrieCmd {
     /// Limits how many entries are printed to the output.
     #[clap(long)]
     limit: Option<u32>,
-    /// Filters output to only show records of given type.
+    /// Filters output to only show records of the given type.
     #[clap(long)]
-    rtype: Option<StateRecordType>,
-    /// Will only print nodes with key being a prefix of or lexicographically greater than `from`.
-    /// Only works for the `full` format. The argument should be wrapped in parentheses using mixed encoding.
+    record_type: Option<RecordType>,
+    /// Skips nodes which AccountId is lexicographically less than `from` (except being a prefix of `from`).
     #[clap(long)]
-    from: Option<String>,
-    /// Will only print nodes with key being lexicographically less than or equal to `to`.
-    /// Only works for the `full` format. The argument should be wrapped in parentheses using mixed encoding.
+    from: Option<AccountId>,
+    /// Skips nodes which AccountId is lexicographically greater than `to`.
     #[clap(long)]
-    to: Option<String>,
+    to: Option<AccountId>,
 }
 
 impl ViewTrieCmd {
     pub fn run(self, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
-        let type_str: Option<&str> = self.rtype.map(|s| s.into());
-        let from_vec = self.from.as_ref().map(|s| {
-            Self::decode_mixed_hex_to_nibbles(s).expect("Failed to decode `from` argument.")
-        });
-        let to_vec = self.to.as_ref().map(|s| {
-            Self::decode_mixed_hex_to_nibbles(s).expect("Failed to decode `to` argument.")
-        });
+        let record_type = self.record_type.map(|c| c as u8);
 
         match self.format {
             ViewTrieFormat::Full => {
@@ -754,9 +760,9 @@ impl ViewTrieCmd {
                     self.shard_version,
                     self.max_depth,
                     self.limit,
-                    type_str,
-                    from_vec.as_deref(),
-                    to_vec.as_deref(),
+                    record_type,
+                    self.from,
+                    self.to,
                 )
                 .unwrap();
             }
@@ -768,29 +774,12 @@ impl ViewTrieCmd {
                     self.shard_version,
                     self.max_depth,
                     self.limit,
-                    type_str,
+                    record_type,
+                    self.from,
+                    self.to,
                 )
                 .unwrap();
             }
         }
-    }
-
-    fn decode_mixed_hex_to_nibbles(s: &str) -> Option<Vec<u8>> {
-        let mut nibbles = Vec::new();
-        let mut chars = s.chars().peekable();
-        while let Some(ch) = chars.next() {
-            if ch == '\\' && chars.peek() == Some(&'x') {
-                chars.next(); // consume 'x'
-                let hex1 = chars.next()?;
-                let hex2 = chars.next()?;
-                let byte = u8::from_str_radix(&format!("{}{}", hex1, hex2), 16).ok()?;
-                nibbles.push(byte >> 4);
-                nibbles.push(byte & 0x0F);
-            } else {
-                nibbles.push((ch as u8) >> 4);
-                nibbles.push((ch as u8) & 0x0F);
-            }
-        }
-        Some(nibbles)
     }
 }

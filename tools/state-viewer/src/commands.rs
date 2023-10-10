@@ -870,9 +870,9 @@ pub(crate) fn view_trie(
     shard_version: u32,
     max_depth: u32,
     limit: Option<u32>,
-    type_str: Option<&str>,
-    from: Option<&[u8]>,
-    to: Option<&[u8]>,
+    record_type: Option<u8>,
+    from: Option<AccountId>,
+    to: Option<AccountId>,
 ) -> anyhow::Result<()> {
     let trie = get_trie(store, hash, shard_id, shard_version);
     trie.print_recursive(
@@ -880,9 +880,9 @@ pub(crate) fn view_trie(
         &hash,
         max_depth,
         limit,
-        type_str,
-        from,
-        to,
+        record_type,
+        from.as_ref(),
+        to.as_ref(),
     );
     Ok(())
 }
@@ -894,10 +894,19 @@ pub(crate) fn view_trie_leaves(
     shard_version: u32,
     max_depth: u32,
     limit: Option<u32>,
-    type_str: Option<&str>,
+    record_type: Option<u8>,
+    from: Option<AccountId>,
+    to: Option<AccountId>,
 ) -> anyhow::Result<()> {
     let trie = get_trie(store, state_root_hash, shard_id, shard_version);
-    trie.print_recursive_leaves(&mut std::io::stdout().lock(), max_depth, limit, type_str);
+    trie.print_recursive_leaves(
+        &mut std::io::stdout().lock(),
+        max_depth,
+        limit,
+        record_type,
+        from.as_ref(),
+        to.as_ref(),
+    );
     Ok(())
 }
 
