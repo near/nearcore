@@ -454,7 +454,7 @@ impl StoreUpdate {
         value: &T,
     ) -> io::Result<()> {
         assert!(column.is_insert_only(), "can't insert_ser: {column}");
-        let data = value.try_to_vec()?;
+        let data = borsh::to_vec(&value)?;
         self.insert(column, key.to_vec(), data);
         Ok(())
     }
@@ -532,7 +532,7 @@ impl StoreUpdate {
         value: &T,
     ) -> io::Result<()> {
         assert!(!(column.is_rc() || column.is_insert_only()), "can't set_ser: {column}");
-        let data = value.try_to_vec()?;
+        let data = borsh::to_vec(&value)?;
         self.set(column, key, &data);
         Ok(())
     }
@@ -671,7 +671,7 @@ pub fn get<T: BorshDeserialize>(
 
 /// Writes an object into Trie.
 pub fn set<T: BorshSerialize>(state_update: &mut TrieUpdate, key: TrieKey, value: &T) {
-    let data = value.try_to_vec().expect("Borsh serializer is not expected to ever fail");
+    let data = borsh::to_vec(&value).expect("Borsh serializer is not expected to ever fail");
     state_update.set(key, data);
 }
 
@@ -898,7 +898,11 @@ impl CompiledContractCache for StoreCompiledContractCache {
         // guarantee deterministic compilation, so, if we happen to compile the
         // same contract concurrently on two threads, the `value`s might differ,
         // but this doesn't matter.
-        update.set(DBCol::CachedContractCode, key.as_ref().to_vec(), value.try_to_vec().unwrap());
+        update.set(
+            DBCol::CachedContractCode,
+            key.as_ref().to_vec(),
+            borsh::to_vec(&value).unwrap(),
+        );
         self.db.write(update)
     }
 
@@ -1104,7 +1108,7 @@ mod tests {
         core::mem::drop(file);
         let store = crate::test_utils::create_test_store();
         assert_eq!(
-            std::io::ErrorKind::InvalidInput,
+            std::io::ErrorKind::InvalidData,
             store.load_state_from_file(tmp.path()).unwrap_err().kind()
         );
     }

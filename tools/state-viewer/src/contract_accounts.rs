@@ -692,11 +692,7 @@ mod tests {
         key: &impl BorshSerialize,
         value: &impl BorshSerialize,
     ) -> (DBCol, Vec<u8>, Vec<u8>) {
-        (
-            col,
-            borsh::ser::BorshSerialize::try_to_vec(key).unwrap(),
-            borsh::ser::BorshSerialize::try_to_vec(value).unwrap(),
-        )
+        (col, borsh::to_vec(key).unwrap(), borsh::to_vec(value).unwrap())
     }
 
     /// A filter that collects all data.

@@ -2,7 +2,7 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use crate::types::{PoolIterator, PoolKey, TransactionGroup};
-use borsh::BorshSerialize;
+
 use near_crypto::PublicKey;
 use near_o11y::metrics::prometheus::core::{AtomicI64, GenericGauge};
 use near_primitives::epoch_manager::RngSeed;
@@ -72,7 +72,7 @@ impl TransactionPool {
     }
 
     fn key(&self, account_id: &AccountId, public_key: &PublicKey) -> PoolKey {
-        let mut v = public_key.try_to_vec().unwrap();
+        let mut v = borsh::to_vec(&public_key).unwrap();
         v.extend_from_slice(&self.key_seed);
         v.extend_from_slice(account_id.as_ref().as_bytes());
         hash(&v)

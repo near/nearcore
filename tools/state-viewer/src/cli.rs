@@ -2,7 +2,7 @@ use crate::commands::*;
 use crate::contract_accounts::ContractAccountFilter;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use crate::trie_iteration_benchmark::TrieIterationBenchmarkCmd;
-use borsh::BorshSerialize;
+
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
@@ -562,7 +562,7 @@ impl ScanDbColumnCmd {
             (None, Some(bytes), None) => {
                 Some(bytes.split(",").map(|s| s.parse::<u8>().unwrap()).collect::<Vec<u8>>())
             }
-            (None, None, Some(hash)) => Some(hash.try_to_vec().unwrap()),
+            (None, None, Some(hash)) => Some(borsh::to_vec(&hash).unwrap()),
             _ => panic!("Need to provide exactly one of bytes, str, or hash"),
         }
     }

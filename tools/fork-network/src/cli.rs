@@ -6,7 +6,10 @@ use near_primitives::account::AccessKey;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::{
-    account::Account, borsh::BorshSerialize, hash::CryptoHash, types::AccountInfo,
+    account::Account,
+    borsh::{self},
+    hash::CryptoHash,
+    types::AccountInfo,
 };
 use near_store::{flat::FlatStorageStatus, DBCol, Mode, NodeStorage, HEAD_KEY};
 use nearcore::{load_config, NightshadeRuntime, NEAR_BASE};
@@ -131,7 +134,7 @@ impl ForkNetworkCommand {
         let fork_head_block = store
             .get_ser::<near_primitives::block::Block>(
                 DBCol::Block,
-                &fork_head.try_to_vec().unwrap(),
+                &borsh::to_vec(&fork_head).unwrap(),
             )?
             .unwrap();
 

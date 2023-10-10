@@ -5,7 +5,7 @@ use crate::config::{
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
 use crate::{metrics, ActionResult, ApplyState};
-use borsh::BorshSerialize;
+
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
@@ -81,9 +81,7 @@ pub(crate) fn execute_function_call(
     let context = VMContext {
         current_account_id: runtime_ext.account_id().clone(),
         signer_account_id: action_receipt.signer_id.clone(),
-        signer_account_pk: action_receipt
-            .signer_public_key
-            .try_to_vec()
+        signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key)
             .expect("Failed to serialize"),
         predecessor_account_id: predecessor_id.clone(),
         input: function_call.args.clone(),
@@ -461,7 +459,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
         CryptoHash::default(),
         fee_config.storage_usage_config.num_bytes_account
             + public_key.len() as u64
-            + access_key.try_to_vec().unwrap().len() as u64
+            + borsh::object_length(&access_key).unwrap() as u64
             + fee_config.storage_usage_config.num_extra_bytes_record,
     ));
 
@@ -552,12 +550,12 @@ pub(crate) fn action_delete_key(
         let storage_usage_config = &fee_config.storage_usage_config;
         let storage_usage = if current_protocol_version >= DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION
         {
-            delete_key.public_key.try_to_vec().unwrap().len() as u64
-                + access_key.try_to_vec().unwrap().len() as u64
+            borsh::object_length(&delete_key.public_key).unwrap() as u64
+                + borsh::object_length(&access_key).unwrap() as u64
                 + storage_usage_config.num_extra_bytes_record
         } else {
-            delete_key.public_key.try_to_vec().unwrap().len() as u64
-                + Some(access_key).try_to_vec().unwrap().len() as u64
+            borsh::object_length(&delete_key.public_key).unwrap() as u64
+                + borsh::object_length(&Some(access_key)).unwrap() as u64
                 + storage_usage_config.num_extra_bytes_record
         };
         // Remove access key
@@ -607,8 +605,8 @@ pub(crate) fn action_add_key(
         account
             .storage_usage()
             .checked_add(
-                add_key.public_key.try_to_vec().unwrap().len() as u64
-                    + add_key.access_key.try_to_vec().unwrap().len() as u64
+                borsh::object_length(&add_key.public_key).unwrap() as u64
+                    + borsh::object_length(&add_key.access_key).unwrap() as u64
                     + storage_config.num_extra_bytes_record,
             )
             .ok_or_else(|| {

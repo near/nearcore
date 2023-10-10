@@ -2093,7 +2093,7 @@ impl LightClientBlockLiteView {
         let block_header_inner_lite: BlockHeaderInnerLite = self.inner_lite.clone().into();
         combine_hash(
             &combine_hash(
-                &hash(&block_header_inner_lite.try_to_vec().unwrap()),
+                &hash(&borsh::to_vec(&block_header_inner_lite).unwrap()),
                 &self.inner_rest_hash,
             ),
             &self.prev_block_hash,

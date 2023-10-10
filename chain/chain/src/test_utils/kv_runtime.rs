@@ -349,7 +349,7 @@ impl KeyValueRuntime {
             receipt_nonces: HashSet::default(),
             tx_nonces: HashSet::default(),
         };
-        let data = kv_state.try_to_vec().unwrap();
+        let data = borsh::to_vec(&kv_state).unwrap();
         let data_len = data.len() as u64;
         // StateRoot is actually faked here.
         // We cannot do any reasonable validations of it in test_utils.
@@ -1158,7 +1158,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             }
         }
 
-        let data = state.try_to_vec()?;
+        let data = borsh::to_vec(&state)?;
         let state_size = data.len() as u64;
         let state_root = hash(&data);
         self.state.write().unwrap().insert(state_root, state);
@@ -1286,7 +1286,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             return Ok(vec![]);
         }
         let state = self.state.read().unwrap().get(state_root).unwrap().clone();
-        let data = state.try_to_vec().expect("should never fall");
+        let data = borsh::to_vec(&state).expect("should never fall");
         Ok(data)
     }
 
@@ -1308,7 +1308,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
         let state = KVState::try_from_slice(data).unwrap();
         self.state.write().unwrap().insert(*state_root, state.clone());
-        let data = state.try_to_vec()?;
+        let data = borsh::to_vec(&state)?;
         let state_size = data.len() as u64;
         self.state_size.write().unwrap().insert(*state_root, state_size);
         Ok(())
@@ -1320,14 +1320,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error> {
-        let data = self
-            .state
-            .read()
-            .unwrap()
-            .get(state_root)
-            .unwrap()
-            .clone()
-            .try_to_vec()
+        let data = borsh::to_vec(&self.state.read().unwrap().get(state_root).unwrap().clone())
             .expect("should never fall")
             .into();
         let memory_usage = *self.state_size.read().unwrap().get(state_root).unwrap();

@@ -881,7 +881,7 @@ impl ChainStore {
         shard_id: ShardId,
         block_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
-        let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
+        let key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))?;
         match self.store.get_ser(DBCol::StateHeaders, &key) {
             Ok(Some(header)) => Ok(header),
             _ => Err(Error::Other("Cannot get shard_state_header".into())),
@@ -2400,7 +2400,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 let state_num_parts =
                     get_num_state_parts(shard_state_header.state_root_node().memory_usage);
                 self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
-                let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
+                let key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))?;
                 self.gc_col(DBCol::StateHeaders, &key);
             }
         }
@@ -2500,7 +2500,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 let state_num_parts =
                     get_num_state_parts(shard_state_header.state_root_node().memory_usage);
                 self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
-                let state_header_key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
+                let state_header_key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))?;
                 self.gc_col(DBCol::StateHeaders, &state_header_key);
             }
 
@@ -2610,7 +2610,7 @@ impl<'a> ChainStoreUpdate<'a> {
         num_parts: u64,
     ) -> Result<(), Error> {
         for part_id in 0..num_parts {
-            let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+            let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
             self.gc_col(DBCol::StateParts, &key);
         }
         Ok(())
@@ -3036,7 +3036,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
             // Increase transaction refcounts for all included txs
             for tx in chunk.transactions().iter() {
-                let bytes = tx.try_to_vec().expect("Borsh cannot fail");
+                let bytes = borsh::to_vec(&tx).expect("Borsh cannot fail");
                 store_update.increment_refcount(
                     DBCol::Transactions,
                     tx.get_hash().as_ref(),
@@ -3046,7 +3046,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
             // Increase receipt refcounts for all included receipts
             for receipt in chunk.prev_outgoing_receipts().iter() {
-                let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
+                let bytes = borsh::to_vec(&receipt).expect("Borsh cannot fail");
                 store_update.increment_refcount(
                     DBCol::Receipts,
                     receipt.get_hash().as_ref(),
@@ -3116,7 +3116,7 @@ impl<'a> ChainStoreUpdate<'a> {
             )?;
         }
         for (receipt_id, shard_id) in self.chain_store_cache_update.receipt_id_to_shard_id.iter() {
-            let data = shard_id.try_to_vec()?;
+            let data = borsh::to_vec(&shard_id)?;
             store_update.increment_refcount(DBCol::ReceiptIdToShardId, receipt_id.as_ref(), &data);
         }
         for (block_hash, refcount) in self.chain_store_cache_update.block_refcounts.iter() {

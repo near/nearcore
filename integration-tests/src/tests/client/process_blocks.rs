@@ -2618,7 +2618,6 @@ fn test_catchup_gas_price_change() {
     }
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
     let f = move |msg: ApplyStatePartsRequest| {
-        use borsh::BorshSerialize;
         let store = rt.store();
 
         let shard_id = msg.shard_uid.shard_id as ShardId;
@@ -2627,7 +2626,7 @@ fn test_catchup_gas_price_change() {
             .remove_flat_storage_for_shard(msg.shard_uid)
             .unwrap());
         for part_id in 0..msg.num_parts {
-            let key = StatePartKey(msg.sync_hash, shard_id, part_id).try_to_vec().unwrap();
+            let key = borsh::to_vec(&StatePartKey(msg.sync_hash, shard_id, part_id)).unwrap();
             let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
 
             rt.apply_state_part(
@@ -3321,7 +3320,7 @@ fn test_not_broadcast_block_on_accept() {
 #[test]
 fn test_header_version_downgrade() {
     init_test_logger();
-    use borsh::ser::BorshSerialize;
+
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = 5;
     let chain_genesis = ChainGenesis::new(&genesis);
@@ -3348,8 +3347,8 @@ fn test_header_version_downgrade() {
                 header.inner_rest.latest_protocol_version = PROTOCOL_VERSION;
                 let (hash, signature) = validator_signer.sign_block_header_parts(
                     header.prev_hash,
-                    &header.inner_lite.try_to_vec().expect("Failed to serialize"),
-                    &header.inner_rest.try_to_vec().expect("Failed to serialize"),
+                    &borsh::to_vec(&header.inner_lite).expect("Failed to serialize"),
+                    &borsh::to_vec(&header.inner_rest).expect("Failed to serialize"),
                 );
                 header.hash = hash;
                 header.signature = signature;
