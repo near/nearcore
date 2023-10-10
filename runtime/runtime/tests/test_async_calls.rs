@@ -1,5 +1,5 @@
 use crate::runtime_group_tools::RuntimeGroup;
-use borsh::ser::BorshSerialize;
+
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
@@ -614,7 +614,7 @@ fn test_create_account_with_transfer_and_full_key() {
         }, "id": 0 },
         {"action_add_key_with_full_access": {
             "promise_index": 0,
-            "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
+            "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
             "nonce": 0,
         }, "id": 0 }
     ]);
@@ -687,7 +687,7 @@ fn test_account_factory() {
         }, "id": 0 },
         {"action_add_key_with_function_call": {
             "promise_index": 0,
-            "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
+            "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
             "nonce": 0,
             "allowance": (TESTING_INIT_BALANCE / 2).to_string(),
             "receiver_id": "near_1",
@@ -844,7 +844,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         }, "id": 0 },
         {"action_add_key_with_full_access": {
             "promise_index": 0,
-            "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
+            "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
             "nonce": 1,
         }, "id": 0 },
         {"action_deploy_contract": {
@@ -868,7 +868,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         }, "id": 0 },
         {"action_delete_key": {
             "promise_index": 0,
-            "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
+            "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
             "nonce": 0,
         }, "id": 0 },
         {"action_delete_account": {

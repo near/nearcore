@@ -1,10 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time;
 use near_crypto::{KeyType, SecretKey, Signature};
-use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use once_cell::sync::Lazy;
+use std::sync::Arc;
 
 // We'd treat all nonces that are below this values as 'old style' (without any expiration time).
 // And all nonces above this value as new style (that would expire after some time).

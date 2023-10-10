@@ -1,5 +1,5 @@
 use assert_matches::assert_matches;
-use borsh::BorshSerialize;
+
 use near_async::messaging::CanSend;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_primitives::test_utils::create_test_signer;
@@ -46,8 +46,8 @@ fn test_block_with_challenges() {
 
     {
         let challenge_body = ChallengeBody::BlockDoubleSign(BlockDoubleSign {
-            left_block_header: genesis.header().try_to_vec().unwrap(),
-            right_block_header: genesis.header().try_to_vec().unwrap(),
+            left_block_header: borsh::to_vec(&genesis.header()).unwrap(),
+            right_block_header: borsh::to_vec(&genesis.header()).unwrap(),
         });
         let challenge = Challenge::produce(challenge_body, &*signer);
         let challenges = vec![challenge];
@@ -138,8 +138,8 @@ fn test_verify_block_double_sign_challenge() {
     let epoch_id = b1.header().epoch_id().clone();
     let valid_challenge = Challenge::produce(
         ChallengeBody::BlockDoubleSign(BlockDoubleSign {
-            left_block_header: b2.header().try_to_vec().unwrap(),
-            right_block_header: b1.header().try_to_vec().unwrap(),
+            left_block_header: borsh::to_vec(&b2.header()).unwrap(),
+            right_block_header: borsh::to_vec(&b1.header()).unwrap(),
         }),
         &signer,
     );
@@ -157,8 +157,8 @@ fn test_verify_block_double_sign_challenge() {
     );
     let invalid_challenge = Challenge::produce(
         ChallengeBody::BlockDoubleSign(BlockDoubleSign {
-            left_block_header: b1.header().try_to_vec().unwrap(),
-            right_block_header: b1.header().try_to_vec().unwrap(),
+            left_block_header: borsh::to_vec(&b1.header()).unwrap(),
+            right_block_header: borsh::to_vec(&b1.header()).unwrap(),
         }),
         &signer,
     );
@@ -173,8 +173,8 @@ fn test_verify_block_double_sign_challenge() {
     let b3 = env.clients[0].produce_block(3).unwrap().unwrap();
     let invalid_challenge = Challenge::produce(
         ChallengeBody::BlockDoubleSign(BlockDoubleSign {
-            left_block_header: b1.header().try_to_vec().unwrap(),
-            right_block_header: b3.header().try_to_vec().unwrap(),
+            left_block_header: borsh::to_vec(&b1.header()).unwrap(),
+            right_block_header: borsh::to_vec(&b3.header()).unwrap(),
         }),
         &signer,
     );
@@ -331,7 +331,7 @@ fn challenge(
     let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
     let valid_challenge = Challenge::produce(
         ChallengeBody::ChunkProofs(ChunkProofs {
-            block_header: block.header().try_to_vec().unwrap(),
+            block_header: borsh::to_vec(&block.header()).unwrap(),
             chunk,
             merkle_proof: merkle_paths[shard_id].clone(),
         }),
@@ -596,7 +596,7 @@ fn test_block_challenge() {
     let shard_id = chunk.cloned_header().shard_id();
     let challenge = Challenge::produce(
         ChallengeBody::ChunkProofs(ChunkProofs {
-            block_header: block.header().try_to_vec().unwrap(),
+            block_header: borsh::to_vec(&block.header()).unwrap(),
             chunk: MaybeEncodedShardChunk::Encoded(chunk),
             merkle_proof: merkle_paths[shard_id as usize].clone(),
         }),
@@ -648,7 +648,7 @@ fn test_fishermen_challenge() {
     let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
     let shard_id = chunk.cloned_header().shard_id();
     let challenge_body = ChallengeBody::ChunkProofs(ChunkProofs {
-        block_header: block.header().try_to_vec().unwrap(),
+        block_header: borsh::to_vec(&block.header()).unwrap(),
         chunk: MaybeEncodedShardChunk::Encoded(chunk),
         merkle_proof: merkle_paths[shard_id as usize].clone(),
     });

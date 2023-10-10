@@ -266,10 +266,10 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                                     peer_id: peer_id.clone(),
                                 };
                                 if !seen_hashes_with_state
-                                    .contains(&hash_func(&srs.try_to_vec().unwrap()))
+                                    .contains(&hash_func(&borsh::to_vec(&srs).unwrap()))
                                 {
                                     seen_hashes_with_state
-                                        .insert(hash_func(&srs.try_to_vec().unwrap()));
+                                        .insert(hash_func(&borsh::to_vec(&srs).unwrap()));
                                     return (NetworkResponses::NoResponse.into(), false);
                                 }
                             }
@@ -289,10 +289,10 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                                     peer_id: peer_id.clone(),
                                 };
                                 if !seen_hashes_with_state
-                                    .contains(&hash_func(&srs.try_to_vec().unwrap()))
+                                    .contains(&hash_func(&borsh::to_vec(&srs).unwrap()))
                                 {
                                     seen_hashes_with_state
-                                        .insert(hash_func(&srs.try_to_vec().unwrap()));
+                                        .insert(hash_func(&borsh::to_vec(&srs).unwrap()));
                                     return (NetworkResponses::NoResponse.into(), false);
                                 }
                             }

@@ -37,7 +37,7 @@ mod tests {
                 panic!("Valid account id {:?} marked invalid: {}", account_id, err)
             });
 
-            let str_serialized_account_id = account_id.try_to_vec().unwrap();
+            let str_serialized_account_id = borsh::to_vec(&account_id).unwrap();
 
             let deserialized_account_id = AccountId::try_from_slice(&str_serialized_account_id)
                 .unwrap_or_else(|err| {
@@ -46,14 +46,14 @@ mod tests {
             assert_eq!(deserialized_account_id, parsed_account_id);
 
             let serialized_account_id =
-                deserialized_account_id.try_to_vec().unwrap_or_else(|err| {
+                borsh::to_vec(&deserialized_account_id).unwrap_or_else(|err| {
                     panic!("failed to serialize account ID {:?}: {}", account_id, err)
                 });
             assert_eq!(serialized_account_id, str_serialized_account_id);
         }
 
         for account_id in BAD_ACCOUNT_IDS.iter() {
-            let str_serialized_account_id = account_id.try_to_vec().unwrap();
+            let str_serialized_account_id = borsh::to_vec(&account_id).unwrap();
 
             assert!(
                 AccountId::try_from_slice(&str_serialized_account_id).is_err(),
@@ -69,7 +69,8 @@ mod tests {
             if let Ok(account_id) = AccountId::try_from_slice(input) {
                 assert_eq!(
                     account_id,
-                    AccountId::try_from_slice(account_id.try_to_vec().unwrap().as_slice()).unwrap()
+                    AccountId::try_from_slice(borsh::to_vec(&account_id).unwrap().as_slice())
+                        .unwrap()
                 );
             }
         });

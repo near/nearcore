@@ -20,7 +20,7 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
-use borsh::BorshSerialize;
+
 use chrono::Duration;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use itertools::Itertools;
@@ -1350,8 +1350,8 @@ impl Chain {
                 let other_header = self.get_block_header(block_hashes.iter().next().unwrap())?;
 
                 challenges.push(ChallengeBody::BlockDoubleSign(BlockDoubleSign {
-                    left_block_header: header.try_to_vec().expect("Failed to serialize"),
-                    right_block_header: other_header.try_to_vec().expect("Failed to serialize"),
+                    left_block_header: borsh::to_vec(&header).expect("Failed to serialize"),
+                    right_block_header: borsh::to_vec(&other_header).expect("Failed to serialize"),
                 }));
             }
         }
@@ -1696,7 +1696,7 @@ impl Chain {
             if let Some(encoded_chunk) = self.store.is_invalid_chunk(&chunk_header.chunk_hash())? {
                 let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
                 let chunk_proof = ChunkProofs {
-                    block_header: block.header().try_to_vec().expect("Failed to serialize"),
+                    block_header: borsh::to_vec(&block.header()).expect("Failed to serialize"),
                     merkle_proof: merkle_paths[shard_id].clone(),
                     chunk: MaybeEncodedShardChunk::Encoded(EncodedShardChunk::clone(
                         &encoded_chunk,
@@ -3089,7 +3089,7 @@ impl Chain {
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
         // Check cache
-        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
+        let key = borsh::to_vec(&StateHeaderKey(shard_id, sync_hash))?;
         if let Ok(Some(header)) = self.store.store().get_ser(DBCol::StateHeaders, &key) {
             return Ok(header);
         }
@@ -3118,7 +3118,7 @@ impl Chain {
             %sync_hash)
         .entered();
         // Check cache
-        let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
         if let Ok(Some(state_part)) = self.store.store().get(DBCol::StateParts, &key) {
             return Ok(state_part.into());
         }
@@ -3330,7 +3330,7 @@ impl Chain {
 
         // Saving the header data.
         let mut store_update = self.store.store().store_update();
-        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
+        let key = borsh::to_vec(&StateHeaderKey(shard_id, sync_hash))?;
         store_update.set_ser(DBCol::StateHeaders, &key, &shard_state_header)?;
         store_update.commit()?;
 
@@ -3365,7 +3365,7 @@ impl Chain {
 
         // Saving the part data.
         let mut store_update = self.store.store().store_update();
-        let key = StatePartKey(sync_hash, shard_id, part_id.idx).try_to_vec()?;
+        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.idx))?;
         store_update.set(DBCol::StateParts, &key, data);
         store_update.commit()?;
         Ok(())
@@ -3822,8 +3822,8 @@ impl Chain {
         //     .unwrap();
         // let partial_state = apply_result.proof.unwrap().nodes;
         Ok(ChunkState {
-            prev_block_header: prev_block.header().try_to_vec()?,
-            block_header: block.header().try_to_vec()?,
+            prev_block_header: borsh::to_vec(&prev_block.header())?,
+            block_header: borsh::to_vec(&block.header())?,
             prev_merkle_proof: prev_merkle_proofs[chunk_shard_id as usize].clone(),
             merkle_proof: merkle_proofs[chunk_shard_id as usize].clone(),
             prev_chunk,
@@ -4069,7 +4069,7 @@ impl Chain {
         if !validate_transactions_order(transactions) {
             let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
             let chunk_proof = ChunkProofs {
-                block_header: block.header().try_to_vec().expect("Failed to serialize"),
+                block_header: borsh::to_vec(&block.header()).expect("Failed to serialize"),
                 merkle_proof: merkle_paths[shard_id as usize].clone(),
                 chunk: MaybeEncodedShardChunk::Decoded(chunk),
             };
@@ -4922,7 +4922,7 @@ impl Chain {
         shard_receipts
             .into_iter()
             .map(|(i, rs)| {
-                let bytes = (i, rs).try_to_vec().unwrap();
+                let bytes = borsh::to_vec(&(i, rs)).unwrap();
                 hash(&bytes)
             })
             .collect()

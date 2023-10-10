@@ -825,12 +825,12 @@ dependencies = [
 
 [[package]]
 name = "borsh"
-version = "0.10.2"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40f9ca3698b2e4cb7c15571db0abc5551dca417a21ae8140460b50309bb2cc62"
+checksum = "4e6cb63579996213e822f6d828b0a47e1d23b1e8708f52d18a6b1af5670dd207"
 dependencies = [
- "borsh-derive 0.10.2",
- "hashbrown 0.13.2",
+ "borsh-derive 1.0.0",
+ "cfg_aliases",
 ]
 
 [[package]]
@@ -839,24 +839,25 @@ version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6441c552f230375d18e3cc377677914d2ca2b0d36e52129fe15450a2dce46775"
 dependencies = [
- "borsh-derive-internal 0.9.3",
- "borsh-schema-derive-internal 0.9.3",
- "proc-macro-crate",
+ "borsh-derive-internal",
+ "borsh-schema-derive-internal",
+ "proc-macro-crate 0.1.5",
  "proc-macro2",
  "syn 1.0.103",
 ]
 
 [[package]]
 name = "borsh-derive"
-version = "0.10.2"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "598b3eacc6db9c3ee57b22707ad8f6a8d2f6d442bfe24ffeb8cbb70ca59e6a35"
+checksum = "35b4db62e0515621636e47f425d78a40bdea94c2d23713428fb12194cf5459a4"
 dependencies = [
- "borsh-derive-internal 0.10.2",
- "borsh-schema-derive-internal 0.10.2",
- "proc-macro-crate",
+ "once_cell",
+ "proc-macro-crate 1.3.0",
  "proc-macro2",
- "syn 1.0.103",
+ "quote",
+ "syn 2.0.15",
+ "syn_derive",
 ]
 
 [[package]]
@@ -871,32 +872,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "borsh-derive-internal"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "186b734fa1c9f6743e90c95d7233c9faab6360d1a96d4ffa19d9cfd1e9350f8a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.103",
-]
-
-[[package]]
 name = "borsh-schema-derive-internal"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdbd5696d8bfa21d53d9fe39a714a18538bad11492a42d066dbbc395fb1951c0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.103",
-]
-
-[[package]]
-name = "borsh-schema-derive-internal"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99b7ff1008316626f485991b960ade129253d4034014616b94f309a15366cc49"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1079,6 +1058,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "cfg_aliases"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd16c4719339c4530435d38e511904438d07cce7950afa3718a84ac36c10e89e"
+
+[[package]]
 name = "chainsync-loadtest"
 version = "0.0.0"
 dependencies = [
@@ -1239,7 +1224,7 @@ name = "cold-store-tool"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "clap 4.2.4",
  "near-chain-configs",
  "near-epoch-manager",
@@ -2365,7 +2350,7 @@ dependencies = [
 name = "genesis-populate"
 version = "0.0.0"
 dependencies = [
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "clap 4.2.4",
  "indicatif",
  "near-chain",
@@ -2783,7 +2768,7 @@ dependencies = [
  "actix-rt",
  "anyhow",
  "assert_matches",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "chrono",
  "clap 4.2.4",
  "futures",
@@ -3343,7 +3328,7 @@ version = "0.0.0"
 dependencies = [
  "arbitrary",
  "bolero",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "serde",
  "serde_json",
 ]
@@ -3352,7 +3337,7 @@ dependencies = [
 name = "near-account-id-fuzz"
 version = "0.0.0"
 dependencies = [
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "libfuzzer-sys",
  "near-account-id",
  "serde_json",
@@ -3373,7 +3358,7 @@ name = "near-amend-genesis"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "clap 4.2.4",
  "near-chain",
  "near-chain-configs",
@@ -3427,7 +3412,7 @@ dependencies = [
  "actix",
  "ansi_term",
  "assert_matches",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "bytesize",
  "chrono",
  "crossbeam-channel",
@@ -3495,7 +3480,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "assert_matches",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "chrono",
  "derive-enum-from-into",
  "derive_more",
@@ -3540,7 +3525,7 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "async-trait",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "chrono",
  "cloud-storage",
  "derive_more",
@@ -3616,7 +3601,7 @@ name = "near-crypto"
 version = "0.0.0"
 dependencies = [
  "blake2",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "bs58",
  "c2-chacha",
  "curve25519-dalek",
@@ -3678,7 +3663,7 @@ dependencies = [
 name = "near-epoch-manager"
 version = "0.0.0"
 dependencies = [
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "chrono",
  "itertools",
  "near-cache",
@@ -3701,7 +3686,7 @@ name = "near-flat-storage"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "clap 4.2.4",
  "near-chain",
  "near-chain-configs",
@@ -3865,7 +3850,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "awc",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "futures",
  "near-actix-test-utils",
  "near-chain-configs",
@@ -3899,7 +3884,7 @@ dependencies = [
  "actix",
  "anyhow",
  "async-trait",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "bs58",
  "clap 4.2.4",
  "ed25519-dalek",
@@ -3943,7 +3928,7 @@ dependencies = [
  "arc-swap",
  "assert_matches",
  "async-trait",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "bytes",
  "bytesize",
  "chrono",
@@ -4068,7 +4053,7 @@ dependencies = [
 name = "near-pool"
 version = "0.0.0"
 dependencies = [
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "near-crypto",
  "near-o11y",
  "near-primitives",
@@ -4084,7 +4069,7 @@ dependencies = [
  "assert_matches",
  "base64 0.21.0",
  "bencher",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "bytesize",
  "cfg-if 1.0.0",
  "chrono",
@@ -4121,7 +4106,7 @@ version = "0.0.0"
 dependencies = [
  "arbitrary",
  "base64 0.21.0",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "bs58",
  "derive_more",
  "enum-map",
@@ -4226,7 +4211,7 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "bencher",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "bytesize",
  "crossbeam",
  "derive_more",
@@ -4392,7 +4377,7 @@ dependencies = [
  "assert_matches",
  "base64 0.21.0",
  "bolero",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "clap 4.2.4",
  "ed25519-dalek",
  "enum-map",
@@ -4549,7 +4534,7 @@ dependencies = [
  "anyhow",
  "awc",
  "bencher",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "chrono",
  "cloud-storage",
  "dirs",
@@ -4681,7 +4666,7 @@ name = "node-runtime"
 version = "0.0.0"
 dependencies = [
  "assert_matches",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "enum-map",
  "hex",
  "indicatif",
@@ -4716,6 +4701,15 @@ checksum = "a8903e5a29a317527874d0402f867152a3d21c908bb0b933e416c65e301d4c36"
 dependencies = [
  "memchr",
  "minimal-lexical",
+]
+
+[[package]]
+name = "nom8"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae01545c9c7fc4486ab7debaf2aad7003ac19431791868fb2e8066df97fad2f8"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]
@@ -4811,9 +4805,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.13.1"
+version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "074864da206b4973b84eb91683020dbefd6a8c3f0f38e054d93954e891935e4e"
+checksum = "dd8b5dd2ae5ed71462c540258bedcb51965123ad7e7ccf4b9a8cafaa4a63576d"
 
 [[package]]
 name = "oorandom"
@@ -5252,6 +5246,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d6ea3c4595b96363c13943497db34af4460fb474a95c43f4446ad341b8c9785"
 dependencies = [
  "toml",
+]
+
+[[package]]
+name = "proc-macro-crate"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66618389e4ec1c7afe67d51a9bf34ff9236480f8d51e7489b7d5ab0303c13f34"
+dependencies = [
+ "once_cell",
+ "toml_edit",
 ]
 
 [[package]]
@@ -5839,7 +5843,7 @@ name = "runtime-params-estimator"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "bs58",
  "bytesize",
  "cfg-if 1.0.0",
@@ -6528,7 +6532,7 @@ dependencies = [
 name = "speedy_sync"
 version = "0.0.0"
 dependencies = [
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "clap 4.2.4",
  "near-chain",
  "near-chain-configs",
@@ -6560,7 +6564,7 @@ dependencies = [
  "actix",
  "ansi_term",
  "anyhow",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "chrono",
  "clap 4.2.4",
  "cloud-storage",
@@ -6711,6 +6715,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "syn_derive"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8128874d02f9a114ade6d9ad252078cb32d3cb240e26477ac73d7e9c495c605e"
+dependencies = [
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.15",
 ]
 
 [[package]]
@@ -7046,6 +7062,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d82e1a7758622a465f8cee077614c73484dac5b836c02ff6a40d5d1010324d7"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "toml_datetime"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4553f467ac8e3d374bc9a177a26801e5d0f9b211aa1673fb137a403afd1c9cf5"
+
+[[package]]
+name = "toml_edit"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56c59d8dd7d0dcbc6428bf7aa2f0e823e26e43b3c9aca15bbc9475d23e5fa12b"
+dependencies = [
+ "indexmap",
+ "nom8",
+ "toml_datetime",
 ]
 
 [[package]]
