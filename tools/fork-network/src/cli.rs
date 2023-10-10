@@ -292,8 +292,14 @@ impl ForkNetworkCommand {
         let shard_id = shard_uid.shard_id as ShardId;
         let mut storage_mutator: SingleShardStorageMutator =
             make_storage_mutator(shard_id, prev_state_root)?;
+
+        // Keeps track of accounts that have a full access key.
         let mut has_full_key = HashSet::new();
+        // Lets us lookup large values in the `State` columns.
         let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
+
+
+        // Iterate over the whole flat storage and do the necessary changes to have access to all accounts.
         let mut index_delayed_receipt = 0;
         let mut records_not_parsed = 0;
         let mut records_parsed = 0;
@@ -419,6 +425,9 @@ impl ForkNetworkCommand {
             "Pass 1 done"
         );
 
+        // Now do another pass to ensure all accounts have full access keys.
+        // Remember that we kept track of accounts with full access keys in `has_full_key`.
+        // Iterating over the whole flat state is very fast compared to writing all the updates.
         let mut num_added = 0;
         let mut num_accounts = 0;
         for item in store_helper::iter_flat_state_entries(shard_uid, &store, None, None) {
@@ -475,6 +484,8 @@ impl ForkNetworkCommand {
         Ok(state_roots)
     }
 
+    /// Reads the validators file (which is a path relative to the home dir),
+    /// and adds new accounts and new keys for the specified accounts.
     fn add_validator_accounts(
         &self,
         runtime_config: &Arc<RuntimeConfig>,
