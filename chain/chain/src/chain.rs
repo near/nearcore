@@ -2597,7 +2597,7 @@ impl Chain {
             self.verify_challenges(block.challenges(), header.epoch_id(), header.prev_hash())?;
 
         let prev_block = self.get_block(&prev_hash)?;
-        let prev_prev_block = self.get_block(prev_block.header().prev_hash())?;
+        let prev_prev_hash = prev_block.header().prev_hash().clone();
 
         self.validate_chunk_headers(&block, &prev_block)?;
 
@@ -2608,20 +2608,29 @@ impl Chain {
         // Check if block can be finalized and drop it otherwise.
         self.check_if_finalizable(header)?;
 
-        let apply_chunk_work = self.apply_chunks_preprocessing(
-            me,
-            // block,
-            // &prev_block,
-            &prev_block,
-            &prev_prev_block,
-            &incoming_receipts,
-            // If we have the state for shards in the next epoch already downloaded, apply the state transition
-            // for these states as well
-            // otherwise put the block into the permanent storage, waiting for be caught up
-            if is_caught_up { ApplyChunksMode::IsCaughtUp } else { ApplyChunksMode::NotCaughtUp },
-            state_patch,
-            invalid_chunks,
-        )?;
+        let apply_chunk_work = if prev_prev_hash != CryptoHash::default() {
+            let prev_prev_block = self.get_block(&prev_prev_hash)?;
+            self.apply_chunks_preprocessing(
+                me,
+                // block,
+                // &prev_block,
+                &prev_block,
+                &prev_prev_block,
+                &incoming_receipts,
+                // If we have the state for shards in the next epoch already downloaded, apply the state transition
+                // for these states as well
+                // otherwise put the block into the permanent storage, waiting for be caught up
+                if is_caught_up {
+                    ApplyChunksMode::IsCaughtUp
+                } else {
+                    ApplyChunksMode::NotCaughtUp
+                },
+                state_patch,
+                invalid_chunks,
+            )?
+        } else {
+            vec![]
+        };
 
         Ok((
             apply_chunk_work,
