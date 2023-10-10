@@ -20,7 +20,7 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshDeserialize;
 use chrono::Duration;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use itertools::Itertools;
@@ -3047,7 +3047,8 @@ impl Chain {
                 let prev_chunk_header =
                     prev_chunk_header.and_then(|prev_header| match prev_header {
                         ShardChunkHeader::V1(header) => Some(ShardChunkHeader::V1(header)),
-                        _ => None,
+                        ShardChunkHeader::V2(_) => None,
+                        ShardChunkHeader::V3(_) => None,
                     });
                 let chunk = ShardChunk::V1(chunk);
                 (chunk, prev_chunk_header)
@@ -4316,9 +4317,9 @@ impl Chain {
         let _span = tracing::debug_span!(target: "chain", "get_cached_state_parts").entered();
         // DBCol::StateParts is keyed by StatePartKey: (BlockHash || ShardId || PartId (u64)).
         let lower_bound = StatePartKey(sync_hash, shard_id, 0);
-        let lower_bound = lower_bound.try_to_vec()?;
+        let lower_bound = borsh::to_vec(&lower_bound)?;
         let upper_bound = StatePartKey(sync_hash, shard_id + 1, 0);
-        let upper_bound = upper_bound.try_to_vec()?;
+        let upper_bound = borsh::to_vec(&upper_bound)?;
         let mut num_cached_parts = 0;
         let mut bit_array = BitArray::new(num_parts);
         for item in
