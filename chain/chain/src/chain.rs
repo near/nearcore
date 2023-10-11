@@ -4083,7 +4083,10 @@ impl Chain {
                         block,
                         chunk_header,
                     ) {
-                        Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
+                        Ok(_chunk_state) => {
+                            Error::InvalidChunk() // for debug
+                                                  // Error::InvalidChunkState(Box::new(chunk_state))
+                        }
                         Err(err) => err,
                     }
                 })?;
