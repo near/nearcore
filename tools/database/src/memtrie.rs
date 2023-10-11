@@ -2,7 +2,6 @@ use crate::utils::{flat_head, flat_head_state_root, open_rocksdb};
 use near_epoch_manager::EpochManager;
 use near_primitives::block::Tip;
 use near_primitives::block_header::BlockHeader;
-use near_primitives::borsh::BorshSerialize;
 use near_primitives::types::ShardId;
 use near_store::trie::mem::loading::load_trie_from_flat_state;
 use near_store::{DBCol, ShardUId, HEAD_KEY};
@@ -28,7 +27,7 @@ impl LoadMemTrieCommand {
         let head =
             store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap().unwrap().last_block_hash;
         let block_header = store
-            .get_ser::<BlockHeader>(DBCol::BlockHeader, &head.try_to_vec().unwrap())?
+            .get_ser::<BlockHeader>(DBCol::BlockHeader, &borsh::to_vec(&head).unwrap())?
             .ok_or_else(|| anyhow::anyhow!("Block header not found"))?;
         let epoch_manager =
             EpochManager::new_from_genesis_config(store.clone(), &genesis_config).unwrap();
