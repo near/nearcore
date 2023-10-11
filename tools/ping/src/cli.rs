@@ -16,11 +16,11 @@ pub struct PingCommand {
     chain_id: String,
     #[clap(long)]
     /// genesis hash to use in the Handshake we send. This must be provided if --chain-id
-    /// is not MAINNET or TESTNET.
+    /// is not "mainnet" or "testnet"
     genesis_hash: Option<String>,
     #[clap(long)]
     /// head height to use in the Handshake we send. This must be provided if --chain-id
-    /// is not MAINNET or TESTNET.
+    /// is not "mainnet" or "testnet"
     head_height: Option<u64>,
     /// Protocol version to advertise in our handshake
     #[clap(long)]
