@@ -91,6 +91,7 @@ impl FlatStorageManager {
         if let Some(flat_storage) = self.get_flat_storage_for_shard(shard_uid) {
             let mut new_flat_head = *block.header().last_final_block();
             if new_flat_head == CryptoHash::default() {
+                // hmm, this is json hash, not block hash...
                 let genesis_hash = get_genesis_hash(&self.0.store)
                     .map_err(|e| FlatStorageError::StorageInternalError(e.to_string()))?
                     .expect("Genesis hash must exist. Consider initialization.");

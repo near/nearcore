@@ -4053,7 +4053,7 @@ impl Chain {
             Some(prev_chunk_header) => {
                 let prev_chunk_height_included = prev_chunk_header.height_included();
                 // Validate state root.
-                let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
+                let prev_chunk_extra = self.get_chunk_extra(block.hash(), &shard_uid)?;
 
                 // Validate that all next chunk information matches previous chunk extra.
                 validate_chunk_with_chunk_extra(
@@ -4232,7 +4232,7 @@ impl Chain {
         let prev_block_hash = *block.header().prev_hash();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let new_extra = self.get_chunk_extra(&prev_block_hash, &shard_uid)?;
+        let new_extra = self.get_chunk_extra(&block_hash, &shard_uid)?;
 
         let next_gas_price =
             if protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version() {
