@@ -152,7 +152,7 @@ impl AllEpochConfig {
 
         // Adjust the number of block and chunk producers for all chains except
         // mainnet, to make it easier to test the change.
-        if chain_id != MAINNET
+        if chain_id != "mainnet"
             && checked_feature!("stable", TestnetFewerBlockProducers, protocol_version)
         {
             let num_shards = config.shard_layout.num_shards() as usize;
@@ -160,7 +160,7 @@ impl AllEpochConfig {
             config.num_block_producer_seats = 20;
             config.num_block_producer_seats_per_shard =
                 vec![config.num_block_producer_seats; num_shards];
-            // Decrease the numbr of chunk producers.
+            // Decrease the number of chunk producers.
             config.validator_selection_config.num_chunk_only_producer_seats = 100;
         }
     }

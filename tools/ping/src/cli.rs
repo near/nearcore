@@ -16,11 +16,11 @@ pub struct PingCommand {
     chain_id: String,
     #[clap(long)]
     /// genesis hash to use in the Handshake we send. This must be provided if --chain-id
-    /// is not MAINNET or TESTNET.
+    /// is not "mainnet" or "testnet"
     genesis_hash: Option<String>,
     #[clap(long)]
     /// head height to use in the Handshake we send. This must be provided if --chain-id
-    /// is not MAINNET or TESTNET.
+    /// is not "mainnet" or "testnet"
     head_height: Option<u64>,
     /// Protocol version to advertise in our handshake
     #[clap(long)]
@@ -97,14 +97,14 @@ pub struct ChainInfo {
 
 pub static CHAIN_INFO: &[ChainInfo] = &[
     ChainInfo {
-        chain_id: MAINNET,
+        chain_id: "mainnet",
         genesis_hash: CryptoHash([
             198, 253, 249, 28, 142, 130, 248, 249, 23, 204, 25, 117, 233, 222, 28, 100, 190, 17,
             137, 158, 50, 29, 253, 245, 254, 188, 251, 183, 49, 63, 20, 134,
         ]),
     },
     ChainInfo {
-        chain_id: TESTNET,
+        chain_id: "testnet",
         genesis_hash: CryptoHash([
             215, 132, 218, 90, 158, 94, 102, 102, 133, 22, 193, 154, 128, 149, 68, 143, 197, 74,
             34, 162, 137, 113, 220, 51, 15, 0, 153, 223, 148, 55, 148, 16,

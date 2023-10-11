@@ -10,7 +10,7 @@ use near_store::{DBCol, Store};
 /// Fix an issue with block ordinal (#5761)
 // This migration takes at least 3 hours to complete on mainnet
 pub fn migrate_30_to_31(store: &Store, near_config: &crate::NearConfig) -> anyhow::Result<()> {
-    if near_config.client_config.archive && &near_config.genesis.config.chain_id == MAINNET {
+    if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         do_migrate_30_to_31(store, &near_config.genesis.config)?;
     }
     Ok(())
@@ -56,7 +56,7 @@ pub fn do_migrate_30_to_31(
 const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
 
 pub fn load_migration_data(chain_id: &str) -> MigrationData {
-    let is_mainnet = chain_id == MAINNET;
+    let is_mainnet = chain_id == "mainnet";
     MigrationData {
         storage_usage_delta: if is_mainnet {
             near_mainnet_res::mainnet_storage_usage_delta()
@@ -132,9 +132,9 @@ mod tests {
                 .to_string(),
             "2fEgaLFBBJZqgLQEvHPsck4NS3sFzsgyKaMDqTw5HVvQ"
         );
-        let mainnet_migration_data = load_migration_data(MAINNET);
+        let mainnet_migration_data = load_migration_data("mainnet");
         assert_eq!(mainnet_migration_data.storage_usage_delta.len(), 3112);
-        let testnet_migration_data = load_migration_data(TESTNET);
+        let testnet_migration_data = load_migration_data("testnet");
         assert_eq!(testnet_migration_data.storage_usage_delta.len(), 0);
     }
 
@@ -145,9 +145,9 @@ mod tests {
                 .to_string(),
             "48ZMJukN7RzvyJSW9MJ5XmyQkQFfjy2ZxPRaDMMHqUcT"
         );
-        let mainnet_migration_data = load_migration_data(MAINNET);
+        let mainnet_migration_data = load_migration_data("mainnet");
         assert_eq!(mainnet_migration_data.restored_receipts.get(&0u64).unwrap().len(), 383);
-        let testnet_migration_data = load_migration_data(TESTNET);
+        let testnet_migration_data = load_migration_data("testnet");
         assert!(testnet_migration_data.restored_receipts.is_empty());
     }
 }
