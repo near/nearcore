@@ -337,27 +337,6 @@ pub trait RuntimeAdapter: Send + Sync {
         state_patch: SandboxStatePatch,
         use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
-        if prev_block_hash == &CryptoHash::default() {
-            println!("genesis case {block_hash} {shard_id}");
-            return Ok(ApplyTransactionResult {
-                trie_changes: WrappedTrieChanges::new(
-                    self.get_tries(),
-                    shard_uid,
-                    TrieChanges::empty(*state_root),
-                    vec![],
-                    *block_hash,
-                ),
-                new_root: *state_root,
-                outcomes: vec![],
-                outgoing_receipts: vec![],
-                validator_proposals: vec![],
-                total_gas_burnt: 0,
-                total_balance_burnt: 0,
-                proof: None,
-                processed_delayed_receipts: vec![],
-            });
-        }
-
         let _timer =
             metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         self.apply_transactions_with_optional_storage_proof(

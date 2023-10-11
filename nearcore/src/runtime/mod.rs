@@ -42,7 +42,7 @@ use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
 use near_store::{
     ApplyStatePartResult, DBCol, PartialStorage, ShardTries, StateSnapshotConfig, Store,
-    StoreCompiledContractCache, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
+    StoreCompiledContractCache, Trie, TrieChanges, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_runner::logic::CompiledContractCache;
 use near_vm_runner::precompile_contract;
@@ -802,6 +802,29 @@ impl RuntimeAdapter for NightshadeRuntime {
         states_to_patch: SandboxStatePatch,
         use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
+        if prev_block_hash == &CryptoHash::default() {
+            println!("genesis case {block_hash} {shard_id}");
+            // or prev hash?
+            let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, block_hash)?;
+            return Ok(ApplyTransactionResult {
+                trie_changes: WrappedTrieChanges::new(
+                    self.get_tries(),
+                    shard_uid,
+                    TrieChanges::empty(*state_root),
+                    vec![],
+                    *block_hash,
+                ),
+                new_root: *state_root,
+                outcomes: vec![],
+                outgoing_receipts: vec![],
+                validator_proposals: vec![],
+                total_gas_burnt: 0,
+                total_balance_burnt: 0,
+                proof: None,
+                processed_delayed_receipts: vec![],
+            });
+        }
+
         let trie =
             self.get_trie_for_shard(shard_id, prev_block_hash, *state_root, use_flat_storage)?;
 
