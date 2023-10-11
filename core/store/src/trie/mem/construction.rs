@@ -66,6 +66,9 @@ pub struct TrieConstructor<'a> {
     segments: Vec<TrieConstructionSegment>,
 }
 
+/// A segment of the rightmost path of the trie under construction, as
+/// described above. Ultimately, a segment is turned into a node when it's
+/// no longer part of the rightmost path.
 struct TrieConstructionSegment {
     /// Always determined at the beginning. If true, this is a branch node,
     /// possibly with value; if not, this is either leaf or extension node.
@@ -304,10 +307,12 @@ impl<'a> TrieConstructor<'a> {
     /// Finishes the construction of the trie, returning the ID of the root
     /// node. Note that the root node has a 0 refcount; the caller is
     /// responsible for incrementing its refcount.
-    pub fn finalize(mut self) -> MemTrieNodeId {
+    ///
+    /// None is returned iff add_leaf was never called.
+    pub fn finalize(mut self) -> Option<MemTrieNodeId> {
         while self.segments.len() > 1 {
             self.pop_segment();
         }
-        self.segments.into_iter().next().unwrap().into_node(self.arena)
+        self.segments.into_iter().next().map(|segment| segment.into_node(self.arena))
     }
 }

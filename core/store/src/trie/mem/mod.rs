@@ -25,18 +25,18 @@ compile_error!("In-memory trie requires a 64 bit platform");
 /// its children nodes. The `roots` field of this struct logically
 /// holds an Rc of the root of each trie.
 pub struct MemTries {
-    pub arena: Arena,
+    arena: Arena,
     /// Maps a state root to a list of nodes that have the same root hash.
     /// The reason why this is a list is because we do not have a node
     /// deduplication mechanism so we can't guarantee that nodes of the
     /// same hash are unique. During lookup, any of these nodes can be provided
     /// as they all logically represent the same trie.
-    pub roots: HashMap<StateRoot, Vec<MemTrieNodeId>>,
+    roots: HashMap<StateRoot, Vec<MemTrieNodeId>>,
     /// Maps a block height to a list of state roots present at that height.
     /// This is used for GC. The invariant is that for any state root, the
     /// number of times the state root appears in this map is equal to the
     /// sum of the refcounts of each `MemTrieNodeId`s in `roots[state hash]`.
-    pub heights: BTreeMap<BlockHeight, Vec<StateRoot>>,
+    heights: BTreeMap<BlockHeight, Vec<StateRoot>>,
     /// Shard UID, for exporting metrics only.
     shard_uid: ShardUId,
 }
@@ -57,12 +57,16 @@ impl MemTries {
     pub fn construct_root<Error>(
         &mut self,
         block_height: BlockHeight,
-        f: impl FnOnce(&mut Arena) -> Result<MemTrieNodeId, Error>,
+        f: impl FnOnce(&mut Arena) -> Result<Option<MemTrieNodeId>, Error>,
     ) -> Result<CryptoHash, Error> {
         let root = f(&mut self.arena)?;
-        let state_root = root.as_ptr(self.arena.memory()).view().node_hash();
-        self.insert_root(state_root, root, block_height);
-        Ok(state_root)
+        if let Some(root) = root {
+            let state_root = root.as_ptr(self.arena.memory()).view().node_hash();
+            self.insert_root(state_root, root, block_height);
+            Ok(state_root)
+        } else {
+            Ok(CryptoHash::default())
+        }
     }
 
     fn insert_root(
@@ -127,6 +131,11 @@ impl MemTries {
             .with_label_values(&[&self.shard_uid.shard_id.to_string()])
             .set(self.roots.len() as i64);
     }
+
+    #[cfg(test)]
+    pub fn num_roots(&self) -> usize {
+        self.heights.iter().map(|(_, v)| v.len()).sum()
+    }
 }
 
 #[cfg(test)]
@@ -140,6 +149,15 @@ mod tests {
     use near_primitives::types::BlockHeight;
     use rand::seq::SliceRandom;
     use rand::Rng;
+
+    #[test]
+    fn test_construct_empty_trie() {
+        let mut tries = MemTries::new(1024 * 1024, ShardUId::single_shard());
+        let state_root =
+            tries.construct_root(123, |_| -> Result<Option<MemTrieNodeId>, ()> { Ok(None) });
+        assert_eq!(state_root, Ok(CryptoHash::default()));
+        assert_eq!(tries.num_roots(), 0);
+    }
 
     #[test]
     fn test_refcount() {
@@ -158,10 +176,20 @@ mod tests {
             let num_roots_at_height = rand::thread_rng().gen_range(1..=4);
             for _ in 0..num_roots_at_height {
                 match rand::thread_rng().gen_range(0..4) {
-                    0 | 1 | 2 | 3 if available_hashes.is_empty() => {
-                        // Construct a new root.
+                    0 if !available_hashes.is_empty() => {
+                        // Reuse an existing root 25% of the time.
+                        let (_, root) = available_hashes.choose(&mut rand::thread_rng()).unwrap();
+                        let root = tries.get_root(root).unwrap().id();
                         let state_root = tries
-                            .construct_root(height, |arena| -> Result<MemTrieNodeId, ()> {
+                            .construct_root(height, |_| -> Result<Option<MemTrieNodeId>, ()> {
+                                Ok(Some(root))
+                            });
+                        available_hashes.push((height, state_root.unwrap()));
+                    }
+                    _ => {
+                        // Construct a new root 75% of the time.
+                        let state_root = tries
+                            .construct_root(height, |arena| -> Result<Option<MemTrieNodeId>, ()> {
                                 let root = MemTrieNodeId::new(
                                     arena,
                                     InputMemTrieNode::Leaf {
@@ -175,18 +203,10 @@ mod tests {
                                     },
                                 );
                                 root.as_ptr_mut(arena.memory_mut()).compute_hash_recursively();
-                                Ok(root)
+                                Ok(Some(root))
                             })
                             .unwrap();
                         available_hashes.push((height, state_root));
-                    }
-                    _ => {
-                        // Reuse an existing root.
-                        let (_, root) = available_hashes.choose(&mut rand::thread_rng()).unwrap();
-                        let root = tries.get_root(root).unwrap().id();
-                        let state_root = tries
-                            .construct_root(height, |_| -> Result<MemTrieNodeId, ()> { Ok(root) });
-                        available_hashes.push((height, state_root.unwrap()));
                     }
                 }
             }
@@ -202,5 +222,6 @@ mod tests {
         // Expire all roots, and now the number of allocs should be zero.
         tries.delete_until_height(201);
         assert_eq!(tries.arena.num_active_allocs(), 0);
+        assert_eq!(tries.num_roots(), 0);
     }
 }

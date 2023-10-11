@@ -84,7 +84,7 @@ impl Arena {
     }
 
     /// Number of active allocations (alloc calls minus dealloc calls).
-    /// For testing.
+    #[cfg(test)]
     pub fn num_active_allocs(&self) -> usize {
         self.allocator.num_active_allocs()
     }

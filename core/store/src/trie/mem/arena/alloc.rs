@@ -112,7 +112,7 @@ impl Allocator {
         self.freelists[size_class] = pos;
     }
 
-    /// For testing.
+    #[cfg(test)]
     pub fn num_active_allocs(&self) -> usize {
         self.active_allocs_count
     }
