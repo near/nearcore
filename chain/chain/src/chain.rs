@@ -5300,13 +5300,15 @@ impl<'a> ChainUpdate<'a> {
         result: ApplyChunkResult,
     ) -> Result<(), Error> {
         // consider taking block data from apply_result.block_hash
-        // let block_hash = block.hash();
-        // let prev_hash = block.header().prev_hash();
-        // let height = block.header().height();
-        let block_hash = block.header().prev_hash();
-        let block_header = self.chain_store_update.get_block_header(block_hash)?;
-        let prev_hash = block_header.prev_hash();
-        let height = block_header.height();
+        let block_hash = block.hash();
+        let prev_hash = block.header().prev_hash();
+        let height = block.header().height();
+        println!("process_apply_chunk_result {block_hash} {prev_hash} {height}");
+
+        // let block_hash = block.header().prev_hash();
+        // let block_header = self.chain_store_update.get_block_header(block_hash)?;
+        // let prev_hash = block_header.prev_hash();
+        // let height = block_header.height();
         match result {
             ApplyChunkResult::SameHeight(SameHeightResult {
                 gas_limit,
@@ -5364,6 +5366,7 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 apply_split_result_or_state_changes,
             }) => {
+                println!("diff height / get_chunk_extra {prev_hash} {shard_uid}");
                 let old_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
 
                 let mut new_extra = ChunkExtra::clone(&old_extra);
@@ -5385,6 +5388,7 @@ impl<'a> ChainUpdate<'a> {
                 if let Some(apply_results_or_state_changes) = apply_split_result_or_state_changes {
                     self.process_split_state(block, &shard_uid, apply_results_or_state_changes)?;
                 }
+                println!("diff height end");
             }
             ApplyChunkResult::SplitState(SplitStateResult { shard_uid, results }) => {
                 self.chain_store_update
