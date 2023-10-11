@@ -366,7 +366,7 @@ pub struct TrieCachingStorage {
 
     /// Caches data that is specific for contract
     /// For now the "specific" contracts are hardcoded
-    pub(crate) contract_shard_cache: HashMap<String, TrieCache>,
+    pub(crate) contract_shard_cache: HashMap<&'static str, TrieCache>,
 
     /// The entry point for the runtime to submit prefetch requests.
     pub(crate) prefetch_api: Option<PrefetchApi>,
@@ -394,7 +394,7 @@ impl TrieCachingStorage {
     pub fn new(
         store: Store,
         shard_cache: TrieCache,
-        contract_shard_cache: HashMap<String, TrieCache>,
+        contract_shard_cache: HashMap<&'static str, TrieCache>,
         shard_uid: ShardUId,
         is_view: bool,
         prefetch_api: Option<PrefetchApi>,
@@ -451,8 +451,8 @@ impl TrieStorage for TrieCachingStorage {
         // specific cache
         let mut use_contract_cache = false;
         let mut val = None;
-        if let Some(account_id_cache) = account_id {
-            let maybe_contract_cache = self.contract_shard_cache.get(account_id_cache.as_str());
+        if let Some(acc_id) = account_id {
+            let maybe_contract_cache = self.contract_shard_cache.get(acc_id.as_str());
             if let Some(contract_cache) = maybe_contract_cache {
                 use_contract_cache = true;
                 let mut guard = contract_cache.lock();

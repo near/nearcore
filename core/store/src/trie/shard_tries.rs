@@ -18,18 +18,22 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{self, ShardUId, ShardVersion};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    AccountId, NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
+    NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, RwLock, TryLockError};
 
+const CONTRACT_CACHES: &'static [(&'static str, u32)] = &[("sweat.near", 2)];
+
 struct ShardTriesInner {
     store: Store,
     trie_config: TrieConfig,
     /// Cache reserved for client actor to use
     caches: RwLock<HashMap<ShardUId, TrieCache>>,
+    /// Caches for specific contrats which cause a big spike in traffic
+    contract_caches: HashMap<&'static str, TrieCache>,
     /// Cache for readers.
     view_caches: RwLock<HashMap<ShardUId, TrieCache>>,
     flat_storage_manager: FlatStorageManager,
@@ -123,12 +127,14 @@ impl ShardTries {
         state_snapshot_config: StateSnapshotConfig,
     ) -> Self {
         let caches = Self::create_initial_caches(&trie_config, &shard_uids, false);
+        let contract_caches = Self::create_contract_specific_caches(&trie_config);
         let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
         metrics::HAS_STATE_SNAPSHOT.set(0);
         ShardTries(Arc::new(ShardTriesInner {
             store,
             trie_config,
             caches: RwLock::new(caches),
+            contract_caches: contract_caches,
             view_caches: RwLock::new(view_caches),
             flat_storage_manager,
             prefetchers: Default::default(),
@@ -181,6 +187,17 @@ impl ShardTries {
             .collect()
     }
 
+    fn create_contract_specific_caches(config: &TrieConfig) -> HashMap<&'static str, TrieCache> {
+        let mut contract_specific_cache = HashMap::new();
+        for (contract, shard_uid) in CONTRACT_CACHES {
+            contract_specific_cache.insert(
+                *contract,
+                TrieCache::new(config, ShardUId { version: 0, shard_id: *shard_uid }, true),
+            );
+        }
+        contract_specific_cache
+    }
+
     pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: StateRoot) -> TrieUpdate {
         TrieUpdate::new(self.get_trie_for_shard(shard_uid, state_root))
     }
@@ -231,14 +248,7 @@ impl ShardTries {
                 .clone()
         });
 
-        let mut contract_shard_cache = HashMap::new();
-        // TODO(jbajic) Fix this hardcode
-        if shard_uid.shard_id == 2 {
-            contract_shard_cache.insert(
-                "token.sweat".to_string(),
-                TrieCache::new(&self.0.trie_config, shard_uid, true),
-            );
-        }
+        let contract_shard_cache = self.0.contract_caches.clone();
 
         let storage = Rc::new(TrieCachingStorage::new(
             self.0.store.clone(),

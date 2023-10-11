@@ -225,11 +225,8 @@ impl TrieStorage for TriePrefetchingStorage {
     fn retrieve_raw_bytes(
         &self,
         hash: &CryptoHash,
-        account_id: Option<AccountId>,
+        _: Option<AccountId>,
     ) -> Result<Arc<[u8]>, StorageError> {
-        // First try to get data from contract specific cache
-        // TODO(jbajic) do we want contract specific cache here?
-
         // Try to get value from shard cache containing most recently touched nodes.
         let mut shard_cache_guard = self.shard_cache.lock();
         if let Some(val) = shard_cache_guard.get(hash) {
