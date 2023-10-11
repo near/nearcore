@@ -660,21 +660,22 @@ impl Chain {
                 store_update
                     .save_block_extra(genesis.hash(), BlockExtra { challenges_result: vec![] });
 
-                for (chunk_header, state_root) in genesis.chunks().iter().zip(state_roots.iter()) {
-                    store_update.save_chunk_extra(
-                        genesis.hash(),
-                        &epoch_manager
-                            .shard_id_to_uid(chunk_header.shard_id(), &EpochId::default())?,
-                        ChunkExtra::new(
-                            state_root,
-                            CryptoHash::default(),
-                            vec![],
-                            0,
-                            chain_genesis.gas_limit,
-                            0,
-                        ),
-                    );
-                }
+                // genesis chunks are empty, no need to apply them?!
+                // for (chunk_header, state_root) in genesis.chunks().iter().zip(state_roots.iter()) {
+                //     store_update.save_chunk_extra(
+                //         genesis.hash(),
+                //         &epoch_manager
+                //             .shard_id_to_uid(chunk_header.shard_id(), &EpochId::default())?,
+                //         ChunkExtra::new(
+                //             state_root,
+                //             CryptoHash::default(),
+                //             vec![],
+                //             0,
+                //             chain_genesis.gas_limit,
+                //             0,
+                //         ),
+                //     );
+                // }
 
                 let block_head = Tip::from_header(genesis.header());
                 let header_head = block_head.clone();
@@ -2620,29 +2621,25 @@ impl Chain {
         // Check if block can be finalized and drop it otherwise.
         self.check_if_finalizable(header)?;
 
-        let apply_chunk_work = if prev_prev_hash != CryptoHash::default() {
-            let prev_prev_block = self.get_block(&prev_prev_hash)?;
-            self.apply_chunks_preprocessing(
-                me,
-                // block,
-                // &prev_block,
-                &prev_block,
-                &prev_prev_block,
-                &incoming_receipts,
-                // If we have the state for shards in the next epoch already downloaded, apply the state transition
-                // for these states as well
-                // otherwise put the block into the permanent storage, waiting for be caught up
-                if is_caught_up {
-                    ApplyChunksMode::IsCaughtUp
-                } else {
-                    ApplyChunksMode::NotCaughtUp
-                },
-                state_patch,
-                invalid_chunks,
-            )?
+        let prev_prev_block = if prev_prev_hash != CryptoHash::default() {
+            Some(self.get_block(&prev_prev_hash)?)
         } else {
-            vec![]
+            None
         };
+        let apply_chunk_work = self.apply_chunks_preprocessing(
+            me,
+            // block,
+            // &prev_block,
+            &prev_block,
+            prev_prev_block.as_ref(),
+            &incoming_receipts,
+            // If we have the state for shards in the next epoch already downloaded, apply the state transition
+            // for these states as well
+            // otherwise put the block into the permanent storage, waiting for be caught up
+            if is_caught_up { ApplyChunksMode::IsCaughtUp } else { ApplyChunksMode::NotCaughtUp },
+            state_patch,
+            invalid_chunks,
+        )?;
 
         Ok((
             apply_chunk_work,
@@ -3563,7 +3560,7 @@ impl Chain {
             let work = self.apply_chunks_preprocessing(
                 me,
                 &block,
-                &prev_block,
+                Some(&prev_block),
                 &receipts_by_shard,
                 ApplyChunksMode::CatchingUp,
                 Default::default(),
@@ -3884,7 +3881,7 @@ impl Chain {
         &self,
         me: &Option<AccountId>,
         block: &Block,
-        prev_block: &Block,
+        prev_block: Option<&Block>,
         incoming_receipts: &HashMap<ShardId, Vec<ReceiptProof>>,
         mode: ApplyChunksMode,
         mut state_patch: SandboxStatePatch,
@@ -3893,8 +3890,16 @@ impl Chain {
         let _span = tracing::debug_span!(target: "chain", "apply_chunks_preprocessing").entered();
         let prev_hash = block.header().prev_hash();
         let will_shard_layout_change = self.epoch_manager.will_shard_layout_change(prev_hash)?;
-        let prev_chunk_headers =
-            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
+        let prev_chunk_headers = match prev_block {
+            Some(prev_block) => {
+                Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?
+                    .into_iter()
+                    .map(|h| Some(h))
+                    .collect()
+            }
+            None => vec![None; block.chunks().len()],
+        };
+
         block
             .chunks()
             .iter()
@@ -3910,7 +3915,7 @@ impl Chain {
                     block,
                     prev_block,
                     chunk_header,
-                    prev_chunk_header,
+                    prev_chunk_header.as_ref(),
                     shard_id,
                     mode,
                     will_shard_layout_change,
@@ -3937,9 +3942,9 @@ impl Chain {
         &self,
         me: &Option<AccountId>,
         block: &Block,
-        prev_block: &Block,
+        prev_block: Option<&Block>,
         chunk_header: &ShardChunkHeader,
-        prev_chunk_header: &ShardChunkHeader,
+        prev_chunk_header: Option<&ShardChunkHeader>,
         shard_id: usize,
         mode: ApplyChunksMode,
         will_shard_layout_change: bool,
@@ -4030,9 +4035,9 @@ impl Chain {
     fn get_apply_chunk_job_new_chunk(
         &self,
         block: &Block,
-        prev_block: &Block,
+        prev_block: Option<&Block>,
         chunk_header: &ShardChunkHeader,
-        prev_chunk_header: &ShardChunkHeader,
+        prev_chunk_header: Option<&ShardChunkHeader>,
         shard_uid: ShardUId,
         will_shard_layout_change: bool,
         incoming_receipts: &HashMap<u64, Vec<ReceiptProof>>,
@@ -4044,38 +4049,40 @@ impl Chain {
         let prev_hash = block.header().prev_hash();
         let shard_id = shard_uid.shard_id();
 
-        let prev_chunk_height_included = prev_chunk_header.height_included();
-        // Validate state root.
-        let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
+        if let Some(prev_chunk_header) = prev_chunk_header {
+            let prev_chunk_height_included = prev_chunk_header.height_included();
+            // Validate state root.
+            let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
 
-        // Validate that all next chunk information matches previous chunk extra.
-        validate_chunk_with_chunk_extra(
-            // It's safe here to use ChainStore instead of ChainStoreUpdate
-            // because we're asking prev_chunk_header for already committed block
-            self.store(),
-            self.epoch_manager.as_ref(),
-            prev_hash,
-            &prev_chunk_extra,
-            prev_chunk_height_included,
-            chunk_header,
-        )
-        .map_err(|err| {
-            warn!(
-                target: "chain",
-                ?err,
-                prev_block_hash=?prev_hash,
-                block_hash=?block.header().hash(),
-                shard_id,
+            // Validate that all next chunk information matches previous chunk extra.
+            validate_chunk_with_chunk_extra(
+                // It's safe here to use ChainStore instead of ChainStoreUpdate
+                // because we're asking prev_chunk_header for already committed block
+                self.store(),
+                self.epoch_manager.as_ref(),
+                prev_hash,
+                &prev_chunk_extra,
                 prev_chunk_height_included,
-                ?prev_chunk_extra,
-                ?chunk_header,
-                "Failed to validate chunk extra");
-            byzantine_assert!(false);
-            match self.create_chunk_state_challenge(prev_block, block, chunk_header) {
-                Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
-                Err(err) => err,
-            }
-        })?;
+                chunk_header,
+            )
+            .map_err(|err| {
+                warn!(
+                    target: "chain",
+                    ?err,
+                    prev_block_hash=?prev_hash,
+                    block_hash=?block.header().hash(),
+                    shard_id,
+                    prev_chunk_height_included,
+                    ?prev_chunk_extra,
+                    ?chunk_header,
+                    "Failed to validate chunk extra");
+                byzantine_assert!(false);
+                match self.create_chunk_state_challenge(prev_block.unwrap(), block, chunk_header) {
+                    Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
+                    Err(err) => err,
+                }
+            })?;
+        }
         // we can't use hash from the current block here yet because the incoming receipts
         // for this block is not stored yet
         let new_receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
@@ -4108,7 +4115,7 @@ impl Chain {
             for transaction in transactions {
                 self.store()
                     .check_transaction_validity_period(
-                        prev_block.header(),
+                        prev_block.unwrap().header(),
                         &transaction.transaction.block_hash,
                         transaction_validity_period,
                     )
@@ -4129,14 +4136,17 @@ impl Chain {
         let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
             self.store(),
             epoch_manager.as_ref(),
-            prev_block.hash(),
+            prev_hash,
             shard_id,
         )?;
 
         let block_hash = *block.hash();
         let challenges_result = block.header().challenges_result().clone();
         let block_timestamp = block.header().raw_timestamp();
-        let next_gas_price = prev_block.header().next_gas_price();
+        let next_gas_price = match prev_block {
+            Some(prev_block) => prev_block.header().next_gas_price(),
+            None => block.header().next_gas_price(),
+        };
         let random_seed = *block.header().random_value();
         let height = chunk_header.height_included();
         let prev_block_hash = *chunk_header.prev_block_hash();
@@ -4197,7 +4207,7 @@ impl Chain {
     fn get_apply_chunk_job_old_chunk(
         &self,
         block: &Block,
-        prev_block: &Block,
+        prev_block: Option<&Block>,
         shard_uid: ShardUId,
         will_shard_layout_change: bool,
         state_patch: SandboxStatePatch,
@@ -4206,18 +4216,21 @@ impl Chain {
         split_state_roots: Option<HashMap<ShardUId, CryptoHash>>,
     ) -> Result<Option<ApplyChunkJob>, Error> {
         let shard_id = shard_uid.shard_id();
-        let prev_block_hash = *prev_block.hash();
-        let new_extra = self.get_chunk_extra(&prev_block_hash, &shard_uid)?;
 
         let block_hash = *block.hash();
         let challenges_result = block.header().challenges_result().clone();
         let block_timestamp = block.header().raw_timestamp();
+        let prev_block_hash = *block.header().prev_hash();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let new_extra = self.get_chunk_extra(&prev_block_hash, &shard_uid)?;
 
         let next_gas_price =
             if protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version() {
-                prev_block.header().next_gas_price()
+                match prev_block {
+                    Some(prev_block) => prev_block.header().next_gas_price(),
+                    None => block.header().next_gas_price(),
+                }
             } else {
                 block.header().next_gas_price()
             };
