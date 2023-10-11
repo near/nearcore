@@ -128,13 +128,12 @@ mod params {
             self.0.unwrap_or_else(Self::parse)
         }
 
-        /// If value hasn’t been parsed yet, tries to deserialise it directly
-        /// into `T` using given parse function.
-        pub fn unwrap_or_else(
-            self,
-            func: impl FnOnce(Value) -> Result<T, RpcParseError>,
-        ) -> Result<T, RpcParseError> {
-            self.0.unwrap_or_else(func)
+        /// Finish chain of parsing without trying of parsing to `T` directly
+        pub fn unwrap(self) -> Result<T, RpcParseError> {
+            match self.0 {
+                Ok(res) => res,
+                Err(e) => Err(RpcParseError(format!("Failed parsing args: {e}"))),
+            }
         }
 
         /// If value hasn’t been parsed yet and it’s a one-element array
