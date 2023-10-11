@@ -17,9 +17,10 @@ use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 use near_primitives::state_record::StateRecord;
+use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
 use near_primitives::trie_key::TrieKey;
 pub use near_primitives::types::TrieNodesCount;
-use near_primitives::types::{StateRoot, StateRootNode};
+use near_primitives::types::{AccountId, StateRoot, StateRootNode};
 use near_vm_runner::ContractCode;
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
@@ -613,14 +614,35 @@ impl Trie {
         Ok(())
     }
 
-    // Prints the trie nodes starting from hash, up to max_depth depth.
-    // The node hash can be any node in the trie.
-    pub fn print_recursive(&self, f: &mut dyn std::io::Write, hash: &CryptoHash, max_depth: u32) {
+    /// Prints the trie nodes starting from `hash`, up to `max_depth` depth. The node hash can be any node in the trie.
+    /// Depending on arguments provided, can limit output to no more than `limit` entries,
+    /// show only subtree for a given `record_type`, or skip subtrees where `AccountId` is less than `from` or greater than `to`.
+    pub fn print_recursive(
+        &self,
+        f: &mut dyn std::io::Write,
+        hash: &CryptoHash,
+        max_depth: u32,
+        limit: Option<u32>,
+        record_type: Option<u8>,
+        from: &Option<&AccountId>,
+        to: &Option<&AccountId>,
+    ) {
         match self.debug_retrieve_raw_node_or_value(hash) {
             Ok(NodeOrValue::Node(_)) => {
                 let mut prefix: Vec<u8> = Vec::new();
-                self.print_recursive_internal(f, hash, max_depth, &mut "".to_string(), &mut prefix)
-                    .expect("write failed");
+                let mut limit = limit.unwrap_or(u32::MAX);
+                self.print_recursive_internal(
+                    f,
+                    hash,
+                    &mut "".to_string(),
+                    &mut prefix,
+                    max_depth,
+                    &mut limit,
+                    record_type,
+                    from,
+                    to,
+                )
+                .expect("write failed");
             }
             Ok(NodeOrValue::Value(value_bytes)) => {
                 writeln!(
@@ -637,18 +659,45 @@ impl Trie {
         };
     }
 
-    // Prints the trie leaves starting from the state root node, up to max_depth depth.
-    // This method can only iterate starting from the root node and it only prints the
-    // leaf nodes but it shows output in more human friendly way.
-    pub fn print_recursive_leaves(&self, f: &mut dyn std::io::Write, max_depth: u32) {
-        let iter = match self.iter_with_max_depth(max_depth as usize) {
+    /// Prints the trie leaves starting from the state root node, up to max_depth depth.
+    /// This method can only iterate starting from the root node and it only prints the
+    /// leaf nodes but it shows output in more human friendly way.
+    /// Optional arguments `limit` and `record_type` limits the output to at most `limit`
+    /// entries and shows trie nodes of `record_type` type only.
+    /// `from` and `to` can be used skip leaves with `AccountId` less than `from` or greater than `to`.
+    pub fn print_recursive_leaves(
+        &self,
+        f: &mut dyn std::io::Write,
+        max_depth: u32,
+        limit: Option<u32>,
+        record_type: Option<u8>,
+        from: &Option<&AccountId>,
+        to: &Option<&AccountId>,
+    ) {
+        let mut limit = limit.unwrap_or(u32::MAX);
+        let from = from.cloned();
+        let to = to.cloned();
+
+        let prune_condition = move |key_nibbles: &Vec<u8>| {
+            if key_nibbles.len() > max_depth as usize {
+                return true;
+            }
+            let (partial_key, _) = Self::nibbles_to_bytes(&key_nibbles);
+            Self::should_prune_view_trie(&partial_key, record_type, &from.as_ref(), &to.as_ref())
+        };
+
+        let iter = match self.iter_with_prune_condition(Some(Box::new(prune_condition))) {
             Ok(iter) => iter,
             Err(err) => {
                 writeln!(f, "Error when getting the trie iterator: {}", err).expect("write failed");
                 return;
             }
         };
+
         for node in iter {
+            if limit == 0 {
+                break;
+            }
             let (key, value) = match node {
                 Ok((key, value)) => (key, value),
                 Err(err) => {
@@ -665,17 +714,24 @@ impl Trie {
             };
             let state_record = StateRecord::from_raw_key_value(key.clone(), value);
 
+            limit -= 1;
             writeln!(f, "{} {state_record:?}", key_string).expect("write failed");
         }
     }
 
+    /// Converts the list of Nibbles to `Vec<u8>` and remainder (in case the length of the input was odd).
+    fn nibbles_to_bytes(nibbles: &[u8]) -> (Vec<u8>, &[u8]) {
+        let (chunks, remainder) = stdx::as_chunks::<2, _>(nibbles);
+        let bytes = chunks.into_iter().map(|chunk| (chunk[0] * 16) + chunk[1]).collect::<Vec<u8>>();
+        (bytes, remainder)
+    }
+
     // Converts the list of Nibbles to a readable string.
     fn nibbles_to_string(prefix: &[u8]) -> String {
-        let (chunks, remainder) = stdx::as_chunks::<2, _>(prefix);
-        let mut result = chunks
-            .into_iter()
-            .map(|chunk| (chunk[0] * 16) + chunk[1])
-            .flat_map(|ch| std::ascii::escape_default(ch).map(char::from))
+        let (bytes, remainder) = Self::nibbles_to_bytes(prefix);
+        let mut result = bytes
+            .iter()
+            .flat_map(|ch| std::ascii::escape_default(*ch).map(char::from))
             .collect::<String>();
         if let Some(final_nibble) = remainder.first() {
             write!(&mut result, "\\x{:x}_", final_nibble).unwrap();
@@ -683,17 +739,71 @@ impl Trie {
         result
     }
 
+    /// Checks whether the provided `account_id_prefix` is lexicographically greater than `to` (if provided),
+    /// or whether it is lexicographically less than `from` (if provided, except being a prefix of `from`).
+    /// Although prefix of `from` is lexicographically less than `from`, pruning such subtree would cut off `from`.
+    fn is_out_of_account_id_bounds(
+        account_id_prefix: &[u8],
+        from: &Option<&AccountId>,
+        to: &Option<&AccountId>,
+    ) -> bool {
+        if let Some(from) = from {
+            if !from.as_bytes().starts_with(account_id_prefix)
+                && from.as_bytes() > account_id_prefix
+            {
+                return true;
+            }
+        }
+        if let Some(to) = to {
+            return account_id_prefix > to.as_bytes();
+        }
+        false
+    }
+
+    /// Returns true if the node with key `node_key` and its subtree should be skipped based on provided arguments.
+    /// If `record_type` is provided and the node is of different type, returns true.
+    /// If `AccountId`s in the subtree will not fall in the range [`from`, `to`], returns true.
+    /// Otherwise returns false.
+    fn should_prune_view_trie(
+        node_key: &Vec<u8>,
+        record_type: Option<u8>,
+        from: &Option<&AccountId>,
+        to: &Option<&AccountId>,
+    ) -> bool {
+        if node_key.is_empty() {
+            return false;
+        }
+
+        let column = node_key[0];
+        if let Some(record_type) = record_type {
+            if column != record_type {
+                return true;
+            }
+        }
+        if let Ok(account_id_prefix) = parse_account_id_prefix(column, &node_key) {
+            if Self::is_out_of_account_id_bounds(account_id_prefix, from, to) {
+                return true;
+            }
+        }
+        false
+    }
+
     fn print_recursive_internal(
         &self,
         f: &mut dyn std::io::Write,
         hash: &CryptoHash,
-        max_depth: u32,
         spaces: &mut String,
         prefix: &mut Vec<u8>,
+        max_depth: u32,
+        limit: &mut u32,
+        record_type: Option<u8>,
+        from: &Option<&AccountId>,
+        to: &Option<&AccountId>,
     ) -> std::io::Result<()> {
-        if max_depth == 0 {
+        if max_depth == 0 || *limit == 0 {
             return Ok(());
         }
+        *limit -= 1;
 
         let (bytes, raw_node, mem_usage) = match self.retrieve_raw_node(hash, true) {
             Ok(Some((bytes, raw_node))) => (bytes, raw_node.node, raw_node.memory_usage),
@@ -706,18 +816,20 @@ impl Trie {
                 let (slice, _) = NibbleSlice::from_encoded(key.as_slice());
                 prefix.extend(slice.iter());
 
-                let (chunks, remainder) = stdx::as_chunks::<2, _>(prefix);
+                let (leaf_key, remainder) = Self::nibbles_to_bytes(&prefix);
                 assert!(remainder.is_empty());
-                let leaf_key =
-                    chunks.into_iter().map(|chunk| (chunk[0] * 16) + chunk[1]).collect::<Vec<u8>>();
-                let state_record = StateRecord::from_raw_key_value(leaf_key, bytes.to_vec());
 
-                writeln!(
-                    f,
-                    "{spaces}Leaf {slice:?} {value:?} prefix:{} hash:{hash} mem_usage:{mem_usage} state_record:{:?}",
-                    Self::nibbles_to_string(prefix),
-                    state_record.map(|sr|format!("{}", sr)),
-                )?;
+                if !Self::should_prune_view_trie(&leaf_key, record_type, from, to) {
+                    let state_record = StateRecord::from_raw_key_value(leaf_key, bytes.to_vec());
+
+                    writeln!(
+                        f,
+                        "{spaces}Leaf {slice:?} {value:?} prefix:{} hash:{hash} mem_usage:{mem_usage} state_record:{:?}",
+                        Self::nibbles_to_string(prefix),
+                        state_record.map(|sr|format!("{}", sr)),
+                    )?;
+                }
+
                 prefix.truncate(prefix.len() - slice.len());
                 return Ok(());
             }
@@ -739,17 +851,34 @@ impl Trie {
             }
             RawTrieNode::Extension(key, child) => {
                 let (slice, _) = NibbleSlice::from_encoded(key.as_slice());
-                writeln!(
-                    f,
+                let node_info = format!(
                     "{}Extension {:?} child_hash:{} prefix:{} hash:{hash} mem_usage:{mem_usage}",
                     spaces,
                     slice,
                     child,
                     Self::nibbles_to_string(prefix),
-                )?;
+                );
                 spaces.push_str("  ");
                 prefix.extend(slice.iter());
-                self.print_recursive_internal(f, &child, max_depth - 1, spaces, prefix)?;
+
+                let (partial_key, _) = Self::nibbles_to_bytes(&prefix);
+
+                if !Self::should_prune_view_trie(&partial_key, record_type, from, to) {
+                    writeln!(f, "{}", node_info)?;
+
+                    self.print_recursive_internal(
+                        f,
+                        &child,
+                        spaces,
+                        prefix,
+                        max_depth - 1,
+                        limit,
+                        record_type,
+                        from,
+                        to,
+                    )?;
+                }
+
                 prefix.truncate(prefix.len() - slice.len());
                 spaces.truncate(spaces.len() - 2);
                 return Ok(());
@@ -760,7 +889,17 @@ impl Trie {
             writeln!(f, "{spaces} {idx:01x}->")?;
             spaces.push_str("  ");
             prefix.push(idx);
-            self.print_recursive_internal(f, child, max_depth - 1, spaces, prefix)?;
+            self.print_recursive_internal(
+                f,
+                child,
+                spaces,
+                prefix,
+                max_depth - 1,
+                limit,
+                record_type,
+                from,
+                to,
+            )?;
             prefix.pop();
             spaces.truncate(spaces.len() - 2);
         }
