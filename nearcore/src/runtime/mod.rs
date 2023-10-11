@@ -83,15 +83,12 @@ impl NightshadeRuntime {
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> Arc<Self> {
-        let state_snapshot_config = if config.config.store.state_snapshot_enabled {
-            StateSnapshotConfig::Enabled {
-                home_dir: home_dir.to_path_buf(),
-                hot_store_path: config.config.store.path.clone().unwrap_or(PathBuf::from("data")),
-                state_snapshot_subdir: PathBuf::from("state_snapshot"),
-                compaction_enabled: config.config.store.state_snapshot_compaction_enabled,
-            }
-        } else {
-            StateSnapshotConfig::Disabled
+        let state_snapshot_config = StateSnapshotConfig {
+            enabled: config.config.store.state_snapshot_enabled,
+            home_dir: home_dir.to_path_buf(),
+            hot_store_path: config.config.store.path.clone().unwrap_or(PathBuf::from("data")),
+            state_snapshot_subdir: PathBuf::from("state_snapshot"),
+            compaction_enabled: config.config.store.state_snapshot_compaction_enabled,
         };
         Self::new(
             store,
@@ -125,12 +122,12 @@ impl NightshadeRuntime {
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
-        let tries = ShardTries::new_with_state_snapshot(
+        let tries = ShardTries::new(
             store.clone(),
             trie_config,
             &genesis_config.shard_layout.get_shard_uids(),
             flat_storage_manager,
-            state_snapshot_config,
+            Some(state_snapshot_config),
         );
         if let Err(err) = tries.maybe_open_state_snapshot(|prev_block_hash: CryptoHash| {
             let epoch_manager = epoch_manager.read();
@@ -171,7 +168,8 @@ impl NightshadeRuntime {
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
-            StateSnapshotConfig::Enabled {
+            StateSnapshotConfig {
+                enabled: true,
                 home_dir: home_dir.to_path_buf(),
                 hot_store_path: PathBuf::from("data"),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
@@ -1474,7 +1472,8 @@ mod test {
                 Some(RuntimeConfigStore::free()),
                 DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
                 Default::default(),
-                StateSnapshotConfig::Enabled {
+                StateSnapshotConfig {
+                    enabled: true,
                     home_dir: PathBuf::from(dir.path()),
                     hot_store_path: PathBuf::from("data"),
                     state_snapshot_subdir: PathBuf::from("state_snapshot"),

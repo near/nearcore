@@ -89,7 +89,8 @@ impl<'c> EstimatorContext<'c> {
         // Create ShardTries with relevant settings adjusted for estimator.
         let mut trie_config = near_store::TrieConfig::default();
         trie_config.enable_receipt_prefetching = true;
-        let tries = ShardTries::new(store.clone(), trie_config, &[shard_uid], flat_storage_manager);
+        let tries =
+            ShardTries::new(store.clone(), trie_config, &[shard_uid], flat_storage_manager, None);
 
         Testbed {
             config: self.config,

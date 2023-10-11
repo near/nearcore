@@ -47,18 +47,19 @@ impl StateSnaptshotTestEnv {
         };
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         let shard_uids = [ShardUId::single_shard()];
-        let state_snapshot_config = StateSnapshotConfig::Enabled {
+        let state_snapshot_config = StateSnapshotConfig {
+            enabled: true,
             home_dir: home_dir.clone(),
             hot_store_path: hot_store_path.clone(),
             state_snapshot_subdir: state_snapshot_subdir.clone(),
             compaction_enabled: true,
         };
-        let shard_tries = ShardTries::new_with_state_snapshot(
+        let shard_tries = ShardTries::new(
             store.clone(),
             trie_config,
             &shard_uids,
             flat_storage_manager,
-            state_snapshot_config,
+            Some(state_snapshot_config),
         );
         Self { home_dir, hot_store_path, state_snapshot_subdir, shard_tries }
     }

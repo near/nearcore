@@ -33,6 +33,7 @@ pub fn construct_trie_from_flat(store: Store, write_store: Store, shard_uid: Sha
         TrieConfig::default(),
         &[shard_uid],
         FlatStorageManager::new(write_store),
+        None,
     );
     let mut trie_root = Trie::EMPTY_ROOT;
 

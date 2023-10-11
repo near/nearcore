@@ -120,6 +120,7 @@ fn genesis_state_from_genesis(store: Store, genesis: &Genesis) -> Vec<StateRoot>
         TrieConfig::default(),
         &genesis.config.shard_layout.get_shard_uids(),
         FlatStorageManager::new(store),
+        None,
     );
 
     let writers = std::sync::atomic::AtomicUsize::new(0);
