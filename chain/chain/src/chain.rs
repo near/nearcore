@@ -4085,11 +4085,21 @@ impl Chain {
                     ) {
                         Ok(_chunk_state) => {
                             Error::InvalidChunk // for debug
-                                                  // Error::InvalidChunkState(Box::new(chunk_state))
+                                                // Error::InvalidChunkState(Box::new(chunk_state))
                         }
                         Err(err) => err,
                     }
                 })?;
+                warn!(
+                    target: "chain",
+                    prev_block_hash=?prev_hash,
+                    block_hash=?block.header().hash(),
+                    shard_id,
+                    prev_chunk_height_included,
+                    ?prev_chunk_extra,
+                    ?chunk_header,
+                    "Validated chunk extra"
+                );
 
                 let old_receipts = &self.store().get_incoming_receipts_for_shard(
                     self.epoch_manager.as_ref(),
