@@ -1772,7 +1772,9 @@ impl Chain {
         block: &Block,
     ) -> Result<HashMap<ShardId, Vec<ReceiptProof>>, Error> {
         // genesis case - no incoming receipts?
-        if block.hash() == &CryptoHash::default() {
+        if block.hash() == &CryptoHash::default()
+            || block.header().prev_hash() == &CryptoHash::default()
+        {
             return Ok(HashMap::new());
         }
         eprintln!("collect_incoming_receipts_from_block {:?}", block);
