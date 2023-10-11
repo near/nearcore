@@ -5359,7 +5359,10 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 apply_split_result_or_state_changes,
             }) => {
-                println!("same height / get_chunk_extra {block_hash} {shard_uid}");
+                println!(
+                    "same height / get_chunk_extra {block_hash} {shard_uid} new_root={}",
+                    apply_result.new_root
+                );
                 let (outcome_root, outcome_paths) =
                     ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();
@@ -5411,7 +5414,10 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 apply_split_result_or_state_changes,
             }) => {
-                println!("diff height / get_chunk_extra {block_hash} {shard_uid}");
+                println!(
+                    "diff height / get_chunk_extra {block_hash} {shard_uid} new_root={}",
+                    apply_result.new_root
+                );
                 let old_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
 
                 let mut new_extra = ChunkExtra::clone(&old_extra);
