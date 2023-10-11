@@ -2343,11 +2343,7 @@ fn test_sync_hash_validity() {
         let block_hash = *env.clients[0].chain.get_block_header_by_height(i).unwrap().hash();
         let res = env.clients[0].chain.check_sync_hash_validity(&block_hash);
         println!("height {:?} -> {:?}", i, res);
-        if i == 11 || i == 16 {
-            assert!(res.unwrap())
-        } else {
-            assert!(!res.unwrap())
-        }
+        assert_eq!(res.unwrap(), i == 0 || (i%epoch_length) == 1);
     }
     let bad_hash = CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap();
     let res = env.clients[0].chain.check_sync_hash_validity(&bad_hash);
