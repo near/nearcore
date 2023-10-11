@@ -20,12 +20,12 @@ pub struct StatePartsCommand {
 
     #[clap(long)]
     /// genesis hash to use in the Handshake we send. This must be provided if --chain-id
-    /// is not "mainnet" or "testnet"
+    /// is not MAINNET or TESTNET
     genesis_hash: Option<String>,
 
     #[clap(long)]
     /// head height to use in the Handshake we send. This must be provided if --chain-id
-    /// is not "mainnet" or "testnet"
+    /// is not MAINNET or TESTNET
     head_height: Option<u64>,
 
     /// Protocol version to advertise in our handshake

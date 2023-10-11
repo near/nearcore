@@ -183,7 +183,7 @@ pub struct GenesisConfig {
 
 impl GenesisConfig {
     pub fn use_production_config(&self) -> bool {
-        self.use_production_config || self.chain_id == "testnet" || self.chain_id == "mainnet"
+        self.use_production_config || self.chain_id == TESTNET || self.chain_id == MAINNET
     }
 }
 

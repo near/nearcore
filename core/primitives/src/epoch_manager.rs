@@ -83,7 +83,7 @@ pub struct AllEpochConfig {
     use_production_config: bool,
     /// EpochConfig from genesis
     genesis_epoch_config: EpochConfig,
-    /// Chain Id.
+    /// Chain Id. Some parameters are specific to certain chains.
     chain_id: String,
 }
 
@@ -150,17 +150,18 @@ impl AllEpochConfig {
             config.validator_selection_config.num_chunk_only_producer_seats = 200;
         }
 
-        if chain_id == "testnet"
-            && checked_feature!("stable", TestnetMoreChunkOnlyProducers, protocol_version)
+        // Adjust the number of block and chunk producers for all chains except
+        // mainnet, to make it easier to test the change.
+        if chain_id != MAINNET
+            && checked_feature!("stable", TestnetFewerBlockProducers, protocol_version)
         {
             let num_shards = config.shard_layout.num_shards() as usize;
-            // On testnet, genesis config set num_block_producer_seats to 200
-            // This is to bring it back to 100 to be the same as on mainnet
+            // Decrease the number of block producers from 100 to 20.
             config.num_block_producer_seats = 20;
-            // Technically, after ChunkOnlyProducers is enabled, this field is no longer used
-            // We still set it here just in case
             config.num_block_producer_seats_per_shard =
                 vec![config.num_block_producer_seats; num_shards];
+            // Decrease the numbr of chunk producers.
+            config.validator_selection_config.num_chunk_only_producer_seats = 100;
         }
     }
 
