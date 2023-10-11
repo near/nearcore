@@ -5360,7 +5360,7 @@ impl<'a> ChainUpdate<'a> {
                 apply_split_result_or_state_changes,
             }) => {
                 println!(
-                    "same height / get_chunk_extra {block_hash} {shard_uid} new_root={}",
+                    "same height {block_hash} {shard_uid} new_root={}",
                     apply_result.new_root
                 );
                 let (outcome_root, outcome_paths) =
