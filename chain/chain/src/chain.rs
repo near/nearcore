@@ -1775,7 +1775,7 @@ impl Chain {
         if block.hash() == &CryptoHash::default() {
             return Ok(HashMap::new());
         }
-        // eprintln!("collect_incoming_receipts_from_block {:?}", block);
+        eprintln!("collect_incoming_receipts_from_block {:?}", block);
         if !self.care_about_any_shard_or_part(me, *block.header().prev_hash())? {
             return Ok(HashMap::new());
         }
