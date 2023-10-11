@@ -4048,6 +4048,7 @@ impl Chain {
     ) -> Result<Option<ApplyChunkJob>, Error> {
         let prev_hash = block.header().prev_hash();
         let shard_id = shard_uid.shard_id();
+        println!("new_chunk {} {shard_uid}", block.header().height());
 
         let old_receipts = match prev_chunk_header {
             Some(prev_chunk_header) => {
@@ -4246,6 +4247,8 @@ impl Chain {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let new_extra = self.get_chunk_extra(&block_hash, &shard_uid)?;
+
+        println!("old_chunk {} {shard_uid}", block.header().height());
 
         let next_gas_price =
             if protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version() {
@@ -5356,6 +5359,7 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 apply_split_result_or_state_changes,
             }) => {
+                println!("same height / get_chunk_extra {block_hash} {shard_uid}");
                 let (outcome_root, outcome_paths) =
                     ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();
@@ -5400,13 +5404,14 @@ impl<'a> ChainUpdate<'a> {
                 if let Some(apply_results_or_state_changes) = apply_split_result_or_state_changes {
                     self.process_split_state(block, &shard_uid, apply_results_or_state_changes)?;
                 }
+                println!("same height end");
             }
             ApplyChunkResult::DifferentHeight(DifferentHeightResult {
                 shard_uid,
                 apply_result,
                 apply_split_result_or_state_changes,
             }) => {
-                println!("diff height / get_chunk_extra {prev_hash} {shard_uid}");
+                println!("diff height / get_chunk_extra {block_hash} {shard_uid}");
                 let old_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
 
                 let mut new_extra = ChunkExtra::clone(&old_extra);
