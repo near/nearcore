@@ -18,14 +18,15 @@ const ACCOUNTS_FILE: &str = "accounts.csv";
 const NUM_SHARDS: NumShards = 8;
 
 fn verify_total_supply(total_supply: Balance, chain_id: &str) {
-    if chain_id == "mainnet" {
+    if chain_id == near_primitives::chains::MAINNET {
         assert_eq!(
             total_supply,
             1_000_000_000 * NEAR_BASE,
             "Total supply should be exactly 1 billion"
         );
     } else if total_supply > 10_000_000_000 * NEAR_BASE
-        && (chain_id == "testnet" || chain_id == "stakewars")
+        && (chain_id == near_primitives::chains::TESTNET
+            || chain_id == near_primitives::chains::STAKEWARS)
     {
         panic!("Total supply should not be more than 10 billion");
     }
