@@ -1776,7 +1776,7 @@ impl Chain {
         if block.hash() == &CryptoHash::default()
             || block.header().prev_hash() == &CryptoHash::default()
         {
-            return Ok(HashMap::new());
+            return Ok(HashMap::from_iter(block.chunks().iter().map(|h| (h.shard_id(), vec![]))));
         }
         eprintln!(
             "collect_incoming_receipts_from_block {} {} {}",
