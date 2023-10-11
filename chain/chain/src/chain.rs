@@ -4049,50 +4049,59 @@ impl Chain {
         let prev_hash = block.header().prev_hash();
         let shard_id = shard_uid.shard_id();
 
-        if let Some(prev_chunk_header) = prev_chunk_header {
-            let prev_chunk_height_included = prev_chunk_header.height_included();
-            // Validate state root.
-            let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
+        let old_receipts = match prev_chunk_header {
+            Some(prev_chunk_header) => {
+                let prev_chunk_height_included = prev_chunk_header.height_included();
+                // Validate state root.
+                let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
 
-            // Validate that all next chunk information matches previous chunk extra.
-            validate_chunk_with_chunk_extra(
-                // It's safe here to use ChainStore instead of ChainStoreUpdate
-                // because we're asking prev_chunk_header for already committed block
-                self.store(),
-                self.epoch_manager.as_ref(),
-                prev_hash,
-                &prev_chunk_extra,
-                prev_chunk_height_included,
-                chunk_header,
-            )
-            .map_err(|err| {
-                warn!(
-                    target: "chain",
-                    ?err,
-                    prev_block_hash=?prev_hash,
-                    block_hash=?block.header().hash(),
-                    shard_id,
+                // Validate that all next chunk information matches previous chunk extra.
+                validate_chunk_with_chunk_extra(
+                    // It's safe here to use ChainStore instead of ChainStoreUpdate
+                    // because we're asking prev_chunk_header for already committed block
+                    self.store(),
+                    self.epoch_manager.as_ref(),
+                    prev_hash,
+                    &prev_chunk_extra,
                     prev_chunk_height_included,
-                    ?prev_chunk_extra,
-                    ?chunk_header,
-                    "Failed to validate chunk extra");
-                byzantine_assert!(false);
-                match self.create_chunk_state_challenge(prev_block.unwrap(), block, chunk_header) {
-                    Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
-                    Err(err) => err,
-                }
-            })?;
-        }
+                    chunk_header,
+                )
+                .map_err(|err| {
+                    warn!(
+                        target: "chain",
+                        ?err,
+                        prev_block_hash=?prev_hash,
+                        block_hash=?block.header().hash(),
+                        shard_id,
+                        prev_chunk_height_included,
+                        ?prev_chunk_extra,
+                        ?chunk_header,
+                        "Failed to validate chunk extra");
+                    byzantine_assert!(false);
+                    match self.create_chunk_state_challenge(
+                        prev_block.unwrap(),
+                        block,
+                        chunk_header,
+                    ) {
+                        Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
+                        Err(err) => err,
+                    }
+                })?;
+
+                let old_receipts = &self.store().get_incoming_receipts_for_shard(
+                    self.epoch_manager.as_ref(),
+                    shard_id,
+                    *prev_hash,
+                    prev_chunk_height_included,
+                )?;
+                collect_receipts_from_response(old_receipts)
+            }
+            None => vec![],
+        };
         // we can't use hash from the current block here yet because the incoming receipts
         // for this block is not stored yet
         let new_receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
-        let old_receipts = &self.store().get_incoming_receipts_for_shard(
-            self.epoch_manager.as_ref(),
-            shard_id,
-            *prev_hash,
-            prev_chunk_height_included,
-        )?;
-        let old_receipts = collect_receipts_from_response(old_receipts);
+
         let receipts = [new_receipts, old_receipts].concat();
 
         let chunk = self.get_chunk_clone_from_header(&chunk_header.clone())?;
