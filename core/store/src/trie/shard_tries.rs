@@ -175,34 +175,6 @@ impl ShardTries {
         self.get_trie_for_shard_internal(shard_uid, state_root, false, None)
     }
 
-    pub fn get_state_snapshot(
-        &self,
-        block_hash: &CryptoHash,
-    ) -> Result<(Store, FlatStorageManager), StorageError> {
-        // Taking this lock can last up to 10 seconds, if the snapshot happens to be re-created.
-        match self.0.state_snapshot.try_read() {
-            Ok(guard) => {
-                if let Some(data) = guard.as_ref() {
-                    if &data.prev_block_hash != block_hash {
-                        return Err(StorageInconsistentState(format!(
-                            "Wrong state snapshot. Requested: {:?}, Available: {:?}",
-                            block_hash, data.prev_block_hash
-                        )));
-                    }
-                    Ok((data.store.clone(), data.flat_storage_manager.clone()))
-                } else {
-                    Err(StorageInconsistentState("No state snapshot available".to_string()))
-                }
-            }
-            Err(TryLockError::WouldBlock) => Err(StorageInconsistentState(
-                "Accessing state snapshot would block. Retry in a few seconds.".to_string(),
-            )),
-            Err(err) => {
-                Err(StorageInconsistentState(format!("Can't access state snapshot: {err:?}")))
-            }
-        }
-    }
-
     pub fn get_trie_with_block_hash_for_shard_from_snapshot(
         &self,
         shard_uid: ShardUId,
