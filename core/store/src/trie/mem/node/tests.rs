@@ -2,7 +2,6 @@ use crate::trie::mem::arena::Arena;
 use crate::trie::mem::node::{InputMemTrieNode, MemTrieNodeId, MemTrieNodeView};
 use crate::trie::Children;
 use crate::{RawTrieNode, RawTrieNodeWithSize};
-use borsh::BorshSerialize;
 use near_primitives::hash::hash;
 use near_primitives::state::{FlatStateValue, ValueRef};
 
@@ -28,7 +27,7 @@ fn test_basic_leaf_node_inlined() {
         }
     );
     assert_eq!(view.memory_usage(), 115);
-    assert_eq!(view.node_hash(), hash(&view.to_raw_trie_node_with_size().try_to_vec().unwrap()));
+    assert_eq!(view.node_hash(), hash(&borsh::to_vec(&view.to_raw_trie_node_with_size()).unwrap()));
     match view {
         MemTrieNodeView::Leaf { extension, value } => {
             assert_eq!(extension.raw_slice(), &[0, 1, 2, 3, 4]);
@@ -58,7 +57,7 @@ fn test_basic_leaf_node_ref() {
         }
     );
     assert_eq!(view.memory_usage(), 115);
-    assert_eq!(view.node_hash(), hash(&view.to_raw_trie_node_with_size().try_to_vec().unwrap()));
+    assert_eq!(view.node_hash(), hash(&borsh::to_vec(&view.to_raw_trie_node_with_size()).unwrap()));
     match view {
         MemTrieNodeView::Leaf { extension, value } => {
             assert_eq!(extension.raw_slice(), &[0, 1, 2, 3, 4]);
@@ -90,7 +89,7 @@ fn test_basic_leaf_node_empty_extension_empty_value() {
         }
     );
     assert_eq!(view.memory_usage(), 100);
-    assert_eq!(view.node_hash(), hash(&view.to_raw_trie_node_with_size().try_to_vec().unwrap()));
+    assert_eq!(view.node_hash(), hash(&borsh::to_vec(&view.to_raw_trie_node_with_size()).unwrap()));
     match view {
         MemTrieNodeView::Leaf { extension, value } => {
             assert!(extension.raw_slice().is_empty());
@@ -127,7 +126,7 @@ fn test_basic_extension_node() {
     assert_eq!(node_ptr.view().memory_usage(), child_ptr.view().memory_usage() + 60);
     assert_eq!(
         node_ptr.view().node_hash(),
-        hash(&node_ptr.view().to_raw_trie_node_with_size().try_to_vec().unwrap())
+        hash(&borsh::to_vec(&node_ptr.view().to_raw_trie_node_with_size()).unwrap())
     );
     match node_ptr.view() {
         MemTrieNodeView::Extension { hash, memory_usage, extension, child: actual_child } => {
@@ -203,7 +202,7 @@ fn test_basic_branch_node() {
     );
     assert_eq!(
         node_ptr.view().node_hash(),
-        hash(&node_ptr.view().to_raw_trie_node_with_size().try_to_vec().unwrap())
+        hash(&borsh::to_vec(&node_ptr.view().to_raw_trie_node_with_size()).unwrap())
     );
     match node_ptr.view() {
         MemTrieNodeView::Branch { hash, memory_usage, children } => {
@@ -281,7 +280,7 @@ fn test_basic_branch_with_value_node() {
     );
     assert_eq!(
         node_ptr.view().node_hash(),
-        hash(&node_ptr.view().to_raw_trie_node_with_size().try_to_vec().unwrap())
+        hash(&borsh::to_vec(&node_ptr.view().to_raw_trie_node_with_size()).unwrap())
     );
     match node_ptr.view() {
         MemTrieNodeView::BranchWithValue { hash, memory_usage, children, value } => {

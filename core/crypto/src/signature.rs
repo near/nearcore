@@ -817,11 +817,11 @@ mod tests {
         for key_type in [KeyType::ED25519, KeyType::SECP256K1] {
             let sk = SecretKey::from_seed(key_type, "test");
             let pk = sk.public_key();
-            let bytes = pk.try_to_vec().unwrap();
+            let bytes = borsh::to_vec(&pk).unwrap();
             assert_eq!(PublicKey::try_from_slice(&bytes).unwrap(), pk);
 
             let signature = sk.sign(&data);
-            let bytes = signature.try_to_vec().unwrap();
+            let bytes = borsh::to_vec(&signature).unwrap();
             assert_eq!(Signature::try_from_slice(&bytes).unwrap(), signature);
 
             assert!(PublicKey::try_from_slice(&[0]).is_err());

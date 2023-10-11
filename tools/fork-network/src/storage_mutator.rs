@@ -5,7 +5,7 @@ use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::{
     account::{AccessKey, Account},
-    borsh::BorshSerialize,
+    borsh::{self},
     hash::CryptoHash,
     trie_key::TrieKey,
     types::{AccountId, EpochId, StateRoot},
@@ -57,7 +57,7 @@ impl StorageMutator {
         value: Account,
     ) -> anyhow::Result<()> {
         let shard_id = self.epoch_manager.account_id_to_shard_id(&account_id, &self.epoch_id)?;
-        self.tries[shard_id as usize].set(TrieKey::Account { account_id }, value.try_to_vec()?);
+        self.tries[shard_id as usize].set(TrieKey::Account { account_id }, borsh::to_vec(&value)?);
         Ok(())
     }
 
@@ -69,7 +69,7 @@ impl StorageMutator {
     ) -> anyhow::Result<()> {
         let shard_id = self.epoch_manager.account_id_to_shard_id(&account_id, &self.epoch_id)?;
         self.tries[shard_id as usize]
-            .set(TrieKey::AccessKey { account_id, public_key }, access_key.try_to_vec()?);
+            .set(TrieKey::AccessKey { account_id, public_key }, borsh::to_vec(&access_key)?);
         Ok(())
     }
 

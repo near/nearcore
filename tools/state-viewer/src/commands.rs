@@ -86,7 +86,7 @@ pub(crate) fn apply_block(
                 &receipts,
                 chunk.transactions(),
                 chunk_inner.prev_validator_proposals(),
-                prev_block.header().gas_price(),
+                prev_block.header().next_gas_price(),
                 chunk_inner.gas_limit(),
                 block.header().challenges_result(),
                 *block.header().random_value(),
@@ -111,7 +111,7 @@ pub(crate) fn apply_block(
                 &[],
                 &[],
                 chunk_extra.validator_proposals(),
-                block.header().gas_price(),
+                block.header().next_gas_price(),
                 chunk_extra.gas_limit(),
                 block.header().challenges_result(),
                 *block.header().random_value(),
@@ -869,9 +869,21 @@ pub(crate) fn view_trie(
     shard_id: u32,
     shard_version: u32,
     max_depth: u32,
+    limit: Option<u32>,
+    record_type: Option<u8>,
+    from: Option<AccountId>,
+    to: Option<AccountId>,
 ) -> anyhow::Result<()> {
     let trie = get_trie(store, hash, shard_id, shard_version);
-    trie.print_recursive(&mut std::io::stdout().lock(), &hash, max_depth);
+    trie.print_recursive(
+        &mut std::io::stdout().lock(),
+        &hash,
+        max_depth,
+        limit,
+        record_type,
+        &from.as_ref(),
+        &to.as_ref(),
+    );
     Ok(())
 }
 
@@ -881,9 +893,20 @@ pub(crate) fn view_trie_leaves(
     shard_id: u32,
     shard_version: u32,
     max_depth: u32,
+    limit: Option<u32>,
+    record_type: Option<u8>,
+    from: Option<AccountId>,
+    to: Option<AccountId>,
 ) -> anyhow::Result<()> {
     let trie = get_trie(store, state_root_hash, shard_id, shard_version);
-    trie.print_recursive_leaves(&mut std::io::stdout().lock(), max_depth);
+    trie.print_recursive_leaves(
+        &mut std::io::stdout().lock(),
+        max_depth,
+        limit,
+        record_type,
+        &from.as_ref(),
+        &to.as_ref(),
+    );
     Ok(())
 }
 

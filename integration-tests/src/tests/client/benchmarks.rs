@@ -4,7 +4,6 @@
 //! we want to test here are pretty heavy and its enough to run them once and
 //! note the wall-clock time.
 
-use borsh::BorshSerialize;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::{create_chunk_on_height, TestEnv};
@@ -56,7 +55,7 @@ fn benchmark_large_chunk_production_time() {
     let (chunk, _, _) = create_chunk_on_height(&mut env.clients[0], 0);
     let time = t.elapsed();
 
-    let size = chunk.try_to_vec().unwrap().len();
+    let size = borsh::object_length(&chunk).unwrap();
     eprintln!("chunk size: {}kb", size / 1024);
     eprintln!("time to produce: {:0.2?}", time);
 

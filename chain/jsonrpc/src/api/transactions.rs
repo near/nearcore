@@ -68,7 +68,7 @@ mod tests {
     use near_jsonrpc_primitives::types::transactions::{
         RpcBroadcastTransactionRequest, RpcTransactionStatusCommonRequest,
     };
-    use near_primitives::borsh::BorshSerialize;
+    use near_primitives::borsh;
     use near_primitives::hash::CryptoHash;
     use near_primitives::serialize::to_base64;
     use near_primitives::transaction::SignedTransaction;
@@ -85,7 +85,7 @@ mod tests {
     fn test_serialize_tx_status_params_as_binary_signed_tx() {
         let tx_hash = CryptoHash::new();
         let tx = SignedTransaction::empty(tx_hash);
-        let bytes_tx = tx.try_to_vec().unwrap();
+        let bytes_tx = borsh::to_vec(&tx).unwrap();
         let str_tx = to_base64(&bytes_tx);
         let params = serde_json::json!([str_tx]);
         assert!(RpcTransactionStatusCommonRequest::parse(params).is_ok());
@@ -103,7 +103,7 @@ mod tests {
     fn test_serialize_send_tx_params_as_binary_signed_tx() {
         let tx_hash = CryptoHash::new();
         let tx = SignedTransaction::empty(tx_hash);
-        let bytes_tx = tx.try_to_vec().unwrap();
+        let bytes_tx = borsh::to_vec(&tx).unwrap();
         let str_tx = to_base64(&bytes_tx);
         let params = serde_json::json!([str_tx]);
         assert!(RpcBroadcastTransactionRequest::parse(params).is_ok());

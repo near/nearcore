@@ -1,6 +1,5 @@
 use crate::tests::client::process_blocks::set_block_protocol_version;
 use assert_matches::assert_matches;
-use borsh::BorshSerialize;
 use near_chain::near_chain_primitives::Error;
 use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
@@ -1074,7 +1073,7 @@ fn gen_cross_contract_tx_impl(
                 }, "id": 0 },
                 {"action_add_key_with_full_access": {
                     "promise_index": 0,
-                    "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
+                    "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
                     "nonce": 0,
                 }, "id": 0 }
             ],

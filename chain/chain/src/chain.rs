@@ -20,7 +20,7 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
-use borsh::BorshSerialize;
+
 use chrono::Duration;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use itertools::Itertools;
@@ -878,7 +878,7 @@ impl Chain {
         let block_timestamp = prev_block.header().raw_timestamp();
         let block_hash = prev_block_hash;
         let random_seed = *prev_block.header().random_value();
-        let gas_price = prev_block.header().gas_price();
+        let next_gas_price = prev_block.header().next_gas_price();
 
         self.runtime_adapter.apply_transactions(
             shard_id,
@@ -890,7 +890,7 @@ impl Chain {
             &receipts,
             transactions,
             last_validator_proposals,
-            gas_price,
+            next_gas_price,
             gas_limit,
             &vec![],
             random_seed,
@@ -1350,8 +1350,8 @@ impl Chain {
                 let other_header = self.get_block_header(block_hashes.iter().next().unwrap())?;
 
                 challenges.push(ChallengeBody::BlockDoubleSign(BlockDoubleSign {
-                    left_block_header: header.try_to_vec().expect("Failed to serialize"),
-                    right_block_header: other_header.try_to_vec().expect("Failed to serialize"),
+                    left_block_header: borsh::to_vec(&header).expect("Failed to serialize"),
+                    right_block_header: borsh::to_vec(&other_header).expect("Failed to serialize"),
                 }));
             }
         }
@@ -1696,7 +1696,7 @@ impl Chain {
             if let Some(encoded_chunk) = self.store.is_invalid_chunk(&chunk_header.chunk_hash())? {
                 let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
                 let chunk_proof = ChunkProofs {
-                    block_header: block.header().try_to_vec().expect("Failed to serialize"),
+                    block_header: borsh::to_vec(&block.header()).expect("Failed to serialize"),
                     merkle_proof: merkle_paths[shard_id].clone(),
                     chunk: MaybeEncodedShardChunk::Encoded(EncodedShardChunk::clone(
                         &encoded_chunk,
@@ -2532,7 +2532,7 @@ impl Chain {
         let prev = self.get_previous_header(header)?;
         let prev_hash = *prev.hash();
         let prev_prev_hash = *prev.prev_hash();
-        let prev_gas_price = prev.gas_price();
+        let gas_price = prev.next_gas_price();
         let prev_random_value = *prev.random_value();
         let prev_height = prev.height();
 
@@ -2574,7 +2574,7 @@ impl Chain {
 
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
         if !block.verify_gas_price(
-            prev_gas_price,
+            gas_price,
             self.block_economics_config.min_gas_price(protocol_version),
             self.block_economics_config.max_gas_price(protocol_version),
             self.block_economics_config.gas_price_adjustment_rate(protocol_version),
@@ -3089,7 +3089,7 @@ impl Chain {
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
         // Check cache
-        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
+        let key = borsh::to_vec(&StateHeaderKey(shard_id, sync_hash))?;
         if let Ok(Some(header)) = self.store.store().get_ser(DBCol::StateHeaders, &key) {
             return Ok(header);
         }
@@ -3118,7 +3118,7 @@ impl Chain {
             %sync_hash)
         .entered();
         // Check cache
-        let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
         if let Ok(Some(state_part)) = self.store.store().get(DBCol::StateParts, &key) {
             return Ok(state_part.into());
         }
@@ -3330,7 +3330,7 @@ impl Chain {
 
         // Saving the header data.
         let mut store_update = self.store.store().store_update();
-        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
+        let key = borsh::to_vec(&StateHeaderKey(shard_id, sync_hash))?;
         store_update.set_ser(DBCol::StateHeaders, &key, &shard_state_header)?;
         store_update.commit()?;
 
@@ -3365,7 +3365,7 @@ impl Chain {
 
         // Saving the part data.
         let mut store_update = self.store.store().store_update();
-        let key = StatePartKey(sync_hash, shard_id, part_id.idx).try_to_vec()?;
+        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.idx))?;
         store_update.set(DBCol::StateParts, &key, data);
         store_update.commit()?;
         Ok(())
@@ -3822,8 +3822,8 @@ impl Chain {
         //     .unwrap();
         // let partial_state = apply_result.proof.unwrap().nodes;
         Ok(ChunkState {
-            prev_block_header: prev_block.header().try_to_vec()?,
-            block_header: block.header().try_to_vec()?,
+            prev_block_header: borsh::to_vec(&prev_block.header())?,
+            block_header: borsh::to_vec(&block.header())?,
             prev_merkle_proof: prev_merkle_proofs[chunk_shard_id as usize].clone(),
             merkle_proof: merkle_proofs[chunk_shard_id as usize].clone(),
             prev_chunk,
@@ -4069,7 +4069,7 @@ impl Chain {
         if !validate_transactions_order(transactions) {
             let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
             let chunk_proof = ChunkProofs {
-                block_header: block.header().try_to_vec().expect("Failed to serialize"),
+                block_header: borsh::to_vec(&block.header()).expect("Failed to serialize"),
                 merkle_proof: merkle_paths[shard_id as usize].clone(),
                 chunk: MaybeEncodedShardChunk::Decoded(chunk),
             };
@@ -4111,7 +4111,7 @@ impl Chain {
         let block_hash = *block.hash();
         let challenges_result = block.header().challenges_result().clone();
         let block_timestamp = block.header().raw_timestamp();
-        let gas_price = prev_block.header().gas_price();
+        let next_gas_price = prev_block.header().next_gas_price();
         let random_seed = *block.header().random_value();
         let height = chunk_header.height_included();
         let prev_block_hash = *chunk_header.prev_block_hash();
@@ -4134,7 +4134,7 @@ impl Chain {
                 &receipts,
                 chunk.transactions(),
                 chunk_inner.prev_validator_proposals(),
-                gas_price,
+                next_gas_price,
                 gas_limit,
                 &challenges_result,
                 random_seed,
@@ -4190,11 +4190,12 @@ impl Chain {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
-        let gas_price = if protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version() {
-            prev_block.header().gas_price()
-        } else {
-            block.header().gas_price()
-        };
+        let next_gas_price =
+            if protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version() {
+                prev_block.header().next_gas_price()
+            } else {
+                block.header().next_gas_price()
+            };
         let random_seed = *block.header().random_value();
         let height = block.header().height();
 
@@ -4215,7 +4216,7 @@ impl Chain {
                 &[],
                 &[],
                 new_extra.validator_proposals(),
-                gas_price,
+                next_gas_price,
                 new_extra.gas_limit(),
                 &challenges_result,
                 random_seed,
@@ -4921,7 +4922,7 @@ impl Chain {
         shard_receipts
             .into_iter()
             .map(|(i, rs)| {
-                let bytes = (i, rs).try_to_vec().unwrap();
+                let bytes = borsh::to_vec(&(i, rs)).unwrap();
                 hash(&bytes)
             })
             .collect()
@@ -5675,9 +5676,9 @@ impl<'a> ChainUpdate<'a> {
         let receipts = collect_receipts_from_response(&receipt_proof_response);
         // Prev block header should be present during state sync, since headers have been synced at this point.
         let gas_price = if block_header.height() == self.chain_store_update.get_genesis_height() {
-            block_header.gas_price()
+            block_header.next_gas_price()
         } else {
-            self.chain_store_update.get_block_header(block_header.prev_hash())?.gas_price()
+            self.chain_store_update.get_block_header(block_header.prev_hash())?.next_gas_price()
         };
 
         let chunk_header = chunk.cloned_header();
@@ -5792,7 +5793,7 @@ impl<'a> ChainUpdate<'a> {
             &[],
             &[],
             chunk_extra.validator_proposals(),
-            prev_block_header.gas_price(),
+            prev_block_header.next_gas_price(),
             chunk_extra.gas_limit(),
             block_header.challenges_result(),
             *block_header.random_value(),

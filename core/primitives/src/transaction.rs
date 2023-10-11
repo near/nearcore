@@ -48,7 +48,7 @@ pub struct Transaction {
 impl Transaction {
     /// Computes a hash of the transaction for signing and size of serialized transaction
     pub fn get_hash_and_size(&self) -> (CryptoHash, u64) {
-        let bytes = self.try_to_vec().expect("Failed to deserialize");
+        let bytes = borsh::to_vec(&self).expect("Failed to deserialize");
         (hash(&bytes), bytes.len() as u64)
     }
 }
@@ -56,13 +56,13 @@ impl Transaction {
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, Eq, Debug, Clone,
 )]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct SignedTransaction {
     pub transaction: Transaction,
     pub signature: Signature,
-    #[borsh_skip]
+    #[borsh(skip)]
     hash: CryptoHash,
-    #[borsh_skip]
+    #[borsh(skip)]
     size: u64,
 }
 
@@ -193,7 +193,7 @@ pub struct ExecutionOutcome {
     // At the moment this field is only set at runtime and is not persisted in the database.
     // This means that when execution outcomes are read from the database, this value will not be
     // set and any code that attempts to use it will crash.
-    #[borsh_skip]
+    #[borsh(skip)]
     pub compute_usage: Option<Compute>,
     /// The amount of tokens burnt corresponding to the burnt gas amount.
     /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
@@ -313,7 +313,7 @@ mod tests {
         let invalid_keys = vec![wrong_public_key];
         assert!(!verify_transaction_signature(&transaction, &invalid_keys));
 
-        let bytes = transaction.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&transaction).unwrap();
         let decoded_tx = SignedTransaction::try_from_slice(&bytes).unwrap();
         assert!(verify_transaction_signature(&decoded_tx, &valid_keys));
     }
@@ -362,7 +362,7 @@ mod tests {
         };
         let signed_tx = SignedTransaction::new(Signature::empty(KeyType::ED25519), transaction);
         let new_signed_tx =
-            SignedTransaction::try_from_slice(&signed_tx.try_to_vec().unwrap()).unwrap();
+            SignedTransaction::try_from_slice(&borsh::to_vec(&signed_tx).unwrap()).unwrap();
 
         assert_eq!(
             new_signed_tx.get_hash().to_string(),

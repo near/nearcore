@@ -492,7 +492,7 @@ mod tests {
     use crate::test_utils::create_test_store;
     use crate::StorageError;
     use assert_matches::assert_matches;
-    use borsh::BorshSerialize;
+
     use near_o11y::testonly::init_test_logger;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::shard_layout::ShardUId;
@@ -513,7 +513,7 @@ mod tests {
         }
 
         fn block_hash(height: BlockHeight) -> CryptoHash {
-            hash(&height.try_to_vec().unwrap())
+            hash(&borsh::to_vec(&height).unwrap())
         }
 
         /// Build a chain with given set of heights and a function mapping block heights to heights of their parents.

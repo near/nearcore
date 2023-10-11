@@ -4,6 +4,7 @@
 
 ### Protocol Changes
 * The support for fixed shards in shard layout was removed. [#9219](https://github.com/near/nearcore/pull/9219)
+* Restrict the creation of non-implicit top-level account that are longer than 32 bytes. Only the registrar account can create them. [#9589](https://github.com/near/nearcore/pull/9589)
 
 
 ### Non-protocol Changes

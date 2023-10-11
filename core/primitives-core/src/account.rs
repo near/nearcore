@@ -234,7 +234,6 @@ pub struct FunctionCallPermission {
 
 #[cfg(test)]
 mod tests {
-    use borsh::BorshSerialize;
 
     use crate::hash::hash;
 
@@ -243,7 +242,7 @@ mod tests {
     #[test]
     fn test_account_serialization() {
         let acc = Account::new(1_000_000, 1_000_000, CryptoHash::default(), 100);
-        let bytes = acc.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&acc).unwrap();
         assert_eq!(hash(&bytes).to_string(), "EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ");
     }
 
@@ -255,14 +254,14 @@ mod tests {
             code_hash: CryptoHash::default(),
             storage_usage: 300,
         };
-        let mut old_bytes = &old_account.try_to_vec().unwrap()[..];
+        let mut old_bytes = &borsh::to_vec(&old_account).unwrap()[..];
         let new_account = <Account as BorshDeserialize>::deserialize(&mut old_bytes).unwrap();
         assert_eq!(new_account.amount, old_account.amount);
         assert_eq!(new_account.locked, old_account.locked);
         assert_eq!(new_account.code_hash, old_account.code_hash);
         assert_eq!(new_account.storage_usage, old_account.storage_usage);
         assert_eq!(new_account.version, AccountVersion::V1);
-        let mut new_bytes = &new_account.try_to_vec().unwrap()[..];
+        let mut new_bytes = &borsh::to_vec(&new_account).unwrap()[..];
         let deserialized_account =
             <Account as BorshDeserialize>::deserialize(&mut new_bytes).unwrap();
         assert_eq!(deserialized_account, new_account);
