@@ -195,14 +195,6 @@ pub enum ShardStateSyncResponse {
 }
 
 impl ShardStateSyncResponse {
-    pub fn cached_parts(&self) -> &Option<CachedParts> {
-        match self {
-            Self::V1(_response) => &None,
-            Self::V2(_response) => &None,
-            Self::V3(response) => &response.cached_parts,
-        }
-    }
-
     pub fn part_id(&self) -> Option<u64> {
         match self {
             Self::V1(response) => response.part_id(),
@@ -232,6 +224,22 @@ impl ShardStateSyncResponse {
             Self::V1(response) => response.part,
             Self::V2(response) => response.part,
             Self::V3(response) => response.part,
+        }
+    }
+
+    pub fn can_generate(&self) -> bool {
+        match self {
+            Self::V1(_response) => false,
+            Self::V2(_response) => false,
+            Self::V3(response) => response.can_generate,
+        }
+    }
+
+    pub fn cached_parts(&self) -> &Option<CachedParts> {
+        match self {
+            Self::V1(_response) => &None,
+            Self::V2(_response) => &None,
+            Self::V3(response) => &response.cached_parts,
         }
     }
 }

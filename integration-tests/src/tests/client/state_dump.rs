@@ -227,7 +227,7 @@ fn run_state_sync_with_dumped_parts(
         tracing::info!(
             dump_node_head_height,
             final_block_height = final_block_header.height(),
-            "dumping node"
+            "Dumping node state"
         );
 
         // check if final block is in the same epoch as head for dumping node
