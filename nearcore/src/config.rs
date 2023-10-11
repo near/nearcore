@@ -121,10 +121,6 @@ pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
-pub const MAINNET: &str = "mainnet";
-pub const TESTNET: &str = "testnet";
-pub const BETANET: &str = "betanet";
-
 pub const MAINNET_TELEMETRY_URL: &str = "https://explorer.mainnet.near.org/api/nodes";
 pub const NETWORK_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes";
 
@@ -894,7 +890,9 @@ fn generate_or_load_keys(
 ) -> anyhow::Result<()> {
     generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
     match chain_id {
-        MAINNET | TESTNET | BETANET => {
+        near_primitives::chains::MAINNET
+        | near_primitives::chains::TESTNET
+        | near_primitives::chains::BETANET => {
             generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
         }
         _ => {
@@ -979,7 +977,7 @@ pub fn init_configs(
     // Before finalizing the Config and Genesis, make sure the node and validator keys exist.
     generate_or_load_keys(dir, &config, &chain_id, account_id, test_seed)?;
     match chain_id.as_ref() {
-        MAINNET => {
+        near_primitives::chains::MAINNET => {
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
@@ -998,7 +996,7 @@ pub fn init_configs(
             genesis.to_file(dir.join(config.genesis_file));
             info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
         }
-        TESTNET | BETANET => {
+        near_primitives::chains::TESTNET | near_primitives::chains::BETANET => {
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
@@ -1427,7 +1425,12 @@ pub fn load_config(
                 validation_errors.push_errors(e)
             };
             if validator_signer.is_some()
-                && matches!(genesis.config.chain_id.as_ref(), MAINNET | TESTNET | BETANET)
+                && matches!(
+                    genesis.config.chain_id.as_ref(),
+                    near_primitives::chains::MAINNET
+                        | near_primitives::chains::TESTNET
+                        | near_primitives::chains::BETANET
+                )
                 && config.tracked_shards.is_empty()
             {
                 // Make sure validators tracks all shards, see
