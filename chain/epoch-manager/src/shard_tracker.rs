@@ -237,7 +237,7 @@ mod tests {
         };
         EpochManager::new(
             store,
-            AllEpochConfig::new(use_production_config, initial_epoch_config, "test-chain"),
+            AllEpochConfig::new(use_production_config, initial_epoch_config),
             genesis_protocol_version,
             reward_calculator,
             vec![ValidatorStake::new(

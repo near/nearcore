@@ -83,17 +83,11 @@ pub struct AllEpochConfig {
     use_production_config: bool,
     /// EpochConfig from genesis
     genesis_epoch_config: EpochConfig,
-    /// Chain Id.
-    chain_id: String,
 }
 
 impl AllEpochConfig {
-    pub fn new(
-        use_production_config: bool,
-        genesis_epoch_config: EpochConfig,
-        chain_id: &str,
-    ) -> Self {
-        Self { use_production_config, genesis_epoch_config, chain_id: chain_id.to_string() }
+    pub fn new(use_production_config: bool, genesis_epoch_config: EpochConfig) -> Self {
+        Self { use_production_config, genesis_epoch_config }
     }
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
@@ -104,7 +98,7 @@ impl AllEpochConfig {
 
         Self::config_nightshade(&mut config, protocol_version);
 
-        Self::config_chunk_only_producers(&mut config, &self.chain_id, protocol_version);
+        Self::config_chunk_only_producers(&mut config, protocol_version);
 
         Self::config_max_kickout_stake(&mut config, protocol_version);
 
@@ -132,11 +126,7 @@ impl AllEpochConfig {
         config.avg_hidden_validator_seats_per_shard = vec![0; num_shards];
     }
 
-    fn config_chunk_only_producers(
-        config: &mut EpochConfig,
-        chain_id: &str,
-        protocol_version: u32,
-    ) {
+    fn config_chunk_only_producers(config: &mut EpochConfig, protocol_version: u32) {
         if checked_feature!("stable", ChunkOnlyProducers, protocol_version) {
             let num_shards = config.shard_layout.num_shards() as usize;
             // On testnet, genesis config set num_block_producer_seats to 200
@@ -148,19 +138,6 @@ impl AllEpochConfig {
             config.block_producer_kickout_threshold = 80;
             config.chunk_producer_kickout_threshold = 80;
             config.validator_selection_config.num_chunk_only_producer_seats = 200;
-        }
-
-        if chain_id == "testnet"
-            && checked_feature!("stable", TestnetMoreChunkOnlyProducers, protocol_version)
-        {
-            let num_shards = config.shard_layout.num_shards() as usize;
-            // On testnet, genesis config set num_block_producer_seats to 200
-            // This is to bring it back to 100 to be the same as on mainnet
-            config.num_block_producer_seats = 20;
-            // Technically, after ChunkOnlyProducers is enabled, this field is no longer used
-            // We still set it here just in case
-            config.num_block_producer_seats_per_shard =
-                vec![config.num_block_producer_seats; num_shards];
         }
     }
 

@@ -126,8 +126,6 @@ pub enum ProtocolFeature {
     /// Enables block production with post-state-root.
     /// NEP: https://github.com/near/NEPs/pull/507
     PostStateRoot,
-    /// Increases the number of chunk producers.
-    TestnetMoreChunkOnlyProducers,
 }
 
 impl ProtocolFeature {
@@ -183,7 +181,6 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
             ProtocolFeature::SimpleNightshadeV2 => 135,
             ProtocolFeature::PostStateRoot => 136,
-            ProtocolFeature::TestnetMoreChunkOnlyProducers => 137,
         }
     }
 }

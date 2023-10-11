@@ -323,7 +323,9 @@ fn check_release_build(chain: &str) {
     let is_release_build = option_env!("NEAR_RELEASE_BUILD") == Some("release")
         && !cfg!(feature = "nightly")
         && !cfg!(feature = "nightly_protocol");
-    if !is_release_build && ["mainnet", "testnet"].contains(&chain) {
+    if !is_release_build
+        && [near_primitives::chains::MAINNET, near_primitives::chains::TESTNET].contains(&chain)
+    {
         warn!(
             target: "neard",
             "Running a neard executable which wasn’t built with `make release` \
@@ -490,9 +492,9 @@ impl RunCmd {
 
         #[cfg(feature = "sandbox")]
         {
-            if near_config.client_config.chain_id == "mainnet"
-                || near_config.client_config.chain_id == "testnet"
-                || near_config.client_config.chain_id == "betanet"
+            if near_config.client_config.chain_id == near_primitives::chains::MAINNET
+                || near_config.client_config.chain_id == near_primitives::chains::TESTNET
+                || near_config.client_config.chain_id == near_primitives::chains::BETANET
             {
                 eprintln!(
                     "Sandbox node can only run dedicate localnet, cannot connect to a network"
