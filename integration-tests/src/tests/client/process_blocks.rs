@@ -229,8 +229,9 @@ pub(crate) fn prepare_env_with_congestion(
         })],
         *genesis_block.hash(),
     );
+    env.produce_block(0, 1);
     assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
-    for i in 1..3 {
+    for i in 2..3 {
         env.produce_block(0, i);
     }
 
