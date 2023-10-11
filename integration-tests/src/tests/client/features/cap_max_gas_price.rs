@@ -1,9 +1,11 @@
+use near_o11y::testonly::init_test_logger;
 use near_primitives::num_rational::Ratio;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 
 use crate::tests::client::process_blocks::prepare_env_with_congestion;
 
 fn does_gas_price_exceed_limit(protocol_version: ProtocolVersion) -> bool {
+    init_test_logger();
     let mut env = prepare_env_with_congestion(protocol_version, Some(Ratio::new_raw(2, 1)), 7).0;
     let mut was_congested = false;
     let mut price_exceeded_limit = false;
