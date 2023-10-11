@@ -1489,7 +1489,7 @@ impl Handler<WithSpanContext<GetGasPrice>> for ViewClientActor {
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetGasPrice"]).start_timer();
         let header = self.maybe_block_id_to_block_header(msg.block_id);
-        Ok(GasPriceView { gas_price: header?.gas_price() })
+        Ok(GasPriceView { gas_price: header?.next_gas_price() })
     }
 }
 

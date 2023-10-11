@@ -539,7 +539,6 @@ fn truncate_string(s: &str, limit: usize) -> String {
 mod tests {
     use std::sync::Arc;
 
-    use crate::near_primitives::borsh::BorshSerialize;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, FunctionCallPermission};
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
@@ -625,8 +624,8 @@ mod tests {
                     initial_account
                         .storage_usage()
                         .checked_add(
-                            public_key.try_to_vec().unwrap().len() as u64
-                                + access_key.try_to_vec().unwrap().len() as u64
+                            borsh::object_length(&public_key).unwrap() as u64
+                                + borsh::object_length(&access_key).unwrap() as u64
                                 + 40, // storage_config.num_extra_bytes_record,
                         )
                         .unwrap(),

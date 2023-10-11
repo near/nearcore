@@ -9,7 +9,7 @@ use crate::network_protocol::{
 };
 use crate::network_protocol::{RoutedMessage, RoutedMessageV2};
 use crate::types::StateResponseInfo;
-use borsh::{BorshDeserialize as _, BorshSerialize as _};
+use borsh::BorshDeserialize as _;
 use near_async::time::error::ComponentRange;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
@@ -113,11 +113,11 @@ impl TryFrom<&proto::DistanceVector> for DistanceVector {
 
 impl From<&BlockHeader> for proto::BlockHeader {
     fn from(x: &BlockHeader) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Default::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Default::default() }
     }
 }
 
-pub type ParseBlockHeaderError = borsh::maybestd::io::Error;
+pub type ParseBlockHeaderError = std::io::Error;
 
 impl TryFrom<&proto::BlockHeader> for BlockHeader {
     type Error = ParseBlockHeaderError;
@@ -130,11 +130,11 @@ impl TryFrom<&proto::BlockHeader> for BlockHeader {
 
 impl From<&Block> for proto::Block {
     fn from(x: &Block) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Default::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Default::default() }
     }
 }
 
-pub type ParseBlockError = borsh::maybestd::io::Error;
+pub type ParseBlockError = std::io::Error;
 
 impl TryFrom<&proto::Block> for Block {
     type Error = ParseBlockError;
@@ -147,11 +147,11 @@ impl TryFrom<&proto::Block> for Block {
 
 impl From<&StateResponseInfo> for proto::StateResponseInfo {
     fn from(x: &StateResponseInfo) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Default::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Default::default() }
     }
 }
 
-pub type ParseStateInfoError = borsh::maybestd::io::Error;
+pub type ParseStateInfoError = std::io::Error;
 
 impl TryFrom<&proto::StateResponseInfo> for StateResponseInfo {
     type Error = ParseStateInfoError;
@@ -226,11 +226,11 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::Transaction(t) => ProtoMT::Transaction(proto::SignedTransaction {
-                    borsh: t.try_to_vec().unwrap(),
+                    borsh: borsh::to_vec(&t).unwrap(),
                     ..Default::default()
                 }),
                 PeerMessage::Routed(r) => ProtoMT::Routed(proto::RoutedMessage {
-                    borsh: r.msg.try_to_vec().unwrap(),
+                    borsh: borsh::to_vec(&r.msg).unwrap(),
                     created_at: MF::from_option(r.created_at.as_ref().map(utc_to_proto)),
                     num_hops: r.num_hops,
                     ..Default::default()
@@ -240,7 +240,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::Challenge(r) => ProtoMT::Challenge(proto::Challenge {
-                    borsh: r.try_to_vec().unwrap(),
+                    borsh: borsh::to_vec(&r).unwrap(),
                     ..Default::default()
                 }),
                 PeerMessage::StateRequestHeader(shard_id, sync_hash) => {
@@ -270,10 +270,10 @@ impl From<&PeerMessage> for proto::PeerMessage {
     }
 }
 
-pub type ParsePeersRequestError = borsh::maybestd::io::Error;
-pub type ParseTransactionError = borsh::maybestd::io::Error;
-pub type ParseRoutedError = borsh::maybestd::io::Error;
-pub type ParseChallengeError = borsh::maybestd::io::Error;
+pub type ParsePeersRequestError = std::io::Error;
+pub type ParseTransactionError = std::io::Error;
+pub type ParseRoutedError = std::io::Error;
+pub type ParseChallengeError = std::io::Error;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ParsePeerMessageError {
