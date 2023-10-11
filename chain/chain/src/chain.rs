@@ -5300,9 +5300,13 @@ impl<'a> ChainUpdate<'a> {
         result: ApplyChunkResult,
     ) -> Result<(), Error> {
         // consider taking block data from apply_result.block_hash
-        let block_hash = block.hash();
-        let prev_hash = block.header().prev_hash();
-        let height = block.header().height();
+        // let block_hash = block.hash();
+        // let prev_hash = block.header().prev_hash();
+        // let height = block.header().height();
+        let block_hash = block.header().prev_hash();
+        let block_header = self.chain_store_update.get_block_header(block_hash)?;
+        let prev_hash = block_header.prev_hash();
+        let height = block_header.height();
         match result {
             ApplyChunkResult::SameHeight(SameHeightResult {
                 gas_limit,
