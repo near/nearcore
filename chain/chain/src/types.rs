@@ -23,14 +23,14 @@ use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, ShardId,
-    StateChangesForSplitStates, StateRoot, StateRootNode,
+    StateChanges, StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
-use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
+use near_store::{PartialStorage, ShardTries, Store, Trie, TrieChanges, WrappedTrieChanges};
 
 pub use near_epoch_manager::EpochManagerAdapter;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
@@ -337,6 +337,27 @@ pub trait RuntimeAdapter: Send + Sync {
         state_patch: SandboxStatePatch,
         use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
+        if prev_block_hash == &CryptoHash::default() {
+            println!("genesis case {block_hash} {shard_id}");
+            return Ok(ApplyTransactionResult {
+                trie_changes: WrappedTrieChanges::new(
+                    self.get_tries(),
+                    shard_uid,
+                    TrieChanges::empty(*state_root),
+                    vec![],
+                    *block_hash,
+                ),
+                new_root: *state_root,
+                outcomes: vec![],
+                outgoing_receipts: vec![],
+                validator_proposals: vec![],
+                total_gas_burnt: 0,
+                total_balance_burnt: 0,
+                proof: None,
+                processed_delayed_receipts: vec![],
+            });
+        }
+
         let _timer =
             metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         self.apply_transactions_with_optional_storage_proof(
