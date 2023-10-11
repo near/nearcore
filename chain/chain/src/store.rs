@@ -1227,6 +1227,7 @@ impl ChainStoreAccess for ChainStore {
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
     ) -> Result<Arc<ChunkExtra>, Error> {
+        println!("get_chunk_extra {:?} {:?}", block_hash, shard_uid);
         option_to_not_found(
             self.read_with_cache(
                 DBCol::ChunkExtra,
@@ -1593,8 +1594,6 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
     ) -> Result<Arc<ChunkExtra>, Error> {
-        println!("get_chunk_extra {:?} {:?}", block_hash, shard_uid);
-
         if let Some(chunk_extra) =
             self.chain_store_cache_update.chunk_extras.get(&(*block_hash, *shard_uid))
         {
