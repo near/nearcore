@@ -197,7 +197,7 @@ async fn build_streamer_message(
         // ExecutionOutcomes appear.
         // ref: https://github.com/near/nearcore/pull/4248
         if PROBLEMATIC_BLOCKS.contains(&block.header.hash)
-            && &protocol_config_view.chain_id == "mainnet"
+            && &protocol_config_view.chain_id == near_primitives::chains::MAINNET
         {
             let mut restored_receipts: Vec<views::ReceiptView> = vec![];
             let receipt_ids_included: std::collections::HashSet<CryptoHash> =

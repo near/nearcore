@@ -8,6 +8,7 @@ pub use near_primitives_core::serialize;
 pub mod action;
 pub mod block;
 pub mod block_header;
+pub mod chains;
 pub mod challenge;
 pub mod epoch_manager;
 pub mod epoch_sync;
