@@ -3,7 +3,6 @@ use super::MemTries;
 use crate::flat::store_helper::decode_flat_state_db_key;
 use crate::trie::mem::construction::TrieConstructor;
 use crate::{DBCol, Store};
-use borsh::BorshSerialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
@@ -29,7 +28,7 @@ pub fn load_trie_from_flat_state(
         let mut recon = TrieConstructor::new(arena);
         let mut num_keys_loaded = 0;
         for item in store
-            .iter_prefix_ser::<FlatStateValue>(DBCol::FlatState, &shard_uid.try_to_vec().unwrap())
+            .iter_prefix_ser::<FlatStateValue>(DBCol::FlatState, &borsh::to_vec(&shard_uid).unwrap())
         {
             let (key, value) = item?;
             let (_, key) = decode_flat_state_db_key(&key)?;
