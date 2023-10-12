@@ -474,12 +474,15 @@ pub mod epoch_info {
     use crate::epoch_manager::ValidatorWeight;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::{BlockChunkValidatorStats, ValidatorKickoutReason};
+    use crate::validator_mandates::ValidatorMandates;
     use crate::version::PROTOCOL_VERSION;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{
         AccountId, Balance, EpochHeight, ProtocolVersion, ValidatorId,
     };
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha20Rng;
     use smart_default::SmartDefault;
     use std::collections::{BTreeMap, HashMap};
 
@@ -499,6 +502,7 @@ pub mod epoch_info {
         V1(EpochInfoV1),
         V2(EpochInfoV2),
         V3(EpochInfoV3),
+        V4(EpochInfoV4),
     }
 
     impl Default for EpochInfo {
@@ -585,6 +589,41 @@ pub mod epoch_info {
         chunk_producers_sampler: Vec<WeightedIndex>,
     }
 
+    // V3 -> V4: Add structures and methods for stateless validator assignment.
+    #[derive(
+        SmartDefault,
+        BorshSerialize,
+        BorshDeserialize,
+        Clone,
+        Debug,
+        PartialEq,
+        Eq,
+        serde::Serialize,
+    )]
+    pub struct EpochInfoV4 {
+        pub epoch_height: EpochHeight,
+        pub validators: Vec<ValidatorStake>,
+        pub validator_to_index: HashMap<AccountId, ValidatorId>,
+        pub block_producers_settlement: Vec<ValidatorId>,
+        pub chunk_producers_settlement: Vec<Vec<ValidatorId>>,
+        pub hidden_validators_settlement: Vec<ValidatorWeight>,
+        pub fishermen: Vec<ValidatorStake>,
+        pub fishermen_to_index: HashMap<AccountId, ValidatorId>,
+        pub stake_change: BTreeMap<AccountId, Balance>,
+        pub validator_reward: HashMap<AccountId, Balance>,
+        pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
+        pub minted_amount: Balance,
+        pub seat_price: Balance,
+        #[default(PROTOCOL_VERSION)]
+        pub protocol_version: ProtocolVersion,
+        // stuff for selecting validators at each height
+        rng_seed: RngSeed,
+        block_producers_sampler: WeightedIndex,
+        chunk_producers_sampler: Vec<WeightedIndex>,
+        /// Contains the epoch's validator mandates. Used to sample chunk validators.
+        validator_mandates: ValidatorMandates,
+    }
+
     impl EpochInfo {
         pub fn new(
             epoch_height: EpochHeight,
@@ -602,6 +641,7 @@ pub mod epoch_info {
             seat_price: Balance,
             protocol_version: ProtocolVersion,
             rng_seed: RngSeed,
+            validator_mandates: ValidatorMandates,
         ) -> Self {
             if checked_feature!("stable", AliasValidatorSelectionAlgorithm, protocol_version) {
                 let stake_weights = |ids: &[ValidatorId]| -> WeightedIndex {
@@ -615,7 +655,7 @@ pub mod epoch_info {
                 let block_producers_sampler = stake_weights(&block_producers_settlement);
                 let chunk_producers_sampler =
                     chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
-                Self::V3(EpochInfoV3 {
+                Self::V4(EpochInfoV4 {
                     epoch_height,
                     validators,
                     fishermen,
@@ -633,6 +673,7 @@ pub mod epoch_info {
                     rng_seed,
                     block_producers_sampler,
                     chunk_producers_sampler,
+                    validator_mandates,
                 })
             } else {
                 Self::V2(EpochInfoV2 {
@@ -694,6 +735,7 @@ pub mod epoch_info {
                 Self::V1(v1) => &mut v1.epoch_height,
                 Self::V2(v2) => &mut v2.epoch_height,
                 Self::V3(v3) => &mut v3.epoch_height,
+                Self::V4(v4) => &mut v4.epoch_height,
             }
         }
 
@@ -703,6 +745,7 @@ pub mod epoch_info {
                 Self::V1(v1) => v1.epoch_height,
                 Self::V2(v2) => v2.epoch_height,
                 Self::V3(v3) => v3.epoch_height,
+                Self::V4(v4) => v4.epoch_height,
             }
         }
 
@@ -712,6 +755,7 @@ pub mod epoch_info {
                 Self::V1(v1) => v1.seat_price,
                 Self::V2(v2) => v2.seat_price,
                 Self::V3(v3) => v3.seat_price,
+                Self::V4(v4) => v4.seat_price,
             }
         }
 
@@ -721,6 +765,7 @@ pub mod epoch_info {
                 Self::V1(v1) => v1.minted_amount,
                 Self::V2(v2) => v2.minted_amount,
                 Self::V3(v3) => v3.minted_amount,
+                Self::V4(v4) => v4.minted_amount,
             }
         }
 
@@ -730,6 +775,7 @@ pub mod epoch_info {
                 Self::V1(v1) => &v1.block_producers_settlement,
                 Self::V2(v2) => &v2.block_producers_settlement,
                 Self::V3(v3) => &v3.block_producers_settlement,
+                Self::V4(v4) => &v4.block_producers_settlement,
             }
         }
 
@@ -739,6 +785,7 @@ pub mod epoch_info {
                 Self::V1(v1) => &v1.chunk_producers_settlement,
                 Self::V2(v2) => &v2.chunk_producers_settlement,
                 Self::V3(v3) => &v3.chunk_producers_settlement,
+                Self::V4(v4) => &v4.chunk_producers_settlement,
             }
         }
 
@@ -748,6 +795,7 @@ pub mod epoch_info {
                 Self::V1(v1) => &v1.validator_kickout,
                 Self::V2(v2) => &v2.validator_kickout,
                 Self::V3(v3) => &v3.validator_kickout,
+                Self::V4(v4) => &v4.validator_kickout,
             }
         }
 
@@ -757,6 +805,7 @@ pub mod epoch_info {
                 Self::V1(v1) => v1.protocol_version,
                 Self::V2(v2) => v2.protocol_version,
                 Self::V3(v3) => v3.protocol_version,
+                Self::V4(v4) => v4.protocol_version,
             }
         }
 
@@ -766,6 +815,7 @@ pub mod epoch_info {
                 Self::V1(v1) => &v1.stake_change,
                 Self::V2(v2) => &v2.stake_change,
                 Self::V3(v3) => &v3.stake_change,
+                Self::V4(v4) => &v4.stake_change,
             }
         }
 
@@ -775,6 +825,7 @@ pub mod epoch_info {
                 Self::V1(v1) => &v1.validator_reward,
                 Self::V2(v2) => &v2.validator_reward,
                 Self::V3(v3) => &v3.validator_reward,
+                Self::V4(v4) => &v4.validator_reward,
             }
         }
 
@@ -784,6 +835,7 @@ pub mod epoch_info {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.validators),
                 Self::V2(v2) => ValidatorStakeIter::new(&v2.validators),
                 Self::V3(v3) => ValidatorStakeIter::new(&v3.validators),
+                Self::V4(v4) => ValidatorStakeIter::new(&v4.validators),
             }
         }
 
@@ -793,6 +845,7 @@ pub mod epoch_info {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.fishermen),
                 Self::V2(v2) => ValidatorStakeIter::new(&v2.fishermen),
                 Self::V3(v3) => ValidatorStakeIter::new(&v3.fishermen),
+                Self::V4(v4) => ValidatorStakeIter::new(&v4.fishermen),
             }
         }
 
@@ -802,6 +855,7 @@ pub mod epoch_info {
                 Self::V1(v1) => v1.validators[validator_id as usize].stake,
                 Self::V2(v2) => v2.validators[validator_id as usize].stake(),
                 Self::V3(v3) => v3.validators[validator_id as usize].stake(),
+                Self::V4(v4) => v4.validators[validator_id as usize].stake(),
             }
         }
 
@@ -811,6 +865,7 @@ pub mod epoch_info {
                 Self::V1(v1) => &v1.validators[validator_id as usize].account_id,
                 Self::V2(v2) => v2.validators[validator_id as usize].account_id(),
                 Self::V3(v3) => v3.validators[validator_id as usize].account_id(),
+                Self::V4(v4) => v4.validators[validator_id as usize].account_id(),
             }
         }
 
@@ -820,6 +875,7 @@ pub mod epoch_info {
                 Self::V1(v1) => v1.validator_to_index.contains_key(account_id),
                 Self::V2(v2) => v2.validator_to_index.contains_key(account_id),
                 Self::V3(v3) => v3.validator_to_index.contains_key(account_id),
+                Self::V4(v4) => v4.validator_to_index.contains_key(account_id),
             }
         }
 
@@ -828,6 +884,7 @@ pub mod epoch_info {
                 Self::V1(v1) => v1.validator_to_index.get(account_id),
                 Self::V2(v2) => v2.validator_to_index.get(account_id),
                 Self::V3(v3) => v3.validator_to_index.get(account_id),
+                Self::V4(v4) => v4.validator_to_index.get(account_id),
             }
         }
 
@@ -844,6 +901,10 @@ pub mod epoch_info {
                     .validator_to_index
                     .get(account_id)
                     .map(|validator_id| v3.validators[*validator_id as usize].clone()),
+                Self::V4(v4) => v4
+                    .validator_to_index
+                    .get(account_id)
+                    .map(|validator_id| v4.validators[*validator_id as usize].clone()),
             }
         }
 
@@ -853,6 +914,7 @@ pub mod epoch_info {
                 Self::V1(v1) => ValidatorStake::V1(v1.validators[validator_id as usize].clone()),
                 Self::V2(v2) => v2.validators[validator_id as usize].clone(),
                 Self::V3(v3) => v3.validators[validator_id as usize].clone(),
+                Self::V4(v4) => v4.validators[validator_id as usize].clone(),
             }
         }
 
@@ -862,6 +924,7 @@ pub mod epoch_info {
                 Self::V1(v1) => v1.fishermen_to_index.contains_key(account_id),
                 Self::V2(v2) => v2.fishermen_to_index.contains_key(account_id),
                 Self::V3(v3) => v3.fishermen_to_index.contains_key(account_id),
+                Self::V4(v4) => v4.fishermen_to_index.contains_key(account_id),
             }
         }
 
@@ -878,6 +941,10 @@ pub mod epoch_info {
                     .fishermen_to_index
                     .get(account_id)
                     .map(|validator_id| v3.fishermen[*validator_id as usize].clone()),
+                Self::V4(v4) => v4
+                    .fishermen_to_index
+                    .get(account_id)
+                    .map(|validator_id| v4.fishermen[*validator_id as usize].clone()),
             }
         }
 
@@ -887,6 +954,7 @@ pub mod epoch_info {
                 Self::V1(v1) => ValidatorStake::V1(v1.fishermen[fisherman_id as usize].clone()),
                 Self::V2(v2) => v2.fishermen[fisherman_id as usize].clone(),
                 Self::V3(v3) => v3.fishermen[fisherman_id as usize].clone(),
+                Self::V4(v4) => v4.fishermen[fisherman_id as usize].clone(),
             }
         }
 
@@ -896,6 +964,7 @@ pub mod epoch_info {
                 Self::V1(v1) => v1.validators.len(),
                 Self::V2(v2) => v2.validators.len(),
                 Self::V3(v3) => v3.validators.len(),
+                Self::V4(v4) => v4.validators.len(),
             }
         }
 
@@ -912,6 +981,10 @@ pub mod epoch_info {
                 Self::V3(v3) => {
                     let seed = Self::block_produce_seed(height, &v3.rng_seed);
                     v3.block_producers_settlement[v3.block_producers_sampler.sample(seed)]
+                }
+                Self::V4(v4) => {
+                    let seed = Self::block_produce_seed(height, &v4.rng_seed);
+                    v4.block_producers_settlement[v4.block_producers_sampler.sample(seed)]
                 }
             }
         }
@@ -930,10 +1003,35 @@ pub mod epoch_info {
                 }
                 Self::V3(v3) => {
                     let protocol_version = self.protocol_version();
-                    let seed = Self::chunk_produce_seed(protocol_version, v3, height, shard_id);
+                    let seed =
+                        Self::chunk_produce_seed(protocol_version, &v3.rng_seed, height, shard_id);
                     let shard_id = shard_id as usize;
                     let sample = v3.chunk_producers_sampler[shard_id].sample(seed);
                     v3.chunk_producers_settlement[shard_id][sample]
+                }
+                Self::V4(v4) => {
+                    let protocol_version = self.protocol_version();
+                    let seed =
+                        Self::chunk_produce_seed(protocol_version, &v4.rng_seed, height, shard_id);
+                    let shard_id = shard_id as usize;
+                    let sample = v4.chunk_producers_sampler[shard_id].sample(seed);
+                    v4.chunk_producers_settlement[shard_id][sample]
+                }
+            }
+        }
+
+        pub fn sample_chunk_validators(
+            &self,
+            height: BlockHeight,
+        ) -> Vec<HashMap<ValidatorId, u16>> {
+            // Chunk validator assignment was introduced with `V4`.
+            match &self {
+                Self::V1(_v1) => Default::default(),
+                Self::V2(_v2) => Default::default(),
+                Self::V3(_v4) => Default::default(),
+                Self::V4(v4) => {
+                    let mut rng = Self::chunk_validate_rng(&v4.rng_seed, height);
+                    v4.validator_mandates.sample(&mut rng)
                 }
             }
         }
@@ -948,7 +1046,7 @@ pub mod epoch_info {
 
         fn chunk_produce_seed(
             protocol_version: ProtocolVersion,
-            epoch_info_v3: &EpochInfoV3,
+            seed: &RngSeed,
             height: BlockHeight,
             shard_id: ShardId,
         ) -> [u8; 32] {
@@ -959,15 +1057,31 @@ pub mod epoch_info {
                 // producer. This seed does not contain the shard id
                 // so all shards will be produced by the same
                 // validator.
-                Self::block_produce_seed(height, &epoch_info_v3.rng_seed)
+                Self::block_produce_seed(height, seed)
             } else {
                 // 32 bytes from epoch_seed, 8 bytes from height, 8 bytes from shard_id
                 let mut buffer = [0u8; 48];
-                buffer[0..32].copy_from_slice(&epoch_info_v3.rng_seed);
+                buffer[0..32].copy_from_slice(seed);
                 buffer[32..40].copy_from_slice(&height.to_le_bytes());
                 buffer[40..48].copy_from_slice(&shard_id.to_le_bytes());
                 hash(&buffer).0
             }
+        }
+
+        /// Returns a new RNG obtained from combining the provided `seed` and `height`.
+        ///
+        /// The returned RNG can be used to shuffle slices via [`rand::seq::SliceRandom`].
+        fn chunk_validate_rng(seed: &RngSeed, height: BlockHeight) -> ChaCha20Rng {
+            let mut buffer = [0u8; 40];
+            buffer[0..32].copy_from_slice(seed);
+            buffer[32..40].copy_from_slice(&height.to_le_bytes());
+
+            // The recommended seed for cryptographic RNG's is `[u8; 32]` and some required traits
+            // are not implemented for larger seeds, see
+            // https://docs.rs/rand_core/0.6.2/rand_core/trait.SeedableRng.html#associated-types
+            // Therefore `buffer` is hashed to obtain a `[u8; 32]`.
+            let seed = hash(&buffer);
+            SeedableRng::from_seed(seed.0)
         }
     }
 

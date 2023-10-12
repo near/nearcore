@@ -34,6 +34,7 @@ pub mod trie_key;
 pub mod types;
 mod upgrade_schedule;
 pub mod utils;
+pub mod validator_mandates;
 pub mod validator_signer;
 pub mod version;
 pub mod views;
