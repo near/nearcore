@@ -2461,7 +2461,9 @@ impl Chain {
     /// to process the block an the block is valid.
     //  Note that this function does NOT introduce any changes to chain state.
     pub(crate) fn preprocess_block(
-        &self,
+        // temporary
+        // &self,
+        &mut self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
         provenance: &Provenance,
@@ -2601,23 +2603,45 @@ impl Chain {
         self.validate_chunk_headers(&block, &prev_block)?;
 
         self.ping_missing_chunks(me, prev_hash, block)?;
-        let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
 
         // Check if block can be finalized and drop it otherwise.
         self.check_if_finalizable(header)?;
 
-        let apply_chunk_work = self.apply_chunks_preprocessing(
-            me,
-            block,
-            &prev_block,
-            &incoming_receipts,
-            // If we have the state for shards in the next epoch already downloaded, apply the state transition
-            // for these states as well
-            // otherwise put the block into the permanent storage, waiting for be caught up
-            if is_caught_up { ApplyChunksMode::IsCaughtUp } else { ApplyChunksMode::NotCaughtUp },
-            state_patch,
-            invalid_chunks,
-        )?;
+        // by this, we mark new pre-state-root changes
+        // to replace with protocol feature
+        let apply_chunk_work = if true {
+            self.validate_chunks(
+                me,
+                block,
+                &prev_block,
+                if is_caught_up {
+                    ApplyChunksMode::IsCaughtUp
+                } else {
+                    ApplyChunksMode::NotCaughtUp
+                },
+                state_patch,
+                invalid_chunks,
+            )?;
+            vec![]
+        } else {
+            let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
+            self.apply_chunks_preprocessing(
+                me,
+                block,
+                &prev_block,
+                &incoming_receipts,
+                // If we have the state for shards in the next epoch already downloaded, apply the state transition
+                // for these states as well
+                // otherwise put the block into the permanent storage, waiting for be caught up
+                if is_caught_up {
+                    ApplyChunksMode::IsCaughtUp
+                } else {
+                    ApplyChunksMode::NotCaughtUp
+                },
+                state_patch,
+                invalid_chunks,
+            )?
+        };
 
         Ok((
             apply_chunk_work,
@@ -3840,6 +3864,128 @@ impl Chain {
                     .map(|chunk_extra| (*shard_uid, *chunk_extra.state_root()))
             })
             .collect()
+    }
+
+    // Validate chunks by applying old chunks!
+    fn validate_chunks(
+        &mut self,
+        me: &Option<AccountId>,
+        block: &Block,
+        prev_block: &Block,
+        mode: ApplyChunksMode,
+        mut state_patch: SandboxStatePatch,
+        invalid_chunks: &mut Vec<ShardChunkHeader>,
+    ) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "chain", "validate_chunks").entered();
+        let prev_hash = block.header().prev_hash();
+
+        // this shouldn't be even triggered as genesis chunks are never processed.
+        // just in case
+        if prev_hash == &CryptoHash::default() {
+            return Ok(());
+        }
+
+        let prev_prev_hash = prev_block.header().prev_hash();
+        // chunk to apply is genesis chunk. its execution result will be trivial.
+        if prev_prev_hash == &CryptoHash::default() {
+            return Ok(());
+        }
+        let prev_prev_block = self.get_block(prev_block.header().prev_hash())?;
+
+        let will_shard_layout_change = self.epoch_manager.will_shard_layout_change(prev_hash)?;
+        let prev_prev_chunk_headers =
+            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_prev_block)?;
+        let incoming_receipts = self.collect_incoming_receipts_from_block(me, prev_block)?;
+
+        // resharding, other shard ids, epoch boundary?!
+        let mut apply_results: Vec<ApplyChunkResult> = vec![];
+        let mut applied_chunk_ids = vec![];
+        let mut apply_chunk_errors = vec![];
+
+        // Validate current chunk against created chunk extra in a weird way
+        // to minimize code changes
+        for (shard_id, (prev_chunk_header, prev_prev_chunk_header)) in
+            prev_block.chunks().iter().zip(prev_prev_chunk_headers.iter()).enumerate().into_iter()
+        {
+            // XXX: This is a bit questionable -- sandbox state patching works
+            // only for a single shard. This so far has been enough.
+            let state_patch = state_patch.take();
+
+            // maaaaybe there will be extra validation runs
+            // but it shouldn't hurt?
+            let apply_chunk_job_result = self.get_apply_chunk_job(
+                me,
+                prev_block,             // block,
+                &prev_prev_block,       // prev_block,
+                prev_chunk_header,      // chunk_header,
+                prev_prev_chunk_header, // prev_chunk_header,
+                shard_id,
+                mode,
+                will_shard_layout_change,
+                &incoming_receipts,
+                state_patch.clone(),
+            );
+
+            let result = match apply_chunk_job_result {
+                Ok(Some(apply_chunk_job)) => apply_chunk_job(&_span),
+                Ok(None) => continue,
+                Err(err) => Err(err),
+            };
+
+            match result {
+                Ok(result) => {
+                    applied_chunk_ids.push(shard_id);
+                    apply_results.push(result);
+                }
+                Err(err) => {
+                    apply_chunk_errors.push((shard_id, err));
+                }
+            }
+        }
+
+        // Postprocess successfully applied prev chunks
+        // It includes saving chunk extras and flat state changes
+        let mut chain_update = self.chain_update();
+        chain_update.apply_chunk_postprocessing(prev_block, apply_results)?;
+        chain_update.commit()?;
+
+        // Just validate chunk headers against chunk extra.
+        // Taking a job is weird, but this seems to minimize new code.
+        for shard_id in applied_chunk_ids {
+            let chunk_header = &block.chunks()[shard_id];
+            let prev_chunk_header = &prev_block.chunks()[shard_id];
+            let apply_chunk_job_result = self.get_apply_chunk_job(
+                me,
+                block,
+                prev_block,
+                chunk_header,
+                prev_chunk_header,
+                shard_id,
+                mode,
+                will_shard_layout_change,
+                &[],                          // doesn't matter
+                SandboxStatePatch::default(), // doesn't matter
+            );
+            if let Err(err) = apply_chunk_job_result {
+                apply_chunk_errors.push((shard_id, err));
+            }
+        }
+
+        // If there is any error, return it and mark current chunks as invalid
+        let mut first_err = None;
+        for (shard_id, err) in apply_chunk_errors.into_iter() {
+            if err.is_bad_data() {
+                invalid_chunks.push(block.chunks()[shard_id].clone());
+            }
+            if first_err.is_none() {
+                first_err = Some(err);
+            }
+        }
+        if let Some(err) = first_err {
+            return Err(err);
+        }
+
+        Ok(())
     }
 
     /// Creates jobs that would apply chunks
