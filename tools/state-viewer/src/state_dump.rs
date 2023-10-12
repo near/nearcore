@@ -332,7 +332,6 @@ mod test {
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = protocol_version;
-        genesis.config.use_production_config = test_resharding;
 
         let env = if test_resharding {
             TestEnv::builder(ChainGenesis::new(&genesis))

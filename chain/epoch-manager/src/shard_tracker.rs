@@ -206,7 +206,6 @@ mod tests {
     fn get_epoch_manager(
         genesis_protocol_version: ProtocolVersion,
         num_shards: NumShards,
-        use_production_config: bool,
     ) -> EpochManagerHandle {
         let store = create_test_store();
         let initial_epoch_config = EpochConfig {
@@ -237,7 +236,7 @@ mod tests {
         };
         EpochManager::new(
             store,
-            AllEpochConfig::new(use_production_config, initial_epoch_config, "test-chain"),
+            AllEpochConfig::new(initial_epoch_config, "test-chain"),
             genesis_protocol_version,
             reward_calculator,
             vec![ValidatorStake::new(
@@ -303,7 +302,7 @@ mod tests {
     #[test]
     fn test_track_accounts() {
         let num_shards = 4;
-        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, false);
+        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards);
         let shard_layout = epoch_manager.read().get_shard_layout(&EpochId::default()).unwrap();
         let tracked_accounts = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
         let tracker =
@@ -327,7 +326,7 @@ mod tests {
     #[test]
     fn test_track_all_shards() {
         let num_shards = 4;
-        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, false);
+        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards);
         let tracker = ShardTracker::new(TrackedConfig::AllShards, Arc::new(epoch_manager));
         let total_tracked_shards: HashSet<_> = (0..num_shards).collect();
 
@@ -345,7 +344,7 @@ mod tests {
     fn test_track_schedule() {
         // Creates a ShardTracker that changes every epoch tracked shards.
         let num_shards = 4;
-        let epoch_manager = Arc::new(get_epoch_manager(PROTOCOL_VERSION, num_shards, false));
+        let epoch_manager = Arc::new(get_epoch_manager(PROTOCOL_VERSION, num_shards));
         let subset1 = HashSet::from([0, 1]);
         let subset2 = HashSet::from([1, 2]);
         let subset3 = HashSet::from([2, 3]);
@@ -387,7 +386,7 @@ mod tests {
     #[test]
     fn test_track_shards_shard_layout_change() {
         let simple_nightshade_version = SimpleNightshade.protocol_version();
-        let epoch_manager = get_epoch_manager(simple_nightshade_version - 1, 1, true);
+        let epoch_manager = get_epoch_manager(simple_nightshade_version - 1, 1);
         let tracked_accounts =
             vec!["a.near".parse().unwrap(), "near".parse().unwrap(), "zoo".parse().unwrap()];
         let tracker = ShardTracker::new(

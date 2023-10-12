@@ -218,7 +218,6 @@ impl ForkNetworkCommand {
             protocol_treasury_account: original_config.protocol_treasury_account.clone(),
             total_supply: original_config.total_supply,
             transaction_validity_period: original_config.transaction_validity_period,
-            use_production_config: original_config.use_production_config,
         };
         drop(epoch_manager);
 

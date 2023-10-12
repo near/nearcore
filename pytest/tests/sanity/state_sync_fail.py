@@ -93,7 +93,6 @@ def get_genesis_config_changes(binary_protocol_version):
         ["min_gas_price", 0],
         ["max_inflation_rate", [0, 1]],
         ["epoch_length", EPOCH_LENGTH],
-        ["use_production_config", True],
         ["block_producer_kickout_threshold", 80],
     ]
 

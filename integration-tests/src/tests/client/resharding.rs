@@ -727,7 +727,6 @@ fn setup_genesis(
     genesis.config.chunk_producer_kickout_threshold = 0;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = genesis_protocol_version;
-    genesis.config.use_production_config = true;
     if let Some(gas_limit) = gas_limit {
         genesis.config.gas_limit = gas_limit;
     }
@@ -742,7 +741,7 @@ fn setup_genesis(
     genesis.config.protocol_upgrade_stake_threshold = Rational32::new(7, 10);
 
     let default_epoch_config = EpochConfig::from(&genesis.config);
-    let all_epoch_config = AllEpochConfig::new(true, default_epoch_config, "test-chain");
+    let all_epoch_config = AllEpochConfig::new(default_epoch_config, "test-chain");
     let epoch_config = all_epoch_config.for_protocol_version(genesis_protocol_version);
 
     genesis.config.shard_layout = epoch_config.shard_layout;

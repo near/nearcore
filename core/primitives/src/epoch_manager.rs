@@ -78,9 +78,6 @@ impl ShardConfig {
 /// and returns the EpochConfig that should be used for this protocol version.
 #[derive(Clone)]
 pub struct AllEpochConfig {
-    /// Whether this is for production (i.e., mainnet or testnet). This is a temporary implementation
-    /// to allow us to change protocol config for mainnet and testnet without changing the genesis config
-    use_production_config: bool,
     /// EpochConfig from genesis
     genesis_epoch_config: EpochConfig,
     /// Chain Id. Some parameters are specific to certain chains.
@@ -88,26 +85,15 @@ pub struct AllEpochConfig {
 }
 
 impl AllEpochConfig {
-    pub fn new(
-        use_production_config: bool,
-        genesis_epoch_config: EpochConfig,
-        chain_id: &str,
-    ) -> Self {
-        Self { use_production_config, genesis_epoch_config, chain_id: chain_id.to_string() }
+    pub fn new(genesis_epoch_config: EpochConfig, chain_id: &str) -> Self {
+        Self { genesis_epoch_config, chain_id: chain_id.to_string() }
     }
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
         let mut config = self.genesis_epoch_config.clone();
-        if !self.use_production_config {
-            return config;
-        }
-
         Self::config_nightshade(&mut config, protocol_version);
-
         Self::config_chunk_only_producers(&mut config, &self.chain_id, protocol_version);
-
         Self::config_max_kickout_stake(&mut config, protocol_version);
-
         config
     }
 

@@ -123,7 +123,7 @@ pub fn epoch_info_with_num_seats(
     )
 }
 
-pub fn epoch_config_with_production_config(
+pub fn epoch_config(
     epoch_length: BlockHeightDelta,
     num_shards: NumShards,
     num_block_producer_seats: NumSeats,
@@ -131,7 +131,6 @@ pub fn epoch_config_with_production_config(
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
     fishermen_threshold: Balance,
-    use_production_config: bool,
 ) -> AllEpochConfig {
     let epoch_config = EpochConfig {
         epoch_length,
@@ -154,28 +153,7 @@ pub fn epoch_config_with_production_config(
         shard_layout: ShardLayout::v0(num_shards, 0),
         validator_max_kickout_stake_perc: 100,
     };
-    AllEpochConfig::new(use_production_config, epoch_config, "test-chain")
-}
-
-pub fn epoch_config(
-    epoch_length: BlockHeightDelta,
-    num_shards: NumShards,
-    num_block_producer_seats: NumSeats,
-    num_hidden_validator_seats: NumSeats,
-    block_producer_kickout_threshold: u8,
-    chunk_producer_kickout_threshold: u8,
-    fishermen_threshold: Balance,
-) -> AllEpochConfig {
-    epoch_config_with_production_config(
-        epoch_length,
-        num_shards,
-        num_block_producer_seats,
-        num_hidden_validator_seats,
-        block_producer_kickout_threshold,
-        chunk_producer_kickout_threshold,
-        fishermen_threshold,
-        false,
-    )
+    AllEpochConfig::new(epoch_config, "test-chain")
 }
 
 pub fn stake(account_id: AccountId, amount: Balance) -> ValidatorStake {

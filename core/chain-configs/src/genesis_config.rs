@@ -69,10 +69,6 @@ fn default_num_chunk_only_producer_seats() -> u64 {
     300
 }
 
-fn default_use_production_config() -> bool {
-    false
-}
-
 fn default_max_kickout_stake_threshold() -> u8 {
     100
 }
@@ -173,20 +169,6 @@ pub struct GenesisConfig {
     #[serde(default = "default_minimum_stake_ratio")]
     #[default(Rational32::new(160, 1_000_000))]
     pub minimum_stake_ratio: Rational32,
-    #[serde(default = "default_use_production_config")]
-    #[default(false)]
-    /// This is only for test purposes. We hard code some configs for mainnet and testnet
-    /// in AllEpochConfig, and we want to have a way to test that code path. This flag is for that.
-    /// If set to true, the node will use the same config override path as mainnet and testnet.
-    pub use_production_config: bool,
-}
-
-impl GenesisConfig {
-    pub fn use_production_config(&self) -> bool {
-        self.use_production_config
-            || self.chain_id == near_primitives::chains::TESTNET
-            || self.chain_id == near_primitives::chains::MAINNET
-    }
 }
 
 impl From<&GenesisConfig> for EpochConfig {
@@ -219,11 +201,7 @@ impl From<&GenesisConfig> for EpochConfig {
 impl From<&GenesisConfig> for AllEpochConfig {
     fn from(genesis_config: &GenesisConfig) -> Self {
         let initial_epoch_config = EpochConfig::from(genesis_config);
-        let epoch_config = Self::new(
-            genesis_config.use_production_config(),
-            initial_epoch_config,
-            &genesis_config.chain_id,
-        );
+        let epoch_config = Self::new(initial_epoch_config, &genesis_config.chain_id);
         epoch_config
     }
 }
@@ -1060,7 +1038,6 @@ mod test {
                 1,
                 6250
               ],
-              "use_production_config": false,
               "records": [
                 {
                   "Account": {
@@ -1184,8 +1161,7 @@ mod test {
               "minimum_stake_ratio": [
                 1,
                 6250
-              ],
-              "use_production_config": false
+              ]
         }"#;
         let _genesis =
             serde_json::from_str::<Genesis>(&genesis_str).expect("Failed to deserialize Genesis");

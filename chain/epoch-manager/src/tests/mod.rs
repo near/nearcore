@@ -3,11 +3,10 @@ mod random_epochs;
 use super::*;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::test_utils::{
-    block_info, change_stake, default_reward_calculator, epoch_config,
-    epoch_config_with_production_config, epoch_info, epoch_info_with_num_seats, hash_range,
-    record_block, record_block_with_final_block_hash, record_block_with_slashes,
-    record_with_block_info, reward, setup_default_epoch_manager, setup_epoch_manager, stake,
-    DEFAULT_TOTAL_SUPPLY,
+    block_info, change_stake, default_reward_calculator, epoch_config, epoch_info,
+    epoch_info_with_num_seats, hash_range, record_block, record_block_with_final_block_hash,
+    record_block_with_slashes, record_with_block_info, reward, setup_default_epoch_manager,
+    setup_epoch_manager, stake, DEFAULT_TOTAL_SUPPLY,
 };
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_manager::EpochConfig;
@@ -2128,7 +2127,7 @@ fn test_protocol_version_switch() {
 #[test]
 fn test_protocol_version_switch_with_shard_layout_change() {
     let store = create_test_store();
-    let config = epoch_config_with_production_config(2, 1, 2, 0, 90, 60, 0, true);
+    let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
@@ -2207,7 +2206,7 @@ fn test_protocol_version_switch_with_many_seats() {
         validator_selection_config: Default::default(),
         validator_max_kickout_stake_perc: 100,
     };
-    let config = AllEpochConfig::new(false, epoch_config, "test-chain");
+    let config = AllEpochConfig::new(epoch_config, "test-chain");
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
