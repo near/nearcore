@@ -30,3 +30,13 @@ pub enum VMKind {
     /// NearVM.
     NearVm,
 }
+
+impl VMKind {
+    pub fn normalize(self) -> Self {
+        if cfg!(not(target_arch = "x86_64")) {
+            Self::Wasmtime
+        } else {
+            self
+        }
+    }
+}

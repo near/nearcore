@@ -1,7 +1,7 @@
 use crate::metrics;
 use crate::migrations::load_migration_data;
 use crate::NearConfig;
-use borsh::ser::BorshSerialize;
+
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
 use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter, Tip};
@@ -543,14 +543,13 @@ impl NightshadeRuntime {
             .tries
             .get_trie_with_block_hash_for_shard_from_snapshot(shard_uid, *state_root, &prev_hash)
             .map_err(|err| Error::Other(err.to_string()))?;
-        let state_part = match snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, partial_state, nibbles_begin, nibbles_end, &trie_with_state) {
+        let state_part = borsh::to_vec(&match snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, partial_state, nibbles_begin, nibbles_end, &trie_with_state) {
             Ok(partial_state) => partial_state,
             Err(err) => {
                 error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part");
                 return Err(err.into());
             }
-        }
-            .try_to_vec()
+        })
             .expect("serializer should not fail");
 
         Ok(state_part)

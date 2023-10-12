@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use actix::{Actor, System};
-use borsh::BorshSerialize;
+
 use futures::{future, FutureExt, TryFutureExt};
 
 use near_actix_test_utils::run_actix;
@@ -13,7 +13,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockReference;
-use near_primitives::views::FinalExecutionStatus;
+use near_primitives::views::{FinalExecutionStatus, TxExecutionStatus};
 
 use near_jsonrpc_tests::{self as test_utils, test_with_client};
 
@@ -44,7 +44,7 @@ fn test_send_tx_async() {
                 100,
                 block_hash,
             );
-            let bytes = tx.try_to_vec().unwrap();
+            let bytes = borsh::to_vec(&tx).unwrap();
             let tx_hash = tx.get_hash().to_string();
             *tx_hash2_1.lock().unwrap() = Some(tx.get_hash());
             client
@@ -62,7 +62,9 @@ fn test_send_tx_async() {
                             .tx(tx_hash.to_string(), signer_account_id)
                             .map_err(|err| println!("Error: {:?}", err))
                             .map_ok(|result| {
-                                if let FinalExecutionStatus::SuccessValue(_) = result.status {
+                                if let FinalExecutionStatus::SuccessValue(_) =
+                                    result.final_execution_outcome.unwrap().into_outcome().status
+                                {
                                     System::current().stop();
                                 }
                             })
@@ -91,9 +93,17 @@ fn test_send_tx_commit() {
             100,
             block_hash,
         );
-        let bytes = tx.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&tx).unwrap();
         let result = client.broadcast_tx_commit(to_base64(&bytes)).await.unwrap();
-        assert_eq!(result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
+        assert_eq!(
+            result.final_execution_outcome.unwrap().into_outcome().status,
+            FinalExecutionStatus::SuccessValue(Vec::new())
+        );
+        assert!(
+            vec![TxExecutionStatus::Executed, TxExecutionStatus::Final]
+                .contains(&result.final_execution_status),
+            "All the receipts should be already executed"
+        );
     });
 }
 
@@ -136,7 +146,7 @@ fn test_expired_tx() {
                                     100,
                                     block_hash,
                                 );
-                                let bytes = tx.try_to_vec().unwrap();
+                                let bytes = borsh::to_vec(&tx).unwrap();
                                 actix::spawn(
                                     client
                                         .broadcast_tx_commit(to_base64(&bytes))
@@ -180,7 +190,7 @@ fn test_replay_protection() {
             100,
             hash(&[1]),
         );
-        let bytes = tx.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&tx).unwrap();
         if let Ok(_) = client.broadcast_tx_commit(to_base64(&bytes)).await {
             panic!("transaction should not succeed");
         }
@@ -213,14 +223,8 @@ fn test_check_invalid_tx() {
             100,
             hash(&[1]),
         );
-        let bytes = tx.try_to_vec().unwrap();
-        match client.EXPERIMENTAL_check_tx(to_base64(&bytes)).await {
-            Err(e) => {
-                let s = serde_json::to_string(&e.data.unwrap()).unwrap();
-                println!("{}", s);
-                assert_eq!(s, "{\"TxExecutionError\":{\"InvalidTxError\":\"Expired\"}}");
-            }
-            Ok(_) => panic!("transaction should not succeed"),
+        if let Ok(_) = client.tx(tx.get_hash().to_string(), "test1".parse().unwrap()).await {
+            panic!("transaction should not succeed");
         }
     });
 }

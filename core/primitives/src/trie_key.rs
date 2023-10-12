@@ -163,7 +163,7 @@ impl TrieKey {
                 buf.push(col::ACCESS_KEY);
                 buf.extend(account_id.as_ref().as_bytes());
                 buf.push(col::ACCESS_KEY);
-                buf.extend(public_key.try_to_vec().unwrap());
+                buf.extend(borsh::to_vec(&public_key).unwrap());
             }
             TrieKey::ReceivedData { receiver_id, data_id } => {
                 buf.push(col::RECEIVED_DATA);

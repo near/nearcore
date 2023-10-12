@@ -1,9 +1,3 @@
-use borsh::BorshSerialize;
-use near_client::{Client, ProcessTxResponse};
-use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
-use near_primitives_core::num_rational::Rational32;
-use rand::rngs::StdRng;
-
 use crate::tests::client::process_blocks::set_block_protocol_version;
 use assert_matches::assert_matches;
 use near_chain::near_chain_primitives::Error;
@@ -11,10 +5,12 @@ use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::{run_catchup, TestEnv};
+use near_client::{Client, ProcessTxResponse};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, Tip};
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid};
@@ -27,16 +23,17 @@ use near_primitives::version::ProtocolFeature;
 #[cfg(not(feature = "protocol_feature_simple_nightshade_v2"))]
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryRequest};
+use near_primitives_core::num_rational::Rational32;
 use near_store::test_utils::{gen_account, gen_unique_accounts};
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
+use rand::rngs::StdRng;
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use tracing::debug;
-
-use super::utils::TestEnvNightshadeSetupExt;
 
 const SIMPLE_NIGHTSHADE_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshade.protocol_version();
@@ -160,7 +157,7 @@ impl DropChunkCondition {
 ///
 /// Note: if the test is extended to more epochs, garbage collection will
 /// kick in and delete data that is checked at the end of the test.
-struct TestShardUpgradeEnv {
+struct TestReshardingEnv {
     env: TestEnv,
     initial_accounts: Vec<AccountId>,
     init_txs: Vec<SignedTransaction>,
@@ -170,7 +167,7 @@ struct TestShardUpgradeEnv {
     rng: StdRng,
 }
 
-impl TestShardUpgradeEnv {
+impl TestReshardingEnv {
     fn new(
         epoch_length: u64,
         num_validators: usize,
@@ -196,9 +193,11 @@ impl TestShardUpgradeEnv {
         let env = TestEnv::builder(chain_genesis)
             .clients_count(num_clients)
             .validator_seats(num_validators)
+            .real_stores()
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
             .track_all_shards()
+            .use_state_snapshots()
             .build();
         assert_eq!(env.validators.len(), num_validators);
         Self {
@@ -667,7 +666,7 @@ fn check_outgoing_receipts_reassigned_impl(
 /// Checks that account exists in the state after `block` is processed
 /// This function checks both state_root from chunk extra and state root from chunk header, if
 /// the corresponding chunk is included in the block
-fn check_account(env: &mut TestEnv, account_id: &AccountId, block: &Block) {
+fn check_account(env: &TestEnv, account_id: &AccountId, block: &Block) {
     tracing::trace!(target: "test", ?account_id, block_height=block.header().height(), "checking account");
     let prev_hash = block.header().prev_hash();
     let shard_layout =
@@ -743,7 +742,7 @@ fn setup_genesis(
     genesis.config.protocol_upgrade_stake_threshold = Rational32::new(7, 10);
 
     let default_epoch_config = EpochConfig::from(&genesis.config);
-    let all_epoch_config = AllEpochConfig::new(true, default_epoch_config);
+    let all_epoch_config = AllEpochConfig::new(true, default_epoch_config, "test-chain");
     let epoch_config = all_epoch_config.for_protocol_version(genesis_protocol_version);
 
     genesis.config.shard_layout = epoch_config.shard_layout;
@@ -773,7 +772,7 @@ fn generate_create_accounts_txs(
             KeyType::ED25519,
             &signer_account.to_string(),
         );
-        let account_id = gen_account(&mut rng, b"abcdefghijkmn");
+        let account_id = gen_account(&mut rng);
         if all_accounts.insert(account_id.clone()) {
             let signer = InMemorySigner::from_seed(
                 account_id.clone(),
@@ -811,7 +810,7 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_se
     // setup
     let epoch_length = 5;
     let mut test_env =
-        TestShardUpgradeEnv::new(epoch_length, 2, 2, 100, None, genesis_protocol_version, rng_seed);
+        TestReshardingEnv::new(epoch_length, 2, 2, 100, None, genesis_protocol_version, rng_seed);
     test_env.set_init_tx(vec![]);
 
     let mut nonce = 100;
@@ -879,8 +878,8 @@ fn create_test_env_for_cross_contract_test(
     genesis_protocol_version: ProtocolVersion,
     epoch_length: u64,
     rng_seed: u64,
-) -> TestShardUpgradeEnv {
-    TestShardUpgradeEnv::new(
+) -> TestReshardingEnv {
+    TestReshardingEnv::new(
         epoch_length,
         4,
         4,
@@ -893,7 +892,7 @@ fn create_test_env_for_cross_contract_test(
 
 /// Return test_env and a map from tx hash to the new account that will be added by this transaction
 fn setup_test_env_with_cross_contract_txs(
-    test_env: &mut TestShardUpgradeEnv,
+    test_env: &mut TestReshardingEnv,
     epoch_length: u64,
 ) -> HashMap<CryptoHash, AccountId> {
     let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
@@ -1012,7 +1011,7 @@ fn generate_cross_contract_tx(
     new_accounts: &mut HashMap<CryptoHash, AccountId>,
     nonce: &mut u64,
 ) -> Option<SignedTransaction> {
-    let account_id = gen_account(rng, b"abcdefghijkmn");
+    let account_id = gen_account(rng);
     if !all_accounts.insert(account_id.clone()) {
         return None;
     }
@@ -1074,7 +1073,7 @@ fn gen_cross_contract_tx_impl(
                 }, "id": 0 },
                 {"action_add_key_with_full_access": {
                     "promise_index": 0,
-                    "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
+                    "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
                     "nonce": 0,
                 }, "id": 0 }
             ],
@@ -1302,3 +1301,4 @@ fn test_shard_layout_upgrade_missing_chunks_high_missing_prob() {
 }
 
 // TODO(resharding) add a test with missing blocks
+// TODO(resharding) add a test with deleting accounts and delayed receipts check

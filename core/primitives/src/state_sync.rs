@@ -1,18 +1,12 @@
-use std::sync::Arc;
-
-use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::types::EpochHeight;
-
-use crate::block_header::BlockHeader;
-use crate::epoch_manager::block_info::BlockInfo;
-use crate::epoch_manager::epoch_info::EpochInfo;
 use crate::hash::CryptoHash;
-use crate::merkle::{MerklePath, PartialMerkleTree};
+use crate::merkle::MerklePath;
 use crate::sharding::{
     ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1,
 };
 use crate::types::{BlockHeight, EpochId, ShardId, StateRoot, StateRootNode};
-use crate::views::LightClientBlockView;
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives_core::types::EpochHeight;
+use std::sync::Arc;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptProofResponse(pub CryptoHash, pub Arc<Vec<ReceiptProof>>);
@@ -46,6 +40,35 @@ pub struct ShardStateSyncResponseHeaderV2 {
     pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
     pub root_proofs: Vec<Vec<RootProof>>,
     pub state_root_node: StateRootNode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum CachedParts {
+    AllParts,
+    NoParts,
+    /// Represents a subset of parts cached.
+    /// Can represent both NoParts and AllParts, but in those cases use the
+    /// corresponding enum values for efficiency.
+    BitArray(BitArray),
+}
+
+/// Represents an array of boolean values in a compact form.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct BitArray {
+    data: Vec<u8>,
+    capacity: u64,
+}
+
+impl BitArray {
+    pub fn new(capacity: u64) -> Self {
+        let num_bytes = (capacity + 7) / 8;
+        Self { data: vec![0; num_bytes as usize], capacity }
+    }
+
+    pub fn set_bit(&mut self, bit: u64) {
+        assert!(bit < self.capacity);
+        self.data[(bit / 8) as usize] |= 1 << (bit % 8);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -134,6 +157,10 @@ impl ShardStateSyncResponseHeader {
             Self::V2(header) => &header.state_root_node,
         }
     }
+
+    pub fn num_state_parts(&self) -> u64 {
+        get_num_state_parts(self.state_root_node().memory_usage)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -149,9 +176,22 @@ pub struct ShardStateSyncResponseV2 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct ShardStateSyncResponseV3 {
+    pub header: Option<ShardStateSyncResponseHeaderV2>,
+    pub part: Option<(u64, Vec<u8>)>,
+    /// Parts that can be provided **cheaply**.
+    // Can be `None` only if both `header` and `part` are `None`.
+    pub cached_parts: Option<CachedParts>,
+    /// Whether the node can provide parts for this epoch of this shard.
+    /// Assumes that a node can either provide all state parts or no state parts.
+    pub can_generate: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum ShardStateSyncResponse {
     V1(ShardStateSyncResponseV1),
     V2(ShardStateSyncResponseV2),
+    V3(ShardStateSyncResponseV3),
 }
 
 impl ShardStateSyncResponse {
@@ -159,6 +199,7 @@ impl ShardStateSyncResponse {
         match self {
             Self::V1(response) => response.part_id(),
             Self::V2(response) => response.part.as_ref().map(|(part_id, _)| *part_id),
+            Self::V3(response) => response.part.as_ref().map(|(part_id, _)| *part_id),
         }
     }
 
@@ -166,6 +207,7 @@ impl ShardStateSyncResponse {
         match self {
             Self::V1(response) => response.header.map(ShardStateSyncResponseHeader::V1),
             Self::V2(response) => response.header.map(ShardStateSyncResponseHeader::V2),
+            Self::V3(response) => response.header.map(ShardStateSyncResponseHeader::V2),
         }
     }
 
@@ -173,6 +215,7 @@ impl ShardStateSyncResponse {
         match self {
             Self::V1(response) => &response.part,
             Self::V2(response) => &response.part,
+            Self::V3(response) => &response.part,
         }
     }
 
@@ -180,6 +223,23 @@ impl ShardStateSyncResponse {
         match self {
             Self::V1(response) => response.part,
             Self::V2(response) => response.part,
+            Self::V3(response) => response.part,
+        }
+    }
+
+    pub fn can_generate(&self) -> bool {
+        match self {
+            Self::V1(_response) => false,
+            Self::V2(_response) => false,
+            Self::V3(response) => response.can_generate,
+        }
+    }
+
+    pub fn cached_parts(&self) -> &Option<CachedParts> {
+        match self {
+            Self::V1(_response) => &None,
+            Self::V2(_response) => &None,
+            Self::V3(response) => &response.cached_parts,
         }
     }
 }
@@ -188,34 +248,6 @@ impl ShardStateSyncResponseV1 {
     pub fn part_id(&self) -> Option<u64> {
         self.part.as_ref().map(|(part_id, _)| *part_id)
     }
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug, Clone)]
-pub struct EpochSyncFinalizationResponse {
-    pub cur_epoch_header: BlockHeader,
-    pub prev_epoch_headers: Vec<BlockHeader>,
-    pub header_sync_init_header: BlockHeader,
-    pub header_sync_init_header_tree: PartialMerkleTree,
-    // This Block Info is required by Epoch Manager when it checks if it's a good time to start a new Epoch.
-    // Epoch Manager asks for height difference by obtaining first Block Info of the Epoch.
-    pub prev_epoch_first_block_info: BlockInfo,
-    // This Block Info is required in State Sync that is started right after Epoch Sync is finished.
-    // It is used by `verify_chunk_signature_with_header_parts` in `save_block` as it calls `get_epoch_id_from_prev_block`.
-    pub prev_epoch_prev_last_block_info: BlockInfo,
-    // This Block Info is connected with the first actual Block received in State Sync.
-    // It is also used in Epoch Manager.
-    pub prev_epoch_last_block_info: BlockInfo,
-    pub prev_epoch_info: EpochInfo,
-    pub cur_epoch_info: EpochInfo,
-    // Next Epoch Info is required by Block Sync when Blocks of current Epoch will come.
-    // It asks in `process_block_single`, returns `Epoch Out Of Bounds` error otherwise.
-    pub next_epoch_info: EpochInfo,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug, Clone)]
-pub enum EpochSyncResponse {
-    UpToDate,
-    Advance { light_client_block_view: LightClientBlockView },
 }
 
 pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(30 * bytesize::MIB);
@@ -248,7 +280,7 @@ pub enum StateSyncDumpProgress {
 
 #[cfg(test)]
 mod tests {
-    use crate::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
+    use crate::state_sync::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 
     #[test]
     fn test_get_num_state_parts() {

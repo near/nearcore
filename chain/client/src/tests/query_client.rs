@@ -186,8 +186,8 @@ fn test_execution_outcome_for_chunk() {
                 .await
                 .unwrap()
                 .unwrap()
-                .unwrap()
                 .into_outcome()
+                .unwrap()
                 .transaction_outcome
                 .block_hash;
 

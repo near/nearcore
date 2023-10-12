@@ -3,8 +3,9 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnvBuilder;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_store::genesis::initialize_genesis_state;
-use nearcore::NightshadeRuntime;
 use std::sync::Arc;
+
+use crate::NightshadeRuntime;
 
 pub trait TestEnvNightshadeSetupExt {
     fn nightshade_runtimes(self, genesis: &Genesis) -> Self;

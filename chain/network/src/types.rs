@@ -1,7 +1,7 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Disconnect, Encoding, Handshake, HandshakeFailureReason, PeerMessage,
-    RoutingTableUpdate, SignedAccountData,
+    Disconnect, Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
+    SignedAccountData,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
 use near_async::messaging::{
@@ -53,6 +53,7 @@ pub struct KnownProducer {
 
 /// Ban reason.
 #[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq, Copy)]
+#[borsh(use_discriminant = false)]
 pub enum ReasonForBan {
     None = 0,
     BadBlock = 1,
@@ -224,14 +225,9 @@ pub enum NetworkRequests {
     /// Request given block headers.
     BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
     /// Request state header for given shard at given state root.
-    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, target: AccountOrPeerIdOrHash },
+    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, peer_id: PeerId },
     /// Request state part for given shard at given state root.
-    StateRequestPart {
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        part_id: u64,
-        target: AccountOrPeerIdOrHash,
-    },
+    StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64, peer_id: PeerId },
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
     /// Announce account
@@ -394,7 +390,6 @@ impl<
 mod tests {
     use super::*;
     use crate::network_protocol::{RawRoutedMessage, RoutedMessage, RoutedMessageBody};
-    use borsh::BorshSerialize as _;
 
     const ALLOWED_SIZE: usize = 1 << 20;
     const NOTIFY_SIZE: usize = 1024;
@@ -454,7 +449,7 @@ mod tests {
     fn routed_message_body_compatibility_smoke_test() {
         #[track_caller]
         fn check(msg: RoutedMessageBody, expected: &[u8]) {
-            let actual = msg.try_to_vec().unwrap();
+            let actual = borsh::to_vec(&msg).unwrap();
             assert_eq!(actual.as_slice(), expected);
         }
 

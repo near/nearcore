@@ -187,7 +187,7 @@ fn create_snapshot(create_cmd: CreateCmd) {
 
     fs::write(
         Path::new(&create_cmd.destination_dir).join("snapshot.borsh"),
-        checkpoint.try_to_vec().unwrap(),
+        borsh::to_vec(&checkpoint).unwrap(),
     )
     .expect("Failed writing to destination file");
 

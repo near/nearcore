@@ -31,24 +31,24 @@ fn setup_subscriber_from_filter(mut env_filter: EnvFilter) {
 }
 
 pub fn init_test_logger() {
-    let env_filter = EnvFilter::new("tokio_reactor=info,tokio_core=info,hyper=info,debug");
+    let env_filter = EnvFilter::new("cranelift=warn,wasmtime=warn,h2=warn,tower=warn,trust_dns=warn,tokio_reactor=info,tokio_core=info,hyper=info,debug");
     setup_subscriber_from_filter(env_filter);
 }
 
 pub fn init_test_logger_allow_panic() {
-    let env_filter = EnvFilter::new("tokio_reactor=info,tokio_core=info,hyper=info,debug");
+    let env_filter = EnvFilter::new("cranelift=warn,wasmtime=warn,h2=warn,tower=warn,trust_dns=warn,tokio_reactor=info,tokio_core=info,hyper=info,debug");
     setup_subscriber_from_filter(env_filter);
 }
 
 pub fn init_test_module_logger(module: &str) {
     let env_filter =
-        EnvFilter::new("tokio_reactor=info,tokio_core=info,hyper=info,cranelift_wasm=warn,info")
+        EnvFilter::new("cranelift=warn,wasmtime=warn,h2=warn,tower=warn,trust_dns=warn,tokio_reactor=info,tokio_core=info,hyper=info,cranelift_wasm=warn,info")
             .add_directive(format!("{}=info", module).parse().unwrap());
     setup_subscriber_from_filter(env_filter);
 }
 
 pub fn init_integration_logger() {
-    let env_filter = EnvFilter::new("actix_web=warn,info");
+    let env_filter = EnvFilter::new("cranelift=warn,wasmtime=warn,actix_web=warn,info");
     setup_subscriber_from_filter(env_filter);
 }
 

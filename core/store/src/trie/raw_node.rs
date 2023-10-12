@@ -116,7 +116,7 @@ fn test_encode_decode() {
     #[track_caller]
     fn test(node: RawTrieNode, encoded: &[u8]) {
         let node = RawTrieNodeWithSize { node, memory_usage: 42 };
-        let mut buf = node.try_to_vec().unwrap();
+        let mut buf = borsh::to_vec(&node).unwrap();
         assert_eq!(encoded, buf.as_slice());
         assert_eq!(node, RawTrieNodeWithSize::try_from_slice(&buf).unwrap());
 

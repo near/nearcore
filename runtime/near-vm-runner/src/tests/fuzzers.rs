@@ -154,6 +154,7 @@ fn current_vm_does_not_crash() {
 }
 
 #[test]
+#[cfg_attr(not(all(feature = "near_vm", target_arch = "x86_64")), ignore)]
 fn near_vm_and_wasmtime_agree() {
     check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
         let code = ContractCode::new(module.0.module.to_bytes(), None);
@@ -163,8 +164,8 @@ fn near_vm_and_wasmtime_agree() {
     });
 }
 
-#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 #[test]
+#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 fn near_vm_is_reproducible() {
     use crate::near_vm_runner::NearVM;
     use near_primitives::hash::CryptoHash;

@@ -8,7 +8,6 @@ pub(crate) mod test_builder;
 mod ts_contract;
 mod wasm_validation;
 
-#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 use crate::config::ContractPrepareVersion;
 use crate::logic::{Config, VMContext};
 use crate::vm_kind::VMKind;
@@ -36,7 +35,8 @@ impl crate::logic::Config {
                 ExtVMKind::Wasmer2 => VMKind::Wasmer2,
                 ExtVMKind::NearVm => VMKind::NearVm,
                 ExtVMKind::Wasmtime => VMKind::Wasmtime,
-            },
+            }
+            .normalize(),
             disable_9393_fix: config.disable_9393_fix,
             storage_get_mode: match config.storage_get_mode {
                 ExtStorageGetMode::Trie => StorageGetMode::Trie,
