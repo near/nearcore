@@ -4002,8 +4002,8 @@ impl Chain {
                 shard_id,
                 mode,
                 will_shard_layout_change,
-                &HashMap::default(),          // doesn't matter
-                SandboxStatePatch::default(), // doesn't matter
+                &HashMap::from([shard_id, vec![]]), // doesn't matter
+                SandboxStatePatch::default(),       // doesn't matter
             );
             if let Err(err) = apply_chunk_job_result {
                 apply_chunk_errors.push((shard_id, err));
