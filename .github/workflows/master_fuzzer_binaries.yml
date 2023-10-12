@@ -36,8 +36,7 @@ jobs:
           sudo swapon $SWAP_FILE
 
       - name: Install cargo bolero subcommand crate
-        # TODO: revert to upstream cargo-bolero once 0.10 is released
-        run: cargo install --git https://github.com/camshaft/bolero --rev 16814dcf5533a26f7448db3672245da7f2f92e82
+        run: cargo install cargo-bolero
 
       - run: rustup target add --toolchain nightly wasm32-unknown-unknown
 
