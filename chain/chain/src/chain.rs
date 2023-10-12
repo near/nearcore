@@ -2609,6 +2609,7 @@ impl Chain {
 
         // by this, we mark new pre-state-root changes
         // to replace with protocol feature
+        let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
         let apply_chunk_work = if true {
             self.validate_chunks(
                 me,
@@ -2624,7 +2625,6 @@ impl Chain {
             )?;
             vec![]
         } else {
-            let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
             self.apply_chunks_preprocessing(
                 me,
                 block,
@@ -3923,7 +3923,7 @@ impl Chain {
                 mode,
                 will_shard_layout_change,
                 &incoming_receipts,
-                state_patch.clone(),
+                state_patch,
             );
 
             let result = match apply_chunk_job_result {
@@ -3963,7 +3963,7 @@ impl Chain {
                 shard_id,
                 mode,
                 will_shard_layout_change,
-                &[],                          // doesn't matter
+                &HashMap::default(),          // doesn't matter
                 SandboxStatePatch::default(), // doesn't matter
             );
             if let Err(err) = apply_chunk_job_result {
