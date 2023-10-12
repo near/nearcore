@@ -1814,7 +1814,8 @@ impl Client {
         let me = Some(validator_id.clone());
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
-        let incoming_receipts = self.chain.collect_incoming_receipts_from_block(&me, block)?;
+        let incoming_receipts =
+            self.chain.collect_incoming_receipts_from_block(&me, block).unwrap();
         for shard_id in 0..self.epoch_manager.num_shards(&epoch_id).unwrap() {
             let next_height = block.header().height() + 1;
             let epoch_manager = self.epoch_manager.as_ref();
