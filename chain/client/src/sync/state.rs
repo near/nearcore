@@ -46,7 +46,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
-use near_primitives::state_sync::{get_num_state_parts, ShardStateSyncResponse};
+use near_primitives::state_sync::ShardStateSyncResponse;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
 use rand::seq::SliceRandom;
@@ -689,8 +689,7 @@ impl StateSync {
                 let epoch_height = epoch_info.epoch_height();
 
                 let shard_state_header = chain.get_state_header(shard_id, sync_hash).unwrap();
-                let state_num_parts =
-                    get_num_state_parts(shard_state_header.state_root_node().memory_usage);
+                let state_num_parts = shard_state_header.num_state_parts();
 
                 for (part_id, download) in parts_to_fetch(new_shard_sync_download) {
                     request_part_from_external_storage(
@@ -870,8 +869,7 @@ impl StateSync {
         // StateDownloadHeader is the first step. We want to fetch the basic information about the state (its size, hash etc).
         if shard_sync_download.downloads[0].done {
             let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
-            let state_num_parts =
-                get_num_state_parts(shard_state_header.state_root_node().memory_usage);
+            let state_num_parts = shard_state_header.num_state_parts();
             // If the header was downloaded successfully - move to phase 2 (downloading parts).
             // Create the vector with entry for each part.
             *shard_sync_download =
@@ -970,8 +968,7 @@ impl StateSync {
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
     ) -> Result<(), near_chain::Error> {
         let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
-        let state_num_parts =
-            get_num_state_parts(shard_state_header.state_root_node().memory_usage);
+        let state_num_parts = shard_state_header.num_state_parts();
         // Now apply all the parts to the chain / runtime.
         // TODO: not sure why this has to happen only after all the parts were downloaded -
         //       as we could have done this in parallel after getting each part.
@@ -1026,8 +1023,7 @@ impl StateSync {
                     tracing::error!(target: "sync", %shard_id, %sync_hash, ?err, "State sync finalizing error");
                     *shard_sync_download = ShardSyncDownload::new_download_state_header(now);
                     let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
-                    let state_num_parts =
-                        get_num_state_parts(shard_state_header.state_root_node().memory_usage);
+                    let state_num_parts = shard_state_header.num_state_parts();
                     chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
                 }
             }
@@ -1348,11 +1344,10 @@ mod test {
     use near_epoch_manager::EpochManagerAdapter;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::PeerInfo;
-    use near_primitives::{
-        state_sync::{ShardStateSyncResponseHeader, ShardStateSyncResponseV2},
-        test_utils::TestBlockBuilder,
-        types::EpochId,
+    use near_primitives::state_sync::{
+        CachedParts, ShardStateSyncResponseHeader, ShardStateSyncResponseV3,
     };
+    use near_primitives::{test_utils::TestBlockBuilder, types::EpochId};
 
     #[test]
     // Start a new state sync - and check that it asks for a header.
@@ -1461,9 +1456,11 @@ mod test {
 
             // Now let's simulate header return message.
 
-            let state_response = ShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
+            let state_response = ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
                 header: Some(state_sync_header),
                 part: None,
+                cached_parts: Some(CachedParts::AllParts),
+                can_generate: true,
             });
 
             state_sync.update_download_on_state_response_message(
