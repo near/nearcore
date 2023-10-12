@@ -126,10 +126,12 @@ skip = [
     # paperclip-macros, strum_macros, walrus-macro depend on this while clap3.1.6 uses heck=0.4.0
     { name = "heck", version = "=0.3.3" },
 
-    # Wasmer requires a newer version and the rest of the ecosystem hasn't caught up yet.
+    # Bolero requires a newer version and the rest of the ecosystem hasn't caught up yet.
     { name = "hashbrown", version = "0.11.0" },
     { name = "hashbrown", version = "0.12.0" },
+    { name = "hashbrown", version = "0.13.2" },
     { name = "bitflags", version = "=1.3.2" },
+    { name = "indexmap", version = "=1.9.2" },
 
     # prometheus depends on an old version of protobuf
     { name = "protobuf", version = "=2.27.1" },
