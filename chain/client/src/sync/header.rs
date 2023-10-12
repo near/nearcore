@@ -191,8 +191,14 @@ impl HeaderSync {
             true
         } else {
             // Resetting the timeout as long as we make progress.
-            let ns_time_till_timeout =
-                (to_timestamp(timeout).saturating_sub(to_timestamp(now))) as u128;
+            let mut ns_time_till_timeout = 0u128;
+            match (to_timestamp(timeout), to_timestamp(now)) {
+                (Some(timeout), Some(now)) => {
+                    ns_time_till_timeout = (timeout.saturating_sub(now)) as u128
+                }
+                _ => (),
+            }
+
             let remaining_expected_height = (self.expected_height_per_second as u128
                 * ns_time_till_timeout
                 / NS_PER_SECOND) as u64;

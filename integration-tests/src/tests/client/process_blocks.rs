@@ -1158,8 +1158,9 @@ fn test_time_attack() {
     let signer = Arc::new(create_test_signer("test1"));
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
-    b1.mut_header().get_mut().inner_lite.timestamp =
-        to_timestamp(b1.header().timestamp() + chrono::Duration::seconds(60));
+    if let Some(time) = to_timestamp(b1.header().timestamp() + chrono::Duration::seconds(60)) {
+        b1.mut_header().get_mut().inner_lite.timestamp = time;
+    };
     b1.mut_header().resign(&*signer);
 
     let _ = client.process_block_test(b1.into(), Provenance::NONE).unwrap();

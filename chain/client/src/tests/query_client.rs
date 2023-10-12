@@ -97,8 +97,11 @@ fn query_status_not_crash() {
                 block_merkle_tree.root(),
                 None,
             );
-            next_block.mut_header().get_mut().inner_lite.timestamp =
-                to_timestamp(next_block.header().timestamp() + chrono::Duration::seconds(60));
+            if let Some(timestamp) =
+                to_timestamp(next_block.header().timestamp() + chrono::Duration::seconds(60))
+            {
+                next_block.mut_header().get_mut().inner_lite.timestamp = timestamp;
+            };
             next_block.mut_header().resign(&signer);
 
             actix::spawn(

@@ -1930,8 +1930,10 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn try_save_latest_known(&mut self, height: BlockHeight) -> Result<(), Error> {
         let latest_known = self.chain_store.get_latest_known().ok();
         if latest_known.is_none() || height > latest_known.unwrap().height {
-            self.chain_store
-                .save_latest_known(LatestKnown { height, seen: to_timestamp(Utc::now()) })?;
+            self.chain_store.save_latest_known(LatestKnown {
+                height,
+                seen: to_timestamp(Utc::now()).unwrap(),
+            })?;
         }
         Ok(())
     }
@@ -1941,7 +1943,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let header = self.get_block_header_by_height(height)?;
         let tip = Tip::from_header(&header);
         self.chain_store
-            .save_latest_known(LatestKnown { height, seen: to_timestamp(Utc::now()) })?;
+            .save_latest_known(LatestKnown { height, seen: to_timestamp(Utc::now()).unwrap() })?;
         self.save_head(&tip)?;
         Ok(())
     }

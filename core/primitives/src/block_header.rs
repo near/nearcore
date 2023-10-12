@@ -681,7 +681,7 @@ impl BlockHeader {
             next_epoch_id: EpochId::default(),
             prev_state_root: state_root,
             prev_outcome_root: CryptoHash::default(),
-            timestamp: to_timestamp(timestamp),
+            timestamp: to_timestamp(timestamp).unwrap(),
             next_bp_hash,
             block_merkle_root: CryptoHash::default(),
         };

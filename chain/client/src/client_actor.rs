@@ -952,10 +952,14 @@ impl ClientActor {
 
         self.client.accrued_fastforward_delta += delta_height;
         let delta_time = self.client.sandbox_delta_time();
-        let new_latest_known = near_chain::types::LatestKnown {
-            height: block_height + delta_height,
-            seen: near_primitives::utils::to_timestamp(StaticClock::utc() + delta_time),
-        };
+        if let Some(seen) = near_primitives::utils::to_timestamp(StaticClock::utc() + delta_time) {
+            let new_latest_known =
+                near_chain::types::LatestKnown { height: block_height + delta_height, seen: seen };
+        } else {
+            return Err(Error::Other(
+                "Failed to convert sandbox delta time to timestamp".to_string(),
+            ));
+        }
 
         Ok(Some(new_latest_known))
     }

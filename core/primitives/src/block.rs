@@ -264,8 +264,10 @@ impl Block {
         );
 
         let new_total_supply = prev.total_supply() + minted_amount.unwrap_or(0) - balance_burnt;
-        let now = to_timestamp(timestamp_override.unwrap_or_else(StaticClock::utc));
-        let time = if now <= prev.raw_timestamp() { prev.raw_timestamp() + 1 } else { now };
+        let mut time = prev.raw_timestamp() + 1;
+        if let Some(now) = to_timestamp(timestamp_override.unwrap_or_else(StaticClock::utc)) {
+            time = if now <= prev.raw_timestamp() { prev.raw_timestamp() + 1 } else { now };
+        };
 
         let (vrf_value, vrf_proof) = signer.compute_vrf_with_proof(prev.random_value().as_ref());
         let random_value = hash(vrf_value.0.as_ref());

@@ -411,12 +411,16 @@ pub fn from_timestamp(timestamp: u64) -> DateTime<chrono::Utc> {
     let secs = (timestamp / NS_IN_SECOND) as i64;
     let nsecs = (timestamp % NS_IN_SECOND) as u32;
     let naive = NaiveDateTime::from_timestamp_opt(secs, nsecs).unwrap();
-    DateTime::from_utc(naive, chrono::Utc)
+    DateTime::from_naive_utc_and_offset(naive, chrono::Utc)
 }
 
 /// Converts DateTime UTC time into timestamp in ns.
-pub fn to_timestamp(time: DateTime<chrono::Utc>) -> u64 {
-    time.timestamp_nanos() as u64
+pub fn to_timestamp(time: DateTime<chrono::Utc>) -> Option<u64> {
+    if let Some(time) = time.timestamp_nanos_opt() {
+        Some(time as u64)
+    } else {
+        None
+    }
 }
 
 /// Compute number of seats per shard for given total number of seats and number of shards.

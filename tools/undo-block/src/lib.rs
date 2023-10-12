@@ -35,7 +35,7 @@ pub fn undo_block(
 
     chain_store.save_latest_known(LatestKnown {
         height: prev_tip.height,
-        seen: to_timestamp(Utc::now()),
+        seen: to_timestamp(Utc::now()).unwrap(),
     })?;
 
     let new_chain_store_head = chain_store.head()?;
