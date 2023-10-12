@@ -1,4 +1,4 @@
-use crate::flat::FlatStorageManager;
+use crate::flat::{FlatStorageManager, FlatStorageStatus};
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
@@ -350,6 +350,17 @@ impl ShardTries {
         store_update: &mut StoreUpdate,
     ) -> StateRoot {
         self.apply_all_inner(trie_changes, shard_uid, true, store_update)
+    }
+
+    /// Returns the status of the given shard of flat storage in the state snapshot.
+    /// `sync_prev_prev_hash` needs to match the block hash that identifies that snapshot.
+    pub fn get_snapshot_flat_storage_status(
+        &self,
+        sync_prev_prev_hash: CryptoHash,
+        shard_uid: ShardUId,
+    ) -> Result<FlatStorageStatus, StorageError> {
+        let (_store, manager) = self.get_state_snapshot(&sync_prev_prev_hash)?;
+        Ok(manager.get_flat_storage_status(shard_uid))
     }
 }
 

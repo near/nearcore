@@ -27,7 +27,7 @@ use near_chunks::shards_manager_actor::start_shards_manager;
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_chunks::ShardsManager;
 use near_crypto::{KeyType, PublicKey};
-use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{BlockInfo, PeerChainInfo};
@@ -85,7 +85,7 @@ pub fn setup(
     let store = create_test_store();
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
     let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
-    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+    let shard_tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone());
     let runtime = KeyValueRuntime::new_with_no_gc(store.clone(), epoch_manager.as_ref(), archive);
     let chain_genesis = ChainGenesis {
         time: genesis_time,
@@ -683,28 +683,28 @@ pub fn setup_mock_all_validators(
                             sync_hash, ..
                         } => {
                             for (i, _) in validators_clone2.iter().enumerate() {
-                                    let me = connectors1[my_ord].client_actor.clone();
-                                    actix::spawn(
-                                        connectors1[i]
-                                            .view_client_actor
-                                            .send(
-                                                StateRequestHeader {
-                                                    shard_id: *shard_id,
-                                                    sync_hash: *sync_hash,
+                                let me = connectors1[my_ord].client_actor.clone();
+                                actix::spawn(
+                                    connectors1[i]
+                                        .view_client_actor
+                                        .send(
+                                            StateRequestHeader {
+                                                shard_id: *shard_id,
+                                                sync_hash: *sync_hash,
+                                            }
+                                                .with_span_context(),
+                                        )
+                                        .then(move |response| {
+                                            let response = response.unwrap();
+                                            match response {
+                                                Some(response) => {
+                                                    me.do_send(response.with_span_context());
                                                 }
-                                                    .with_span_context(),
-                                            )
-                                            .then(move |response| {
-                                                let response = response.unwrap();
-                                                match response {
-                                                    Some(response) => {
-                                                        me.do_send(response.with_span_context());
-                                                    }
-                                                    None => {}
-                                                }
-                                                future::ready(())
-                                            }),
-                                    );
+                                                None => {}
+                                            }
+                                            future::ready(())
+                                        }),
+                                );
                             }
                         }
                         NetworkRequests::StateRequestPart {
@@ -713,29 +713,29 @@ pub fn setup_mock_all_validators(
                             part_id, ..
                         } => {
                             for (i, _) in validators_clone2.iter().enumerate() {
-                                    let me = connectors1[my_ord].client_actor.clone();
-                                    actix::spawn(
-                                        connectors1[i]
-                                            .view_client_actor
-                                            .send(
-                                                StateRequestPart {
-                                                    shard_id: *shard_id,
-                                                    sync_hash: *sync_hash,
-                                                    part_id: *part_id,
+                                let me = connectors1[my_ord].client_actor.clone();
+                                actix::spawn(
+                                    connectors1[i]
+                                        .view_client_actor
+                                        .send(
+                                            StateRequestPart {
+                                                shard_id: *shard_id,
+                                                sync_hash: *sync_hash,
+                                                part_id: *part_id,
+                                            }
+                                                .with_span_context(),
+                                        )
+                                        .then(move |response| {
+                                            let response = response.unwrap();
+                                            match response {
+                                                Some(response) => {
+                                                    me.do_send(response.with_span_context());
                                                 }
-                                                    .with_span_context(),
-                                            )
-                                            .then(move |response| {
-                                                let response = response.unwrap();
-                                                match response {
-                                                    Some(response) => {
-                                                        me.do_send(response.with_span_context());
-                                                    }
-                                                    None => {}
-                                                }
-                                                future::ready(())
-                                            }),
-                                    );
+                                                None => {}
+                                            }
+                                            future::ready(())
+                                        }),
+                                );
                             }
                         }
                         NetworkRequests::AnnounceAccount(announce_account) => {
@@ -752,7 +752,7 @@ pub fn setup_mock_all_validators(
                                             announce_account.clone(),
                                             None,
                                         )])
-                                        .with_span_context(),
+                                            .with_span_context(),
                                     )
                                 }
                             }
@@ -827,7 +827,7 @@ pub fn setup_mock_all_validators(
                 }
                 resp
             })
-            .start();
+                .start();
             let (block, client, view_client_addr, shards_manager_adapter) = setup(
                 vs,
                 epoch_length,
@@ -838,7 +838,7 @@ pub fn setup_mock_all_validators(
                 enable_doomslug,
                 archive1[index],
                 epoch_sync_enabled1[index],
-                true,
+                false,
                 Arc::new(pm).into(),
                 10000,
                 genesis_time,

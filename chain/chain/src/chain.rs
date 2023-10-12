@@ -20,7 +20,7 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
-
+use borsh::BorshDeserialize;
 use chrono::Duration;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use itertools::Itertools;
@@ -57,8 +57,8 @@ use near_primitives::sharding::{
 };
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{
-    get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
-    ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
+    get_num_state_parts, BitArray, CachedParts, ReceiptProofResponse, RootProof,
+    ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
 };
 use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
@@ -2921,19 +2921,17 @@ impl Chain {
         let sync_block_header = sync_block.header().clone();
         let sync_block_epoch_id = sync_block.header().epoch_id().clone();
         if shard_id as usize >= sync_block.chunks().len() {
-            return Err(Error::InvalidStateRequest("shard_id out of bounds".into()));
+            return Err(shard_id_out_of_bounds(shard_id));
         }
 
         // The chunk was applied at height `chunk_header.height_included`.
         // Getting the `current` state.
         let sync_prev_block = self.get_block(sync_block_header.prev_hash())?;
         if &sync_block_epoch_id == sync_prev_block.header().epoch_id() {
-            return Err(Error::InvalidStateRequest(
-                "sync_hash is not the first hash of the epoch".into(),
-            ));
+            return Err(sync_hash_not_first_hash(sync_hash));
         }
         if shard_id as usize >= sync_prev_block.chunks().len() {
-            return Err(Error::InvalidStateRequest("shard_id out of bounds".into()));
+            return Err(shard_id_out_of_bounds(shard_id));
         }
         // Chunk header here is the same chunk header as at the `current` height.
         let sync_prev_hash = *sync_prev_block.hash();
@@ -2960,7 +2958,7 @@ impl Chain {
         {
             Ok(prev_block) => {
                 if shard_id as usize >= prev_block.chunks().len() {
-                    return Err(Error::InvalidStateRequest("shard_id out of bounds".into()));
+                    return Err(shard_id_out_of_bounds(shard_id));
                 }
                 let prev_chunk_header = prev_block.chunks()[shard_id as usize].clone();
                 let (prev_chunk_headers_root, prev_chunk_proofs) = merklize(
@@ -3044,40 +3042,32 @@ impl Chain {
             &chunk_header.prev_state_root(),
         )?;
 
-        let shard_state_header = match chunk {
+        let (chunk, prev_chunk_header) = match chunk {
             ShardChunk::V1(chunk) => {
                 let prev_chunk_header =
                     prev_chunk_header.and_then(|prev_header| match prev_header {
-                        ShardChunkHeader::V1(header) => Some(header),
+                        ShardChunkHeader::V1(header) => Some(ShardChunkHeader::V1(header)),
                         ShardChunkHeader::V2(_) => None,
                         ShardChunkHeader::V3(_) => None,
                     });
-                ShardStateSyncResponseHeader::V1(ShardStateSyncResponseHeaderV1 {
-                    chunk,
-                    chunk_proof,
-                    prev_chunk_header,
-                    prev_chunk_proof,
-                    incoming_receipts_proofs,
-                    root_proofs,
-                    state_root_node,
-                })
+                let chunk = ShardChunk::V1(chunk);
+                (chunk, prev_chunk_header)
             }
-
-            chunk @ ShardChunk::V2(_) => {
-                ShardStateSyncResponseHeader::V2(ShardStateSyncResponseHeaderV2 {
-                    chunk,
-                    chunk_proof,
-                    prev_chunk_header,
-                    prev_chunk_proof,
-                    incoming_receipts_proofs,
-                    root_proofs,
-                    state_root_node,
-                })
-            }
-
+            chunk @ ShardChunk::V2(_) => (chunk, prev_chunk_header),
             ShardChunk::V3(_) => todo!("#9535"),
         };
-        Ok(shard_state_header)
+
+        let shard_state_header = ShardStateSyncResponseHeaderV2 {
+            chunk,
+            chunk_proof,
+            prev_chunk_header,
+            prev_chunk_proof,
+            incoming_receipts_proofs,
+            root_proofs,
+            state_root_node,
+        };
+
+        Ok(ShardStateSyncResponseHeader::V2(shard_state_header))
     }
 
     /// Returns ShardStateSyncResponseHeader for the given epoch and shard.
@@ -3129,16 +3119,14 @@ impl Chain {
         let sync_block_header = sync_block.header().clone();
         let sync_block_epoch_id = sync_block.header().epoch_id().clone();
         if shard_id as usize >= sync_block.chunks().len() {
-            return Err(Error::InvalidStateRequest("shard_id out of bounds".into()));
+            return Err(shard_id_out_of_bounds(shard_id));
         }
         let sync_prev_block = self.get_block(sync_block_header.prev_hash())?;
         if &sync_block_epoch_id == sync_prev_block.header().epoch_id() {
-            return Err(Error::InvalidStateRequest(
-                "sync_hash is not the first hash of the epoch".into(),
-            ));
+            return Err(sync_hash_not_first_hash(sync_hash));
         }
         if shard_id as usize >= sync_prev_block.chunks().len() {
-            return Err(Error::InvalidStateRequest("shard_id out of bounds".into()));
+            return Err(shard_id_out_of_bounds(shard_id));
         }
         let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
         let sync_prev_hash = *sync_prev_block.hash();
@@ -3150,7 +3138,7 @@ impl Chain {
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
 
         if part_id >= num_parts {
-            return Err(Error::InvalidStateRequest("part_id out of bound".to_string()));
+            return Err(shard_id_out_of_bounds(shard_id));
         }
         let current_time = Instant::now();
         let state_part = self
@@ -4319,6 +4307,49 @@ impl Chain {
         }
         Ok(())
     }
+
+    /// Returns a description of state parts cached for the given shard of the given epoch.
+    pub fn get_cached_state_parts(
+        &self,
+        sync_hash: CryptoHash,
+        shard_id: ShardId,
+        num_parts: u64,
+    ) -> Result<CachedParts, Error> {
+        let _span = tracing::debug_span!(target: "chain", "get_cached_state_parts").entered();
+        // DBCol::StateParts is keyed by StatePartKey: (BlockHash || ShardId || PartId (u64)).
+        let lower_bound = StatePartKey(sync_hash, shard_id, 0);
+        let lower_bound = borsh::to_vec(&lower_bound)?;
+        let upper_bound = StatePartKey(sync_hash, shard_id + 1, 0);
+        let upper_bound = borsh::to_vec(&upper_bound)?;
+        let mut num_cached_parts = 0;
+        let mut bit_array = BitArray::new(num_parts);
+        for item in
+            self.store.store().iter_range(DBCol::StateParts, Some(&lower_bound), Some(&upper_bound))
+        {
+            let key = item?.0;
+            let key = StatePartKey::try_from_slice(&key)?;
+            let part_id = key.2;
+            num_cached_parts += 1;
+            bit_array.set_bit(part_id);
+        }
+        Ok(if num_cached_parts == 0 {
+            CachedParts::NoParts
+        } else if num_cached_parts == num_parts {
+            CachedParts::AllParts
+        } else {
+            CachedParts::BitArray(bit_array)
+        })
+    }
+}
+
+fn shard_id_out_of_bounds(shard_id: ShardId) -> Error {
+    Error::InvalidStateRequest(format!("shard_id {shard_id:?} out of bounds").into())
+}
+
+fn sync_hash_not_first_hash(sync_hash: CryptoHash) -> Error {
+    Error::InvalidStateRequest(
+        format!("sync_hash {sync_hash:?} is not the first hash of the epoch").into(),
+    )
 }
 
 /// We want to guarantee that transactions are only applied once for each shard,
@@ -4786,22 +4817,24 @@ impl Chain {
         self.invalid_blocks.contains(hash)
     }
 
-    /// Check if can sync with sync_hash
+    /// Check that sync_hash is the frst block of an epoch.
     pub fn check_sync_hash_validity(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
-        let head = self.head()?;
         // It's important to check that Block exists because we will sync with it.
-        // Do not replace with `get_block_header`.
+        // Do not replace with `get_block_header()`.
         let sync_block = self.get_block(sync_hash)?;
-        // The Epoch of sync_hash may be either the current one or the previous one
-        if head.epoch_id == *sync_block.header().epoch_id()
-            || head.epoch_id == *sync_block.header().next_epoch_id()
-        {
-            let prev_hash = *sync_block.header().prev_hash();
-            // If sync_hash is not on the Epoch boundary, it's malicious behavior
-            Ok(self.epoch_manager.is_next_block_epoch_start(&prev_hash)?)
-        } else {
-            Ok(false) // invalid Epoch of sync_hash, possible malicious behavior
-        }
+        let prev_hash = *sync_block.header().prev_hash();
+        let is_first_block_of_epoch = self.epoch_manager.is_next_block_epoch_start(&prev_hash);
+        tracing::debug!(
+            target: "chain",
+            ?sync_hash,
+            ?prev_hash,
+            sync_hash_epoch_id = ?sync_block.header().epoch_id(),
+            sync_hash_next_epoch_id = ?sync_block.header().next_epoch_id(),
+            ?is_first_block_of_epoch,
+            "check_sync_hash_validity");
+
+        // If sync_hash is not on the Epoch boundary, it's malicious behavior
+        Ok(is_first_block_of_epoch?)
     }
 
     /// Get transaction result for given hash of transaction or receipt id on the canonical chain
