@@ -16,7 +16,6 @@ allow-osi-fsf-free = "either"
 default = "deny"
 confidence-threshold = 0.8
 exceptions = []
-
 private = { ignore = false, registries = [] }
 
 [sources]

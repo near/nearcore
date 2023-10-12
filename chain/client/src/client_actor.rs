@@ -952,17 +952,13 @@ impl ClientActor {
 
         self.client.accrued_fastforward_delta += delta_height;
         let delta_time = self.client.sandbox_delta_time();
-        let mut new_latest_known =
-            near_chain::types::LatestKnown { height: block_height + delta_height, seen: 0 };
-        if let Some(seen) = near_primitives::utils::to_timestamp(StaticClock::utc() + delta_time) {
-            new_latest_known.seen = seen;
-        } else {
-            return Err(Error::Other(
-                "Failed to convert sandbox delta time to timestamp".to_string(),
-            ));
-        }
 
-        Ok(Some(new_latest_known))
+        if let Some(seen) = near_primitives::utils::to_timestamp(StaticClock::utc() + delta_time) {
+            let new_latest_known =
+                near_chain::types::LatestKnown { height: block_height + delta_height, seen: seen };
+            return Ok(Some(new_latest_known));
+        }
+        Err(Error::Other("Failed to convert sandbox delta time to timestamp".to_string()))
     }
 
     fn pre_block_production(&mut self) -> Result<(), Error> {
