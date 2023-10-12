@@ -586,10 +586,11 @@ impl ViewClientActor {
         let prev_header = self.chain.get_block_header(header.prev_hash())?;
         let prev_epoch_id = prev_header.epoch_id();
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, prev_epoch_id)?;
+        let sync_prev_prev_hash = prev_header.prev_hash();
         let status = self
             .runtime
             .get_tries()
-            .get_snapshot_flat_storage_status(*sync_hash, shard_uid)
+            .get_snapshot_flat_storage_status(*sync_prev_prev_hash, shard_uid)
             .map_err(|err| Error::Other(err.to_string()))?;
         match status {
             FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }) => {
@@ -1446,11 +1447,12 @@ impl Handler<WithSpanContext<StateRequestPart>> for ViewClientActor {
                     None
                 }
             });
+        let can_generate = part.is_some();
         let state_response = ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
             header: None,
             part,
             cached_parts,
-            can_generate: true,
+            can_generate,
         });
         let info =
             StateResponseInfo::V2(StateResponseInfoV2 { shard_id, sync_hash, state_response });

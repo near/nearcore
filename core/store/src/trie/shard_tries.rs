@@ -352,12 +352,14 @@ impl ShardTries {
         self.apply_all_inner(trie_changes, shard_uid, true, store_update)
     }
 
+    /// Returns the status of the given shard of flat storage in the state snapshot.
+    /// `sync_prev_prev_hash` needs to match the block hash that identifies that snapshot.
     pub fn get_snapshot_flat_storage_status(
         &self,
-        sync_hash: CryptoHash,
+        sync_prev_prev_hash: CryptoHash,
         shard_uid: ShardUId,
     ) -> Result<FlatStorageStatus, StorageError> {
-        let (_store, manager) = self.get_state_snapshot(&sync_hash)?;
+        let (_store, manager) = self.get_state_snapshot(&sync_prev_prev_hash)?;
         Ok(manager.get_flat_storage_status(shard_uid))
     }
 }
