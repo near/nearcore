@@ -16,6 +16,7 @@ use near_chain::state_snapshot_actor::{get_make_snapshot_callback, StateSnapshot
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chunks::shards_manager_actor::start_shards_manager;
+use near_client::sync::adapter::SyncAdapter;
 use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
@@ -286,6 +287,8 @@ pub fn start_with_config_and_synchronization(
         chain_id: config.client_config.chain_id.clone(),
         hash: *genesis_block.header().hash(),
     };
+
+    let sync_adapter = SyncAdapter::new();
 
     let node_id = config.network_config.node_id();
     let network_adapter = Arc::new(LateBoundSender::default());
