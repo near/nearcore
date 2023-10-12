@@ -3866,6 +3866,42 @@ impl Chain {
             .collect()
     }
 
+    pub fn apply_prev_chunk_before_production(
+        &mut self,
+        block: &Block,
+        shard_id: ShardId,
+        incoming_receipts: &HashMap<u64, Vec<ReceiptProof>>,
+    ) -> Result<(), Error> {
+        let _span =
+            tracing::debug_span!(target: "chain", "apply_prev_chunk_before_production").entered();
+        let prev_hash = block.header().prev_hash();
+        let prev_block = self.get_block(prev_hash)?;
+        let maybe_job = self.get_apply_chunk_job(
+            me,
+            block,
+            &prev_block,
+            block.chunks()[shard_id],
+            prev_block.chunks()[shard_id],
+            shard_id as usize,
+            ApplyChunksMode::IsCaughtUp, // if I am producer, this is the case, right?
+            false,                       // will_shard_layout_change, - I don't know
+            &incoming_receipts,
+            SandboxStatePatch::default(),
+        )?;
+
+        let job = match maybe_job {
+            Some(job) => job,
+            None => return Ok(()), // no chunk => no chunk extra to save
+        };
+        let apply_chunk_result = job(&_span)?;
+
+        let mut chain_update = self.chain_update();
+        chain_update.apply_chunk_postprocessing(block, vec![apply_chunk_result])?;
+        chain_update.commit()?;
+
+        Ok(())
+    }
+
     // Validate chunks by applying old chunks!
     fn validate_chunks(
         &mut self,
@@ -3948,6 +3984,8 @@ impl Chain {
         let mut chain_update = self.chain_update();
         chain_update.apply_chunk_postprocessing(prev_block, apply_results)?;
         chain_update.commit()?;
+
+        // TODO: flat storage
 
         // Just validate chunk headers against chunk extra.
         // Taking a job is weird, but this seems to minimize new code.
