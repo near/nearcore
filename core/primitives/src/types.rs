@@ -651,6 +651,35 @@ pub mod validator_stake {
                 stake_next_epoch: if is_next_epoch { self.stake() } else { 0 },
             }
         }
+
+        // TODO(chunk-validator-assignment) if `ValidatorStake` is recalculated every epoch, this should be a field of (new) `ValidatorStakeV2`?
+        // Pro: do the division only once. Con: Adding a field probably requires a `V2`, though is it worth it?
+        /// Returns the validator's number of mandates (rounded down) at `stake_per_seat`.
+        ///
+        /// It returns `u16` since it allows infallible conversion to `usize` and with [`u16::MAX`]
+        /// equalling 65_535 it should be sufficient to hold the number of mandates per validator.
+        ///
+        /// # Why `u16` should be sufficient
+        ///
+        /// As of October 2023, a [recommended lower bound] for the stake required per mandate is
+        /// 25k $NEAR. At this price, the validator with highest stake would have 1_888 mandates,
+        /// which is well below `u16::MAX`.
+        ///
+        /// From another point of view, with more than `u16::MAX` mandates for validators, sampling
+        /// mandates might become computationally too expensive. This might trigger an increase in
+        /// the required stake per mandate, bringing down the number of mandates per validator.
+        ///
+        /// [recommended lower bound]: https://near.zulipchat.com/#narrow/stream/407237-pagoda.2Fcore.2Fstateless-validation/topic/validator.20seat.20assignment/near/393792901
+        ///
+        /// # Panics
+        ///
+        /// Panics if the number of mandates overflows `u16`.
+        pub fn num_mandates(&self, stake_per_mandate: Balance) -> u16 {
+            // Integer division in Rust returns the floor as described here
+            // https://doc.rust-lang.org/std/primitive.u64.html#method.div_euclid
+            u16::try_from(self.stake() / stake_per_mandate)
+                .expect("number of mandats should fit u16")
+        }
     }
 }
 

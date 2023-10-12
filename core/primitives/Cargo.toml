@@ -24,6 +24,7 @@ num-rational.workspace = true
 once_cell.workspace = true
 primitive-types.workspace = true
 rand.workspace = true
+rand_chacha.workspace = true
 reed-solomon-erasure.workspace = true
 serde.workspace = true
 serde_json.workspace = true
