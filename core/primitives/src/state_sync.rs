@@ -43,6 +43,35 @@ pub struct ShardStateSyncResponseHeaderV2 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum CachedParts {
+    AllParts,
+    NoParts,
+    /// Represents a subset of parts cached.
+    /// Can represent both NoParts and AllParts, but in those cases use the
+    /// corresponding enum values for efficiency.
+    BitArray(BitArray),
+}
+
+/// Represents an array of boolean values in a compact form.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct BitArray {
+    data: Vec<u8>,
+    capacity: u64,
+}
+
+impl BitArray {
+    pub fn new(capacity: u64) -> Self {
+        let num_bytes = (capacity + 7) / 8;
+        Self { data: vec![0; num_bytes as usize], capacity }
+    }
+
+    pub fn set_bit(&mut self, bit: u64) {
+        assert!(bit < self.capacity);
+        self.data[(bit / 8) as usize] |= 1 << (bit % 8);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum ShardStateSyncResponseHeader {
     V1(ShardStateSyncResponseHeaderV1),
     V2(ShardStateSyncResponseHeaderV2),
@@ -128,6 +157,10 @@ impl ShardStateSyncResponseHeader {
             Self::V2(header) => &header.state_root_node,
         }
     }
+
+    pub fn num_state_parts(&self) -> u64 {
+        get_num_state_parts(self.state_root_node().memory_usage)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -143,9 +176,22 @@ pub struct ShardStateSyncResponseV2 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct ShardStateSyncResponseV3 {
+    pub header: Option<ShardStateSyncResponseHeaderV2>,
+    pub part: Option<(u64, Vec<u8>)>,
+    /// Parts that can be provided **cheaply**.
+    // Can be `None` only if both `header` and `part` are `None`.
+    pub cached_parts: Option<CachedParts>,
+    /// Whether the node can provide parts for this epoch of this shard.
+    /// Assumes that a node can either provide all state parts or no state parts.
+    pub can_generate: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum ShardStateSyncResponse {
     V1(ShardStateSyncResponseV1),
     V2(ShardStateSyncResponseV2),
+    V3(ShardStateSyncResponseV3),
 }
 
 impl ShardStateSyncResponse {
@@ -153,6 +199,7 @@ impl ShardStateSyncResponse {
         match self {
             Self::V1(response) => response.part_id(),
             Self::V2(response) => response.part.as_ref().map(|(part_id, _)| *part_id),
+            Self::V3(response) => response.part.as_ref().map(|(part_id, _)| *part_id),
         }
     }
 
@@ -160,6 +207,7 @@ impl ShardStateSyncResponse {
         match self {
             Self::V1(response) => response.header.map(ShardStateSyncResponseHeader::V1),
             Self::V2(response) => response.header.map(ShardStateSyncResponseHeader::V2),
+            Self::V3(response) => response.header.map(ShardStateSyncResponseHeader::V2),
         }
     }
 
@@ -167,6 +215,7 @@ impl ShardStateSyncResponse {
         match self {
             Self::V1(response) => &response.part,
             Self::V2(response) => &response.part,
+            Self::V3(response) => &response.part,
         }
     }
 
@@ -174,6 +223,23 @@ impl ShardStateSyncResponse {
         match self {
             Self::V1(response) => response.part,
             Self::V2(response) => response.part,
+            Self::V3(response) => response.part,
+        }
+    }
+
+    pub fn can_generate(&self) -> bool {
+        match self {
+            Self::V1(_response) => false,
+            Self::V2(_response) => false,
+            Self::V3(response) => response.can_generate,
+        }
+    }
+
+    pub fn cached_parts(&self) -> &Option<CachedParts> {
+        match self {
+            Self::V1(_response) => &None,
+            Self::V2(_response) => &None,
+            Self::V3(response) => &response.cached_parts,
         }
     }
 }
