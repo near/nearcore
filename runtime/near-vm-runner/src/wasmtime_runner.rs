@@ -118,6 +118,7 @@ impl IntoVMError for anyhow::Error {
 }
 
 #[cfg(not(feature = "lightbeam"))]
+#[allow(clippy::needless_pass_by_ref_mut)]
 pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
     Engine::new(config).unwrap()
 }

@@ -1,5 +1,4 @@
 use crate::tests::client::process_blocks::{deploy_test_contract, set_block_protocol_version};
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use assert_matches::assert_matches;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
@@ -17,6 +16,7 @@ use near_primitives::types::{BlockHeightDelta, Gas, TrieNodesCount};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 fn process_transaction(
     env: &mut TestEnv,

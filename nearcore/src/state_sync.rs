@@ -1,5 +1,5 @@
 use crate::metrics;
-use borsh::BorshSerialize;
+
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation};
@@ -13,7 +13,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::{get_num_state_parts, StatePartKey, StateSyncDumpProgress};
+use near_primitives::state_sync::{get_num_state_parts, StatePartKey, StateSyncDumpProgress};
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
 use near_store::DBCol;
 use rand::{thread_rng, Rng};
@@ -466,7 +466,7 @@ fn obtain_and_store_state_part(
         PartId::new(part_id, num_parts),
     )?;
 
-    let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+    let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
     let mut store_update = chain.store().store().store_update();
     store_update.set(DBCol::StateParts, &key, &state_part);
     store_update.commit()?;

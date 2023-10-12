@@ -1,6 +1,5 @@
-use super::utils::TestEnvNightshadeSetupExt;
 use assert_matches::assert_matches;
-use borsh::BorshSerialize;
+
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
@@ -15,8 +14,8 @@ use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::get_num_state_parts;
-use near_primitives::syncing::StatePartKey;
+use near_primitives::state_sync::get_num_state_parts;
+use near_primitives::state_sync::StatePartKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
@@ -25,6 +24,7 @@ use near_store::DBCol;
 use near_store::Store;
 use nearcore::config::GenesisExt;
 use nearcore::state_sync::spawn_state_sync_dump;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
 use std::ops::ControlFlow;
 use std::sync::Arc;
@@ -303,7 +303,7 @@ fn run_state_sync_with_dumped_parts(
             .unwrap());
 
         for part_id in 0..num_parts {
-            let key = StatePartKey(sync_hash, 0, part_id).try_to_vec().unwrap();
+            let key = borsh::to_vec(&StatePartKey(sync_hash, 0, part_id)).unwrap();
             let part = client_0_store.get(DBCol::StateParts, &key).unwrap().unwrap();
 
             runtime_client_1

@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use borsh::BorshSerialize;
 use futures::{Future, TryFutureExt};
 
 use near_client::StatusResponse;
@@ -116,7 +115,7 @@ impl User for RpcUser {
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {
-        let bytes = transaction.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&transaction).unwrap();
         let _ = self.actix(move |client| client.broadcast_tx_async(to_base64(&bytes))).map_err(
             |err| {
                 serde_json::from_value::<ServerError>(
@@ -132,7 +131,7 @@ impl User for RpcUser {
         &self,
         transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, ServerError> {
-        let bytes = transaction.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&transaction).unwrap();
         let result = self.actix(move |client| client.broadcast_tx_commit(to_base64(&bytes)));
         // Wait for one more block, to make sure all nodes actually apply the state transition.
         let height = self.get_best_height().unwrap();
@@ -140,7 +139,7 @@ impl User for RpcUser {
             thread::sleep(Duration::from_millis(50));
         }
         match result {
-            Ok(outcome) => Ok(outcome),
+            Ok(outcome) => Ok(outcome.final_execution_outcome.unwrap().into_outcome()),
             Err(err) => Err(serde_json::from_value::<ServerError>(err.data.unwrap()).unwrap()),
         }
     }
@@ -186,7 +185,11 @@ impl User for RpcUser {
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
         let account_id = self.account_id.clone();
         let hash = hash.to_string();
-        self.actix(move |client| client.tx(hash, account_id)).unwrap()
+        self.actix(move |client| client.tx(hash, account_id))
+            .unwrap()
+            .final_execution_outcome
+            .unwrap()
+            .into_outcome()
     }
 
     fn get_state_root(&self) -> CryptoHash {

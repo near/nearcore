@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshDeserialize;
 use crossbeam::channel;
 use itertools::Itertools;
 use near_primitives::hash::CryptoHash;
@@ -258,8 +258,7 @@ pub fn inline_flat_state_values(
                         store_update.set(
                             DBCol::FlatState,
                             &key,
-                            &FlatStateValue::inlined(value)
-                                .try_to_vec()
+                            &borsh::to_vec(&FlatStateValue::inlined(value))
                                 .expect("borsh should not fail here"),
                         );
                         inlined_batch_count += 1;
@@ -313,7 +312,7 @@ mod tests {
     use crate::flat::store_helper::encode_flat_state_db_key;
     use crate::flat::{FlatStateValuesInliningMigrationHandle, FlatStorageManager};
     use crate::{DBCol, NodeStorage, Store, TrieCachingStorage};
-    use borsh::{BorshDeserialize, BorshSerialize};
+    use borsh::BorshDeserialize;
     use near_o11y::testonly::init_test_logger;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -442,7 +441,7 @@ mod tests {
                 TrieCachingStorage::get_key_from_shard_uid_and_hash(shard_uid, &hash(&value));
             store_update.increment_refcount(DBCol::State, &trie_key, &value);
             let fs_key = encode_flat_state_db_key(shard_uid, &[i as u8]);
-            let fs_value = FlatStateValue::value_ref(&value).try_to_vec().unwrap();
+            let fs_value = borsh::to_vec(&FlatStateValue::value_ref(&value)).unwrap();
             store_update.set(DBCol::FlatState, &fs_key, &fs_value);
         }
         store_update.commit().unwrap();

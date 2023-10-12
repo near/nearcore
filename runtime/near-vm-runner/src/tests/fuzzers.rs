@@ -158,6 +158,7 @@ fn current_vm_does_not_crash() {
 }
 
 #[test]
+#[cfg_attr(not(target_arch = "x86_64"), ignore)]
 fn wasmer2_and_wasmtime_agree() {
     check!().for_each(|data: &[u8]| {
         let module = ArbitraryModule::arbitrary(&mut arbitrary::Unstructured::new(data));
@@ -174,6 +175,7 @@ fn wasmer2_and_wasmtime_agree() {
 }
 
 #[test]
+#[cfg_attr(not(all(feature = "near_vm", target_arch = "x86_64")), ignore)]
 fn near_vm_and_wasmtime_agree() {
     check!().for_each(|data: &[u8]| {
         let module = ArbitraryModule::arbitrary(&mut arbitrary::Unstructured::new(data));
@@ -188,8 +190,8 @@ fn near_vm_and_wasmtime_agree() {
     });
 }
 
-#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 #[test]
+#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 fn near_vm_is_reproducible() {
     use crate::near_vm_runner::NearVM;
     use near_primitives::hash::CryptoHash;

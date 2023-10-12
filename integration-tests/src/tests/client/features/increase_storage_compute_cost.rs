@@ -24,9 +24,8 @@ use near_primitives::transaction::{
 use near_primitives::types::AccountId;
 use near_primitives::version::ProtocolFeature;
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use node_runtime::config::RuntimeConfig;
-
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 /// Tracked in https://github.com/near/nearcore/issues/8938
 const INCREASED_STORAGE_COSTS_PROTOCOL_VERSION: u32 = 61;
@@ -407,10 +406,7 @@ fn produce_saturated_chunk(
 }
 
 /// fetch chunk for shard 0 and specified block height
-fn chunk_info(
-    env: &mut TestEnv,
-    height: u64,
-) -> std::sync::Arc<near_primitives::sharding::ShardChunk> {
+fn chunk_info(env: &TestEnv, height: u64) -> std::sync::Arc<near_primitives::sharding::ShardChunk> {
     let block = &env.clients[0].chain.get_block_by_height(height).unwrap();
     let chunks = &block.chunks();
     assert_eq!(chunks.len(), 1, "test assumes single shard");

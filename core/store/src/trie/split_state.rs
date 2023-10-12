@@ -324,7 +324,7 @@ mod tests {
 
     use crate::{set, ShardTries, ShardUId, Trie};
     use near_primitives::account::id::AccountId;
-    use near_primitives::borsh::BorshSerialize;
+
     use near_primitives::hash::hash;
     use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
     use near_primitives::trie_key::TrieKey;
@@ -414,12 +414,14 @@ mod tests {
                 assert_eq!(receipts, all_receipts[start_index as usize..next_index as usize]);
                 start_index = next_index;
 
-                let total_memory_use = receipts
+                let total_memory_use: u64 = receipts
                     .iter()
-                    .fold(0_u64, |sum, receipt| sum + receipt.try_to_vec().unwrap().len() as u64);
-                let memory_use_without_last_receipt = receipts[..receipts.len() - 1]
+                    .map(|receipt| borsh::object_length(&receipt).unwrap() as u64)
+                    .sum();
+                let memory_use_without_last_receipt: u64 = receipts[..receipts.len() - 1]
                     .iter()
-                    .fold(0_u64, |sum, receipt| sum + receipt.try_to_vec().unwrap().len() as u64);
+                    .map(|receipt| borsh::object_length(&receipt).unwrap() as u64)
+                    .sum();
 
                 assert!(
                     total_memory_use >= memory_limit.as_u64()

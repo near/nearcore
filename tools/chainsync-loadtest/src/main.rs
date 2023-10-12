@@ -22,9 +22,9 @@ use std::sync::Arc;
 
 fn genesis_hash(chain_id: &str) -> CryptoHash {
     return match chain_id {
-        "mainnet" => "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H",
-        "testnet" => "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
-        "betanet" => "6hy7VoEJhPEUaJr1d5ePBhKdgeDWKCjLoUAn7XS9YPj",
+        near_primitives::chains::MAINNET => "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H",
+        near_primitives::chains::TESTNET => "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
+        near_primitives::chains::BETANET => "6hy7VoEJhPEUaJr1d5ePBhKdgeDWKCjLoUAn7XS9YPj",
         _ => {
             return Default::default();
         }

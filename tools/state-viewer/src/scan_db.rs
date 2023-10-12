@@ -9,7 +9,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{get_block_shard_uid_rev, ShardUId};
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, StateSyncInfo};
 use near_primitives::state::FlatStateValue;
-use near_primitives::syncing::{
+use near_primitives::state_sync::{
     ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, StateSyncDumpProgress,
 };
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};

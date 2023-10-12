@@ -1,5 +1,4 @@
 use crate::test_helpers::heavy_test;
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
@@ -16,11 +15,12 @@ use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::{get_num_state_parts, StatePartKey};
+use near_primitives::state_sync::{get_num_state_parts, StatePartKey};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::MaybeValidated;
 use near_primitives_core::types::ShardId;
 use near_store::DBCol;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::{config::GenesisExt, load_test_config, start_with_config};
 use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
@@ -660,7 +660,6 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
             }
             let rt = Arc::clone(&env.clients[1].runtime_adapter);
             let f = move |msg: ApplyStatePartsRequest| {
-                use borsh::BorshSerialize;
                 let store = rt.store();
 
                 let shard_id = msg.shard_uid.shard_id as ShardId;
@@ -671,7 +670,8 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                     .unwrap());
 
                 for part_id in 0..msg.num_parts {
-                    let key = StatePartKey(msg.sync_hash, shard_id, part_id).try_to_vec().unwrap();
+                    let key =
+                        borsh::to_vec(&StatePartKey(msg.sync_hash, shard_id, part_id)).unwrap();
                     let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
 
                     rt.apply_state_part(

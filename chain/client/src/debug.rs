@@ -2,7 +2,7 @@
 //! without backwards compatibility.
 use crate::ClientActor;
 use actix::{Context, Handler};
-use borsh::BorshSerialize;
+
 use itertools::Itertools;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::{near_chain_primitives, Chain, ChainStoreAccess};
@@ -18,11 +18,11 @@ use near_client_primitives::{
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::{handler_debug_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
-use near_primitives::syncing::get_num_state_parts;
+use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::types::{AccountId, BlockHeight, ShardId, ValidatorInfoIdentifier};
 use near_primitives::{
     hash::CryptoHash,
-    syncing::{ShardStateSyncResponseHeader, StateHeaderKey},
+    state_sync::{ShardStateSyncResponseHeader, StateHeaderKey},
     types::EpochId,
     views::ValidatorInfo,
 };
@@ -255,7 +255,7 @@ impl ClientActor {
 
         let state_header_exists: Vec<bool> = (0..block.chunks().len())
             .map(|shard_id| {
-                let key = StateHeaderKey(shard_id as u64, *block.hash()).try_to_vec();
+                let key = borsh::to_vec(&StateHeaderKey(shard_id as u64, *block.hash()));
                 match key {
                     Ok(key) => {
                         matches!(
@@ -392,7 +392,7 @@ impl ClientActor {
         let mut blocks: HashMap<CryptoHash, DebugBlockStatus> = HashMap::new();
         let mut missed_heights: Vec<MissedHeightInfo> = Vec::new();
         let mut last_epoch_id = head.epoch_id;
-        let initial_gas_price = self.client.chain.genesis_block().header().gas_price();
+        let initial_gas_price = self.client.chain.genesis_block().header().next_gas_price();
 
         let mut height_to_fetch = starting_height.unwrap_or(header_head.height);
         let min_height_to_fetch =
@@ -489,7 +489,8 @@ impl ClientActor {
                         processing_time_ms: CryptoHashTimer::get_timer_value(block_hash)
                             .map(|s| s.as_millis() as u64),
                         block_timestamp: block_header.raw_timestamp(),
-                        gas_price_ratio: block_header.gas_price() as f64 / initial_gas_price as f64,
+                        gas_price_ratio: block_header.next_gas_price() as f64
+                            / initial_gas_price as f64,
                     },
                 );
                 // TODO(robin): using last epoch id when iterating in reverse height direction is

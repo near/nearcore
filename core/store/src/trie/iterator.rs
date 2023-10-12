@@ -2,7 +2,7 @@ use near_primitives::hash::CryptoHash;
 
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{TrieNode, TrieNodeWithSize, ValueHandle};
-use crate::{StorageError, Trie};
+use crate::{MissingTrieValueContext, StorageError, Trie};
 
 /// Crumb is a piece of trie iteration state. It describes a node on the trail and processing status of that node.
 #[derive(Debug)]
@@ -206,7 +206,9 @@ impl<'a> TrieIterator<'a> {
     fn descend_into_node(&mut self, hash: &CryptoHash) -> Result<(), StorageError> {
         let (bytes, node) = self.trie.retrieve_node(hash)?;
         if let Some(ref mut visited) = self.visited_nodes {
-            visited.push(bytes.ok_or(StorageError::MissingTrieValue)?);
+            visited.push(bytes.ok_or_else(|| {
+                StorageError::MissingTrieValue(MissingTrieValueContext::TrieIterator, *hash)
+            })?);
         }
         self.trail.push(Crumb { status: CrumbStatus::Entering, node, prefix_boundary: false });
         Ok(())

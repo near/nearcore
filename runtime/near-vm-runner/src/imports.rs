@@ -274,9 +274,8 @@ pub(crate) mod wasmer {
         let raw_ptr = logic as *mut _ as *mut c_void;
         let import_reference = ImportReference(raw_ptr);
         let mut import_object = wasmer_runtime::ImportObject::new_with_data(move || {
-            let import_reference = import_reference;
             let dtor = (|_: *mut c_void| {}) as fn(*mut c_void);
-            (import_reference.0, dtor)
+            ({ import_reference }.0, dtor)
         });
 
         let mut ns_internal = wasmer_runtime_core::import::Namespace::new();
