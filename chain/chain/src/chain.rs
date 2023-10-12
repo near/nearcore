@@ -3993,6 +3993,8 @@ impl Chain {
         for shard_id in applied_chunk_ids {
             let chunk_header = &block.chunks()[shard_id];
             let prev_chunk_header = &prev_block.chunks()[shard_id];
+            let incoming_receipts: HashMap<u64, Vec<ReceiptProof>> =
+                HashMap::from_iter([(shard_id as u64, vec![])]);
             let apply_chunk_job_result = self.get_apply_chunk_job(
                 me,
                 block,
@@ -4002,8 +4004,8 @@ impl Chain {
                 shard_id,
                 mode,
                 will_shard_layout_change,
-                &HashMap::from_iter([(shard_id, vec![])]), // doesn't matter
-                SandboxStatePatch::default(),              // doesn't matter
+                &incoming_receipts,           // doesn't matter
+                SandboxStatePatch::default(), // doesn't matter
             );
             if let Err(err) = apply_chunk_job_result {
                 apply_chunk_errors.push((shard_id, err));
