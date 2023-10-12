@@ -543,9 +543,9 @@ impl JsonRpcHandler {
                 (tx.get_hash(), tx.transaction.signer_id.clone())
             }
             near_jsonrpc_primitives::types::transactions::TransactionInfo::TransactionId {
-                hash,
-                account_id,
-            } => (*hash, account_id.clone()),
+                tx_hash,
+                sender_account_id,
+            } => (*tx_hash, sender_account_id.clone()),
         };
         timeout(self.polling_config.polling_timeout, async {
             loop {
@@ -703,14 +703,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
         let tx = request_data.signed_transaction;
-        match self
-            .tx_status_fetch(
-                near_jsonrpc_primitives::types::transactions::TransactionInfo::Transaction(
-                    tx.clone(),
-                ),
-                false,
-            )
-            .await
+        match self.tx_status_fetch(tx.clone().into(), false).await
         {
             Ok(outcome) => {
                 return Ok(outcome);
@@ -724,7 +717,7 @@ impl JsonRpcHandler {
         }
         match self.send_tx(tx.clone(), false).await? {
             ProcessTxResponse::ValidTx | ProcessTxResponse::RequestRouted => {
-                self.tx_polling(near_jsonrpc_primitives::types::transactions::TransactionInfo::Transaction(tx)).await
+                self.tx_polling(tx.into()).await
             }
             network_client_response=> {
                 Err(
