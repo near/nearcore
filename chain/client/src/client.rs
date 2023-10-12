@@ -1811,10 +1811,10 @@ impl Client {
 
     // Produce new chunks
     fn produce_chunks(&mut self, block: &Block, validator_id: AccountId) {
+        let me = Some(validator_id.clone());
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
-        let incoming_receipts =
-            self.chain.collect_incoming_receipts_from_block(&Some(validator_id), block)?;
+        let incoming_receipts = self.chain.collect_incoming_receipts_from_block(&me, block)?;
         for shard_id in 0..self.epoch_manager.num_shards(&epoch_id).unwrap() {
             let next_height = block.header().height() + 1;
             let epoch_manager = self.epoch_manager.as_ref();
@@ -1833,8 +1833,9 @@ impl Client {
 
             if true {
                 let result = self.chain.apply_prev_chunk_before_production(
+                    &me,
                     block,
-                    shard_id,
+                    shard_id as usize,
                     &incoming_receipts,
                 );
                 result.unwrap(); // if there is an error, it means something weird which I don't perceive yet

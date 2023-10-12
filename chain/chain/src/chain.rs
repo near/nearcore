@@ -3868,8 +3868,9 @@ impl Chain {
 
     pub fn apply_prev_chunk_before_production(
         &mut self,
+        me: &Option<AccountId>,
         block: &Block,
-        shard_id: ShardId,
+        shard_id: usize,
         incoming_receipts: &HashMap<u64, Vec<ReceiptProof>>,
     ) -> Result<(), Error> {
         let _span =
@@ -3880,9 +3881,9 @@ impl Chain {
             me,
             block,
             &prev_block,
-            block.chunks()[shard_id],
-            prev_block.chunks()[shard_id],
-            shard_id as usize,
+            &block.chunks()[shard_id],
+            &prev_block.chunks()[shard_id],
+            shard_id,
             ApplyChunksMode::IsCaughtUp, // if I am producer, this is the case, right?
             false,                       // will_shard_layout_change, - I don't know
             &incoming_receipts,
