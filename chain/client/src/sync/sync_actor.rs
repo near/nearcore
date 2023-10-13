@@ -1,13 +1,13 @@
 use near_async::messaging::Sender;
+use near_network::types::PeerManagerMessageRequest;
 use near_primitives::hash::CryptoHash;
 use near_store::ShardUId;
 use tracing::log::info;
 
-use super::adapter::SyncMessageForClient;
-use near_network::state_sync::SyncActorMessageForNetwork;
+use super::adapter::SyncMessage;
 struct MessageSenders {
-    client_adapter: Sender<SyncMessageForClient>,
-    network_adapter: Sender<SyncActorMessageForNetwork>,
+    client_adapter: Sender<SyncMessage>,
+    network_adapter: Sender<PeerManagerMessageRequest>,
 }
 
 pub struct SyncActor {
@@ -19,8 +19,8 @@ pub struct SyncActor {
 impl SyncActor {
     pub fn new(
         shard_uid: ShardUId,
-        client_adapter: Sender<SyncMessageForClient>,
-        network_adapter: Sender<SyncActorMessageForNetwork>,
+        client_adapter: Sender<SyncMessage>,
+        network_adapter: Sender<PeerManagerMessageRequest>,
     ) -> Self {
         Self {
             shard_uid,

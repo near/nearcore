@@ -13,7 +13,7 @@ pub enum SyncMessageForClient {
 
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
-pub enum SyncMessageFromClient {
+pub enum SyncMessage {
     StartSync,
 }
 
@@ -25,13 +25,13 @@ struct ActorHandler {
 pub struct SyncAdapter {
     /// Address of the sync actors indexed by the ShardId.
     actor_handler_map: HashMap<ShardUId, ActorHandler>,
-    client_adapter: Sender<SyncMessageForClient>,
+    client_adapter: Sender<SyncMessage>,
     network_adapter: Sender<PeerManagerMessageRequest>,
 }
 
 impl SyncAdapter {
     pub fn new(
-        client_adapter: Sender<SyncMessageForClient>,
+        client_adapter: Sender<SyncMessage>,
         network_adapter: Sender<PeerManagerMessageRequest>,
     ) -> Self {
         Self { actor_handler_map: [].into(), client_adapter, network_adapter }

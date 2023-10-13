@@ -15,12 +15,13 @@ use near_async::time;
 use near_chain::state_snapshot_actor::{get_make_snapshot_callback, StateSnapshotActor};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
-use near_chunks::shards_manager_actor::{self, start_shards_manager};
+use near_chain_configs::SyncConfig;
+use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::sync::adapter::SyncAdapter;
 use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
-use near_network::{shards_manager, PeerManagerActor};
+use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
 use near_store::flat::FlatStateValuesInliningMigrationHandle;
 use near_store::genesis::initialize_genesis_state;
@@ -291,7 +292,7 @@ pub fn start_with_config_and_synchronization(
     // State Sync actors
     let client_adapter_for_sync = Arc::new(LateBoundSender::default());
     let network_adapter_for_sync = Arc::new(LateBoundSender::default());
-    let sync_adapter = Arc::new(if let SyncConfig::Peer = config.client_config.state_sync.sync {
+    let sync_adapter = Arc::new(if let SyncConfig::Peers = config.client_config.state_sync.sync {
         Some(SyncAdapter::new(
             client_adapter_for_sync.as_sender(),
             network_adapter_for_sync.as_sender(),
@@ -342,7 +343,9 @@ pub fn start_with_config_and_synchronization(
         adv,
         config_updater,
     );
-    client_adapter_for_sync.bind(client_actor.clone().with_auto_span_context());
+    if let SyncConfig::Peers = config.client_config.state_sync.sync {
+        client_adapter_for_sync.bind(client_actor.clone().with_auto_span_context())
+    };
     client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         epoch_manager.clone(),
@@ -384,8 +387,9 @@ pub fn start_with_config_and_synchronization(
     )
     .context("PeerManager::spawn()")?;
     network_adapter.bind(network_actor.clone().with_auto_span_context());
-    network_adapter_for_sync.bind(network_actor.clone().with_auto_span_context());
-
+    if let SyncConfig::Peers = config.client_config.state_sync.sync {
+        network_adapter_for_sync.bind(network_actor.clone().with_auto_span_context())
+    }
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
         let entity_debug_handler = EntityDebugHandlerImpl {
