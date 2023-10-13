@@ -2046,8 +2046,10 @@ impl<'a> ChainStoreUpdate<'a> {
         outgoing_receipts: Vec<Receipt>,
     ) {
         {
-            let key = &get_block_shard_id(hash, shard_id);
-            println!("KEY = {:?}\nOR = {:?}", key, outgoing_receipts);
+            // let key = &get_block_shard_id(hash, shard_id);
+            for receipt in outgoing_receipts {
+                println!("KEY = {:?}\nOR = {:?}", receipt.receipt_id.as_bytes(), receipt);
+            }
         }
         self.chain_store_cache_update
             .outgoing_receipts
