@@ -787,7 +787,7 @@ impl Client {
             let incoming_receipts = if prev_block.header().prev_hash() == &CryptoHash::default() {
                 self.chain.collect_incoming_receipts_from_block(&me, prev_block).unwrap()
             } else {
-                HashMap::from_iter(vec![shard_id, vec![]]);
+                HashMap::from_iter([(shard_id, vec![])]);
             };
             let result = self.chain.apply_prev_chunk_before_production(
                 &me,
