@@ -58,6 +58,7 @@ impl Scenario {
             &genesis.config,
             epoch_manager.clone(),
             runtime_config_store,
+            true,
         );
 
         let mut env = TestEnv::builder(ChainGenesis::new(&genesis))

@@ -158,6 +158,7 @@ impl NightshadeRuntime {
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         runtime_config_store: RuntimeConfigStore,
+        state_snapshot_enabled: bool,
     ) -> Arc<Self> {
         Self::new(
             store,
@@ -169,7 +170,7 @@ impl NightshadeRuntime {
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
             StateSnapshotConfig {
-                enabled: true,
+                enabled: state_snapshot_enabled,
                 home_dir: home_dir.to_path_buf(),
                 hot_store_path: PathBuf::from("data"),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
@@ -190,6 +191,7 @@ impl NightshadeRuntime {
             genesis_config,
             epoch_manager,
             RuntimeConfigStore::test(),
+            true,
         )
     }
 
@@ -2775,6 +2777,7 @@ mod test {
             &genesis.config,
             epoch_manager.clone(),
             RuntimeConfigStore::new(None),
+            true,
         );
 
         let block =

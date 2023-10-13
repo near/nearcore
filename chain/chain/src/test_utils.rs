@@ -86,7 +86,7 @@ pub fn setup() -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMem
     setup_with_tx_validity_period(100)
 }
 
-pub fn setup_with_tx_validity_period(
+fn setup_with_tx_validity_period(
     tx_validity_period: NumBlocks,
 ) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
