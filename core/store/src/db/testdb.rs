@@ -99,7 +99,7 @@ impl Database for TestDB {
                     } else {
                         debug_assert!(
                             refcount::decode_value_with_rc(&merged).1 > 0,
-                            "Inserting value with non-positive refcount: {col} {key} {value}"
+                            "Inserting value with non-positive refcount: {col} {key:?} {value:?}"
                         );
                         db[col].insert(key, merged);
                     }
