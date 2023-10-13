@@ -386,6 +386,8 @@ struct TrieCacheInnerMetrics {
     shard_cache_too_large: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_size: GenericGauge<prometheus::core::AtomicI64>,
     shard_cache_current_total_size: GenericGauge<prometheus::core::AtomicI64>,
+    contract_cache_hits: GenericCounter<prometheus::core::AtomicU64>,
+    contract_cache_misses: GenericCounter<prometheus::core::AtomicU64>,
     prefetch_hits: GenericCounter<prometheus::core::AtomicU64>,
     prefetch_pending: GenericCounter<prometheus::core::AtomicU64>,
     prefetch_not_requested: GenericCounter<prometheus::core::AtomicU64>,
@@ -416,6 +418,8 @@ impl TrieCachingStorage {
             shard_cache_size: metrics::SHARD_CACHE_SIZE.with_label_values(&metrics_labels),
             shard_cache_current_total_size: metrics::SHARD_CACHE_CURRENT_TOTAL_SIZE
                 .with_label_values(&metrics_labels),
+            contract_cache_hits: metrics::CONTRACT_CACHE_HITS.with_label_values(&metrics_labels[..1]),
+            contract_cache_misses: metrics::CONTRACT_CACHE_MISSES.with_label_values(&metrics_labels[..1]),
             prefetch_hits: metrics::PREFETCH_HITS.with_label_values(&metrics_labels[..1]),
             prefetch_pending: metrics::PREFETCH_PENDING.with_label_values(&metrics_labels[..1]),
             prefetch_not_requested: metrics::PREFETCH_NOT_REQUESTED
@@ -462,12 +466,12 @@ impl TrieStorage for TrieCachingStorage {
                 let mut guard = contract_cache.lock();
                 val = match guard.get(hash) {
                     Some(val) => {
-                        self.metrics.shard_cache_hits.inc();
+                        self.metrics.contract_cache_hits.inc();
                         near_o11y::io_trace!(count: "shard_cache_hit");
                         Some(val)
                     }
                     None => {
-                        self.metrics.shard_cache_misses.inc();
+                        self.metrics.contract_cache_misses.inc();
                         near_o11y::io_trace!(count: "shard_cache_miss");
                         let val;
                         if let Some(prefetcher) = &self.prefetch_api {
@@ -481,7 +485,7 @@ impl TrieStorage for TrieCachingStorage {
                                 // this value, or maybe it is just still queued up. Either way, prefetching is not going to help
                                 // so the main thread should fetch data from DB on its own.
                                 PrefetcherResult::SlotReserved => {
-                                    //self.metrics.prefetch_not_requested.inc();
+                                    self.metrics.prefetch_not_requested.inc();
                                     self.read_from_db(hash)?
                                 }
                                 // `MemoryLimitReached` is not really relevant for the main thread,
@@ -489,17 +493,17 @@ impl TrieStorage for TrieCachingStorage {
                                 // It only means we were not able to mark it as already being fetched, which in turn could lead to
                                 // a prefetcher trying to fetch the same value before we can put it in the shard cache.
                                 PrefetcherResult::MemoryLimitReached => {
-                                    //self.metrics.prefetch_memory_limit_reached.inc();
+                                    self.metrics.prefetch_memory_limit_reached.inc();
                                     self.read_from_db(hash)?
                                 }
                                 PrefetcherResult::Prefetched(value) => {
-                                    //near_o11y::io_trace!(count: "prefetch_hit");
-                                    //self.metrics.prefetch_hits.inc();
+                                    near_o11y::io_trace!(count: "prefetch_hit");
+                                    self.metrics.prefetch_hits.inc();
                                     value
                                 }
                                 PrefetcherResult::Pending => {
-                                    //near_o11y::io_trace!(count: "prefetch_pending");
-                                    //self.metrics.prefetch_pending.inc();
+                                    near_o11y::io_trace!(count: "prefetch_pending");
+                                    self.metrics.prefetch_pending.inc();
                                     std::thread::yield_now();
                                     // If data is already being prefetched, wait for that instead of sending a new request.
                                     match prefetcher.prefetching.blocking_get(*hash) {
@@ -538,7 +542,7 @@ impl TrieStorage for TrieCachingStorage {
                             guard.put(*hash, val.clone());
                         } else {
                             self.metrics.shard_cache_too_large.inc();
-                            near_o11y::io_trace!(count: "shard_cache_too_large");
+                            near_o11y::io_trace!(count: "contract_cache_too_large");
                         }
 
                         if let Some(prefetcher) = &self.prefetch_api {
