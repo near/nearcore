@@ -1374,7 +1374,7 @@ mod test {
         );
         let mut new_shard_sync = HashMap::new();
 
-        let (mut chain, kv, _, signer) = test_utils::setup();
+        let (mut chain, kv, runtime, signer) = test_utils::setup();
 
         // TODO: lower the epoch length
         for _ in 0..(chain.epoch_length + 1) {
@@ -1435,7 +1435,7 @@ mod test {
                     &state_split_fn,
                     &Arbiter::new().handle(),
                     false,
-                    runtime_adapter,
+                    runtime,
                 )
                 .unwrap();
 
