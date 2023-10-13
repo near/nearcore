@@ -71,21 +71,13 @@ pub static SHARD_CACHE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
 });
 
 pub static CONTRACT_CACHE_HITS: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec(
-        "near_contract_cache_hits",
-        "Contract cache hits",
-        &["is_view"],
-    )
-    .unwrap()
+    try_create_int_counter_vec("near_contract_cache_hits", "Contract cache hits", &["is_view"])
+        .unwrap()
 });
 
 pub static CONTRACT_CACHE_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec(
-        "near_contract_cache_misses",
-        "Contract cache misses",
-        &["is_view"],
-    )
-    .unwrap()
+    try_create_int_counter_vec("near_contract_cache_misses", "Contract cache misses", &["is_view"])
+        .unwrap()
 });
 
 // TODO(#9054): Rename the metric to be consistent with "accounting cache".

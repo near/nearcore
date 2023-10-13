@@ -1,6 +1,8 @@
 use crate::trie::prefetching_trie_storage::PrefetcherResult;
 use crate::trie::POISONED_LOCK_ERR;
-use crate::{metrics, DBCol, MissingTrieValueContext, PrefetchApi, StorageError, Store, TrieConfig};
+use crate::{
+    metrics, DBCol, MissingTrieValueContext, PrefetchApi, StorageError, Store, TrieConfig,
+};
 use lru::LruCache;
 use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;
@@ -418,8 +420,10 @@ impl TrieCachingStorage {
             shard_cache_size: metrics::SHARD_CACHE_SIZE.with_label_values(&metrics_labels),
             shard_cache_current_total_size: metrics::SHARD_CACHE_CURRENT_TOTAL_SIZE
                 .with_label_values(&metrics_labels),
-            contract_cache_hits: metrics::CONTRACT_CACHE_HITS.with_label_values(&metrics_labels[..1]),
-            contract_cache_misses: metrics::CONTRACT_CACHE_MISSES.with_label_values(&metrics_labels[..1]),
+            contract_cache_hits: metrics::CONTRACT_CACHE_HITS
+                .with_label_values(&metrics_labels[..1]),
+            contract_cache_misses: metrics::CONTRACT_CACHE_MISSES
+                .with_label_values(&metrics_labels[..1]),
             prefetch_hits: metrics::PREFETCH_HITS.with_label_values(&metrics_labels[..1]),
             prefetch_pending: metrics::PREFETCH_PENDING.with_label_values(&metrics_labels[..1]),
             prefetch_not_requested: metrics::PREFETCH_NOT_REQUESTED
