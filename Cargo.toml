@@ -413,3 +413,5 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.hashbrown]
 opt-level = 3
+[profile.dev.package.dynasmrt]
+opt-level = 3
