@@ -3883,6 +3883,11 @@ impl Chain {
         let _span =
             tracing::debug_span!(target: "chain", "apply_prev_chunk_before_production").entered();
         let prev_hash = block.header().prev_hash();
+        if prev_hash == &CryptoHash::default() {
+            // genesis, already applied
+            return Ok(());
+        }
+
         let prev_block = self.get_block(prev_hash)?;
         let maybe_job = self.get_apply_chunk_job(
             me,
