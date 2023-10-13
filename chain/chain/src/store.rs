@@ -2047,7 +2047,7 @@ impl<'a> ChainStoreUpdate<'a> {
     ) {
         {
             // let key = &get_block_shard_id(hash, shard_id);
-            for receipt in outgoing_receipts {
+            for receipt in &outgoing_receipts {
                 println!("KEY = {:?}\nOR = {:?}", receipt.receipt_id.as_bytes(), receipt);
             }
         }
