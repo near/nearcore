@@ -2618,7 +2618,7 @@ impl Chain {
         // by this, we mark new pre-state-root changes
         // to replace with protocol feature
         let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
-        let apply_chunk_work = if true {
+        let apply_chunk_work = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
             self.validate_chunks(
                 me,
                 block,

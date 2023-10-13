@@ -128,6 +128,7 @@ pub enum ProtocolFeature {
     PostStateRoot,
     /// Increases the number of chunk producers.
     TestnetFewerBlockProducers,
+    DelayChunkExecution,
 }
 
 impl ProtocolFeature {
@@ -184,6 +185,7 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV2 => 135,
             ProtocolFeature::PostStateRoot => 136,
             ProtocolFeature::TestnetFewerBlockProducers => 140,
+            ProtocolFeature::DelayChunkExecution => 300, // 200,
         }
     }
 }

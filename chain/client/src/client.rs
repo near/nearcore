@@ -75,7 +75,7 @@ use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, Num
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{CatchupStatusView, DroppedReason};
 use near_store::metadata::DbKind;
 use near_store::ShardUId;
@@ -778,7 +778,7 @@ impl Client {
         let _span = tracing::debug_span!(target: "client", "produce_chunk", next_height, shard_id, ?epoch_id).entered();
 
         let prev_block_hash = prev_block.hash();
-        if true {
+        if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
             let me = match &self.validator_signer {
                 Some(validator_signer) => Some(validator_signer.validator_id().clone()),
                 None => None,
