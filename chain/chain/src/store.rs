@@ -2045,6 +2045,10 @@ impl<'a> ChainStoreUpdate<'a> {
         shard_id: ShardId,
         outgoing_receipts: Vec<Receipt>,
     ) {
+        {
+            let key = &get_block_shard_id(block_hash, *shard_id);
+            println!("KEY = {}\nOR = {:?}", key, outgoing_receipts);
+        }
         self.chain_store_cache_update
             .outgoing_receipts
             .insert((*hash, shard_id), Arc::new(outgoing_receipts));
