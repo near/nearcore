@@ -2459,8 +2459,8 @@ impl Chain {
 
     /// Preprocess a block before applying chunks, verify that we have the necessary information
     /// to process the block an the block is valid.
-    //  Note that this function does NOT introduce any changes to chain state.
-    pub(crate) fn preprocess_block(
+    /// Note that this function does NOT introduce any changes to chain state.
+    fn preprocess_block(
         &self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
@@ -4309,11 +4309,14 @@ impl Chain {
                 let head = self.head()?;
                 let epoch_id = self.epoch_manager.get_epoch_id(&head.prev_block_hash)?;
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+                let force_shapshot =
+                    self.epoch_manager.will_shard_layout_change(&head.prev_block_hash)?;
                 let last_block = self.get_block(&head.last_block_hash)?;
                 (helper.make_snapshot_callback)(
                     head.prev_block_hash,
                     shard_layout.get_shard_uids(),
                     last_block,
+                    force_shapshot,
                 )
             }
         }

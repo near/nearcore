@@ -160,6 +160,7 @@ impl ShardTries {
         prev_block_hash: &CryptoHash,
         shard_uids: &[ShardUId],
         block: &Block,
+        force_snapshot: bool,
     ) -> Result<(), anyhow::Error> {
         metrics::HAS_STATE_SNAPSHOT.set(0);
         // The function returns an `anyhow::Error`, because no special handling of errors is done yet. The errors are logged and ignored.
@@ -172,7 +173,8 @@ impl ShardTries {
             enabled, home_dir, hot_store_path, state_snapshot_subdir, ..
         } = self.state_snapshot_config();
 
-        if !enabled {
+        // override enabled config if force_snapshot is true
+        if !enabled && !force_snapshot {
             tracing::info!(target: "state_snapshot", "State Snapshots are disabled");
             return Ok(());
         }
