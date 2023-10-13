@@ -77,8 +77,9 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{CatchupStatusView, DroppedReason};
+use near_store::db::refcount;
 use near_store::metadata::DbKind;
-use near_store::ShardUId;
+use near_store::{DBCol, ShardUId};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -1666,6 +1667,22 @@ impl Client {
         provenance: Provenance,
         skip_produce_chunk: bool,
     ) {
+        let value = self
+            .chain
+            .store()
+            .store()
+            .get(
+                DBCol::ReceiptIdToShardId,
+                &[
+                    226, 167, 147, 198, 110, 174, 226, 130, 254, 59, 55, 135, 18, 192, 98, 192,
+                    229, 0, 4, 140, 164, 157, 223, 164, 16, 157, 234, 65, 150, 138, 115, 190,
+                ],
+            )
+            .unwrap();
+        let value = match value {
+            Some(value) => refcount::decode_value_with_rc(&value),
+            None => (None, 0),
+        };
         let block = match self.chain.get_block(&block_hash) {
             Ok(block) => block,
             Err(err) => {
@@ -1673,7 +1690,7 @@ impl Client {
                 return;
             }
         };
-
+        println!("DEBUG {:?} {:?}", block.header().height(), value);
         let _ = self.check_and_update_doomslug_tip();
 
         // If we produced the block, then it should have already been broadcasted.
