@@ -4002,6 +4002,14 @@ impl Chain {
         // It includes saving chunk extras and flat state changes
         let mut chain_update = self.chain_update();
         chain_update.apply_chunk_postprocessing(prev_block, apply_results)?;
+        let epoch_id = self.epoch_manager.get_epoch_id(prev_hash)?;
+        let num_shards = self.epoch_manager.num_shards(&epoch_id)?;
+        chain_update.save_receipt_id_to_shard_id_for_block(
+            me,
+            prev_hash,
+            prev_prev_hash,
+            num_shards,
+        )?;
         chain_update.commit()?;
 
         // TODO: flat storage
