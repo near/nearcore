@@ -766,7 +766,7 @@ impl Client {
 
     pub fn produce_chunk(
         &mut self,
-        prev_block_hash: CryptoHash,
+        prev_block: &Block,
         epoch_id: &EpochId,
         last_header: ShardChunkHeader,
         next_height: BlockHeight,
@@ -776,6 +776,24 @@ impl Client {
         let _timer =
             metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         let _span = tracing::debug_span!(target: "client", "produce_chunk", next_height, shard_id, ?epoch_id).entered();
+
+        let prev_block_hash = prev_block.hash();
+        if true {
+            let me = match &self.validator_signer {
+                Some(validator_signer) => Some(validator_signer.validator_id().clone()),
+                None => None,
+            };
+            let incoming_receipts =
+                self.chain.collect_incoming_receipts_from_block(&me, prev_block).unwrap();
+            let result = self.chain.apply_prev_chunk_before_production(
+                &me,
+                prev_block,
+                shard_id as usize,
+                &incoming_receipts,
+            );
+            result.unwrap(); // if there is an error, it means something weird which I don't perceive yet
+        }
+
         let validator_signer = self
             .validator_signer
             .as_ref()
@@ -789,9 +807,9 @@ impl Client {
             return Ok(None);
         }
 
-        if self.epoch_manager.is_next_block_epoch_start(&prev_block_hash)? {
-            let prev_prev_hash = *self.chain.get_block_header(&prev_block_hash)?.prev_hash();
-            if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_block_hash)? {
+        if self.epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
+            let prev_prev_hash = *self.chain.get_block_header(prev_block_hash)?.prev_hash();
+            if !self.chain.prev_block_is_caught_up(&prev_prev_hash, prev_block_hash)? {
                 // See comment in similar snipped in `produce_block`
                 debug!(target: "client", "Produce chunk: prev block is not caught up");
                 return Err(Error::ChunkProducer(
@@ -1811,11 +1829,8 @@ impl Client {
 
     // Produce new chunks
     fn produce_chunks(&mut self, block: &Block, validator_id: AccountId) {
-        let me = Some(validator_id.clone());
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
-        let incoming_receipts =
-            self.chain.collect_incoming_receipts_from_block(&me, block).unwrap();
         for shard_id in 0..self.epoch_manager.num_shards(&epoch_id).unwrap() {
             let next_height = block.header().height() + 1;
             let epoch_manager = self.epoch_manager.as_ref();
@@ -1832,18 +1847,8 @@ impl Client {
                 .with_label_values(&[&shard_id.to_string()])
                 .start_timer();
 
-            if true {
-                let result = self.chain.apply_prev_chunk_before_production(
-                    &me,
-                    block,
-                    shard_id as usize,
-                    &incoming_receipts,
-                );
-                result.unwrap(); // if there is an error, it means something weird which I don't perceive yet
-            }
-
             let last_header = Chain::get_prev_chunk_header(epoch_manager, block, shard_id).unwrap();
-            match self.produce_chunk(*block.hash(), &epoch_id, last_header, next_height, shard_id) {
+            match self.produce_chunk(block, &epoch_id, last_header, next_height, shard_id) {
                 Ok(Some((encoded_chunk, merkle_paths, receipts))) => {
                     self.persist_and_distribute_encoded_chunk(
                         encoded_chunk,

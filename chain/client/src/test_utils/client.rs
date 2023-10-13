@@ -91,7 +91,7 @@ fn create_chunk_on_height_for_shard(
     let last_block = client.chain.get_block(&last_block_hash).unwrap();
     client
         .produce_chunk(
-            last_block_hash,
+            &last_block,
             &client.epoch_manager.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
             Chain::get_prev_chunk_header(client.epoch_manager.as_ref(), &last_block, shard_id)
                 .unwrap(),
@@ -127,7 +127,7 @@ pub fn create_chunk(
     let next_height = last_block.header().height() + 1;
     let (mut chunk, mut merkle_paths, receipts) = client
         .produce_chunk(
-            *last_block.hash(),
+            &last_block,
             last_block.header().epoch_id(),
             last_block.chunks()[0].clone(),
             next_height,
