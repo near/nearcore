@@ -1771,12 +1771,12 @@ impl Chain {
         me: &Option<AccountId>,
         block: &Block,
     ) -> Result<HashMap<ShardId, Vec<ReceiptProof>>, Error> {
-        println!(
-            "collect_incoming_receipts_from_block {} {} {}",
-            block.hash(),
-            block.header().height(),
-            block.header().prev_hash()
-        );
+        // println!(
+        //     "collect_incoming_receipts_from_block {} {} {}",
+        //     block.hash(),
+        //     block.header().height(),
+        //     block.header().prev_hash()
+        // );
         if !self.care_about_any_shard_or_part(me, *block.header().prev_hash())? {
             return Ok(HashMap::new());
         }
@@ -1787,7 +1787,8 @@ impl Chain {
             if chunk_header.height_included() != height {
                 continue;
             }
-            println!("chunk {}", chunk_header.shard_id());
+            // println!("chunk {}", chunk_header.shard_id());
+            // there are no partial chunks for genesis block, btw
             let partial_encoded_chunk =
                 self.store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
             for receipt in partial_encoded_chunk.receipts().iter() {
