@@ -183,7 +183,9 @@ pub struct GenesisConfig {
 
 impl GenesisConfig {
     pub fn use_production_config(&self) -> bool {
-        self.use_production_config || self.chain_id == "testnet" || self.chain_id == "mainnet"
+        self.use_production_config
+            || self.chain_id == near_primitives::chains::TESTNET
+            || self.chain_id == near_primitives::chains::MAINNET
     }
 }
 
@@ -217,7 +219,11 @@ impl From<&GenesisConfig> for EpochConfig {
 impl From<&GenesisConfig> for AllEpochConfig {
     fn from(genesis_config: &GenesisConfig) -> Self {
         let initial_epoch_config = EpochConfig::from(genesis_config);
-        let epoch_config = Self::new(genesis_config.use_production_config(), initial_epoch_config);
+        let epoch_config = Self::new(
+            genesis_config.use_production_config(),
+            initial_epoch_config,
+            &genesis_config.chain_id,
+        );
         epoch_config
     }
 }

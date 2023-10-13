@@ -6,8 +6,10 @@ use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, ExternalStorageConfig, Genesis, SyncConfig};
+use near_client::adapter::{StateRequestHeader, StateRequestPart, StateResponse};
 use near_client::test_utils::TestEnv;
 use near_client::{GetBlock, ProcessTxResponse};
+use near_client_primitives::types::GetValidatorInfo;
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout, WaitOrTimeoutActor};
@@ -15,8 +17,9 @@ use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
-use near_primitives::state_sync::{get_num_state_parts, StatePartKey};
+use near_primitives::state_sync::{CachedParts, StatePartKey};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{BlockId, BlockReference, EpochId, EpochReference};
 use near_primitives::utils::MaybeValidated;
 use near_primitives_core::types::ShardId;
 use near_store::DBCol;
@@ -620,9 +623,8 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
 
             let state_sync_header =
                 env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
+            let num_parts = state_sync_header.num_state_parts();
             let state_root = state_sync_header.chunk_prev_state_root();
-            let state_root_node = state_sync_header.state_root_node();
-            let num_parts = get_num_state_parts(state_root_node.memory_usage);
             // Check that state parts can be obtained.
             let state_sync_parts: Vec<_> = (0..num_parts)
                 .map(|i| {
@@ -710,5 +712,361 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 }
             }
         }
+    });
+}
+
+#[test]
+// Tests StateRequestHeader and StateRequestPart.
+fn test_state_sync_headers() {
+    heavy_test(|| {
+        init_test_logger();
+
+        run_actix(async {
+            let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
+            // Increase epoch_length if the test is flaky.
+            genesis.config.epoch_length = 50;
+
+            let mut near1 =
+                load_test_config("test1", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
+            near1.client_config.min_num_peers = 0;
+            near1.client_config.epoch_sync_enabled = false;
+            near1.client_config.tracked_shards = vec![0]; // Track all shards.
+            let dir1 =
+                tempfile::Builder::new().prefix("test_state_sync_headers").tempdir().unwrap();
+            near1.config.store.state_snapshot_enabled = true;
+            near1.config.store.state_snapshot_compaction_enabled = false;
+
+            let nearcore::NearNode { view_client: view_client1, .. } =
+                start_with_config(dir1.path(), near1).expect("start_with_config");
+
+            // First we need to find sync_hash. That is done in 3 steps:
+            // 1. Get the latest block
+            // 2. Query validators for the epoch_id of that block.
+            // 3. Get a block at 'epoch_start_height' that is found in the response of the validators method.
+            //
+            // Second, we request state sync header.
+            // Third, we request state sync part with part_id = 0.
+            wait_or_timeout(1000, 110000, || async {
+                let epoch_id = match view_client1.send(GetBlock::latest().with_span_context()).await
+                {
+                    Ok(Ok(b)) => Some(b.header.epoch_id),
+                    _ => None,
+                };
+                // async is hard, will use this construct to reduce nestedness.
+                let epoch_id = match epoch_id {
+                    Some(x) => x,
+                    None => return ControlFlow::Continue(()),
+                };
+                tracing::info!(?epoch_id, "got epoch_id");
+
+                let epoch_start_height = match view_client1
+                    .send(
+                        GetValidatorInfo {
+                            epoch_reference: EpochReference::EpochId(EpochId(epoch_id)),
+                        }
+                        .with_span_context(),
+                    )
+                    .await
+                {
+                    Ok(Ok(v)) => Some(v.epoch_start_height),
+                    _ => None,
+                };
+                let epoch_start_height = match epoch_start_height {
+                    Some(x) => x,
+                    None => return ControlFlow::Continue(()),
+                };
+                tracing::info!(epoch_start_height, "got epoch_start_height");
+
+                let sync_hash_and_num_shards = match view_client1
+                    .send(
+                        GetBlock(BlockReference::BlockId(BlockId::Height(epoch_start_height)))
+                            .with_span_context(),
+                    )
+                    .await
+                {
+                    Ok(Ok(b)) => Some((b.header.hash, b.chunks.len())),
+                    _ => None,
+                };
+                let (sync_hash, num_shards) = match sync_hash_and_num_shards {
+                    Some(x) => x,
+                    None => return ControlFlow::Continue(()),
+                };
+                tracing::info!(?sync_hash, num_shards, "got sync_hash");
+
+                for shard_id in 0..num_shards {
+                    // Make StateRequestHeader and expect that the response contains a header and `can_generate` is true.
+                    let state_response_info = match view_client1
+                        .send(
+                            StateRequestHeader { shard_id: shard_id as ShardId, sync_hash }
+                                .with_span_context(),
+                        )
+                        .await
+                    {
+                        Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
+                        _ => None,
+                    };
+                    let state_response_info = match state_response_info {
+                        Some(x) => x,
+                        None => return ControlFlow::Continue(()),
+                    };
+                    let state_response = state_response_info.take_state_response();
+                    let cached_parts = state_response.cached_parts().clone();
+                    let can_generate = state_response.can_generate();
+                    assert!(state_response.part().is_none());
+                    if let Some(_header) = state_response.take_header() {
+                        if !can_generate {
+                            tracing::info!(
+                                ?sync_hash,
+                                shard_id,
+                                ?cached_parts,
+                                can_generate,
+                                "got header but cannot generate"
+                            );
+                            return ControlFlow::Continue(());
+                        }
+                        tracing::info!(
+                            ?sync_hash,
+                            shard_id,
+                            ?cached_parts,
+                            can_generate,
+                            "got header"
+                        );
+                    } else {
+                        tracing::info!(
+                            ?sync_hash,
+                            shard_id,
+                            ?cached_parts,
+                            can_generate,
+                            "got no header"
+                        );
+                        return ControlFlow::Continue(());
+                    }
+
+                    // Make StateRequestPart and expect that the response contains a part and `can_generate` is true and part_id = 0 and the node has all parts cached.
+                    let state_response_info = match view_client1
+                        .send(
+                            StateRequestPart {
+                                shard_id: shard_id as ShardId,
+                                sync_hash,
+                                part_id: 0,
+                            }
+                            .with_span_context(),
+                        )
+                        .await
+                    {
+                        Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
+                        _ => None,
+                    };
+                    let state_response_info = match state_response_info {
+                        Some(x) => x,
+                        None => return ControlFlow::Continue(()),
+                    };
+                    let state_response = state_response_info.take_state_response();
+                    let cached_parts = state_response.cached_parts().clone();
+                    let can_generate = state_response.can_generate();
+                    let part = state_response.part().clone();
+                    assert!(state_response.take_header().is_none());
+                    if let Some((part_id, _part)) = part {
+                        if !can_generate
+                            || cached_parts != Some(CachedParts::AllParts)
+                            || part_id != 0
+                        {
+                            tracing::info!(
+                                ?sync_hash,
+                                shard_id,
+                                ?cached_parts,
+                                can_generate,
+                                part_id,
+                                "got part but shard info is unexpected"
+                            );
+                            return ControlFlow::Continue(());
+                        }
+                        tracing::info!(
+                            ?sync_hash,
+                            shard_id,
+                            ?cached_parts,
+                            can_generate,
+                            part_id,
+                            "got part"
+                        );
+                    } else {
+                        tracing::info!(
+                            ?sync_hash,
+                            shard_id,
+                            ?cached_parts,
+                            can_generate,
+                            "got no part"
+                        );
+                        return ControlFlow::Continue(());
+                    }
+                }
+                return ControlFlow::Break(());
+            })
+            .await
+            .unwrap();
+            System::current().stop();
+        });
+    });
+}
+
+#[test]
+// Tests StateRequestHeader and StateRequestPart.
+fn test_state_sync_headers_no_tracked_shards() {
+    heavy_test(|| {
+        init_test_logger();
+
+        run_actix(async {
+            let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
+            // Increase epoch_length if the test is flaky.
+            let epoch_length = 50;
+            genesis.config.epoch_length = epoch_length;
+
+            let port1 = tcp::ListenerAddr::reserve_for_test();
+            let mut near1 = load_test_config("test1", port1, genesis.clone());
+            near1.client_config.min_num_peers = 0;
+            near1.client_config.epoch_sync_enabled = false;
+            near1.client_config.tracked_shards = vec![0]; // Track all shards, it is a validator.
+            let dir1 = tempfile::Builder::new()
+                .prefix("test_state_sync_headers_no_tracked_shards_1")
+                .tempdir()
+                .unwrap();
+            near1.config.store.state_snapshot_enabled = false;
+            near1.config.store.state_snapshot_compaction_enabled = false;
+            near1.config.state_sync_enabled = Some(false);
+            near1.client_config.state_sync_enabled = false;
+
+            let _node1 = start_with_config(dir1.path(), near1).expect("start_with_config");
+
+            let mut near2 =
+                load_test_config("test2", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
+            near2.network_config.peer_store.boot_nodes =
+                convert_boot_nodes(vec![("test1", *port1)]);
+            near2.client_config.min_num_peers = 0;
+            near2.client_config.epoch_sync_enabled = false;
+            near2.client_config.tracked_shards = vec![]; // Track no shards.
+            let dir2 = tempfile::Builder::new()
+                .prefix("test_state_sync_headers_no_tracked_shards_2")
+                .tempdir()
+                .unwrap();
+            near2.config.store.state_snapshot_enabled = true;
+            near2.config.store.state_snapshot_compaction_enabled = false;
+            near2.config.state_sync_enabled = Some(false);
+            near2.client_config.state_sync_enabled = false;
+
+            let nearcore::NearNode { view_client: view_client2, .. } =
+                start_with_config(dir2.path(), near2).expect("start_with_config");
+
+            // First we need to find sync_hash. That is done in 3 steps:
+            // 1. Get the latest block
+            // 2. Query validators for the epoch_id of that block.
+            // 3. Get a block at 'epoch_start_height' that is found in the response of the validators method.
+            //
+            // Second, we request state sync header.
+            // Third, we request state sync part with part_id = 0.
+            wait_or_timeout(1000, 110000, || async {
+                let epoch_id = match view_client2.send(GetBlock::latest().with_span_context()).await
+                {
+                    Ok(Ok(b)) => Some(b.header.epoch_id),
+                    _ => None,
+                };
+                // async is hard, will use this construct to reduce nestedness.
+                let epoch_id = match epoch_id {
+                    Some(x) => x,
+                    None => return ControlFlow::Continue(()),
+                };
+                tracing::info!(?epoch_id, "got epoch_id");
+
+                let epoch_start_height = match view_client2
+                    .send(
+                        GetValidatorInfo {
+                            epoch_reference: EpochReference::EpochId(EpochId(epoch_id)),
+                        }
+                        .with_span_context(),
+                    )
+                    .await
+                {
+                    Ok(Ok(v)) => Some(v.epoch_start_height),
+                    _ => None,
+                };
+                let epoch_start_height = match epoch_start_height {
+                    Some(x) => x,
+                    None => return ControlFlow::Continue(()),
+                };
+                tracing::info!(epoch_start_height, "got epoch_start_height");
+                if epoch_start_height < 2 * epoch_length {
+                    return ControlFlow::Continue(());
+                }
+
+                let sync_hash_and_num_shards = match view_client2
+                    .send(
+                        GetBlock(BlockReference::BlockId(BlockId::Height(epoch_start_height)))
+                            .with_span_context(),
+                    )
+                    .await
+                {
+                    Ok(Ok(b)) => Some((b.header.hash, b.chunks.len())),
+                    _ => None,
+                };
+                let (sync_hash, num_shards) = match sync_hash_and_num_shards {
+                    Some(x) => x,
+                    None => return ControlFlow::Continue(()),
+                };
+                tracing::info!(?sync_hash, num_shards, "got sync_hash");
+
+                for shard_id in 0..num_shards {
+                    // Make StateRequestHeader and expect that the response contains a header and `can_generate` is true.
+                    let state_response_info = match view_client2
+                        .send(
+                            StateRequestHeader { shard_id: shard_id as ShardId, sync_hash }
+                                .with_span_context(),
+                        )
+                        .await
+                    {
+                        Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
+                        _ => None,
+                    };
+                    let state_response_info = match state_response_info {
+                        Some(x) => x,
+                        None => return ControlFlow::Continue(()),
+                    };
+                    tracing::info!(?state_response_info, "got header state response");
+                    let state_response = state_response_info.take_state_response();
+                    assert_eq!(state_response.cached_parts(), &None);
+                    assert!(!state_response.can_generate());
+                    assert!(state_response.part().is_none());
+                    assert_eq!(state_response.take_header(), None);
+
+                    // Make StateRequestPart and expect that the response contains a part and `can_generate` is true and part_id = 0 and the node has all parts cached.
+                    let state_response_info = match view_client2
+                        .send(
+                            StateRequestPart {
+                                shard_id: shard_id as ShardId,
+                                sync_hash,
+                                part_id: 0,
+                            }
+                            .with_span_context(),
+                        )
+                        .await
+                    {
+                        Ok(Some(StateResponse(state_response_info))) => Some(state_response_info),
+                        _ => None,
+                    };
+                    let state_response_info = match state_response_info {
+                        Some(x) => x,
+                        None => return ControlFlow::Continue(()),
+                    };
+                    tracing::info!(?state_response_info, "got state part response");
+                    let state_response = state_response_info.take_state_response();
+                    assert_eq!(state_response.cached_parts(), &None);
+                    assert!(!state_response.can_generate());
+                    assert!(state_response.part().is_none());
+                    assert_eq!(state_response.take_header(), None);
+                }
+                return ControlFlow::Break(());
+            })
+            .await
+            .unwrap();
+            System::current().stop();
+        });
     });
 }

@@ -28,6 +28,7 @@ fn scenario_smoke_test() {
         },
         blocks: Vec::new(),
         use_in_memory_store: true,
+        is_fuzzing: false,
     };
 
     for h in 1..5 {

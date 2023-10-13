@@ -109,7 +109,8 @@ bencher = "0.1.5"
 bitflags = "1.2"
 blake2 = "0.9.1"
 bn = { package = "zeropool-bn", version = "0.5.11" }
-bolero = "0.8.0"
+# TODO: revert to upstream bolero once https://github.com/camshaft/bolero/pull/186 lands and gets released
+bolero = { version = "0.9.0", git = "https://github.com/camshaft/bolero", rev = "7d955a67fbd06f61ffaf28178e976280c33c045a", features = ["arbitrary"] }
 borsh = { version = "1.0.0", features = ["derive", "rc"] }
 bs58 = "0.4"
 bytes = "1"
@@ -316,7 +317,7 @@ test-log = { version = "0.2", default-features = false, features = ["trace"] }
 thiserror = "1.0.30"
 tikv-jemallocator = "0.5.0"
 time = "0.3.9"
-tokio = { version = "~1.28", features = [
+tokio = { version = "1.28", features = [
     "fs",
     "macros",
     "net",
@@ -407,4 +408,10 @@ opt-level = 3
 [profile.dev.package.sha2]
 opt-level = 3
 [profile.dev.package.curve25519-dalek]
+opt-level = 3
+[profile.dev.package.unsafe-libyaml]
+opt-level = 3
+[profile.dev.package.hashbrown]
+opt-level = 3
+[profile.dev.package.dynasmrt]
 opt-level = 3

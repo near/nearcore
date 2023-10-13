@@ -14,7 +14,6 @@ use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
-use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
@@ -226,9 +225,9 @@ fn run_state_sync_with_dumped_parts(
         let final_block_header = env.clients[0].chain.get_block_header(final_block_hash).unwrap();
 
         tracing::info!(
-            "dumping node: dump_node_head_height is {}, final_block_height is {}",
             dump_node_head_height,
-            final_block_header.height()
+            final_block_height = final_block_header.height(),
+            "Dumping node state"
         );
 
         // check if final block is in the same epoch as head for dumping node
@@ -254,9 +253,7 @@ fn run_state_sync_with_dumped_parts(
         let state_sync_header =
             env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
         let state_root = state_sync_header.chunk_prev_state_root();
-        let state_root_node =
-            env.clients[0].runtime_adapter.get_state_root_node(0, &sync_hash, &state_root).unwrap();
-        let num_parts = get_num_state_parts(state_root_node.memory_usage);
+        let num_parts = state_sync_header.num_state_parts();
 
         wait_or_timeout(100, 10000, || async {
             let mut all_parts_present = true;
@@ -370,7 +367,7 @@ fn run_state_sync_with_dumped_parts(
 }
 
 #[test]
-/// This test verifies that after state sync, the syncing node has the data that ccoresponds to the state of the epoch previous to the dumping node's final block.
+/// This test verifies that after state sync, the syncing node has the data that corresponds to the state of the epoch previous to the dumping node's final block.
 /// Specifically, it tests that the above holds true in both conditions:
 /// - the dumping node's head is in new epoch but final block is not;
 /// - the dumping node's head and final block are in same epoch

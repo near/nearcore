@@ -32,6 +32,7 @@ fn handle_message(
             let shard_id = response.shard_id();
             let sync_hash = response.sync_hash();
             let state_response = response.clone().take_state_response();
+            let cached_parts = state_response.cached_parts();
             let part_id = state_response.part_id();
             let duration = if let Some(part_id) = part_id {
                 let duration = app_info
@@ -58,7 +59,8 @@ fn handle_message(
                 ?part_id,
                 ?duration,
                 ?part_hash,
-                "Received VersionedStateResponse"
+                ?cached_parts,
+                "Received VersionedStateResponse",
             );
         }
         _ => {}

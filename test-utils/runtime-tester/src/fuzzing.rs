@@ -45,7 +45,13 @@ impl Arbitrary<'_> for Scenario {
         while blocks.len() < MAX_BLOCKS && u.len() > BlockConfig::size_hint(0).0 {
             blocks.push(BlockConfig::arbitrary(u, &mut scope)?);
         }
-        Ok(Scenario { network_config, runtime_config, blocks, use_in_memory_store: true })
+        Ok(Scenario {
+            network_config,
+            runtime_config,
+            blocks,
+            use_in_memory_store: true,
+            is_fuzzing: true,
+        })
     }
 
     fn size_hint(_depth: usize) -> (usize, Option<usize>) {
@@ -753,5 +759,39 @@ impl Function {
 
     fn size_hint(_depth: usize) -> (usize, Option<usize>) {
         (0, Some(20))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Scenario;
+
+    fn do_fuzz(scenario: &Scenario) -> Result<(), String> {
+        let stats = scenario.run().result.map_err(|e| e.to_string())?;
+        for block_stats in stats.blocks_stats {
+            if block_stats.block_production_time > std::time::Duration::from_secs(2) {
+                return Err(format!(
+                    "block at height {} was produced in {:?}",
+                    block_stats.height, block_stats.block_production_time
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn fuzz(scenario: &Scenario) {
+        if let Err(err) = do_fuzz(scenario) {
+            let file = "failed_scenario.json";
+            serde_json::to_writer(&std::fs::File::create(file).unwrap(), &scenario).unwrap();
+            panic!("Bad scenario: {}, {}", file, err);
+        }
+    }
+
+    #[test]
+    fn fuzz_scenario() {
+        bolero::check!()
+            .with_iterations(100) // Limit to 100 iterations, the default of 1000 would be too slow
+            .with_arbitrary::<Scenario>()
+            .for_each(fuzz)
     }
 }

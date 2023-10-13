@@ -13,7 +13,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
-use near_primitives::state_sync::{get_num_state_parts, StatePartKey, StateSyncDumpProgress};
+use near_primitives::state_sync::{StatePartKey, StateSyncDumpProgress};
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
 use near_store::DBCol;
 use rand::{thread_rng, Rng};
@@ -414,7 +414,7 @@ fn get_in_progress_data(
 ) -> Result<(StateRoot, u64, CryptoHash), Error> {
     let state_header = chain.get_state_response_header(shard_id, sync_hash)?;
     let state_root = state_header.chunk_prev_state_root();
-    let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
+    let num_parts = state_header.num_state_parts();
 
     let sync_block_header = chain.get_block_header(&sync_hash)?;
     let sync_prev_block_header = chain.get_previous_header(&sync_block_header)?;

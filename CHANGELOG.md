@@ -5,6 +5,7 @@
 ### Protocol Changes
 * The support for fixed shards in shard layout was removed. [#9219](https://github.com/near/nearcore/pull/9219)
 * Restrict the creation of non-implicit top-level account that are longer than 32 bytes. Only the registrar account can create them. [#9589](https://github.com/near/nearcore/pull/9589)
+* Adjust the number of block producers and chunk producers on testnet to facilitate testing of chunk-only producers [#9563](https://github.com/near/nearcore/pull/9563)
 
 
 ### Non-protocol Changes
