@@ -1671,6 +1671,7 @@ impl Client {
             .chain
             .store()
             .store()
+            .clone()
             .get(
                 DBCol::ReceiptIdToShardId,
                 &[
