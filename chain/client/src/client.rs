@@ -829,7 +829,7 @@ impl Client {
 
         let ret = self.produce_pre_state_root_chunk(
             validator_signer.as_ref(),
-            prev_block_hash,
+            *prev_block_hash,
             epoch_id,
             last_header,
             next_height,
