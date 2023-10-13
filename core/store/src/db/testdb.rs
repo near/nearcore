@@ -91,16 +91,17 @@ impl Database for TestDB {
                     db[col].insert(key, value);
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    if col == DBCol::ReceiptIdToShardId {
-                        println!(
-                            "ReceiptIdToShardId {:?} {:?}",
-                            key,
-                            refcount::decode_value_with_rc(&value)
-                        );
-                    }
                     let existing = db[col].get(&key).map(Vec::as_slice);
                     let operands = [value.as_slice()];
                     let merged = refcount::refcount_merge(existing, operands);
+                    if col == DBCol::ReceiptIdToShardId {
+                        println!(
+                            "ReceiptIdToShardId {:?}, {:?} <- {:?}",
+                            key,
+                            refcount::decode_value_with_rc(&existing.unwrap_or_default()),
+                            refcount::decode_value_with_rc(&value)
+                        );
+                    }
                     if merged.is_empty() {
                         db[col].remove(&key);
                     } else {
