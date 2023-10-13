@@ -1677,8 +1677,8 @@ impl Client {
                 ],
             )
             .unwrap();
-        let value = match value {
-            Some(value) => refcount::decode_value_with_rc(&value),
+        let value = match &value {
+            Some(value) => refcount::decode_value_with_rc(value),
             None => (None, 0),
         };
         let block = match self.chain.get_block(&block_hash) {
