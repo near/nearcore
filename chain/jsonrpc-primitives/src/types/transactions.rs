@@ -3,14 +3,17 @@ use near_primitives::types::AccountId;
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
-pub struct RpcBroadcastTransactionRequest {
+pub struct RpcSendTransactionRequest {
     pub signed_transaction: near_primitives::transaction::SignedTransaction,
+    pub finality: near_primitives::views::TxExecutionStatus,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub struct RpcTransactionStatusCommonRequest {
+pub struct RpcTransactionStatusRequest {
     #[serde(flatten)]
     pub transaction_info: TransactionInfo,
+    #[serde(default)]
+    pub finality: near_primitives::views::TxExecutionStatus,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -56,21 +59,18 @@ pub struct RpcBroadcastTxSyncResponse {
     pub transaction_hash: near_primitives::hash::CryptoHash,
 }
 
-impl From<TransactionInfo> for RpcTransactionStatusCommonRequest {
-    fn from(transaction_info: TransactionInfo) -> Self {
-        Self { transaction_info }
-    }
-}
-
-impl From<near_primitives::transaction::SignedTransaction> for RpcTransactionStatusCommonRequest {
-    fn from(transaction_info: near_primitives::transaction::SignedTransaction) -> Self {
-        Self { transaction_info: transaction_info.into() }
-    }
-}
-
 impl From<near_primitives::transaction::SignedTransaction> for TransactionInfo {
     fn from(transaction_info: near_primitives::transaction::SignedTransaction) -> Self {
         Self::Transaction(transaction_info)
+    }
+}
+
+impl From<near_primitives::views::TxStatusView> for RpcTransactionResponse {
+    fn from(view: near_primitives::views::TxStatusView) -> Self {
+        Self {
+            final_execution_outcome: view.execution_outcome,
+            final_execution_status: view.status,
+        }
     }
 }
 

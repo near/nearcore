@@ -447,8 +447,8 @@ impl ViewClientActor {
                         .chain
                         .get_block_header(&execution_outcome.transaction_outcome.block_hash)?])
                     {
-                        Ok(_) => TxExecutionStatus::InclusionFinal,
-                        Err(_) => TxExecutionStatus::Inclusion,
+                        Ok(_) => TxExecutionStatus::IncludedFinal,
+                        Err(_) => TxExecutionStatus::Included,
                     }
                 }
             }

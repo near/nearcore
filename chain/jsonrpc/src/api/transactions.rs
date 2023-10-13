@@ -3,28 +3,54 @@ use serde_json::Value;
 use near_client_primitives::types::TxStatusError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::transactions::{
-    RpcBroadcastTransactionRequest, RpcTransactionError, RpcTransactionStatusCommonRequest,
-    TransactionInfo,
+    RpcSendTransactionRequest, RpcTransactionError, RpcTransactionStatusRequest, TransactionInfo,
 };
 use near_primitives::borsh::BorshDeserialize;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::views::TxExecutionStatus;
 
 use super::{Params, RpcFrom, RpcRequest};
 
-impl RpcRequest for RpcBroadcastTransactionRequest {
+impl RpcRequest for RpcSendTransactionRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        let signed_transaction =
-            Params::new(value).try_singleton(|value| decode_signed_transaction(value)).unwrap()?;
-        Ok(Self { signed_transaction })
+        let tx_request = Params::new(value)
+            .try_singleton(|value| {
+                Ok(RpcSendTransactionRequest {
+                    signed_transaction: decode_signed_transaction(value)?,
+                    // will be ignored in `broadcast_tx_async`, `broadcast_tx_commit`
+                    finality: Default::default(),
+                })
+            })
+            .try_pair(|encoded_tx, finality: String| {
+                let finality = format!("\"{}\"", finality);
+                Ok(RpcSendTransactionRequest {
+                    signed_transaction: decode_signed_transaction(encoded_tx)?,
+                    // will be ignored in `broadcast_tx_async`, `broadcast_tx_commit`
+                    finality: serde_json::from_str::<TxExecutionStatus>(&finality).map_err(
+                        |err| RpcParseError(format!("Failed to decode finality: {}", err)),
+                    )?,
+                })
+            })
+            .unwrap()?;
+        Ok(tx_request)
     }
 }
 
-impl RpcRequest for RpcTransactionStatusCommonRequest {
+impl RpcRequest for RpcTransactionStatusRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
         Ok(Params::new(value)
-            .try_singleton(|signed_tx| decode_signed_transaction(signed_tx).map(|x| x.into()))
+            .try_singleton(|signed_tx| {
+                Ok(RpcTransactionStatusRequest {
+                    transaction_info: decode_signed_transaction(signed_tx)?.into(),
+                    finality: Default::default(),
+                })
+            })
             .try_pair(|tx_hash, sender_account_id| {
-                Ok(TransactionInfo::TransactionId { tx_hash, sender_account_id }.into())
+                Ok(RpcTransactionStatusRequest {
+                    transaction_info: TransactionInfo::TransactionId { tx_hash, sender_account_id }
+                        .into(),
+                    finality: Default::default(),
+                })
             })
             .unwrap_or_parse()?)
     }
@@ -62,7 +88,7 @@ fn decode_signed_transaction(value: String) -> Result<SignedTransaction, RpcPars
 mod tests {
     use crate::api::RpcRequest;
     use near_jsonrpc_primitives::types::transactions::{
-        RpcBroadcastTransactionRequest, RpcTransactionStatusCommonRequest,
+        RpcSendTransactionRequest, RpcTransactionStatusRequest,
     };
     use near_primitives::borsh;
     use near_primitives::hash::CryptoHash;
@@ -74,7 +100,7 @@ mod tests {
         let tx_hash = CryptoHash::new().to_string();
         let account_id = "sender.testnet";
         let params = serde_json::json!([tx_hash, account_id]);
-        assert!(RpcTransactionStatusCommonRequest::parse(params).is_ok());
+        assert!(RpcTransactionStatusRequest::parse(params).is_ok());
     }
 
     #[test]
@@ -82,7 +108,16 @@ mod tests {
         let tx_hash = CryptoHash::new().to_string();
         let account_id = "sender.testnet";
         let params = serde_json::json!({"tx_hash": tx_hash, "sender_account_id": account_id});
-        assert!(RpcTransactionStatusCommonRequest::parse(params).is_ok());
+        assert!(RpcTransactionStatusRequest::parse(params).is_ok());
+    }
+
+    #[test]
+    fn test_serialize_tx_status_params_as_object_with_finality() {
+        let tx_hash = CryptoHash::new().to_string();
+        let account_id = "sender.testnet";
+        let finality = "INCLUDED";
+        let params = serde_json::json!({"tx_hash": tx_hash, "sender_account_id": account_id, "finality": finality});
+        assert!(RpcTransactionStatusRequest::parse(params).is_ok());
     }
 
     #[test]
@@ -92,7 +127,7 @@ mod tests {
         let bytes_tx = borsh::to_vec(&tx).unwrap();
         let str_tx = to_base64(&bytes_tx);
         let params = serde_json::json!([str_tx]);
-        assert!(RpcTransactionStatusCommonRequest::parse(params).is_ok());
+        assert!(RpcTransactionStatusRequest::parse(params).is_ok());
     }
 
     // The params are invalid because sender_account_id is missing
@@ -100,7 +135,17 @@ mod tests {
     fn test_serialize_invalid_tx_status_params() {
         let tx_hash = CryptoHash::new().to_string();
         let params = serde_json::json!([tx_hash]);
-        assert!(RpcTransactionStatusCommonRequest::parse(params).is_err());
+        assert!(RpcTransactionStatusRequest::parse(params).is_err());
+    }
+
+    // The params are invalid because finality is supported only in tx status params passed by object
+    #[test]
+    fn test_serialize_tx_status_too_many_params() {
+        let tx_hash = CryptoHash::new().to_string();
+        let account_id = "sender.testnet";
+        let finality = "EXECUTED";
+        let params = serde_json::json!([tx_hash, account_id, finality]);
+        assert!(RpcTransactionStatusRequest::parse(params).is_err());
     }
 
     #[test]
@@ -110,6 +155,17 @@ mod tests {
         let bytes_tx = borsh::to_vec(&tx).unwrap();
         let str_tx = to_base64(&bytes_tx);
         let params = serde_json::json!([str_tx]);
-        assert!(RpcBroadcastTransactionRequest::parse(params).is_ok());
+        assert!(RpcSendTransactionRequest::parse(params).is_ok());
+    }
+
+    #[test]
+    fn test_serialize_send_tx_params_as_binary_signed_tx_with_finality() {
+        let tx_hash = CryptoHash::new();
+        let tx = SignedTransaction::empty(tx_hash);
+        let bytes_tx = borsh::to_vec(&tx).unwrap();
+        let str_tx = to_base64(&bytes_tx);
+        let finality = "EXECUTED";
+        let params = serde_json::json!([str_tx, finality]);
+        assert!(RpcSendTransactionRequest::parse(params).is_ok());
     }
 }
