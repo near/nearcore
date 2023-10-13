@@ -24,8 +24,8 @@ use near_primitives::sharding::{
     StateSyncInfo,
 };
 use near_primitives::state_sync::{
-    get_num_state_parts, ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey,
-    StatePartKey, StateSyncDumpProgress,
+    ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
+    StateSyncDumpProgress,
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
@@ -2397,8 +2397,7 @@ impl<'a> ChainStoreUpdate<'a> {
             // We need to make sure all State Parts are removed.
             if let Ok(shard_state_header) = self.chain_store.get_state_header(shard_id, block_hash)
             {
-                let state_num_parts =
-                    get_num_state_parts(shard_state_header.state_root_node().memory_usage);
+                let state_num_parts = shard_state_header.num_state_parts();
                 self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
                 let key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))?;
                 self.gc_col(DBCol::StateHeaders, &key);
@@ -2497,8 +2496,7 @@ impl<'a> ChainStoreUpdate<'a> {
             // delete state parts and state headers
             if let Ok(shard_state_header) = self.chain_store.get_state_header(shard_id, block_hash)
             {
-                let state_num_parts =
-                    get_num_state_parts(shard_state_header.state_root_node().memory_usage);
+                let state_num_parts = shard_state_header.num_state_parts();
                 self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
                 let state_header_key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))?;
                 self.gc_col(DBCol::StateHeaders, &state_header_key);

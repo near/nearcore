@@ -18,16 +18,7 @@ pub use crate::action::{
 
 pub type LogEntry = String;
 
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    PartialEq,
-    Eq,
-    Debug,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, PartialEq, Eq, Debug, Clone)]
 pub struct Transaction {
     /// An account on which behalf transaction is signed
     pub signer_id: AccountId,
@@ -53,9 +44,7 @@ impl Transaction {
     }
 }
 
-#[derive(
-    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, Eq, Debug, Clone,
-)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Eq, Debug, Clone)]
 #[borsh(init=init)]
 pub struct SignedTransaction {
     pub transaction: Transaction,

@@ -52,7 +52,7 @@ use near_primitives::sharding::{
     ShardChunkHeaderV3,
 };
 use near_primitives::state_part::PartId;
-use near_primitives::state_sync::{get_num_state_parts, StatePartKey};
+use near_primitives::state_sync::StatePartKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::{
@@ -2343,11 +2343,7 @@ fn test_sync_hash_validity() {
         let block_hash = *env.clients[0].chain.get_block_header_by_height(i).unwrap().hash();
         let res = env.clients[0].chain.check_sync_hash_validity(&block_hash);
         println!("height {:?} -> {:?}", i, res);
-        if i == 11 || i == 16 {
-            assert!(res.unwrap())
-        } else {
-            assert!(!res.unwrap())
-        }
+        assert_eq!(res.unwrap(), i == 0 || (i % epoch_length) == 1);
     }
     let bad_hash = CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap();
     let res = env.clients[0].chain.check_sync_hash_validity(&bad_hash);
@@ -2600,10 +2596,7 @@ fn test_catchup_gas_price_change() {
     assert_ne!(blocks[4].header().epoch_id(), blocks[5].header().epoch_id());
     assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
     let state_sync_header = env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
-    let state_root = state_sync_header.chunk_prev_state_root();
-    let state_root_node =
-        env.clients[0].runtime_adapter.get_state_root_node(0, &sync_hash, &state_root).unwrap();
-    let num_parts = get_num_state_parts(state_root_node.memory_usage);
+    let num_parts = state_sync_header.num_state_parts();
     let state_sync_parts = (0..num_parts)
         .map(|i| env.clients[0].chain.get_state_response_part(0, i, sync_hash).unwrap())
         .collect::<Vec<_>>();

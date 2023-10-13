@@ -2,7 +2,7 @@ use near_primitives::errors::TxExecutionError;
 use serde_json::{to_value, Value};
 use std::fmt;
 
-#[derive(serde::Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub struct RpcParseError(pub String);
 
 /// This struct may be returned from JSON RPC server in case of error

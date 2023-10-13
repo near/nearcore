@@ -1,3 +1,5 @@
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::AccountId;
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
@@ -5,17 +7,20 @@ pub struct RpcBroadcastTransactionRequest {
     pub signed_transaction: near_primitives::transaction::SignedTransaction,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcTransactionStatusCommonRequest {
+    #[serde(flatten)]
     pub transaction_info: TransactionInfo,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
 pub enum TransactionInfo {
+    #[serde(skip_deserializing)]
     Transaction(near_primitives::transaction::SignedTransaction),
     TransactionId {
-        hash: near_primitives::hash::CryptoHash,
-        account_id: near_primitives::types::AccountId,
+        tx_hash: CryptoHash,
+        sender_account_id: AccountId,
     },
 }
 
@@ -49,6 +54,24 @@ pub struct RpcTransactionResponse {
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct RpcBroadcastTxSyncResponse {
     pub transaction_hash: near_primitives::hash::CryptoHash,
+}
+
+impl From<TransactionInfo> for RpcTransactionStatusCommonRequest {
+    fn from(transaction_info: TransactionInfo) -> Self {
+        Self { transaction_info }
+    }
+}
+
+impl From<near_primitives::transaction::SignedTransaction> for RpcTransactionStatusCommonRequest {
+    fn from(transaction_info: near_primitives::transaction::SignedTransaction) -> Self {
+        Self { transaction_info: transaction_info.into() }
+    }
+}
+
+impl From<near_primitives::transaction::SignedTransaction> for TransactionInfo {
+    fn from(transaction_info: near_primitives::transaction::SignedTransaction) -> Self {
+        Self::Transaction(transaction_info)
+    }
 }
 
 impl From<RpcTransactionError> for crate::errors::RpcError {
