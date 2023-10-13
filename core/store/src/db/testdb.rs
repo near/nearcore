@@ -91,7 +91,7 @@ impl Database for TestDB {
                     db[col].insert(key, value);
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    if DBCol::ReceiptIdToShardId = col {
+                    if col == DBCol::ReceiptIdToShardId {
                         println!(
                             "ReceiptIdToShardId {:?} {:?}",
                             key,
