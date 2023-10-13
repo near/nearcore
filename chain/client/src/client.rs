@@ -1667,11 +1667,8 @@ impl Client {
         provenance: Provenance,
         skip_produce_chunk: bool,
     ) {
-        let value = self
-            .chain
-            .store()
-            .store()
-            .clone()
+        let store = self.chain.store().store().clone();
+        let value = store
             .get(
                 DBCol::ReceiptIdToShardId,
                 &[
