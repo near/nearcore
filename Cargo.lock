@@ -3645,9 +3645,11 @@ name = "near-database-tool"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "borsh 1.0.0",
  "clap 4.2.4",
  "indicatif",
  "near-chain-configs",
+ "near-epoch-manager",
  "near-primitives",
  "near-store",
  "nearcore",
