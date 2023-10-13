@@ -1787,7 +1787,7 @@ impl Chain {
             if chunk_header.height_included() != height {
                 continue;
             }
-            println!("chunk {}", chunk_header.shard_id())
+            println!("chunk {}", chunk_header.shard_id());
             let partial_encoded_chunk =
                 self.store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
             for receipt in partial_encoded_chunk.receipts().iter() {
