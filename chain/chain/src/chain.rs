@@ -4,6 +4,7 @@ use crate::block_processing_utils::{
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::lightclient::get_epoch_block_producers_view;
+use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
 use crate::state_request_tracker::StateRequestTracker;
@@ -2796,6 +2797,8 @@ impl Chain {
         let does_care_about_shard =
             shard_tracker.care_about_shard(me.as_ref(), parent_hash, shard_id, true);
 
+        tracing::debug!(target: "chain", does_care_about_shard, will_care_about_shard, will_shard_layout_change, "should catch up shard");
+
         will_care_about_shard && (will_shard_layout_change || !does_care_about_shard)
     }
 
@@ -5512,6 +5515,10 @@ impl<'a> ChainUpdate<'a> {
                         .save_epoch_light_client_block(&prev_epoch_id.0, light_client_block);
                 }
             }
+
+            let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(prev.hash())?;
+            SHARD_LAYOUT_VERSION.set(shard_layout.version() as i64);
+            SHARD_LAYOUT_NUM_SHARDS.set(shard_layout.num_shards() as i64);
         }
         Ok(res)
     }
