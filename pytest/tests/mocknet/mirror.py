@@ -2,7 +2,7 @@
 """
 
 """
-import argparse
+from argparse import ArgumentParser, BooleanOptionalAction
 import pathlib
 import random
 from rc import pmap, run
@@ -78,11 +78,12 @@ def wait_node_up(node):
 
 
 def prompt_setup_flags(args):
-    print(
-        'this will reset all nodes\' home dirs and initialize them with new state. continue? [yes/no]'
-    )
-    if sys.stdin.readline().strip() != 'yes':
-        sys.exit()
+    if not args.yes:
+        print(
+            'this will reset all nodes\' home dirs and initialize them with new state. continue? [yes/no]'
+        )
+        if sys.stdin.readline().strip() != 'yes':
+            sys.exit()
 
     if args.epoch_length is None:
         print('epoch length for the initialized genesis file?: ')
@@ -362,18 +363,27 @@ def neard_runner_network_init(node, validators, boot_nodes, epoch_length,
                                 })
 
 
-def neard_update_config(node, state_cache_size_mb):
-    return neard_runner_jsonrpc(node,
-                                'update_config',
-                                params={
-                                    'state_cache_size_mb': state_cache_size_mb,
-                                })
+def neard_update_config(node, state_cache_size_mb, state_snapshot_enabled):
+    return neard_runner_jsonrpc(
+        node,
+        'update_config',
+        params={
+            'state_cache_size_mb': state_cache_size_mb,
+            'state_snapshot_enabled': state_snapshot_enabled,
+        },
+    )
 
 
 def update_config_cmd(args, traffic_generator, nodes):
     nodes = nodes + [traffic_generator]
     results = pmap(
-        lambda node: neard_update_config(node, args.state_cache_size_mb), nodes)
+        lambda node: neard_update_config(
+            node,
+            args.state_cache_size_mb,
+            args.state_snapshot_enabled,
+        ),
+        nodes,
+    )
     if not all(results):
         logger.warn('failed to update configs for some nodes')
         return
@@ -416,7 +426,7 @@ def start_traffic_cmd(args, traffic_generator, nodes):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Run a load test')
+    parser = ArgumentParser(description='Run a load test')
     parser.add_argument('--chain-id', type=str, required=True)
     parser.add_argument('--start-height', type=int, required=True)
     parser.add_argument('--unique-id', type=str, required=True)
@@ -434,24 +444,23 @@ if __name__ == '__main__':
     init_parser.add_argument('--neard-upgrade-binary-url', type=str)
     init_parser.set_defaults(func=init_cmd)
 
-    update_config_parser = subparsers.add_parser('update-config',
-                                                 help='''
-        Update config.json with given flags for all nodes.
-        ''')
+    update_config_parser = subparsers.add_parser(
+        'update-config',
+        help='''Update config.json with given flags for all nodes.''')
     update_config_parser.add_argument('--state-cache-size-mb', type=int)
+    update_config_parser.add_argument('--state-snapshot-enabled',
+                                      action=BooleanOptionalAction)
     update_config_parser.set_defaults(func=update_config_cmd)
 
-    restart_parser = subparsers.add_parser('restart-neard-runner',
-                                           help='''
-    Restarts the neard runner on all nodes.
-    ''')
+    restart_parser = subparsers.add_parser(
+        'restart-neard-runner',
+        help='''Restarts the neard runner on all nodes.''')
     restart_parser.add_argument('--upload-program', action='store_true')
     restart_parser.set_defaults(func=restart_cmd, upload_program=False)
 
-    hard_reset_parser = subparsers.add_parser('hard-reset',
-                                              help='''
-    Stops neard and clears all test state on all nodes.
-    ''')
+    hard_reset_parser = subparsers.add_parser(
+        'hard-reset',
+        help='''Stops neard and clears all test state on all nodes.''')
     hard_reset_parser.add_argument('--neard-binary-url', type=str)
     hard_reset_parser.add_argument('--neard-upgrade-binary-url', type=str)
     hard_reset_parser.set_defaults(func=hard_reset_cmd)
@@ -467,12 +476,12 @@ if __name__ == '__main__':
     new_test_parser.add_argument('--num-validators', type=int)
     new_test_parser.add_argument('--num-seats', type=int)
     new_test_parser.add_argument('--genesis-protocol-version', type=int)
+    new_test_parser.add_argument('--yes', action='store_true')
     new_test_parser.set_defaults(func=new_test)
 
-    status_parser = subparsers.add_parser('status',
-                                          help='''
-    Checks the status of test initialization on each node
-    ''')
+    status_parser = subparsers.add_parser(
+        'status',
+        help='''Checks the status of test initialization on each node''')
     status_parser.set_defaults(func=status_cmd)
 
     start_traffic_parser = subparsers.add_parser(
