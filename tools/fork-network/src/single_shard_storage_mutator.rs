@@ -1,7 +1,7 @@
 use near_chain::types::RuntimeAdapter;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::borsh::BorshSerialize;
+use near_primitives::borsh;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
@@ -46,7 +46,7 @@ impl SingleShardStorageMutator {
         account_id: AccountId,
         value: Account,
     ) -> anyhow::Result<()> {
-        self.trie_update().set(TrieKey::Account { account_id }, value.try_to_vec()?);
+        self.trie_update().set(TrieKey::Account { account_id }, borsh::to_vec(&value)?);
         Ok(())
     }
 
@@ -62,7 +62,7 @@ impl SingleShardStorageMutator {
         access_key: AccessKey,
     ) -> anyhow::Result<()> {
         self.trie_update()
-            .set(TrieKey::AccessKey { account_id, public_key }, access_key.try_to_vec()?);
+            .set(TrieKey::AccessKey { account_id, public_key }, borsh::to_vec(&access_key)?);
         Ok(())
     }
 
@@ -81,8 +81,10 @@ impl SingleShardStorageMutator {
         data_key: &StoreKey,
         value: StoreValue,
     ) -> anyhow::Result<()> {
-        self.trie_update()
-            .set(TrieKey::ContractData { account_id, key: data_key.to_vec() }, value.try_to_vec()?);
+        self.trie_update().set(
+            TrieKey::ContractData { account_id, key: data_key.to_vec() },
+            borsh::to_vec(&value)?,
+        );
         Ok(())
     }
 
@@ -111,7 +113,7 @@ impl SingleShardStorageMutator {
                 receiver_id: receipt.receiver_id.clone(),
                 receipt_id: receipt.receipt_id,
             },
-            receipt.try_to_vec().unwrap(),
+            borsh::to_vec(&receipt)?,
         );
         Ok(())
     }
@@ -131,7 +133,7 @@ impl SingleShardStorageMutator {
         data: &Option<Vec<u8>>,
     ) -> anyhow::Result<()> {
         self.trie_update()
-            .set(TrieKey::ReceivedData { receiver_id: account_id, data_id }, data.try_to_vec()?);
+            .set(TrieKey::ReceivedData { receiver_id: account_id, data_id }, borsh::to_vec(data)?);
         Ok(())
     }
 
@@ -149,7 +151,7 @@ impl SingleShardStorageMutator {
         index: u64,
         receipt: &Receipt,
     ) -> anyhow::Result<()> {
-        self.trie_update().set(TrieKey::DelayedReceipt { index }, receipt.try_to_vec()?);
+        self.trie_update().set(TrieKey::DelayedReceipt { index }, borsh::to_vec(receipt)?);
         Ok(())
     }
 
