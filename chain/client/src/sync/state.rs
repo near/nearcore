@@ -1158,10 +1158,10 @@ fn request_part_from_external_storage(
                                 let part_result = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.idx)).and_then(|key|{
                                     store_update.set(DBCol::StateParts, &key, &data);
                                     store_update.commit()
-                                }).and_then(|_|Ok(data.len() as u64)).map_err(|err|format!("Failed to store a state part. err={err:?}, state_root={state_root:?}, part_id={part_id:?}, shard_id={shard_id:?}").to_string());
+                                }).and_then(|_|Ok(data.len() as u64)).map_err(|err|format!("Failed to store a state part. err={err:?}, state_root={state_root:?}, part_id={part_id:?}, shard_id={shard_id:?}"));
                                 part_result
                             } else {
-                                Err(format!("validate_state_part failed. state_root={state_root:?}, part_id={part_id:?}, shard_id={shard_id}").to_string())
+                                Err(format!("validate_state_part failed. state_root={state_root:?}, part_id={part_id:?}, shard_id={shard_id}"))
                             }
                         },
                         Err(err) => Err(err.to_string()),
