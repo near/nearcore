@@ -4,6 +4,7 @@ use crate::block_processing_utils::{
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::lightclient::get_epoch_block_producers_view;
+use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
 use crate::state_request_tracker::StateRequestTracker;
@@ -20,7 +21,7 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
-use borsh::BorshSerialize;
+use borsh::BorshDeserialize;
 use chrono::Duration;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use itertools::Itertools;
@@ -57,8 +58,8 @@ use near_primitives::sharding::{
 };
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{
-    get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
-    ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
+    get_num_state_parts, BitArray, CachedParts, ReceiptProofResponse, RootProof,
+    ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
 };
 use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
@@ -878,7 +879,7 @@ impl Chain {
         let block_timestamp = prev_block.header().raw_timestamp();
         let block_hash = prev_block_hash;
         let random_seed = *prev_block.header().random_value();
-        let gas_price = prev_block.header().gas_price();
+        let next_gas_price = prev_block.header().next_gas_price();
 
         self.runtime_adapter.apply_transactions(
             shard_id,
@@ -890,7 +891,7 @@ impl Chain {
             &receipts,
             transactions,
             last_validator_proposals,
-            gas_price,
+            next_gas_price,
             gas_limit,
             &vec![],
             random_seed,
@@ -1350,8 +1351,8 @@ impl Chain {
                 let other_header = self.get_block_header(block_hashes.iter().next().unwrap())?;
 
                 challenges.push(ChallengeBody::BlockDoubleSign(BlockDoubleSign {
-                    left_block_header: header.try_to_vec().expect("Failed to serialize"),
-                    right_block_header: other_header.try_to_vec().expect("Failed to serialize"),
+                    left_block_header: borsh::to_vec(&header).expect("Failed to serialize"),
+                    right_block_header: borsh::to_vec(&other_header).expect("Failed to serialize"),
                 }));
             }
         }
@@ -1696,7 +1697,7 @@ impl Chain {
             if let Some(encoded_chunk) = self.store.is_invalid_chunk(&chunk_header.chunk_hash())? {
                 let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
                 let chunk_proof = ChunkProofs {
-                    block_header: block.header().try_to_vec().expect("Failed to serialize"),
+                    block_header: borsh::to_vec(&block.header()).expect("Failed to serialize"),
                     merkle_proof: merkle_paths[shard_id].clone(),
                     chunk: MaybeEncodedShardChunk::Encoded(EncodedShardChunk::clone(
                         &encoded_chunk,
@@ -2532,7 +2533,7 @@ impl Chain {
         let prev = self.get_previous_header(header)?;
         let prev_hash = *prev.hash();
         let prev_prev_hash = *prev.prev_hash();
-        let prev_gas_price = prev.gas_price();
+        let gas_price = prev.next_gas_price();
         let prev_random_value = *prev.random_value();
         let prev_height = prev.height();
 
@@ -2574,7 +2575,7 @@ impl Chain {
 
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
         if !block.verify_gas_price(
-            prev_gas_price,
+            gas_price,
             self.block_economics_config.min_gas_price(protocol_version),
             self.block_economics_config.max_gas_price(protocol_version),
             self.block_economics_config.gas_price_adjustment_rate(protocol_version),
@@ -2796,6 +2797,8 @@ impl Chain {
         let does_care_about_shard =
             shard_tracker.care_about_shard(me.as_ref(), parent_hash, shard_id, true);
 
+        tracing::debug!(target: "chain", does_care_about_shard, will_care_about_shard, will_shard_layout_change, "should catch up shard");
+
         will_care_about_shard && (will_shard_layout_change || !does_care_about_shard)
     }
 
@@ -2921,19 +2924,17 @@ impl Chain {
         let sync_block_header = sync_block.header().clone();
         let sync_block_epoch_id = sync_block.header().epoch_id().clone();
         if shard_id as usize >= sync_block.chunks().len() {
-            return Err(Error::InvalidStateRequest("shard_id out of bounds".into()));
+            return Err(shard_id_out_of_bounds(shard_id));
         }
 
         // The chunk was applied at height `chunk_header.height_included`.
         // Getting the `current` state.
         let sync_prev_block = self.get_block(sync_block_header.prev_hash())?;
         if &sync_block_epoch_id == sync_prev_block.header().epoch_id() {
-            return Err(Error::InvalidStateRequest(
-                "sync_hash is not the first hash of the epoch".into(),
-            ));
+            return Err(sync_hash_not_first_hash(sync_hash));
         }
         if shard_id as usize >= sync_prev_block.chunks().len() {
-            return Err(Error::InvalidStateRequest("shard_id out of bounds".into()));
+            return Err(shard_id_out_of_bounds(shard_id));
         }
         // Chunk header here is the same chunk header as at the `current` height.
         let sync_prev_hash = *sync_prev_block.hash();
@@ -2960,7 +2961,7 @@ impl Chain {
         {
             Ok(prev_block) => {
                 if shard_id as usize >= prev_block.chunks().len() {
-                    return Err(Error::InvalidStateRequest("shard_id out of bounds".into()));
+                    return Err(shard_id_out_of_bounds(shard_id));
                 }
                 let prev_chunk_header = prev_block.chunks()[shard_id as usize].clone();
                 let (prev_chunk_headers_root, prev_chunk_proofs) = merklize(
@@ -3044,40 +3045,32 @@ impl Chain {
             &chunk_header.prev_state_root(),
         )?;
 
-        let shard_state_header = match chunk {
+        let (chunk, prev_chunk_header) = match chunk {
             ShardChunk::V1(chunk) => {
                 let prev_chunk_header =
                     prev_chunk_header.and_then(|prev_header| match prev_header {
-                        ShardChunkHeader::V1(header) => Some(header),
+                        ShardChunkHeader::V1(header) => Some(ShardChunkHeader::V1(header)),
                         ShardChunkHeader::V2(_) => None,
                         ShardChunkHeader::V3(_) => None,
                     });
-                ShardStateSyncResponseHeader::V1(ShardStateSyncResponseHeaderV1 {
-                    chunk,
-                    chunk_proof,
-                    prev_chunk_header,
-                    prev_chunk_proof,
-                    incoming_receipts_proofs,
-                    root_proofs,
-                    state_root_node,
-                })
+                let chunk = ShardChunk::V1(chunk);
+                (chunk, prev_chunk_header)
             }
-
-            chunk @ ShardChunk::V2(_) => {
-                ShardStateSyncResponseHeader::V2(ShardStateSyncResponseHeaderV2 {
-                    chunk,
-                    chunk_proof,
-                    prev_chunk_header,
-                    prev_chunk_proof,
-                    incoming_receipts_proofs,
-                    root_proofs,
-                    state_root_node,
-                })
-            }
-
+            chunk @ ShardChunk::V2(_) => (chunk, prev_chunk_header),
             ShardChunk::V3(_) => todo!("#9535"),
         };
-        Ok(shard_state_header)
+
+        let shard_state_header = ShardStateSyncResponseHeaderV2 {
+            chunk,
+            chunk_proof,
+            prev_chunk_header,
+            prev_chunk_proof,
+            incoming_receipts_proofs,
+            root_proofs,
+            state_root_node,
+        };
+
+        Ok(ShardStateSyncResponseHeader::V2(shard_state_header))
     }
 
     /// Returns ShardStateSyncResponseHeader for the given epoch and shard.
@@ -3089,7 +3082,7 @@ impl Chain {
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
         // Check cache
-        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
+        let key = borsh::to_vec(&StateHeaderKey(shard_id, sync_hash))?;
         if let Ok(Some(header)) = self.store.store().get_ser(DBCol::StateHeaders, &key) {
             return Ok(header);
         }
@@ -3118,7 +3111,7 @@ impl Chain {
             %sync_hash)
         .entered();
         // Check cache
-        let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
         if let Ok(Some(state_part)) = self.store.store().get(DBCol::StateParts, &key) {
             return Ok(state_part.into());
         }
@@ -3129,16 +3122,14 @@ impl Chain {
         let sync_block_header = sync_block.header().clone();
         let sync_block_epoch_id = sync_block.header().epoch_id().clone();
         if shard_id as usize >= sync_block.chunks().len() {
-            return Err(Error::InvalidStateRequest("shard_id out of bounds".into()));
+            return Err(shard_id_out_of_bounds(shard_id));
         }
         let sync_prev_block = self.get_block(sync_block_header.prev_hash())?;
         if &sync_block_epoch_id == sync_prev_block.header().epoch_id() {
-            return Err(Error::InvalidStateRequest(
-                "sync_hash is not the first hash of the epoch".into(),
-            ));
+            return Err(sync_hash_not_first_hash(sync_hash));
         }
         if shard_id as usize >= sync_prev_block.chunks().len() {
-            return Err(Error::InvalidStateRequest("shard_id out of bounds".into()));
+            return Err(shard_id_out_of_bounds(shard_id));
         }
         let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
         let sync_prev_hash = *sync_prev_block.hash();
@@ -3150,7 +3141,7 @@ impl Chain {
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
 
         if part_id >= num_parts {
-            return Err(Error::InvalidStateRequest("part_id out of bound".to_string()));
+            return Err(shard_id_out_of_bounds(shard_id));
         }
         let current_time = Instant::now();
         let state_part = self
@@ -3330,7 +3321,7 @@ impl Chain {
 
         // Saving the header data.
         let mut store_update = self.store.store().store_update();
-        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
+        let key = borsh::to_vec(&StateHeaderKey(shard_id, sync_hash))?;
         store_update.set_ser(DBCol::StateHeaders, &key, &shard_state_header)?;
         store_update.commit()?;
 
@@ -3365,7 +3356,7 @@ impl Chain {
 
         // Saving the part data.
         let mut store_update = self.store.store().store_update();
-        let key = StatePartKey(sync_hash, shard_id, part_id.idx).try_to_vec()?;
+        let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.idx))?;
         store_update.set(DBCol::StateParts, &key, data);
         store_update.commit()?;
         Ok(())
@@ -3822,8 +3813,8 @@ impl Chain {
         //     .unwrap();
         // let partial_state = apply_result.proof.unwrap().nodes;
         Ok(ChunkState {
-            prev_block_header: prev_block.header().try_to_vec()?,
-            block_header: block.header().try_to_vec()?,
+            prev_block_header: borsh::to_vec(&prev_block.header())?,
+            block_header: borsh::to_vec(&block.header())?,
             prev_merkle_proof: prev_merkle_proofs[chunk_shard_id as usize].clone(),
             merkle_proof: merkle_proofs[chunk_shard_id as usize].clone(),
             prev_chunk,
@@ -4069,7 +4060,7 @@ impl Chain {
         if !validate_transactions_order(transactions) {
             let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
             let chunk_proof = ChunkProofs {
-                block_header: block.header().try_to_vec().expect("Failed to serialize"),
+                block_header: borsh::to_vec(&block.header()).expect("Failed to serialize"),
                 merkle_proof: merkle_paths[shard_id as usize].clone(),
                 chunk: MaybeEncodedShardChunk::Decoded(chunk),
             };
@@ -4111,7 +4102,7 @@ impl Chain {
         let block_hash = *block.hash();
         let challenges_result = block.header().challenges_result().clone();
         let block_timestamp = block.header().raw_timestamp();
-        let gas_price = prev_block.header().gas_price();
+        let next_gas_price = prev_block.header().next_gas_price();
         let random_seed = *block.header().random_value();
         let height = chunk_header.height_included();
         let prev_block_hash = *chunk_header.prev_block_hash();
@@ -4134,7 +4125,7 @@ impl Chain {
                 &receipts,
                 chunk.transactions(),
                 chunk_inner.prev_validator_proposals(),
-                gas_price,
+                next_gas_price,
                 gas_limit,
                 &challenges_result,
                 random_seed,
@@ -4190,11 +4181,12 @@ impl Chain {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
-        let gas_price = if protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version() {
-            prev_block.header().gas_price()
-        } else {
-            block.header().gas_price()
-        };
+        let next_gas_price =
+            if protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version() {
+                prev_block.header().next_gas_price()
+            } else {
+                block.header().next_gas_price()
+            };
         let random_seed = *block.header().random_value();
         let height = block.header().height();
 
@@ -4215,7 +4207,7 @@ impl Chain {
                 &[],
                 &[],
                 new_extra.validator_proposals(),
-                gas_price,
+                next_gas_price,
                 new_extra.gas_limit(),
                 &challenges_result,
                 random_seed,
@@ -4318,6 +4310,49 @@ impl Chain {
         }
         Ok(())
     }
+
+    /// Returns a description of state parts cached for the given shard of the given epoch.
+    pub fn get_cached_state_parts(
+        &self,
+        sync_hash: CryptoHash,
+        shard_id: ShardId,
+        num_parts: u64,
+    ) -> Result<CachedParts, Error> {
+        let _span = tracing::debug_span!(target: "chain", "get_cached_state_parts").entered();
+        // DBCol::StateParts is keyed by StatePartKey: (BlockHash || ShardId || PartId (u64)).
+        let lower_bound = StatePartKey(sync_hash, shard_id, 0);
+        let lower_bound = borsh::to_vec(&lower_bound)?;
+        let upper_bound = StatePartKey(sync_hash, shard_id + 1, 0);
+        let upper_bound = borsh::to_vec(&upper_bound)?;
+        let mut num_cached_parts = 0;
+        let mut bit_array = BitArray::new(num_parts);
+        for item in
+            self.store.store().iter_range(DBCol::StateParts, Some(&lower_bound), Some(&upper_bound))
+        {
+            let key = item?.0;
+            let key = StatePartKey::try_from_slice(&key)?;
+            let part_id = key.2;
+            num_cached_parts += 1;
+            bit_array.set_bit(part_id);
+        }
+        Ok(if num_cached_parts == 0 {
+            CachedParts::NoParts
+        } else if num_cached_parts == num_parts {
+            CachedParts::AllParts
+        } else {
+            CachedParts::BitArray(bit_array)
+        })
+    }
+}
+
+fn shard_id_out_of_bounds(shard_id: ShardId) -> Error {
+    Error::InvalidStateRequest(format!("shard_id {shard_id:?} out of bounds").into())
+}
+
+fn sync_hash_not_first_hash(sync_hash: CryptoHash) -> Error {
+    Error::InvalidStateRequest(
+        format!("sync_hash {sync_hash:?} is not the first hash of the epoch").into(),
+    )
 }
 
 /// We want to guarantee that transactions are only applied once for each shard,
@@ -4785,22 +4820,24 @@ impl Chain {
         self.invalid_blocks.contains(hash)
     }
 
-    /// Check if can sync with sync_hash
+    /// Check that sync_hash is the frst block of an epoch.
     pub fn check_sync_hash_validity(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
-        let head = self.head()?;
         // It's important to check that Block exists because we will sync with it.
-        // Do not replace with `get_block_header`.
+        // Do not replace with `get_block_header()`.
         let sync_block = self.get_block(sync_hash)?;
-        // The Epoch of sync_hash may be either the current one or the previous one
-        if head.epoch_id == *sync_block.header().epoch_id()
-            || head.epoch_id == *sync_block.header().next_epoch_id()
-        {
-            let prev_hash = *sync_block.header().prev_hash();
-            // If sync_hash is not on the Epoch boundary, it's malicious behavior
-            Ok(self.epoch_manager.is_next_block_epoch_start(&prev_hash)?)
-        } else {
-            Ok(false) // invalid Epoch of sync_hash, possible malicious behavior
-        }
+        let prev_hash = *sync_block.header().prev_hash();
+        let is_first_block_of_epoch = self.epoch_manager.is_next_block_epoch_start(&prev_hash);
+        tracing::debug!(
+            target: "chain",
+            ?sync_hash,
+            ?prev_hash,
+            sync_hash_epoch_id = ?sync_block.header().epoch_id(),
+            sync_hash_next_epoch_id = ?sync_block.header().next_epoch_id(),
+            ?is_first_block_of_epoch,
+            "check_sync_hash_validity");
+
+        // If sync_hash is not on the Epoch boundary, it's malicious behavior
+        Ok(is_first_block_of_epoch?)
     }
 
     /// Get transaction result for given hash of transaction or receipt id on the canonical chain
@@ -4921,7 +4958,7 @@ impl Chain {
         shard_receipts
             .into_iter()
             .map(|(i, rs)| {
-                let bytes = (i, rs).try_to_vec().unwrap();
+                let bytes = borsh::to_vec(&(i, rs)).unwrap();
                 hash(&bytes)
             })
             .collect()
@@ -5478,6 +5515,10 @@ impl<'a> ChainUpdate<'a> {
                         .save_epoch_light_client_block(&prev_epoch_id.0, light_client_block);
                 }
             }
+
+            let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(prev.hash())?;
+            SHARD_LAYOUT_VERSION.set(shard_layout.version() as i64);
+            SHARD_LAYOUT_NUM_SHARDS.set(shard_layout.num_shards() as i64);
         }
         Ok(res)
     }
@@ -5675,9 +5716,9 @@ impl<'a> ChainUpdate<'a> {
         let receipts = collect_receipts_from_response(&receipt_proof_response);
         // Prev block header should be present during state sync, since headers have been synced at this point.
         let gas_price = if block_header.height() == self.chain_store_update.get_genesis_height() {
-            block_header.gas_price()
+            block_header.next_gas_price()
         } else {
-            self.chain_store_update.get_block_header(block_header.prev_hash())?.gas_price()
+            self.chain_store_update.get_block_header(block_header.prev_hash())?.next_gas_price()
         };
 
         let chunk_header = chunk.cloned_header();
@@ -5792,7 +5833,7 @@ impl<'a> ChainUpdate<'a> {
             &[],
             &[],
             chunk_extra.validator_proposals(),
-            prev_block_header.gas_price(),
+            prev_block_header.next_gas_price(),
             chunk_extra.gas_limit(),
             block_header.challenges_result(),
             *block_header.random_value(),
