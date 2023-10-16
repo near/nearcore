@@ -292,7 +292,7 @@ pub fn start_with_config_and_synchronization(
     // State Sync actors
     let client_adapter_for_sync = Arc::new(LateBoundSender::default());
     let network_adapter_for_sync = Arc::new(LateBoundSender::default());
-    let sync_adapter = Arc::new(if let SyncConfig::Peers = config.client_config.state_sync.sync {
+    let _sync_adapter = Arc::new(if let SyncConfig::Peers = config.client_config.state_sync.sync {
         Some(SyncAdapter::new(
             client_adapter_for_sync.as_sender(),
             network_adapter_for_sync.as_sender(),

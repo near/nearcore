@@ -1862,11 +1862,7 @@ impl Handler<WithSpanContext<SyncMessage>> for ClientActor {
     type Result = ();
 
     #[perf]
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<SyncMessage>,
-        _: &mut Context<Self>,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: WithSpanContext<SyncMessage>, _: &mut Context<Self>) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         tracing::debug!(target: "client", ?msg);
         // TODO
