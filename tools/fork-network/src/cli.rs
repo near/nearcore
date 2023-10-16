@@ -10,7 +10,6 @@ use near_o11y::env_filter::make_env_filter;
 use near_primitives::account::Account;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::borsh::BorshSerialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
@@ -126,8 +125,7 @@ impl ForkNetworkCommand {
 
         tracing::info!(?fork_head, "Forking from the flat storage final head");
 
-        let fork_head_block =
-            store.get_ser::<Block>(DBCol::Block, &fork_head.try_to_vec().unwrap())?.unwrap();
+        let fork_head_block = store.get_ser::<Block>(DBCol::Block, fork_head.as_ref())?.unwrap();
 
         let (new_state_roots, new_validator_accounts) = self.mutate_state(
             &fork_head_block,
