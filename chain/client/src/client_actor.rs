@@ -1202,6 +1202,8 @@ impl ClientActor {
     /// this function in `check_triggers`, because the actix queue may be blocked by other messages
     /// and we want to prioritize block processing.
     fn try_process_unfinished_blocks(&mut self) {
+        let _span =
+            tracing::debug_span!(target: "client", "try_process_unfinished_blocks").entered();
         let (accepted_blocks, _errors) =
             self.client.postprocess_ready_blocks(self.get_apply_chunks_done_callback(), true);
         // TODO: log the errors

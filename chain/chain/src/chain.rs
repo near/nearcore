@@ -1820,6 +1820,8 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> (Vec<AcceptedBlock>, HashMap<CryptoHash, Error>) {
+        let _span =
+            tracing::debug_span!(target: "chain", "postprocess_ready_blocks_chain").entered();
         let mut accepted_blocks = vec![];
         let mut errors = HashMap::new();
         while let Ok((block_hash, apply_result)) = self.apply_chunks_receiver.try_recv() {

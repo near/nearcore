@@ -1223,6 +1223,7 @@ impl Client {
         apply_chunks_done_callback: DoneApplyChunkCallback,
         should_produce_chunk: bool,
     ) -> (Vec<CryptoHash>, HashMap<CryptoHash, near_chain::Error>) {
+        let _span = tracing::debug_span!(target: "client", "postprocess_ready_blocks", should_produce_chunk).entered();
         let me = self
             .validator_signer
             .as_ref()
@@ -1467,6 +1468,7 @@ impl Client {
         provenance: Provenance,
         skip_produce_chunk: bool,
     ) {
+        let _span = tracing::debug_span!(target: "client", "on_block_accepted_with_optional_chunk_produce", ?block_hash, ?status, ?provenance, skip_produce_chunk).entered();
         let block = match self.chain.get_block(&block_hash) {
             Ok(block) => block,
             Err(err) => {
@@ -1634,6 +1636,7 @@ impl Client {
 
     // Produce new chunks
     fn produce_chunks(&mut self, block: &Block, validator_id: AccountId) {
+        let _span = tracing::debug_span!(target: "client", "produce_chunks", ?validator_id, block_height = block.header().height()).entered();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
         for shard_id in 0..self.epoch_manager.num_shards(&epoch_id).unwrap() {

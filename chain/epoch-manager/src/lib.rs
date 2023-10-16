@@ -1777,6 +1777,9 @@ impl EpochManager {
         &self,
         block_hash: &CryptoHash,
     ) -> Result<Option<(EpochInfoAggregator, bool)>, EpochError> {
+        let _span =
+            tracing::debug_span!(target: "epoch_tracker", "aggregate_epoch_info_upto", ?block_hash)
+                .entered();
         if block_hash == &self.epoch_info_aggregator.last_block_hash {
             return Ok(None);
         }
@@ -1796,6 +1799,7 @@ impl EpochManager {
 
         let mut aggregator = EpochInfoAggregator::new(epoch_id.clone(), *block_hash);
         let mut cur_hash = *block_hash;
+        tracing::debug!(target: "epoch_tracker", ?cur_hash, ?block_hash);
         Ok(Some(loop {
             #[cfg(test)]
             {
@@ -1825,6 +1829,7 @@ impl EpochManager {
             let prev_epoch = prev_info.epoch_id().clone();
 
             let block_info = self.get_block_info(&cur_hash)?;
+            tracing::debug!(target: "epoch_tracker", ?cur_hash, ?prev_info);
             aggregator.update_tail(&block_info, &epoch_info, prev_height);
 
             if prev_hash == self.epoch_info_aggregator.last_block_hash {
