@@ -36,6 +36,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (61, include_config!("61.yaml")),
     (62, include_config!("62.yaml")),
     (63, include_config!("63.yaml")),
+    #[cfg(not(feature = "sandbox"))]
     (64, include_config!("64.yaml")),
     (129, include_config!("129.yaml")),
 ];

@@ -55,6 +55,7 @@ sandbox = [
   "node-runtime/sandbox",
   "near-chain/sandbox",
   "near-client/sandbox",
+  "near-primitives/sandbox",
 ]
 nightly = [
   "nightly_protocol",

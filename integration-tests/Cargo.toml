@@ -135,7 +135,12 @@ nightly_protocol = [
   "node-runtime/nightly_protocol",
   "testlib/nightly_protocol",
 ]
-sandbox = ["near-chain/sandbox", "node-runtime/sandbox", "near-client/sandbox"]
+sandbox = [
+  "near-chain/sandbox",
+  "node-runtime/sandbox",
+  "near-client/sandbox",
+  "near-primitives/sandbox",
+]
 no_cache = ["nearcore/no_cache"]
 calimero_zero_storage = []
 new_epoch_sync = ["nearcore/new_epoch_sync"]

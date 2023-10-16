@@ -57,7 +57,7 @@ no_cache = [
   "near-store/no_cache",
 ]
 
-sandbox = ["near-vm-runner/sandbox"]
+sandbox = ["near-vm-runner/sandbox", "near-primitives/sandbox"]
 
 [dev-dependencies]
 assert_matches.workspace = true
