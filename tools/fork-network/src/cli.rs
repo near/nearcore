@@ -54,18 +54,52 @@ use strum::IntoEnumIterator;
 /// * with epoch_length set to `--epoch_length`
 /// * with contents set to the state roots determined by the block corresponding to the flat head.
 pub struct ForkNetworkCommand {
-    #[arg(short, long)]
-    pub reset: bool,
-    #[arg(short, long, default_value = "1000")]
-    pub epoch_length: u64,
-    /// Path to the JSON list of the first epoch validators and their public keys relative to `home_dir`.
-    #[arg(short, long)]
-    pub validators: PathBuf,
-    #[arg(long, default_value = "-fork")]
-    pub chain_id_suffix: String,
-    #[arg(short, long, default_value = "100000")]
-    pub batch_size: u64,
+    #[clap(subcommand)]
+    command: SubCommand,
 }
+
+#[derive(clap::Subcommand)]
+enum SubCommand {
+    /// Creates a DB snapshot, then
+    /// Updates the state to ensure every account has a full access key that is known to us.
+    AmendAccessKeys(AmendAccessKeysCmd),
+
+    /// Creates a DB snapshot, then
+    /// Reads a list of validator accounts from a file
+    /// Adds validator accounts to the state
+    /// Creates a genesis file with the new validators.
+    SetValidators(SetValidatorsCmd),
+
+    /// Drops DB columns other than State, FlatState and DbVersion.
+    DropColumns(DropColumnsCmd),
+
+    /// Recovers from a snapshot.
+    /// Deletes the snapshot.
+    Reset(ResetCmd),
+}
+
+#[derive(clap::Parser)]
+struct AmendAccessKeysCmd {
+    #[arg(short, long, default_value = "100000")]
+    batch_size: u64,
+}
+
+#[derive(clap::Parser)]
+struct SetValidatorsCmd {
+    #[arg(short, long)]
+    /// Path to the JSON list of the first epoch validators and their public keys relative to `home_dir`.
+    validators: PathBuf,
+    #[arg(short, long, default_value = "1000")]
+    epoch_length: u64,
+    #[arg(long, default_value = "-fork")]
+    chain_id_suffix: String,
+}
+
+#[derive(clap::Parser)]
+struct DropColumnsCmd;
+
+#[derive(clap::Parser)]
+struct ResetCmd;
 
 #[derive(Deserialize)]
 struct Validator {
@@ -79,7 +113,7 @@ type MakeSingleShardStorageMutatorFn =
 impl ForkNetworkCommand {
     async fn run_impl(
         self,
-        mut near_config: &mut NearConfig,
+        near_config: &mut NearConfig,
         verbose_target: Option<&str>,
         o11y_opts: &near_o11y::Options,
         home_dir: &Path,
@@ -96,27 +130,73 @@ impl ForkNetworkCommand {
         .await
         .global();
 
-        if self.reset {
-            // Reset and do nothing else.
-            return self.reset(home_dir);
-        }
-
         if !near_config.config.store.flat_storage_creation_enabled {
             panic!("Flat storage must be enabled");
         }
         near_config.config.store.state_snapshot_enabled = false;
 
-        // Open storage with migration
-        let storage = open_storage(&home_dir, &mut near_config).unwrap();
-        let store = storage.get_hot_store();
+        match &self.command {
+            SubCommand::AmendAccessKeys(AmendAccessKeysCmd { batch_size }) => {
+                self.amend_access_keys(*batch_size, near_config, home_dir)?;
+            }
+            SubCommand::SetValidators(SetValidatorsCmd {
+                validators,
+                epoch_length,
+                chain_id_suffix,
+            }) => {
+                self.set_validators(
+                    validators,
+                    *epoch_length,
+                    chain_id_suffix,
+                    near_config,
+                    home_dir,
+                )?;
+            }
+            SubCommand::DropColumns(DropColumnsCmd) => {
+                self.drop_columns(near_config, home_dir)?;
+            }
+            SubCommand::Reset(ResetCmd) => {
+                self.reset(near_config, home_dir)?;
+            }
+        };
+        Ok(())
+    }
 
+    /// Checks if a DB snapshot exists.
+    /// If a snapshot doesn't exist, then creates it at `~/.near/data/fork-snapshot`.
+    fn snapshot_db(
+        &self,
+        store: Store,
+        near_config: &NearConfig,
+        home_dir: &Path,
+    ) -> anyhow::Result<()> {
         let store_path =
             home_dir.join(near_config.config.store.path.clone().unwrap_or(PathBuf::from("data")));
         let fork_snapshot_path = store_path.join("fork-snapshot");
 
-        tracing::info!(destination = ?fork_snapshot_path, "Creating snapshot of original db");
-        // checkpointing only hot storage, because cold storage will not be changed
-        checkpoint_hot_storage_and_cleanup_columns(&store, &fork_snapshot_path, None).unwrap();
+        if fork_snapshot_path.exists() && fork_snapshot_path.is_dir() {
+            tracing::info!(?fork_snapshot_path, "Found a DB snapshot");
+        } else {
+            tracing::info!(destination = ?fork_snapshot_path, "Creating snapshot of original DB");
+            // checkpointing only hot storage, because cold storage will not be changed
+            checkpoint_hot_storage_and_cleanup_columns(&store, &fork_snapshot_path, None)?;
+        }
+        Ok(())
+    }
+
+    /// Creates a DB snapshot, then
+    /// Updates the state to ensure every account has a full access key that is known to us.
+    fn amend_access_keys(
+        &self,
+        batch_size: u64,
+        near_config: &mut NearConfig,
+        home_dir: &Path,
+    ) -> anyhow::Result<Vec<StateRoot>> {
+        // Open storage with migration
+        let storage = open_storage(&home_dir, near_config).unwrap();
+        let store = storage.get_hot_store();
+
+        self.snapshot_db(store.clone(), near_config, home_dir)?;
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
@@ -125,31 +205,112 @@ impl ForkNetworkCommand {
         let all_shard_uids = shard_layout.get_shard_uids();
 
         let fork_head = get_fork_head(&all_shard_uids, store.clone())?;
-
-        tracing::info!(?fork_head, "Forking from the flat storage final head");
-
+        tracing::info!(?fork_head);
         let fork_head_block =
             store.get_ser::<Block>(DBCol::Block, &fork_head.try_to_vec().unwrap())?.unwrap();
 
-        let (new_state_roots, new_validator_accounts) = self.mutate_state(
-            &fork_head_block,
+        let runtime =
+            NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager);
+        let prev_state_roots = fork_head_block
+            .chunks()
+            .iter()
+            .map(|chunk| chunk.prev_state_root())
+            .collect::<Vec<_>>();
+
+        let prev_hash = *fork_head_block.header().prev_hash();
+        let make_storage_mutator: MakeSingleShardStorageMutatorFn =
+            Arc::new(move |shard_id, prev_state_root| {
+                SingleShardStorageMutator::new(
+                    shard_id,
+                    &runtime.clone(),
+                    prev_hash,
+                    prev_state_root,
+                )
+            });
+
+        let new_state_roots = self.prepare_state(
+            batch_size,
             &all_shard_uids,
-            home_dir,
-            store.clone(),
-            &near_config,
-            epoch_manager.clone(),
+            store,
+            &prev_state_roots,
+            make_storage_mutator.clone(),
         )?;
+        Ok(new_state_roots)
+    }
+
+    /// Creates a DB snapshot, then
+    /// Reads a list of validator accounts from a file
+    /// Adds validator accounts to the state
+    /// Creates a genesis file with the new validators.
+    fn set_validators(
+        &self,
+        validators: &Path,
+        epoch_length: u64,
+        chain_id_suffix: &str,
+        near_config: &mut NearConfig,
+        home_dir: &Path,
+    ) -> anyhow::Result<(Vec<StateRoot>, Vec<AccountInfo>)> {
+        // Open storage with migration
+        let storage = open_storage(&home_dir, near_config).unwrap();
+        let store = storage.get_hot_store();
+
+        self.snapshot_db(store.clone(), near_config, home_dir)?;
+
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?.unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
+        let all_shard_uids = shard_layout.get_shard_uids();
+
+        let fork_head = get_fork_head(&all_shard_uids, store.clone())?;
+        tracing::info!(?fork_head);
+        let fork_head_block =
+            store.get_ser::<Block>(DBCol::Block, &fork_head.try_to_vec().unwrap())?.unwrap();
+
+        let runtime =
+            NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone());
+        let prev_state_roots = fork_head_block
+            .chunks()
+            .iter()
+            .map(|chunk| chunk.prev_state_root())
+            .collect::<Vec<_>>();
+
+        let epoch_id = fork_head_block.header().epoch_id().clone();
+        let prev_hash = *fork_head_block.header().prev_hash();
+        let runtime_config_store = RuntimeConfigStore::new(None);
+        let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
+
+        let storage_mutator = StorageMutator::new(
+            epoch_manager.clone(),
+            &runtime,
+            &epoch_id,
+            prev_hash,
+            &prev_state_roots,
+        )?;
+        let (new_state_roots, new_validator_accounts) =
+            self.add_validator_accounts(validators, runtime_config, home_dir, storage_mutator)?;
 
         tracing::info!("Creating a new genesis");
         backup_genesis_file(home_dir, &near_config)?;
         self.make_and_write_genesis(
+            epoch_length,
+            chain_id_suffix,
             fork_head_block.header(),
-            new_state_roots,
-            new_validator_accounts,
+            new_state_roots.clone(),
+            new_validator_accounts.clone(),
             epoch_manager,
             home_dir,
             &near_config,
         )?;
+
+        tracing::info!("All Done! Run the node normally to start the forked network.");
+        Ok((new_state_roots, new_validator_accounts))
+    }
+
+    fn drop_columns(&self, near_config: &mut NearConfig, home_dir: &Path) -> anyhow::Result<()> {
+        // Open storage with migration
+        let storage = open_storage(&home_dir, near_config).unwrap();
+        let store = storage.get_hot_store();
 
         tracing::info!(
             "Delete all columns in the original DB other than DbVersion, State and FlatState"
@@ -158,14 +319,10 @@ impl ForkNetworkCommand {
         for col in DBCol::iter() {
             match col {
                 DBCol::DbVersion | DBCol::State | DBCol::FlatState => {}
-                _ => {
-                    update.delete_all(col);
-                }
+                _ => update.delete_all(col),
             }
         }
         update.commit()?;
-
-        tracing::info!("All Done! Run the node normally to start the forked network.");
         Ok(())
     }
 
@@ -197,10 +354,7 @@ impl ForkNetworkCommand {
     /// Moves everything from `~/.near/data/fork-snapshot/data/` to `~/.near/data`.
     /// Deletes `~/.near/data/fork-snapshot/data`.
     /// Moves `~/.near/genesis.json.backup` to `~/.near/genesis.json`.
-    fn reset(self, home_dir: &Path) -> anyhow::Result<()> {
-        let near_config = load_config(home_dir, GenesisValidationMode::UnsafeFast)
-            .unwrap_or_else(|e| panic!("Error loading config: {e:#}"));
-
+    fn reset(self, near_config: &NearConfig, home_dir: &Path) -> anyhow::Result<()> {
         let store_path =
             home_dir.join(near_config.config.store.path.clone().unwrap_or(PathBuf::from("data")));
         // '/data' prefix comes from the use of `checkpoint_hot_storage_and_cleanup_columns` fn
@@ -228,60 +382,9 @@ impl ForkNetworkCommand {
         return Ok(());
     }
 
-    /// Reads a list of validators from a file `self.validators`.
-    fn mutate_state(
-        &self,
-        fork_head_block: &Block,
-        all_shard_uids: &[ShardUId],
-        home_dir: &Path,
-        store: Store,
-        near_config: &NearConfig,
-        epoch_manager: Arc<EpochManagerHandle>,
-    ) -> anyhow::Result<(Vec<StateRoot>, Vec<AccountInfo>)> {
-        let runtime = NightshadeRuntime::from_config(
-            home_dir,
-            store.clone(),
-            &near_config,
-            epoch_manager.clone(),
-        );
-        let prev_state_roots = fork_head_block
-            .chunks()
-            .iter()
-            .map(|chunk| chunk.prev_state_root())
-            .collect::<Vec<_>>();
-
-        let epoch_id = fork_head_block.header().epoch_id().clone();
-        let prev_hash = *fork_head_block.header().prev_hash();
-        let runtime1 = runtime.clone();
-        let make_storage_mutator: MakeSingleShardStorageMutatorFn =
-            Arc::new(move |shard_id, prev_state_root| {
-                SingleShardStorageMutator::new(
-                    shard_id,
-                    &runtime1.clone(),
-                    prev_hash,
-                    prev_state_root,
-                )
-            });
-
-        let runtime_config_store = RuntimeConfigStore::new(None);
-        let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
-
-        let tmp_state_roots = self.prepare_state(
-            &all_shard_uids,
-            store,
-            &prev_state_roots,
-            make_storage_mutator.clone(),
-        )?;
-        let storage_mutator =
-            StorageMutator::new(epoch_manager, &runtime, &epoch_id, prev_hash, &tmp_state_roots)?;
-        let (new_state_roots, new_validator_accounts) =
-            self.add_validator_accounts(runtime_config, home_dir, storage_mutator)?;
-
-        Ok((new_state_roots, new_validator_accounts))
-    }
-
     fn prepare_shard_state(
         &self,
+        batch_size: u64,
         shard_uid: ShardUId,
         store: Store,
         prev_state_root: StateRoot,
@@ -403,7 +506,7 @@ impl ForkNetworkCommand {
             } else {
                 records_not_parsed += 1;
             }
-            if storage_mutator.should_commit(self.batch_size) {
+            if storage_mutator.should_commit(batch_size) {
                 let state_root = storage_mutator.commit(&shard_uid)?;
                 storage_mutator = make_storage_mutator(shard_id, state_root)?;
             }
@@ -443,7 +546,7 @@ impl ForkNetworkCommand {
                         AccessKey::full_access(),
                     )?;
                     num_added += 1;
-                    if storage_mutator.should_commit(self.batch_size) {
+                    if storage_mutator.should_commit(batch_size) {
                         let state_root = storage_mutator.commit(&shard_uid)?;
                         storage_mutator = make_storage_mutator(shard_id, state_root)?;
                     }
@@ -460,6 +563,7 @@ impl ForkNetworkCommand {
 
     fn prepare_state(
         &self,
+        batch_size: u64,
         all_shard_uids: &[ShardUId],
         store: Store,
         prev_state_roots: &[StateRoot],
@@ -470,6 +574,7 @@ impl ForkNetworkCommand {
             .map(|shard_uid| {
                 let state_root = self
                     .prepare_shard_state(
+                        batch_size,
                         *shard_uid,
                         store.clone(),
                         prev_state_roots[shard_uid.shard_id as usize],
@@ -487,6 +592,7 @@ impl ForkNetworkCommand {
     /// and adds new accounts and new keys for the specified accounts.
     fn add_validator_accounts(
         &self,
+        validators: &Path,
         runtime_config: &Arc<RuntimeConfig>,
         home_dir: &Path,
         mut storage_mutator: StorageMutator,
@@ -496,7 +602,7 @@ impl ForkNetworkCommand {
         let liquid_balance = 100_000_000 * NEAR_BASE;
         let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
         let new_validators: Vec<Validator> = serde_json::from_reader(BufReader::new(
-            File::open(home_dir.join(&self.validators)).expect("Failed to open validators JSON"),
+            File::open(home_dir.join(&validators)).expect("Failed to open validators JSON"),
         ))
         .expect("Failed to read validators JSON");
         for validator in new_validators.into_iter() {
@@ -528,6 +634,8 @@ impl ForkNetworkCommand {
     /// Makes a new genesis and writes it to `~/.near/genesis.json`.
     fn make_and_write_genesis(
         &self,
+        epoch_length: u64,
+        chain_id_suffix: &str,
         fork_head_header: &BlockHeader,
         new_state_roots: Vec<StateRoot>,
         new_validator_accounts: Vec<AccountInfo>,
@@ -540,10 +648,10 @@ impl ForkNetworkCommand {
         let original_config = near_config.genesis.config.clone();
 
         let new_config = GenesisConfig {
-            chain_id: original_config.chain_id.clone() + self.chain_id_suffix.as_str(),
+            chain_id: original_config.chain_id.clone() + chain_id_suffix,
             genesis_height: fork_head_header.height(),
             genesis_time: fork_head_header.timestamp(),
-            epoch_length: self.epoch_length,
+            epoch_length,
             num_block_producer_seats: epoch_config.num_block_producer_seats,
             num_block_producer_seats_per_shard: epoch_config.num_block_producer_seats_per_shard,
             avg_hidden_validator_seats_per_shard: epoch_config.avg_hidden_validator_seats_per_shard,
