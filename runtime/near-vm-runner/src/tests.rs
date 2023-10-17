@@ -36,7 +36,7 @@ impl crate::logic::Config {
                 ExtVMKind::NearVm => VMKind::NearVm,
                 ExtVMKind::Wasmtime => VMKind::Wasmtime,
             }
-            .normalize(),
+            .replace_with_wasmtime_if_unsupported(),
             disable_9393_fix: config.disable_9393_fix,
             storage_get_mode: match config.storage_get_mode {
                 ExtStorageGetMode::Trie => StorageGetMode::Trie,
