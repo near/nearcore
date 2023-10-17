@@ -18,6 +18,7 @@
 * The default config now enables TIER1 outbound connections by default. [#9349](https://github.com/near/nearcore/pull/9349)
 * State Sync from GCS is available for experimental use. [#9398](https://github.com/near/nearcore/pull/9398)
 * Add prometheus metrics for the internal state of the doomslug. [#9458](https://github.com/near/nearcore/pull/9458)
+* Fix `EXPERIMENTAL_protocol_config` to apply overrides from `EpochConfig`. [#9692](https://github.com/near/nearcore/pull/9692)
 
 ## 1.35.0
 
