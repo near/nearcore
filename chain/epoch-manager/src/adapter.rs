@@ -31,7 +31,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool;
 
     /// Get current number of shards.
-    fn num_shards(&self, epoch_id: &EpochId) -> Result<ShardId, EpochError>;
+    fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, EpochError>;
 
     /// Number of Reed-Solomon parts we split each chunk into.
     ///
