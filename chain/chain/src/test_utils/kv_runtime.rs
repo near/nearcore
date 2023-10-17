@@ -414,7 +414,7 @@ impl EpochManagerAdapter for MockEpochManager {
         self.hash_to_valset.write().unwrap().contains_key(epoch_id)
     }
 
-    fn num_shards(&self, _epoch_id: &EpochId) -> Result<ShardId, EpochError> {
+    fn num_shards(&self, _epoch_id: &EpochId) -> Result<NumShards, EpochError> {
         Ok(self.num_shards)
     }
 
