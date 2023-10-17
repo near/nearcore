@@ -723,6 +723,9 @@ impl GenesisChangeConfig {
 // Ideally we should create `RuntimeConfigView`, but given the deeply nested nature and the number of fields inside
 // `RuntimeConfig`, it should be its own endeavor.
 // TODO: This has changed, there is now `RuntimeConfigView`. Reconsider if moving this is possible now.
+// TODO: Consider replacing tens of fields with a combination of `GenesisConfig`
+// and `EpochConfig` fields, similar to how `RuntimeConfig` is represented as a
+// separate struct and not inlined.
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct ProtocolConfigView {
     /// Current Protocol Version
