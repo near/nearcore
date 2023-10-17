@@ -781,6 +781,11 @@ pub struct ProtocolConfigView {
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     pub minimum_stake_divisor: u64,
+    pub max_kickout_stake_perc: u8,
+    pub minimum_stake_ratio: Rational32,
+    pub minimum_validators_per_shard: NumSeats,
+    pub num_chunk_only_producer_seats: NumSeats,
+    pub shard_layout: ShardLayout,
 }
 
 pub struct ProtocolConfig {
@@ -820,6 +825,11 @@ impl From<ProtocolConfig> for ProtocolConfigView {
             protocol_treasury_account: genesis_config.protocol_treasury_account,
             fishermen_threshold: genesis_config.fishermen_threshold,
             minimum_stake_divisor: genesis_config.minimum_stake_divisor,
+            max_kickout_stake_perc: genesis_config.max_kickout_stake_perc,
+            minimum_stake_ratio: genesis_config.minimum_stake_ratio,
+            minimum_validators_per_shard: genesis_config.minimum_validators_per_shard,
+            num_chunk_only_producer_seats: genesis_config.num_chunk_only_producer_seats,
+            shard_layout: genesis_config.shard_layout,
         }
     }
 }
