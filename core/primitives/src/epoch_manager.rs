@@ -148,7 +148,7 @@ impl AllEpochConfig {
 
         // Adjust the number of block and chunk producers for all chains except
         // mainnet, to make it easier to test the change.
-        tracing::info!(target: "TestnetFewerBlockProducers", ?chain_id, is_mainnet = (chain_id == crate::chains::MAINNET), protocol_version, TestnetFewerBlockProducers);
+        tracing::info!(target: "TestnetFewerBlockProducers", ?chain_id, is_mainnet = (chain_id == crate::chains::MAINNET), protocol_version);
         if chain_id != crate::chains::MAINNET
             && checked_feature!("stable", TestnetFewerBlockProducers, protocol_version)
         {
