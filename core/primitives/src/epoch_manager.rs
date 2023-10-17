@@ -98,16 +98,12 @@ impl AllEpochConfig {
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
         let mut config = self.genesis_epoch_config.clone();
-        if !self.use_production_config {
-            return config;
-        }
-
+        // if !self.use_production_config {
+            // return config;
+        // }
         Self::config_nightshade(&mut config, protocol_version);
-
         Self::config_chunk_only_producers(&mut config, &self.chain_id, protocol_version);
-
         Self::config_max_kickout_stake(&mut config, protocol_version);
-
         config
     }
 
@@ -152,6 +148,7 @@ impl AllEpochConfig {
 
         // Adjust the number of block and chunk producers for all chains except
         // mainnet, to make it easier to test the change.
+        tracing::info!(target: "TestnetFewerBlockProducers", ?chain_id, is_mainnet = (chain_id == crate::chains::MAINNET), protocol_version, TestnetFewerBlockProducers);
         if chain_id != crate::chains::MAINNET
             && checked_feature!("stable", TestnetFewerBlockProducers, protocol_version)
         {
