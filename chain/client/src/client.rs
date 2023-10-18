@@ -2406,6 +2406,7 @@ impl Client {
                 state_split_scheduler,
                 state_parts_arbiter_handle,
                 use_colour,
+                self.runtime_adapter.clone(),
             )? {
                 StateSyncResult::Unchanged => {}
                 StateSyncResult::Changed(fetch_block) => {
