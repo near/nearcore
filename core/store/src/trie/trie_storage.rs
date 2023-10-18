@@ -11,6 +11,7 @@ use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{AccountId, ShardId};
+use tracing::info;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -464,8 +465,10 @@ impl TrieStorage for TrieCachingStorage {
         let mut use_contract_cache = false;
         let mut val = None;
         if let Some(acc_id) = account_id {
+            info!("Account data is: contract = {}", acc_id);
             let maybe_contract_cache = self.contract_shard_cache.get(acc_id.as_str());
             if let Some(contract_cache) = maybe_contract_cache {
+                info!("Account data is hashed: contract = {}", acc_id);
                 use_contract_cache = true;
                 let mut guard = contract_cache.lock();
                 val = match guard.get(hash) {
