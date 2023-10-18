@@ -4301,7 +4301,7 @@ impl Chain {
                 let epoch_id = self.epoch_manager.get_epoch_id(&head.prev_block_hash)?;
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
                 let force_shapshot =
-                    self.epoch_manager.will_shard_layout_change(&head.prev_block_hash)?;
+                    self.epoch_manager.will_shard_layout_change(&head.last_block_hash)?;
                 let last_block = self.get_block(&head.last_block_hash)?;
                 (helper.make_snapshot_callback)(
                     head.prev_block_hash,

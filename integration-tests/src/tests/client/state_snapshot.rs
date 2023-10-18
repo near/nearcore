@@ -136,6 +136,7 @@ fn verify_make_snapshot(
         &block_hash,
         &vec![ShardUId::single_shard()],
         block,
+        false,
     )?;
     // check that make_state_snapshot does not panic or err out
     // assert!(res.is_ok());
