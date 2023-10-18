@@ -3218,15 +3218,15 @@ fn test_fork_execution_outcome() {
 
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
-    let mut next_height = last_height + 1;
-    let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], next_height);
-    let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
-    let mut block2 = env.clients[0].produce_block(next_height + 3).unwrap().unwrap();
+    let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], last_height + 1);
+    let mut block1 = env.clients[0].produce_block(last_height + 1).unwrap().unwrap();
+    let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();
+    let mut next_height = last_height + 3;
 
     // TODO: ABSTRACT BLOCK HACKING AWAY
     // Process two blocks on two different forks that contain the same chunk.
     for (height, block) in
-        vec![(next_height, &mut block1), (next_height + 3, &mut block2)].into_iter()
+        vec![(last_height + 1, &mut block1), (last_height + 2, &mut block2)].into_iter()
     {
         eprintln!("{height}");
         let mut chunk_header = encoded_chunk.cloned_header();
@@ -3245,8 +3245,10 @@ fn test_fork_execution_outcome() {
         block.mut_header().resign(&validator_signer);
         env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
         // ensure chunk execution!
-        env.produce_block(0, height + 1);
-        env.produce_block(0, height + 2);
+        env.produce_block(0, next_height);
+        next_height += 1;
+        env.produce_block(0, next_height);
+        next_height += 1;
     }
 
     let transaction_execution_outcome =
