@@ -25,6 +25,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryRequest};
 use near_primitives_core::num_rational::Rational32;
 use near_store::test_utils::{gen_account, gen_unique_accounts};
+use near_store::trie::SnapshotError;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
@@ -617,15 +618,39 @@ impl TestReshardingEnv {
             .get_tries()
             .get_state_snapshot(&block_header.prev_hash());
 
-        if head.height == 1 || (head.height - 1) % self.epoch_length != 0 {
-            // head.height - 1 is not at the boundry of any epoch
-            assert!(snapshot.is_err());
-        } else if (head.height - 1) == self.epoch_length {
-            // head.height - 1 is exactly at the boundry of first epoch
+        // There are two main cases we would like to check, when state_snapshot is enabled and disabled
+        // with state snapshot enabled, we expect to create a new snapshot with every epoch boundry
+        // with state snapshot disabled, we should ONLY be creating the snapshot at the first epoch boundry
+        // i.e. when resharding happens, and subsequently, the state snapshot must be deleted.
+        if head.height <= self.epoch_length {
+            // No snapshot less than epoch length
+            assert!(snapshot
+                .is_err_and(|e| e == SnapshotError::SnapshotNotFound(*block_header.prev_hash())));
+        } else if head.height == self.epoch_length + 1 {
+            // Right before resharding, snapshot should exist
             assert!(snapshot.is_ok());
-        } else {
-            // head.height - 1 is at the boundry of any other epoch
+        } else if head.height <= 2 * self.epoch_length {
+            // All blocks while resharding is going on, snapshot should exist but we should get IncorrectSnapshotRequested
+            let snapshot_block_header =
+                env.clients[0].chain.get_block_header_by_height(self.epoch_length).unwrap();
+            assert!(snapshot.is_err_and(|e| e
+                == SnapshotError::IncorrectSnapshotRequested(
+                    *block_header.prev_hash(),
+                    *snapshot_block_header.prev_hash(),
+                )));
+        } else if (head.height - 1) % self.epoch_length == 0 {
+            // At epoch boundries, snapshot should exist only if state_snapshot_enabled is true
             assert_eq!(state_snapshot_enabled, snapshot.is_ok());
+        } else {
+            // And for the rest of the cases, snapshot should either not exist if snapshot is not enabled
+            // or snapshot should exist if snapshot is enabled
+            assert!(snapshot.is_err_and(|e| {
+                match e {
+                    SnapshotError::SnapshotNotFound(_) => !state_snapshot_enabled,
+                    SnapshotError::IncorrectSnapshotRequested(_, _) => state_snapshot_enabled,
+                    _ => false,
+                }
+            }));
         }
     }
 }
