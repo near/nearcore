@@ -128,8 +128,10 @@ impl StateSnapshot {
 }
 
 /// Information needed to make a state snapshot.
+/// Note that it's possible to override the `enabled` config and force create snapshot for resharding.
 #[derive(Default)]
 pub struct StateSnapshotConfig {
+    /// It's possible to override the `enabled` config and force create snapshot for resharding.
     pub enabled: bool,
     pub home_dir: PathBuf,
     pub hot_store_path: PathBuf,
@@ -198,39 +200,10 @@ impl ShardTries {
             {
                 tracing::warn!(target: "state_snapshot", ?prev_block_hash, "Requested a state snapshot but that is already available");
                 return Ok(());
-            } else {
-                // Drop Store before deleting the underlying data.
-                *state_snapshot_lock = None;
-
-                // This will delete all existing snapshots from file system. If failed, will retry until success
-                let mut delete_state_snapshots_from_file_system = false;
-                let mut file_system_delete_retries = 0;
-                while !delete_state_snapshots_from_file_system && file_system_delete_retries < 3 {
-                    delete_state_snapshots_from_file_system = self.delete_all_state_snapshots(
-                        home_dir,
-                        hot_store_path,
-                        state_snapshot_subdir,
-                    );
-                    file_system_delete_retries += 1;
-                }
-
-                // this will delete the STATE_SNAPSHOT_KEY-value pair from db. If failed, will retry until success
-                let mut delete_state_snapshot_from_db = false;
-                let mut db_delete_retries = 0;
-                while !delete_state_snapshot_from_db && db_delete_retries < 3 {
-                    delete_state_snapshot_from_db = match self.set_state_snapshot_hash(None) {
-                        Ok(_) => true,
-                        Err(err) => {
-                            // This will be retried.
-                            tracing::debug!(target: "state_snapshot", ?err, "Failed to delete the old state snapshot for BlockMisc::STATE_SNAPSHOT_KEY in rocksdb");
-                            false
-                        }
-                    };
-                    db_delete_retries += 1;
-                }
-
-                metrics::HAS_STATE_SNAPSHOT.set(0);
             }
+            // Drop Store before deleting the underlying data.
+            *state_snapshot_lock = None;
+            self.delete_current_snapshot();
         }
 
         let storage = checkpoint_hot_storage_and_cleanup_columns(
@@ -301,6 +274,37 @@ impl ShardTries {
             tracing::warn!(target: "state_snapshot", "Requested compaction but no state snapshot is available.");
             Ok(())
         }
+    }
+
+    fn delete_current_snapshot(&self) {
+        let StateSnapshotConfig { home_dir, hot_store_path, state_snapshot_subdir, .. } =
+            self.state_snapshot_config();
+
+        // This will delete all existing snapshots from file system. If failed, will retry until success
+        let mut delete_state_snapshots_from_file_system = false;
+        let mut file_system_delete_retries = 0;
+        while !delete_state_snapshots_from_file_system && file_system_delete_retries < 3 {
+            delete_state_snapshots_from_file_system =
+                self.delete_all_state_snapshots(home_dir, hot_store_path, state_snapshot_subdir);
+            file_system_delete_retries += 1;
+        }
+
+        // this will delete the STATE_SNAPSHOT_KEY-value pair from db. If failed, will retry until success
+        let mut delete_state_snapshot_from_db = false;
+        let mut db_delete_retries = 0;
+        while !delete_state_snapshot_from_db && db_delete_retries < 3 {
+            delete_state_snapshot_from_db = match self.set_state_snapshot_hash(None) {
+                Ok(_) => true,
+                Err(err) => {
+                    // This will be retried.
+                    tracing::debug!(target: "state_snapshot", ?err, "Failed to delete the old state snapshot for BlockMisc::STATE_SNAPSHOT_KEY in rocksdb");
+                    false
+                }
+            };
+            db_delete_retries += 1;
+        }
+
+        metrics::HAS_STATE_SNAPSHOT.set(0);
     }
 
     /// Deletes all existing state snapshots in the parent directory
