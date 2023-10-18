@@ -2073,6 +2073,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut outcome_ids = Vec::with_capacity(outcomes.len());
         for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
             outcome_ids.push(outcome_with_id.id);
+            println!("SAVE MEM {} {}", outcome_with_id.id, block_hash);
             self.chain_store_cache_update.outcomes.insert(
                 (outcome_with_id.id, *block_hash),
                 ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
@@ -3100,6 +3101,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for ((outcome_id, block_hash), outcome_with_proof) in
             self.chain_store_cache_update.outcomes.iter()
         {
+            println!("SAVE DISK {} {}", outcome_id, block_hash);
             store_update.insert_ser(
                 DBCol::TransactionResultForBlock,
                 &get_outcome_id_block_hash(outcome_id, block_hash),

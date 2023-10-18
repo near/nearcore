@@ -3252,6 +3252,7 @@ fn test_fork_execution_outcome() {
         env.clients[0].chain.mut_store().get_outcomes_by_id(&tx_hash).unwrap();
     assert_eq!(transaction_execution_outcome.len(), 1);
     let receipt_id = transaction_execution_outcome[0].outcome_with_id.outcome.receipt_ids[0];
+    println!("GET {}", receipt_id);
     let receipt_execution_outcomes =
         env.clients[0].chain.mut_store().get_outcomes_by_id(&receipt_id).unwrap();
     assert_eq!(receipt_execution_outcomes.len(), 2);
