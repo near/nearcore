@@ -84,7 +84,7 @@ struct AmendAccessKeysCmd {
 #[derive(clap::Parser)]
 struct SetValidatorsCmd {
     /// Path to the JSON list of [`Validator`] structs containing account id and public keys.
-    /// The path is relative to `home_dir`.
+    /// The path can be relative to `home_dir` or an absolute path.
     /// Example of a valid file:
     /// [{"account_id":"validator0", "public_key":"ed25519:7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX"}]
     #[arg(short, long)]
@@ -601,10 +601,15 @@ impl ForkNetworkCommand {
 
         let liquid_balance = 100_000_000 * NEAR_BASE;
         let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
-        let new_validators: Vec<Validator> = serde_json::from_reader(BufReader::new(
-            File::open(home_dir.join(&validators)).expect("Failed to open validators JSON"),
-        ))
-        .expect("Failed to read validators JSON");
+        let validators_path = if validators.is_absolute() {
+            PathBuf::from(validators)
+        } else {
+            home_dir.join(&validators)
+        };
+        let file = File::open(&validators_path)
+            .expect("Failed to open the validators JSON {validators_path:?}");
+        let new_validators: Vec<Validator> = serde_json::from_reader(BufReader::new(file))
+            .expect("Failed to read validators JSON {validators_path:?}");
         for validator in new_validators.into_iter() {
             let validator_account = AccountInfo {
                 account_id: validator.account_id,
