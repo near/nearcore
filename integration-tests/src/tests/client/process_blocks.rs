@@ -3226,7 +3226,7 @@ fn test_fork_execution_outcome() {
     // TODO: ABSTRACT BLOCK HACKING AWAY
     // Process two blocks on two different forks that contain the same chunk.
     for (height, block) in
-        vec![(next_height, &mut block2), (next_height + 1, &mut block1)].into_iter()
+        vec![(next_height, &mut block1), (next_height + 1, &mut block2)].into_iter()
     {
         eprintln!("{height}");
         let mut chunk_header = encoded_chunk.cloned_header();
