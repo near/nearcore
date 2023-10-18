@@ -5,6 +5,7 @@ use near_primitives::config::ExtCosts;
 use near_primitives::hash::hash;
 use near_store::trie::accounting_cache::TrieAccountingCache;
 use near_store::TrieCachingStorage;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static SINK: AtomicUsize = AtomicUsize::new(0);
@@ -248,7 +249,7 @@ fn read_node_from_accounting_cache_ext(
 
             // Create a new cache and load nodes into it as preparation.
             let caching_storage = testbed.trie_caching_storage();
-            let mut accounting_cache = TrieAccountingCache::new(None);
+            let mut accounting_cache = TrieAccountingCache::new(None, HashMap::new());
             accounting_cache.set_enabled(true);
             let _dummy_sum = read_raw_nodes_from_storage(
                 &caching_storage,
@@ -298,8 +299,9 @@ fn read_raw_nodes_from_storage(
 ) -> usize {
     keys.iter()
         .map(|key| {
-            let bytes =
-                accounting_cache.retrieve_raw_bytes_with_accounting(key, caching_storage).unwrap();
+            let bytes = accounting_cache
+                .retrieve_raw_bytes_with_accounting(key, caching_storage, None)
+                .unwrap();
             near_store::estimator::decode_extension_node(&bytes).len()
         })
         .sum()

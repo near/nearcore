@@ -464,11 +464,11 @@ impl Trie {
         flat_storage_chunk_view: Option<FlatStorageChunkView>,
     ) -> Self {
         let accounting_cache = match storage.as_caching_storage() {
-            Some(caching_storage) => RefCell::new(TrieAccountingCache::new(Some((
-                caching_storage.shard_uid,
-                caching_storage.is_view,
-            )))),
-            None => RefCell::new(TrieAccountingCache::new(None)),
+            Some(caching_storage) => RefCell::new(TrieAccountingCache::new(
+                Some((caching_storage.shard_uid, caching_storage.is_view)),
+                caching_storage.contract_shard_cache.clone(),
+            )),
+            None => RefCell::new(TrieAccountingCache::new(None, HashMap::new())),
         };
         Trie {
             storage,
@@ -542,7 +542,7 @@ impl Trie {
         let result = if use_accounting_cache {
             self.accounting_cache
                 .borrow_mut()
-                .retrieve_raw_bytes_with_accounting(hash, &*self.storage)?
+                .retrieve_raw_bytes_with_accounting(hash, &*self.storage, account_id)?
         } else {
             self.storage.retrieve_raw_bytes(hash, account_id)?
         };

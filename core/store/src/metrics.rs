@@ -80,6 +80,11 @@ pub static CONTRACT_CACHE_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
         .unwrap()
 });
 
+pub static CONTRACT_CACHE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec("near_contract_cache_size", "Contract cache size", &["is_view"])
+        .unwrap()
+});
+
 // TODO(#9054): Rename the metric to be consistent with "accounting cache".
 pub static CHUNK_CACHE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec("near_chunk_cache_size", "Chunk cache size", &["shard_id", "is_view"])
