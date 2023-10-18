@@ -191,7 +191,7 @@ impl NightshadeRuntime {
             genesis_config,
             epoch_manager,
             RuntimeConfigStore::test(),
-            true,
+            false,
         )
     }
 
