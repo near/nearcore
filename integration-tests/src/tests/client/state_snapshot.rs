@@ -192,10 +192,10 @@ fn test_make_state_snapshot() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let mut env = TestEnv::builder(ChainGenesis::test())
         .clients_count(1)
+        .use_state_snapshots()
         .real_stores()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
-        .use_state_snapshots()
         .build();
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");

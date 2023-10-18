@@ -7,6 +7,7 @@ use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
+use near_primitives::trie_key::col;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::{load_config, NearConfig};
@@ -651,6 +652,58 @@ impl clap::ValueEnum for ViewTrieFormat {
     }
 }
 
+/// Possible record types in a state trie.
+#[derive(Clone)]
+#[repr(u8)]
+pub enum RecordType {
+    Account = col::ACCOUNT,
+    ContractCode = col::CONTRACT_CODE,
+    AccessKey = col::ACCESS_KEY,
+    ReceivedData = col::RECEIVED_DATA,
+    PostponedReceiptId = col::POSTPONED_RECEIPT_ID,
+    PendingDataCount = col::PENDING_DATA_COUNT,
+    PostponedReceipt = col::POSTPONED_RECEIPT,
+    DelayedReceiptIndices = col::DELAYED_RECEIPT_INDICES,
+    DelayedReceipt = col::DELAYED_RECEIPT,
+    ContractData = col::CONTRACT_DATA,
+}
+
+impl clap::ValueEnum for RecordType {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[
+            Self::Account,
+            Self::ContractCode,
+            Self::AccessKey,
+            Self::ReceivedData,
+            Self::PostponedReceiptId,
+            Self::PendingDataCount,
+            Self::PostponedReceipt,
+            Self::DelayedReceiptIndices,
+            Self::DelayedReceipt,
+            Self::ContractData,
+        ]
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        match self {
+            Self::Account => Some(clap::builder::PossibleValue::new("account")),
+            Self::ContractCode => Some(clap::builder::PossibleValue::new("contract-code")),
+            Self::AccessKey => Some(clap::builder::PossibleValue::new("access-key")),
+            Self::ReceivedData => Some(clap::builder::PossibleValue::new("received-data")),
+            Self::PostponedReceiptId => {
+                Some(clap::builder::PossibleValue::new("postponed-receipt-id"))
+            }
+            Self::PendingDataCount => Some(clap::builder::PossibleValue::new("pending-data-count")),
+            Self::PostponedReceipt => Some(clap::builder::PossibleValue::new("postponed-receipt")),
+            Self::DelayedReceiptIndices => {
+                Some(clap::builder::PossibleValue::new("delayed-receipt-indices"))
+            }
+            Self::DelayedReceipt => Some(clap::builder::PossibleValue::new("delayed-receipt")),
+            Self::ContractData => Some(clap::builder::PossibleValue::new("contract-data")),
+        }
+    }
+}
+
 #[derive(clap::Parser)]
 pub struct ViewTrieCmd {
     /// The format of the output. This can be either `full` or `pretty`.
@@ -679,19 +732,53 @@ pub struct ViewTrieCmd {
     /// For format=pretty this measures depth in terms of key nibbles.
     #[clap(long)]
     max_depth: u32,
+    /// Limits how many entries are printed to the output.
+    #[clap(long)]
+    limit: Option<u32>,
+    /// Filters output to only show records of the given type.
+    #[clap(long)]
+    record_type: Option<RecordType>,
+    /// Skips nodes which AccountId is lexicographically less than `from` (except being a prefix of `from`).
+    #[clap(long)]
+    from: Option<AccountId>,
+    /// Skips nodes which AccountId is lexicographically greater than `to`.
+    #[clap(long)]
+    to: Option<AccountId>,
 }
 
 impl ViewTrieCmd {
     pub fn run(self, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
+        let record_type = self.record_type.map(|c| c as u8);
 
         match self.format {
             ViewTrieFormat::Full => {
-                view_trie(store, hash, self.shard_id, self.shard_version, self.max_depth).unwrap();
+                view_trie(
+                    store,
+                    hash,
+                    self.shard_id,
+                    self.shard_version,
+                    self.max_depth,
+                    self.limit,
+                    record_type,
+                    self.from,
+                    self.to,
+                )
+                .unwrap();
             }
             ViewTrieFormat::Pretty => {
-                view_trie_leaves(store, hash, self.shard_id, self.shard_version, self.max_depth)
-                    .unwrap();
+                view_trie_leaves(
+                    store,
+                    hash,
+                    self.shard_id,
+                    self.shard_version,
+                    self.max_depth,
+                    self.limit,
+                    record_type,
+                    self.from,
+                    self.to,
+                )
+                .unwrap();
             }
         }
     }

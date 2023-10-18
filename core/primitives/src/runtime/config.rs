@@ -39,10 +39,9 @@ impl RuntimeConfig {
 
     pub fn test() -> Self {
         let config_store = super::config_store::RuntimeConfigStore::new(None);
-        let mut wasm_config = near_vm_runner::logic::Config::clone(
+        let wasm_config = near_vm_runner::logic::Config::clone(
             &config_store.get_config(PROTOCOL_VERSION).wasm_config,
         );
-        wasm_config.vm_kind = wasm_config.vm_kind.normalize();
         RuntimeConfig {
             fees: RuntimeFeesConfig::test(),
             wasm_config,
@@ -55,7 +54,6 @@ impl RuntimeConfig {
         let mut wasm_config = near_vm_runner::logic::Config::clone(
             &config_store.get_config(PROTOCOL_VERSION).wasm_config,
         );
-        wasm_config.vm_kind = wasm_config.vm_kind.normalize();
         wasm_config.make_free();
         Self {
             fees: RuntimeFeesConfig::free(),

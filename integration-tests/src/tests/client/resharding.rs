@@ -193,11 +193,11 @@ impl TestReshardingEnv {
         let env = TestEnv::builder(chain_genesis)
             .clients_count(num_clients)
             .validator_seats(num_validators)
+            .use_state_snapshots()
             .real_stores()
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
             .track_all_shards()
-            .use_state_snapshots()
             .build();
         assert_eq!(env.validators.len(), num_validators);
         Self {
@@ -742,7 +742,7 @@ fn setup_genesis(
     genesis.config.protocol_upgrade_stake_threshold = Rational32::new(7, 10);
 
     let default_epoch_config = EpochConfig::from(&genesis.config);
-    let all_epoch_config = AllEpochConfig::new(true, default_epoch_config);
+    let all_epoch_config = AllEpochConfig::new(true, default_epoch_config, "test-chain");
     let epoch_config = all_epoch_config.for_protocol_version(genesis_protocol_version);
 
     genesis.config.shard_layout = epoch_config.shard_layout;

@@ -44,7 +44,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
 pub static INITIAL_TESTNET_CONFIG: &str = include_config!("parameters_testnet.yaml");
 
 /// Stores runtime config for each protocol version where it was updated.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RuntimeConfigStore {
     /// Maps protocol version to the config.
     store: BTreeMap<ProtocolVersion, Arc<RuntimeConfig>>,
@@ -113,7 +113,7 @@ impl RuntimeConfigStore {
     /// need to override it specifically to preserve compatibility.
     pub fn for_chain_id(chain_id: &str) -> Self {
         match chain_id {
-            "testnet" => {
+            crate::chains::TESTNET => {
                 let genesis_runtime_config = RuntimeConfig::initial_testnet_config();
                 Self::new(Some(&genesis_runtime_config))
             }

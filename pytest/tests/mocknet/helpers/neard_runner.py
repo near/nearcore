@@ -376,9 +376,11 @@ class NeardRunner:
                         'protocol_version': protocol_version,
                     }, f)
 
-    def do_update_config(self, state_cache_size_mb):
+    def do_update_config(self, state_cache_size_mb, state_snapshot_enabled):
         with self.lock:
-            logging.info(f'updating config with {state_cache_size_mb}')
+            logging.info(
+                f'updating config with state_cache_size_mb={state_cache_size_mb} state_snapshot_enabled={state_snapshot_enabled}'
+            )
             with open(self.target_near_home_path('config.json'), 'r') as f:
                 config = json.load(f)
 
@@ -387,6 +389,9 @@ class NeardRunner:
                 for i in range(4):
                     config['store']['trie_cache']['per_shard_max_bytes'][
                         f's{i}.v1'] = state_cache_size_mb * 10**6
+            if state_snapshot_enabled is not None:
+                key = 'state_snapshot_enabled'
+                config['store'][key] = state_snapshot_enabled
 
             with open(self.target_near_home_path('config.json'), 'w') as f:
                 json.dump(config, f, indent=2)
@@ -710,12 +715,22 @@ class NeardRunner:
                 # TODO: if exit_code is None then we were interrupted and restarted after starting
                 # the amend-genesis command. We assume here that the command was successful. Ok for now since
                 # the command probably won't fail. But should somehow check that it was OK
-                with open(os.path.join(self.neard_logs_dir, 'initlog.txt'),
-                          'ab') as out:
+
+                logging.info('setting use_production_config to true')
+                genesis_path = self.target_near_home_path('genesis.json')
+                with open(genesis_path, 'r') as f:
+                    genesis_config = json.load(f)
+                with open(genesis_path, 'w') as f:
+                    genesis_config['use_production_config'] = True
+                    json.dump(genesis_config, f, indent=2)
+                initlog_path = os.path.join(self.neard_logs_dir, 'initlog.txt')
+                with open(initlog_path, 'ab') as out:
                     cmd = [
-                        self.data['binaries'][0]['system_path'], '--home',
-                        self.target_near_home_path(), '--unsafe-fast-startup',
-                        'run'
+                        self.data['binaries'][0]['system_path'],
+                        '--home',
+                        self.target_near_home_path(),
+                        '--unsafe-fast-startup',
+                        'run',
                     ]
                     self.run_neard(
                         cmd,

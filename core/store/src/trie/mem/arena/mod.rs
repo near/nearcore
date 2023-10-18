@@ -1,4 +1,5 @@
 mod alloc;
+mod metrics;
 use self::alloc::Allocator;
 use borsh::{BorshDeserialize, BorshSerialize};
 use memmap2::{MmapMut, MmapOptions};
@@ -67,8 +68,8 @@ impl Arena {
     /// The `max_size_in_bytes` can be conservatively large as long as it
     /// can fit into virtual memory (which there are terabytes of). The actual
     /// memory usage will only be as much as is needed.
-    pub fn new(max_size_in_bytes: usize) -> Self {
-        Self { memory: ArenaMemory::new(max_size_in_bytes), allocator: Allocator::new() }
+    pub fn new(max_size_in_bytes: usize, name: String) -> Self {
+        Self { memory: ArenaMemory::new(max_size_in_bytes), allocator: Allocator::new(name) }
     }
 
     /// Allocates a slice of the given size in the arena.
@@ -80,6 +81,12 @@ impl Arena {
     /// must be the same as an allocation that was returned earlier.
     pub fn dealloc(&mut self, pos: usize, len: usize) {
         self.allocator.deallocate(&mut self.memory, pos, len);
+    }
+
+    /// Number of active allocations (alloc calls minus dealloc calls).
+    #[cfg(test)]
+    pub fn num_active_allocs(&self) -> usize {
+        self.allocator.num_active_allocs()
     }
 
     pub fn memory(&self) -> &ArenaMemory {

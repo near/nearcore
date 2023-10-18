@@ -10,6 +10,7 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+borsh.workspace = true
 clap.workspace = true
 indicatif.workspace = true
 rand.workspace = true
@@ -19,6 +20,7 @@ strum.workspace = true
 tempfile.workspace = true
 
 nearcore.workspace = true
+near-epoch-manager.workspace = true
 near-chain-configs.workspace = true
 near-store.workspace = true
 near-primitives.workspace = true
@@ -27,12 +29,14 @@ near-primitives.workspace = true
 nightly = [
   "nightly_protocol",
   "near-chain-configs/nightly",
+  "near-epoch-manager/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
   "nearcore/nightly",
 ]
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
+  "near-epoch-manager/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
   "nearcore/nightly_protocol",

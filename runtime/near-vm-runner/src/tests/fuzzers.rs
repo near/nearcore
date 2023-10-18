@@ -112,6 +112,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
 
     let mut config = Config::test();
     config.limit_config.wasmer2_stack_limit = i32::MAX; // If we can crash wasmer2 even without the secondary stack limit it's still good to know
+    config.limit_config.contract_prepare_version = crate::ContractPrepareVersion::V2;
 
     let fees = RuntimeFeesConfig::test();
 
@@ -145,12 +146,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
 
 #[test]
 fn current_vm_does_not_crash() {
-    check!().for_each(|data: &[u8]| {
-        let module = ArbitraryModule::arbitrary(&mut arbitrary::Unstructured::new(data));
-        let module = match module {
-            Ok(m) => m,
-            Err(_) => return,
-        };
+    check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
         let code = ContractCode::new(module.0.module.to_bytes(), None);
         let config = Config::test();
         let _result = run_fuzz(&code, config.vm_kind);
@@ -158,31 +154,9 @@ fn current_vm_does_not_crash() {
 }
 
 #[test]
-#[cfg_attr(not(target_arch = "x86_64"), ignore)]
-fn wasmer2_and_wasmtime_agree() {
-    check!().for_each(|data: &[u8]| {
-        let module = ArbitraryModule::arbitrary(&mut arbitrary::Unstructured::new(data));
-        let module = match module {
-            Ok(m) => m,
-            Err(_) => return,
-        };
-        let code = ContractCode::new(module.0.module.to_bytes(), None);
-        let wasmer2 = run_fuzz(&code, VMKind::Wasmer2).expect("fatal failure");
-        let wasmtime = run_fuzz(&code, VMKind::Wasmtime).expect("fatal failure");
-        assert_eq!(wasmer2, wasmtime);
-        assert_eq!(wasmer2, wasmtime);
-    });
-}
-
-#[test]
 #[cfg_attr(not(all(feature = "near_vm", target_arch = "x86_64")), ignore)]
 fn near_vm_and_wasmtime_agree() {
-    check!().for_each(|data: &[u8]| {
-        let module = ArbitraryModule::arbitrary(&mut arbitrary::Unstructured::new(data));
-        let module = match module {
-            Ok(m) => m,
-            Err(_) => return,
-        };
+    check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
         let code = ContractCode::new(module.0.module.to_bytes(), None);
         let near_vm = run_fuzz(&code, VMKind::NearVm).expect("fatal failure");
         let wasmtime = run_fuzz(&code, VMKind::Wasmtime).expect("fatal failure");
@@ -196,23 +170,21 @@ fn near_vm_is_reproducible() {
     use crate::near_vm_runner::NearVM;
     use near_primitives::hash::CryptoHash;
 
-    bolero::check!().for_each(|data: &[u8]| {
-        if let Ok(module) = ArbitraryModule::arbitrary(&mut arbitrary::Unstructured::new(data)) {
-            let code = ContractCode::new(module.0.module.to_bytes(), None);
-            let config = Config::test();
-            let mut first_hash = None;
-            for _ in 0..3 {
-                let vm = NearVM::new(config.clone());
-                let exec = match vm.compile_uncached(&code) {
-                    Ok(e) => e,
-                    Err(_) => return,
-                };
-                let code = exec.serialize().unwrap();
-                let hash = CryptoHash::hash_bytes(&code);
-                match first_hash {
-                    None => first_hash = Some(hash),
-                    Some(h) => assert_eq!(h, hash),
-                }
+    bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
+        let code = ContractCode::new(module.0.module.to_bytes(), None);
+        let config = Config::test();
+        let mut first_hash = None;
+        for _ in 0..3 {
+            let vm = NearVM::new(config.clone());
+            let exec = match vm.compile_uncached(&code) {
+                Ok(e) => e,
+                Err(_) => return,
+            };
+            let code = exec.serialize().unwrap();
+            let hash = CryptoHash::hash_bytes(&code);
+            match first_hash {
+                None => first_hash = Some(hash),
+                Some(h) => assert_eq!(h, hash),
             }
         }
     })
