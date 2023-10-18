@@ -9,7 +9,6 @@ use near_primitives::errors::EpochError;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};

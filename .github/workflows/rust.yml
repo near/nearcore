@@ -3,8 +3,6 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  push:
-    branches: [master]
   pull_request:
   merge_group:
 
