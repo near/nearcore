@@ -192,6 +192,7 @@ impl Chain {
         let prev_block_header = self.get_block_header(prev_hash)?;
         let prev_prev_hash = prev_block_header.prev_hash();
         let state_root = *self.get_chunk_extra(&prev_hash, &shard_uid)?.state_root();
+        let child_shard_uids = next_epoch_shard_layout.get_split_shard_uids(shard_id);
 
         state_split_scheduler(StateSplitRequest {
             tries: Arc::new(self.runtime_adapter.get_tries()),
@@ -204,10 +205,11 @@ impl Chain {
             curr_poll_time: Duration::ZERO,
         });
 
-        RESHARDING_STATUS
-            .with_label_values(&[&shard_uid.to_string()])
-            .set(ReshardingStatus::Scheduled.into());
-
+        for shard_uid in child_shard_uids.unwrap_or_default() {
+            RESHARDING_STATUS
+                .with_label_values(&[&shard_uid.to_string()])
+                .set(ReshardingStatus::Scheduled.into());
+        }
         Ok(())
     }
 
@@ -251,9 +253,7 @@ impl Chain {
             ..
         } = state_split_request;
 
-        RESHARDING_STATUS
-            .with_label_values(&[&shard_uid.to_string()])
-            .set(ReshardingStatus::BuildingState.into());
+        tracing::debug!(target: "resharding", ?shard_uid, "build_state_for_split_shards_impl starting");
 
         let shard_id = shard_uid.shard_id();
         let new_shards = next_epoch_shard_layout
@@ -261,6 +261,12 @@ impl Chain {
             .ok_or(Error::InvalidShardId(shard_id))?;
         let mut state_roots: HashMap<_, _> =
             new_shards.iter().map(|shard_uid| (*shard_uid, Trie::EMPTY_ROOT)).collect();
+
+        for shard_uid in &new_shards {
+            RESHARDING_STATUS
+                .with_label_values(&[&shard_uid.to_string()])
+                .set(ReshardingStatus::BuildingState.into());
+        }
 
         // Build the required iterator from flat storage and delta changes. Note that we are
         // working with iterators as we don't want to have all the state in memory at once.
@@ -337,6 +343,7 @@ impl Chain {
             &checked_account_id_to_shard_uid,
         )?;
 
+        tracing::debug!(target: "resharding", ?shard_uid, "build_state_for_split_shards_impl finished");
         Ok(state_roots)
     }
 

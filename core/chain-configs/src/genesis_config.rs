@@ -723,6 +723,9 @@ impl GenesisChangeConfig {
 // Ideally we should create `RuntimeConfigView`, but given the deeply nested nature and the number of fields inside
 // `RuntimeConfig`, it should be its own endeavor.
 // TODO: This has changed, there is now `RuntimeConfigView`. Reconsider if moving this is possible now.
+// TODO: Consider replacing tens of fields with a combination of `GenesisConfig`
+// and `EpochConfig` fields, similar to how `RuntimeConfig` is represented as a
+// separate struct and not inlined.
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct ProtocolConfigView {
     /// Current Protocol Version
@@ -781,6 +784,17 @@ pub struct ProtocolConfigView {
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     pub minimum_stake_divisor: u64,
+    /// Max stake percentage of the validators we will kick out.
+    pub max_kickout_stake_perc: u8,
+    /// The lowest ratio s/s_total any block producer can have.
+    /// See <https://github.com/near/NEPs/pull/167> for details
+    pub minimum_stake_ratio: Rational32,
+    /// The minimum number of validators each shard must have
+    pub minimum_validators_per_shard: NumSeats,
+    /// Number of validator seats for chunk only producers.
+    pub num_chunk_only_producer_seats: NumSeats,
+    /// Layout information regarding how to split accounts to shards
+    pub shard_layout: ShardLayout,
 }
 
 pub struct ProtocolConfig {
@@ -820,6 +834,11 @@ impl From<ProtocolConfig> for ProtocolConfigView {
             protocol_treasury_account: genesis_config.protocol_treasury_account,
             fishermen_threshold: genesis_config.fishermen_threshold,
             minimum_stake_divisor: genesis_config.minimum_stake_divisor,
+            max_kickout_stake_perc: genesis_config.max_kickout_stake_perc,
+            minimum_stake_ratio: genesis_config.minimum_stake_ratio,
+            minimum_validators_per_shard: genesis_config.minimum_validators_per_shard,
+            num_chunk_only_producer_seats: genesis_config.num_chunk_only_producer_seats,
+            shard_layout: genesis_config.shard_layout,
         }
     }
 }

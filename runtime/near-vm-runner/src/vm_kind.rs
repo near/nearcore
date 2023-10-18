@@ -32,7 +32,7 @@ pub enum VMKind {
 }
 
 impl VMKind {
-    pub fn normalize(self) -> Self {
+    pub fn replace_with_wasmtime_if_unsupported(self) -> Self {
         if cfg!(not(target_arch = "x86_64")) {
             Self::Wasmtime
         } else {
