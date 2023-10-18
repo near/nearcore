@@ -2461,7 +2461,7 @@ impl Chain {
     /// Preprocess a block before applying chunks, verify that we have the necessary information
     /// to process the block an the block is valid.
     /// Note that this function does NOT introduce any changes to chain state.
-    fn preprocess_block(
+    pub(crate) fn preprocess_block(
         &self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
