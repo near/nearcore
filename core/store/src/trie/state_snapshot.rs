@@ -12,7 +12,7 @@ use near_primitives::shard_layout::ShardUId;
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::TryLockError;
+use std::sync::{RwLockWriteGuard, TryLockError};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SnapshotError {
@@ -160,46 +160,55 @@ impl ShardTries {
         block: &Block,
         force_snapshot: bool,
     ) -> Result<(), anyhow::Error> {
-        metrics::HAS_STATE_SNAPSHOT.set(0);
         // The function returns an `anyhow::Error`, because no special handling of errors is done yet. The errors are logged and ignored.
         let _span =
             tracing::info_span!(target: "state_snapshot", "make_state_snapshot", ?prev_block_hash)
                 .entered();
-        tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_state_snapshot");
-
-        let StateSnapshotConfig {
-            enabled, home_dir, hot_store_path, state_snapshot_subdir, ..
-        } = self.state_snapshot_config();
-
-        // override enabled config if force_snapshot is true
-        if !enabled && !force_snapshot {
-            tracing::info!(target: "state_snapshot", "State Snapshots are disabled");
-            return Ok(());
-        }
-
         let _timer = metrics::MAKE_STATE_SNAPSHOT_ELAPSED.start_timer();
+
         // `write()` lock is held for the whole duration of this function.
         // Accessing the snapshot in other parts of the system will fail.
         let mut state_snapshot_lock = self
             .state_snapshot()
             .write()
             .map_err(|_| anyhow::Error::msg("error accessing write lock of state_snapshot"))?;
-        let db_snapshot_hash = self.get_state_snapshot_hash();
 
+        // Noop if we are trying to make snapshot at same prev_block_hash
+        let db_snapshot_hash = self.get_state_snapshot_hash();
         if let Some(state_snapshot) = &*state_snapshot_lock {
-            // only return Ok() when the hash stored in STATE_SNAPSHOT_KEY and in state_snapshot_lock and prev_block_hash are the same
-            if db_snapshot_hash.is_ok()
-                && db_snapshot_hash.unwrap() == *prev_block_hash
+            if db_snapshot_hash.is_ok_and(|hash| hash == *prev_block_hash)
                 && state_snapshot.prev_block_hash == *prev_block_hash
             {
                 tracing::warn!(target: "state_snapshot", ?prev_block_hash, "Requested a state snapshot but that is already available");
                 return Ok(());
             }
-            // Drop Store before deleting the underlying data.
-            *state_snapshot_lock = None;
-            self.delete_current_snapshot();
         }
 
+        // Drop Store before deleting the underlying data.
+        // We delete the snapshot whether the config is enabled or not. This is to delete any potential
+        // snapshots that may have been produced during resharding, even if the config is disabled.
+        *state_snapshot_lock = None;
+        self.delete_current_snapshot();
+        metrics::HAS_STATE_SNAPSHOT.set(0);
+
+        // override enabled config if force_snapshot is true
+        if !self.state_snapshot_config().enabled && !force_snapshot {
+            tracing::info!(target: "state_snapshot", "State Snapshots are disabled");
+            return Ok(());
+        }
+
+        self.create_new_snapshot(state_snapshot_lock, prev_block_hash, shard_uids, block)
+    }
+
+    fn create_new_snapshot(
+        &self,
+        mut state_snapshot_lock: RwLockWriteGuard<'_, Option<StateSnapshot>>,
+        prev_block_hash: &CryptoHash,
+        shard_uids: &[ShardUId],
+        block: &Block,
+    ) -> Result<(), anyhow::Error> {
+        let StateSnapshotConfig { home_dir, hot_store_path, state_snapshot_subdir, .. } =
+            self.state_snapshot_config();
         let storage = checkpoint_hot_storage_and_cleanup_columns(
             &self.get_store(),
             &Self::get_state_snapshot_base_dir(

@@ -225,6 +225,7 @@ impl TestReshardingEnv {
     /// included at block at that height
     fn set_tx_at_height(&mut self, height: u64, txs: Vec<SignedTransaction>) {
         debug!(target: "test", "setting txs at height {} txs: {:?}", height, txs.iter().map(|x|x.get_hash()).collect::<Vec<_>>());
+        assert!(!self.txs_by_height.contains_key(&height));
         self.txs_by_height.insert(height, txs);
     }
 
@@ -605,6 +606,28 @@ impl TestReshardingEnv {
             }
         }
     }
+
+    fn check_snapshot(&mut self, state_snapshot_enabled: bool) {
+        let env = &mut self.env;
+        let head = env.clients[0].chain.head().unwrap();
+        let block_header = env.clients[0].chain.get_block_header(&head.prev_block_hash).unwrap();
+        let snapshot = env.clients[0]
+            .chain
+            .runtime_adapter
+            .get_tries()
+            .get_state_snapshot(&block_header.prev_hash());
+
+        if head.height == 1 || (head.height - 1) % self.epoch_length != 0 {
+            // head.height - 1 is not at the boundry of any epoch
+            assert!(snapshot.is_err());
+        } else if (head.height - 1) == self.epoch_length {
+            // head.height - 1 is exactly at the boundry of first epoch
+            assert!(snapshot.is_ok());
+        } else {
+            // head.height - 1 is at the boundry of any other epoch
+            assert_eq!(state_snapshot_enabled, snapshot.is_ok());
+        }
+    }
 }
 
 // Returns the block producer for the next block after the current head.
@@ -856,6 +879,7 @@ fn test_shard_layout_upgrade_simple_impl(
     for _ in 1..4 * epoch_length {
         test_env.step_impl(&drop_chunk_condition, target_protocol_version, &resharding_type);
         test_env.check_receipt_id_to_shard_id();
+        test_env.check_snapshot(state_snapshot_enabled);
     }
 
     test_env.check_tx_outcomes(false);
