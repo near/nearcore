@@ -184,7 +184,6 @@ impl StatePartsSubCommand {
                     finalize_state_sync(sync_hash, shard_id, &mut chain)
                 }
             }
-            actix::System::current().stop();
         });
         sys.run().unwrap();
     }
