@@ -63,7 +63,8 @@ impl actix::Handler<WithSpanContext<MakeSnapshotRequest>> for StateSnapshotActor
             force_snapshot,
         } = msg;
 
-        let res = self.tries.make_state_snapshot(&prev_block_hash, &shard_uids, &block, force_snapshot);
+        let res =
+            self.tries.make_state_snapshot(&prev_block_hash, &shard_uids, &block, force_snapshot);
         if !self.flat_storage_manager.set_flat_state_updates_mode(true) {
             tracing::error!(target: "state_snapshot", ?prev_block_hash, ?shard_uids, "Failed to unlock flat state updates");
         }
