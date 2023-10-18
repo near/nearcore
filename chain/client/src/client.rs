@@ -1365,6 +1365,7 @@ impl Client {
         provenance: Provenance,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), near_chain::Error> {
+        println!("START PROCESS {}", block.header().height());
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
         let result = {

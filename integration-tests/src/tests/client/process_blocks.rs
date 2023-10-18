@@ -3205,7 +3205,7 @@ fn test_fork_receipt_ids() {
 
 #[test]
 fn test_fork_execution_outcome() {
-    init_test_logger();
+    init_integration_logger();
 
     let (mut env, tx_hash) = prepare_env_with_transaction();
 
