@@ -1672,6 +1672,7 @@ impl ClientActor {
                         &self.state_split_scheduler,
                         &self.state_parts_client_arbiter.handle(),
                         use_colour,
+                        self.client.runtime_adapter.clone(),
                     )) {
                         StateSyncResult::Unchanged => (),
                         StateSyncResult::Changed(fetch_block) => {

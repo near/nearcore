@@ -9,6 +9,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+bolero.workspace = true
 cpu-time.workspace = true
 libfuzzer-sys.workspace = true
 serde.workspace = true
