@@ -3245,10 +3245,14 @@ fn test_fork_execution_outcome() {
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
         block.mut_header().resign(&validator_signer);
         env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
+
         // ensure chunk execution!
-        env.produce_block(0, next_height);
+        let b2 = env.clients[0].produce_block_on(next_height, block.hash().clone())?.unwrap();
+        env.clients[0].process_block_test(b2.clone().into(), Provenance::NONE).unwrap();
         next_height += 1;
-        env.produce_block(0, next_height);
+
+        let b3 = env.clients[0].produce_block_on(next_height, b2.hash().clone())?.unwrap();
+        env.clients[0].process_block_test(b3.clone().into(), Provenance::NONE).unwrap();
         next_height += 1;
     }
 
