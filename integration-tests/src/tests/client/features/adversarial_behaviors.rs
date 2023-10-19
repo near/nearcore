@@ -8,7 +8,7 @@ use near_network::{
     shards_manager::ShardsManagerRequestFromNetwork,
     types::{NetworkRequests, PeerManagerMessageRequest},
 };
-use near_o11y::{testonly::init_test_logger, WithSpanContextExt};
+use near_o11y::testonly::init_test_logger;
 use near_primitives::{
     shard_layout::ShardLayout,
     types::{AccountId, EpochId, ShardId},
@@ -73,14 +73,12 @@ impl AdversarialBehaviorTestData {
                 self.env.shards_manager(&account_id).send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
                         partial_encoded_chunk.into(),
-                    )
-                    .with_span_context(),
+                    ),
                 );
             }
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                 self.env.shards_manager(&account_id).send(
-                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward)
-                        .with_span_context(),
+                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward),
                 );
             }
             NetworkRequests::Challenge(_) => {

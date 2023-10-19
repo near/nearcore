@@ -2,7 +2,6 @@ use assert_matches::assert_matches;
 
 use near_async::messaging::CanSend;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_o11y::WithSpanContextExt;
 use near_primitives::test_utils::create_test_signer;
 
 use near_chain::validate::validate_challenge;
@@ -557,10 +556,8 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         one_part_receipt_proofs,
         &[merkle_paths[0].clone()],
     );
-    env.shards_manager_adapters[1].send(
-        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk)
-            .with_span_context(),
-    );
+    env.shards_manager_adapters[1]
+        .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk));
     env.process_block(1, block, Provenance::NONE);
 
     // At this point we should create a challenge and send it out.

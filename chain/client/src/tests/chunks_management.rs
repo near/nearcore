@@ -7,7 +7,6 @@ use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::NetworkRequests;
 use near_network::types::PartialEncodedChunkRequestMsg;
 use near_o11y::testonly::init_integration_logger;
-use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 
 // TODO(#8269) Enable test after fixing the issue related to KeyValueRuntime. See env.restart()
@@ -30,8 +29,7 @@ fn test_request_chunk_restart() {
         ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
             partial_encoded_chunk_request: request.clone(),
             route_back: CryptoHash::default(),
-        }
-        .with_span_context(),
+        },
     );
     assert!(env.network_adapters[0].pop().is_some());
 
@@ -40,8 +38,7 @@ fn test_request_chunk_restart() {
         ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
             partial_encoded_chunk_request: request,
             route_back: CryptoHash::default(),
-        }
-        .with_span_context(),
+        },
     );
     let response = env.network_adapters[0].pop().unwrap().as_network_requests();
 

@@ -94,7 +94,7 @@ fn repro_1183() {
                                     connectors1.write().unwrap()[i].shards_manager_adapter.send(
                                         ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
                                             partial_encoded_chunk.clone().into(),
-                                        ).with_span_context(),
+                                        ),
                                     );
                                 }
                             }
