@@ -523,6 +523,10 @@ impl TestReshardingEnv {
         let prev_prev_hash = block.header().prev_hash();
 
         println!("HEAD = {} {} {}", head.height, head.last_block_hash, head.prev_block_hash);
+        if prev_prev_hash == &CryptoHash::default() {
+            return;
+        }
+
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             if chunk_header.height_included() != block.header().height() {
                 continue;
