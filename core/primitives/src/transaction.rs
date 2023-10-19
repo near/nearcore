@@ -5,8 +5,11 @@ use crate::types::{AccountId, Balance, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
+use near_primitives_core::serialize::{from_base64, to_base64};
 use near_primitives_core::types::Compute;
 use near_vm_runner::{ProfileDataV2, ProfileDataV3};
+use serde::de::Error as DecodeError;
+use serde::ser::Error as EncodeError;
 use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -44,7 +47,7 @@ impl Transaction {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Eq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Eq, Debug, Clone)]
 #[borsh(init=init)]
 pub struct SignedTransaction {
     pub transaction: Transaction,
@@ -93,6 +96,34 @@ impl PartialEq for SignedTransaction {
 impl Borrow<CryptoHash> for SignedTransaction {
     fn borrow(&self) -> &CryptoHash {
         &self.hash
+    }
+}
+
+impl serde::Serialize for SignedTransaction {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let signed_tx_borsh = borsh::to_vec(self).map_err(|err| {
+            S::Error::custom(&format!("the value could not be borsh encoded due to: {}", err))
+        })?;
+        let signed_tx_base64 = to_base64(&signed_tx_borsh);
+        serializer.serialize_str(&signed_tx_base64)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for SignedTransaction {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let signed_tx_base64 = <String as serde::Deserialize>::deserialize(deserializer)?;
+        let signed_tx_borsh = from_base64(&signed_tx_base64).map_err(|err| {
+            D::Error::custom(&format!("the value could not decoded from base64 due to: {}", err))
+        })?;
+        borsh::from_slice::<Self>(&signed_tx_borsh).map_err(|err| {
+            D::Error::custom(&format!("the value could not decoded from borsh due to: {}", err))
+        })
     }
 }
 

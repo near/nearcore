@@ -315,7 +315,11 @@ impl JsonRpcHandler {
             // Handlers ordered alphabetically
             "block" => process_method_call(request, |params| self.block(params)).await,
             "broadcast_tx_async" => {
-                process_method_call(request, |params| self.send_tx_async(params)).await
+                process_method_call(request, |params| async {
+                    let tx = self.send_tx_async(params).await.to_string();
+                    Result::<_, std::convert::Infallible>::Ok(tx)
+                })
+                .await
             }
             "broadcast_tx_commit" => {
                 process_method_call(request, |params| self.send_tx_commit(params)).await
@@ -470,11 +474,9 @@ impl JsonRpcHandler {
     async fn send_tx_async(
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
-        near_jsonrpc_primitives::types::transactions::RpcTransactionError,
-    > {
+    ) -> CryptoHash {
         let tx = request_data.signed_transaction;
+        let hash = tx.get_hash();
         self.client_addr.do_send(
             ProcessTxRequest {
                 transaction: tx,
@@ -483,10 +485,7 @@ impl JsonRpcHandler {
             }
             .with_span_context(),
         );
-        Ok(RpcTransactionResponse {
-            final_execution_outcome: None,
-            final_execution_status: TxExecutionStatus::None,
-        })
+        hash
     }
 
     async fn tx_exists(
@@ -672,8 +671,12 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
-        if request_data.finality == TxExecutionStatus::None {
-            return self.send_tx_async(request_data).await;
+        if request_data.wait_until == TxExecutionStatus::None {
+            self.send_tx_async(request_data).await;
+            return Ok(RpcTransactionResponse {
+                final_execution_outcome: None,
+                final_execution_status: TxExecutionStatus::None,
+            });
         }
         let tx = request_data.signed_transaction;
         match self.send_tx_internal(tx.clone(), false).await? {
@@ -682,7 +685,7 @@ impl JsonRpcHandler {
                     near_jsonrpc_primitives::types::transactions::TransactionInfo::Transaction(
                         tx.clone(),
                     ),
-                    request_data.finality,
+                    request_data.wait_until,
                     false,
                 ).await
             }
@@ -705,7 +708,7 @@ impl JsonRpcHandler {
     > {
         self.send_tx(RpcSendTransactionRequest {
             signed_transaction: request_data.signed_transaction,
-            finality: TxExecutionStatus::Final,
+            wait_until: TxExecutionStatus::Final,
         })
         .await
     }
@@ -859,7 +862,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
         let tx_status = self
-            .tx_status_fetch(request_data.transaction_info, request_data.finality, fetch_receipt)
+            .tx_status_fetch(request_data.transaction_info, request_data.wait_until, fetch_receipt)
             .await?;
         Ok(tx_status.rpc_into())
     }

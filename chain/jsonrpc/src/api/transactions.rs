@@ -7,7 +7,6 @@ use near_jsonrpc_primitives::types::transactions::{
 };
 use near_primitives::borsh::BorshDeserialize;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::views::TxExecutionStatus;
 
 use super::{Params, RpcFrom, RpcRequest};
 
@@ -18,20 +17,17 @@ impl RpcRequest for RpcSendTransactionRequest {
                 Ok(RpcSendTransactionRequest {
                     signed_transaction: decode_signed_transaction(value)?,
                     // will be ignored in `broadcast_tx_async`, `broadcast_tx_commit`
-                    finality: Default::default(),
+                    wait_until: Default::default(),
                 })
             })
-            .try_pair(|encoded_tx, finality: String| {
-                let finality = format!("\"{}\"", finality);
-                Ok(RpcSendTransactionRequest {
-                    signed_transaction: decode_signed_transaction(encoded_tx)?,
-                    // will be ignored in `broadcast_tx_async`, `broadcast_tx_commit`
-                    finality: serde_json::from_str::<TxExecutionStatus>(&finality).map_err(
-                        |err| RpcParseError(format!("Failed to decode finality: {}", err)),
-                    )?,
-                })
+            .try_pair(|_: String, _: String| {
+                // Here, we restrict serde parsing object from the array
+                // `wait_until` is a new feature supported only in object
+                Err(RpcParseError(
+                    "Unable to parse send request: too many params passed".to_string(),
+                ))
             })
-            .unwrap()?;
+            .unwrap_or_parse()?;
         Ok(tx_request)
     }
 }
@@ -42,14 +38,14 @@ impl RpcRequest for RpcTransactionStatusRequest {
             .try_singleton(|signed_tx| {
                 Ok(RpcTransactionStatusRequest {
                     transaction_info: decode_signed_transaction(signed_tx)?.into(),
-                    finality: Default::default(),
+                    wait_until: Default::default(),
                 })
             })
             .try_pair(|tx_hash, sender_account_id| {
                 Ok(RpcTransactionStatusRequest {
                     transaction_info: TransactionInfo::TransactionId { tx_hash, sender_account_id }
                         .into(),
-                    finality: Default::default(),
+                    wait_until: Default::default(),
                 })
             })
             .unwrap_or_parse()?)
@@ -112,11 +108,11 @@ mod tests {
     }
 
     #[test]
-    fn test_serialize_tx_status_params_as_object_with_finality() {
+    fn test_serialize_tx_status_params_as_object_with_wait_until() {
         let tx_hash = CryptoHash::new().to_string();
         let account_id = "sender.testnet";
-        let finality = "INCLUDED";
-        let params = serde_json::json!({"tx_hash": tx_hash, "sender_account_id": account_id, "finality": finality});
+        let wait_until = "INCLUDED";
+        let params = serde_json::json!({"tx_hash": tx_hash, "sender_account_id": account_id, "wait_until": wait_until});
         assert!(RpcTransactionStatusRequest::parse(params).is_ok());
     }
 
@@ -138,13 +134,13 @@ mod tests {
         assert!(RpcTransactionStatusRequest::parse(params).is_err());
     }
 
-    // The params are invalid because finality is supported only in tx status params passed by object
+    // The params are invalid because wait_until is supported only in tx status params passed by object
     #[test]
     fn test_serialize_tx_status_too_many_params() {
         let tx_hash = CryptoHash::new().to_string();
         let account_id = "sender.testnet";
-        let finality = "EXECUTED";
-        let params = serde_json::json!([tx_hash, account_id, finality]);
+        let wait_until = "EXECUTED";
+        let params = serde_json::json!([tx_hash, account_id, wait_until]);
         assert!(RpcTransactionStatusRequest::parse(params).is_err());
     }
 
@@ -159,13 +155,35 @@ mod tests {
     }
 
     #[test]
-    fn test_serialize_send_tx_params_as_binary_signed_tx_with_finality() {
+    fn test_serialize_send_tx_params_as_object() {
         let tx_hash = CryptoHash::new();
         let tx = SignedTransaction::empty(tx_hash);
         let bytes_tx = borsh::to_vec(&tx).unwrap();
         let str_tx = to_base64(&bytes_tx);
-        let finality = "EXECUTED";
-        let params = serde_json::json!([str_tx, finality]);
+        let params = serde_json::json!({"signed_tx_base64": str_tx});
         assert!(RpcSendTransactionRequest::parse(params).is_ok());
+    }
+
+    #[test]
+    fn test_serialize_send_tx_params_as_object_with_wait_until() {
+        let tx_hash = CryptoHash::new();
+        let tx = SignedTransaction::empty(tx_hash);
+        let bytes_tx = borsh::to_vec(&tx).unwrap();
+        let str_tx = to_base64(&bytes_tx);
+        let wait_until = "INCLUDED_FINAL";
+        let params = serde_json::json!({"signed_tx_base64": str_tx, "wait_until": wait_until});
+        assert!(RpcSendTransactionRequest::parse(params).is_ok());
+    }
+
+    // The params are invalid because wait_until is supported only in send tx params passed by object
+    #[test]
+    fn test_serialize_send_tx_too_many_params() {
+        let tx_hash = CryptoHash::new();
+        let tx = SignedTransaction::empty(tx_hash);
+        let bytes_tx = borsh::to_vec(&tx).unwrap();
+        let str_tx = to_base64(&bytes_tx);
+        let wait_until = "EXECUTED";
+        let params = serde_json::json!([str_tx, wait_until]);
+        assert!(RpcSendTransactionRequest::parse(params).is_err());
     }
 }

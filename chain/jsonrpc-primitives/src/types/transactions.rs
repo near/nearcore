@@ -2,10 +2,12 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::AccountId;
 use serde_json::Value;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcSendTransactionRequest {
+    #[serde(rename = "signed_tx_base64")]
     pub signed_transaction: near_primitives::transaction::SignedTransaction,
-    pub finality: near_primitives::views::TxExecutionStatus,
+    #[serde(default)]
+    pub wait_until: near_primitives::views::TxExecutionStatus,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -13,13 +15,13 @@ pub struct RpcTransactionStatusRequest {
     #[serde(flatten)]
     pub transaction_info: TransactionInfo,
     #[serde(default)]
-    pub finality: near_primitives::views::TxExecutionStatus,
+    pub wait_until: near_primitives::views::TxExecutionStatus,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum TransactionInfo {
-    #[serde(skip_deserializing)]
+    #[serde(rename = "signed_tx_base64")]
     Transaction(near_primitives::transaction::SignedTransaction),
     TransactionId {
         tx_hash: CryptoHash,
