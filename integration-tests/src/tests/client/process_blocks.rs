@@ -3201,7 +3201,6 @@ fn test_fork_receipt_ids() {
     let b3 = env.clients[0].produce_block_on(next_height, block1.hash().clone()).unwrap().unwrap();
     next_height += 1;
     let b4 = env.clients[0].produce_block_on(next_height, block2.hash().clone()).unwrap().unwrap();
-    next_height += 1;
     env.clients[0].process_block_test(b4.clone().into(), Provenance::NONE).unwrap();
     env.clients[0].process_block_test(b3.clone().into(), Provenance::NONE).unwrap();
 
@@ -3277,8 +3276,7 @@ fn test_fork_execution_outcome() {
     assert_eq!(canonical_chain_outcome.block_hash, *block2.hash());
 
     // make sure gc works properly
-    next_height = next_height + 4;
-    for i in next_height..50 {
+    for i in next_height..40 {
         env.produce_block(0, i);
     }
     let transaction_execution_outcome =
