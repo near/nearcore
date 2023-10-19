@@ -19,7 +19,8 @@ use std::sync::{Arc, RwLock};
 
 use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 
-const CONTRACT_CACHES: &'static [(&'static str, u32)] = &[("sweat.near", 2)];
+const CONTRACT_CACHES: &'static [(&'static str, u32)] =
+    &[("token.sweat", 2), ("tge-lockup.sweat", 2), ("sweat_welcome.near", 2)];
 
 struct ShardTriesInner {
     store: Store,

@@ -119,7 +119,7 @@ impl TrieAccountingCache {
         // Try use contract specific cache
         if let Some(acc_id) = account_id {
             if let Some(contract_specific_cache) = self.contract_cache.get(acc_id.as_str()) {
-                tracing::info!("Using contract specific cache: {}", acc_id);
+                tracing::info!("Really using contract specific cache: {}", acc_id);
                 if let Some(node) = self.cache.get(hash) {
                     self.mem_read_nodes += 1;
                     if let Some(metrics) = &self.metrics {
