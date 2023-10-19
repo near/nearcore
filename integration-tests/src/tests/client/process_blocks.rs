@@ -3270,7 +3270,7 @@ fn test_fork_execution_outcome() {
 
     // make sure gc works properly
     next_height = next_height + 4;
-    for i in next_height..32 {
+    for i in next_height..50 {
         env.produce_block(0, i);
     }
     let transaction_execution_outcome =
