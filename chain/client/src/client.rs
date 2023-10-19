@@ -2296,7 +2296,7 @@ impl Client {
                     // Not being able to fetch a state root most likely implies that we haven't
                     //     caught up with the next epoch yet.
                     // - not anymore! with our changes chunk extra may be missing
-                    println!("on process_tx_internal head={head} error: {e}");
+                    println!("on process_tx_internal head={head:?} error: {e}");
                     if is_forwarded {
                         return Err(Error::Other("Node has not caught up yet".to_string()));
                     } else {
