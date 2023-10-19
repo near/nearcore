@@ -25,9 +25,9 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
         self.nightshade_runtimes_with_runtime_config_store(genesis, runtime_configs)
     }
 
-    fn nightshade_runtimes_with_runtime_config_store<'a>(
+    fn nightshade_runtimes_with_runtime_config_store(
         self,
-        genesis: &'a Genesis,
+        genesis: &Genesis,
         runtime_configs: Vec<RuntimeConfigStore>,
     ) -> Self {
         let state_snapshot_enabled = self.state_snapshot_enabled();
