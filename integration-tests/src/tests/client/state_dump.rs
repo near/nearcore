@@ -42,10 +42,10 @@ fn test_state_dump() {
         let chain_genesis = ChainGenesis::new(&genesis);
         let mut env = TestEnv::builder(chain_genesis.clone())
             .clients_count(1)
+            .use_state_snapshots()
             .real_stores()
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
-            .use_state_snapshots()
             .build();
 
         let chain = &env.clients[0].chain;
@@ -142,10 +142,10 @@ fn run_state_sync_with_dumped_parts(
         let num_clients = 2;
         let mut env = TestEnv::builder(chain_genesis.clone())
             .clients_count(num_clients)
+            .use_state_snapshots()
             .real_stores()
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
-            .use_state_snapshots()
             .build();
 
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");

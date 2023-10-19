@@ -54,7 +54,7 @@ pub struct TestEnvBuilder {
     seeds: HashMap<AccountId, RngSeed>,
     archive: bool,
     save_trie_changes: bool,
-    add_state_snapshots: bool,
+    state_snapshot_enabled: bool,
 }
 
 /// Builder for the [`TestEnv`] structure.
@@ -78,7 +78,7 @@ impl TestEnvBuilder {
             seeds,
             archive: false,
             save_trie_changes: true,
-            add_state_snapshots: false,
+            state_snapshot_enabled: false,
         }
     }
 
@@ -107,6 +107,10 @@ impl TestEnvBuilder {
     /// account identifiers used by the builder.  Panics if `num` is zero.
     pub fn clients_count(self, num: usize) -> Self {
         self.clients(Self::make_accounts(num))
+    }
+
+    pub fn num_clients(&self) -> usize {
+        self.clients.len()
     }
 
     /// Sets list of validator [`AccountId`]s to the one provided.  Panics if
@@ -280,7 +284,8 @@ impl TestEnvBuilder {
     /// Visible for extension methods in integration-tests.
     pub fn internal_ensure_epoch_managers_for_nightshade_runtime(
         self,
-    ) -> (Self, Vec<PathBuf>, Vec<Store>, Vec<Arc<EpochManagerHandle>>) {
+    ) -> (Self, Vec<PathBuf>, Vec<Store>, Vec<Arc<EpochManagerHandle>>, bool) {
+        let state_snapshot_enabled = self.state_snapshot_enabled;
         let builder = self.ensure_epoch_managers();
         let default_home_dirs =
             (0..builder.clients.len()).map(|_| PathBuf::from("../../../..")).collect_vec();
@@ -298,7 +303,7 @@ impl TestEnvBuilder {
                 EpochManagerKind::Handle(handle) => handle,
             })
             .collect();
-        (builder, home_dirs, stores, epoch_managers)
+        (builder, home_dirs, stores, epoch_managers, state_snapshot_enabled)
     }
 
     /// Specifies custom ShardTracker for each client.  This allows us to
@@ -360,10 +365,15 @@ impl TestEnvBuilder {
 
     /// Internal impl to make sure runtimes are initialized.
     fn ensure_runtimes(self) -> Self {
+        let state_snapshot_enabled = self.state_snapshot_enabled;
         let ret = self.ensure_epoch_managers();
         if ret.runtimes.is_some() {
             ret
         } else {
+            assert!(
+                !state_snapshot_enabled,
+                "State snapshot is not supported with KeyValueRuntime. Consider adding nightshade_runtimes"
+            );
             let runtimes = (0..ret.clients.len())
                 .map(|i| {
                     let epoch_manager = match &ret.epoch_managers.as_ref().unwrap()[i] {
@@ -478,16 +488,11 @@ impl TestEnvBuilder {
                         Some(seed) => *seed,
                         None => TEST_SEED,
                     };
-                    let make_state_snapshot_callback : Option<MakeSnapshotCallback> = if self.add_state_snapshots {
-                        let runtime = runtime.clone();
-                        let snapshot : MakeSnapshotCallback = Arc::new(move |prev_block_hash, shard_uids, block| {
-                            tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
-                            runtime.get_tries().make_state_snapshot(&prev_block_hash, &shard_uids, &block).unwrap();
-                        });
-                        Some(snapshot)
-                    } else {
-                        None
-                    };
+                    let tries = runtime.get_tries();
+                    let make_state_snapshot_callback: MakeSnapshotCallback = Arc::new(move |prev_block_hash, shard_uids, block| {
+                        tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
+                        tries.make_state_snapshot(&prev_block_hash, &shard_uids, &block).unwrap();
+                    });
                     setup_client_with_runtime(
                         u64::try_from(num_validators).unwrap(),
                         Some(account_id),
@@ -501,7 +506,7 @@ impl TestEnvBuilder {
                         rng_seed,
                         self.archive,
                         self.save_trie_changes,
-                        make_state_snapshot_callback,
+                        Some(make_state_snapshot_callback),
                     )
                 })
                 .collect();
@@ -531,7 +536,8 @@ impl TestEnvBuilder {
     }
 
     pub fn use_state_snapshots(mut self) -> Self {
-        self.add_state_snapshots = true;
+        assert!(self.runtimes.is_none(), "Set up snapshot config before runtimes");
+        self.state_snapshot_enabled = true;
         self
     }
 }
