@@ -3216,6 +3216,7 @@ fn test_fork_execution_outcome() {
         last_height = last_block.header().height();
     }
 
+    println!("START TEST FROM {}", last_height + 1);
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], last_height + 1);
