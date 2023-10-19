@@ -26,7 +26,7 @@ struct ShardTriesInner {
     trie_config: TrieConfig,
     /// Cache reserved for client actor to use
     caches: RwLock<HashMap<ShardUId, TrieCache>>,
-    /// Caches for specific contracts which cause a big spike in traffic
+    /// Caches for specific contracts
     contract_caches: HashMap<&'static str, TrieCache>,
     /// Cache for readers.
     view_caches: RwLock<HashMap<ShardUId, TrieCache>>,
@@ -209,8 +209,14 @@ impl ShardTries {
                 .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, true))
                 .clone()
         };
-        let storage =
-            Rc::new(TrieCachingStorage::new(store, cache, HashMap::new(), shard_uid, true, None));
+        let storage = Rc::new(TrieCachingStorage::new(
+            store,
+            cache,
+            self.0.contract_caches.clone(),
+            shard_uid,
+            true,
+            None,
+        ));
         let flat_storage_chunk_view = flat_storage_manager.chunk_view(shard_uid, *block_hash);
 
         Ok(Trie::new(storage, state_root, flat_storage_chunk_view))

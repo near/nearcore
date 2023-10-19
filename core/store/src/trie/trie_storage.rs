@@ -234,6 +234,8 @@ impl TrieCache {
     pub fn new(config: &TrieConfig, shard_uid: ShardUId, is_view: bool) -> Self {
         let cache_config =
             if is_view { &config.view_shard_cache_config } else { &config.shard_cache_config };
+        // TODO(jbajic) ShardUId optional since the size of the contract cache should not depend
+        // on the shard id
         let total_size_limit = cache_config
             .per_shard_max_bytes
             .get(&shard_uid)
