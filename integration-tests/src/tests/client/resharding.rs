@@ -522,11 +522,13 @@ impl TestReshardingEnv {
         let block = env.clients[0].chain.get_block(&head.prev_block_hash).unwrap();
         let prev_prev_hash = block.header().prev_hash();
 
+        println!("HEAD = {} {} {}", head.height, head.last_block_hash, head.prev_block_hash);
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             if chunk_header.height_included() != block.header().height() {
                 continue;
             }
             let shard_id = shard_id as ShardId;
+            println!("SHARD {shard_id}");
 
             for (i, me) in env.validators.iter().enumerate() {
                 let client = &mut env.clients[i];
@@ -535,6 +537,7 @@ impl TestReshardingEnv {
                 if !care_about_shard {
                     continue;
                 }
+                println!("VAL {me}");
 
                 let outgoing_receipts = client
                     .chain
@@ -801,7 +804,7 @@ fn generate_create_accounts_txs(
 }
 
 fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_seed: u64) {
-    init_test_logger();
+    // init_test_logger();
     tracing::info!(target: "test", "test_shard_layout_upgrade_simple_impl starting");
 
     let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
