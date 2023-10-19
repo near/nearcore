@@ -11,7 +11,6 @@ use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{AccountId, ShardId};
-use tracing::info;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -389,8 +388,6 @@ struct TrieCacheInnerMetrics {
     shard_cache_too_large: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_size: GenericGauge<prometheus::core::AtomicI64>,
     shard_cache_current_total_size: GenericGauge<prometheus::core::AtomicI64>,
-    contract_cache_hits: GenericCounter<prometheus::core::AtomicU64>,
-    contract_cache_misses: GenericCounter<prometheus::core::AtomicU64>,
     prefetch_hits: GenericCounter<prometheus::core::AtomicU64>,
     prefetch_pending: GenericCounter<prometheus::core::AtomicU64>,
     prefetch_not_requested: GenericCounter<prometheus::core::AtomicU64>,
@@ -421,10 +418,6 @@ impl TrieCachingStorage {
             shard_cache_size: metrics::SHARD_CACHE_SIZE.with_label_values(&metrics_labels),
             shard_cache_current_total_size: metrics::SHARD_CACHE_CURRENT_TOTAL_SIZE
                 .with_label_values(&metrics_labels),
-            contract_cache_hits: metrics::CONTRACT_CACHE_HITS
-                .with_label_values(&metrics_labels[..1]),
-            contract_cache_misses: metrics::CONTRACT_CACHE_MISSES
-                .with_label_values(&metrics_labels[..1]),
             prefetch_hits: metrics::PREFETCH_HITS.with_label_values(&metrics_labels[..1]),
             prefetch_pending: metrics::PREFETCH_PENDING.with_label_values(&metrics_labels[..1]),
             prefetch_not_requested: metrics::PREFETCH_NOT_REQUESTED
@@ -457,121 +450,17 @@ impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(
         &self,
         hash: &CryptoHash,
-        account_id: Option<AccountId>,
+        _: Option<AccountId>,
     ) -> Result<Arc<[u8]>, StorageError> {
-        // First try to get data from contract specific cache
-        // The variable serves as a way to no save the same value in both shard and contract
-        // specific cache
-        let mut use_contract_cache = false;
-        let mut val = None;
-        if let Some(acc_id) = account_id {
-            info!("Account data is: contract = {}", acc_id);
-            let maybe_contract_cache = self.contract_shard_cache.get(acc_id.as_str());
-            if let Some(contract_cache) = maybe_contract_cache {
-                info!("Account data is hashed: contract = {}", acc_id);
-                use_contract_cache = true;
-                let mut guard = contract_cache.lock();
-                val = match guard.get(hash) {
-                    Some(val) => {
-                        self.metrics.contract_cache_hits.inc();
-                        near_o11y::io_trace!(count: "shard_cache_hit");
-                        Some(val)
-                    }
-                    None => {
-                        self.metrics.contract_cache_misses.inc();
-                        near_o11y::io_trace!(count: "shard_cache_miss");
-                        let val;
-                        if let Some(prefetcher) = &self.prefetch_api {
-                            let prefetch_state = prefetcher.prefetching.get_or_set_fetching(*hash);
-                            // Keep lock until here to avoid race condition between shard cache lookup and reserving prefetch slot.
-                            std::mem::drop(guard);
-
-                            val = match prefetch_state {
-                                // Slot reserved for us, the main thread.
-                                // `SlotReserved` for the main thread means, either we have not submitted a prefetch request for
-                                // this value, or maybe it is just still queued up. Either way, prefetching is not going to help
-                                // so the main thread should fetch data from DB on its own.
-                                PrefetcherResult::SlotReserved => {
-                                    self.metrics.prefetch_not_requested.inc();
-                                    self.read_from_db(hash)?
-                                }
-                                // `MemoryLimitReached` is not really relevant for the main thread,
-                                // we always have to go to DB even if we could not stage a new prefetch.
-                                // It only means we were not able to mark it as already being fetched, which in turn could lead to
-                                // a prefetcher trying to fetch the same value before we can put it in the shard cache.
-                                PrefetcherResult::MemoryLimitReached => {
-                                    self.metrics.prefetch_memory_limit_reached.inc();
-                                    self.read_from_db(hash)?
-                                }
-                                PrefetcherResult::Prefetched(value) => {
-                                    near_o11y::io_trace!(count: "prefetch_hit");
-                                    self.metrics.prefetch_hits.inc();
-                                    value
-                                }
-                                PrefetcherResult::Pending => {
-                                    near_o11y::io_trace!(count: "prefetch_pending");
-                                    self.metrics.prefetch_pending.inc();
-                                    std::thread::yield_now();
-                                    // If data is already being prefetched, wait for that instead of sending a new request.
-                                    match prefetcher.prefetching.blocking_get(*hash) {
-                                        Some(value) => value,
-                                        // Only main thread (this one) removes values from staging area,
-                                        // therefore blocking read will usually not return empty unless there
-                                        // was a storage error. Or in the case of forks and parallel chunk
-                                        // processing where one chunk cleans up prefetched data from the other.
-                                        // So first we need to check if the data was inserted to shard_cache
-                                        // by the main thread from another fork and only if that fails then
-                                        // fetch the data from the DB.
-                                        None => {
-                                            if let Some(value) = contract_cache.get(hash) {
-                                                self.metrics.prefetch_conflict.inc();
-                                                value
-                                            } else {
-                                                self.metrics.prefetch_retry.inc();
-                                                self.read_from_db(hash)?
-                                            }
-                                        }
-                                    }
-                                }
-                            };
-                        } else {
-                            std::mem::drop(guard);
-                            val = self.read_from_db(hash)?;
-                        }
-
-                        // Insert value to contract cache, if its size is small enough.
-                        // It is fine to have a size limit for contract cache and **not** have a limit for accounting cache, because key
-                        // is always a value hash, so for each key there could be only one value, and it is impossible to have
-                        // **different** values for the given key in shard and accounting caches.
-                        // TODO(jbajic): Do we want a limit for specific contract cache
-                        if val.len() < TrieConfig::max_cached_value_size() {
-                            let mut guard = contract_cache.lock();
-                            guard.put(*hash, val.clone());
-                        } else {
-                            self.metrics.shard_cache_too_large.inc();
-                            near_o11y::io_trace!(count: "contract_cache_too_large");
-                        }
-
-                        if let Some(prefetcher) = &self.prefetch_api {
-                            // Only release after insertion in contract cache. See comment on fn release.
-                            prefetcher.prefetching.release(hash);
-                        }
-
-                        Some(val)
-                    }
-                };
-            }
-        }
         // Try to get value from shard cache containing most recently touched nodes.
-        if !use_contract_cache {
             let mut guard = self.shard_cache.lock();
             self.metrics.shard_cache_size.set(guard.len() as i64);
             self.metrics.shard_cache_current_total_size.set(guard.current_total_size() as i64);
-            val = match guard.get(hash) {
+            let val = match guard.get(hash) {
                 Some(val) => {
                     self.metrics.shard_cache_hits.inc();
                     near_o11y::io_trace!(count: "shard_cache_hit");
-                    Some(val)
+                    val
                 }
                 None => {
                     self.metrics.shard_cache_misses.inc();
@@ -652,12 +541,10 @@ impl TrieStorage for TrieCachingStorage {
                         prefetcher.prefetching.release(hash);
                     }
 
-                    Some(val)
+                    val
                 }
             };
-        }
-
-        Ok(val.unwrap())
+        Ok(val)
     }
 
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
