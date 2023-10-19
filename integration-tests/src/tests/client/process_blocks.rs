@@ -3178,6 +3178,7 @@ fn test_fork_receipt_ids() {
     let mut next_height = last_height + 3;
 
     // Process two blocks on two different forks that contain the same chunk.
+    // Reverse block order to additionally check that both outcomes are recorded.
     for (height, block) in
         vec![(last_height + 2, &mut block2), (last_height + 1, &mut block1)].into_iter()
     {
@@ -3235,6 +3236,7 @@ fn test_fork_execution_outcome() {
 
     // TODO: ABSTRACT BLOCK HACKING AWAY
     // Process two blocks on two different forks that contain the same chunk.
+    // Reverse block order to additionally check that both outcomes are recorded.
     for (height, block) in
         vec![(last_height + 2, &mut block2), (last_height + 1, &mut block1)].into_iter()
     {
