@@ -36,7 +36,7 @@ use near_network::types::{
 };
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network::types::{PeerInfo, PeerType};
-use near_o11y::{WithSpanContext, WithSpanContextExt};
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
@@ -155,7 +155,7 @@ pub fn setup(
         store,
         config.chunk_request_retry_period,
     );
-    let shards_manager_adapter = Arc::new(shards_manager_addr);
+    let shards_manager_adapter = Arc::new(shards_manager_addr.with_auto_span_context());
 
     let client = Client::new(
         config.clone(),
@@ -579,7 +579,7 @@ pub fn setup_mock_all_validators(
                                 target.account_id.as_ref().map(|s| s.clone()),
                                 drop_chunks,
                                 |c| {
-                                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest { partial_encoded_chunk_request: request.clone(), route_back: my_address }.with_span_context());
+                                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest { partial_encoded_chunk_request: request.clone(), route_back: my_address });
                                 },
                             );
                         }
@@ -590,7 +590,7 @@ pub fn setup_mock_all_validators(
                                 route_back,
                                 drop_chunks,
                                 |c| {
-                                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse { partial_encoded_chunk_response: response.clone(), received_time: Instant::now() }.with_span_context());
+                                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse { partial_encoded_chunk_response: response.clone(), received_time: Instant::now() });
                                 },
                             );
                         }
@@ -604,7 +604,7 @@ pub fn setup_mock_all_validators(
                                 account_id.clone(),
                                 drop_chunks,
                                 |c| {
-                                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk.clone().into()).with_span_context());
+                                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk.clone().into()));
                                 },
                             );
                         }
@@ -615,7 +615,7 @@ pub fn setup_mock_all_validators(
                                 account_id.clone(),
                                 drop_chunks,
                                 |c| {
-                                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward.clone()).with_span_context());
+                                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward.clone()));
                                 }
                             );
                         }
@@ -1070,14 +1070,12 @@ pub fn setup_client_with_synchronous_shards_manager(
 /// A combined trait bound for both the client side and network side of the ShardsManager API.
 #[derive(Clone, derive_more::AsRef)]
 pub struct ShardsManagerAdapterForTest {
-    pub client: Sender<WithSpanContext<ShardsManagerRequestFromClient>>,
-    pub network: Sender<WithSpanContext<ShardsManagerRequestFromNetwork>>,
+    pub client: Sender<ShardsManagerRequestFromClient>,
+    pub network: Sender<ShardsManagerRequestFromNetwork>,
 }
 
-impl<
-        A: CanSend<WithSpanContext<ShardsManagerRequestFromClient>>
-            + CanSend<WithSpanContext<ShardsManagerRequestFromNetwork>>,
-    > From<Arc<A>> for ShardsManagerAdapterForTest
+impl<A: CanSend<ShardsManagerRequestFromClient> + CanSend<ShardsManagerRequestFromNetwork>>
+    From<Arc<A>> for ShardsManagerAdapterForTest
 {
     fn from(arc: Arc<A>) -> Self {
         Self { client: arc.as_sender(), network: arc.as_sender() }

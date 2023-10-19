@@ -27,9 +27,7 @@ use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as 
 use lru::LruCache;
 use near_async::time;
 use near_crypto::Signature;
-use near_o11y::{
-    handler_debug_span, log_assert, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt,
-};
+use near_o11y::{handler_debug_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -941,8 +939,7 @@ impl PeerActor {
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
                         partial_encoded_chunk_request: request,
                         route_back: msg_hash,
-                    }
-                    .with_span_context(),
+                    },
                 );
                 None
             }
@@ -951,23 +948,20 @@ impl PeerActor {
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
                         partial_encoded_chunk_response: response,
                         received_time: clock.now().into(),
-                    }
-                    .with_span_context(),
+                    },
                 );
                 None
             }
             RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
-                network_state.shards_manager_adapter.send(
-                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(chunk)
-                        .with_span_context(),
-                );
+                network_state
+                    .shards_manager_adapter
+                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(chunk));
                 None
             }
             RoutedMessageBody::PartialEncodedChunkForward(msg) => {
-                network_state.shards_manager_adapter.send(
-                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg)
-                        .with_span_context(),
-                );
+                network_state
+                    .shards_manager_adapter
+                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg));
                 None
             }
             RoutedMessageBody::ReceiptOutcomeRequest(_) => {
