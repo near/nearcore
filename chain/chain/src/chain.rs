@@ -3934,6 +3934,7 @@ impl Chain {
         mut state_patch: SandboxStatePatch,
         invalid_chunks: &mut Vec<ShardChunkHeader>,
     ) -> Result<(), Error> {
+        println!("validate_chunks {} {}", block.header().height(), prev_block.header().height());
         let _span = tracing::debug_span!(target: "chain", "validate_chunks").entered();
         let prev_hash = block.header().prev_hash();
 
