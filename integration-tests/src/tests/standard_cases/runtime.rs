@@ -113,16 +113,18 @@ fn test_send_money_runtime() {
     test_send_money(node);
 }
 
+// TODO add corresponding test for ETH-implicit account
 #[test]
-fn test_transfer_tokens_implicit_account_runtime() {
+fn test_transfer_tokens_near_implicit_account_runtime() {
     let node = create_runtime_node();
-    transfer_tokens_implicit_account(node);
+    transfer_tokens_near_implicit_account(node);
 }
 
+// TODO add corresponding test for ETH-implicit account
 #[test]
-fn test_trying_to_create_implicit_account_runtime() {
+fn test_trying_to_create_near_implicit_account_runtime() {
     let node = create_runtime_node();
-    trying_to_create_implicit_account(node);
+    trying_to_create_near_implicit_account(node);
 }
 
 #[test]

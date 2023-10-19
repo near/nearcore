@@ -508,7 +508,8 @@ impl Scope {
         for x in b'0'..=b'9' {
             chars.push(x);
         }
-        for _ in 0..64 {
+        let len: u32 = if u.arbitrary::<bool>()? { 64 } else { 40 };
+        for _ in 0..len {
             new_id_vec.push(*u.choose(&chars)?);
         }
         let new_id = String::from_utf8(new_id_vec).unwrap();

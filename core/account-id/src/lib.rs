@@ -127,9 +127,33 @@ impl AccountId {
     /// assert!(!alice_app.is_sub_account_of(&near_tla));
     /// ```
     pub fn is_sub_account_of(&self, parent: &AccountId) -> bool {
+        // TODO must be !self.is_ximplicit() ?
         self.strip_suffix(parent.as_str())
             .and_then(|s| s.strip_suffix('.'))
             .map_or(false, |s| !s.contains('.'))
+    }
+
+    // TODO change docs
+    /// Returns `true` if the `AccountId` is a 40 characters long hexadecimal, possibly with capital letters.
+    ///
+    /// See [Implicit-Accounts](https://docs.near.org/docs/concepts/account#implicit-accounts).
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use near_account_id::AccountId;
+    ///
+    /// let alice: AccountId = "alice.near".parse().unwrap();
+    /// assert!(!alice.is_eth());
+    ///
+    /// let rando = "b794f5eA0ba39494ce839613FFfba74279579268"
+    ///     .parse::<AccountId>()
+    ///     .unwrap();
+    /// assert!(rando.is_eth());
+    /// ```
+    pub fn is_eth(&self) -> bool {
+        self.len() == 40
+            && self.as_bytes().iter().all(|b| matches!(b, b'a'..=b'f' | b'A'..=b'F' | b'0'..=b'9'))
     }
 
     /// Returns `true` if the `AccountId` is a 64 characters long hexadecimal.
@@ -142,15 +166,20 @@ impl AccountId {
     /// use near_account_id::AccountId;
     ///
     /// let alice: AccountId = "alice.near".parse().unwrap();
-    /// assert!(!alice.is_implicit());
+    /// assert!(!alice.is_near_implicit());
     ///
     /// let rando = "98793cd91a3f870fb126f66285808c7e094afcfc4eda8a970f6648cdf0dbd6de"
     ///     .parse::<AccountId>()
     ///     .unwrap();
-    /// assert!(rando.is_implicit());
+    /// assert!(rando.is_near_implicit());
     /// ```
-    pub fn is_implicit(&self) -> bool {
+    pub fn is_near_implicit(&self) -> bool {
         self.len() == 64 && self.as_bytes().iter().all(|b| matches!(b, b'a'..=b'f' | b'0'..=b'9'))
+    }
+
+    /// Returns `true` if this `AccountId` is either NEAR implicit address or ETH-format address.
+    pub fn is_ximplicit(&self) -> bool {
+        self.is_near_implicit() || self.is_eth()
     }
 
     /// Returns `true` if this `AccountId` is the system account.
@@ -401,7 +430,7 @@ impl<'a> arbitrary::Arbitrary<'a> for AccountId {
 mod tests {
     use super::*;
 
-    pub const OK_ACCOUNT_IDS: [&str; 24] = [
+    pub const OK_ACCOUNT_IDS: [&str; 25] = [
         "aa",
         "a-a",
         "a-aa",
@@ -425,6 +454,7 @@ mod tests {
         "b-o_w_e-n",
         "no_lols",
         "0123456789012345678901234567890123456789012345678901234567890123",
+        "b794f5eA0ba39494ce839613FFfba74279579268",
         // Valid, but can't be created
         "near.a",
     ];
@@ -680,6 +710,7 @@ mod tests {
         }
     }
 
+    // TODO add corresponding test for 40 len hex ETH accounts
     #[test]
     fn test_is_account_id_64_len_hex() {
         let valid_64_len_hex_account_ids = &[
@@ -693,7 +724,7 @@ mod tests {
             assert!(
                 matches!(
                     valid_account_id.parse::<AccountId>(),
-                    Ok(account_id) if account_id.is_implicit()
+                    Ok(account_id) if account_id.is_near_implicit()
                 ),
                 "Account ID {} should be valid 64-len hex",
                 valid_account_id
@@ -712,7 +743,7 @@ mod tests {
             assert!(
                 !matches!(
                     invalid_account_id.parse::<AccountId>(),
-                    Ok(account_id) if account_id.is_implicit()
+                    Ok(account_id) if account_id.is_near_implicit()
                 ),
                 "Account ID {} is not an implicit account",
                 invalid_account_id

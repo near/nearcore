@@ -327,7 +327,8 @@ pub fn test_send_money(node: impl Node) {
     );
 }
 
-pub fn transfer_tokens_implicit_account(node: impl Node) {
+// TODO add coresponding method for ETH-implicit account
+pub fn transfer_tokens_near_implicit_account(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
@@ -382,7 +383,8 @@ pub fn transfer_tokens_implicit_account(node: impl Node) {
     assert_eq!((amount, locked), (tokens_used * 2, 0));
 }
 
-pub fn trying_to_create_implicit_account(node: impl Node) {
+// TODO add coresponding method for ETH-implicit account
+pub fn trying_to_create_near_implicit_account(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();

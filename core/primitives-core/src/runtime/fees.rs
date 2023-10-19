@@ -203,28 +203,35 @@ impl StorageUsageConfig {
 
 /// Helper functions for computing Transfer fees.
 /// In case of implicit account creation they always include extra fees for the CreateAccount and
-/// AddFullAccessKey actions that are implicit.
+/// AddFullAccessKey (except ETH-implicit account) actions that are implicit.
 /// We can assume that no overflow will happen here.
-pub fn transfer_exec_fee(cfg: &RuntimeFeesConfig, is_receiver_implicit: bool) -> Gas {
+pub fn transfer_exec_fee(
+    cfg: &RuntimeFeesConfig,
+    is_receiver_implicit: bool,
+    is_receiver_eth: bool,
+) -> Gas {
+    let mut result = cfg.fee(ActionCosts::transfer).exec_fee();
     if is_receiver_implicit {
-        cfg.fee(ActionCosts::create_account).exec_fee()
-            + cfg.fee(ActionCosts::add_full_access_key).exec_fee()
-            + cfg.fee(ActionCosts::transfer).exec_fee()
-    } else {
-        cfg.fee(ActionCosts::transfer).exec_fee()
+        result += cfg.fee(ActionCosts::create_account).exec_fee();
+        if !is_receiver_eth {
+            result += cfg.fee(ActionCosts::add_full_access_key).exec_fee();
+        }
     }
+    result
 }
 
 pub fn transfer_send_fee(
     cfg: &RuntimeFeesConfig,
     sender_is_receiver: bool,
     is_receiver_implicit: bool,
+    is_receiver_eth: bool,
 ) -> Gas {
+    let mut result = cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
     if is_receiver_implicit {
-        cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
-            + cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
-            + cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver)
-    } else {
-        cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver)
+        result += cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver);
+        if !is_receiver_eth {
+            result += cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver);
+        }
     }
+    result
 }

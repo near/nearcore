@@ -56,6 +56,7 @@ class InitSweat(FunctionCall):
     def __init__(self, sweat_account: Account):
         super().__init__(sweat_account, sweat_account.key.account_id, "new")
 
+    # TODO How does Sweat contract would work with ETH-implicit accounts
     def args(self) -> dict:
         # Technical details about Sweat contract initialization:
         #

@@ -97,11 +97,13 @@ pub fn map_account(
     account_id: &AccountId,
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
 ) -> AccountId {
-    if account_id.is_implicit() {
-        let public_key = PublicKey::from_implicit_account(account_id).expect("must be implicit");
+    if account_id.is_near_implicit() {
+        let public_key =
+            PublicKey::from_near_implicit_account(account_id).expect("must be implicit");
         let mapped_key = map_key(&public_key, secret);
         hex::encode(mapped_key.public_key().key_data()).parse().unwrap()
     } else {
+        // TODO what if it is ETH-implicit?
         account_id.clone()
     }
 }

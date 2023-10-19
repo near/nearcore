@@ -112,11 +112,12 @@ fn test_transaction_hash_collision() {
     );
 }
 
+// TODO add corresponding method for ETH-implicit accounts?
 /// Helper for checking that duplicate transactions from implicit accounts are properly rejected.
 /// It creates implicit account, deletes it and creates again, so that nonce of the access
 /// key is updated. Then it tries to send tx from implicit account with invalid nonce, which
 /// should fail since the protocol upgrade.
-fn get_status_of_tx_hash_collision_for_implicit_account(
+fn get_status_of_tx_hash_collision_for_near_implicit_account(
     protocol_version: ProtocolVersion,
 ) -> ProcessTxResponse {
     let epoch_length = 100;
@@ -202,23 +203,25 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
     response
 }
 
+// TODO add corresponding test for ETH-implicit accounts?
 /// Test that duplicate transactions from implicit accounts are properly rejected.
 #[test]
-fn test_transaction_hash_collision_for_implicit_account_fail() {
+fn test_transaction_hash_collision_for_near_implicit_account_fail() {
     let protocol_version = ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version();
     assert_matches!(
-        get_status_of_tx_hash_collision_for_implicit_account(protocol_version),
+        get_status_of_tx_hash_collision_for_near_implicit_account(protocol_version),
         ProcessTxResponse::InvalidTx(InvalidTxError::InvalidNonce { .. })
     );
 }
 
+// TODO add corresponding test for ETH-implicit accounts?
 /// Test that duplicate transactions from implicit accounts are not rejected until protocol upgrade.
 #[test]
-fn test_transaction_hash_collision_for_implicit_account_ok() {
+fn test_transaction_hash_collision_for_near_implicit_account_ok() {
     let protocol_version =
         ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
     assert_matches!(
-        get_status_of_tx_hash_collision_for_implicit_account(protocol_version),
+        get_status_of_tx_hash_collision_for_near_implicit_account(protocol_version),
         ProcessTxResponse::ValidTx
     );
 }

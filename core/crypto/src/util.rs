@@ -96,16 +96,16 @@ impl<
 }
 
 impl PublicKey {
-    /// Create the implicit public key from an implicit account ID.
+    /// Create the implicit public key from an NEAR-implicit account ID.
     ///
-    /// Returns `ImplicitPublicKeyError::AccountIsNotImplicit` if the given
-    /// account id is not a valid implicit account ID.
-    /// See [`near_account_id::AccountId#is_implicit`] for the definition.
-    pub fn from_implicit_account(
+    /// Returns `ImplicitPublicKeyError::AccountIsNotNearImplicit` if the given
+    /// account id is not a valid NEAR-implicit account ID.
+    /// See [`near_account_id::AccountId#is_near_implicit`] for the definition.
+    pub fn from_near_implicit_account(
         account_id: &near_account_id::AccountId,
     ) -> Result<Self, ImplicitPublicKeyError> {
-        if !account_id.is_implicit() {
-            return Err(ImplicitPublicKeyError::AccountIsNotImplicit {
+        if !account_id.is_near_implicit() {
+            return Err(ImplicitPublicKeyError::AccountIsNotNearImplicit {
                 account_id: account_id.clone(),
             });
         }

@@ -448,10 +448,12 @@ pub(crate) fn action_implicit_account_creation_transfer(
             * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
     }
 
+    // TODO add support for creating ETH-implicit accounts
+
     // Invariant: The account_id is hex like (implicit account id).
     // It holds because in the only calling site, we've checked the permissions before.
-    // unwrap: Can only fail if `account_id` is not implicit.
-    let public_key = PublicKey::from_implicit_account(account_id).unwrap();
+    // unwrap: Can only fail if `account_id` is not NEAR-implicit.
+    let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
 
     *account = Some(Account::new(
         transfer.deposit,
@@ -883,14 +885,14 @@ pub(crate) fn check_account_existence(
                 .into());
             } else {
                 // TODO: this should be `config.implicit_account_creation`.
-                if config.wasm_config.implicit_account_creation && account_id.is_implicit() {
-                    // If the account doesn't exist and it's 64-length hex account ID, then you
+                if config.wasm_config.implicit_account_creation && account_id.is_ximplicit() {
+                    // If the account doesn't exist and it's implicit, then you
                     // should only be able to create it using single transfer action.
                     // Because you should not be able to add another access key to the account in
                     // the same transaction.
                     // Otherwise you can hijack an account without having the private key for the
                     // public key. We've decided to make it an invalid transaction to have any other
-                    // actions on the 64-length hex accounts.
+                    // actions on implicit hex accounts.
                     // The easiest way is to reject the `CreateAccount` action.
                     // See https://github.com/nearprotocol/NEPs/pull/71
                     return Err(ActionErrorKind::OnlyImplicitAccountCreationAllowed {
@@ -904,7 +906,7 @@ pub(crate) fn check_account_existence(
             if account.is_none() {
                 return if config.wasm_config.implicit_account_creation
                     && is_the_only_action
-                    && account_id.is_implicit()
+                    && account_id.is_ximplicit()
                     && !is_refund
                 {
                     // OK. It's implicit account creation.

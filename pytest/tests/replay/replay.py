@@ -194,6 +194,7 @@ if __name__ == '__main__':
                         help="Path of the new home directory")
     args = parser.parse_args()
 
+    # TODO support for ETH-implicit accounts?
     if args.operation == 'generate':
         if args.genesis:
             key_pair = generate_new_key()

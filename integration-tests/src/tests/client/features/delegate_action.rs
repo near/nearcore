@@ -15,7 +15,7 @@ use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, InvalidAccessKeyError, InvalidTxError,
     TxExecutionError,
 };
-use near_primitives::test_utils::{create_user_test_signer, implicit_test_account};
+use near_primitives::test_utils::{create_user_test_signer, near_implicit_test_account};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
@@ -133,8 +133,11 @@ fn check_meta_tx_execution(
         .get_access_key(&relayer, &PublicKey::from_seed(KeyType::ED25519, &relayer))
         .unwrap()
         .nonce;
-    let user_pubk = if sender.is_implicit() {
-        PublicKey::from_implicit_account(&sender).unwrap()
+    let user_pubk = if sender.is_near_implicit() {
+        PublicKey::from_near_implicit_account(&sender).unwrap()
+    } else if sender.is_eth() {
+        // TODO
+        panic!("check_meta_tx_execution for eth sender address");
     } else {
         PublicKey::from_seed(KeyType::ED25519, &sender)
     };
@@ -777,13 +780,14 @@ fn meta_tx_create_named_account() {
     node.view_account(&new_account).expect("failed looking up account");
 }
 
-/// Try creating an implicit account with `CreateAction` which is not allowed in
+// TODO add corresponding test for ETH-implicit account
+/// Try creating a NEAR-implicit account with `CreateAction` which is not allowed in
 /// or outside meta transactions and must fail with `OnlyImplicitAccountCreationAllowed`.
 #[test]
-fn meta_tx_create_implicit_account_fails() {
+fn meta_tx_create_near_implicit_account_fails() {
     let relayer = bob_account();
     let sender = alice_account();
-    let new_account: AccountId = implicit_test_account();
+    let new_account: AccountId = near_implicit_test_account();
     let node = RuntimeNode::new(&relayer);
 
     let actions = vec![Action::CreateAccount(CreateAccountAction {})];
@@ -798,6 +802,7 @@ fn meta_tx_create_implicit_account_fails() {
     ));
 }
 
+// TODO add corresponding test for ETH-implicit account
 /// Try creating an implicit account with a meta tx transfer and use the account
 /// in the same meta transaction.
 ///
@@ -808,7 +813,7 @@ fn meta_tx_create_implicit_account_fails() {
 fn meta_tx_create_and_use_implicit_account() {
     let relayer = bob_account();
     let sender = alice_account();
-    let new_account: AccountId = implicit_test_account();
+    let new_account: AccountId = near_implicit_test_account();
     let node = RuntimeNode::new(&relayer);
 
     // Check the account doesn't exist, yet. We will attempt creating it.
@@ -832,17 +837,18 @@ fn meta_tx_create_and_use_implicit_account() {
     ));
 }
 
-/// Creating an implicit account with a meta tx transfer and use the account in
+// TODO add corresponding test for ETH-implicit account
+/// Creating a NEAR-implicit account with a meta tx transfer and use the account in
 /// a second meta transaction.
 ///
 /// Creation through a meta tx should work as normal, it's just that the relayer
 /// pays for the storage and the user could delete the account and cash in,
 /// hence this workflow is not ideal from all circumstances.
 #[test]
-fn meta_tx_create_implicit_account() {
+fn meta_tx_create_near_implicit_account() {
     let relayer = bob_account();
     let sender = alice_account();
-    let new_account: AccountId = implicit_test_account();
+    let new_account: AccountId = near_implicit_test_account();
     let node = RuntimeNode::new(&relayer);
 
     // Check account doesn't exist, yet

@@ -53,7 +53,7 @@ pub use cli::MirrorCommand;
 enum DBCol {
     Misc,
     // This tracks nonces for Access Keys added by AddKey transactions
-    // or transfers to implicit accounts (not present in the genesis state).
+    // or transfers to NEAR-implicit accounts (not present in the genesis state).
     // For a given (account ID, public key), if we're preparing a transaction
     // and there's no entry in the DB, then the key was present in the genesis
     // state. Otherwise, we map tx nonces according to the values in this column.
@@ -989,7 +989,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     actions.push(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })));
                 }
                 Action::Transfer(_) => {
-                    if tx.receiver_id().is_implicit() && source_actions.len() == 1 {
+                    if tx.receiver_id().is_ximplicit() && source_actions.len() == 1 {
                         let target_account =
                             crate::key_mapping::map_account(tx.receiver_id(), self.secret.as_ref());
                         if !account_exists(&self.target_view_client, &target_account)
@@ -1001,7 +1001,8 @@ impl<T: ChainAccess> TxMirror<T> {
                                 )
                             })?
                         {
-                            let public_key = PublicKey::from_implicit_account(&target_account)
+                            // TODO handle eth-implicit account, no public key would be added to `nonce_updates`
+                            let public_key = PublicKey::from_near_implicit_account(&target_account)
                                 .expect("must be implicit");
                             nonce_updates.insert((target_account, public_key));
                         }

@@ -38,7 +38,7 @@ pub fn map_records<P: AsRef<Path>>(
                     public_key: replacement.public_key(),
                     access_key: access_key.clone(),
                 };
-                if !account_id.is_implicit()
+                if !account_id.is_ximplicit()
                     && access_key.permission == AccessKeyPermission::FullAccess
                 {
                     has_full_key.insert(account_id.clone());
@@ -48,7 +48,7 @@ pub fn map_records<P: AsRef<Path>>(
                 records_seq.serialize_element(&new_record).unwrap();
             }
             StateRecord::Account { account_id, .. } => {
-                if account_id.is_implicit() {
+                if account_id.is_near_implicit() {
                     *account_id = crate::key_mapping::map_account(&account_id, secret.as_ref());
                 } else {
                     accounts.insert(account_id.clone());
@@ -56,19 +56,21 @@ pub fn map_records<P: AsRef<Path>>(
                 records_seq.serialize_element(&r).unwrap();
             }
             StateRecord::Data { account_id, .. } => {
-                if account_id.is_implicit() {
+                if account_id.is_near_implicit() {
                     *account_id = crate::key_mapping::map_account(&account_id, secret.as_ref());
                 }
                 records_seq.serialize_element(&r).unwrap();
             }
             StateRecord::Contract { account_id, .. } => {
-                if account_id.is_implicit() {
+                if account_id.is_near_implicit() {
                     *account_id = crate::key_mapping::map_account(&account_id, secret.as_ref());
                 }
                 records_seq.serialize_element(&r).unwrap();
             }
             StateRecord::PostponedReceipt(receipt) => {
-                if receipt.predecessor_id.is_implicit() || receipt.receiver_id.is_implicit() {
+                if receipt.predecessor_id.is_near_implicit()
+                    || receipt.receiver_id.is_near_implicit()
+                {
                     receipt.predecessor_id =
                         crate::key_mapping::map_account(&receipt.predecessor_id, secret.as_ref());
                     receipt.receiver_id =
@@ -77,13 +79,15 @@ pub fn map_records<P: AsRef<Path>>(
                 records_seq.serialize_element(&r).unwrap();
             }
             StateRecord::ReceivedData { account_id, .. } => {
-                if account_id.is_implicit() {
+                if account_id.is_near_implicit() {
                     *account_id = crate::key_mapping::map_account(&account_id, secret.as_ref());
                 }
                 records_seq.serialize_element(&r).unwrap();
             }
             StateRecord::DelayedReceipt(receipt) => {
-                if receipt.predecessor_id.is_implicit() || receipt.receiver_id.is_implicit() {
+                if receipt.predecessor_id.is_near_implicit()
+                    || receipt.receiver_id.is_near_implicit()
+                {
                     receipt.predecessor_id =
                         crate::key_mapping::map_account(&receipt.predecessor_id, secret.as_ref());
                     receipt.receiver_id =

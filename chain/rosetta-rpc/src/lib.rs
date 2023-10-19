@@ -502,6 +502,7 @@ async fn construction_derive(
     let public_key: near_crypto::PublicKey = (&public_key)
         .try_into()
         .map_err(|_| errors::ErrorKind::InvalidInput("Invalid PublicKey".to_string()))?;
+    // TODO handle eth-implicit accounts
     let address = if let near_crypto::KeyType::ED25519 = public_key.key_type() {
         hex::encode(public_key.key_data())
     } else {

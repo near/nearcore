@@ -555,15 +555,18 @@ pub fn create_test_signer(account_name: &str) -> InMemoryValidatorSigner {
 /// Should be used only in tests.
 pub fn create_user_test_signer(account_name: &str) -> InMemorySigner {
     let account_id = account_name.parse().unwrap();
-    if account_id == implicit_test_account() {
+    // TODO add support for ETH-implicit test account
+    if account_id == near_implicit_test_account() {
         InMemorySigner::from_secret_key(account_id, implicit_test_account_secret())
     } else {
         InMemorySigner::from_seed(account_id, KeyType::ED25519, account_name)
     }
 }
 
+// TODO add eth_implicit_test_account
+
 /// A fixed implicit account for which tests can know the private key.
-pub fn implicit_test_account() -> AccountId {
+pub fn near_implicit_test_account() -> AccountId {
     "061b1dd17603213b00e1a1e53ba060ad427cef4887bd34a5e0ef09010af23b0a".parse().unwrap()
 }
 
