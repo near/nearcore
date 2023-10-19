@@ -8,7 +8,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, StateRoot};
 use near_primitives::types::{ShardId, StoreKey, StoreValue};
-use near_store::{flat::FlatStateChanges, ShardTries, TrieUpdate};
+use near_store::{flat::FlatStateChanges, DBCol, ShardTries, TrieUpdate};
 use nearcore::NightshadeRuntime;
 
 /// Object that updates the existing state. Combines all changes, commits them
@@ -173,6 +173,12 @@ impl SingleShardStorageMutator {
         let flat_state_changes = FlatStateChanges::from_state_changes(&raw_changes);
         flat_state_changes.apply_to_flat_state(&mut update, *shard_uid);
         tracing::info!(?shard_uid, num_changes = ?self.num_changes, "committing");
+        update.set_ser(
+            DBCol::Misc,
+            format!("SHARD_ID:{}", shard_uid.shard_id).as_bytes(),
+            &state_root,
+        )?;
+
         update.commit()?;
         tracing::info!(?shard_uid, "commit is done");
         Ok(state_root)

@@ -1,6 +1,7 @@
 use crate::single_shard_storage_mutator::SingleShardStorageMutator;
 use crate::storage_mutator::StorageMutator;
 use near_chain::types::Tip;
+use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode};
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
@@ -8,7 +9,6 @@ use near_mirror::key_mapping::{map_account, map_key};
 use near_o11y::default_subscriber_with_opentelemetry;
 use near_o11y::env_filter::make_env_filter;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
-use near_primitives::block::{Block, BlockHeader};
 use near_primitives::borsh;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -19,13 +19,16 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_account_key;
-use near_primitives::types::{AccountId, AccountInfo, NumBlocks, ShardId, StateRoot};
+use near_primitives::types::{
+    AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, ShardId, StateRoot,
+};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::db::RocksDB;
-use near_store::flat::store_helper;
 use near_store::flat::FlatStorageStatus;
+use near_store::flat::{store_helper, BlockInfo};
 use near_store::{
-    checkpoint_hot_storage_and_cleanup_columns, DBCol, Store, TrieDBStorage, TrieStorage, HEAD_KEY,
+    checkpoint_hot_storage_and_cleanup_columns, DBCol, Store, TrieDBStorage, TrieStorage,
+    FINAL_HEAD_KEY,
 };
 use nearcore::{load_config, open_storage, NearConfig, NightshadeRuntime, NEAR_BASE};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -57,6 +60,11 @@ pub struct ForkNetworkCommand {
 
 #[derive(clap::Subcommand)]
 enum SubCommand {
+    /// Prepares the DB for doing the modifications:
+    /// * Makes a snapshot.
+    /// * Finds and persists state roots.
+    Init(InitCmd),
+
     /// Creates a DB snapshot, then
     /// Updates the state to ensure every account has a full access key that is known to us.
     AmendAccessKeys(AmendAccessKeysCmd),
@@ -67,13 +75,19 @@ enum SubCommand {
     /// Creates a genesis file with the new validators.
     SetValidators(SetValidatorsCmd),
 
-    /// Drops DB columns other than State, FlatState and DbVersion.
-    DropColumns(DropColumnsCmd),
+    /// Drops unneeded columns.
+    Finalize(FinalizeCmd),
 
     /// Recovers from a snapshot.
     /// Deletes the snapshot.
     Reset(ResetCmd),
 }
+
+#[derive(clap::Parser)]
+struct InitCmd;
+
+#[derive(clap::Parser)]
+struct FinalizeCmd;
 
 #[derive(clap::Parser)]
 struct AmendAccessKeysCmd {
@@ -96,21 +110,42 @@ struct SetValidatorsCmd {
 }
 
 #[derive(clap::Parser)]
-struct DropColumnsCmd;
-
-#[derive(clap::Parser)]
 struct ResetCmd;
 
 #[derive(Deserialize)]
 struct Validator {
     account_id: AccountId,
     public_key: PublicKey,
+    balance: Option<Balance>,
 }
 
 type MakeSingleShardStorageMutatorFn =
     Arc<dyn Fn(ShardId, StateRoot) -> anyhow::Result<SingleShardStorageMutator> + Send + Sync>;
 
 impl ForkNetworkCommand {
+    pub fn run(
+        self,
+        home_dir: &Path,
+        genesis_validation: GenesisValidationMode,
+        verbose_target: Option<&str>,
+        o11y_opts: &near_o11y::Options,
+    ) -> anyhow::Result<()> {
+        // Load config and check flat storage param
+        let mut near_config = load_config(home_dir, genesis_validation)
+            .unwrap_or_else(|e| panic!("Error loading config: {e:#}"));
+
+        let sys = actix::System::new();
+        sys.block_on(async move {
+            self.run_impl(&mut near_config, verbose_target, o11y_opts, home_dir).await.unwrap();
+            actix::System::current().stop();
+        });
+        sys.run().unwrap();
+        tracing::info!("Waiting for RocksDB to gracefully shutdown");
+        RocksDB::block_until_all_instances_are_dropped();
+        tracing::info!("exit");
+        Ok(())
+    }
+
     async fn run_impl(
         self,
         near_config: &mut NearConfig,
@@ -136,6 +171,9 @@ impl ForkNetworkCommand {
         near_config.config.store.state_snapshot_enabled = false;
 
         match &self.command {
+            SubCommand::Init(InitCmd) => {
+                self.init(near_config, home_dir)?;
+            }
             SubCommand::AmendAccessKeys(AmendAccessKeysCmd { batch_size }) => {
                 self.amend_access_keys(*batch_size, near_config, home_dir)?;
             }
@@ -152,8 +190,8 @@ impl ForkNetworkCommand {
                     home_dir,
                 )?;
             }
-            SubCommand::DropColumns(DropColumnsCmd) => {
-                self.drop_columns(near_config, home_dir)?;
+            SubCommand::Finalize(FinalizeCmd) => {
+                self.finalize(near_config, home_dir)?;
             }
             SubCommand::Reset(ResetCmd) => {
                 self.reset(near_config, home_dir)?;
@@ -169,18 +207,67 @@ impl ForkNetworkCommand {
         store: Store,
         near_config: &NearConfig,
         home_dir: &Path,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
         let store_path =
             home_dir.join(near_config.config.store.path.clone().unwrap_or(PathBuf::from("data")));
         let fork_snapshot_path = store_path.join("fork-snapshot");
 
         if fork_snapshot_path.exists() && fork_snapshot_path.is_dir() {
             tracing::info!(?fork_snapshot_path, "Found a DB snapshot");
+            Ok(false)
         } else {
             tracing::info!(destination = ?fork_snapshot_path, "Creating snapshot of original DB");
             // checkpointing only hot storage, because cold storage will not be changed
             checkpoint_hot_storage_and_cleanup_columns(&store, &fork_snapshot_path, None)?;
+            Ok(true)
         }
+    }
+
+    fn init(&self, near_config: &mut NearConfig, home_dir: &Path) -> anyhow::Result<()> {
+        // Open storage with migration
+        let storage = open_storage(&home_dir, near_config).unwrap();
+        let store = storage.get_hot_store();
+        assert!(self.snapshot_db(store.clone(), near_config, home_dir)?);
+
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?.unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
+        let all_shard_uids = shard_layout.get_shard_uids();
+        let fork_head = get_fork_head(&all_shard_uids, store.clone())?;
+        tracing::info!(?fork_head);
+
+        let chain =
+            ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, false);
+
+        let map = chain.get_all_block_hashes_by_height(fork_head.height)?;
+        let (_, hashes) = (*map).iter().next().unwrap();
+        let block_hash = *hashes.iter().next().unwrap();
+        let header = chain.get_block_header(&block_hash)?;
+        let epoch_id = header.epoch_id();
+        let num_shards = shard_layout.num_shards();
+        let block_height = header.height();
+
+        let state_roots: Vec<StateRoot> = (0..num_shards)
+            .map(|shard_id| {
+                let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
+                let chunk_extra = chain.get_chunk_extra(&fork_head.hash, &shard_uid).unwrap();
+                *chunk_extra.state_root()
+            })
+            .collect();
+
+        let mut store_update = store.store_update();
+        store_update.set_ser(DBCol::Misc, b"EPOCH_ID", epoch_id)?;
+        store_update.set_ser(DBCol::Misc, b"BLOCK_HASH", &block_hash)?;
+        store_update.set(DBCol::Misc, b"BLOCK_HEIGHT", &block_height.to_le_bytes());
+        for (shard_id, state_root) in state_roots.iter().enumerate() {
+            store_update.set_ser(
+                DBCol::Misc,
+                format!("SHARD_ID:{shard_id}").as_bytes(),
+                state_root,
+            )?;
+        }
+        store_update.commit()?;
         Ok(())
     }
 
@@ -196,28 +283,18 @@ impl ForkNetworkCommand {
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
 
-        self.snapshot_db(store.clone(), near_config, home_dir)?;
+        let (prev_state_roots, prev_hash, epoch_id, _block_height) =
+            self.get_state_roots_and_hash(store.clone())?;
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
-        let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?.unwrap();
-        let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
-        let all_shard_uids = shard_layout.get_shard_uids();
-
-        let fork_head = get_fork_head(&all_shard_uids, store.clone())?;
-        tracing::info!(?fork_head);
-        let fork_head_block =
-            store.get_ser::<Block>(DBCol::Block, &borsh::to_vec(&fork_head).unwrap())?.unwrap();
-
+        let num_shards = prev_state_roots.len();
+        let all_shard_uids: Vec<ShardUId> = (0..num_shards)
+            .map(|shard_id| epoch_manager.shard_id_to_uid(shard_id as ShardId, &epoch_id).unwrap())
+            .collect();
         let runtime =
             NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager);
-        let prev_state_roots = fork_head_block
-            .chunks()
-            .iter()
-            .map(|chunk| chunk.prev_state_root())
-            .collect::<Vec<_>>();
 
-        let prev_hash = *fork_head_block.header().prev_hash();
         let make_storage_mutator: MakeSingleShardStorageMutatorFn =
             Arc::new(move |shard_id, prev_state_root| {
                 SingleShardStorageMutator::new(
@@ -254,36 +331,22 @@ impl ForkNetworkCommand {
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
 
-        self.snapshot_db(store.clone(), near_config, home_dir)?;
+        let (prev_state_roots, prev_hash, epoch_id, block_height) =
+            self.get_state_roots_and_hash(store.clone())?;
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
-        let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?.unwrap();
-        let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
-        let all_shard_uids = shard_layout.get_shard_uids();
-
-        let fork_head = get_fork_head(&all_shard_uids, store.clone())?;
-        tracing::info!(?fork_head);
-        let fork_head_block =
-            store.get_ser::<Block>(DBCol::Block, &borsh::to_vec(&fork_head).unwrap())?.unwrap();
 
         let runtime =
             NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone());
-        let prev_state_roots = fork_head_block
-            .chunks()
-            .iter()
-            .map(|chunk| chunk.prev_state_root())
-            .collect::<Vec<_>>();
 
-        let epoch_id = fork_head_block.header().epoch_id().clone();
-        let prev_hash = *fork_head_block.header().prev_hash();
         let runtime_config_store = RuntimeConfigStore::new(None);
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
 
         let storage_mutator = StorageMutator::new(
             epoch_manager.clone(),
             &runtime,
-            epoch_id,
+            epoch_id.clone(),
             prev_hash,
             prev_state_roots,
         )?;
@@ -294,8 +357,9 @@ impl ForkNetworkCommand {
         backup_genesis_file(home_dir, &near_config)?;
         self.make_and_write_genesis(
             epoch_length,
+            block_height,
             chain_id_suffix,
-            fork_head_block.header(),
+            &epoch_id,
             new_state_roots.clone(),
             new_validator_accounts.clone(),
             epoch_manager,
@@ -307,18 +371,16 @@ impl ForkNetworkCommand {
         Ok((new_state_roots, new_validator_accounts))
     }
 
-    fn drop_columns(&self, near_config: &mut NearConfig, home_dir: &Path) -> anyhow::Result<()> {
+    fn finalize(&self, near_config: &mut NearConfig, home_dir: &Path) -> anyhow::Result<()> {
         // Open storage with migration
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
 
-        tracing::info!(
-            "Delete all columns in the original DB other than DbVersion, State and FlatState"
-        );
+        tracing::info!("Delete unneeded columns in the original DB");
         let mut update = store.store_update();
         for col in DBCol::iter() {
             match col {
-                DBCol::DbVersion | DBCol::State | DBCol::FlatState => {}
+                DBCol::DbVersion | DBCol::Misc | DBCol::State | DBCol::FlatState => {}
                 _ => update.delete_all(col),
             }
         }
@@ -326,27 +388,23 @@ impl ForkNetworkCommand {
         Ok(())
     }
 
-    pub fn run(
-        self,
-        home_dir: &Path,
-        genesis_validation: GenesisValidationMode,
-        verbose_target: Option<&str>,
-        o11y_opts: &near_o11y::Options,
-    ) -> anyhow::Result<()> {
-        // Load config and check flat storage param
-        let mut near_config = load_config(home_dir, genesis_validation)
-            .unwrap_or_else(|e| panic!("Error loading config: {e:#}"));
-
-        let sys = actix::System::new();
-        sys.block_on(async move {
-            self.run_impl(&mut near_config, verbose_target, o11y_opts, home_dir).await.unwrap();
-            actix::System::current().stop();
-        });
-        sys.run().unwrap();
-        tracing::info!("Waiting for RocksDB to gracefully shutdown");
-        RocksDB::block_until_all_instances_are_dropped();
-        tracing::info!("exit");
-        Ok(())
+    fn get_state_roots_and_hash(
+        &self,
+        store: Store,
+    ) -> anyhow::Result<(Vec<StateRoot>, CryptoHash, EpochId, BlockHeight)> {
+        let epoch_id = EpochId(store.get_ser(DBCol::Misc, b"EPOCH_ID")?.unwrap());
+        let block_hash = store.get_ser(DBCol::Misc, b"BLOCK_HASH")?.unwrap();
+        let block_height = store.get(DBCol::Misc, b"BLOCK_HEIGHT")?.unwrap();
+        let block_height = u64::from_le_bytes(block_height.as_slice().try_into().unwrap());
+        let mut state_roots = vec![];
+        for (shard_id, item) in store.iter_prefix(DBCol::Misc, "SHARD_ID:".as_bytes()).enumerate() {
+            let (key, value) = item?;
+            let key = String::from_utf8(key.to_vec())?;
+            let state_root = borsh::from_slice(&value)?;
+            assert_eq!(key, format!("SHARD_ID:{shard_id}"));
+            state_roots.push(state_root);
+        }
+        Ok((state_roots, block_hash, epoch_id, block_height))
     }
 
     /// Checks that `~/.near/data/fork-snapshot/data` exists.
@@ -613,7 +671,7 @@ impl ForkNetworkCommand {
         for validator in new_validators.into_iter() {
             let validator_account = AccountInfo {
                 account_id: validator.account_id,
-                amount: 50_000 * NEAR_BASE,
+                amount: validator.balance.unwrap_or(50_000 * NEAR_BASE),
                 public_key: validator.public_key,
             };
             new_validator_accounts.push(validator_account.clone());
@@ -640,22 +698,23 @@ impl ForkNetworkCommand {
     fn make_and_write_genesis(
         &self,
         epoch_length: u64,
+        height: BlockHeight,
         chain_id_suffix: &str,
-        fork_head_header: &BlockHeader,
+        epoch_id: &EpochId,
         new_state_roots: Vec<StateRoot>,
         new_validator_accounts: Vec<AccountInfo>,
         epoch_manager: Arc<EpochManagerHandle>,
         home_dir: &Path,
         near_config: &NearConfig,
     ) -> anyhow::Result<()> {
-        let epoch_config = epoch_manager.get_epoch_config(&fork_head_header.epoch_id())?;
-        let epoch_info = epoch_manager.get_epoch_info(&fork_head_header.epoch_id())?;
+        let epoch_config = epoch_manager.get_epoch_config(epoch_id)?;
+        let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
         let original_config = near_config.genesis.config.clone();
 
         let new_config = GenesisConfig {
             chain_id: original_config.chain_id.clone() + chain_id_suffix,
-            genesis_height: fork_head_header.height(),
-            genesis_time: fork_head_header.timestamp(),
+            genesis_height: height,
+            genesis_time: chrono::Utc::now(),
             epoch_length,
             num_block_producer_seats: epoch_config.num_block_producer_seats,
             num_block_producer_seats_per_shard: epoch_config.num_block_producer_seats_per_shard,
@@ -710,25 +769,20 @@ fn backup_genesis_file_path(home_dir: &Path, genesis_file: &str) -> PathBuf {
 /// Returns hash of flat head.
 /// Checks that all shards have flat storage.
 /// Checks that flat heads of all shards match.
-fn get_fork_head(all_shard_uids: &[ShardUId], store: Store) -> anyhow::Result<CryptoHash> {
-    let mut flat_head: Option<CryptoHash> = None;
-    for shard_uid in all_shard_uids {
+fn get_fork_head(all_shard_uids: &[ShardUId], store: Store) -> anyhow::Result<BlockInfo> {
+    let flat_heads :Vec<BlockInfo> = all_shard_uids.iter().map(|shard_uid|{
         let flat_storage_status = store
-            .get_ser::<FlatStorageStatus>(DBCol::FlatStorageStatus, &shard_uid.to_bytes())?
+            .get_ser::<FlatStorageStatus>(DBCol::FlatStorageStatus, &shard_uid.to_bytes()).unwrap()
             .unwrap();
         if let FlatStorageStatus::Ready(ready) = &flat_storage_status {
-            let flat_head_for_this_shard = ready.flat_head.hash;
-            if let Some(hash) = flat_head {
-                if hash != flat_head_for_this_shard {
-                    panic!("Not all shards have the same flat head. Please reset the fork, and run the node for a little longer");
-                }
-            }
-            flat_head = Some(flat_head_for_this_shard);
+            ready.flat_head
         } else {
             panic!("Flat storage is not ready for shard {shard_uid}: {flat_storage_status:?}. Please reset the fork, and run the node for longer");
         }
-    }
-    Ok(flat_head.unwrap())
+    }).collect();
+    let flat_head = flat_heads[0];
+    assert!(flat_heads.iter().all(|x| x == &flat_head));
+    Ok(flat_head)
 }
 
 fn backup_genesis_file(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<()> {
