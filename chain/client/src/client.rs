@@ -2292,9 +2292,11 @@ impl Client {
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, &shard_uid) {
                 Ok(chunk_extra) => *chunk_extra.state_root(),
-                Err(_) => {
+                Err(e) => {
                     // Not being able to fetch a state root most likely implies that we haven't
                     //     caught up with the next epoch yet.
+                    // - not anymore! with our changes chunk extra may be missing
+                    println!("on process_tx_internal head={head} error: {e}");
                     if is_forwarded {
                         return Err(Error::Other("Node has not caught up yet".to_string()));
                     } else {
