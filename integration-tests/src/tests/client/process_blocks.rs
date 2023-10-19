@@ -3247,11 +3247,12 @@ fn test_fork_execution_outcome() {
         env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
 
         // ensure chunk execution!
-        let b2 = env.clients[0].produce_block_on(next_height, block.hash().clone())?.unwrap();
+        let b2 =
+            env.clients[0].produce_block_on(next_height, block.hash().clone()).unwrap().unwrap();
         env.clients[0].process_block_test(b2.clone().into(), Provenance::NONE).unwrap();
         next_height += 1;
 
-        let b3 = env.clients[0].produce_block_on(next_height, b2.hash().clone())?.unwrap();
+        let b3 = env.clients[0].produce_block_on(next_height, b2.hash().clone()).unwrap().unwrap();
         env.clients[0].process_block_test(b3.clone().into(), Provenance::NONE).unwrap();
         next_height += 1;
     }
