@@ -75,7 +75,6 @@ fn check_result<T, U>(
     match (actual, expected) {
         (Ok(actual), Ok(expected)) => Some((actual, expected)),
         (Err(VMLogicError::HostError(HostError::AltBn128InvalidInput { msg: err })), Err(msg)) => {
-            let err = err;
             assert!(err.contains(msg), "expected `{msg}` error, got {err}");
             None
         }

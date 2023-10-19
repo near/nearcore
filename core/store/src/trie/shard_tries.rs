@@ -1,12 +1,11 @@
-use crate::flat::FlatStorageManager;
+use crate::flat::{FlatStorageManager, FlatStorageStatus};
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
 use crate::{metrics, DBCol, PrefetchApi};
 use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
-use borsh::BorshSerialize;
-use near_primitives::borsh::maybestd::collections::HashMap;
+
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{self, ShardUId, ShardVersion};
@@ -14,6 +13,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 
@@ -351,6 +351,17 @@ impl ShardTries {
     ) -> StateRoot {
         self.apply_all_inner(trie_changes, shard_uid, true, store_update)
     }
+
+    /// Returns the status of the given shard of flat storage in the state snapshot.
+    /// `sync_prev_prev_hash` needs to match the block hash that identifies that snapshot.
+    pub fn get_snapshot_flat_storage_status(
+        &self,
+        sync_prev_prev_hash: CryptoHash,
+        shard_uid: ShardUId,
+    ) -> Result<FlatStorageStatus, StorageError> {
+        let (_store, manager) = self.get_state_snapshot(&sync_prev_prev_hash)?;
+        Ok(manager.get_flat_storage_status(shard_uid))
+    }
 }
 
 pub struct WrappedTrieChanges {
@@ -461,7 +472,7 @@ impl WrappedTrieChanges {
             store_update.set(
                 DBCol::StateChanges,
                 storage_key.as_ref(),
-                &change_with_trie_key.try_to_vec().expect("Borsh serialize cannot fail"),
+                &borsh::to_vec(&change_with_trie_key).expect("Borsh serialize cannot fail"),
             );
         }
     }

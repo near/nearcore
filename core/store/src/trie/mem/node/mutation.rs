@@ -3,7 +3,7 @@ use crate::trie::mem::flexible_data::encoding::RawDecoderMut;
 
 use super::encoding::{CommonHeader, NodeKind, NonLeafHeader};
 use super::{MemTrieNodePtr, MemTrieNodePtrMut};
-use borsh::BorshSerialize;
+
 use near_primitives::hash::{hash, CryptoHash};
 
 impl<'a> MemTrieNodePtrMut<'a> {
@@ -58,7 +58,7 @@ impl<'a> MemTrieNodePtrMut<'a> {
             NodeKind::Leaf => {}
             _ => {
                 let mut nonleaf = decoder.peek::<NonLeafHeader>();
-                nonleaf.hash = hash(&raw_trie_node_with_size.try_to_vec().unwrap());
+                nonleaf.hash = hash(&borsh::to_vec(&raw_trie_node_with_size).unwrap());
                 decoder.overwrite(nonleaf);
             }
         }

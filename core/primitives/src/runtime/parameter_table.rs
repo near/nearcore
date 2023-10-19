@@ -170,9 +170,10 @@ impl TryFrom<&ParameterValue> for VMKind {
 
     fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
         match value {
-            ParameterValue::String(v) => {
-                v.parse().map_err(|e| ValueConversionError::ParseVmKind(e, value.to_string()))
-            }
+            ParameterValue::String(v) => v
+                .parse()
+                .map(|v: VMKind| v.replace_with_wasmtime_if_unsupported())
+                .map_err(|e| ValueConversionError::ParseVmKind(e, value.to_string())),
             _ => {
                 Err(ValueConversionError::ParseType(std::any::type_name::<VMKind>(), value.clone()))
             }

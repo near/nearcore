@@ -1326,7 +1326,7 @@ impl ClientActor {
         self.info_helper.block_processed(
             gas_used,
             chunks_in_block as u64,
-            block.header().gas_price(),
+            block.header().next_gas_price(),
             block.header().total_supply(),
             last_final_block_height,
             last_final_ds_block_height,
@@ -1682,6 +1682,7 @@ impl ClientActor {
                         &self.state_split_scheduler,
                         &self.state_parts_client_arbiter.handle(),
                         use_colour,
+                        self.client.runtime_adapter.clone(),
                     )) {
                         StateSyncResult::InProgress => (),
                         StateSyncResult::RequestBlock => {

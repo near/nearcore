@@ -1362,7 +1362,7 @@ fn test_epoch_info_aggregator_reorg_beginning_of_epoch() {
 }
 
 fn count_missing_blocks(
-    epoch_manager: &mut EpochManager,
+    epoch_manager: &EpochManager,
     epoch_id: &EpochId,
     height_range: std::ops::Range<u64>,
     produced_heights: &[u64],
@@ -2207,7 +2207,7 @@ fn test_protocol_version_switch_with_many_seats() {
         validator_selection_config: Default::default(),
         validator_max_kickout_stake_perc: 100,
     };
-    let config = AllEpochConfig::new(false, epoch_config);
+    let config = AllEpochConfig::new(false, epoch_config, "test-chain");
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),

@@ -11,7 +11,6 @@ use elastic_array::ElasticArray16;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
 
-#[repr(u8)]
 #[derive(PartialEq, Eq, Clone, Copy, Debug, BorshSerialize, BorshDeserialize)]
 pub(crate) enum NodeKind {
     Leaf,
@@ -232,24 +231,27 @@ impl MemTrieNodeId {
         Self { pos: data.raw_offset() }
     }
 
-    /// Increments the refcount.
-    pub(crate) fn add_ref(&self, arena: &mut Arena) {
+    /// Increments the refcount, returning the new refcount.
+    pub(crate) fn add_ref(&self, arena: &mut Arena) -> u32 {
         let mut ptr = self.as_ptr_mut(arena.memory_mut());
         let mut decoder = ptr.decoder_mut();
         let mut header = decoder.peek::<CommonHeader>();
-        header.refcount += 1;
+        let new_refcount = header.refcount + 1;
+        header.refcount = new_refcount;
         decoder.overwrite(header);
+        new_refcount
     }
 
     /// Decrements the refcount, deallocating the node if it reaches zero.
-    pub(crate) fn remove_ref(&self, arena: &mut Arena) {
+    /// Returns the new refcount.
+    pub(crate) fn remove_ref(&self, arena: &mut Arena) -> u32 {
         let mut ptr = self.as_ptr_mut(arena.memory_mut());
         let mut decoder = ptr.decoder_mut();
         let mut header = decoder.peek::<CommonHeader>();
-        header.refcount -= 1;
-        let should_dealloc = header.refcount == 0;
+        let new_refcount = header.refcount - 1;
+        header.refcount = new_refcount;
         decoder.overwrite(header);
-        if should_dealloc {
+        if new_refcount == 0 {
             let mut children_to_unref = ElasticArray16::new();
             let node_ptr = self.as_ptr(arena.memory());
             for child in node_ptr.view().iter_children() {
@@ -261,6 +263,7 @@ impl MemTrieNodeId {
                 MemTrieNodeId { pos: *child }.remove_ref(arena);
             }
         }
+        new_refcount
     }
 }
 

@@ -3,7 +3,7 @@ use crate::tests::nearcore::node_cluster::NodeCluster;
 use actix::clock::sleep;
 use actix::{Actor, System};
 use assert_matches::assert_matches;
-use borsh::BorshSerialize;
+
 use futures::future::join_all;
 use futures::{future, FutureExt, TryFutureExt};
 use near_actix_test_utils::spawn_interruptible;
@@ -133,7 +133,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
         WaitOrTimeoutActor::new(
             Box::new(move |_ctx| {
                 let client = new_client(&format!("http://{}", rpc_addrs[0]));
-                let bytes = transaction.try_to_vec().unwrap();
+                let bytes = borsh::to_vec(&transaction).unwrap();
                 let view_client1 = view_client.clone();
                 spawn_interruptible(client.broadcast_tx_commit(to_base64(&bytes)).then(
                     move |res| {
@@ -378,7 +378,7 @@ fn test_tx_not_enough_balance_must_return_error() {
         );
 
         let client = new_client(&format!("http://{}", rpc_addrs[0]));
-        let bytes = transaction.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&transaction).unwrap();
 
         spawn_interruptible(async move {
             loop {
@@ -443,7 +443,7 @@ fn test_send_tx_sync_returns_transaction_hash() {
 
         let client = new_client(&format!("http://{}", rpc_addrs[0]));
         let tx_hash = transaction.get_hash();
-        let bytes = transaction.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&transaction).unwrap();
 
         spawn_interruptible(async move {
             loop {
@@ -492,7 +492,7 @@ fn test_send_tx_sync_to_lightclient_must_be_routed() {
 
         let client = new_client(&format!("http://{}", rpc_addrs[1]));
         let tx_hash = transaction.get_hash();
-        let bytes = transaction.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&transaction).unwrap();
 
         spawn_interruptible(async move {
             loop {
@@ -552,7 +552,7 @@ fn test_check_unknown_tx_must_return_error() {
 
         let client = new_client(&format!("http://{}", rpc_addrs[0]));
         let tx_hash = transaction.get_hash();
-        let bytes = transaction.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&transaction).unwrap();
 
         spawn_interruptible(async move {
             loop {

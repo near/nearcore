@@ -789,7 +789,7 @@ impl From<BlockHeader> for BlockHeaderView {
             } else {
                 None
             },
-            gas_price: header.gas_price(),
+            gas_price: header.next_gas_price(),
             rent_paid: 0,
             validator_reward: 0,
             total_supply: header.total_supply(),
@@ -838,7 +838,7 @@ impl From<BlockHeaderView> for BlockHeader {
                     random_value: view.random_value,
                     prev_validator_proposals: validator_proposals,
                     chunk_mask: view.chunk_mask,
-                    gas_price: view.gas_price,
+                    next_gas_price: view.gas_price,
                     total_supply: view.total_supply,
                     challenges_result: view.challenges_result,
                     last_final_block: view.last_final_block,
@@ -868,7 +868,7 @@ impl From<BlockHeaderView> for BlockHeader {
                     random_value: view.random_value,
                     prev_validator_proposals: validator_proposals,
                     chunk_mask: view.chunk_mask,
-                    gas_price: view.gas_price,
+                    next_gas_price: view.gas_price,
                     total_supply: view.total_supply,
                     challenges_result: view.challenges_result,
                     last_final_block: view.last_final_block,
@@ -897,7 +897,7 @@ impl From<BlockHeaderView> for BlockHeader {
                         .map(Into::into)
                         .collect(),
                     chunk_mask: view.chunk_mask,
-                    gas_price: view.gas_price,
+                    next_gas_price: view.gas_price,
                     block_ordinal: view.block_ordinal.unwrap_or(0),
                     total_supply: view.total_supply,
                     challenges_result: view.challenges_result,
@@ -930,7 +930,7 @@ impl From<BlockHeaderView> for BlockHeader {
                         .map(Into::into)
                         .collect(),
                     chunk_mask: view.chunk_mask,
-                    gas_price: view.gas_price,
+                    next_gas_price: view.gas_price,
                     block_ordinal: view.block_ordinal.unwrap_or(0),
                     total_supply: view.total_supply,
                     challenges_result: view.challenges_result,
@@ -2093,7 +2093,7 @@ impl LightClientBlockLiteView {
         let block_header_inner_lite: BlockHeaderInnerLite = self.inner_lite.clone().into();
         combine_hash(
             &combine_hash(
-                &hash(&block_header_inner_lite.try_to_vec().unwrap()),
+                &hash(&borsh::to_vec(&block_header_inner_lite).unwrap()),
                 &self.inner_rest_hash,
             ),
             &self.prev_block_hash,
@@ -2913,31 +2913,29 @@ impl From<ExtCostsConfigView> for near_primitives_core::config::ExtCostsConfig {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(not(feature = "nightly"))]
     use super::ExecutionMetadataView;
-    #[cfg(not(feature = "nightly"))]
     use crate::transaction::ExecutionMetadata;
-    #[cfg(not(feature = "nightly"))]
     use near_vm_runner::{ProfileDataV2, ProfileDataV3};
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
     #[test]
-    #[cfg(not(feature = "nightly"))]
+    #[cfg_attr(feature = "nightly", ignore)]
     fn test_runtime_config_view() {
         use crate::runtime::config::RuntimeConfig;
+        use crate::runtime::config_store::RuntimeConfigStore;
         use crate::views::RuntimeConfigView;
+        use near_primitives_core::version::PROTOCOL_VERSION;
 
-        // FIXME(#8202): This is snapshotting a config used for *tests*, rather than proper
-        // production configurations. That seems… subpar?
-        let config = RuntimeConfig::test();
-        let view = RuntimeConfigView::from(config);
+        let config_store = RuntimeConfigStore::new(None);
+        let config = config_store.get_config(PROTOCOL_VERSION);
+        let view = RuntimeConfigView::from(RuntimeConfig::clone(config));
         insta::assert_json_snapshot!(&view);
     }
 
     /// `ExecutionMetadataView` with profile V1 displayed on the RPC should not change.
     #[test]
-    #[cfg(not(feature = "nightly"))]
+    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v1_view() {
         let metadata = ExecutionMetadata::V1;
         let view = ExecutionMetadataView::from(metadata);
@@ -2946,7 +2944,7 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V2 displayed on the RPC should not change.
     #[test]
-    #[cfg(not(feature = "nightly"))]
+    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v2_view() {
         let metadata = ExecutionMetadata::V2(ProfileDataV2::test());
         let view = ExecutionMetadataView::from(metadata);
@@ -2955,7 +2953,7 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V3 displayed on the RPC should not change.
     #[test]
-    #[cfg(not(feature = "nightly"))]
+    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v3_view() {
         let metadata = ExecutionMetadata::V3(ProfileDataV3::test());
         let view = ExecutionMetadataView::from(metadata);

@@ -12,7 +12,7 @@ use near_primitives_core::hash::{hash, CryptoHash};
 use near_primitives_core::types::BlockHeight;
 use near_primitives_core::types::{AccountId, Nonce};
 use serde::{Deserialize, Serialize};
-use std::io::{Error, ErrorKind};
+use std::io::{Error, ErrorKind, Read};
 
 /// This is an index number of Action::Delegate in Action enumeration
 const ACTION_DELEGATE_NUMBER: u8 = 8;
@@ -71,7 +71,7 @@ impl DelegateAction {
     /// For more details, see: [NEP-461](https://github.com/near/NEPs/pull/461)
     pub fn get_nep461_hash(&self) -> CryptoHash {
         let signable = SignableMessage::new(&self, SignableMessageType::DelegateAction);
-        let bytes = signable.try_to_vec().expect("Failed to deserialize");
+        let bytes = borsh::to_vec(&signable).expect("Failed to deserialize");
         hash(&bytes)
     }
 }
@@ -116,9 +116,7 @@ mod private_non_delegate_action {
     }
 
     impl borsh::de::BorshDeserialize for NonDelegateAction {
-        fn deserialize_reader<R: borsh::maybestd::io::Read>(
-            rd: &mut R,
-        ) -> ::core::result::Result<Self, borsh::maybestd::io::Error> {
+        fn deserialize_reader<R: Read>(rd: &mut R) -> ::core::result::Result<Self, Error> {
             match u8::deserialize_reader(rd)? {
                 ACTION_DELEGATE_NUMBER => Err(Error::new(
                     ErrorKind::InvalidInput,
@@ -171,11 +169,11 @@ mod tests {
         // Expected an error. Buffer is empty
         assert_eq!(
             NonDelegateAction::try_from_slice(Vec::new().as_ref()).map_err(|e| e.kind()),
-            Err(ErrorKind::InvalidInput)
+            Err(ErrorKind::InvalidData)
         );
 
         let delegate_action = create_delegate_action(Vec::<Action>::new());
-        let serialized_non_delegate_action = delegate_action.try_to_vec().expect("Expect ok");
+        let serialized_non_delegate_action = borsh::to_vec(&delegate_action).expect("Expect ok");
 
         // Expected Action::Delegate has not been moved in enum Action
         assert_eq!(serialized_non_delegate_action[0], ACTION_DELEGATE_NUMBER);
@@ -189,7 +187,7 @@ mod tests {
 
         let delegate_action =
             create_delegate_action(vec![Action::CreateAccount(CreateAccountAction {})]);
-        let serialized_delegate_action = delegate_action.try_to_vec().expect("Expect ok");
+        let serialized_delegate_action = borsh::to_vec(&delegate_action).expect("Expect ok");
 
         // Valid action
         assert_eq!(
