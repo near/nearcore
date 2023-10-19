@@ -180,7 +180,7 @@ impl SingleShardStorageMutator {
         )?;
 
         update.commit()?;
-        tracing::info!(?shard_uid, "commit is done");
+        tracing::info!(?shard_uid, ?state_root, "Commit is done");
         Ok(state_root)
     }
 }

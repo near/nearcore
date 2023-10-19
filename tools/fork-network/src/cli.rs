@@ -256,6 +256,7 @@ impl ForkNetworkCommand {
             })
             .collect();
 
+        tracing::info!(?epoch_id, ?block_height, block_height, ?state_roots);
         let mut store_update = store.store_update();
         store_update.set_ser(DBCol::Misc, b"EPOCH_ID", epoch_id)?;
         store_update.set_ser(DBCol::Misc, b"BLOCK_HASH", &block_hash)?;
@@ -404,6 +405,7 @@ impl ForkNetworkCommand {
             assert_eq!(key, format!("SHARD_ID:{shard_id}"));
             state_roots.push(state_root);
         }
+        tracing::info!(?state_roots, ?block_hash, ?epoch_id, block_height);
         Ok((state_roots, block_hash, epoch_id, block_height))
     }
 
