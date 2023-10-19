@@ -59,7 +59,7 @@ impl StateSnaptshotTestEnv {
             trie_config,
             &shard_uids,
             flat_storage_manager,
-            Some(state_snapshot_config),
+            state_snapshot_config,
         );
         Self { home_dir, hot_store_path, state_snapshot_subdir, shard_tries }
     }

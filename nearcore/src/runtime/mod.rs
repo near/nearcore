@@ -127,7 +127,7 @@ impl NightshadeRuntime {
             trie_config,
             &genesis_config.shard_layout.get_shard_uids(),
             flat_storage_manager,
-            Some(state_snapshot_config),
+            state_snapshot_config,
         );
         if let Err(err) = tries.maybe_open_state_snapshot(|prev_block_hash: CryptoHash| {
             let epoch_manager = epoch_manager.read();
