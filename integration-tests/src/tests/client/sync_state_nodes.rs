@@ -553,10 +553,11 @@ fn sync_state_dump() {
 // The test actually fails and the code needs fixing.
 fn test_dump_epoch_missing_chunk_in_last_block() {
     heavy_test(|| {
-        init_test_logger();
+        // init_test_logger();
         let epoch_length = 10;
 
         for num_last_chunks_missing in 0..6 {
+            println!("num_last_chunks_missing {num_last_chunks_missing}");
             assert!(num_last_chunks_missing < epoch_length);
             let mut genesis =
                 Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -575,6 +576,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
             let target_height = epoch_length + 1;
             for i in 1..=target_height {
+                println!("h {i}");
                 let block = env.clients[0].produce_block(i).unwrap().unwrap();
                 blocks.push(block.clone());
                 if (i % epoch_length) != 0
