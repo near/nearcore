@@ -3171,15 +3171,18 @@ fn test_fork_receipt_ids() {
 
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
-    let next_height = produced_block.header().height() + 1;
-    let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], next_height);
-    let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
-    let mut block2 = env.clients[0].produce_block(next_height + 1).unwrap().unwrap();
+    let last_height = produced_block.header().height();
+    let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], last_height + 1);
+    let mut block1 = env.clients[0].produce_block(last_height + 1).unwrap().unwrap();
+    let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();
+    let mut next_height = last_height + 3;
 
     // Process two blocks on two different forks that contain the same chunk.
-    for (i, block) in vec![&mut block2, &mut block1].into_iter().enumerate() {
+    for (height, block) in
+        vec![(last_height + 2, &mut block2), (last_height + 1, &mut block1)].into_iter()
+    {
         let mut chunk_header = encoded_chunk.cloned_header();
-        *chunk_header.height_included_mut() = next_height - i as BlockHeight + 1;
+        *chunk_header.height_included_mut() = height;
         let chunk_headers = vec![chunk_header];
         block.set_chunks(chunk_headers.clone());
         block.mut_header().get_mut().inner_rest.chunk_headers_root =
@@ -3193,6 +3196,11 @@ fn test_fork_receipt_ids() {
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
         block.mut_header().resign(&validator_signer);
         env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
+
+        let b2 =
+            env.clients[0].produce_block_on(next_height, block.hash().clone()).unwrap().unwrap();
+        env.clients[0].process_block_test(b2.clone().into(), Provenance::NONE).unwrap();
+        next_height += 1;
     }
 
     let transaction_execution_outcome =
@@ -3227,7 +3235,7 @@ fn test_fork_execution_outcome() {
     // TODO: ABSTRACT BLOCK HACKING AWAY
     // Process two blocks on two different forks that contain the same chunk.
     for (height, block) in
-        vec![(last_height + 1, &mut block1), (last_height + 2, &mut block2)].into_iter()
+        vec![(last_height + 2, &mut block2), (last_height + 1, &mut block1)].into_iter()
     {
         eprintln!("{height}");
         let mut chunk_header = encoded_chunk.cloned_header();
@@ -3252,9 +3260,9 @@ fn test_fork_execution_outcome() {
         env.clients[0].process_block_test(b2.clone().into(), Provenance::NONE).unwrap();
         next_height += 1;
 
-        let b3 = env.clients[0].produce_block_on(next_height, b2.hash().clone()).unwrap().unwrap();
-        env.clients[0].process_block_test(b3.clone().into(), Provenance::NONE).unwrap();
-        next_height += 1;
+        // let b3 = env.clients[0].produce_block_on(next_height, b2.hash().clone()).unwrap().unwrap();
+        // env.clients[0].process_block_test(b3.clone().into(), Provenance::NONE).unwrap();
+        // next_height += 1;
     }
 
     let transaction_execution_outcome =
