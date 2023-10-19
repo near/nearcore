@@ -604,9 +604,9 @@ pub fn setup_mock_all_validators(
                                 account_id.clone(),
                                 drop_chunks,
                                 |c| {
-                                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk.clone().into()));
+                                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk.clone().into()).with_span_context());
                                 },
-                            ).with_span_context();
+                            );
                         }
                         NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                             send_chunks(
