@@ -3254,16 +3254,18 @@ fn test_fork_execution_outcome() {
         block.mut_header().resign(&validator_signer);
         env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
 
-        // ensure chunk execution!
-        let b2 =
-            env.clients[0].produce_block_on(next_height, block.hash().clone()).unwrap().unwrap();
-        env.clients[0].process_block_test(b2.clone().into(), Provenance::NONE).unwrap();
-        next_height += 1;
-
         // let b3 = env.clients[0].produce_block_on(next_height, b2.hash().clone()).unwrap().unwrap();
         // env.clients[0].process_block_test(b3.clone().into(), Provenance::NONE).unwrap();
         // next_height += 1;
     }
+
+    // ensure chunk execution!
+    let b3 = env.clients[0].produce_block_on(next_height, block1.hash().clone()).unwrap().unwrap();
+    next_height += 1;
+    let b4 = env.clients[0].produce_block_on(next_height, block2.hash().clone()).unwrap().unwrap();
+    next_height += 1;
+    env.clients[0].process_block_test(b4.clone().into(), Provenance::NONE).unwrap();
+    env.clients[0].process_block_test(b3.clone().into(), Provenance::NONE).unwrap();
 
     let transaction_execution_outcome =
         env.clients[0].chain.mut_store().get_outcomes_by_id(&tx_hash).unwrap();
