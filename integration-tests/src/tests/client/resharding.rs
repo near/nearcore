@@ -680,7 +680,8 @@ fn check_account(env: &TestEnv, account_id: &AccountId, block: &Block) {
         if !care_about_shard {
             continue;
         }
-        let chunk_extra = &client.chain.get_chunk_extra(block.hash(), &shard_uid).unwrap();
+        // state root should be taken from previous block now
+        let chunk_extra = &client.chain.get_chunk_extra(prev_hash, &shard_uid).unwrap();
         let state_root = *chunk_extra.state_root();
         client
             .runtime_adapter
@@ -689,6 +690,7 @@ fn check_account(env: &TestEnv, account_id: &AccountId, block: &Block) {
                 &state_root,
                 block.header().height(),
                 0,
+                // we are not even using block hashes to view accounts
                 prev_hash,
                 block.hash(),
                 block.header().epoch_id(),
@@ -704,6 +706,7 @@ fn check_account(env: &TestEnv, account_id: &AccountId, block: &Block) {
                     shard_uid,
                     &chunk.prev_state_root(),
                     block.header().height(),
+                    // we are not even using block hashes to view accounts
                     0,
                     block.header().prev_hash(),
                     block.hash(),
