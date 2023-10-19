@@ -83,6 +83,7 @@ fn test_invalid_chunk_state() {
         .build();
     env.produce_block(0, 1);
     let block_hash = env.clients[0].chain.get_block_hash_by_height(1).unwrap();
+    env.produce_block(0, 2);
 
     {
         let mut chunk_extra = ChunkExtra::clone(
@@ -96,7 +97,6 @@ fn test_invalid_chunk_state() {
         store_update.commit().unwrap();
     }
 
-    env.produce_block(0, 2);
     let block = env.clients[0].produce_block(3).unwrap().unwrap();
     let result = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     assert_matches!(result.unwrap_err(), Error::InvalidChunkState(_));
