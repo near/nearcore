@@ -517,9 +517,10 @@ impl TestReshardingEnv {
         let head = env.clients[0].chain.head().unwrap();
         let shard_layout = env.clients[0]
             .epoch_manager
-            .get_shard_layout_from_prev_block(&head.last_block_hash)
+            .get_shard_layout_from_prev_block(&head.prev_block_hash)
             .unwrap();
-        let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+        let block = env.clients[0].chain.get_block(&head.prev_block_hash).unwrap();
+        let prev_prev_hash = block.header().prev_hash();
 
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             if chunk_header.height_included() != block.header().height() {
@@ -529,12 +530,8 @@ impl TestReshardingEnv {
 
             for (i, me) in env.validators.iter().enumerate() {
                 let client = &mut env.clients[i];
-                let care_about_shard = client.shard_tracker.care_about_shard(
-                    Some(me),
-                    &head.prev_block_hash,
-                    shard_id,
-                    true,
-                );
+                let care_about_shard =
+                    client.shard_tracker.care_about_shard(Some(me), prev_prev_hash, shard_id, true);
                 if !care_about_shard {
                     continue;
                 }
@@ -542,7 +539,7 @@ impl TestReshardingEnv {
                 let outgoing_receipts = client
                     .chain
                     .mut_store()
-                    .get_outgoing_receipts(&head.last_block_hash, shard_id)
+                    .get_outgoing_receipts(&head.prev_block_hash, shard_id)
                     .unwrap()
                     .clone();
                 for receipt in outgoing_receipts.iter() {
