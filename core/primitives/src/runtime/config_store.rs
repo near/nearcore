@@ -44,7 +44,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
 pub static INITIAL_TESTNET_CONFIG: &str = include_config!("parameters_testnet.yaml");
 
 /// Stores runtime config for each protocol version where it was updated.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RuntimeConfigStore {
     /// Maps protocol version to the config.
     store: BTreeMap<ProtocolVersion, Arc<RuntimeConfig>>,

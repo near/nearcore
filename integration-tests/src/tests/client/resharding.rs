@@ -193,11 +193,11 @@ impl TestReshardingEnv {
         let env = TestEnv::builder(chain_genesis)
             .clients_count(num_clients)
             .validator_seats(num_validators)
+            .use_state_snapshots()
             .real_stores()
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
             .track_all_shards()
-            .use_state_snapshots()
             .build();
         assert_eq!(env.validators.len(), num_validators);
         Self {

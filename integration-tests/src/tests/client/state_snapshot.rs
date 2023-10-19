@@ -47,13 +47,14 @@ impl StateSnaptshotTestEnv {
         };
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         let shard_uids = [ShardUId::single_shard()];
-        let state_snapshot_config = StateSnapshotConfig::Enabled {
+        let state_snapshot_config = StateSnapshotConfig {
+            enabled: true,
             home_dir: home_dir.clone(),
             hot_store_path: hot_store_path.clone(),
             state_snapshot_subdir: state_snapshot_subdir.clone(),
             compaction_enabled: true,
         };
-        let shard_tries = ShardTries::new_with_state_snapshot(
+        let shard_tries = ShardTries::new(
             store.clone(),
             trie_config,
             &shard_uids,
@@ -191,10 +192,10 @@ fn test_make_state_snapshot() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let mut env = TestEnv::builder(ChainGenesis::test())
         .clients_count(1)
+        .use_state_snapshots()
         .real_stores()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
-        .use_state_snapshots()
         .build();
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
