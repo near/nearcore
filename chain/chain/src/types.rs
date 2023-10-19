@@ -337,6 +337,13 @@ pub trait RuntimeAdapter: Send + Sync {
         state_patch: SandboxStatePatch,
         use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
+        println!("APPLY {height}:");
+        for receipt in receipts {
+            println!("rx {}", receipt.receipt_id);
+        }
+        for tx in transactions {
+            println!("tx {}", tx.get_hash());
+        }
         let _timer =
             metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         self.apply_transactions_with_optional_storage_proof(

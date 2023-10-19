@@ -1261,8 +1261,10 @@ impl Runtime {
                 &mut stats,
             )?;
             if receipt.receiver_id == signed_transaction.transaction.signer_id {
+                println!("GEN LOCAL {}", receipt.receipt_id);
                 local_receipts.push(receipt);
             } else {
+                println!("GEN OUT {}", receipt.receipt_id);
                 outgoing_receipts.push(receipt);
             }
 
