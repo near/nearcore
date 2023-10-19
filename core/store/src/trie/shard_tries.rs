@@ -26,7 +26,7 @@ struct ShardTriesInner {
     trie_config: TrieConfig,
     /// Cache reserved for client actor to use
     caches: RwLock<HashMap<ShardUId, TrieCache>>,
-    /// Caches for specific contrats which cause a big spike in traffic
+    /// Caches for specific contracts which cause a big spike in traffic
     contract_caches: HashMap<&'static str, TrieCache>,
     /// Cache for readers.
     view_caches: RwLock<HashMap<ShardUId, TrieCache>>,

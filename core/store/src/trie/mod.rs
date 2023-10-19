@@ -540,9 +540,11 @@ impl Trie {
         use_accounting_cache: bool,
     ) -> Result<Arc<[u8]>, StorageError> {
         let result = if use_accounting_cache {
-            self.accounting_cache
-                .borrow_mut()
-                .retrieve_raw_bytes_with_accounting(hash, &*self.storage, account_id)?
+            self.accounting_cache.borrow_mut().retrieve_raw_bytes_with_accounting(
+                hash,
+                &*self.storage,
+                account_id,
+            )?
         } else {
             self.storage.retrieve_raw_bytes(hash, account_id)?
         };

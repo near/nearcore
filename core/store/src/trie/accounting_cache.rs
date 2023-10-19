@@ -8,7 +8,7 @@ use near_vm_runner::logic::TrieNodesCount;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::{metrics, TrieStorage, TrieCache};
+use crate::{metrics, TrieCache, TrieStorage};
 
 /// Deterministic cache to store trie nodes that have been accessed so far
 /// during the cache's lifetime. It is used for deterministic gas accounting
@@ -72,7 +72,10 @@ struct TrieAccountingCacheMetrics {
 impl TrieAccountingCache {
     /// Constructs a new accounting cache. By default it is not enabled.
     /// The optional parameter is passed in if prometheus metrics are desired.
-    pub fn new(shard_uid_and_is_view: Option<(ShardUId, bool)>, contract_cache: HashMap<&'static str, TrieCache>) -> Self {
+    pub fn new(
+        shard_uid_and_is_view: Option<(ShardUId, bool)>,
+        contract_cache: HashMap<&'static str, TrieCache>,
+    ) -> Self {
         let metrics = shard_uid_and_is_view.map(|(shard_uid, is_view)| {
             let mut buffer = itoa::Buffer::new();
             let shard_id = buffer.format(shard_uid.shard_id);
@@ -83,12 +86,22 @@ impl TrieAccountingCache {
                 accounting_cache_misses: metrics::CHUNK_CACHE_MISSES
                     .with_label_values(&metrics_labels),
                 accounting_cache_size: metrics::CHUNK_CACHE_SIZE.with_label_values(&metrics_labels),
-                contract_cache_hits: metrics::CONTRACT_CACHE_HITS.with_label_values(&metrics_labels[..1]),
-                contract_cache_misses: metrics::CONTRACT_CACHE_MISSES.with_label_values(&metrics_labels[..1]),
-                contract_cache_size: metrics::CONTRACT_CACHE_SIZE.with_label_values(&metrics_labels[..1]),
+                contract_cache_hits: metrics::CONTRACT_CACHE_HITS
+                    .with_label_values(&metrics_labels[..1]),
+                contract_cache_misses: metrics::CONTRACT_CACHE_MISSES
+                    .with_label_values(&metrics_labels[..1]),
+                contract_cache_size: metrics::CONTRACT_CACHE_SIZE
+                    .with_label_values(&metrics_labels[..1]),
             }
         });
-        Self { enable: false, cache: HashMap::new(), contract_cache, db_read_nodes: 0, mem_read_nodes: 0, metrics }
+        Self {
+            enable: false,
+            cache: HashMap::new(),
+            contract_cache,
+            db_read_nodes: 0,
+            mem_read_nodes: 0,
+            metrics,
+        }
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
@@ -106,6 +119,7 @@ impl TrieAccountingCache {
         // Try use contract specific cache
         if let Some(acc_id) = account_id {
             if let Some(contract_specific_cache) = self.contract_cache.get(acc_id.as_str()) {
+                tracing::info!("Using contract specific cache: {}", acc_id);
                 if let Some(node) = self.cache.get(hash) {
                     self.mem_read_nodes += 1;
                     if let Some(metrics) = &self.metrics {
