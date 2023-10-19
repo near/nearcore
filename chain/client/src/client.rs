@@ -1853,6 +1853,7 @@ impl Client {
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
         for shard_id in 0..self.epoch_manager.num_shards(&epoch_id).unwrap() {
             let next_height = block.header().height() + 1;
+            println!("PRODUCING CHUNK HEIGHT {next_height} SHARD {shard_id}");
             let epoch_manager = self.epoch_manager.as_ref();
             let chunk_proposer =
                 epoch_manager.get_chunk_producer(&epoch_id, next_height, shard_id).unwrap();
