@@ -2261,11 +2261,13 @@ impl Chain {
             // If we encounter error here, that means the receiver is deallocated and the client
             // thread is already shut down. The node is already crashed, so we can unwrap here
             sc.send((block_hash, res)).unwrap();
+            tracing::info!(target: "chain", ?block_hash, "schedule_apply_chunks_inner sent a message to apply_chunks_sender");
             if let Err(_) = apply_chunks_done_marker.set(()) {
                 // This should never happen, if it does, it means there is a bug in our code.
                 log_assert!(false, "apply chunks are called twice for block {block_hash:?}");
             }
             apply_chunks_done_callback(block_hash);
+            tracing::info!(target: "chain", ?block_hash, "schedule_apply_chunks_inner sent ApplyChunkDoneMessage");
         });
 
         /// `rayon::spawn` decorated to propagate `tracing` context across
