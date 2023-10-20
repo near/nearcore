@@ -316,7 +316,7 @@ test-log = { version = "0.2", default-features = false, features = ["trace"] }
 thiserror = "1.0.30"
 tikv-jemallocator = "0.5.0"
 time = "0.3.9"
-tokio = { version = "~1.28", features = [
+tokio = { version = "1.28", features = [
     "fs",
     "macros",
     "net",
@@ -413,4 +413,10 @@ opt-level = 3
 [profile.dev.package.sha2]
 opt-level = 3
 [profile.dev.package.curve25519-dalek]
+opt-level = 3
+[profile.dev.package.unsafe-libyaml]
+opt-level = 3
+[profile.dev.package.hashbrown]
+opt-level = 3
+[profile.dev.package.dynasmrt]
 opt-level = 3

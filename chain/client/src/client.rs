@@ -2406,11 +2406,14 @@ impl Client {
                 state_split_scheduler,
                 state_parts_arbiter_handle,
                 use_colour,
+                self.runtime_adapter.clone(),
             )? {
-                StateSyncResult::Unchanged => {}
-                StateSyncResult::Changed(fetch_block) => {
-                    debug!(target: "catchup", "state sync finished but waiting to fetch block");
-                    assert!(!fetch_block);
+                StateSyncResult::InProgress => {}
+                StateSyncResult::RequestBlock => {
+                    // here RequestBlock should not be returned, because the StateSyncInfos in
+                    // self.chain.store().iterate_state_sync_infos() should have been stored by
+                    // Chain::postprocess_block() on the block with hash sync_hash.
+                    panic!("catchup state sync indicates sync block isn't on our chain")
                 }
                 StateSyncResult::Completed => {
                     debug!(target: "catchup", "state sync completed now catch up blocks");

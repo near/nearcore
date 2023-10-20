@@ -18,23 +18,8 @@ pub trait TestEnvNightshadeSetupExt {
 
 impl TestEnvNightshadeSetupExt for TestEnvBuilder {
     fn nightshade_runtimes(self, genesis: &Genesis) -> Self {
-        let (builder, home_dirs, stores, epoch_managers) =
-            self.internal_ensure_epoch_managers_for_nightshade_runtime();
-        let runtimes = stores
-            .into_iter()
-            .zip(home_dirs)
-            .zip(epoch_managers)
-            .map(|((store, home_dir), epoch_manager)| {
-                // TODO: It's not ideal to initialize genesis state with the nightshade runtime here for tests
-                // Tests that don't use nightshade runtime have genesis initialized in kv_runtime.
-                // We should instead try to do this while configuring store.
-                let home_dir = home_dir.as_path();
-                initialize_genesis_state(store.clone(), genesis, Some(home_dir));
-                NightshadeRuntime::test(home_dir, store, &genesis.config, epoch_manager)
-                    as Arc<dyn RuntimeAdapter>
-            })
-            .collect();
-        builder.runtimes(runtimes)
+        let runtime_configs = vec![RuntimeConfigStore::test(); self.num_clients()];
+        self.nightshade_runtimes_with_runtime_config_store(genesis, runtime_configs)
     }
 
     fn nightshade_runtimes_with_runtime_config_store(
@@ -42,7 +27,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
         genesis: &Genesis,
         runtime_configs: Vec<RuntimeConfigStore>,
     ) -> Self {
-        let (builder, home_dirs, stores, epoch_managers) =
+        let (builder, home_dirs, stores, epoch_managers, state_snapshot_enabled) =
             self.internal_ensure_epoch_managers_for_nightshade_runtime();
         assert_eq!(runtime_configs.len(), epoch_managers.len());
         let runtimes = stores
@@ -62,6 +47,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                     &genesis.config,
                     epoch_manager,
                     runtime_config,
+                    state_snapshot_enabled,
                 ) as Arc<dyn RuntimeAdapter>
             })
             .collect();

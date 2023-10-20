@@ -17,7 +17,9 @@ use near_store::flat::{
     store_helper, BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
     FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
 };
-use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache, TrieUpdate};
+use near_store::{
+    ShardTries, ShardUId, StateSnapshotConfig, Store, StoreCompiledContractCache, TrieUpdate,
+};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_runner::logic::LimitConfig;
 use node_runtime::{ApplyState, Runtime};
@@ -89,7 +91,13 @@ impl<'c> EstimatorContext<'c> {
         // Create ShardTries with relevant settings adjusted for estimator.
         let mut trie_config = near_store::TrieConfig::default();
         trie_config.enable_receipt_prefetching = true;
-        let tries = ShardTries::new(store.clone(), trie_config, &[shard_uid], flat_storage_manager);
+        let tries = ShardTries::new(
+            store.clone(),
+            trie_config,
+            &[shard_uid],
+            flat_storage_manager,
+            StateSnapshotConfig::default(),
+        );
 
         Testbed {
             config: self.config,

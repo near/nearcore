@@ -1622,25 +1622,39 @@ impl ClientActor {
                     _ => false,
                 };
                 if sync_state {
-                    let (sync_hash, mut new_shard_sync, just_enter_state_sync) =
-                        match &self.client.sync_status {
-                            SyncStatus::StateSync(StateSyncStatus {
-                                sync_hash,
-                                sync_status: shard_sync,
-                            }) => (*sync_hash, shard_sync.clone(), false),
-                            _ => {
-                                let sync_hash = unwrap_and_report!(self.find_sync_hash());
-                                (sync_hash, HashMap::default(), true)
+                    match self.client.sync_status {
+                        SyncStatus::StateSync(_) => (),
+                        _ => {
+                            let sync_hash = unwrap_and_report!(self.find_sync_hash());
+                            if !self.client.config.archive {
+                                unwrap_and_report!(self
+                                    .client
+                                    .chain
+                                    .reset_data_pre_state_sync(sync_hash));
                             }
-                        };
+                            let s = StateSyncStatus { sync_hash, sync_status: HashMap::default() };
+                            self.client.sync_status = SyncStatus::StateSync(s);
+                        }
+                    };
+                    let state_sync_status = match &mut self.client.sync_status {
+                        SyncStatus::StateSync(s) => s,
+                        _ => unreachable!(),
+                    };
 
                     let me =
                         self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-                    let block_header =
-                        unwrap_and_report!(self.client.chain.get_block_header(&sync_hash));
+                    let block_header = unwrap_and_report!(self
+                        .client
+                        .chain
+                        .get_block_header(&state_sync_status.sync_hash));
                     let prev_hash = *block_header.prev_hash();
-                    let epoch_id =
-                        self.client.chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
+                    let epoch_id = self
+                        .client
+                        .chain
+                        .get_block_header(&state_sync_status.sync_hash)
+                        .unwrap()
+                        .epoch_id()
+                        .clone();
                     let shards_to_sync =
                         (0..self.client.epoch_manager.num_shards(&epoch_id).unwrap())
                             .filter(|x| {
@@ -1654,16 +1668,12 @@ impl ClientActor {
                             })
                             .collect();
 
-                    if !self.client.config.archive && just_enter_state_sync {
-                        unwrap_and_report!(self.client.chain.reset_data_pre_state_sync(sync_hash));
-                    }
-
                     let use_colour =
                         matches!(self.client.config.log_summary_style, LogSummaryStyle::Colored);
                     match unwrap_and_report!(self.client.state_sync.run(
                         &me,
-                        sync_hash,
-                        &mut new_shard_sync,
+                        state_sync_status.sync_hash,
+                        &mut state_sync_status.sync_status,
                         &mut self.client.chain,
                         self.client.epoch_manager.as_ref(),
                         &self.network_info.highest_height_peers,
@@ -1672,27 +1682,22 @@ impl ClientActor {
                         &self.state_split_scheduler,
                         &self.state_parts_client_arbiter.handle(),
                         use_colour,
+                        self.client.runtime_adapter.clone(),
                     )) {
-                        StateSyncResult::Unchanged => (),
-                        StateSyncResult::Changed(fetch_block) => {
-                            self.client.sync_status = SyncStatus::StateSync(StateSyncStatus {
-                                sync_hash,
-                                sync_status: new_shard_sync,
-                            });
-                            if fetch_block {
-                                if let Some(peer_info) =
-                                    self.network_info.highest_height_peers.choose(&mut thread_rng())
-                                {
-                                    let id = peer_info.peer_info.id.clone();
+                        StateSyncResult::InProgress => (),
+                        StateSyncResult::RequestBlock => {
+                            if let Some(peer_info) =
+                                self.network_info.highest_height_peers.choose(&mut thread_rng())
+                            {
+                                let id = peer_info.peer_info.id.clone();
 
-                                    if let Ok(header) =
-                                        self.client.chain.get_block_header(&sync_hash)
+                                if let Ok(header) =
+                                    self.client.chain.get_block_header(&state_sync_status.sync_hash)
+                                {
+                                    for hash in
+                                        vec![*header.prev_hash(), *header.hash()].into_iter()
                                     {
-                                        for hash in
-                                            vec![*header.prev_hash(), *header.hash()].into_iter()
-                                        {
-                                            self.client.request_block(hash, id.clone());
-                                        }
+                                        self.client.request_block(hash, id.clone());
                                     }
                                 }
                             }
@@ -1704,7 +1709,7 @@ impl ClientActor {
 
                             unwrap_and_report!(self.client.chain.reset_heads_post_state_sync(
                                 &me,
-                                sync_hash,
+                                state_sync_status.sync_hash,
                                 &mut block_processing_artifacts,
                                 self.get_apply_chunks_done_callback(),
                             ));

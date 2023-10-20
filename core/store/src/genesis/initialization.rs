@@ -17,8 +17,8 @@ use tracing::{error, info, warn};
 
 use crate::{
     flat::FlatStorageManager, genesis::GenesisStateApplier, get_genesis_hash,
-    get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots, ShardTries, Store,
-    TrieConfig,
+    get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots, ShardTries,
+    StateSnapshotConfig, Store, TrieConfig,
 };
 
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -120,6 +120,7 @@ fn genesis_state_from_genesis(store: Store, genesis: &Genesis) -> Vec<StateRoot>
         TrieConfig::default(),
         &genesis.config.shard_layout.get_shard_uids(),
         FlatStorageManager::new(store),
+        StateSnapshotConfig::default(),
     );
 
     let writers = std::sync::atomic::AtomicUsize::new(0);
