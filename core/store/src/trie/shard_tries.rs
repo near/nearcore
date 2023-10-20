@@ -42,7 +42,7 @@ struct ShardTriesInner {
 pub struct ShardTries(Arc<ShardTriesInner>);
 
 impl ShardTries {
-    pub fn new_with_state_snapshot(
+    pub fn new(
         store: Store,
         trie_config: TrieConfig,
         shard_uids: &[ShardUId],
@@ -64,21 +64,6 @@ impl ShardTries {
         }))
     }
 
-    pub fn new(
-        store: Store,
-        trie_config: TrieConfig,
-        shard_uids: &[ShardUId],
-        flat_storage_manager: FlatStorageManager,
-    ) -> Self {
-        Self::new_with_state_snapshot(
-            store,
-            trie_config,
-            shard_uids,
-            flat_storage_manager,
-            StateSnapshotConfig::Disabled,
-        )
-    }
-
     /// Create `ShardTries` with a fixed number of shards with shard version 0.
     ///
     /// If your test cares about the shard version, use `test_shard_version` instead.
@@ -93,7 +78,13 @@ impl ShardTries {
             (0..num_shards as u32).map(|shard_id| ShardUId { shard_id, version }).collect();
         let trie_config = TrieConfig::default();
 
-        ShardTries::new(store.clone(), trie_config, &shard_uids, FlatStorageManager::new(store))
+        ShardTries::new(
+            store.clone(),
+            trie_config,
+            &shard_uids,
+            FlatStorageManager::new(store),
+            StateSnapshotConfig::default(),
+        )
     }
 
     /// Create caches for all shards according to the trie config.
@@ -697,6 +688,7 @@ mod test {
             trie_config,
             &shard_uids,
             FlatStorageManager::new(store),
+            StateSnapshotConfig::default(),
         );
 
         let trie_caches = &trie.0.caches;
@@ -746,6 +738,7 @@ mod test {
             trie_config,
             &shard_uids,
             FlatStorageManager::new(store),
+            StateSnapshotConfig::default(),
         );
 
         let trie_caches = &trie.0.caches;

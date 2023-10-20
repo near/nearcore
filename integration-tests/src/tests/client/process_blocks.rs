@@ -1836,10 +1836,10 @@ fn test_process_block_after_state_sync() {
 
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(1)
+        .use_state_snapshots()
         .real_stores()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
-        .use_state_snapshots()
         .build();
 
     let sync_height = epoch_length * 4 + 1;
@@ -2549,10 +2549,10 @@ fn test_catchup_gas_price_change() {
 
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(2)
+        .use_state_snapshots()
         .real_stores()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
-        .use_state_snapshots()
         .build();
 
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -3604,10 +3604,10 @@ mod contract_precompilation_tests {
 
         let mut env = TestEnv::builder(ChainGenesis::test())
             .clients_count(num_clients)
+            .use_state_snapshots()
             .real_stores()
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
-            .use_state_snapshots()
             .build();
 
         let start_height = 1;
@@ -3700,10 +3700,10 @@ mod contract_precompilation_tests {
 
         let mut env = TestEnv::builder(ChainGenesis::test())
             .clients_count(num_clients)
+            .use_state_snapshots()
             .real_stores()
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
-            .use_state_snapshots()
             .build();
 
         let mut height = 1;
@@ -3778,10 +3778,10 @@ mod contract_precompilation_tests {
 
         let mut env = TestEnv::builder(ChainGenesis::test())
             .clients_count(num_clients)
+            .use_state_snapshots()
             .real_stores()
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
-            .use_state_snapshots()
             .build();
 
         let mut height = 1;

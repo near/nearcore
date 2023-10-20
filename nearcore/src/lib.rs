@@ -293,14 +293,6 @@ pub fn start_with_config_and_synchronization(
     let client_adapter_for_shards_manager = Arc::new(LateBoundSender::default());
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
-    let state_snapshot_actor = if config.config.store.state_snapshot_enabled {
-        let state_snapshot_actor =
-            StateSnapshotActor::new(runtime.get_flat_storage_manager(), runtime.get_tries());
-        Some(Arc::new(state_snapshot_actor.start()))
-    } else {
-        None
-    };
-
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
@@ -311,15 +303,16 @@ pub fn start_with_config_and_synchronization(
         config.client_config.clone(),
         adv.clone(),
     );
-    let make_state_snapshot_callback = if let Some(state_snapshot_actor) = state_snapshot_actor {
-        Some(get_make_snapshot_callback(
-            state_snapshot_actor,
-            runtime.get_flat_storage_manager(),
-            config.config.store.state_snapshot_compaction_enabled,
-        ))
-    } else {
-        None
-    };
+
+    let state_snapshot_actor = Arc::new(
+        StateSnapshotActor::new(runtime.get_flat_storage_manager(), runtime.get_tries()).start(),
+    );
+    let make_state_snapshot_callback = get_make_snapshot_callback(
+        state_snapshot_actor,
+        runtime.get_flat_storage_manager(),
+        config.config.store.state_snapshot_compaction_enabled,
+    );
+
     let (client_actor, client_arbiter_handle) = start_client(
         config.client_config.clone(),
         chain_genesis.clone(),
@@ -331,7 +324,7 @@ pub fn start_with_config_and_synchronization(
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
         telemetry,
-        make_state_snapshot_callback,
+        Some(make_state_snapshot_callback),
         shutdown_signal,
         adv,
         config_updater,
