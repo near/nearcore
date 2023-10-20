@@ -1071,6 +1071,11 @@ pub fn init_configs(
         _ => {
             // Create new configuration, key files and genesis for one validator.
             config.network.skip_sync_wait = true;
+
+            // Make sure node tracks all shards, see
+            // https://github.com/near/nearcore/issues/7388
+            config.tracked_shards = vec![0];
+
             if fast {
                 config.consensus.min_block_production_delay =
                     Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
