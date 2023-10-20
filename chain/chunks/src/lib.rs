@@ -1925,7 +1925,7 @@ impl ShardsManager {
         let _span = tracing::debug_span!(
             target: "chunks",
             "shards_manager_request_from_client",
-            "type" = <&ShardsManagerRequestFromClient as Into<&'static str>>::into(&request)
+            "type" = <&'static str>::from(&request)
         )
         .entered();
         match request {
@@ -1970,7 +1970,7 @@ impl ShardsManager {
         let _span = tracing::debug_span!(
             target: "chunks",
             "shards_manager_request_from_network",
-            "type" = <&ShardsManagerRequestFromNetwork as Into<&'static str>>::into(&request)
+            "type" = <&'static str>::from(&request)
         )
         .entered();
         match request {
