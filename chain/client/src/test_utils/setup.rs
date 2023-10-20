@@ -155,7 +155,7 @@ pub fn setup(
         store,
         config.chunk_request_retry_period,
     );
-    let shards_manager_adapter = Arc::new(shards_manager_addr);
+    let shards_manager_adapter = Arc::new(shards_manager_addr.with_auto_span_context());
 
     let client = Client::new(
         config.clone(),
@@ -935,7 +935,7 @@ pub fn setup_client_with_runtime(
         shard_tracker,
         runtime,
         network_adapter,
-        shards_manager_adapter.client,
+        shards_manager_adapter.client.into(),
         validator_signer,
         enable_doomslug,
         rng_seed,

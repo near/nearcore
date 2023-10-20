@@ -3519,6 +3519,7 @@ dependencies = [
  "once_cell",
  "rand 0.8.5",
  "reed-solomon-erasure",
+ "strum",
  "time 0.3.21",
  "tracing",
 ]
