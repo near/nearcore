@@ -4,7 +4,6 @@ use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::sink::Sink;
 use crate::types::{NetworkInfo, ReasonForBan, StateResponseInfoV2};
 use near_async::messaging;
-use near_o11y::WithSpanContext;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
@@ -120,9 +119,9 @@ impl client::Client for Fake {
     }
 }
 
-impl messaging::CanSend<WithSpanContext<ShardsManagerRequestFromNetwork>> for Fake {
-    fn send(&self, message: WithSpanContext<ShardsManagerRequestFromNetwork>) {
-        match message.msg {
+impl messaging::CanSend<ShardsManagerRequestFromNetwork> for Fake {
+    fn send(&self, message: ShardsManagerRequestFromNetwork) {
+        match message {
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
                 partial_encoded_chunk_request,
                 ..

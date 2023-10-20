@@ -1,13 +1,13 @@
 use actix::{Actor, Addr};
 use anyhow::{anyhow, bail, Context};
-use near_async::actix::{AddrWithAutoSpanContext, AddrWithAutoSpanContextExt};
+use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{IntoSender, LateBoundSender};
 use near_async::time;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::ClientConfig;
-use near_chunks::shards_manager_actor::{start_shards_manager, ShardsManagerActor};
+use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::actix::ActixSystem;
@@ -72,8 +72,6 @@ fn setup_network_node(
     };
     let network_adapter = Arc::new(LateBoundSender::default());
     let shards_manager_adapter = Arc::new(LateBoundSender::default());
-    let shards_manager_adapter =
-        Arc::new(LateBoundSender::<AddrWithAutoSpanContext<ShardsManagerActor>>::default());
     let adv = near_client::adversarial::Controls::default();
     let client_actor = start_client(
         client_config.clone(),
