@@ -906,7 +906,12 @@ impl PeerActor {
         msg_hash: CryptoHash,
         body: RoutedMessageBody,
     ) -> Result<Option<RoutedMessageBody>, ReasonForBan> {
-        let _span = tracing::trace_span!(target: "network", "receive_routed_message").entered();
+        let _span = tracing::trace_span!(
+            target: "network",
+            "receive_routed_message",
+            "type" = <&RoutedMessageBody as Into<&'static str>>::into(&body)
+        )
+        .entered();
         Ok(match body {
             RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => network_state
                 .client
@@ -1083,7 +1088,9 @@ impl PeerActor {
     ) {
         let _span = tracing::trace_span!(
             target: "network",
-            "handle_msg_ready")
+            "handle_msg_ready",
+            "type" = <&PeerMessage as Into<&'static str>>::into(&peer_msg)
+        )
         .entered();
 
         // Clones message iff someone is listening on the sink. Should be in tests only.
