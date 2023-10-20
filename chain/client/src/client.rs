@@ -1468,7 +1468,7 @@ impl Client {
         provenance: Provenance,
         skip_produce_chunk: bool,
     ) {
-        let _span = tracing::debug_span!(target: "client", "on_block_accepted_with_optional_chunk_produce", ?block_hash, ?status, ?provenance, skip_produce_chunk).entered();
+        let _span = tracing::debug_span!(target: "client", "on_block_accepted_with_optional_chunk_produce", ?block_hash, ?status, ?provenance, skip_produce_chunk, is_syncing = self.sync_status.is_syncing(), sync_status = ?self.sync_status).entered();
         let block = match self.chain.get_block(&block_hash) {
             Ok(block) => block,
             Err(err) => {

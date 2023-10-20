@@ -1824,22 +1824,39 @@ impl Chain {
             tracing::debug_span!(target: "chain", "postprocess_ready_blocks_chain").entered();
         let mut accepted_blocks = vec![];
         let mut errors = HashMap::new();
-        while let Ok((block_hash, apply_result)) = self.apply_chunks_receiver.try_recv() {
-            match self.postprocess_block(
-                me,
-                block_hash,
-                apply_result,
-                block_processing_artifacts,
-                apply_chunks_done_callback.clone(),
-            ) {
-                Err(e) => {
-                    errors.insert(block_hash, e);
-                }
-                Ok(accepted_block) => {
-                    accepted_blocks.push(accepted_block);
-                }
+        let mut num_items_received = 0;
+        let mut num_items_received_and_parsed = 0;
+        loop {
+            if let Ok(item) = self.apply_chunks_receiver.try_recv() {
+                num_items_received += 1;
+                match item {
+                    (block_hash, apply_result) => {
+                        tracing::info!(target: "chain", ?block_hash, "postprocess_ready_blocks_chain");
+                        num_items_received_and_parsed += 1;
+                        match self.postprocess_block(
+                            me,
+                            block_hash,
+                            apply_result,
+                            block_processing_artifacts,
+                            apply_chunks_done_callback.clone(),
+                        ) {
+                            Err(e) => {
+                                errors.insert(block_hash, e);
+                            }
+                            Ok(accepted_block) => {
+                                accepted_blocks.push(accepted_block);
+                            }
+                        }
+                    }
+                    x => {
+                        tracing::error!(target: "chain", ?x, "postprocess_ready_blocks_chain failed to parse a message")
+                    }
+                };
+            } else {
+                break;
             }
         }
+        tracing::info!(target: "chain", num_items_received, num_items_received_and_parsed, "postprocess_ready_blocks_chain receiver loop finished");
         (accepted_blocks, errors)
     }
 
