@@ -15,6 +15,8 @@ pub enum ProtocolFeature {
     /// Add `AccessKey` nonce range by setting nonce to `(block_height - 1) * 1e6`, see
     /// <https://github.com/near/nearcore/issues/3779>.
     AccessKeyNonceRange,
+    /// Don't process any receipts for shard when chunk is not present.
+    /// Always use gas price computed in the previous block.
     FixApplyChunks,
     LowerStorageCost,
     DeleteActionRestriction,
@@ -120,9 +122,12 @@ pub enum ProtocolFeature {
     RejectBlocksWithOutdatedProtocolVersions,
     #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
     SimpleNightshadeV2,
+    RestrictTla,
     /// Enables block production with post-state-root.
     /// NEP: https://github.com/near/NEPs/pull/507
     PostStateRoot,
+    /// Increases the number of chunk producers.
+    TestnetFewerBlockProducers,
 }
 
 impl ProtocolFeature {
@@ -166,6 +171,7 @@ impl ProtocolFeature {
             ProtocolFeature::ComputeCosts | ProtocolFeature::FlatStorageReads => 61,
             ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
             ProtocolFeature::BlockHeaderV4 => 63,
+            ProtocolFeature::RestrictTla => 64,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -177,6 +183,7 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
             ProtocolFeature::SimpleNightshadeV2 => 135,
             ProtocolFeature::PostStateRoot => 136,
+            ProtocolFeature::TestnetFewerBlockProducers => 140,
         }
     }
 }
@@ -184,12 +191,12 @@ impl ProtocolFeature {
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 63;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 64;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    138
+    139
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION

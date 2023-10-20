@@ -211,7 +211,7 @@ expression: config_view
     }
   },
   "account_creation_config": {
-    "min_allowed_top_level_account_length": 32,
+    "min_allowed_top_level_account_length": 65,
     "registrar_account_id": "registrar"
   }
 }

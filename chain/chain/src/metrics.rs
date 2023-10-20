@@ -177,6 +177,22 @@ impl From<ReshardingStatus> for i64 {
     }
 }
 
+pub(crate) static SHARD_LAYOUT_VERSION: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_shard_layout_version",
+        "The version of the shard layout of the current head.",
+    )
+    .unwrap()
+});
+
+pub(crate) static SHARD_LAYOUT_NUM_SHARDS: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_shard_layout_num_shards",
+        "The number of shards in the shard layout of the current head.",
+    )
+    .unwrap()
+});
+
 pub(crate) static RESHARDING_BATCH_COUNT: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_resharding_batch_count",

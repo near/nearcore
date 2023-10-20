@@ -61,6 +61,7 @@ impl ScenarioBuilder {
                 runtime_config,
                 blocks: vec![],
                 use_in_memory_store: true,
+                is_fuzzing: false,
             },
         }
     }

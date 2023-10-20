@@ -1,7 +1,7 @@
 use crate::sync_utils::Monitor;
 use crate::{
-    metrics, DBCol, StorageError, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig,
-    TrieStorage,
+    metrics, DBCol, MissingTrieValueContext, StorageError, Store, Trie, TrieCache,
+    TrieCachingStorage, TrieConfig, TrieStorage,
 };
 use crossbeam::select;
 use near_o11y::metrics::prometheus;
@@ -250,7 +250,10 @@ impl TrieStorage for TriePrefetchingStorage {
                         // Releasing the lock here to unstuck main thread if it
                         // was blocking on this value, but it will also fail on its read.
                         self.prefetching.release(hash);
-                        Err(StorageError::MissingTrieValue)
+                        Err(StorageError::MissingTrieValue(
+                            MissingTrieValueContext::TriePrefetchingStorage,
+                            *hash,
+                        ))
                     }
                     Err(e) => {
                         // This is an unrecoverable IO error.

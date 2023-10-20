@@ -393,7 +393,7 @@ mod test {
         for (i, cost) in ActionCosts::iter().enumerate() {
             profile_data.add_action_cost(cost, i as Gas + 1000);
         }
-        let buf = profile_data.try_to_vec().expect("failed serializing a normal profile");
+        let buf = borsh::to_vec(&profile_data).expect("failed serializing a normal profile");
 
         let restored: ProfileDataV3 = BorshDeserialize::deserialize(&mut buf.as_slice())
             .expect("failed deserializing a normal profile");

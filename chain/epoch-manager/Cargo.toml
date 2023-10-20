@@ -40,7 +40,6 @@ nightly = [
   "near-primitives/nightly",
   "near-store/nightly",
 ]
-mock_node = []
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
   "near-primitives/nightly_protocol",

@@ -1348,9 +1348,18 @@ impl PeerActor {
         rtu: RoutingTableUpdate,
     ) {
         let _span = tracing::trace_span!(target: "network", "handle_sync_routing_table").entered();
-        if let Err(ban_reason) = network_state.add_edges(&clock, rtu.edges).await {
+        if let Err(ban_reason) = network_state.add_edges(&clock, rtu.edges.clone()).await {
             conn.stop(Some(ban_reason));
         }
+
+        // Also pass the edges to the V2 routing table
+        if let Err(ban_reason) = network_state
+            .update_routes(&clock, NetworkTopologyChange::EdgeNonceRefresh(rtu.edges))
+            .await
+        {
+            conn.stop(Some(ban_reason));
+        }
+
         // For every announce we received, we fetch the last announce with the same account_id
         // that we already broadcasted. Client actor will both verify signatures of the received announces
         // as well as filter out those which are older than the fetched ones (to avoid overriding

@@ -8,7 +8,7 @@ use futures::StreamExt;
 use near_chain_configs::ProtocolConfigView;
 use near_client::ViewClientActor;
 use near_o11y::WithSpanContextExt;
-use near_primitives::borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::borsh::{self, BorshDeserialize, BorshSerialize};
 
 #[derive(Debug, Clone, PartialEq, derive_more::AsRef, derive_more::From)]
 pub(crate) struct BorshInHexString<T: BorshSerialize + BorshDeserialize>(T);
@@ -40,7 +40,7 @@ where
         S: serde::Serializer,
     {
         serializer.serialize_str(&hex::encode(
-            self.0.try_to_vec().expect("borsh serialization should never fail"),
+            borsh::to_vec(&self.0).expect("borsh serialization should never fail"),
         ))
     }
 }

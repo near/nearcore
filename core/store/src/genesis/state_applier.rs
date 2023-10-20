@@ -3,7 +3,7 @@ use crate::{
     get_account, get_received_data, set, set_access_key, set_account, set_code,
     set_delayed_receipt, set_postponed_receipt, set_received_data, ShardTries, TrieUpdate,
 };
-use borsh::BorshSerialize;
+
 use near_chain_configs::Genesis;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
@@ -52,8 +52,8 @@ impl<'a> StorageComputer<'a> {
                 let public_key: PublicKey = public_key.clone();
                 let access_key: AccessKey = access_key.clone();
                 let storage_usage = self.config.num_extra_bytes_record
-                    + public_key.try_to_vec().unwrap().len() as u64
-                    + access_key.try_to_vec().unwrap().len() as u64;
+                    + borsh::object_length(&public_key).unwrap() as u64
+                    + borsh::object_length(&access_key).unwrap() as u64;
                 Some((account_id.clone(), storage_usage))
             }
             StateRecord::PostponedReceipt(_) => None,
