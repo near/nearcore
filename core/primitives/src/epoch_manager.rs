@@ -159,6 +159,7 @@ impl AllEpochConfig {
                 vec![config.num_block_producer_seats; num_shards];
             // Decrease the number of chunk producers.
             config.validator_selection_config.num_chunk_only_producer_seats = 100;
+            tracing::info!(target: "TestnetFewerBlockProducers", "updated");
         }
     }
 
