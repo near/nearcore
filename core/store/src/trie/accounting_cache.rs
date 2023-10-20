@@ -119,7 +119,7 @@ impl TrieAccountingCache {
         // Try use contract specific cache
         if let Some(acc_id) = account_id {
             if let Some(contract_specific_cache) = self.contract_cache.get(acc_id.as_str()) {
-                if let Some(node) = self.cache.get(hash) {
+                if let Some(node) = contract_specific_cache.get(hash) {
                     self.mem_read_nodes += 1;
                     if let Some(metrics) = &self.metrics {
                         metrics.contract_cache_hits.inc();
@@ -136,7 +136,7 @@ impl TrieAccountingCache {
                         let mut guard = contract_specific_cache.lock();
                         guard.put(*hash, node.clone());
                         if let Some(metrics) = &self.metrics {
-                            metrics.contract_cache_size.set(self.cache.len() as i64);
+                            metrics.contract_cache_size.set(guard.len() as i64);
                         }
                     }
                     return Ok(node);
