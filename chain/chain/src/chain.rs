@@ -5926,7 +5926,7 @@ pub fn do_apply_chunks(
             // a single span.
             task(&parent_span)
         })
-        .collect::<Vec<_>>()
+        .collect()
 }
 
 pub fn collect_receipts<'a, T>(receipt_proofs: T) -> Vec<Receipt>

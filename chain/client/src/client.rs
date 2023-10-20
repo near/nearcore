@@ -1547,18 +1547,25 @@ impl Client {
             }
         }
 
+        tracing::info!(target: "client", "on_block_accepted_with_optional_chunk_produce before produce_chunks");
         if let Some(validator_signer) = self.validator_signer.clone() {
             let validator_id = validator_signer.validator_id().clone();
+            tracing::info!(target: "client", ?validator_id, "on_block_accepted_with_optional_chunk_produce before produce_chunks has validator_id");
 
             if !self.reconcile_transaction_pool(validator_id.clone(), status, &block) {
+                tracing::info!(target: "client", ?validator_id, "on_block_accepted_with_optional_chunk_produce failed to reconcile transaction pool");
                 return;
             }
+            tracing::info!(target: "client", ?validator_id, "on_block_accepted_with_optional_chunk_produce reconciled transaction pool");
 
             if provenance != Provenance::SYNC
                 && !self.sync_status.is_syncing()
                 && !skip_produce_chunk
             {
+                tracing::info!(target: "client", ?validator_id, "on_block_accepted_with_optional_chunk_produce producing chunks yay!");
                 self.produce_chunks(&block, validator_id);
+            } else {
+                tracing::info!(target: "client", ?validator_id, "on_block_accepted_with_optional_chunk_produce not producing chunks, sad");
             }
         }
 

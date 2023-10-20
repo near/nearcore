@@ -421,6 +421,7 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
     fn handle(&mut self, msg: WithSpanContext<BlockResponse>, ctx: &mut Context<Self>) {
         self.wrap(msg, ctx, "BlockResponse", |this: &mut Self, msg|{
             let BlockResponse{ block, peer_id, was_requested } = msg;
+            tracing::info!(target: "client", block_height = block.header().height(), block_hash = ?block.header().hash(), "BlockResponse");
             let blocks_at_height = this
                 .client
                 .chain
@@ -1204,9 +1205,11 @@ impl ClientActor {
     fn try_process_unfinished_blocks(&mut self) {
         let _span =
             tracing::debug_span!(target: "client", "try_process_unfinished_blocks").entered();
-        let (accepted_blocks, _errors) =
+        let (accepted_blocks, errors) =
             self.client.postprocess_ready_blocks(self.get_apply_chunks_done_callback(), true);
-        // TODO: log the errors
+        if !errors.is_empty() {
+            tracing::error!(target: "client", ?errors, "try_process_unfinished_blocks got errors");
+        }
         self.process_accepted_blocks(accepted_blocks);
     }
 
