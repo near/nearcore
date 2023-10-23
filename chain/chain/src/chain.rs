@@ -4242,41 +4242,6 @@ impl Chain {
         let block_copy = block.clone();
         let chunk_header_copy = chunk_header.clone();
         let prev_chunk_extra = self.get_chunk_extra(&prev_hash, &shard_uid)?;
-        println!("{}", prev_chunk_extra.state_root());
-        let val_result = validate_chunk_with_chunk_extra(
-            // It's safe here to use ChainStore instead of ChainStoreUpdate
-            // because we're asking prev_chunk_header for already committed block
-            outgoing_receipts,
-            epoch_manager_adapter.as_ref(),
-            &prev_hash,
-            &prev_chunk_extra,
-            // prev_chunk_height_included,
-            &chunk_header_copy,
-        )
-        .map_err(|err| {
-            warn!(
-                target: "chain",
-                ?err,
-                prev_block_hash=?prev_hash,
-                block_hash=?block_copy.header().hash(),
-                shard_id,
-                prev_chunk_height_included,
-                ?prev_chunk_extra,
-                ?chunk_header_copy,
-                "Failed to validate chunk extra");
-            byzantine_assert!(false);
-            match Chain::create_chunk_state_challenge(
-                prev_chunk,
-                &prev_block_copy,
-                &block_copy,
-                &chunk_header_copy,
-            ) {
-                Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
-                Err(err) => err,
-            }
-        });
-        println!("{val_result:?}");
-        val_result?;
 
         // we can't use hash from the current block here yet because the incoming receipts
         // for this block is not stored yet
@@ -4352,7 +4317,38 @@ impl Chain {
             .entered();
             let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
             // Validate state root.
-
+            validate_chunk_with_chunk_extra(
+                // It's safe here to use ChainStore instead of ChainStoreUpdate
+                // because we're asking prev_chunk_header for already committed block
+                outgoing_receipts,
+                epoch_manager_adapter.as_ref(),
+                &prev_hash,
+                &prev_chunk_extra,
+                // prev_chunk_height_included,
+                &chunk_header_copy,
+            )
+            .map_err(|err| {
+                warn!(
+                target: "chain",
+                ?err,
+                prev_block_hash=?prev_hash,
+                block_hash=?block_copy.header().hash(),
+                shard_id,
+                prev_chunk_height_included,
+                ?prev_chunk_extra,
+                ?chunk_header_copy,
+                "Failed to validate chunk extra");
+                byzantine_assert!(false);
+                match Chain::create_chunk_state_challenge(
+                    prev_chunk,
+                    &prev_block_copy,
+                    &block_copy,
+                    &chunk_header_copy,
+                ) {
+                    Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
+                    Err(err) => err,
+                }
+            })?;
             // Validate that all next chunk information matches previous chunk extra.
 
             match runtime.apply_transactions(
