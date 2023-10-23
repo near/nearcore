@@ -4224,7 +4224,57 @@ impl Chain {
         let prev_hash = block.header().prev_hash().clone();
         let shard_id = shard_uid.shard_id();
 
+        let epoch_manager_adapter = self.epoch_manager.clone();
+        let prev_chunk = self
+            .get_chunk_clone_from_header(
+                &prev_block.chunks()[chunk_header.shard_id() as usize].clone(),
+            )
+            .unwrap();
+
         let prev_chunk_height_included = prev_chunk_header.height_included();
+        let outgoing_receipts = self.get_outgoing_receipts_for_shard(
+            prev_hash.clone(),
+            chunk_header.shard_id(),
+            prev_chunk_height_included,
+        )?;
+
+        let prev_block_copy = prev_block.clone();
+        let block_copy = block.clone();
+        let chunk_header_copy = chunk_header.clone();
+        let val_result = validate_chunk_with_chunk_extra(
+            // It's safe here to use ChainStore instead of ChainStoreUpdate
+            // because we're asking prev_chunk_header for already committed block
+            outgoing_receipts,
+            epoch_manager_adapter.as_ref(),
+            &prev_hash,
+            &prev_chunk_extra,
+            // prev_chunk_height_included,
+            &chunk_header_copy,
+        )
+        .map_err(|err| {
+            warn!(
+                target: "chain",
+                ?err,
+                prev_block_hash=?prev_hash,
+                block_hash=?block_copy.header().hash(),
+                shard_id,
+                prev_chunk_height_included,
+                ?prev_chunk_extra,
+                ?chunk_header_copy,
+                "Failed to validate chunk extra");
+            byzantine_assert!(false);
+            match Chain::create_chunk_state_challenge(
+                prev_chunk,
+                &prev_block_copy,
+                &block_copy,
+                &chunk_header_copy,
+            ) {
+                Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
+                Err(err) => err,
+            }
+        });
+        println!("{val_result:?}");
+        val_result?;
 
         // we can't use hash from the current block here yet because the incoming receipts
         // for this block is not stored yet
@@ -4291,57 +4341,6 @@ impl Chain {
         let random_seed = *block.header().random_value();
         let height = chunk_header.height_included();
         let prev_block_hash = *chunk_header.prev_block_hash();
-        let epoch_manager_adapter = self.epoch_manager.clone();
-        let prev_chunk = self
-            .get_chunk_clone_from_header(
-                &prev_block.chunks()[chunk_header.shard_id() as usize].clone(),
-            )
-            .unwrap();
-
-        let outgoing_receipts = self.get_outgoing_receipts_for_shard(
-            prev_block_hash,
-            chunk_header.shard_id(),
-            prev_chunk_height_included,
-        )?;
-
-        let prev_block_copy = prev_block.clone();
-        let block_copy = block.clone();
-        let chunk_header_copy = chunk_header.clone();
-
-        let val_result = validate_chunk_with_chunk_extra(
-            // It's safe here to use ChainStore instead of ChainStoreUpdate
-            // because we're asking prev_chunk_header for already committed block
-            outgoing_receipts,
-            epoch_manager_adapter.as_ref(),
-            &prev_hash,
-            &prev_chunk_extra,
-            // prev_chunk_height_included,
-            &chunk_header_copy,
-        )
-        .map_err(|err| {
-            warn!(
-                target: "chain",
-                ?err,
-                prev_block_hash=?prev_hash,
-                block_hash=?block_copy.header().hash(),
-                shard_id,
-                prev_chunk_height_included,
-                ?prev_chunk_extra,
-                ?chunk_header_copy,
-                "Failed to validate chunk extra");
-            byzantine_assert!(false);
-            match Chain::create_chunk_state_challenge(
-                prev_chunk,
-                &prev_block_copy,
-                &block_copy,
-                &chunk_header_copy,
-            ) {
-                Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
-                Err(err) => err,
-            }
-        });
-        println!("{val_result:?}");
-        val_result?;
 
         Ok(Some(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
             let _span = tracing::debug_span!(
