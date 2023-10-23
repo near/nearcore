@@ -2494,11 +2494,14 @@ fn test_validate_chunk_extra() {
         .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash());
     let chunk_extra =
         env.clients[0].chain.get_chunk_extra(block1.hash(), &ShardUId::single_shard()).unwrap();
-    let outgoing_receipts = env.clients[0].chain.get_outgoing_receipts_for_shard(
-        *prev_block_hash,
-        chunk_header.shard_id(),
-        prev_chunk_height_included,
-    )?;
+    let outgoing_receipts = env.clients[0]
+        .chain
+        .get_outgoing_receipts_for_shard(
+            *block1.hash(),
+            chunk_header.shard_id(),
+            block1.chunks()[0].height_included(),
+        )
+        .unwrap();
     assert!(validate_chunk_with_chunk_extra(
         outgoing_receipts, // &mut chain_store,
         env.clients[0].epoch_manager.as_ref(),
