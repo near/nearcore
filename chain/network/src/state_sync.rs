@@ -13,5 +13,5 @@ pub enum StateSyncResponse {
 /// actors.
 #[async_trait::async_trait]
 pub trait StateSync: Send + Sync + 'static {
-    async fn send(&mut self, shard_uid: ShardUId, msg: StateSyncResponse);
+    async fn send(&self, shard_uid: ShardUId, msg: StateSyncResponse);
 }

@@ -8,7 +8,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::ClientConfig;
 use near_chunks::shards_manager_actor::start_shards_manager;
-use near_client::{start_client, start_view_client};
+use near_client::{start_client, start_view_client, SyncAdapter};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::actix::ActixSystem;
 use near_network::blacklist;
@@ -80,6 +80,7 @@ fn setup_network_node(
         shard_tracker.clone(),
         runtime.clone(),
         config.node_id(),
+        Arc::new(RwLock::new(SyncAdapter::new(Sender::noop(), Sender::noop(), config.state_sync.clone()))),
         network_adapter.clone().into(),
         shards_manager_adapter.as_sender(),
         Some(signer.clone()),

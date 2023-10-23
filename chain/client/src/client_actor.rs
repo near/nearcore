@@ -13,10 +13,10 @@ use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
-use crate::sync::adapter::SyncMessage;
+use crate::sync::adapter::{SyncMessage, SyncShardInfo};
 use crate::sync::state::{StateSync, StateSyncResult};
 use crate::sync_jobs_actor::{create_sync_job_scheduler, SyncJobsActor};
-use crate::{metrics, StatusResponse};
+use crate::{metrics, StatusResponse, SyncAdapter};
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
 use actix_rt::ArbiterHandle;
 use chrono::{DateTime, Utc};
@@ -66,12 +66,13 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
+use near_store::ShardUId;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
@@ -1671,6 +1672,29 @@ impl ClientActor {
 
                     let use_colour =
                         matches!(self.client.config.log_summary_style, LogSummaryStyle::Colored);
+
+                    // Notify each shard to sync.
+                    let shard_layout = self
+                        .client
+                        .epoch_manager
+                        .get_shard_layout(&epoch_id)
+                        .expect("Cannot get shard layout");
+
+                    let sync_hash = state_sync_status.sync_hash;
+                    for &shard_id in &shards_to_sync {
+                        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+                        match self.client.state_sync_adapter.clone().read() {
+                            Ok(sync_adapter) => sync_adapter.send(
+                                shard_uid,
+                                (SyncMessage::StartSync(SyncShardInfo { shard_uid, sync_hash }))
+                                    .with_span_context(),
+                            ),
+                            Err(_) => {
+                                error!(target:"client", "State sync adapter lock is poisoned.")
+                            }
+                        }
+                    }
+
                     match unwrap_and_report!(self.client.state_sync.run(
                         &me,
                         state_sync_status.sync_hash,
@@ -1885,6 +1909,7 @@ pub fn start_client(
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
     node_id: PeerId,
+    state_sync_adapter: Arc<RwLock<SyncAdapter>>,
     network_adapter: PeerManagerAdapter,
     shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
@@ -1903,6 +1928,7 @@ pub fn start_client(
         chain_genesis,
         epoch_manager,
         shard_tracker,
+        state_sync_adapter,
         runtime,
         network_adapter.clone(),
         shards_manager_adapter,

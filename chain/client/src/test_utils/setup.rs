@@ -8,7 +8,7 @@ use crate::adapter::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
     BlockResponse, SetNetworkInfo, StateRequestHeader, StateRequestPart,
 };
-use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
+use crate::{start_view_client, Client, ClientActor, SyncAdapter, SyncStatus, ViewClientActor};
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
 use chrono::Utc;
@@ -162,6 +162,11 @@ pub fn setup(
         chain_genesis,
         epoch_manager,
         shard_tracker,
+        Arc::new(RwLock::new(SyncAdapter::new(
+            Sender::noop(),
+            Sender::noop(),
+            config.state_sync.clone(),
+        ))),
         runtime,
         network_adapter.clone(),
         shards_manager_adapter.as_sender(),
@@ -929,10 +934,15 @@ pub fn setup_client_with_runtime(
     );
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
-        config,
+        config.clone(),
         chain_genesis,
         epoch_manager,
         shard_tracker,
+        Arc::new(RwLock::new(SyncAdapter::new(
+            Sender::noop(),
+            Sender::noop(),
+            config.state_sync.clone(),
+        ))),
         runtime,
         network_adapter,
         shards_manager_adapter.client.into(),
