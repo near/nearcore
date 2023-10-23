@@ -9,6 +9,7 @@ use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
+use crate::state_sync;
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
@@ -37,6 +38,7 @@ use std::cmp::min;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::RwLock;
 use tracing::Instrument as _;
 
 /// Ratio between consecutive attempts to establish connection with another peer.
@@ -202,6 +204,7 @@ impl PeerManagerActor {
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
         client: Arc<dyn client::Client>,
+        state_sync: Arc<RwLock<dyn state_sync::StateSync>>,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<actix::Addr<Self>> {
@@ -232,6 +235,7 @@ impl PeerManagerActor {
             config,
             genesis_id,
             client,
+            state_sync,
             shards_manager_adapter,
             whitelist_nodes,
         ));

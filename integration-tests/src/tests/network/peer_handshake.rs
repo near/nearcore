@@ -23,19 +23,24 @@ fn make_peer_manager(
     boot_nodes: Vec<(&str, std::net::SocketAddr)>,
     peer_max_count: u32,
 ) -> actix::Addr<PeerManagerActor> {
+    use std::sync::RwLock;
+
     use near_async::messaging::Sender;
+    use near_network::state_sync::Noop;
 
     let mut config = config::NetworkConfig::from_seed(seed, node_addr);
     config.peer_store.boot_nodes = convert_boot_nodes(boot_nodes);
     config.max_num_peers = peer_max_count;
     config.ideal_connections_hi = peer_max_count;
     config.ideal_connections_lo = peer_max_count;
+    let state_sync = Arc::new(RwLock::new(Noop));
 
     PeerManagerActor::spawn(
         time::Clock::real(),
         near_store::db::TestDB::new(),
         config,
         Arc::new(near_network::client::Noop),
+        state_sync,
         Sender::noop(),
         GenesisId::default(),
     )

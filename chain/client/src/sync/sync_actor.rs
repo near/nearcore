@@ -1,11 +1,12 @@
 use super::adapter::{SyncMessage as ClientSyncMessage, SyncShardInfo};
+use crate::adapter::StateResponse;
 use near_async::messaging::Sender;
-use near_network::types::{PeerManagerMessageRequest, StateSyncResponse};
+use near_network::types::PeerManagerMessageRequest;
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_store::ShardUId;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 /// Message channels
 #[allow(dead_code)]
@@ -59,15 +60,18 @@ impl SyncActor {
         }
     }
 
-    fn handle_network_sync_message(&mut self, msg: StateSyncResponse) {
-        match msg {
-            StateSyncResponse::HeaderResponse => {
-                debug!(target: "sync", shard_id = ?self.shard_uid.shard_id, "Got header response");
-            }
-            StateSyncResponse::PartResponse => {
-                warn!(target: "sync", "Unsupported message received by SyncActor: SyncDone.");
-            }
-        }
+    fn handle_network_sync_message(&mut self, msg: StateResponse) {
+        let StateResponse(state_response_info) = msg;
+        let shard_id = state_response_info.shard_id();
+        let sync_hash = state_response_info.sync_hash();
+        let state_response = state_response_info.take_state_response();
+
+        trace!(target: "sync",
+            ?shard_id,
+            ?sync_hash,
+            part_id = state_response.part().as_ref().map(|(part_id, _)| part_id),
+            "Received state response."
+        );
     }
 }
 
@@ -99,12 +103,12 @@ impl actix::Handler<WithSpanContext<ClientSyncMessage>> for SyncActor {
 }
 
 /// Process messages from network
-impl actix::Handler<WithSpanContext<StateSyncResponse>> for SyncActor {
+impl actix::Handler<WithSpanContext<StateResponse>> for SyncActor {
     type Result = ();
     #[perf]
     fn handle(
         &mut self,
-        msg: WithSpanContext<StateSyncResponse>,
+        msg: WithSpanContext<StateResponse>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "sync", msg);

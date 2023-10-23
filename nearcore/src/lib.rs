@@ -331,7 +331,7 @@ pub fn start_with_config_and_synchronization(
         shard_tracker.clone(),
         runtime.clone(),
         node_id,
-        sync_adapter,
+        sync_adapter.clone(),
         network_adapter.clone().into(),
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
@@ -380,6 +380,7 @@ pub fn start_with_config_and_synchronization(
         storage.into_inner(near_store::Temperature::Hot),
         config.network_config,
         Arc::new(near_client::adapter::Adapter::new(client_actor.clone(), view_client.clone())),
+        sync_adapter,
         shards_manager_adapter.as_sender(),
         genesis_id,
     )

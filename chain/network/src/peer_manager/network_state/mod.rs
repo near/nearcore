@@ -1,6 +1,5 @@
 use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
-use crate::client;
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
 use crate::config;
@@ -22,6 +21,7 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::types::{ChainInfo, PeerType, ReasonForBan};
+use crate::{client, state_sync};
 use anyhow::Context;
 use arc_swap::ArcSwap;
 use near_async::messaging::Sender;
@@ -33,7 +33,7 @@ use near_primitives::types::AccountId;
 use parking_lot::Mutex;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tracing::Instrument as _;
 
 mod routing;
@@ -97,7 +97,10 @@ pub(crate) struct NetworkState {
     pub created_at: time::Instant,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
+    /// Client interface. Used to route client messages.
     pub client: Arc<dyn client::Client>,
+    /// State sync interface. Used to route messages for state sync.
+    pub state_sync: Arc<RwLock<dyn state_sync::StateSync>>,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
 
     /// Network-related info about the chain.
@@ -164,6 +167,7 @@ impl NetworkState {
         config: config::VerifiedConfig,
         genesis_id: GenesisId,
         client: Arc<dyn client::Client>,
+        state_sync: Arc<RwLock<dyn state_sync::StateSync>>,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         whitelist_nodes: Vec<WhitelistNode>,
     ) -> Self {
@@ -183,6 +187,7 @@ impl NetworkState {
             })),
             genesis_id,
             client,
+            state_sync,
             shards_manager_adapter,
             chain_info: Default::default(),
             tier2: connection::Pool::new(config.node_id()),

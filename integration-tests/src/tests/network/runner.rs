@@ -82,7 +82,7 @@ fn setup_network_node(
         shard_tracker.clone(),
         runtime.clone(),
         config.node_id(),
-        state_sync_adapter,
+        state_sync_adapter.clone(),
         network_adapter.clone().into(),
         shards_manager_adapter.as_sender(),
         Some(signer.clone()),
@@ -118,6 +118,7 @@ fn setup_network_node(
         db.clone(),
         config,
         Arc::new(near_client::adapter::Adapter::new(client_actor, view_client_actor)),
+        state_sync_adapter,
         shards_manager_adapter.as_sender(),
         genesis_id,
     )

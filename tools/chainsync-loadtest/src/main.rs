@@ -10,6 +10,7 @@ use near_async::time;
 use near_chain_configs::Genesis;
 use near_network::concurrency::ctx;
 use near_network::concurrency::scope;
+use near_network::state_sync::Noop as NoStateSync;
 use near_network::PeerManagerActor;
 use near_o11y::tracing::{error, info};
 use near_primitives::block::GenesisId;
@@ -18,7 +19,7 @@ use nearcore::config;
 use nearcore::config::NearConfig;
 use network::Network;
 use openssl_probe;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 fn genesis_hash(chain_id: &str) -> CryptoHash {
     return match chain_id {
@@ -36,12 +37,14 @@ fn genesis_hash(chain_id: &str) -> CryptoHash {
 pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<Arc<Network>> {
     let network_adapter = Arc::new(LateBoundSender::default());
     let network = Network::new(&config, network_adapter.clone().into(), qps_limit);
+    let state_sync_adapter = Arc::new(RwLock::new(NoStateSync));
 
     let network_actor = PeerManagerActor::spawn(
         time::Clock::real(),
         near_store::db::TestDB::new(),
         config.network_config,
         network.clone(),
+        state_sync_adapter,
         Sender::noop(),
         GenesisId {
             chain_id: config.client_config.chain_id.clone(),

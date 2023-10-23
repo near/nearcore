@@ -1059,8 +1059,9 @@ impl PeerActor {
                     .await?
                     .map(PeerMessage::VersionedStateResponse),
                 PeerMessage::VersionedStateResponse(info) => {
-                        //TODO: Route to state sync actor.
-                    network_state.client.state_response(info).await;
+                    // TODO: Stop routing this message to client once state sync actor can handle it.
+                    network_state.client.state_response(info.clone()).await;
+                    network_state.state_sync.read().expect("State sync adapter lock is poisoned.").send(info);
                     None
                 }
                 msg => {
