@@ -4225,37 +4225,7 @@ impl Chain {
         let shard_id = shard_uid.shard_id();
 
         let prev_chunk_height_included = prev_chunk_header.height_included();
-        // Validate state root.
-        let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
 
-        // Validate that all next chunk information matches previous chunk extra.
-        validate_chunk_with_chunk_extra(
-            // It's safe here to use ChainStore instead of ChainStoreUpdate
-            // because we're asking prev_chunk_header for already committed block
-            self.store(),
-            self.epoch_manager.as_ref(),
-            prev_hash,
-            &prev_chunk_extra,
-            prev_chunk_height_included,
-            chunk_header,
-        )
-        .map_err(|err| {
-            warn!(
-                target: "chain",
-                ?err,
-                prev_block_hash=?prev_hash,
-                block_hash=?block.header().hash(),
-                shard_id,
-                prev_chunk_height_included,
-                ?prev_chunk_extra,
-                ?chunk_header,
-                "Failed to validate chunk extra");
-            byzantine_assert!(false);
-            match self.create_chunk_state_challenge(prev_block, block, chunk_header) {
-                Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
-                Err(err) => err,
-            }
-        })?;
         // we can't use hash from the current block here yet because the incoming receipts
         // for this block is not stored yet
         let new_receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
@@ -4329,6 +4299,37 @@ impl Chain {
                 shard_id)
             .entered();
             let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
+            // Validate state root.
+            let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
+
+            // Validate that all next chunk information matches previous chunk extra.
+            validate_chunk_with_chunk_extra(
+                // It's safe here to use ChainStore instead of ChainStoreUpdate
+                // because we're asking prev_chunk_header for already committed block
+                self.store(),
+                self.epoch_manager.as_ref(),
+                prev_hash,
+                &prev_chunk_extra,
+                prev_chunk_height_included,
+                chunk_header,
+            )
+            .map_err(|err| {
+                warn!(
+                target: "chain",
+                ?err,
+                prev_block_hash=?prev_hash,
+                block_hash=?block.header().hash(),
+                shard_id,
+                prev_chunk_height_included,
+                ?prev_chunk_extra,
+                ?chunk_header,
+                "Failed to validate chunk extra");
+                byzantine_assert!(false);
+                match self.create_chunk_state_challenge(prev_block, block, chunk_header) {
+                    Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
+                    Err(err) => err,
+                }
+            })?;
             match runtime.apply_transactions(
                 shard_id,
                 chunk_inner.prev_state_root(),
