@@ -4218,7 +4218,7 @@ impl Chain {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         split_state_roots: Option<HashMap<ShardUId, CryptoHash>>,
     ) -> Result<Option<ApplyChunkJob>, Error> {
-        let prev_hash = block.header().prev_hash();
+        let prev_hash = &block.header().prev_hash().clone();
         let shard_id = shard_uid.shard_id();
 
         let prev_chunk_height_included = prev_chunk_header.height_included();
@@ -4325,7 +4325,7 @@ impl Chain {
                 prev_hash,
                 &prev_chunk_extra,
                 // prev_chunk_height_included,
-                chunk_header,
+                &chunk_header_copy,
             )
             .map_err(|err| {
                 warn!(
@@ -4336,7 +4336,7 @@ impl Chain {
                 shard_id,
                 prev_chunk_height_included,
                 ?prev_chunk_extra,
-                ?chunk_header,
+                ?chunk_header_copy,
                 "Failed to validate chunk extra");
                 byzantine_assert!(false);
                 match Chain::create_chunk_state_challenge(
