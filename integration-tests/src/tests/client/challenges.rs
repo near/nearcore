@@ -29,6 +29,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives_core::version::ProtocolFeature;
 use near_store::Trie;
 use nearcore::config::{GenesisExt, FISHERMEN_THRESHOLD};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -83,7 +84,12 @@ fn test_invalid_chunk_state() {
         .build();
     env.produce_block(0, 1);
     let block_hash = env.clients[0].chain.get_block_hash_by_height(1).unwrap();
-    env.produce_block(0, 2);
+    let next_height = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+        env.produce_block(0, 2);
+        3
+    } else {
+        2
+    };
 
     {
         let mut chunk_extra = ChunkExtra::clone(
@@ -97,7 +103,7 @@ fn test_invalid_chunk_state() {
         store_update.commit().unwrap();
     }
 
-    let block = env.clients[0].produce_block(3).unwrap().unwrap();
+    let block = env.clients[0].produce_block(next_height).unwrap().unwrap();
     let result = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     assert_matches!(result.unwrap_err(), Error::InvalidChunkState(_));
 }
