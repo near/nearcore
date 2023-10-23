@@ -3786,7 +3786,7 @@ impl Chain {
     }
 
     pub fn create_chunk_state_challenge(
-        &self,
+        prev_chunk: ShardChunk,
         prev_block: &Block,
         block: &Block,
         chunk_header: &ShardChunkHeader,
@@ -3794,9 +3794,6 @@ impl Chain {
         let chunk_shard_id = chunk_header.shard_id();
         let prev_merkle_proofs = Block::compute_chunk_headers_root(prev_block.chunks().iter()).1;
         let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter()).1;
-        let prev_chunk = self
-            .get_chunk_clone_from_header(&prev_block.chunks()[chunk_shard_id as usize].clone())
-            .unwrap();
 
         // TODO (#6316): enable storage proof generation
         // let prev_chunk_header = &prev_block.chunks()[chunk_shard_id as usize];
@@ -4292,6 +4289,11 @@ impl Chain {
         let height = chunk_header.height_included();
         let prev_block_hash = *chunk_header.prev_block_hash();
         let epoch_manager_adapter = self.epoch_manager.clone();
+        let prev_chunk = self
+            .get_chunk_clone_from_header(
+                &prev_block.chunks()[chunk_header.shard_id() as usize].clone(),
+            )
+            .unwrap();
 
         let outgoing_receipts = self.get_outgoing_receipts_for_shard(
             prev_block_hash,
@@ -4333,7 +4335,12 @@ impl Chain {
                 ?chunk_header,
                 "Failed to validate chunk extra");
                 byzantine_assert!(false);
-                match self.create_chunk_state_challenge(prev_block, block, chunk_header) {
+                match Chain::create_chunk_state_challenge(
+                    prev_chunk,
+                    prev_block,
+                    block,
+                    chunk_header,
+                ) {
                     Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
                     Err(err) => err,
                 }

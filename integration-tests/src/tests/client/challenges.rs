@@ -449,8 +449,11 @@ fn test_verify_chunk_invalid_state_challenge() {
         None,
     );
 
+    let prev_chunk =
+        env.clients[0].chain.get_chunk_clone_from_header(&last_block.chunks()[0].clone()).unwrap();
     let challenge_body =
-        client.chain.create_chunk_state_challenge(&last_block, &block, &block.chunks()[0]).unwrap();
+        Chain::create_chunk_state_challenge(prev_chunk, &last_block, &block, &block.chunks()[0])
+            .unwrap();
     {
         let prev_merkle_proofs = Block::compute_chunk_headers_root(last_block.chunks().iter()).1;
         let merkle_proofs = Block::compute_chunk_headers_root(block.chunks().iter()).1;
