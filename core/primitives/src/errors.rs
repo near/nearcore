@@ -209,6 +209,8 @@ pub enum InvalidAccessKeyError {
     },
     /// Having a deposit with a function call action is not allowed with a function call access key.
     DepositWithFunctionCall,
+    /// Transaction is from ETH-implicit `account_id` and uses invalid `public_key` for that address.
+    InvalidPkForEthAddress { account_id: AccountId, public_key: PublicKey },
 }
 
 /// Describes the error for validating a list of actions.
@@ -485,7 +487,7 @@ pub enum ActionErrorKind {
     /// receipt validation.
     NewReceiptValidationError(ReceiptValidationError),
     /// Error occurs when a `CreateAccount` action is called on hex-characters
-    /// account of length 64 or 40.  See implicit account creation NEP:
+    /// account of length 64 or 42.  See implicit account creation NEP:
     /// <https://github.com/nearprotocol/NEPs/pull/71>.
     ///
     /// TODO(#8598): This error is named very poorly. A better name would be
@@ -609,7 +611,12 @@ impl Display for InvalidAccessKeyError {
             ),
             InvalidAccessKeyError::DepositWithFunctionCall => {
                 write!(f, "Having a deposit with a function call action is not allowed with a function call access key.")
-            }
+            },
+            InvalidAccessKeyError::InvalidPkForEthAddress { account_id, public_key } => write!(
+                f,
+                "Address {:?} is ETH-implicit and does not correspond to the public_key {}",
+                account_id, public_key
+            ),
         }
     }
 }

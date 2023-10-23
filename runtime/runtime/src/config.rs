@@ -97,15 +97,12 @@ pub fn total_send_fees(
             }
             Transfer(_) => {
                 // Account for implicit account creation
-                let is_receiver_implicit = match receiver_id.get_account_type() {
-                    AccountType::NearImplicitAccount | AccountType::EthImplicitAccount => config.wasm_config.implicit_account_creation,
-                    AccountType::NamedAccount => false,
-                };
+                let is_receiver_implicit = config.wasm_config.implicit_account_creation && receiver_id.get_account_type().is_implicit();
                 transfer_send_fee(
                     fees,
                     sender_is_receiver,
                     is_receiver_implicit,
-                    receiver_id.is_eth_implicit(),
+                    receiver_id.get_account_type(),
                 )
             }
             Stake(_) => fees.fee(ActionCosts::stake).send_fee(sender_is_receiver),
@@ -196,11 +193,8 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
         }
         Transfer(_) => {
             // Account for implicit account creation
-            let is_receiver_implicit = match receiver_id.get_account_type() {
-                AccountType::NearImplicitAccount | AccountType::EthImplicitAccount => config.wasm_config.implicit_account_creation,
-                AccountType::NamedAccount => false,
-            };
-            transfer_exec_fee(fees, is_receiver_implicit, receiver_id.is_eth_implicit())
+            let is_receiver_implicit = config.wasm_config.implicit_account_creation && receiver_id.get_account_type().is_implicit();
+            transfer_exec_fee(fees, is_receiver_implicit, receiver_id.get_account_type())
         }
         Stake(_) => fees.fee(ActionCosts::stake).exec_fee(),
         AddKey(add_key_action) => match &add_key_action.access_key.permission {

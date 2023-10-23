@@ -1,8 +1,9 @@
 use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
 use crate::near_primitives::account::Account;
 use crate::VerificationResult;
+use near_crypto::{PublicKey, KeyType};
 use near_crypto::key_conversion::is_valid_staking_key;
-use near_primitives::account::AccessKeyPermission;
+use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::checked_feature;
 use near_primitives::errors::{
@@ -19,6 +20,7 @@ use near_primitives::types::{AccountId, Balance};
 use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
+use near_primitives_core::account::id::AccountType;
 use near_store::{
     get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
 };
@@ -123,6 +125,18 @@ pub fn validate_transaction(
         .map_err(|_| InvalidTxError::CostOverflow.into())
 }
 
+fn is_pk_valid_for_eth_address(public_key: &PublicKey, account_id: &AccountId) -> bool {
+    match public_key.key_type() {
+        KeyType::SECP256K1 => {
+            use sha3::Digest;
+            let pk_hash = sha3::Keccak256::digest(&public_key.key_data());
+            format!("0x{}", hex::encode(&pk_hash[12..32])) == account_id.as_str()
+        },
+        // Should panic instead?
+        KeyType::ED25519 => false,
+    }
+}
+
 /// Verifies the signed transaction on top of given state, charges transaction fees
 /// and balances, and updates the state for the used account and access keys.
 pub fn verify_and_charge_transaction(
@@ -144,6 +158,7 @@ pub fn verify_and_charge_transaction(
         )?;
     let transaction = &signed_transaction.transaction;
     let signer_id = &transaction.signer_id;
+    let public_key = &transaction.public_key;
 
     let mut signer = match get_account(state_update, signer_id)? {
         Some(signer) => signer,
@@ -151,16 +166,30 @@ pub fn verify_and_charge_transaction(
             return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() }.into());
         }
     };
-    let mut access_key = match get_access_key(state_update, signer_id, &transaction.public_key)? {
+    let mut access_key = match get_access_key(state_update, signer_id, public_key)? {
         Some(access_key) => access_key,
-        None => {
-            return Err(InvalidTxError::InvalidAccessKeyError(
-                InvalidAccessKeyError::AccessKeyNotFound {
-                    account_id: signer_id.clone(),
-                    public_key: transaction.public_key.clone(),
-                },
-            )
-            .into());
+        None => match signer_id.get_account_type() {
+            AccountType::EthImplicitAccount => {
+                if is_pk_valid_for_eth_address(public_key, signer_id) {
+                    // TODO what about increasing storage usage for that account
+                    AccessKey::full_access()
+                } else {
+                    return Err(InvalidTxError::InvalidAccessKeyError(
+                        InvalidAccessKeyError::InvalidPkForEthAddress {
+                            account_id: signer_id.clone(),
+                            public_key: public_key.clone(),
+                    })
+                    .into());
+                }
+            },
+            _ => {
+                return Err(InvalidTxError::InvalidAccessKeyError(
+                    InvalidAccessKeyError::AccessKeyNotFound {
+                        account_id: signer_id.clone(),
+                        public_key: public_key.clone(),
+                })
+                .into());
+            },
         }
     };
 
@@ -202,7 +231,7 @@ pub fn verify_and_charge_transaction(
             *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
                 InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
                     account_id: signer_id.clone(),
-                    public_key: transaction.public_key.clone(),
+                    public_key: public_key.clone(),
                     allowance: *allowance,
                     cost: total_cost,
                 })
@@ -268,7 +297,7 @@ pub fn verify_and_charge_transaction(
         }
     };
 
-    set_access_key(state_update, signer_id.clone(), transaction.public_key.clone(), &access_key);
+    set_access_key(state_update, signer_id.clone(), public_key.clone(), &access_key);
     set_account(state_update, signer_id.clone(), &signer);
 
     Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })

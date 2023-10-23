@@ -38,11 +38,7 @@ pub fn map_records<P: AsRef<Path>>(
                     public_key: replacement.public_key(),
                     access_key: access_key.clone(),
                 };
-                let is_implicit = match account_id.get_account_type() {
-                    AccountType::NearImplicitAccount | AccountType::EthImplicitAccount => true,
-                    AccountType::NamedAccount => false,
-                };
-                if !is_implicit && access_key.permission == AccessKeyPermission::FullAccess {
+                if !account_id.get_account_type().is_implicit() && access_key.permission == AccessKeyPermission::FullAccess {
                     has_full_key.insert(account_id.clone());
                 }
                 // TODO: would be nice for stream_records_from_file() to let you return early on error so
@@ -50,7 +46,7 @@ pub fn map_records<P: AsRef<Path>>(
                 records_seq.serialize_element(&new_record).unwrap();
             }
             StateRecord::Account { account_id, .. } => {
-                if account_id.is_near_implicit() {
+                if account_id.get_account_type() == AccountType::NearImplicitAccount {
                     *account_id = crate::key_mapping::map_account(&account_id, secret.as_ref());
                 } else {
                     accounts.insert(account_id.clone());
@@ -58,20 +54,20 @@ pub fn map_records<P: AsRef<Path>>(
                 records_seq.serialize_element(&r).unwrap();
             }
             StateRecord::Data { account_id, .. } => {
-                if account_id.is_near_implicit() {
+                if account_id.get_account_type() == AccountType::NearImplicitAccount {
                     *account_id = crate::key_mapping::map_account(&account_id, secret.as_ref());
                 }
                 records_seq.serialize_element(&r).unwrap();
             }
             StateRecord::Contract { account_id, .. } => {
-                if account_id.is_near_implicit() {
+                if account_id.get_account_type() == AccountType::NearImplicitAccount {
                     *account_id = crate::key_mapping::map_account(&account_id, secret.as_ref());
                 }
                 records_seq.serialize_element(&r).unwrap();
             }
             StateRecord::PostponedReceipt(receipt) => {
-                if receipt.predecessor_id.is_near_implicit()
-                    || receipt.receiver_id.is_near_implicit()
+                if receipt.predecessor_id.get_account_type() == AccountType::NearImplicitAccount
+                    || receipt.receiver_id.get_account_type() == AccountType::NearImplicitAccount
                 {
                     receipt.predecessor_id =
                         crate::key_mapping::map_account(&receipt.predecessor_id, secret.as_ref());
@@ -81,14 +77,14 @@ pub fn map_records<P: AsRef<Path>>(
                 records_seq.serialize_element(&r).unwrap();
             }
             StateRecord::ReceivedData { account_id, .. } => {
-                if account_id.is_near_implicit() {
+                if account_id.get_account_type() == AccountType::NearImplicitAccount {
                     *account_id = crate::key_mapping::map_account(&account_id, secret.as_ref());
                 }
                 records_seq.serialize_element(&r).unwrap();
             }
             StateRecord::DelayedReceipt(receipt) => {
-                if receipt.predecessor_id.is_near_implicit()
-                    || receipt.receiver_id.is_near_implicit()
+                if receipt.predecessor_id.get_account_type() == AccountType::NearImplicitAccount
+                    || receipt.receiver_id.get_account_type() == AccountType::NearImplicitAccount
                 {
                     receipt.predecessor_id =
                         crate::key_mapping::map_account(&receipt.predecessor_id, secret.as_ref());

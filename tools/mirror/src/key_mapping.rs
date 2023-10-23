@@ -1,5 +1,6 @@
 use hkdf::Hkdf;
 use near_crypto::{ED25519PublicKey, ED25519SecretKey, PublicKey, Secp256K1PublicKey, SecretKey};
+use near_primitives_core::account::id::AccountType;
 use near_primitives::types::AccountId;
 use sha2::Sha256;
 
@@ -97,7 +98,7 @@ pub fn map_account(
     account_id: &AccountId,
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
 ) -> AccountId {
-    if account_id.is_near_implicit() {
+    if account_id.get_account_type() == AccountType::NearImplicitAccount {
         let public_key =
             PublicKey::from_near_implicit_account(account_id).expect("must be implicit");
         let mapped_key = map_key(&public_key, secret);

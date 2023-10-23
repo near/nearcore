@@ -441,32 +441,46 @@ pub(crate) fn action_implicit_account_creation_transfer(
 ) {
     *actor_id = account_id.clone();
 
-    let mut access_key = AccessKey::full_access();
-    // Set default nonce for newly created access key to avoid transaction hash collision.
-    // See <https://github.com/near/nearcore/issues/3779>.
-    if checked_feature!("stable", AccessKeyNonceForImplicitAccounts, current_protocol_version) {
-        access_key.nonce = (block_height - 1)
-            * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+    match account_id.get_account_type() {
+        AccountType::NearImplicitAccount => {
+            let mut access_key = AccessKey::full_access();
+            // Set default nonce for newly created access key to avoid transaction hash collision.
+            // See <https://github.com/near/nearcore/issues/3779>.
+            if checked_feature!("stable", AccessKeyNonceForImplicitAccounts, current_protocol_version) {
+                access_key.nonce = (block_height - 1)
+                    * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+            }
+
+            // Invariant: The account_id is hex like (implicit account id).
+            // It holds because in the only calling site, we've checked the permissions before.
+            // unwrap: Can only fail if `account_id` is not NEAR-implicit.
+            let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
+
+            *account = Some(Account::new(
+                transfer.deposit,
+                0,
+                CryptoHash::default(),
+                fee_config.storage_usage_config.num_bytes_account
+                    + public_key.len() as u64
+                    + borsh::object_length(&access_key).unwrap() as u64
+                    + fee_config.storage_usage_config.num_extra_bytes_record,
+            ));
+
+            set_access_key(state_update, account_id.clone(), public_key, &access_key);
+        },
+        AccountType::EthImplicitAccount => {
+            *account = Some(Account::new(
+                transfer.deposit,
+                0,
+                CryptoHash::default(),
+                fee_config.storage_usage_config.num_bytes_account
+                    + fee_config.storage_usage_config.num_extra_bytes_record,
+            ));
+        },
+        AccountType::NamedAccount => panic!("Should only be called for an implicit account"),
     }
 
-    // TODO add support for creating ETH-implicit accounts
-
-    // Invariant: The account_id is hex like (implicit account id).
-    // It holds because in the only calling site, we've checked the permissions before.
-    // unwrap: Can only fail if `account_id` is not NEAR-implicit.
-    let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
-
-    *account = Some(Account::new(
-        transfer.deposit,
-        0,
-        CryptoHash::default(),
-        fee_config.storage_usage_config.num_bytes_account
-            + public_key.len() as u64
-            + borsh::object_length(&access_key).unwrap() as u64
-            + fee_config.storage_usage_config.num_extra_bytes_record,
-    ));
-
-    set_access_key(state_update, account_id.clone(), public_key, &access_key);
+    
 }
 
 pub(crate) fn action_deploy_contract(
@@ -885,12 +899,8 @@ pub(crate) fn check_account_existence(
                 }
                 .into());
             } else {
-                let is_implicit = match account_id.get_account_type() {
-                    AccountType::NearImplicitAccount | AccountType::EthImplicitAccount => true,
-                    AccountType::NamedAccount => false,
-                };
                 // TODO: this should be `config.implicit_account_creation`.
-                if config.wasm_config.implicit_account_creation && is_implicit {
+                if config.wasm_config.implicit_account_creation && account_id.get_account_type().is_implicit() {
                     // If the account doesn't exist and it's implicit, then you
                     // should only be able to create it using single transfer action.
                     // Because you should not be able to add another access key to the account in
@@ -909,13 +919,9 @@ pub(crate) fn check_account_existence(
         }
         Action::Transfer(_) => {
             if account.is_none() {
-                let is_implicit = match account_id.get_account_type() {
-                    AccountType::NearImplicitAccount | AccountType::EthImplicitAccount => true,
-                    AccountType::NamedAccount => false,
-                };
                 return if config.wasm_config.implicit_account_creation
                     && is_the_only_action
-                    && is_implicit
+                    && account_id.get_account_type().is_implicit()
                     && !is_refund
                 {
                     // OK. It's implicit account creation.
