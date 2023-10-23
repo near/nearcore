@@ -113,7 +113,6 @@ pub fn setup(
         ChainConfig {
             save_trie_changes: true,
             background_migration_threads: 1,
-            state_snapshot_every_n_blocks: None,
         },
         None,
     )
@@ -235,7 +234,6 @@ pub fn setup_only_view(
         ChainConfig {
             save_trie_changes: true,
             background_migration_threads: 1,
-            state_snapshot_every_n_blocks: None,
         },
         None,
     )
@@ -1003,7 +1001,6 @@ pub fn setup_synchronous_shards_manager(
         ChainConfig {
             save_trie_changes: true,
             background_migration_threads: 1,
-            state_snapshot_every_n_blocks: None,
         }, // irrelevant
         None,
     )

@@ -38,6 +38,7 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryRequest, QueryResponse, QueryResponseKind, ViewApplyState,
     ViewStateResult,
 };
+use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
 use near_store::{
@@ -83,12 +84,24 @@ impl NightshadeRuntime {
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> Arc<Self> {
+        // TODO (#9989): directly use the new state snapshot config once the migration is done.
+        let mut state_snapshot_type =
+            config.config.store.state_snapshot_config.state_snapshot_type.clone();
+        if config.config.store.state_snapshot_enabled {
+            state_snapshot_type = StateSnapshotType::EveryEpoch;
+        }
+        if let Some(n) = config.client_config.state_snapshot_every_n_blocks {
+            state_snapshot_type = StateSnapshotType::EveryEpochAndNBlocks(n);
+        }
+        // TODO (#9989): directly use the new state snapshot config once the migration is done.
+        let compaction_enabled = config.config.store.state_snapshot_compaction_enabled
+            || config.config.store.state_snapshot_config.compaction_enabled;
         let state_snapshot_config = StateSnapshotConfig {
-            enabled: config.config.store.state_snapshot_enabled,
+            state_snapshot_type,
             home_dir: home_dir.to_path_buf(),
             hot_store_path: config.config.store.path.clone().unwrap_or(PathBuf::from("data")),
             state_snapshot_subdir: PathBuf::from("state_snapshot"),
-            compaction_enabled: config.config.store.state_snapshot_compaction_enabled,
+            compaction_enabled,
         };
         Self::new(
             store,
@@ -158,7 +171,7 @@ impl NightshadeRuntime {
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         runtime_config_store: RuntimeConfigStore,
-        state_snapshot_enabled: bool,
+        state_snapshot_type: StateSnapshotType,
     ) -> Arc<Self> {
         Self::new(
             store,
@@ -170,7 +183,7 @@ impl NightshadeRuntime {
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
             StateSnapshotConfig {
-                enabled: state_snapshot_enabled,
+                state_snapshot_type,
                 home_dir: home_dir.to_path_buf(),
                 hot_store_path: PathBuf::from("data"),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
@@ -191,7 +204,7 @@ impl NightshadeRuntime {
             genesis_config,
             epoch_manager,
             RuntimeConfigStore::test(),
-            false,
+            StateSnapshotType::ForReshardingOnly,
         )
     }
 
@@ -1493,7 +1506,7 @@ mod test {
                 DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
                 Default::default(),
                 StateSnapshotConfig {
-                    enabled: true,
+                    state_snapshot_type: StateSnapshotType::EveryEpoch,
                     home_dir: PathBuf::from(dir.path()),
                     hot_store_path: PathBuf::from("data"),
                     state_snapshot_subdir: PathBuf::from("state_snapshot"),
@@ -2795,7 +2808,7 @@ mod test {
             &genesis.config,
             epoch_manager.clone(),
             RuntimeConfigStore::new(None),
-            true,
+            StateSnapshotType::EveryEpoch,
         );
 
         let block =
