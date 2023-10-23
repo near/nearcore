@@ -4218,7 +4218,7 @@ impl Chain {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         split_state_roots: Option<HashMap<ShardUId, CryptoHash>>,
     ) -> Result<Option<ApplyChunkJob>, Error> {
-        let prev_hash = &block.header().prev_hash().clone();
+        let prev_hash = block.header().prev_hash().clone();
         let shard_id = shard_uid.shard_id();
 
         let prev_chunk_height_included = prev_chunk_header.height_included();
@@ -4229,7 +4229,7 @@ impl Chain {
         let old_receipts = &self.store().get_incoming_receipts_for_shard(
             self.epoch_manager.as_ref(),
             shard_id,
-            *prev_hash,
+            prev_hash.clone(),
             prev_chunk_height_included,
         )?;
         let old_receipts = collect_receipts_from_response(old_receipts);
@@ -4280,7 +4280,7 @@ impl Chain {
             shard_id,
         )?;
 
-        let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
+        let prev_chunk_extra = self.get_chunk_extra(&prev_hash, &shard_uid)?;
         let block_hash = *block.hash();
         let challenges_result = block.header().challenges_result().clone();
         let block_timestamp = block.header().raw_timestamp();
@@ -4322,7 +4322,7 @@ impl Chain {
                 // because we're asking prev_chunk_header for already committed block
                 outgoing_receipts,
                 epoch_manager_adapter.as_ref(),
-                prev_hash,
+                &prev_hash,
                 &prev_chunk_extra,
                 // prev_chunk_height_included,
                 &chunk_header_copy,
