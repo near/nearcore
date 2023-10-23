@@ -10,6 +10,7 @@ use near_primitives::challenge::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
+use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -105,11 +106,12 @@ pub fn validate_transactions_order(transactions: &[SignedTransaction]) -> bool {
 
 /// Validate that all next chunk information matches previous chunk extra.
 pub fn validate_chunk_with_chunk_extra(
-    chain_store: &ChainStore,
+    // chain_store: &ChainStore,
+    outgoing_receipts: Vec<Receipt>,
     epoch_manager: &dyn EpochManagerAdapter,
     prev_block_hash: &CryptoHash,
     prev_chunk_extra: &ChunkExtra,
-    prev_chunk_height_included: BlockHeight,
+    // prev_chunk_height_included: BlockHeight,
     chunk_header: &ShardChunkHeader,
 ) -> Result<(), Error> {
     if *prev_chunk_extra.state_root() != chunk_header.prev_state_root() {
@@ -140,12 +142,6 @@ pub fn validate_chunk_with_chunk_extra(
         return Err(Error::InvalidBalanceBurnt);
     }
 
-    let outgoing_receipts = chain_store.get_outgoing_receipts_for_shard(
-        epoch_manager,
-        *prev_block_hash,
-        chunk_header.shard_id(),
-        prev_chunk_height_included,
-    )?;
     let outgoing_receipts_hashes = {
         let shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_block_hash)?;
         Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)

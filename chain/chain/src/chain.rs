@@ -4283,7 +4283,7 @@ impl Chain {
             shard_id,
         )?;
 
-        let chain_access: Arc<dyn ChainStoreAccess> = Arc::new(self.store());
+        let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
         let block_hash = *block.hash();
         let challenges_result = block.header().challenges_result().clone();
         let block_timestamp = block.header().raw_timestamp();
@@ -4291,6 +4291,12 @@ impl Chain {
         let random_seed = *block.header().random_value();
         let height = chunk_header.height_included();
         let prev_block_hash = *chunk_header.prev_block_hash();
+
+        let outgoing_receipts = self.get_outgoing_receipts_for_shard(
+            *prev_block_hash,
+            chunk_header.shard_id(),
+            prev_chunk_height_included,
+        )?;
 
         Ok(Some(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
             let _span = tracing::debug_span!(
@@ -4301,17 +4307,17 @@ impl Chain {
             .entered();
             let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
             // Validate state root.
-            let prev_chunk_extra = chain_access.get_chunk_extra(prev_hash, &shard_uid)?;
 
             // Validate that all next chunk information matches previous chunk extra.
+
             validate_chunk_with_chunk_extra(
                 // It's safe here to use ChainStore instead of ChainStoreUpdate
                 // because we're asking prev_chunk_header for already committed block
-                chain_access.as_ref(),
+                outgoing_receipts,
                 self.epoch_manager.as_ref(),
                 prev_hash,
                 &prev_chunk_extra,
-                prev_chunk_height_included,
+                // prev_chunk_height_included,
                 chunk_header,
             )
             .map_err(|err| {
