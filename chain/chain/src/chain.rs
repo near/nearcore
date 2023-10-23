@@ -2368,6 +2368,7 @@ impl Chain {
         let block_start_processing_time = block_preprocess_info.block_start_processing_time;
         // TODO(#8055): this zip relies on the ordering of the apply_results.
         for (apply_result, chunk) in apply_results.iter().zip(block.chunks().iter()) {
+            println!("apply result: {:?}", apply_result);
             if let Err(err) = apply_result {
                 if err.is_bad_data() {
                     block_processing_artifacts.invalid_chunks.push(chunk.clone());
