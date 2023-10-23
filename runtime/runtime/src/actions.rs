@@ -26,6 +26,7 @@ use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
+use near_primitives_core::account::id::AccountType;
 use near_primitives_core::config::ActionCosts;
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
@@ -884,8 +885,12 @@ pub(crate) fn check_account_existence(
                 }
                 .into());
             } else {
+                let is_implicit = match account_id.get_account_type() {
+                    AccountType::NearImplicitAccount | AccountType::EthImplicitAccount => true,
+                    AccountType::NamedAccount => false,
+                };
                 // TODO: this should be `config.implicit_account_creation`.
-                if config.wasm_config.implicit_account_creation && account_id.is_ximplicit() {
+                if config.wasm_config.implicit_account_creation && is_implicit {
                     // If the account doesn't exist and it's implicit, then you
                     // should only be able to create it using single transfer action.
                     // Because you should not be able to add another access key to the account in
@@ -904,9 +909,13 @@ pub(crate) fn check_account_existence(
         }
         Action::Transfer(_) => {
             if account.is_none() {
+                let is_implicit = match account_id.get_account_type() {
+                    AccountType::NearImplicitAccount | AccountType::EthImplicitAccount => true,
+                    AccountType::NamedAccount => false,
+                };
                 return if config.wasm_config.implicit_account_creation
                     && is_the_only_action
-                    && account_id.is_ximplicit()
+                    && is_implicit
                     && !is_refund
                 {
                     // OK. It's implicit account creation.

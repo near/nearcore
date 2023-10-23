@@ -9,6 +9,7 @@ use super::{StorageGetMode, ValuePtr};
 use crate::config::Config;
 use crate::ProfileDataV3;
 use near_crypto::Secp256K1Signature;
+use near_primitives_core::account::id::AccountType;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::ViewConfig;
 use near_primitives_core::config::{ActionCosts, ExtCosts};
@@ -1773,12 +1774,14 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.ext.get_receipt_receiver(receipt_idx);
-        let is_receiver_implicit =
-            self.config.implicit_account_creation && receiver_id.is_ximplicit();
+        let is_receiver_implicit = match receiver_id.get_account_type() {
+            AccountType::NearImplicitAccount | AccountType::EthImplicitAccount => self.config.implicit_account_creation,
+            AccountType::NamedAccount => false,
+        };
         let send_fee =
-            transfer_send_fee(self.fees_config, sir, is_receiver_implicit, receiver_id.is_eth());
+            transfer_send_fee(self.fees_config, sir, is_receiver_implicit, receiver_id.is_eth_implicit());
         let exec_fee =
-            transfer_exec_fee(self.fees_config, is_receiver_implicit, receiver_id.is_eth());
+            transfer_exec_fee(self.fees_config, is_receiver_implicit, receiver_id.is_eth_implicit());
         let burn_gas = send_fee;
         let use_gas = burn_gas.checked_add(exec_fee).ok_or(HostError::IntegerOverflow)?;
         self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::transfer)?;

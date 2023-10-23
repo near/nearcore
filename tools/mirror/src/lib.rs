@@ -26,7 +26,7 @@ use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, QueryRequest, QueryResponseKind,
     SignedTransactionView,
 };
-use near_primitives_core::account::{AccessKey, AccessKeyPermission};
+use near_primitives_core::account::{AccessKey, AccessKeyPermission, id::AccountType};
 use near_primitives_core::types::{Nonce, ShardId};
 use nearcore::config::NearConfig;
 use rocksdb::DB;
@@ -989,7 +989,11 @@ impl<T: ChainAccess> TxMirror<T> {
                     actions.push(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })));
                 }
                 Action::Transfer(_) => {
-                    if tx.receiver_id().is_ximplicit() && source_actions.len() == 1 {
+                    let is_receiver_implicit = match tx.receiver_id().get_account_type() {
+                        AccountType::NearImplicitAccount | AccountType::EthImplicitAccount => true,
+                        AccountType::NamedAccount => false,
+                    };
+                    if is_receiver_implicit && source_actions.len() == 1 {
                         let target_account =
                             crate::key_mapping::map_account(tx.receiver_id(), self.secret.as_ref());
                         if !account_exists(&self.target_view_client, &target_account)

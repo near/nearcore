@@ -208,12 +208,12 @@ impl StorageUsageConfig {
 pub fn transfer_exec_fee(
     cfg: &RuntimeFeesConfig,
     is_receiver_implicit: bool,
-    is_receiver_eth: bool,
+    is_receiver_eth_implictit: bool,
 ) -> Gas {
     let mut result = cfg.fee(ActionCosts::transfer).exec_fee();
     if is_receiver_implicit {
         result += cfg.fee(ActionCosts::create_account).exec_fee();
-        if !is_receiver_eth {
+        if !is_receiver_eth_implictit {
             result += cfg.fee(ActionCosts::add_full_access_key).exec_fee();
         }
     }
@@ -224,12 +224,12 @@ pub fn transfer_send_fee(
     cfg: &RuntimeFeesConfig,
     sender_is_receiver: bool,
     is_receiver_implicit: bool,
-    is_receiver_eth: bool,
+    is_receiver_eth_implictit: bool,
 ) -> Gas {
     let mut result = cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
     if is_receiver_implicit {
         result += cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver);
-        if !is_receiver_eth {
+        if !is_receiver_eth_implictit {
             result += cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver);
         }
     }

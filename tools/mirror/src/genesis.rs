@@ -1,5 +1,5 @@
 use near_primitives::state_record::StateRecord;
-use near_primitives_core::account::{AccessKey, AccessKeyPermission};
+use near_primitives_core::account::{AccessKey, AccessKeyPermission, id::AccountType};
 use serde::ser::{SerializeSeq, Serializer};
 use std::collections::HashSet;
 use std::fs::File;
@@ -38,9 +38,11 @@ pub fn map_records<P: AsRef<Path>>(
                     public_key: replacement.public_key(),
                     access_key: access_key.clone(),
                 };
-                if !account_id.is_ximplicit()
-                    && access_key.permission == AccessKeyPermission::FullAccess
-                {
+                let is_implicit = match account_id.get_account_type() {
+                    AccountType::NearImplicitAccount | AccountType::EthImplicitAccount => true,
+                    AccountType::NamedAccount => false,
+                };
+                if !is_implicit && access_key.permission == AccessKeyPermission::FullAccess {
                     has_full_key.insert(account_id.clone());
                 }
                 // TODO: would be nice for stream_records_from_file() to let you return early on error so

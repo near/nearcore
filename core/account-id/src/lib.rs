@@ -64,6 +64,12 @@ pub use errors::{ParseAccountError, ParseErrorKind};
 #[derive(Eq, Ord, Hash, Clone, Debug, PartialEq, PartialOrd)]
 pub struct AccountId(Box<str>);
 
+pub enum AccountType {
+    NamedAccount,
+    NearImplicitAccount,
+    EthImplicitAccount,
+}
+
 impl AccountId {
     /// Shortest valid length for a NEAR Account ID.
     pub const MIN_LEN: usize = 2;
@@ -127,7 +133,7 @@ impl AccountId {
     /// assert!(!alice_app.is_sub_account_of(&near_tla));
     /// ```
     pub fn is_sub_account_of(&self, parent: &AccountId) -> bool {
-        // TODO must be !self.is_ximplicit() ?
+        // TODO what if this account type is EthImplicitAccount ?
         self.strip_suffix(parent.as_str())
             .and_then(|s| s.strip_suffix('.'))
             .map_or(false, |s| !s.contains('.'))
@@ -144,14 +150,14 @@ impl AccountId {
     /// use near_account_id::AccountId;
     ///
     /// let alice: AccountId = "alice.near".parse().unwrap();
-    /// assert!(!alice.is_eth());
+    /// assert!(!alice.is_eth_implicit());
     ///
     /// let rando = "b794f5eA0ba39494ce839613FFfba74279579268"
     ///     .parse::<AccountId>()
     ///     .unwrap();
-    /// assert!(rando.is_eth());
+    /// assert!(rando.is_eth_implicit());
     /// ```
-    pub fn is_eth(&self) -> bool {
+    pub fn is_eth_implicit(&self) -> bool {
         self.len() == 40
             && self.as_bytes().iter().all(|b| matches!(b, b'a'..=b'f' | b'A'..=b'F' | b'0'..=b'9'))
     }
@@ -177,9 +183,14 @@ impl AccountId {
         self.len() == 64 && self.as_bytes().iter().all(|b| matches!(b, b'a'..=b'f' | b'0'..=b'9'))
     }
 
-    /// Returns `true` if this `AccountId` is either NEAR implicit address or ETH-format address.
-    pub fn is_ximplicit(&self) -> bool {
-        self.is_near_implicit() || self.is_eth()
+    pub fn get_account_type(&self) -> AccountType {
+        if self.is_eth_implicit() {
+            return AccountType::EthImplicitAccount;
+        }
+        if self.is_near_implicit() {
+            return AccountType::NearImplicitAccount;
+        }
+        AccountType::NamedAccount
     }
 
     /// Returns `true` if this `AccountId` is the system account.
