@@ -13,7 +13,7 @@ jobs:
       
       # In this step we get the latest nightly results from the nayduck server
       # and check if there are any non-passing tests
-      - name: Install JQ json processor
+      - name: Check if there are any non-passing tests
         run: |
           NIGHTLY_RESULTS=$(curl -s https://nayduck.near.org/api/nightly-events)
           UNSUCCESSFUL_TESTS=$(jq -e '.tests | .[][] | select(.[2] != "PASSED" ) ' <<< ${NIGHTLY_RESULTS} )
