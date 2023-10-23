@@ -4241,6 +4241,7 @@ impl Chain {
         let prev_block_copy = prev_block.clone();
         let block_copy = block.clone();
         let chunk_header_copy = chunk_header.clone();
+        let prev_chunk_extra = self.get_chunk_extra(&prev_hash, &shard_uid)?;
         let val_result = validate_chunk_with_chunk_extra(
             // It's safe here to use ChainStore instead of ChainStoreUpdate
             // because we're asking prev_chunk_header for already committed block
@@ -4333,7 +4334,6 @@ impl Chain {
             shard_id,
         )?;
 
-        let prev_chunk_extra = self.get_chunk_extra(&prev_hash, &shard_uid)?;
         let block_hash = *block.hash();
         let challenges_result = block.header().challenges_result().clone();
         let block_timestamp = block.header().raw_timestamp();
