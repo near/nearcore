@@ -175,7 +175,7 @@ impl SingleShardStorageMutator {
         tracing::info!(?shard_uid, num_changes = ?self.num_changes, "committing");
         update.set_ser(
             DBCol::Misc,
-            format!("SHARD_ID:{}", shard_uid.shard_id).as_bytes(),
+            format!("FORK_TOOL_SHARD_ID:{}", shard_uid.shard_id).as_bytes(),
             &state_root,
         )?;
 

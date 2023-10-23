@@ -99,8 +99,12 @@ struct AmendAccessKeysCmd {
 struct SetValidatorsCmd {
     /// Path to the JSON list of [`Validator`] structs containing account id and public keys.
     /// The path can be relative to `home_dir` or an absolute path.
-    /// Example of a valid file:
-    /// [{"account_id":"validator0", "public_key":"ed25519:7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX"}]
+    /// Example of a valid file that sets one validator with 50k tokens:
+    /// [{
+    ///   "account_id": "validator0",
+    ///   "public_key": "ed25519:7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX",
+    ///   "amount": 50000000000000000000000000000
+    /// }]
     #[arg(short, long)]
     pub validators: PathBuf,
     #[arg(short, long, default_value = "1000")]
@@ -116,7 +120,7 @@ struct ResetCmd;
 struct Validator {
     account_id: AccountId,
     public_key: PublicKey,
-    balance: Option<Balance>,
+    amount: Option<Balance>,
 }
 
 type MakeSingleShardStorageMutatorFn =
@@ -240,13 +244,11 @@ impl ForkNetworkCommand {
         let chain =
             ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, false);
 
-        let map = chain.get_all_block_hashes_by_height(fork_head.height)?;
-        let (_, hashes) = (*map).iter().next().unwrap();
-        let block_hash = *hashes.iter().next().unwrap();
-        let header = chain.get_block_header(&block_hash)?;
+        let header = chain.get_block_header(&fork_head.hash)?;
         let epoch_id = header.epoch_id();
         let num_shards = shard_layout.num_shards();
-        let block_height = header.height();
+        let block_hash = fork_head.hash;
+        let block_height = fork_head.height + 1;
 
         let state_roots: Vec<StateRoot> = (0..num_shards)
             .map(|shard_id| {
@@ -256,15 +258,15 @@ impl ForkNetworkCommand {
             })
             .collect();
 
-        tracing::info!(?epoch_id, ?block_height, block_height, ?state_roots);
+        tracing::info!(?epoch_id, ?block_hash, block_height, ?state_roots);
         let mut store_update = store.store_update();
-        store_update.set_ser(DBCol::Misc, b"EPOCH_ID", epoch_id)?;
-        store_update.set_ser(DBCol::Misc, b"BLOCK_HASH", &block_hash)?;
-        store_update.set(DBCol::Misc, b"BLOCK_HEIGHT", &block_height.to_le_bytes());
+        store_update.set_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID", epoch_id)?;
+        store_update.set_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH", &block_hash)?;
+        store_update.set(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT", &block_height.to_le_bytes());
         for (shard_id, state_root) in state_roots.iter().enumerate() {
             store_update.set_ser(
                 DBCol::Misc,
-                format!("SHARD_ID:{shard_id}").as_bytes(),
+                format!("FORK_TOOL_SHARD_ID:{shard_id}").as_bytes(),
                 state_root,
             )?;
         }
@@ -393,16 +395,18 @@ impl ForkNetworkCommand {
         &self,
         store: Store,
     ) -> anyhow::Result<(Vec<StateRoot>, CryptoHash, EpochId, BlockHeight)> {
-        let epoch_id = EpochId(store.get_ser(DBCol::Misc, b"EPOCH_ID")?.unwrap());
-        let block_hash = store.get_ser(DBCol::Misc, b"BLOCK_HASH")?.unwrap();
-        let block_height = store.get(DBCol::Misc, b"BLOCK_HEIGHT")?.unwrap();
+        let epoch_id = EpochId(store.get_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID")?.unwrap());
+        let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH")?.unwrap();
+        let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT")?.unwrap();
         let block_height = u64::from_le_bytes(block_height.as_slice().try_into().unwrap());
         let mut state_roots = vec![];
-        for (shard_id, item) in store.iter_prefix(DBCol::Misc, "SHARD_ID:".as_bytes()).enumerate() {
+        for (shard_id, item) in
+            store.iter_prefix(DBCol::Misc, "FORK_TOOL_SHARD_ID:".as_bytes()).enumerate()
+        {
             let (key, value) = item?;
             let key = String::from_utf8(key.to_vec())?;
             let state_root = borsh::from_slice(&value)?;
-            assert_eq!(key, format!("SHARD_ID:{shard_id}"));
+            assert_eq!(key, format!("FORK_TOOL_SHARD_ID:{shard_id}"));
             state_roots.push(state_root);
         }
         tracing::info!(?state_roots, ?block_hash, ?epoch_id, block_height);
@@ -673,7 +677,7 @@ impl ForkNetworkCommand {
         for validator in new_validators.into_iter() {
             let validator_account = AccountInfo {
                 account_id: validator.account_id,
-                amount: validator.balance.unwrap_or(50_000 * NEAR_BASE),
+                amount: validator.amount.unwrap_or(50_000 * NEAR_BASE),
                 public_key: validator.public_key,
             };
             new_validator_accounts.push(validator_account.clone());
