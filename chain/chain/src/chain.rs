@@ -4226,12 +4226,9 @@ impl Chain {
 
         let epoch_manager_adapter = self.epoch_manager.clone();
         // not necessary. just testing resharding logic
-        let prev_shard_id = if will_shard_layout_change {
-            let sl = epoch_manager_adapter.get_shard_layout(block.header().epoch_id())?;
-            sl.get_parent_shard_id(shard_id)?
-        } else {
-            shard_id
-        };
+        let psl = epoch_manager_adapter.get_shard_layout(prev_block.header().epoch_id())?;
+        let sl = epoch_manager_adapter.get_shard_layout(block.header().epoch_id())?;
+        let prev_shard_id = if psl != sl { sl.get_parent_shard_id(shard_id)? } else { shard_id };
 
         let prev_chunk = self
             .get_chunk_clone_from_header(&prev_block.chunks()[prev_shard_id as usize].clone())
