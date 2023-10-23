@@ -41,18 +41,13 @@ use std::sync::Arc;
 use strum::IntoEnumIterator;
 
 #[derive(clap::Parser)]
-/// If --reset, then does [`reset`] and nothing else.
-/// Snapshots `~/.near/data` into `~/.near/data/fork-snapshot/data`.
-/// Checks that hash of flat storage head is the same for every shard.
-/// Reads a block corresponding to the flat head.
-/// Reads a list of validators from `--validators`.
-/// Adds validator accounts to the genesis.
-/// Deletes all columns in `~/.near/data` other than FlatState, State, DbVersion.
-/// Makes a backup of the genesis file in `~/.near/genesis.json.backup`.
-/// Creates a new genesis:
-/// * for chain `$original_chain_id + --chain_id_suffix`
-/// * with epoch_length set to `--epoch_length`
-/// * with contents set to the state roots determined by the block corresponding to the flat head.
+/// Use the following sub-commands:
+/// * init
+/// * amend-access-keys
+/// * set-validators
+/// * finalize
+///
+/// If something goes wrong, use the sub-command reset and start over.
 pub struct ForkNetworkCommand {
     #[clap(subcommand)]
     command: SubCommand,
@@ -227,6 +222,9 @@ impl ForkNetworkCommand {
         }
     }
 
+    // Snapshots the DB.
+    // Determines parameters that will be used to initialize the new chain.
+    // After this completes, almost every DB column can be removed, however this command doesn't delete anything itself.
     fn init(&self, near_config: &mut NearConfig, home_dir: &Path) -> anyhow::Result<()> {
         // Open storage with migration
         let storage = open_storage(&home_dir, near_config).unwrap();
@@ -374,6 +372,7 @@ impl ForkNetworkCommand {
         Ok((new_state_roots, new_validator_accounts))
     }
 
+    /// Deletes DB columns that are not needed in the new chain.
     fn finalize(&self, near_config: &mut NearConfig, home_dir: &Path) -> anyhow::Result<()> {
         // Open storage with migration
         let storage = open_storage(&home_dir, near_config).unwrap();
