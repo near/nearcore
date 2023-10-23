@@ -214,10 +214,7 @@ pub struct ChainConfig {
 
 impl ChainConfig {
     pub fn test() -> Self {
-        Self {
-            save_trie_changes: true,
-            background_migration_threads: 1,
-        }
+        Self { save_trie_changes: true, background_migration_threads: 1 }
     }
 }
 
