@@ -4291,6 +4291,7 @@ impl Chain {
         let random_seed = *block.header().random_value();
         let height = chunk_header.height_included();
         let prev_block_hash = *chunk_header.prev_block_hash();
+        let epoch_manager_adapter = self.epoch_manager.clone();
 
         let outgoing_receipts = self.get_outgoing_receipts_for_shard(
             prev_block_hash,
@@ -4314,7 +4315,7 @@ impl Chain {
                 // It's safe here to use ChainStore instead of ChainStoreUpdate
                 // because we're asking prev_chunk_header for already committed block
                 outgoing_receipts,
-                self.epoch_manager.as_ref(),
+                epoch_manager_adapter.as_ref(),
                 prev_hash,
                 &prev_chunk_extra,
                 // prev_chunk_height_included,
