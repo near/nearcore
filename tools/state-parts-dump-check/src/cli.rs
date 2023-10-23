@@ -136,7 +136,10 @@ impl LoopCheckCommand {
         gcs_bucket: Option<String>,
     ) -> anyhow::Result<()> {
         let rpc_client = crate::rpc_requests::RpcClient::new(&chain_id);
-        let _ = run_loop_single_shard(
+
+        tracing::info!("started running LoopCheckCommand");
+
+        let result = run_loop_single_shard(
             chain_id,
             root_dir,
             s3_bucket,
@@ -145,6 +148,18 @@ impl LoopCheckCommand {
             rpc_client,
             &self.prometheus_addr,
         );
+
+        tracing::info!("run_loop_single_shard finished");
+
+        match result {
+            Ok(_) => {
+                tracing::info!("run_loop_single_shard returned OK()");
+            }
+            Err(err) => {
+                tracing::info!("run_loop_single_shard errored out with {}", err);
+            }
+        }
+
         Ok(())
     }
 }
@@ -222,6 +237,7 @@ fn run_loop_single_shard(
 
     let sys = actix::System::new();
     loop {
+        tracing::info!("running the loop inside run_loop_single_shard");
         let dump_check_iter_info_res = get_processing_epoch_information(&rpc_client);
         if let Err(_) = dump_check_iter_info_res {
             tracing::info!("sleeping for 60s");
