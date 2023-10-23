@@ -268,10 +268,10 @@ impl NightshadeRuntime {
         let validator_accounts_update = {
             let epoch_manager = self.epoch_manager.read();
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-            debug!(target: "runtime",
-                   "is next_block_epoch_start {}",
-                   epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
-            );
+            tracing::debug!(
+                target: "runtime",
+                is_next_block_epoch_start = epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap(),
+                "process_state_update");
 
             let mut slashing_info: HashMap<_, _> = challenges_result
                 .iter()
