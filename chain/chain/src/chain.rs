@@ -353,6 +353,7 @@ pub struct BlockMissingChunks {
 
 /// Contains information needed to request chunks for orphans
 /// Fields will be used as arguments for `request_chunks_for_orphan`
+#[derive(Debug)]
 pub struct OrphanMissingChunks {
     pub missing_chunks: Vec<ShardChunkHeader>,
     /// epoch id for the block that has missing chunks
