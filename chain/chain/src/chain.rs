@@ -4301,6 +4301,10 @@ impl Chain {
             prev_chunk_height_included,
         )?;
 
+        let prev_block_copy = prev_block.clone();
+        let block_copy = block.clone();
+        let chunk_header_copy = chunk_header.clone();
+
         Ok(Some(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
             let _span = tracing::debug_span!(
                 target: "chain",
@@ -4337,9 +4341,9 @@ impl Chain {
                 byzantine_assert!(false);
                 match Chain::create_chunk_state_challenge(
                     prev_chunk,
-                    prev_block,
-                    block,
-                    chunk_header,
+                    &prev_block_copy,
+                    &block_copy,
+                    &chunk_header_copy,
                 ) {
                     Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
                     Err(err) => err,
