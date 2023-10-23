@@ -32,7 +32,7 @@ use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 use tracing::info;
 
@@ -294,14 +294,11 @@ pub fn start_with_config_and_synchronization(
     // State Sync actors
     let client_adapter_for_sync = Arc::new(LateBoundSender::default());
     let network_adapter_for_sync = Arc::new(LateBoundSender::default());
-    let _sync_adapter = Arc::new(if let SyncConfig::Peers = config.client_config.state_sync.sync {
-        Some(SyncAdapter::new(
-            client_adapter_for_sync.as_sender(),
-            network_adapter_for_sync.as_sender(),
-        ))
-    } else {
-        None
-    });
+    let sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
+        client_adapter_for_sync.as_sender(),
+        network_adapter_for_sync.as_sender(),
+        config.client_config.state_sync.clone(),
+    )));
 
     let node_id = config.network_config.node_id();
     let network_adapter = Arc::new(LateBoundSender::default());
@@ -335,6 +332,7 @@ pub fn start_with_config_and_synchronization(
         shard_tracker.clone(),
         runtime.clone(),
         node_id,
+        sync_adapter,
         network_adapter.clone().into(),
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),

@@ -1,7 +1,8 @@
 use super::sync_actor::SyncActor;
-use actix::{dev::ToEnvelope, Actor, MailboxError, Message};
+use actix::{dev::ToEnvelope, prelude::SendError, Actor, Message};
 use core::fmt::Debug;
 use near_async::messaging::Sender;
+use near_chain_configs::StateSyncConfig;
 use near_network::types::{
     PeerManagerMessageRequest, StateSync as NetworkStateSync, StateSyncResponse,
 };
@@ -44,14 +45,17 @@ pub struct SyncAdapter {
     client_adapter: Sender<SyncMessage>,
     /// Message channel with network
     network_adapter: Sender<PeerManagerMessageRequest>,
+    /// Sync config
+    config: StateSyncConfig,
 }
 
 impl SyncAdapter {
     pub fn new(
         client_adapter: Sender<SyncMessage>,
         network_adapter: Sender<PeerManagerMessageRequest>,
+        config: StateSyncConfig,
     ) -> Self {
-        Self { actor_handler_map: [].into(), client_adapter, network_adapter }
+        Self { actor_handler_map: [].into(), client_adapter, network_adapter, config }
     }
 
     /// Starts a new arbiter and runs the actor on it
@@ -69,32 +73,29 @@ impl SyncAdapter {
 
     /// Stop the actor and remove it
     pub fn stop(&mut self, shard_uid: ShardUId) {
-        self.actor_handler_map
-            .get_mut(&shard_uid)
-            .map_or_else(|| panic!("Actor not started."), |v| v.arbiter.stop());
+        self.actor_handler_map.remove(&shard_uid).expect("Actor not started.").arbiter.stop();
     }
 
     /// Forward message to the right shard
-    async fn send<M>(&mut self, shard_uid: ShardUId, msg: M)
+    pub fn send<M>(&self, shard_uid: ShardUId, msg: M)
     where
         M: Message + Send + 'static,
         M::Result: Send,
-
         SyncActor: actix::Handler<M>,
         <SyncActor as Actor>::Context: ToEnvelope<SyncActor, M>,
     {
-        let handler = self.actor_handler_map.get_mut(&shard_uid);
+        let handler = self.actor_handler_map.get(&shard_uid);
         match handler {
             None => {
                 warn!(target: "sync", ?shard_uid, "Tried sending message to non existing actor.")
             }
-            Some(handler) => match handler.addr.send(msg).await {
+            Some(handler) => match handler.addr.try_send(msg) {
                 Ok(_) => {}
-                Err(MailboxError::Closed) => {
+                Err(SendError::Closed(_)) => {
                     warn!(target: "sync", ?shard_uid, "Error sending message, mailbox is closed.")
                 }
-                Err(MailboxError::Timeout) => {
-                    warn!(target: "sync", ?shard_uid, "Error sending message, timeout.")
+                Err(SendError::Full(_)) => {
+                    warn!(target: "sync", ?shard_uid, "Error sending message, mailbox is full.")
                 }
             },
         }
@@ -104,7 +105,7 @@ impl SyncAdapter {
 /// Interface for network
 #[async_trait::async_trait]
 impl NetworkStateSync for SyncAdapter {
-    async fn send(&mut self, shard_uid: ShardUId, msg: StateSyncResponse) {
-        self.send(shard_uid, msg.with_span_context()).await;
+    async fn send(&self, shard_uid: ShardUId, msg: StateSyncResponse) {
+        self.send(shard_uid, msg.with_span_context());
     }
 }
