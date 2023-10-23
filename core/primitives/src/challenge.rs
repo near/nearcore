@@ -59,7 +59,7 @@ pub enum MaybeEncodedShardChunk {
 }
 
 /// Doesn't match post-{state root, outgoing receipts, gas used, etc} results after applying previous chunk.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone)]
 pub struct ChunkState {
     /// Encoded prev block header.
     pub prev_block_header: Vec<u8>,
@@ -75,6 +75,12 @@ pub struct ChunkState {
     pub chunk_header: ShardChunkHeader,
     /// Partial state that was affected by transactions of given chunk.
     pub partial_state: PartialState,
+}
+
+impl std::fmt::Debug for ChunkState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "prev={:?} curr={:?}", self.prev_chunk, self.chunk_header)
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
