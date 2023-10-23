@@ -4332,7 +4332,7 @@ impl Chain {
                 target: "chain",
                 ?err,
                 prev_block_hash=?prev_hash,
-                block_hash=?block.header().hash(),
+                block_hash=?block_copy.header().hash(),
                 shard_id,
                 prev_chunk_height_included,
                 ?prev_chunk_extra,
