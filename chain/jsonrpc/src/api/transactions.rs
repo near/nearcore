@@ -108,6 +108,17 @@ mod tests {
     }
 
     #[test]
+    fn test_serialize_tx_status_params_as_object_with_signed_tx() {
+        let tx_hash = CryptoHash::new();
+        let tx = SignedTransaction::empty(tx_hash);
+        let bytes_tx = borsh::to_vec(&tx).unwrap();
+        let str_tx = to_base64(&bytes_tx);
+        let wait_until = "INCLUDED_FINAL";
+        let params = serde_json::json!({"signed_tx_base64": str_tx, "wait_until": wait_until});
+        assert!(RpcTransactionStatusRequest::parse(params).is_ok());
+    }
+
+    #[test]
     fn test_serialize_tx_status_params_as_object_with_wait_until() {
         let tx_hash = CryptoHash::new().to_string();
         let account_id = "sender.testnet";

@@ -544,15 +544,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
-        let (tx_hash, account_id) = match &tx_info {
-            near_jsonrpc_primitives::types::transactions::TransactionInfo::Transaction(tx) => {
-                (tx.get_hash(), tx.transaction.signer_id.clone())
-            }
-            near_jsonrpc_primitives::types::transactions::TransactionInfo::TransactionId {
-                tx_hash,
-                sender_account_id,
-            } => (*tx_hash, sender_account_id.clone()),
-        };
+        let (tx_hash, account_id) = tx_info.to_tx_hash_and_account();
         timeout(self.polling_config.polling_timeout, async {
             loop {
                 let tx_status_result = self.view_client_send( TxStatus {
@@ -571,7 +563,7 @@ impl JsonRpcHandler {
                     Err(err @ near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
                         ..
                     }) => {
-                        if let near_jsonrpc_primitives::types::transactions::TransactionInfo::Transaction(tx) = &tx_info {
+                        if let Some(tx) = tx_info.to_signed_tx() {
                             if let Ok(ProcessTxResponse::InvalidTx(context)) =
                                 self.send_tx_internal(tx.clone(), true).await
                             {
@@ -682,9 +674,7 @@ impl JsonRpcHandler {
         match self.send_tx_internal(tx.clone(), false).await? {
             ProcessTxResponse::ValidTx | ProcessTxResponse::RequestRouted => {
                 self.tx_status_fetch(
-                    near_jsonrpc_primitives::types::transactions::TransactionInfo::Transaction(
-                        tx.clone(),
-                    ),
+                    near_jsonrpc_primitives::types::transactions::TransactionInfo::from_signed_tx(tx.clone()),
                     request_data.wait_until,
                     false,
                 ).await

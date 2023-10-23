@@ -21,12 +21,14 @@ pub struct RpcTransactionStatusRequest {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum TransactionInfo {
+    Transaction(SignedTransaction),
+    TransactionId { tx_hash: CryptoHash, sender_account_id: AccountId },
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum SignedTransaction {
     #[serde(rename = "signed_tx_base64")]
-    Transaction(near_primitives::transaction::SignedTransaction),
-    TransactionId {
-        tx_hash: CryptoHash,
-        sender_account_id: AccountId,
-    },
+    SignedTransaction(near_primitives::transaction::SignedTransaction),
 }
 
 #[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
@@ -61,9 +63,37 @@ pub struct RpcBroadcastTxSyncResponse {
     pub transaction_hash: near_primitives::hash::CryptoHash,
 }
 
+impl TransactionInfo {
+    pub fn from_signed_tx(tx: near_primitives::transaction::SignedTransaction) -> Self {
+        Self::Transaction(SignedTransaction::SignedTransaction(tx))
+    }
+
+    pub fn to_signed_tx(&self) -> Option<&near_primitives::transaction::SignedTransaction> {
+        match self {
+            TransactionInfo::Transaction(tx) => match tx {
+                SignedTransaction::SignedTransaction(tx) => Some(tx),
+            },
+            TransactionInfo::TransactionId { .. } => None,
+        }
+    }
+
+    pub fn to_tx_hash_and_account(&self) -> (CryptoHash, &AccountId) {
+        match self {
+            TransactionInfo::Transaction(tx) => match tx {
+                SignedTransaction::SignedTransaction(tx) => {
+                    (tx.get_hash(), &tx.transaction.signer_id)
+                }
+            },
+            TransactionInfo::TransactionId { tx_hash, sender_account_id } => {
+                (*tx_hash, sender_account_id)
+            }
+        }
+    }
+}
+
 impl From<near_primitives::transaction::SignedTransaction> for TransactionInfo {
     fn from(transaction_info: near_primitives::transaction::SignedTransaction) -> Self {
-        Self::Transaction(transaction_info)
+        Self::Transaction(SignedTransaction::SignedTransaction(transaction_info))
     }
 }
 
