@@ -450,7 +450,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     );
 
     let prev_chunk =
-        env.clients[0].chain.get_chunk_clone_from_header(&last_block.chunks()[0].clone()).unwrap();
+        client.chain.get_chunk_clone_from_header(&last_block.chunks()[0].clone()).unwrap();
     let challenge_body =
         Chain::create_chunk_state_challenge(prev_chunk, &last_block, &block, &block.chunks()[0])
             .unwrap();
