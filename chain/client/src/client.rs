@@ -1438,6 +1438,7 @@ impl Client {
                 header_head: self.chain.header_head().unwrap(),
             });
         }
+        println!("{:?}", block_processing_artifacts);
         self.process_block_processing_artifact(block_processing_artifacts);
         let accepted_blocks_hashes =
             accepted_blocks.iter().map(|accepted_block| accepted_block.hash).collect();

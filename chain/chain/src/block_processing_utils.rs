@@ -61,7 +61,7 @@ impl From<AddError> for near_chain_primitives::Error {
 /// (for example, sending requests for missing chunks or challenges).
 /// This struct is passed to Chain::process_block as an argument instead of returned as Result,
 /// because the information stored here need to returned whether process_block succeeds or returns an error.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct BlockProcessingArtifact {
     pub orphans_missing_chunks: Vec<OrphanMissingChunks>,
     pub blocks_missing_chunks: Vec<BlockMissingChunks>,
