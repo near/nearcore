@@ -109,7 +109,7 @@ fn setup_network_node(
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
     );
-    shards_manager_adapter.bind(shards_manager_actor);
+    shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
     let peer_manager = PeerManagerActor::spawn(
         time::Clock::real(),
         db.clone(),

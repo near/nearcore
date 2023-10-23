@@ -339,7 +339,7 @@ pub fn start_with_config_and_synchronization(
         split_store.unwrap_or(storage.get_hot_store()),
         config.client_config.chunk_request_retry_period,
     );
-    shards_manager_adapter.bind(shards_manager_actor);
+    shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
 
     let flat_state_migration_handle =
         FlatStateValuesInliningMigrationHandle::start_background_migration(

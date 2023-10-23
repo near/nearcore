@@ -1922,6 +1922,12 @@ impl ShardsManager {
     }
 
     pub fn handle_client_request(&mut self, request: ShardsManagerRequestFromClient) {
+        let _span = tracing::debug_span!(
+            target: "chunks",
+            "shards_manager_request_from_client",
+            "type" = <&'static str>::from(&request)
+        )
+        .entered();
         match request {
             ShardsManagerRequestFromClient::ProcessChunkHeaderFromBlock(chunk_header) => {
                 if let Err(e) = self.process_chunk_header_from_block(&chunk_header) {
@@ -1961,6 +1967,12 @@ impl ShardsManager {
     }
 
     pub fn handle_network_request(&mut self, request: ShardsManagerRequestFromNetwork) {
+        let _span = tracing::debug_span!(
+            target: "chunks",
+            "shards_manager_request_from_network",
+            "type" = <&'static str>::from(&request)
+        )
+        .entered();
         match request {
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk) => {
                 if let Err(e) = self.process_partial_encoded_chunk(partial_encoded_chunk.into()) {
