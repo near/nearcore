@@ -4308,6 +4308,41 @@ impl Chain {
         let block_copy = block.clone();
         let chunk_header_copy = chunk_header.clone();
 
+        let val_result = validate_chunk_with_chunk_extra(
+            // It's safe here to use ChainStore instead of ChainStoreUpdate
+            // because we're asking prev_chunk_header for already committed block
+            outgoing_receipts,
+            epoch_manager_adapter.as_ref(),
+            &prev_hash,
+            &prev_chunk_extra,
+            // prev_chunk_height_included,
+            &chunk_header_copy,
+        )
+        .map_err(|err| {
+            warn!(
+                target: "chain",
+                ?err,
+                prev_block_hash=?prev_hash,
+                block_hash=?block_copy.header().hash(),
+                shard_id,
+                prev_chunk_height_included,
+                ?prev_chunk_extra,
+                ?chunk_header_copy,
+                "Failed to validate chunk extra");
+            byzantine_assert!(false);
+            match Chain::create_chunk_state_challenge(
+                prev_chunk,
+                &prev_block_copy,
+                &block_copy,
+                &chunk_header_copy,
+            ) {
+                Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
+                Err(err) => err,
+            }
+        });
+        println!("{val_result:?}");
+        val_result?;
+
         Ok(Some(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
             let _span = tracing::debug_span!(
                 target: "chain",
@@ -4319,41 +4354,6 @@ impl Chain {
             // Validate state root.
 
             // Validate that all next chunk information matches previous chunk extra.
-
-            let val_result = validate_chunk_with_chunk_extra(
-                // It's safe here to use ChainStore instead of ChainStoreUpdate
-                // because we're asking prev_chunk_header for already committed block
-                outgoing_receipts,
-                epoch_manager_adapter.as_ref(),
-                &prev_hash,
-                &prev_chunk_extra,
-                // prev_chunk_height_included,
-                &chunk_header_copy,
-            )
-            .map_err(|err| {
-                warn!(
-                target: "chain",
-                ?err,
-                prev_block_hash=?prev_hash,
-                block_hash=?block_copy.header().hash(),
-                shard_id,
-                prev_chunk_height_included,
-                ?prev_chunk_extra,
-                ?chunk_header_copy,
-                "Failed to validate chunk extra");
-                byzantine_assert!(false);
-                match Chain::create_chunk_state_challenge(
-                    prev_chunk,
-                    &prev_block_copy,
-                    &block_copy,
-                    &chunk_header_copy,
-                ) {
-                    Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
-                    Err(err) => err,
-                }
-            });
-            println!("{val_result:?}");
-            val_result?;
 
             match runtime.apply_transactions(
                 shard_id,
