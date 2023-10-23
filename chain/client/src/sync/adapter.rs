@@ -5,6 +5,7 @@ use near_async::messaging::Sender;
 use near_network::types::{
     PeerManagerMessageRequest, StateSync as NetworkStateSync, StateSyncResponse,
 };
+use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_store::ShardUId;
 use std::collections::HashMap;
@@ -104,6 +105,6 @@ impl SyncAdapter {
 #[async_trait::async_trait]
 impl NetworkStateSync for SyncAdapter {
     async fn send(&mut self, shard_uid: ShardUId, msg: StateSyncResponse) {
-        self.send(shard_uid, msg).await;
+        self.send(shard_uid, msg.with_span_context()).await;
     }
 }
