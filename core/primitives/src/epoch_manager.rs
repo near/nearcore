@@ -99,7 +99,7 @@ impl AllEpochConfig {
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
         let mut config = self.genesis_epoch_config.clone();
         // if !self.use_production_config {
-            // return config;
+        // return config;
         // }
         Self::config_nightshade(&mut config, protocol_version);
         Self::config_chunk_only_producers(&mut config, &self.chain_id, protocol_version);
@@ -154,7 +154,7 @@ impl AllEpochConfig {
         {
             let num_shards = config.shard_layout.num_shards() as usize;
             // Decrease the number of block producers from 100 to 20.
-            config.num_block_producer_seats = 2;
+            config.num_block_producer_seats = 20;
             config.num_block_producer_seats_per_shard =
                 vec![config.num_block_producer_seats; num_shards];
             // Decrease the number of chunk producers.
