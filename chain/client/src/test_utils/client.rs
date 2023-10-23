@@ -42,7 +42,11 @@ impl Client {
         wait_for_all_blocks_in_processing(&mut self.chain);
         let (accepted_blocks, errors) =
             self.postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
-        assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
+        // now we change behaviour: as invalid chunk state is caught on postprocessing, return first error
+        // assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
+        if let Some((_, err)) = errors.into_iter().next() {
+            return Err(err);
+        }
         Ok(accepted_blocks)
     }
 
