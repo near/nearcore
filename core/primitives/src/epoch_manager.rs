@@ -154,7 +154,7 @@ impl AllEpochConfig {
         {
             let num_shards = config.shard_layout.num_shards() as usize;
             // Decrease the number of block producers from 100 to 20.
-            config.num_block_producer_seats = 20;
+            config.num_block_producer_seats = 2;
             config.num_block_producer_seats_per_shard =
                 vec![config.num_block_producer_seats; num_shards];
             // Decrease the number of chunk producers.
