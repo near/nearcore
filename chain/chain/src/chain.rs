@@ -4293,7 +4293,7 @@ impl Chain {
         let prev_block_hash = *chunk_header.prev_block_hash();
 
         let outgoing_receipts = self.get_outgoing_receipts_for_shard(
-            *prev_block_hash,
+            prev_block_hash,
             chunk_header.shard_id(),
             prev_chunk_height_included,
         )?;
