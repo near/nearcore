@@ -344,6 +344,7 @@ impl OrphanBlockPool {
 }
 
 /// Contains information for missing chunks in a block
+#[derive(Debug)]
 pub struct BlockMissingChunks {
     /// previous block hash
     pub prev_hash: CryptoHash,
