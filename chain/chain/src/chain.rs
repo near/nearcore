@@ -4320,7 +4320,7 @@ impl Chain {
 
             // Validate that all next chunk information matches previous chunk extra.
 
-            validate_chunk_with_chunk_extra(
+            let val_result = validate_chunk_with_chunk_extra(
                 // It's safe here to use ChainStore instead of ChainStoreUpdate
                 // because we're asking prev_chunk_header for already committed block
                 outgoing_receipts,
@@ -4351,7 +4351,10 @@ impl Chain {
                     Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
                     Err(err) => err,
                 }
-            })?;
+            });
+            println!("{val_result:?}");
+            val_result?;
+
             match runtime.apply_transactions(
                 shard_id,
                 chunk_inner.prev_state_root(),
