@@ -4283,6 +4283,7 @@ impl Chain {
             shard_id,
         )?;
 
+        let chain_access: Arc<dyn ChainStoreAccess> = Arc::new(self.store());
         let block_hash = *block.hash();
         let challenges_result = block.header().challenges_result().clone();
         let block_timestamp = block.header().raw_timestamp();
@@ -4300,13 +4301,13 @@ impl Chain {
             .entered();
             let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
             // Validate state root.
-            let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
+            let prev_chunk_extra = chain_access.get_chunk_extra(prev_hash, &shard_uid)?;
 
             // Validate that all next chunk information matches previous chunk extra.
             validate_chunk_with_chunk_extra(
                 // It's safe here to use ChainStore instead of ChainStoreUpdate
                 // because we're asking prev_chunk_header for already committed block
-                self.store(),
+                chain_access.as_ref(),
                 self.epoch_manager.as_ref(),
                 prev_hash,
                 &prev_chunk_extra,
