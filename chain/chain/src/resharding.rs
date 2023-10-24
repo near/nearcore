@@ -362,6 +362,9 @@ impl Chain {
 
             RESHARDING_BATCH_COUNT.with_label_values(&metrics_labels).inc();
             RESHARDING_BATCH_SIZE.with_label_values(&metrics_labels).add(size as i64);
+
+            // sleep between batches in order to throttle resharding and leave
+            // some resource for the regular node operation
             std::thread::sleep(config.batch_delay);
         }
 
