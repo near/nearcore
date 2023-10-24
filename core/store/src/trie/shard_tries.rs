@@ -216,7 +216,6 @@ impl ShardTries {
         self.0.flat_storage_manager.clone()
     }
 
-    // TODO (#9989): Change visibility to crate once we remove state_snapshot_every_n_blocks from chain
     pub fn state_snapshot_config(&self) -> &StateSnapshotConfig {
         &self.0.state_snapshot_config
     }
