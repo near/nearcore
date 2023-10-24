@@ -417,41 +417,41 @@ impl ViewClientActor {
         }
     }
 
+    // Return the lowest status the node can proof
     fn get_tx_execution_status(
         &self,
         execution_outcome: &FinalExecutionOutcomeView,
     ) -> Result<TxExecutionStatus, TxStatusError> {
-        Ok(match execution_outcome.transaction_outcome.outcome.status {
-            // Return the lowest status the node can proof.
-            ExecutionStatusView::Unknown => TxExecutionStatus::None,
-            _ => {
-                if execution_outcome
-                    .receipts_outcome
-                    .iter()
-                    .all(|e| e.outcome.status != ExecutionStatusView::Unknown)
-                {
-                    let block_hashes: BTreeSet<CryptoHash> =
-                        execution_outcome.receipts_outcome.iter().map(|e| e.block_hash).collect();
-                    let mut headers = vec![];
-                    for block_hash in block_hashes {
-                        headers.push(self.chain.get_block_header(&block_hash)?);
-                    }
-                    // We can't sort and check only the last block;
-                    // previous blocks may be not in the canonical chain
-                    match self.chain.check_blocks_final_and_canonical(&headers) {
-                        Ok(_) => TxExecutionStatus::Final,
-                        Err(_) => TxExecutionStatus::Executed,
-                    }
-                } else {
-                    match self.chain.check_blocks_final_and_canonical(&[self
-                        .chain
-                        .get_block_header(&execution_outcome.transaction_outcome.block_hash)?])
-                    {
-                        Ok(_) => TxExecutionStatus::InclusionFinal,
-                        Err(_) => TxExecutionStatus::Inclusion,
-                    }
-                }
-            }
+        if execution_outcome.transaction_outcome.outcome.status == ExecutionStatusView::Unknown {
+            return Ok(TxExecutionStatus::None);
+        }
+
+        if let Err(_) = self.chain.check_blocks_final_and_canonical(&[self
+            .chain
+            .get_block_header(&execution_outcome.transaction_outcome.block_hash)?])
+        {
+            return Ok(TxExecutionStatus::Included);
+        }
+
+        if execution_outcome
+            .receipts_outcome
+            .iter()
+            .any(|e| e.outcome.status == ExecutionStatusView::Unknown)
+        {
+            return Ok(TxExecutionStatus::IncludedFinal);
+        }
+
+        let block_hashes: BTreeSet<CryptoHash> =
+            execution_outcome.receipts_outcome.iter().map(|e| e.block_hash).collect();
+        let mut headers = vec![];
+        for block_hash in block_hashes {
+            headers.push(self.chain.get_block_header(&block_hash)?);
+        }
+        // We can't sort and check only the last block;
+        // previous blocks may be not in the canonical chain
+        Ok(match self.chain.check_blocks_final_and_canonical(&headers) {
+            Err(_) => TxExecutionStatus::Executed,
+            Ok(_) => TxExecutionStatus::Final,
         })
     }
 
