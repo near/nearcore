@@ -110,11 +110,7 @@ pub fn setup(
         runtime.clone(),
         &chain_genesis,
         doomslug_threshold_mode,
-        ChainConfig {
-            save_trie_changes: true,
-            background_migration_threads: 1,
-            state_snapshot_every_n_blocks: None,
-        },
+        ChainConfig { save_trie_changes: true, background_migration_threads: 1 },
         None,
     )
     .unwrap();
@@ -155,7 +151,7 @@ pub fn setup(
         store,
         config.chunk_request_retry_period,
     );
-    let shards_manager_adapter = Arc::new(shards_manager_addr);
+    let shards_manager_adapter = Arc::new(shards_manager_addr.with_auto_span_context());
 
     let client = Client::new(
         config.clone(),
@@ -232,11 +228,7 @@ pub fn setup_only_view(
         runtime.clone(),
         &chain_genesis,
         doomslug_threshold_mode,
-        ChainConfig {
-            save_trie_changes: true,
-            background_migration_threads: 1,
-            state_snapshot_every_n_blocks: None,
-        },
+        ChainConfig { save_trie_changes: true, background_migration_threads: 1 },
         None,
     )
     .unwrap();
@@ -935,7 +927,7 @@ pub fn setup_client_with_runtime(
         shard_tracker,
         runtime,
         network_adapter,
-        shards_manager_adapter.client,
+        shards_manager_adapter.client.into(),
         validator_signer,
         enable_doomslug,
         rng_seed,
@@ -1000,11 +992,7 @@ pub fn setup_synchronous_shards_manager(
         runtime,
         chain_genesis,
         DoomslugThresholdMode::TwoThirds, // irrelevant
-        ChainConfig {
-            save_trie_changes: true,
-            background_migration_threads: 1,
-            state_snapshot_every_n_blocks: None,
-        }, // irrelevant
+        ChainConfig { save_trie_changes: true, background_migration_threads: 1 }, // irrelevant
         None,
     )
     .unwrap();

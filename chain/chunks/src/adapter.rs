@@ -8,7 +8,7 @@ use near_primitives::{
     types::EpochId,
 };
 
-#[derive(Message, Debug)]
+#[derive(Message, Debug, strum::IntoStaticStr)]
 #[rtype(result = "()")]
 pub enum ShardsManagerRequestFromClient {
     /// Processes the header seen from a block we received, if we have not already received the

@@ -1,5 +1,6 @@
 use itertools::{multizip, Itertools};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_store::config::StateSnapshotType;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -540,7 +541,11 @@ impl TestEnvBuilder {
         self
     }
 
-    pub fn state_snapshot_enabled(&self) -> bool {
-        self.state_snapshot_enabled
+    pub fn state_snapshot_type(&self) -> StateSnapshotType {
+        if self.state_snapshot_enabled {
+            StateSnapshotType::EveryEpoch
+        } else {
+            StateSnapshotType::ForReshardingOnly
+        }
     }
 }

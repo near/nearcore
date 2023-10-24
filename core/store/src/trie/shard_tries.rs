@@ -216,7 +216,7 @@ impl ShardTries {
         self.0.flat_storage_manager.clone()
     }
 
-    pub(crate) fn state_snapshot_config(&self) -> &StateSnapshotConfig {
+    pub fn state_snapshot_config(&self) -> &StateSnapshotConfig {
         &self.0.state_snapshot_config
     }
 

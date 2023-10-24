@@ -30,7 +30,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
         genesis: &Genesis,
         runtime_configs: Vec<RuntimeConfigStore>,
     ) -> Self {
-        let state_snapshot_enabled = self.state_snapshot_enabled();
+        let state_snapshot_type = self.state_snapshot_type();
         let nightshade_runtime_creator = |home_dir: PathBuf,
                                           store: Store,
                                           epoch_manager: Arc<EpochManagerHandle>,
@@ -47,7 +47,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                 &genesis.config,
                 epoch_manager,
                 runtime_config,
-                state_snapshot_enabled,
+                state_snapshot_type.clone(),
             )
         };
         self.internal_initialize_nightshade_runtimes(runtime_configs, nightshade_runtime_creator)
