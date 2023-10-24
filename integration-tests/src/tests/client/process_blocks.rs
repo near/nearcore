@@ -1367,7 +1367,7 @@ fn test_bad_orphan() {
 
 #[test]
 fn test_bad_chunk_mask() {
-    init_test_logger();
+    // init_test_logger();
     let chain_genesis = ChainGenesis::test();
     let validators = vec!["test0".parse().unwrap(), "test1".parse().unwrap()];
     let mut clients: Vec<Client> = validators

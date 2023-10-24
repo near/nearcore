@@ -3864,6 +3864,11 @@ impl Chain {
         shard_id: usize,
         incoming_receipts: &HashMap<u64, Vec<ReceiptProof>>,
     ) -> Result<(), Error> {
+        println!(
+            "apply_prev_chunk_before_production {} {}",
+            block.header().height(),
+            block.header().hash()
+        );
         let _span =
             tracing::debug_span!(target: "chain", "apply_prev_chunk_before_production").entered();
         let prev_hash = block.header().prev_hash();
@@ -3873,6 +3878,7 @@ impl Chain {
         }
 
         let prev_block = self.get_block(prev_hash)?;
+        println!("get a job");
         let maybe_job = self.get_apply_chunk_job(
             me,
             block,
@@ -3892,6 +3898,7 @@ impl Chain {
         };
         let apply_chunk_result = job(&_span)?;
 
+        println!("chain_update");
         let mut chain_update = self.chain_update();
         chain_update.apply_chunk_postprocessing(block, vec![apply_chunk_result])?;
         let receipts_map =
