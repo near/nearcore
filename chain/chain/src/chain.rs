@@ -4147,6 +4147,7 @@ impl Chain {
             let (
                 block,
                 prev_block,
+                next_chunk_header,
                 chunk_header,
                 prev_chunk_header,
                 will_shard_layout_change,
@@ -4175,6 +4176,7 @@ impl Chain {
                 (
                     prev_block,
                     prev_prev_block,
+                    Some(chunk_header),
                     prev_chunk_header,
                     prev_prev_chunk_header,
                     will_shard_layout_change,
@@ -4184,6 +4186,7 @@ impl Chain {
                 (
                     block,
                     prev_block.clone(),
+                    None,
                     chunk_header,
                     prev_chunk_header.clone(),
                     will_shard_layout_change,
@@ -4194,7 +4197,7 @@ impl Chain {
                 self.get_apply_chunk_job_new_chunk(
                     block,
                     &prev_block,
-                    None,
+                    next_chunk_header,
                     chunk_header,
                     &prev_chunk_header,
                     shard_uid,
@@ -4239,7 +4242,7 @@ impl Chain {
         block: &Block,
         prev_block: &Block,
         // provided in case of stateless validation
-        next_chunk_header: Option<ShardChunkHeader>,
+        next_chunk_header: Option<&ShardChunkHeader>,
         chunk_header: &ShardChunkHeader,
         prev_chunk_header: &ShardChunkHeader,
         shard_uid: ShardUId,
@@ -4369,7 +4372,7 @@ impl Chain {
                     true,
                 )
             };
-            let validate = |prev_chunk_extra: &ChunkExtra| {
+            let validate = |prev_chunk_extra: &ChunkExtra, chunk_header: &ShardChunkHeader| {
                 validate_chunk_with_chunk_extra(
                     // It's safe here to use ChainStore instead of ChainStoreUpdate
                     // because we're asking prev_chunk_header for already committed block
@@ -4378,7 +4381,7 @@ impl Chain {
                     &prev_hash,
                     prev_chunk_extra,
                     // prev_chunk_height_included,
-                    &chunk_header_copy,
+                    chunk_header,
                 )
                 .map_err(|err| {
                     warn!(
@@ -4389,14 +4392,14 @@ impl Chain {
                     shard_id,
                     prev_chunk_height_included,
                     ?prev_chunk_extra,
-                    ?chunk_header_copy,
+                    ?chunk_header,
                     "Failed to validate chunk extra");
                     byzantine_assert!(false);
                     match Chain::create_chunk_state_challenge(
                         &prev_chunk,
                         &prev_block_copy,
                         &block_copy,
-                        &chunk_header_copy,
+                        chunk_header,
                     ) {
                         Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
                         Err(err) => err,
@@ -4410,7 +4413,7 @@ impl Chain {
                 if let Ok(apply_result) = &apply_result {
                     let (outcome_root, _) =
                         ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
-                    let prev_chunk_extra = ChunkExtra::new(
+                    let chunk_extra = ChunkExtra::new(
                         &apply_result.new_root,
                         outcome_root,
                         apply_result.validator_proposals.clone(),
@@ -4418,11 +4421,12 @@ impl Chain {
                         gas_limit,
                         apply_result.total_balance_burnt,
                     );
-                    validate(&prev_chunk_extra)?;
+                    let next_chunk_header = next_chunk_header.unwrap();
+                    validate(&chunk_extra, next_chunk_header)?;
                 }
                 apply_result
             } else {
-                validate(prev_chunk_extra?.as_ref())?;
+                validate(prev_chunk_extra?.as_ref(), chunk_header)?;
                 apply_txs()
             };
             // Validate that all next chunk information matches previous chunk extra.
