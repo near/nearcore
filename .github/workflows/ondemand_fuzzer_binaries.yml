@@ -1,4 +1,4 @@
-name: Build on-demand fuzz targets
+name: Build on demand fuzz targets
 on:
   # Run when a new release or rc is created
   release:
