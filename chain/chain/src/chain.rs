@@ -4176,7 +4176,7 @@ impl Chain {
                 (
                     prev_block,
                     prev_prev_block,
-                    Some(chunk_header),
+                    Some(chunk_header.clone()),
                     prev_chunk_header,
                     prev_prev_chunk_header,
                     will_shard_layout_change,
@@ -4242,7 +4242,7 @@ impl Chain {
         block: &Block,
         prev_block: &Block,
         // provided in case of stateless validation
-        next_chunk_header: Option<&ShardChunkHeader>,
+        next_chunk_header: Option<ShardChunkHeader>,
         chunk_header: &ShardChunkHeader,
         prev_chunk_header: &ShardChunkHeader,
         shard_uid: ShardUId,
@@ -4422,7 +4422,7 @@ impl Chain {
                         apply_result.total_balance_burnt,
                     );
                     let next_chunk_header = next_chunk_header.unwrap();
-                    validate(&chunk_extra, next_chunk_header)?;
+                    validate(&chunk_extra, &next_chunk_header)?;
                 }
                 // validate fields of next chunk by get_apply_chunks_job?
                 apply_result
