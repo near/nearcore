@@ -5,10 +5,12 @@ use near_jsonrpc_primitives::message::{from_slice, Message};
 use near_jsonrpc_primitives::types::changes::{
     RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
 };
-use near_jsonrpc_primitives::types::transactions::RpcTransactionResponse;
+use near_jsonrpc_primitives::types::transactions::{
+    RpcTransactionResponse, RpcTransactionStatusRequest,
+};
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, BlockId, BlockReference, MaybeBlockId, ShardId};
+use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, ShardId};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, GasPriceView, StatusResponse,
@@ -186,7 +188,6 @@ jsonrpc_client!(pub struct JsonRpcClient {
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_tx_status(&self, tx: String) -> RpcRequest<RpcTransactionResponse>;
     pub fn health(&self) -> RpcRequest<()>;
-    pub fn tx(&self, hash: String, account_id: AccountId) -> RpcRequest<RpcTransactionResponse>;
     pub fn chunk(&self, id: ChunkId) -> RpcRequest<ChunkView>;
     pub fn validators(&self, block_id: MaybeBlockId) -> RpcRequest<EpochValidatorInfo>;
     pub fn gas_price(&self, block_id: MaybeBlockId) -> RpcRequest<GasPriceView>;
@@ -216,6 +217,10 @@ impl JsonRpcClient {
 
     pub fn block(&self, request: BlockReference) -> RpcRequest<BlockView> {
         call_method(&self.client, &self.server_addr, "block", request)
+    }
+
+    pub fn tx(&self, request: RpcTransactionStatusRequest) -> RpcRequest<RpcTransactionResponse> {
+        call_method(&self.client, &self.server_addr, "tx", request)
     }
 
     #[allow(non_snake_case)]
