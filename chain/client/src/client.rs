@@ -794,7 +794,6 @@ impl Client {
                 HashMap::from_iter([(shard_id, vec![])])
             };
             let result = self.chain.apply_prev_chunk_before_production(
-                &me,
                 prev_block,
                 shard_id as usize,
                 &incoming_receipts,

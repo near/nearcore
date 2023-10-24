@@ -1774,12 +1774,12 @@ impl Chain {
         me: &Option<AccountId>,
         block: &Block,
     ) -> Result<HashMap<ShardId, Vec<ReceiptProof>>, Error> {
-        // println!(
-        //     "collect_incoming_receipts_from_block {} {} {}",
-        //     block.hash(),
-        //     block.header().height(),
-        //     block.header().prev_hash()
-        // );
+        println!(
+            "collect_incoming_receipts_from_block {} {} {}",
+            block.hash(),
+            block.header().height(),
+            block.header().prev_hash()
+        );
         if !self.care_about_any_shard_or_part(me, *block.header().prev_hash())? {
             return Ok(HashMap::new());
         }
@@ -3859,7 +3859,6 @@ impl Chain {
 
     pub fn apply_prev_chunk_before_production(
         &mut self,
-        me: &Option<AccountId>,
         block: &Block,
         shard_id: usize,
         incoming_receipts: &HashMap<u64, Vec<ReceiptProof>>,
@@ -4305,6 +4304,7 @@ impl Chain {
 
         // we can't use hash from the current block here yet because the incoming receipts
         // for this block is not stored yet
+        println!("{:?}", incoming_receipts);
         let new_receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
         let old_receipts = &self.store().get_incoming_receipts_for_shard(
             self.epoch_manager.as_ref(),
