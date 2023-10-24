@@ -1898,6 +1898,7 @@ impl Client {
         receipts: Vec<Receipt>,
         validator_id: AccountId,
     ) -> Result<(), Error> {
+        println!("DECODE");
         let (shard_chunk, partial_chunk) = decode_encoded_chunk(
             &encoded_chunk,
             merkle_paths.clone(),
@@ -1905,6 +1906,7 @@ impl Client {
             self.epoch_manager.as_ref(),
             &self.shard_tracker,
         )?;
+        println!("PERSIST");
         persist_chunk(partial_chunk.clone(), Some(shard_chunk), self.chain.mut_store())?;
         self.on_chunk_header_ready_for_inclusion(encoded_chunk.cloned_header(), validator_id);
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {

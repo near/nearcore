@@ -149,6 +149,7 @@ pub fn decode_encoded_chunk(
         .map_err(|err| Error::from(err))
         .and_then(|shard_chunk| {
             if !validate_chunk_proofs(&shard_chunk, epoch_manager)? {
+                println!("INVALID PROOFS");
                 return Err(Error::InvalidChunk);
             }
             Ok(shard_chunk)
@@ -168,6 +169,7 @@ pub fn decode_encoded_chunk(
         return Ok((shard_chunk, partial_chunk));
     } else {
         // Can't decode chunk or has invalid proofs, ignore it
+        println!("DECODE FAIL");
         error!(target: "chunks", "Reconstructed, but failed to decoded chunk {}, I'm {:?}", chunk_hash.0, me);
         return Err(Error::InvalidChunk);
     }
