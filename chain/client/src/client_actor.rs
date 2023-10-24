@@ -13,6 +13,7 @@ use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
+use crate::sync::adapter::SyncMessage;
 use crate::sync::state::{StateSync, StateSyncResult};
 use crate::sync_jobs_actor::{create_sync_job_scheduler, SyncJobsActor};
 use crate::{metrics, StatusResponse};
@@ -1854,6 +1855,18 @@ impl Handler<WithSpanContext<GetClientConfig>> for ClientActor {
         tracing::debug!(target: "client", ?msg);
 
         Ok(self.client.config.clone())
+    }
+}
+
+impl Handler<WithSpanContext<SyncMessage>> for ClientActor {
+    type Result = ();
+
+    #[perf]
+    fn handle(&mut self, msg: WithSpanContext<SyncMessage>, _: &mut Context<Self>) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
+        // TODO
+        // process messages from SyncActors
     }
 }
 
