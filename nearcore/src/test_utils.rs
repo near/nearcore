@@ -27,7 +27,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
         genesis: &Genesis,
         runtime_configs: Vec<RuntimeConfigStore>,
     ) -> Self {
-        let (builder, home_dirs, stores, epoch_managers, state_snapshot_enabled) =
+        let (builder, home_dirs, stores, epoch_managers, state_snapshot_type) =
             self.internal_ensure_epoch_managers_for_nightshade_runtime();
         assert_eq!(runtime_configs.len(), epoch_managers.len());
         let runtimes = stores
@@ -47,7 +47,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                     &genesis.config,
                     epoch_manager,
                     runtime_config,
-                    state_snapshot_enabled,
+                    state_snapshot_type.clone(),
                 ) as Arc<dyn RuntimeAdapter>
             })
             .collect();

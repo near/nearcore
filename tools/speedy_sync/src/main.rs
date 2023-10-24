@@ -243,7 +243,6 @@ fn load_snapshot(load_cmd: LoadCmd) {
         ChainConfig {
             save_trie_changes: config.client_config.save_trie_changes,
             background_migration_threads: 1,
-            state_snapshot_every_n_blocks: None,
         },
         None,
     )

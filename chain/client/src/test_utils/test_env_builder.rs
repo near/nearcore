@@ -1,4 +1,5 @@
 use itertools::Itertools;
+use near_store::config::StateSnapshotType;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -284,8 +285,12 @@ impl TestEnvBuilder {
     /// Visible for extension methods in integration-tests.
     pub fn internal_ensure_epoch_managers_for_nightshade_runtime(
         self,
-    ) -> (Self, Vec<PathBuf>, Vec<Store>, Vec<Arc<EpochManagerHandle>>, bool) {
-        let state_snapshot_enabled = self.state_snapshot_enabled;
+    ) -> (Self, Vec<PathBuf>, Vec<Store>, Vec<Arc<EpochManagerHandle>>, StateSnapshotType) {
+        let state_snapshot_type = if self.state_snapshot_enabled {
+            StateSnapshotType::EveryEpoch
+        } else {
+            StateSnapshotType::ForReshardingOnly
+        };
         let builder = self.ensure_epoch_managers();
         let default_home_dirs =
             (0..builder.clients.len()).map(|_| PathBuf::from("../../../..")).collect_vec();
@@ -303,7 +308,7 @@ impl TestEnvBuilder {
                 EpochManagerKind::Handle(handle) => handle,
             })
             .collect();
-        (builder, home_dirs, stores, epoch_managers, state_snapshot_enabled)
+        (builder, home_dirs, stores, epoch_managers, state_snapshot_type)
     }
 
     /// Specifies custom ShardTracker for each client.  This allows us to

@@ -1,3 +1,4 @@
+use crate::config::StateSnapshotType;
 use crate::db::STATE_SNAPSHOT_KEY;
 use crate::flat::{FlatStorageManager, FlatStorageStatus};
 use crate::Mode;
@@ -132,7 +133,7 @@ impl StateSnapshot {
 #[derive(Default)]
 pub struct StateSnapshotConfig {
     /// It's possible to override the `enabled` config and force create snapshot for resharding.
-    pub enabled: bool,
+    pub state_snapshot_type: StateSnapshotType,
     pub home_dir: PathBuf,
     pub hot_store_path: PathBuf,
     pub state_snapshot_subdir: PathBuf,
@@ -144,7 +145,8 @@ impl ShardTries {
         &self,
         block_hash: &CryptoHash,
     ) -> Result<(Store, FlatStorageManager), SnapshotError> {
-        if !self.state_snapshot_config().enabled {
+        if self.state_snapshot_config().state_snapshot_type == StateSnapshotType::ForReshardingOnly
+        {
             return Err(SnapshotError::SnapshotConfigDisabled);
         }
         // Taking this lock can last up to 10 seconds, if the snapshot happens to be re-created.
@@ -175,10 +177,14 @@ impl ShardTries {
         tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_state_snapshot");
 
         let StateSnapshotConfig {
-            enabled, home_dir, hot_store_path, state_snapshot_subdir, ..
+            state_snapshot_type,
+            home_dir,
+            hot_store_path,
+            state_snapshot_subdir,
+            ..
         } = self.state_snapshot_config();
 
-        if !enabled {
+        if state_snapshot_type == &StateSnapshotType::ForReshardingOnly {
             tracing::info!(target: "state_snapshot", "State Snapshots are disabled");
             return Ok(());
         }
@@ -362,13 +368,13 @@ impl ShardTries {
             tracing::info_span!(target: "state_snapshot", "maybe_open_state_snapshot").entered();
         metrics::HAS_STATE_SNAPSHOT.set(0);
         let StateSnapshotConfig {
-            enabled,
+            state_snapshot_type,
             home_dir,
             hot_store_path,
             state_snapshot_subdir,
             compaction_enabled: _,
         } = self.state_snapshot_config();
-        if !enabled {
+        if state_snapshot_type == &StateSnapshotType::ForReshardingOnly {
             tracing::debug!(target: "state_snapshot", "Disabled");
             return Ok(());
         }

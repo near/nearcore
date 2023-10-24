@@ -77,6 +77,7 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
+use near_store::config::StateSnapshotType;
 use near_store::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::get_genesis_state_roots;
 use near_store::{DBCol, ShardTries};
@@ -720,6 +721,13 @@ impl Chain {
         metrics::CHUNK_TAIL_HEIGHT.set(store.chunk_tail()? as i64);
         metrics::FORK_TAIL_HEIGHT.set(store.fork_tail()? as i64);
 
+        // TODO (#9989): Remove this config from chain
+        let test_snapshot_countdown_and_frequency =
+            match runtime_adapter.get_tries().state_snapshot_config().state_snapshot_type {
+                StateSnapshotType::EveryEpochAndNBlocks(n) => Some((0, n)),
+                _ => None,
+            };
+
         // Even though the channel is unbounded, the channel size is practically bounded by the size
         // of blocks_in_processing, which is set to 5 now.
         let (sc, rc) = unbounded();
@@ -745,9 +753,7 @@ impl Chain {
             requested_state_parts: StateRequestTracker::new(),
             state_snapshot_helper: make_snapshot_callback.map(|callback| StateSnapshotHelper {
                 make_snapshot_callback: callback,
-                test_snapshot_countdown_and_frequency: chain_config
-                    .state_snapshot_every_n_blocks
-                    .map(|n| (0, n)),
+                test_snapshot_countdown_and_frequency,
             }),
         })
     }
