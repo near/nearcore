@@ -30,6 +30,7 @@ pub fn validate_chunk_proofs(
 ) -> Result<bool, Error> {
     let correct_chunk_hash = chunk.compute_header_hash();
 
+    println!("1");
     // 1. Checking chunk.header.hash
     let header_hash = chunk.header_hash();
     if header_hash != correct_chunk_hash {
@@ -37,6 +38,7 @@ pub fn validate_chunk_proofs(
         return Ok(false);
     }
 
+    println!("2");
     // 2. Checking that chunk body is valid
     // 2a. Checking chunk hash
     if chunk.chunk_hash() != correct_chunk_hash {
@@ -47,12 +49,14 @@ pub fn validate_chunk_proofs(
     let outgoing_receipts_root = chunk.prev_outgoing_receipts_root();
     let (transactions, receipts) = (chunk.transactions(), chunk.prev_outgoing_receipts());
 
+    println!("2b");
     // 2b. Checking that chunk transactions are valid
     let (tx_root, _) = merklize(transactions);
     if tx_root != chunk.tx_root() {
         byzantine_assert!(false);
         return Ok(false);
     }
+    println!("2c");
     // 2c. Checking that chunk receipts are valid
     if height_created == 0 {
         return Ok(receipts.is_empty() && outgoing_receipts_root == CryptoHash::default());
@@ -68,6 +72,7 @@ pub fn validate_chunk_proofs(
             return Ok(false);
         }
     }
+    println!("3");
     Ok(true)
 }
 
