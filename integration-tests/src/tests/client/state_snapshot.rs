@@ -8,6 +8,7 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::SignedTransaction;
+use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
 use near_store::{
     config::TrieCacheConfig, test_utils::create_test_store, Mode, ShardTries, StateSnapshotConfig,
@@ -48,7 +49,7 @@ impl StateSnaptshotTestEnv {
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         let shard_uids = [ShardUId::single_shard()];
         let state_snapshot_config = StateSnapshotConfig {
-            enabled: true,
+            state_snapshot_type: StateSnapshotType::EveryEpoch,
             home_dir: home_dir.clone(),
             hot_store_path: hot_store_path.clone(),
             state_snapshot_subdir: state_snapshot_subdir.clone(),
