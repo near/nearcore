@@ -15,7 +15,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
-use near_primitives::state::ValueRef;
+use near_primitives::state::{FlatStateValue, ValueRef};
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
 use near_primitives::trie_key::TrieKey;
@@ -76,6 +76,7 @@ pub struct TrieCosts {
 }
 
 /// Whether a key lookup will be performed through flat storage or through iterating the trie
+#[derive(PartialEq, Eq)]
 pub enum KeyLookupMode {
     FlatStorage,
     Trie,
@@ -352,7 +353,7 @@ pub struct Trie {
     /// flat storage. (Note that dereferencing ValueRef still has the same cost
     /// no matter what.) This allows us to accurately calculate storage gas
     /// costs even with only a state proof.
-    skip_accounting_cache_for_trie_nodes: bool,
+    charge_gas_for_trie_node_access: bool,
 }
 
 /// Trait for reading data from a trie.
@@ -473,10 +474,10 @@ impl Trie {
         Trie {
             storage,
             root,
+            charge_gas_for_trie_node_access: flat_storage_chunk_view.is_none(),
             flat_storage_chunk_view,
             accounting_cache,
             recorder: None,
-            skip_accounting_cache_for_trie_nodes: false,
         }
     }
 
@@ -511,7 +512,7 @@ impl Trie {
         let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
         let storage = Rc::new(TrieMemoryPartialStorage::new(recorded_storage));
         let mut trie = Self::new(storage, root, None);
-        trie.skip_accounting_cache_for_trie_nodes = flat_storage_used;
+        trie.charge_gas_for_trie_node_access = !flat_storage_used;
         trie
     }
 
@@ -976,7 +977,47 @@ impl Trie {
         }
     }
 
-    fn lookup(
+    fn lookup_from_flat_storage(
+        &self,
+        key: &[u8],
+        ref_only: bool,
+    ) -> Result<Option<FlatStateValue>, StorageError> {
+        let flat_storage_chunk_view = self.flat_storage_chunk_view.as_ref().unwrap();
+        let mut value = flat_storage_chunk_view.get_value(key)?;
+        if ref_only {
+            value = value.map(|value| FlatStateValue::Ref(value.to_value_ref()));
+        }
+        if self.recorder.is_some() {
+            // If recording, we need to look up in the trie as well to record the trie nodes,
+            // as they are needed to prove the value. Also, it's important that this lookup
+            // is done even if the key was not found, because intermediate trie nodes may be
+            // needed to prove the non-existence of the key.
+            let value_ref_from_trie = self.lookup_from_disk(NibbleSlice::new(key), false)?;
+            match &value {
+                Some(FlatStateValue::Inlined(value)) => {
+                    assert!(value_ref_from_trie.is_some());
+                    let value_from_trie =
+                        self.retrieve_value(&value_ref_from_trie.unwrap().hash)?;
+                    assert_eq!(&value_from_trie, value);
+                }
+                Some(FlatStateValue::Ref(value_ref)) => {
+                    assert_eq!(value_ref_from_trie.as_ref(), Some(value_ref));
+                }
+                None => {
+                    assert!(value_ref_from_trie.is_none());
+                }
+            }
+        } else {
+            if let Some(FlatStateValue::Inlined(value)) = &value {
+                self.accounting_cache
+                    .borrow_mut()
+                    .retroactively_account(&hash(value), value.clone().into());
+            }
+        }
+        Ok(value)
+    }
+
+    fn lookup_from_disk(
         &self,
         mut key: NibbleSlice<'_>,
         use_accounting_cache: bool,
@@ -1118,36 +1159,34 @@ impl Trie {
         mode: KeyLookupMode,
     ) -> Result<Option<ValueRef>, StorageError> {
         let use_flat_storage =
-            matches!(mode, KeyLookupMode::FlatStorage) && self.flat_storage_chunk_view.is_some();
-
+            mode == KeyLookupMode::FlatStorage && self.flat_storage_chunk_view.is_some();
+        let charge_gas_for_trie_node_access =
+            mode == KeyLookupMode::Trie || self.charge_gas_for_trie_node_access;
         if use_flat_storage {
-            let value_from_flat_storage = self
-                .flat_storage_chunk_view
-                .as_ref()
-                .unwrap()
-                .get_value(&key)?
-                .map(|value| value.to_value_ref());
-            if self.recorder.is_some() {
-                // If recording, we need to look up in the trie as well to record the trie nodes,
-                // as they are needed to prove the value. Also, it's important that this lookup
-                // is done even if the key was not found, because intermediate trie nodes may be
-                // needed to prove the non-existence of the key.
-                let key_nibbles = NibbleSlice::new(key);
-                let value_from_trie = self.lookup(key_nibbles, false)?;
-                assert_eq!(&value_from_flat_storage, &value_from_trie);
-            }
-            Ok(value_from_flat_storage)
+            Ok(self.lookup_from_flat_storage(key, true)?.map(|value| value.to_value_ref()))
         } else {
-            let key_nibbles = NibbleSlice::new(key);
-            self.lookup(key_nibbles, !self.skip_accounting_cache_for_trie_nodes)
+            self.lookup_from_disk(NibbleSlice::new(key), charge_gas_for_trie_node_access)
         }
     }
 
+    /// Retrieves a value, which may or may not be the complete value, for the given key.
+    /// If the full value could be obtained cheaply it is returned; otherwise only the reference
+    /// is returned.
+    fn get_flat_value(&self, key: &[u8]) -> Result<Option<FlatStateValue>, StorageError> {
+        if self.flat_storage_chunk_view.is_some() {
+            self.lookup_from_flat_storage(key, false)
+        } else {
+            Ok(self
+                .lookup_from_disk(NibbleSlice::new(key), self.charge_gas_for_trie_node_access)?
+                .map(|value| FlatStateValue::Ref(value)))
+        }
+    }
+
+    /// Retrieves the full value for the given key.
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
-        match self.get_ref(key, KeyLookupMode::FlatStorage)? {
-            Some(ValueRef { hash, .. }) => {
-                self.internal_retrieve_trie_node(&hash, true).map(|bytes| Some(bytes.to_vec()))
-            }
+        match self.get_flat_value(key)? {
+            Some(FlatStateValue::Ref(value_ref)) => self.retrieve_value(&value_ref.hash).map(Some),
+            Some(FlatStateValue::Inlined(value)) => Ok(Some(value)),
             None => Ok(None),
         }
     }
