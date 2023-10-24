@@ -4424,6 +4424,7 @@ impl Chain {
                     let next_chunk_header = next_chunk_header.unwrap();
                     validate(&chunk_extra, next_chunk_header)?;
                 }
+                // validate fields of next chunk by get_apply_chunks_job?
                 apply_result
             } else {
                 validate(prev_chunk_extra?.as_ref(), chunk_header)?;
