@@ -17,8 +17,6 @@ use std::sync::TryLockError;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SnapshotError {
-    // Snapshot is disabled.
-    SnapshotConfigDisabled,
     // The requested hash and the snapshot hash don't match.
     IncorrectSnapshotRequested(CryptoHash, CryptoHash),
     // Snapshot doesn't exist at all.
@@ -33,9 +31,6 @@ pub enum SnapshotError {
 impl std::fmt::Display for SnapshotError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SnapshotError::SnapshotConfigDisabled => {
-                write!(f, "State snapshots are disabled in the config")
-            }
             SnapshotError::IncorrectSnapshotRequested(requested, available) => write!(
                 f,
                 "Wrong snapshot hash. Requested: {:?}, Available: {:?}",
@@ -145,10 +140,6 @@ impl ShardTries {
         &self,
         block_hash: &CryptoHash,
     ) -> Result<(Store, FlatStorageManager), SnapshotError> {
-        if self.state_snapshot_config().state_snapshot_type == StateSnapshotType::ForReshardingOnly
-        {
-            return Err(SnapshotError::SnapshotConfigDisabled);
-        }
         // Taking this lock can last up to 10 seconds, if the snapshot happens to be re-created.
         let guard = self.state_snapshot().try_read()?;
         let data = guard.as_ref().ok_or(SnapshotError::SnapshotNotFound(*block_hash))?;
@@ -176,18 +167,8 @@ impl ShardTries {
                 .entered();
         tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_state_snapshot");
 
-        let StateSnapshotConfig {
-            state_snapshot_type,
-            home_dir,
-            hot_store_path,
-            state_snapshot_subdir,
-            ..
-        } = self.state_snapshot_config();
-
-        if state_snapshot_type == &StateSnapshotType::ForReshardingOnly {
-            tracing::info!(target: "state_snapshot", "State Snapshots are disabled");
-            return Ok(());
-        }
+        let StateSnapshotConfig { home_dir, hot_store_path, state_snapshot_subdir, .. } =
+            self.state_snapshot_config();
 
         let _timer = metrics::MAKE_STATE_SNAPSHOT_ELAPSED.start_timer();
         // `write()` lock is held for the whole duration of this function.
@@ -367,19 +348,11 @@ impl ShardTries {
         let _span =
             tracing::info_span!(target: "state_snapshot", "maybe_open_state_snapshot").entered();
         metrics::HAS_STATE_SNAPSHOT.set(0);
-        let StateSnapshotConfig {
-            state_snapshot_type,
-            home_dir,
-            hot_store_path,
-            state_snapshot_subdir,
-            compaction_enabled: _,
-        } = self.state_snapshot_config();
-        if state_snapshot_type == &StateSnapshotType::ForReshardingOnly {
-            tracing::debug!(target: "state_snapshot", "Disabled");
-            return Ok(());
-        }
+        let StateSnapshotConfig { home_dir, hot_store_path, state_snapshot_subdir, .. } =
+            self.state_snapshot_config();
+
         // directly return error if no snapshot is found
-        let snapshot_hash: CryptoHash = self.get_state_snapshot_hash()?;
+        let snapshot_hash = self.get_state_snapshot_hash()?;
 
         let snapshot_path = Self::get_state_snapshot_base_dir(
             &snapshot_hash,
