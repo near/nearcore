@@ -5626,9 +5626,12 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 apply_split_result_or_state_changes,
             }) => {
-                let block_hash = apply_result.trie_changes.block_hash.clone();
-                let block_hash = &block_hash;
-                let block = self.chain_store_update.get_block(block_hash)?;
+                let new_block_hash = apply_result.trie_changes.block_hash.clone();
+                let (block_hash, block) = if new_block_hash == block_hash {
+                    (block_hash, block.clone())
+                } else {
+                    (new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
+                };
                 let prev_hash = block.header().prev_hash();
                 let height = block.header().height();
                 println!("process_apply_chunk_result NEW SAME: {block_hash} {prev_hash} {height}");
@@ -5683,9 +5686,12 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 apply_split_result_or_state_changes,
             }) => {
-                let block_hash = apply_result.trie_changes.block_hash.clone();
-                let block_hash = &block_hash;
-                let block = self.chain_store_update.get_block(block_hash)?;
+                let new_block_hash = apply_result.trie_changes.block_hash.clone();
+                let (block_hash, block) = if new_block_hash == block_hash {
+                    (block_hash, block.clone())
+                } else {
+                    (new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
+                };
                 let prev_hash = block.header().prev_hash();
                 let height = block.header().height();
                 println!("process_apply_chunk_result NEW DIFF: {block_hash} {prev_hash} {height}");
