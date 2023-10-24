@@ -4144,15 +4144,62 @@ impl Chain {
         let epoch_manager = self.epoch_manager.clone();
         let runtime = self.runtime_adapter.clone();
         if should_apply_transactions {
+            let (
+                block,
+                prev_block,
+                chunk_header,
+                prev_chunk_header,
+                will_shard_layout_change,
+                incoming_receipts,
+            ) = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+                // this shouldn't be even triggered as genesis chunks are never processed.
+                // just in case
+                if prev_hash == &CryptoHash::default() {
+                    return Ok(None);
+                }
+                let prev_prev_hash = prev_block.header().prev_hash();
+                // chunk to apply is genesis chunk. its execution result will be trivial.
+                if prev_prev_hash == &CryptoHash::default() {
+                    return Ok(None);
+                }
+                let prev_prev_block = self.get_block(prev_block.header().prev_hash())?;
+                let prev_prev_chunk_header = Chain::get_prev_chunk_header(
+                    self.epoch_manager.as_ref(),
+                    &prev_prev_block,
+                    shard_id,
+                )?;
+                let incoming_receipts =
+                    self.collect_incoming_receipts_from_block(me, prev_block)?;
+                let will_shard_layout_change =
+                    self.epoch_manager.will_shard_layout_change(prev_hash)?;
+                (
+                    prev_block,
+                    prev_prev_block,
+                    prev_chunk_header,
+                    prev_prev_chunk_header,
+                    will_shard_layout_change,
+                    incoming_receipts,
+                )
+            } else {
+                (
+                    block,
+                    prev_block.clone(),
+                    chunk_header,
+                    prev_chunk_header.clone(),
+                    will_shard_layout_change,
+                    incoming_receipts.clone(),
+                )
+            };
             if is_new_chunk {
                 self.get_apply_chunk_job_new_chunk(
                     block,
-                    prev_block,
+                    &prev_block,
+                    None,
                     chunk_header,
-                    prev_chunk_header,
+                    &prev_chunk_header,
                     shard_uid,
                     will_shard_layout_change,
-                    incoming_receipts,
+                    &incoming_receipts,
                     state_patch,
                     runtime,
                     epoch_manager,
@@ -4161,7 +4208,7 @@ impl Chain {
             } else {
                 self.get_apply_chunk_job_old_chunk(
                     block,
-                    prev_block,
+                    &prev_block,
                     shard_uid,
                     will_shard_layout_change,
                     state_patch,
@@ -4191,6 +4238,8 @@ impl Chain {
         &self,
         block: &Block,
         prev_block: &Block,
+        // provided in case of stateless validation
+        next_chunk_header: Option<ShardChunkHeader>,
         chunk_header: &ShardChunkHeader,
         prev_chunk_header: &ShardChunkHeader,
         shard_uid: ShardUId,
@@ -4320,14 +4369,14 @@ impl Chain {
                     true,
                 )
             };
-            let validate = |chunk_extra: &ChunkExtra| {
+            let validate = |prev_chunk_extra: &ChunkExtra| {
                 validate_chunk_with_chunk_extra(
                     // It's safe here to use ChainStore instead of ChainStoreUpdate
                     // because we're asking prev_chunk_header for already committed block
                     &outgoing_receipts,
                     epoch_manager_adapter.as_ref(),
                     &prev_hash,
-                    chunk_extra,
+                    prev_chunk_extra,
                     // prev_chunk_height_included,
                     &chunk_header_copy,
                 )
@@ -4339,7 +4388,7 @@ impl Chain {
                     block_hash=?block_copy.header().hash(),
                     shard_id,
                     prev_chunk_height_included,
-                    ?chunk_extra,
+                    ?prev_chunk_extra,
                     ?chunk_header_copy,
                     "Failed to validate chunk extra");
                     byzantine_assert!(false);
@@ -4355,8 +4404,8 @@ impl Chain {
                 })
             };
 
-            // Validate state root.
             let apply_result = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+                // must accept witness here
                 let apply_result = apply_txs();
                 if let Ok(apply_result) = &apply_result {
                     let (outcome_root, _) =
