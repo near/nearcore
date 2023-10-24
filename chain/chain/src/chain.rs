@@ -722,13 +722,6 @@ impl Chain {
         metrics::CHUNK_TAIL_HEIGHT.set(store.chunk_tail()? as i64);
         metrics::FORK_TAIL_HEIGHT.set(store.fork_tail()? as i64);
 
-        // TODO (#9989): Remove this config from chain
-        let test_snapshot_countdown_and_frequency =
-            match runtime_adapter.get_tries().state_snapshot_config().state_snapshot_type {
-                StateSnapshotType::EveryEpochAndNBlocks(n) => Some((0, n)),
-                _ => None,
-            };
-
         // Even though the channel is unbounded, the channel size is practically bounded by the size
         // of blocks_in_processing, which is set to 5 now.
         let (sc, rc) = unbounded();
