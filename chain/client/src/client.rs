@@ -224,6 +224,7 @@ impl Client {
         let chain_config = ChainConfig {
             save_trie_changes: config.save_trie_changes,
             background_migration_threads: config.client_background_migration_threads,
+            state_split_config: config.state_split_config,
         };
         let chain = Chain::new(
             epoch_manager.clone(),
