@@ -1,10 +1,18 @@
+use crate::trie::{
+    DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
+};
+use crate::DBCol;
 use near_primitives::shard_layout::ShardUId;
 use std::time::Duration;
 use std::{collections::HashMap, iter::FromIterator};
 
-use crate::trie::{
-    DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
-};
+/// Cache size for DBCol::FlatState column
+/// Default value: 128MiB
+/// This value was tuned in after we removed filter and index block from block cache
+/// and slightly improved read speed for FlatState and reduced memory footprint in
+/// #9389
+/// This is purposefully hardcoded to avoid additional config.json parameters.
+const FLAT_COLUMN_BLOCK_CACHE_SIZE: bytesize::ByteSize = bytesize::ByteSize::mib(128);
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -85,15 +93,53 @@ pub struct StoreConfig {
     /// Number of threads to execute storage background migrations.
     /// Needed to create flat storage which need to happen in parallel
     /// with block processing.
+    /// TODO (#8826): remove, because creation successfully happened in 1.34.
     pub background_migration_threads: usize,
 
     /// Enables background flat storage creation.
+    /// TODO (#8826): remove, because creation successfully happened in 1.34.
     pub flat_storage_creation_enabled: bool,
 
     /// Duration to perform background flat storage creation step. Defines how
     /// frequently we check creation status and execute work related to it in
     /// main thread (scheduling and collecting state parts, catching up blocks, etc.).
+    /// TODO (#8826): remove, because creation successfully happened in 1.34.
     pub flat_storage_creation_period: Duration,
+
+    /// State Snapshot configuration
+    pub state_snapshot_config: StateSnapshotConfig,
+
+    // TODO (#9989): To be phased out in favor of state_snapshot_config
+    pub state_snapshot_enabled: bool,
+
+    // TODO (#9989): To be phased out in favor of state_snapshot_config
+    pub state_snapshot_compaction_enabled: bool,
+}
+
+/// Config used to control state snapshot creation. This is used for state sync and resharding.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct StateSnapshotConfig {
+    pub state_snapshot_type: StateSnapshotType,
+    /// State Snapshot compaction usually is a good thing but is heavy on IO and can take considerable
+    /// amount of time.
+    /// It makes state snapshots tiny (10GB) over the course of an epoch.
+    /// We may want to disable it for archival nodes during resharding
+    pub compaction_enabled: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum StateSnapshotType {
+    /// Consider this as the default "disabled" option. We need to have snapshotting enabled for resharding
+    /// State snapshots involve filesystem operations and costly IO operations.
+    #[default]
+    ForReshardingOnly,
+    /// Testing only. Makes a state snapshot after every epoch, but also every N blocks.
+    /// The first snapshot is done after processng the first block.
+    EveryEpochAndNBlocks(u64),
+    /// This is the "enabled" option where we create a snapshot at the beginning of every epoch.
+    /// Needed if a node wants to be able to respond to state part requests.
+    EveryEpoch,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -153,10 +199,10 @@ impl StoreConfig {
     }
 
     /// Returns cache size for given column.
-    pub const fn col_cache_size(&self, col: crate::DBCol) -> bytesize::ByteSize {
+    pub const fn col_cache_size(&self, col: DBCol) -> bytesize::ByteSize {
         match col {
-            crate::DBCol::State => self.col_state_cache_size,
-            crate::DBCol::FlatState => self.col_state_cache_size,
+            DBCol::State => self.col_state_cache_size,
+            DBCol::FlatState => FLAT_COLUMN_BLOCK_CACHE_SIZE,
             _ => bytesize::ByteSize::mib(32),
         }
     }
@@ -232,6 +278,14 @@ impl Default for StoreConfig {
             // One second should be enough to save deltas on start and catch up
             // flat storage head quickly. State read work is much more expensive.
             flat_storage_creation_period: Duration::from_secs(1),
+
+            state_snapshot_config: Default::default(),
+
+            // TODO: To be phased out in favor of state_snapshot_config
+            state_snapshot_enabled: false,
+
+            // TODO: To be phased out in favor of state_snapshot_config
+            state_snapshot_compaction_enabled: false,
         }
     }
 }

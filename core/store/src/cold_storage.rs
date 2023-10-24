@@ -3,7 +3,7 @@ use crate::db::{ColdDB, COLD_HEAD_KEY, HEAD_KEY};
 use crate::trie::TrieRefcountChange;
 use crate::{metrics, DBCol, DBTransaction, Database, Store, TrieChanges};
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshDeserialize;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -167,21 +167,21 @@ pub fn update_cold_head(
     // Write HEAD to the cold db.
     {
         let mut transaction = DBTransaction::new();
-        transaction.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), tip.try_to_vec()?);
+        transaction.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
         cold_db.write(transaction)?;
     }
 
     // Write COLD_HEAD_KEY to the cold db.
     {
         let mut transaction = DBTransaction::new();
-        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), tip.try_to_vec()?);
+        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
         cold_db.write(transaction)?;
     }
 
     // Write COLD_HEAD to the hot db.
     {
         let mut transaction = DBTransaction::new();
-        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), tip.try_to_vec()?);
+        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
         hot_store.storage.write(transaction)?;
 
         crate::metrics::COLD_HEAD_HEIGHT.set(*height as i64);
@@ -205,6 +205,7 @@ pub fn copy_all_data_to_cold(
 ) -> io::Result<CopyAllDataToColdStatus> {
     for col in DBCol::iter() {
         if col.is_cold() {
+            tracing::info!(target: "cold_store", ?col, "Started column migration");
             let mut transaction = BatchTransaction::new(cold_db.clone(), batch_size);
             for result in hot_store.iter(col) {
                 if !keep_going.load(std::sync::atomic::Ordering::Relaxed) {
@@ -215,6 +216,7 @@ pub fn copy_all_data_to_cold(
                 transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec())?;
             }
             transaction.write()?;
+            tracing::info!(target: "cold_store", ?col, "Finished column migration");
         }
     }
     Ok(CopyAllDataToColdStatus::EverythingCopied)
@@ -331,7 +333,9 @@ fn get_keys_from_store(
                     .collect(),
                 DBKeyType::ReceiptHash => chunks
                     .iter()
-                    .flat_map(|c| c.receipts().iter().map(|r| r.get_hash().as_bytes().to_vec()))
+                    .flat_map(|c| {
+                        c.prev_outgoing_receipts().iter().map(|r| r.get_hash().as_bytes().to_vec())
+                    })
                     .collect(),
                 DBKeyType::ChunkHash => {
                     chunks.iter().map(|c| c.chunk_hash().as_bytes().to_vec()).collect()
@@ -422,7 +426,6 @@ where
     }
 }
 
-#[allow(dead_code)]
 impl StoreWithCache<'_> {
     pub fn iter_prefix_with_callback(
         &mut self,
@@ -526,6 +529,12 @@ impl BatchTransaction {
         let _timer = crate::metrics::COLD_STORE_MIGRATION_BATCH_WRITE_TIME
             .with_label_values(&column_label)
             .start_timer();
+
+        tracing::info!(
+                target: "cold_store",
+                ?column_label,
+                tx_size_in_megabytes = self.transaction_size as f64 / 1e6,
+                "Writing a Cold Store transaction");
 
         let transaction = std::mem::take(&mut self.transaction);
         self.cold_db.write(transaction)?;

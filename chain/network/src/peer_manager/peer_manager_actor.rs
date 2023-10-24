@@ -2,8 +2,7 @@ use crate::client;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong,
-    RawRoutedMessage, RoutedMessageBody,
+    Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -614,7 +613,7 @@ impl PeerManagerActor {
         // Find peers that are not reliable (too much behind) - and make sure that we're not routing messages through them.
         let unreliable_peers = self.unreliable_peers();
         metrics::PEER_UNRELIABLE.set(unreliable_peers.len() as i64);
-        self.state.graph.set_unreliable_peers(unreliable_peers);
+        self.state.set_unreliable_peers(unreliable_peers);
 
         let new_interval = min(max_interval, interval * EXPONENTIAL_BACKOFF_RATIO);
 
@@ -644,27 +643,6 @@ impl PeerManagerActor {
                 .event_sink
                 .push(Event::ReconnectLoopSpawned(conn_info.peer_info.clone()));
         }
-    }
-
-    /// Return whether the message is sent or not.
-    fn send_message_to_account_or_peer_or_hash(
-        &mut self,
-        target: &AccountOrPeerIdOrHash,
-        msg: RoutedMessageBody,
-    ) -> bool {
-        let target = match target {
-            AccountOrPeerIdOrHash::AccountId(account_id) => {
-                return self.state.send_message_to_account(&self.clock, account_id, msg);
-            }
-            AccountOrPeerIdOrHash::PeerId(it) => PeerIdOrHash::PeerId(it.clone()),
-            AccountOrPeerIdOrHash::Hash(it) => PeerIdOrHash::Hash(*it),
-        };
-
-        self.state.send_message_to_peer(
-            &self.clock,
-            tcp::Tier::T2,
-            self.state.sign_message(&self.clock, RawRoutedMessage { target, body: msg }),
-        )
     }
 
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
@@ -752,9 +730,6 @@ impl PeerManagerActor {
         let _span =
             tracing::trace_span!(target: "network", "handle_msg_network_requests", msg_type)
                 .entered();
-        let _d = delay_detector::DelayDetector::new(|| {
-            format!("network request {}", msg.as_ref()).into()
-        });
         metrics::REQUEST_COUNT_BY_TYPE_TOTAL.with_label_values(&[msg.as_ref()]).inc();
         match msg {
             NetworkRequests::Block { block } => {
@@ -788,35 +763,20 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequestHeader { shard_id, sync_hash, target } => {
-                if self.send_message_to_account_or_peer_or_hash(
-                    &target,
-                    RoutedMessageBody::StateRequestHeader(shard_id, sync_hash),
+            NetworkRequests::StateRequestHeader { shard_id, sync_hash, peer_id } => {
+                if self.state.tier2.send_message(
+                    peer_id,
+                    Arc::new(PeerMessage::StateRequestHeader(shard_id, sync_hash)),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, target } => {
-                if self.send_message_to_account_or_peer_or_hash(
-                    &target,
-                    RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id),
-                ) {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
-                }
-            }
-            NetworkRequests::StateResponse { route_back, response } => {
-                let body = RoutedMessageBody::VersionedStateResponse(response);
-                if self.state.send_message_to_peer(
-                    &self.clock,
-                    tcp::Tier::T2,
-                    self.state.sign_message(
-                        &self.clock,
-                        RawRoutedMessage { target: PeerIdOrHash::Hash(route_back), body },
-                    ),
+            NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, peer_id } => {
+                if self.state.tier2.send_message(
+                    peer_id,
+                    Arc::new(PeerMessage::StateRequestPart(shard_id, sync_hash, part_id)),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -996,6 +956,7 @@ impl PeerManagerActor {
 
 impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
     type Result = ();
+    #[perf]
     fn handle(&mut self, msg: WithSpanContext<SetChainInfo>, ctx: &mut Self::Context) {
         let (_span, SetChainInfo(info)) = handler_trace_span!(target: "network", msg);
         let _timer =
@@ -1029,6 +990,7 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
 
 impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerActor {
     type Result = PeerManagerMessageResponse;
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<PeerManagerMessageRequest>,
@@ -1044,6 +1006,7 @@ impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerA
 
 impl actix::Handler<GetDebugStatus> for PeerManagerActor {
     type Result = DebugStatus;
+    #[perf]
     fn handle(&mut self, msg: GetDebugStatus, _ctx: &mut actix::Context<Self>) -> Self::Result {
         match msg {
             GetDebugStatus::PeerStore => {
@@ -1090,6 +1053,7 @@ impl actix::Handler<GetDebugStatus> for PeerManagerActor {
                         EdgeView { peer0: key.0.clone(), peer1: key.1.clone(), nonce: edge.nonce() }
                     })
                     .collect(),
+                next_hops: (*self.state.graph.routing_table.info().next_hops).clone(),
             }),
             GetDebugStatus::RecentOutboundConnections => {
                 DebugStatus::RecentOutboundConnections(RecentOutboundConnectionsView {
@@ -1107,6 +1071,7 @@ impl actix::Handler<GetDebugStatus> for PeerManagerActor {
                         .collect::<Vec<_>>(),
                 })
             }
+            GetDebugStatus::Routes => DebugStatus::Routes(self.state.graph_v2.get_debug_view()),
         }
     }
 }

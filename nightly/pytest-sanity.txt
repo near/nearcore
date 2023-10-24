@@ -45,9 +45,8 @@ pytest --timeout=3600 sanity/state_sync_massive_validator.py
 pytest --timeout=3600 sanity/state_sync_massive.py --features nightly
 pytest --timeout=3600 sanity/state_sync_massive_validator.py --features nightly
 
-# TODO(#8211) - tests broken due to bad behavior in chunk fetching - re-enable when that PR is submitted.
-# pytest sanity/sync_chunks_from_archival.py
-# pytest sanity/sync_chunks_from_archival.py --features nightly
+pytest sanity/sync_chunks_from_archival.py
+pytest sanity/sync_chunks_from_archival.py --features nightly
 pytest sanity/rpc_tx_forwarding.py
 pytest sanity/rpc_tx_forwarding.py --features nightly
 pytest --timeout=240 sanity/skip_epoch.py
@@ -62,6 +61,14 @@ pytest --timeout=240 sanity/block_sync.py
 pytest --timeout=240 sanity/block_sync.py --features nightly
 pytest --timeout=10m sanity/block_sync_archival.py
 pytest --timeout=10m sanity/block_sync_archival.py --features nightly
+pytest --timeout=120 sanity/block_sync_flat_storage.py
+pytest --timeout=120 sanity/block_sync_flat_storage.py --features nightly
+pytest --timeout=240 sanity/state_sync_epoch_boundary.py
+pytest --timeout=240 sanity/state_sync_epoch_boundary.py --features nightly
+pytest --timeout=240 sanity/state_sync_then_catchup.py
+pytest --timeout=240 sanity/state_sync_then_catchup.py --features nightly
+pytest --timeout=120 sanity/catchup_flat_storage_deletions.py
+pytest --timeout=120 sanity/catchup_flat_storage_deletions.py --features nightly
 pytest --timeout=240 sanity/validator_switch.py
 pytest --timeout=240 sanity/validator_switch.py --features nightly
 pytest --timeout=240 sanity/rpc_state_changes.py
@@ -98,11 +105,10 @@ pytest sanity/proxy_restart.py
 pytest sanity/proxy_restart.py --features nightly
 pytest sanity/network_drop_package.py
 pytest sanity/network_drop_package.py --features nightly
-# TODO: enable them when we fix the issue with proxy shutdown (#2942)
-# pytest --timeout=900 sanity/sync_ban.py true
-# pytest --timeout=900 sanity/sync_ban.py true --features nightly
-# pytest --timeout=900 sanity/sync_ban.py false
-# pytest --timeout=900 sanity/sync_ban.py false --features nightly
+pytest --timeout=900 sanity/sync_ban.py true
+pytest --timeout=900 sanity/sync_ban.py true --features nightly
+pytest --timeout=900 sanity/sync_ban.py false
+pytest --timeout=900 sanity/sync_ban.py false --features nightly
 pytest sanity/block_chunk_signature.py
 pytest sanity/block_chunk_signature.py --features nightly
 pytest sanity/concurrent_function_calls.py

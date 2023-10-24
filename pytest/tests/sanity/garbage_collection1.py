@@ -14,7 +14,8 @@ from cluster import start_cluster
 from configured_logger import logger
 import utils
 
-TARGET_HEIGHT = 60
+EPOCH_LENGTH = 20
+TARGET_HEIGHT = EPOCH_LENGTH * 6
 TIMEOUT = 30
 
 nodes_config = {
@@ -38,7 +39,7 @@ nodes_config = {
 
 nodes = start_cluster(
     3, 0, 1, None,
-    [["epoch_length", 10], ["num_block_producer_seats", 5],
+    [["epoch_length", EPOCH_LENGTH], ["num_block_producer_seats", 5],
      ["num_block_producer_seats_per_shard", [5]],
      ["total_supply", "4210000000000000000000000000000000"],
      ["validators", 0, "amount", "260000000000000000000000000000000"],

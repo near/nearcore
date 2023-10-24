@@ -1,4 +1,3 @@
-use borsh::BorshSerialize;
 use chrono::Utc;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::{Genesis, GenesisChangeConfig, GenesisConfig};
@@ -157,7 +156,7 @@ pub fn state_dump_redis(
                         block_hash.as_ref(),
                         block_height,
                     )?;
-                    let value = account.try_to_vec().unwrap();
+                    let value = borsh::to_vec(&account).unwrap();
                     redis_connection.set(
                         [b"account-data:", redis_key, b":", block_hash.as_ref()].concat(),
                         value,
@@ -244,12 +243,14 @@ fn iterate_over_records(
                     continue;
                 }
                 if let StateRecord::Account { account_id, account } = &mut sr {
-                    total_supply += account.amount() + account.locked();
                     if account.locked() > 0 {
                         let stake = *validators.get(account_id).map(|(_, s)| s).unwrap_or(&0);
-                        account.set_amount(account.amount() + account.locked() - stake);
+                        if account.locked() > stake {
+                            account.set_amount(account.amount() + account.locked() - stake);
+                        }
                         account.set_locked(stake);
                     }
+                    total_supply += account.amount() + account.locked();
                 }
                 change_state_record(&mut sr, change_config);
                 callback(sr);
@@ -293,7 +294,7 @@ mod test {
     use std::path::Path;
     use std::sync::Arc;
 
-    use near_chain::{ChainGenesis, Provenance};
+    use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
     use near_chain_configs::genesis_validate::validate_genesis;
     use near_chain_configs::{Genesis, GenesisChangeConfig};
     use near_client::test_utils::TestEnv;
@@ -307,11 +308,13 @@ mod test {
         Balance, BlockHeight, BlockHeightDelta, NumBlocks, ProtocolVersion,
     };
     use near_primitives::version::PROTOCOL_VERSION;
+    use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
     use nearcore::config::GenesisExt;
     use nearcore::config::TESTING_INIT_STAKE;
     use nearcore::config::{Config, NearConfig};
+    use nearcore::test_utils::TestEnvNightshadeSetupExt;
     use nearcore::NightshadeRuntime;
 
     use crate::state_dump::state_dump;
@@ -321,7 +324,7 @@ mod test {
     fn setup(
         epoch_length: NumBlocks,
         protocol_version: ProtocolVersion,
-        use_production_config: bool,
+        test_resharding: bool,
     ) -> (Store, Genesis, TestEnv, NearConfig) {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -329,20 +332,23 @@ mod test {
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = protocol_version;
-        genesis.config.use_production_config = use_production_config;
-        let store = create_test_store();
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-        let nightshade_runtime =
-            NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
-        let mut chain_genesis = ChainGenesis::test();
-        chain_genesis.epoch_length = epoch_length;
-        chain_genesis.gas_limit = genesis.config.gas_limit;
-        let env = TestEnv::builder(chain_genesis)
-            .validator_seats(2)
-            .stores(vec![store.clone()])
-            .epoch_managers(vec![epoch_manager])
-            .runtimes(vec![nightshade_runtime])
-            .build();
+        genesis.config.use_production_config = test_resharding;
+
+        let env = if test_resharding {
+            TestEnv::builder(ChainGenesis::new(&genesis))
+                .validator_seats(2)
+                .use_state_snapshots()
+                .real_stores()
+                .real_epoch_managers(&genesis.config)
+                .nightshade_runtimes(&genesis)
+                .build()
+        } else {
+            TestEnv::builder(ChainGenesis::new(&genesis))
+                .validator_seats(2)
+                .real_epoch_managers(&genesis.config)
+                .nightshade_runtimes(&genesis)
+                .build()
+        };
 
         let near_config = NearConfig::new(
             Config::default(),
@@ -359,6 +365,7 @@ mod test {
         )
         .unwrap();
 
+        let store = env.clients[0].chain.store().store().clone();
         (store, genesis, env, near_config)
     }
 
@@ -416,9 +423,10 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
-            NightshadeRuntime::test(Path::new("."), store, &genesis, epoch_manager.clone());
+            NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
         let records_file = tempfile::NamedTempFile::new().unwrap();
         let new_near_config = state_dump(
             epoch_manager.as_ref(),
@@ -449,7 +457,7 @@ mod test {
             "test0".parse().unwrap(),
             &signer0,
             vec![Action::DeployContract(DeployContractAction {
-                code: near_test_contracts::base_rs_contract().to_vec(),
+                code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
             })],
             genesis_hash,
         );
@@ -492,9 +500,10 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
-            NightshadeRuntime::test(Path::new("."), store, &genesis, epoch_manager.clone());
+            NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
         let select_account_ids = vec!["test0".parse().unwrap()];
         let new_near_config = state_dump(
             epoch_manager.as_ref(),
@@ -554,9 +563,10 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
-            NightshadeRuntime::test(Path::new("."), store, &genesis, epoch_manager.clone());
+            NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
         let new_near_config = state_dump(
             epoch_manager.as_ref(),
             runtime,
@@ -595,9 +605,10 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
-            NightshadeRuntime::test(Path::new("."), store, &genesis, epoch_manager.clone());
+            NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
 
         let records_file = tempfile::NamedTempFile::new().unwrap();
         let new_near_config = state_dump(
@@ -647,9 +658,10 @@ mod test {
 
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
-            NightshadeRuntime::test(Path::new("."), store, &genesis, epoch_manager.clone());
+            NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
         let records_file = tempfile::NamedTempFile::new().unwrap();
         let new_near_config = state_dump(
             epoch_manager.as_ref(),
@@ -679,18 +691,20 @@ mod test {
         genesis.config.epoch_length = epoch_length;
         let store1 = create_test_store();
         let store2 = create_test_store();
+        initialize_genesis_state(store1.clone(), &genesis, None);
+        initialize_genesis_state(store2.clone(), &genesis, None);
         let epoch_manager1 = EpochManager::new_arc_handle(store1.clone(), &genesis.config);
         let epoch_manager2 = EpochManager::new_arc_handle(store2.clone(), &genesis.config);
         let runtime1 = NightshadeRuntime::test(
             Path::new("."),
             store1.clone(),
-            &genesis,
+            &genesis.config,
             epoch_manager1.clone(),
         );
         let runtime2 = NightshadeRuntime::test(
             Path::new("."),
             store2.clone(),
-            &genesis,
+            &genesis.config,
             epoch_manager2.clone(),
         );
         let mut chain_genesis = ChainGenesis::test();
@@ -764,9 +778,14 @@ mod test {
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
         let store = create_test_store();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-        let nightshade_runtime =
-            NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
+        let nightshade_runtime = NightshadeRuntime::test(
+            Path::new("."),
+            store.clone(),
+            &genesis.config,
+            epoch_manager.clone(),
+        );
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
         let mut env = TestEnv::builder(chain_genesis)
@@ -817,9 +836,10 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
-            NightshadeRuntime::test(Path::new("."), store, &genesis, epoch_manager.clone());
+            NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
         let records_file = tempfile::NamedTempFile::new().unwrap();
         let new_near_config = state_dump(
             epoch_manager.as_ref(),
@@ -873,9 +893,10 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
-            NightshadeRuntime::test(Path::new("."), store, &genesis, epoch_manager.clone());
+            NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
         let new_near_config = state_dump(
             epoch_manager.as_ref(),
             runtime,

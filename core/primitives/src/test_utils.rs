@@ -6,12 +6,13 @@ use near_primitives_core::types::ProtocolVersion;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
-use crate::block_header::{BlockHeader, BlockHeaderV3};
+use crate::block::BlockV3;
+use crate::block_header::BlockHeader;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
 use crate::num_rational::Ratio;
-use crate::sharding::ShardChunkHeader;
+use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
@@ -59,12 +60,12 @@ impl Transaction {
         gas: Gas,
         deposit: Balance,
     ) -> Self {
-        self.actions.push(Action::FunctionCall(FunctionCallAction {
+        self.actions.push(Action::FunctionCall(Box::new(FunctionCallAction {
             method_name,
             args,
             gas,
             deposit,
-        }));
+        })));
         self
     }
 
@@ -74,16 +75,16 @@ impl Transaction {
     }
 
     pub fn stake(mut self, stake: Balance, public_key: PublicKey) -> Self {
-        self.actions.push(Action::Stake(StakeAction { stake, public_key }));
+        self.actions.push(Action::Stake(Box::new(StakeAction { stake, public_key })));
         self
     }
     pub fn add_key(mut self, public_key: PublicKey, access_key: AccessKey) -> Self {
-        self.actions.push(Action::AddKey(AddKeyAction { public_key, access_key }));
+        self.actions.push(Action::AddKey(Box::new(AddKeyAction { public_key, access_key })));
         self
     }
 
     pub fn delete_key(mut self, public_key: PublicKey) -> Self {
-        self.actions.push(Action::DeleteKey(DeleteKeyAction { public_key }));
+        self.actions.push(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })));
         self
     }
 
@@ -144,7 +145,7 @@ impl SignedTransaction {
             signer_id.clone(),
             signer_id,
             signer,
-            vec![Action::Stake(StakeAction { stake, public_key })],
+            vec![Action::Stake(Box::new(StakeAction { stake, public_key }))],
             block_hash,
         )
     }
@@ -165,10 +166,10 @@ impl SignedTransaction {
             signer,
             vec![
                 Action::CreateAccount(CreateAccountAction {}),
-                Action::AddKey(AddKeyAction {
+                Action::AddKey(Box::new(AddKeyAction {
                     public_key,
                     access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
-                }),
+                })),
                 Action::Transfer(TransferAction { deposit: amount }),
             ],
             block_hash,
@@ -192,10 +193,10 @@ impl SignedTransaction {
             signer,
             vec![
                 Action::CreateAccount(CreateAccountAction {}),
-                Action::AddKey(AddKeyAction {
+                Action::AddKey(Box::new(AddKeyAction {
                     public_key,
                     access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
-                }),
+                })),
                 Action::Transfer(TransferAction { deposit: amount }),
                 Action::DeployContract(DeployContractAction { code }),
             ],
@@ -219,7 +220,12 @@ impl SignedTransaction {
             signer_id,
             receiver_id,
             signer,
-            vec![Action::FunctionCall(FunctionCallAction { args, method_name, gas, deposit })],
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                args,
+                method_name,
+                gas,
+                deposit,
+            }))],
             block_hash,
         )
     }
@@ -254,13 +260,29 @@ impl SignedTransaction {
     }
 }
 
-impl BlockHeader {
-    pub fn get_mut(&mut self) -> &mut BlockHeaderV3 {
+impl Block {
+    pub fn get_mut(&mut self) -> &mut BlockV3 {
         match self {
-            BlockHeader::BlockHeaderV1(_) | BlockHeader::BlockHeaderV2(_) => {
+            Block::BlockV1(_) | Block::BlockV2(_) => {
+                panic!("older block version should not appear in tests")
+            }
+            Block::BlockV3(block) => Arc::make_mut(block),
+        }
+    }
+}
+
+impl BlockHeader {
+    pub fn get_mut(&mut self) -> &mut crate::block_header::BlockHeaderV4 {
+        match self {
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_) => {
                 panic!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV3(header) => Arc::make_mut(header),
+            BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header),
+            BlockHeader::BlockHeaderV5(_) => {
+                panic!("post-state-root header should not appear in tests yet")
+            }
         }
     }
 
@@ -275,6 +297,14 @@ impl BlockHeader {
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
             BlockHeader::BlockHeaderV3(header) => {
+                let header = Arc::make_mut(header);
+                header.inner_rest.latest_protocol_version = latest_protocol_version;
+            }
+            BlockHeader::BlockHeaderV4(header) => {
+                let header = Arc::make_mut(header);
+                header.inner_rest.latest_protocol_version = latest_protocol_version;
+            }
+            BlockHeader::BlockHeaderV5(header) => {
                 let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
@@ -303,10 +333,30 @@ impl BlockHeader {
                 header.hash = hash;
                 header.signature = signature;
             }
+            BlockHeader::BlockHeaderV4(header) => {
+                let header = Arc::make_mut(header);
+                header.hash = hash;
+                header.signature = signature;
+            }
+            BlockHeader::BlockHeaderV5(header) => {
+                let header = Arc::make_mut(header);
+                header.hash = hash;
+                header.signature = signature;
+            }
         }
     }
 }
 
+impl ShardChunkHeader {
+    pub fn get_mut(&mut self) -> &mut ShardChunkHeaderV3 {
+        match self {
+            ShardChunkHeader::V1(_) | ShardChunkHeader::V2(_) => {
+                unreachable!("old header should not appear in tests")
+            }
+            ShardChunkHeader::V3(chunk) => chunk,
+        }
+    }
+}
 /// Builder class for blocks to make testing easier.
 /// # Examples
 ///
@@ -322,7 +372,7 @@ pub struct TestBlockBuilder {
     epoch_id: EpochId,
     next_epoch_id: EpochId,
     next_bp_hash: CryptoHash,
-    approvals: Vec<Option<Signature>>,
+    approvals: Vec<Option<Box<Signature>>>,
     block_merkle_root: CryptoHash,
 }
 
@@ -362,7 +412,7 @@ impl TestBlockBuilder {
         self.next_bp_hash = next_bp_hash;
         self
     }
-    pub fn approvals(mut self, approvals: Vec<Option<Signature>>) -> Self {
+    pub fn approvals(mut self, approvals: Vec<Option<Box<Signature>>>) -> Self {
         self.approvals = approvals;
         self
     }
@@ -375,6 +425,7 @@ impl TestBlockBuilder {
     }
 
     pub fn build(self) -> Block {
+        tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
         Block::produce(
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
@@ -411,6 +462,10 @@ impl Block {
                 let block = Arc::make_mut(block);
                 &mut block.header
             }
+            Block::BlockV3(block) => {
+                let block = Arc::make_mut(block);
+                &mut block.header
+            }
         }
     }
 
@@ -435,6 +490,10 @@ impl Block {
             Block::BlockV2(block) => {
                 let block = Arc::make_mut(block);
                 block.chunks = chunks;
+            }
+            Block::BlockV3(block) => {
+                let block = Arc::make_mut(block);
+                block.body.chunks = chunks;
             }
         }
     }

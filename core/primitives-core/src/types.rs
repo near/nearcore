@@ -32,17 +32,6 @@ pub type Compute = u64;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GasWeight(pub u64);
 
-/// Result from a gas distribution among function calls with ratios.
-#[must_use]
-#[non_exhaustive]
-#[derive(Debug, PartialEq, Eq)]
-pub enum GasDistribution {
-    /// All remaining gas was distributed to functions.
-    All,
-    /// There were no function call actions with a ratio specified.
-    NoRatios,
-}
-
 /// Number of blocks in current group.
 pub type NumBlocks = u64;
 /// Number of shards in current group.

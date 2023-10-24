@@ -491,7 +491,7 @@ pub(crate) static STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED: Lazy<HistogramVec> = Lazy:
     try_create_histogram_vec(
         "near_state_sync_dump_put_object_elapsed_sec",
         "Latency of writes to external storage",
-        &["shard_id"],
+        &["shard_id", "result"],
         Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
     )
     .unwrap()

@@ -676,7 +676,7 @@ mod test {
                 signers2
                     .iter()
                     .map(|signer| {
-                        Some(
+                        Some(Box::new(
                             Approval::new(
                                 *last_block.hash(),
                                 last_block.header().height(),
@@ -684,7 +684,7 @@ mod test {
                                 signer.as_ref(),
                             )
                             .signature,
-                        )
+                        ))
                     })
                     .collect(),
                 Ratio::new(0, 1),

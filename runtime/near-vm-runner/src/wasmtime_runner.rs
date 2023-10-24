@@ -1,21 +1,18 @@
 use crate::errors::{ContractPrecompilatonResult, IntoVMError};
-use crate::internal::VMKind;
-use crate::prepare::WASM_FEATURES;
-use crate::{imports, prepare};
-use near_primitives::config::VMConfig;
-use near_primitives::contract::ContractCode;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::types::CompiledContractCache;
-use near_primitives::version::ProtocolVersion;
-use near_vm_errors::{
+use crate::logic::errors::{
     CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMLogicError,
     VMRunnerError, WasmTrap,
 };
-use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome};
+use crate::logic::types::PromiseResult;
+use crate::logic::Config;
+use crate::logic::{
+    CompiledContractCache, External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome,
+};
+use crate::VMKind;
+use crate::{imports, prepare, ContractCode};
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::ffi::c_void;
 use wasmtime::ExternType::Func;
 use wasmtime::{Engine, Linker, Memory, MemoryType, Module, Store};
 
@@ -121,6 +118,7 @@ impl IntoVMError for anyhow::Error {
 }
 
 #[cfg(not(feature = "lightbeam"))]
+#[allow(clippy::needless_pass_by_ref_mut)]
 pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
     Engine::new(config).unwrap()
 }
@@ -130,34 +128,26 @@ pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
     Engine::new(config.strategy(wasmtime::Strategy::Lightbeam).unwrap()).unwrap()
 }
 
-pub(super) fn default_config() -> wasmtime::Config {
-    let mut config = wasmtime::Config::default();
-    config.max_wasm_stack(1024 * 1024 * 1024); // wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
-    config.wasm_threads(WASM_FEATURES.threads);
-    config.wasm_reference_types(WASM_FEATURES.reference_types);
-    config.wasm_simd(WASM_FEATURES.simd);
-    config.wasm_bulk_memory(WASM_FEATURES.bulk_memory);
-    config.wasm_multi_value(WASM_FEATURES.multi_value);
-    config.wasm_multi_memory(WASM_FEATURES.multi_memory);
-    assert_eq!(
-        WASM_FEATURES.module_linking, false,
-        "wasmtime currently does not support the module-linking feature"
-    );
-    config
-}
-
 pub(crate) fn wasmtime_vm_hash() -> u64 {
     // TODO: take into account compiler and engine used to compile the contract.
     64
 }
 
 pub(crate) struct WasmtimeVM {
-    config: VMConfig,
+    config: Config,
 }
 
 impl WasmtimeVM {
-    pub(crate) fn new(config: VMConfig) -> Self {
+    pub(crate) fn new(config: Config) -> Self {
         Self { config }
+    }
+
+    pub(crate) fn default_wasmtime_config(&self) -> wasmtime::Config {
+        let features =
+            crate::features::WasmFeatures::from(self.config.limit_config.contract_prepare_version);
+        let mut config = wasmtime::Config::from(features);
+        config.max_wasm_stack(1024 * 1024 * 1024); // wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
+        config
     }
 }
 
@@ -170,10 +160,9 @@ impl crate::runner::VM for WasmtimeVM {
         context: VMContext,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
-        current_protocol_version: ProtocolVersion,
         _cache: Option<&dyn CompiledContractCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
-        let mut config = default_config();
+        let mut config = self.default_wasmtime_config();
         let engine = get_engine(&mut config);
         let mut store = Store::new(&engine, ());
         let mut memory = WasmtimeMemory::new(
@@ -183,21 +172,10 @@ impl crate::runner::VM for WasmtimeVM {
         )
         .unwrap();
         let memory_copy = memory.0;
-        let mut logic = VMLogic::new_with_protocol_version(
-            ext,
-            context,
-            &self.config,
-            fees_config,
-            promise_results,
-            &mut memory,
-            current_protocol_version,
-        );
+        let mut logic =
+            VMLogic::new(ext, context, &self.config, fees_config, promise_results, &mut memory);
 
-        let result = logic.before_loading_executable(
-            method_name,
-            current_protocol_version,
-            code.code().len(),
-        );
+        let result = logic.before_loading_executable(method_name, code.code().len());
         if let Err(e) = result {
             return Ok(VMOutcome::abort(logic, e));
         }
@@ -213,15 +191,12 @@ impl crate::runner::VM for WasmtimeVM {
         };
         let mut linker = Linker::new(&engine);
 
-        let result = logic.after_loading_executable(current_protocol_version, code.code().len());
+        let result = logic.after_loading_executable(code.code().len());
         if let Err(e) = result {
             return Ok(VMOutcome::abort(logic, e));
         }
 
-        // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
-        // lifetimes of the logic instance and pass raw pointers here.
-        let raw_logic = &mut logic as *mut _ as *mut c_void;
-        imports::wasmtime::link(&mut linker, memory_copy, raw_logic, current_protocol_version);
+        imports::wasmtime::link(&mut linker, memory_copy, &store, &mut logic);
         match module.get_export(method_name) {
             Some(export) => match export {
                 Func(func_type) => {
@@ -229,18 +204,13 @@ impl crate::runner::VM for WasmtimeVM {
                         let err = FunctionCallError::MethodResolveError(
                             MethodResolveError::MethodInvalidSignature,
                         );
-                        return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
-                            logic,
-                            err,
-                            current_protocol_version,
-                        ));
+                        return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, err));
                     }
                 }
                 _ => {
                     return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
                         logic,
                         FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound),
-                        current_protocol_version,
                     ));
                 }
             },
@@ -248,7 +218,6 @@ impl crate::runner::VM for WasmtimeVM {
                 return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
                     logic,
                     FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound),
-                    current_protocol_version,
                 ));
             }
         }
@@ -265,7 +234,6 @@ impl crate::runner::VM for WasmtimeVM {
                     return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
                         logic,
                         FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound),
-                        current_protocol_version,
                     ));
                 }
             },
@@ -277,8 +245,10 @@ impl crate::runner::VM for WasmtimeVM {
         &self,
         _code: &ContractCode,
         _cache: &dyn CompiledContractCache,
-    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, near_vm_errors::CacheError>
-    {
+    ) -> Result<
+        Result<ContractPrecompilatonResult, CompilationError>,
+        crate::logic::errors::CacheError,
+    > {
         Ok(Ok(ContractPrecompilatonResult::CacheNotAvailable))
     }
 }

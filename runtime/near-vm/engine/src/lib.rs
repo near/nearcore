@@ -21,13 +21,14 @@
 
 mod engine;
 mod error;
-mod executable;
 mod resolver;
 mod trap;
 
-pub use crate::engine::{Engine, EngineId};
+/// Universal engine
+pub mod universal;
+
+pub use crate::engine::EngineId;
 pub use crate::error::{DeserializeError, ImportError, InstantiationError, LinkError};
-pub use crate::executable::Executable;
 pub use crate::resolver::resolve_imports;
 pub use crate::trap::*;
 

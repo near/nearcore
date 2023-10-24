@@ -1,4 +1,6 @@
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
+use crate::entity_debug::EntityDebugHandlerImpl;
+use crate::metrics::spawn_trie_metrics_loop;
 pub use crate::runtime::NightshadeRuntime;
 
 use crate::cold_storage::spawn_cold_store_loop;
@@ -10,6 +12,7 @@ use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{IntoSender, LateBoundSender};
 use near_async::time;
+use near_chain::state_snapshot_actor::{get_make_snapshot_callback, StateSnapshotActor};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chunks::shards_manager_actor::start_shards_manager;
@@ -19,6 +22,7 @@ use near_epoch_manager::EpochManager;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
 use near_store::flat::FlatStateValuesInliningMigrationHandle;
+use near_store::genesis::initialize_genesis_state;
 use near_store::metadata::DbKind;
 use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
@@ -34,10 +38,14 @@ pub mod config;
 mod config_validate;
 mod download_file;
 pub mod dyn_config;
+#[cfg(feature = "json_rpc")]
+mod entity_debug;
+mod entity_debug_serializer;
 mod metrics;
 pub mod migrations;
 mod runtime;
 pub mod state_sync;
+pub mod test_utils;
 
 pub fn get_default_home() -> PathBuf {
     if let Ok(near_home) = std::env::var("NEAR_HOME") {
@@ -152,6 +160,9 @@ pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Re
         Err(StoreOpenerError::MigrationError(err)) => {
             Err(err)
         },
+        Err(StoreOpenerError::CheckpointError(err)) => {
+            Err(err)
+        },
     }.with_context(|| format!("unable to open database at {}", opener.path().display()))?;
 
     near_config.config.archive = storage.is_archive()?;
@@ -197,7 +208,7 @@ pub struct NearNode {
     pub state_sync_dump_handle: Option<StateSyncDumpHandle>,
     /// A handle to control background flat state values inlining migration.
     /// Needed temporarily, will be removed after the migration is completed.
-    pub flat_state_migration_handle: Option<FlatStateValuesInliningMigrationHandle>,
+    pub flat_state_migration_handle: FlatStateValuesInliningMigrationHandle,
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
@@ -220,6 +231,17 @@ pub fn start_with_config_and_synchronization(
     } else {
         None
     };
+
+    let trie_metrics_arbiter = spawn_trie_metrics_loop(
+        config.clone(),
+        storage.get_hot_store(),
+        config.client_config.log_summary_period,
+    )?;
+
+    // Initialize genesis_state in store either from genesis config or dump before other components.
+    // We only initialize if the genesis state is not already initialized in store.
+    // This sets up genesis_state_roots and genesis_hash in store.
+    initialize_genesis_state(storage.get_hot_store(), &config.genesis, Some(home_dir));
 
     let epoch_manager =
         EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config);
@@ -274,13 +296,23 @@ pub fn start_with_config_and_synchronization(
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
-        view_epoch_manager,
+        view_epoch_manager.clone(),
         view_shard_tracker,
-        view_runtime,
+        view_runtime.clone(),
         network_adapter.clone().into(),
         config.client_config.clone(),
         adv.clone(),
     );
+
+    let state_snapshot_actor = Arc::new(
+        StateSnapshotActor::new(runtime.get_flat_storage_manager(), runtime.get_tries()).start(),
+    );
+    let make_state_snapshot_callback = get_make_snapshot_callback(
+        state_snapshot_actor,
+        runtime.get_flat_storage_manager(),
+        config.config.store.state_snapshot_compaction_enabled,
+    );
+
     let (client_actor, client_arbiter_handle) = start_client(
         config.client_config.clone(),
         chain_genesis.clone(),
@@ -292,6 +324,7 @@ pub fn start_with_config_and_synchronization(
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
         telemetry,
+        Some(make_state_snapshot_callback),
         shutdown_signal,
         adv,
         config_updater,
@@ -306,19 +339,14 @@ pub fn start_with_config_and_synchronization(
         split_store.unwrap_or(storage.get_hot_store()),
         config.client_config.chunk_request_retry_period,
     );
-    shards_manager_adapter.bind(shards_manager_actor);
+    shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
 
     let flat_state_migration_handle =
-        if let Some(flat_storage_manager) = runtime.get_flat_storage_manager() {
-            let handle = FlatStateValuesInliningMigrationHandle::start_background_migration(
-                storage.get_hot_store(),
-                flat_storage_manager,
-                config.client_config.client_background_migration_threads,
-            );
-            Some(handle)
-        } else {
-            None
-        };
+        FlatStateValuesInliningMigrationHandle::start_background_migration(
+            storage.get_hot_store(),
+            runtime.get_flat_storage_manager(),
+            config.client_config.client_background_migration_threads,
+        );
 
     let state_sync_dump_handle = spawn_state_sync_dump(
         &config.client_config,
@@ -329,7 +357,8 @@ pub fn start_with_config_and_synchronization(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
     )?;
 
-    #[allow(unused_mut)]
+    let hot_store = storage.get_hot_store();
+
     let mut rpc_servers = Vec::new();
     let network_actor = PeerManagerActor::spawn(
         time::Clock::real(),
@@ -344,12 +373,18 @@ pub fn start_with_config_and_synchronization(
 
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
+        let entity_debug_handler = EntityDebugHandlerImpl {
+            epoch_manager: view_epoch_manager,
+            runtime: view_runtime,
+            store: hot_store,
+        };
         rpc_servers.extend(near_jsonrpc::start_http(
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone(),
             view_client.clone(),
             Some(network_actor),
+            Arc::new(entity_debug_handler),
         ));
     }
 
@@ -371,7 +406,8 @@ pub fn start_with_config_and_synchronization(
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
-    let mut arbiters = vec![client_arbiter_handle, shards_manager_arbiter_handle];
+    let mut arbiters =
+        vec![client_arbiter_handle, shards_manager_arbiter_handle, trie_metrics_arbiter];
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);
     }

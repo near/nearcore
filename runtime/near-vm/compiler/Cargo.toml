@@ -16,7 +16,7 @@ rust-version.workspace = true
 finite-wasm.workspace = true
 near-vm-vm.workspace = true
 near-vm-types.workspace = true
-wasmparser = { version = "0.99.0", optional = true, default-features = false }
+wasmparser = { version = "0.99.0", default-features = false }
 target-lexicon.workspace = true
 enumset.workspace = true
 hashbrown = { workspace = true, optional = true }
@@ -27,10 +27,6 @@ tracing.workspace = true
 
 [features]
 default = []
-# This feature is for compiler implementors, it enables using `Compiler` and
-# `CompilerConfig`, as well as the included wasmparser.
-# Disable this feature if you just want a headless engine.
-translator = ["wasmparser"]
 
 [badges]
 maintenance = { status = "experimental" }

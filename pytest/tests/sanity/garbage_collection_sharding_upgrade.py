@@ -48,7 +48,6 @@ nodes = start_cluster(
            [
                "simple_nightshade_shard_layout", {
                    "V1": {
-                       "fixed_shards": [],
                        "boundary_accounts":
                            ["aurora", "aurora-0", "kkuuue2akv_1630967379.near"],
                        "shards_split_map": [[0, 1, 2, 3]],

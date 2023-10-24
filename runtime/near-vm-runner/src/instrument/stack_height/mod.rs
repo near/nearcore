@@ -132,7 +132,7 @@ pub fn inject_limiter(
         stack_limit,
     };
 
-    instrument_functions(&mut ctx, &mut module)?;
+    instrument_functions(&ctx, &mut module)?;
     let module = thunk::generate_thunks(&mut ctx, module)?;
 
     Ok(module)
@@ -252,7 +252,7 @@ fn compute_stack_cost(func_idx: u32, module_ctx: &ModuleCtx<'_>) -> Result<u32, 
         .ok_or_else(|| Error("Overflow in adding locals_count and max_stack_height".into()))
 }
 
-fn instrument_functions(ctx: &mut Context, module: &mut elements::Module) -> Result<(), Error> {
+fn instrument_functions(ctx: &Context, module: &mut elements::Module) -> Result<(), Error> {
     for section in module.sections_mut() {
         if let elements::Section::Code(code_section) = section {
             for func_body in code_section.bodies_mut() {
@@ -290,7 +290,7 @@ fn instrument_functions(ctx: &mut Context, module: &mut elements::Module) -> Res
 ///
 /// drop
 /// ```
-fn instrument_function(ctx: &mut Context, func: &mut Instructions) -> Result<(), Error> {
+fn instrument_function(ctx: &Context, func: &mut Instructions) -> Result<(), Error> {
     use Instruction::*;
 
     struct InstrumentCall {

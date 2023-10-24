@@ -122,7 +122,7 @@ fn test_unknown_vs_not_connected() {
         (0..10)
             .map(|_| peer_store.unconnected_peer(|_| false, true).unwrap().id)
             .collect::<HashSet<PeerId>>(),
-        [peer_info_b.id.clone()].into_iter().collect()
+        [peer_info_b.id.clone()].into_iter().collect::<HashSet<_>>()
     );
 
     // if we don't care, we should pick either 'b' or 'boot'.
@@ -130,7 +130,9 @@ fn test_unknown_vs_not_connected() {
         (0..100)
             .map(|_| peer_store.unconnected_peer(|_| false, false).unwrap().id)
             .collect::<HashSet<PeerId>>(),
-        [peer_info_b.id.clone(), peer_info_boot_node.id.clone()].into_iter().collect()
+        [peer_info_b.id.clone(), peer_info_boot_node.id.clone()]
+            .into_iter()
+            .collect::<HashSet<_>>()
     );
 
     // And fail when trying to reconnect to b.

@@ -59,7 +59,8 @@ fn setup_network_node(
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
 
     let db = store.into_inner(near_store::Temperature::Hot);
-    let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true, true);
+    let mut client_config =
+        ClientConfig::test(false, 100, 200, num_validators, false, true, true, true);
     client_config.archive = config.archive;
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
     let genesis_block =
@@ -84,6 +85,7 @@ fn setup_network_node(
         Some(signer.clone()),
         telemetry_actor,
         None,
+        None,
         adv.clone(),
         None,
     )
@@ -107,7 +109,7 @@ fn setup_network_node(
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
     );
-    shards_manager_adapter.bind(shards_manager_actor);
+    shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
     let peer_manager = PeerManagerActor::spawn(
         time::Clock::real(),
         db.clone(),
@@ -142,7 +144,7 @@ struct StateMachine {
 }
 
 async fn check_routing_table(
-    info: &mut RunningInfo,
+    info: &RunningInfo,
     u: usize,
     want: Vec<(usize, Vec<usize>)>,
 ) -> anyhow::Result<ControlFlow> {

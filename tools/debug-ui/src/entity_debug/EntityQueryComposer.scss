@@ -1,0 +1,58 @@
+.query-composer-container {
+    display: flex;
+    align-items: stretch;
+
+    .query-type-list {
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid gray;
+
+        .list-header {
+            font-size: 18px;
+            font-weight: bold;
+            border-bottom: 1px solid gray;
+            font-variant: small-caps;
+            padding: 2px 6px;
+        }
+
+        .list-body {
+            flex: 1;
+            overflow: hidden;
+            overflow-y: auto;
+        }
+
+        .list-item {
+            padding: 6px;
+            cursor: pointer;
+
+            &.list-item-selected {
+                background-color: #eee;
+            }
+
+            &:hover {
+                background-color: #ddd;
+            }
+        }
+    }
+
+    .query-composer {
+        padding: 10px;
+
+        .query-composer-header {
+            font-weight: bold;
+            padding-bottom: 4px;
+        }
+
+        .query-composer-keys {
+            padding-left: 20px;
+            margin-bottom: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        button:disabled {
+            color: gray;
+        }
+    }
+}

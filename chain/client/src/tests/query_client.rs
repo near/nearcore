@@ -186,8 +186,8 @@ fn test_execution_outcome_for_chunk() {
                 .await
                 .unwrap()
                 .unwrap()
-                .unwrap()
                 .into_outcome()
+                .unwrap()
                 .transaction_outcome
                 .block_hash;
 
@@ -221,6 +221,7 @@ fn test_state_request() {
             false,
             true,
             false,
+            true,
             Arc::new(MockPeerManagerAdapter::default()).into(),
             100,
             Utc::now(),

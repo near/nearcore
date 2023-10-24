@@ -16,3 +16,12 @@ serde.workspace = true
 serde_json.workspace = true
 
 near-primitives.workspace = true
+
+[features]
+nightly = [
+  "nightly_protocol",
+  "near-primitives/nightly",
+]
+nightly_protocol = [
+  "near-primitives/nightly_protocol",
+]

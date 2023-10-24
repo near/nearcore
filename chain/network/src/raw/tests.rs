@@ -104,38 +104,40 @@ async fn test_raw_conn_state_parts() {
     .unwrap();
 
     let num_parts = 5;
-    let ttl = 100;
     // Block hash needs to correspond to the hash of the first block of an epoch.
     // But the fake node simply ignores the block hash.
     let block_hash = CryptoHash::new();
     for part_id in 0..num_parts {
-        conn.send_routed_message(
-            raw::RoutedMessage::StateRequestPart(0, block_hash, part_id),
-            peer_id.clone(),
-            ttl,
-        )
-        .await
-        .unwrap();
+        conn.send_message(raw::DirectMessage::StateRequestPart(0, block_hash, part_id))
+            .await
+            .unwrap();
     }
 
     let mut part_id_received = -1i64;
     loop {
-        let (msg, _timestamp) = conn.recv().await.unwrap();
-        if let raw::Message::Routed(raw::RoutedMessage::VersionedStateResponse(state_response)) =
-            msg
-        {
-            let response = state_response.take_state_response();
-            let part_id = response.part_id();
-            if part_id.is_none() || part_id.unwrap() as i64 != (part_id_received + 1) {
-                panic!(
-                    "received out of order part_id {:?} when {} was expected",
-                    part_id,
-                    part_id_received + 1
-                );
+        match conn.recv().await {
+            Ok((msg, _timestamp)) => {
+                if let raw::Message::Direct(raw::DirectMessage::VersionedStateResponse(
+                    state_response,
+                )) = msg
+                {
+                    let response = state_response.take_state_response();
+                    let part_id = response.part_id();
+                    if part_id.is_none() || part_id.unwrap() as i64 != (part_id_received + 1) {
+                        panic!(
+                            "received out of order part_id {:?} when {} was expected",
+                            part_id,
+                            part_id_received + 1
+                        );
+                    }
+                    part_id_received = part_id.unwrap() as i64;
+                    if part_id_received + 1 == num_parts as i64 {
+                        break;
+                    }
+                }
             }
-            part_id_received = part_id.unwrap() as i64;
-            if part_id_received + 1 == num_parts as i64 {
-                break;
+            Err(e) => {
+                panic!("error receiving part: {:?}", e);
             }
         }
     }

@@ -3,6 +3,7 @@ use crate::{metrics, SyncStatus};
 use actix::Addr;
 use itertools::Itertools;
 use near_chain_configs::{ClientConfig, LogSummaryStyle, SyncConfig};
+use near_client_primitives::types::StateSyncStatus;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
@@ -64,6 +65,8 @@ pub struct InfoHelper {
     epoch_id: Option<EpochId>,
     /// Timestamp of starting the client.
     pub boot_time_seconds: i64,
+    // Allows more detailed logging, for example a list of orphaned blocks.
+    enable_multiline_logging: bool,
 }
 
 impl InfoHelper {
@@ -87,6 +90,7 @@ impl InfoHelper {
             log_summary_style: client_config.log_summary_style,
             boot_time_seconds: StaticClock::utc().timestamp(),
             epoch_id: None,
+            enable_multiline_logging: client_config.enable_multiline_logging,
         }
     }
 
@@ -135,13 +139,12 @@ impl InfoHelper {
         let me = client.validator_signer.as_ref().map(|x| x.validator_id());
         if let Ok(num_shards) = client.epoch_manager.num_shards(&head.epoch_id) {
             for shard_id in 0..num_shards {
-                let tracked = match me {
-                    None => false,
-                    Some(me) => client
-                        .epoch_manager
-                        .cares_about_shard_from_prev_block(&head.last_block_hash, me, shard_id)
-                        .unwrap_or(false),
-                };
+                let tracked = client.shard_tracker.care_about_shard(
+                    me,
+                    &head.last_block_hash,
+                    shard_id,
+                    true,
+                );
                 metrics::TRACKED_SHARDS
                     .with_label_values(&[&shard_id.to_string()])
                     .set(if tracked { 1 } else { 0 });
@@ -545,7 +548,7 @@ impl InfoHelper {
             info.num_orphans,
             info.num_blocks_missing_chunks,
             info.num_blocks_in_processing,
-            blocks_info,
+            if self.enable_multiline_logging { blocks_info.to_string() } else { "".to_owned() },
         );
     }
 }
@@ -631,24 +634,30 @@ pub fn display_sync_status(
                 current_height
             )
         }
-        SyncStatus::StateSync(sync_hash, shard_statuses) => {
+        SyncStatus::StateSync(StateSyncStatus { sync_hash, sync_status: shard_statuses }) => {
             let mut res = format!("State {:?}", sync_hash);
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {
                 write!(res, "[{}: {}]", shard_id, shard_status.status.to_string(),).unwrap();
             }
-            if matches!(state_sync_config, SyncConfig::Peers) {
-                // TODO #8719
-                tracing::warn!(
-                    target: "stats",
-                    "The node is syncing its State. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\
-                     Suggestions:\n\
-                     * Download a recent data snapshot and restart the node.\n\
-                     * Disable state sync in the config. Add `\"state_sync_enabled\": false` to `config.json`.\n\
-                     \n\
-                     A better implementation of State Sync is work in progress.");
-            }
+            match state_sync_config {
+                SyncConfig::Peers => {
+                    tracing::warn!(
+                        target: "stats",
+                        "The node is trying to sync its State from its peers. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\
+                         Suggestions:\n\
+                         * Try to state sync from GCS. See `\"state_sync\"` and `\"state_sync_enabled\"` options in the reference `config.json` file.
+                         or
+                         * Disable state sync in the config. Add `\"state_sync_enabled\": false` to `config.json`, then download a recent data snapshot and restart the node.");
+                }
+                SyncConfig::ExternalStorage(_) => {
+                    tracing::info!(
+                        target: "stats",
+                        "The node is trying to sync its State from external storage. The current implementation is experimental. If it fails, consider disabling state sync and restarting from a recent snapshot:\n\
+                         - Add `\"state_sync_enabled\": false` to `config.json`, then download a recent data snapshot and restart the node.");
+                }
+            };
             res
         }
         SyncStatus::StateSyncDone => "State sync done".to_string(),
@@ -859,7 +868,7 @@ mod tests {
 
     #[test]
     fn telemetry_info() {
-        let config = ClientConfig::test(false, 1230, 2340, 50, false, true, true);
+        let config = ClientConfig::test(false, 1230, 2340, 50, false, true, true, true);
         let info_helper = InfoHelper::new(None, &config, None);
 
         let store = near_store::test_utils::create_test_store();
@@ -888,6 +897,7 @@ mod tests {
             &chain_genesis,
             doomslug_threshold_mode,
             ChainConfig::test(),
+            None,
         )
         .unwrap();
 

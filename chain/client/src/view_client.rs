@@ -1,27 +1,22 @@
 //! Readonly view of the chain and state of the database.
 //! Useful for querying from RPC.
 
+use crate::adapter::{
+    AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, StateRequestHeader,
+    StateRequestPart, StateResponse, TxStatusRequest, TxStatusResponse,
+};
+use crate::{
+    metrics, sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
+    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
+};
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
 use near_async::messaging::CanSend;
 use near_chain::types::{RuntimeAdapter, Tip};
-use near_chain_primitives::error::EpochErrorResultToChainError;
-use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::receipt::Receipt;
-use near_primitives::static_clock::StaticClock;
-use near_store::{DBCol, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
-use std::cmp::Ordering;
-use std::collections::{HashMap, VecDeque};
-use std::hash::Hash;
-use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, Instant};
-
-use tracing::{debug, error, info, trace, warn};
-
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
 };
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
+use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_client_primitives::types::{
     Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
     GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
@@ -32,9 +27,11 @@ use near_client_primitives::types::{
     GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
     TxStatus, TxStatusError,
 };
+use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{
     NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, ReasonForBan,
-    StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
+    StateResponseInfo, StateResponseInfoV2,
 };
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
@@ -43,31 +40,31 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
+use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::syncing::{
-    ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV1,
-    ShardStateSyncResponseV2,
+use near_primitives::state_sync::{
+    ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV3,
 };
+use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
     ShardId, SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockView,
     MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, SplitStorageInfoView,
-    StateChangesKindsView, StateChangesView,
+    StateChangesKindsView, StateChangesView, TxExecutionStatus, TxStatusView,
 };
-
-use crate::adapter::{
-    AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, StateRequestHeader,
-    StateRequestPart, StateResponse, TxStatusRequest, TxStatusResponse,
-};
-use crate::{
-    metrics, sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
-    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
-};
+use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
+use near_store::{DBCol, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
+use std::cmp::Ordering;
+use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::hash::Hash;
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant};
+use tracing::{error, info, warn};
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
@@ -420,17 +417,63 @@ impl ViewClientActor {
         }
     }
 
+    // Return the lowest status the node can proof
+    fn get_tx_execution_status(
+        &self,
+        execution_outcome: &FinalExecutionOutcomeView,
+    ) -> Result<TxExecutionStatus, TxStatusError> {
+        if execution_outcome.transaction_outcome.outcome.status == ExecutionStatusView::Unknown {
+            return Ok(TxExecutionStatus::None);
+        }
+
+        if let Err(_) = self.chain.check_blocks_final_and_canonical(&[self
+            .chain
+            .get_block_header(&execution_outcome.transaction_outcome.block_hash)?])
+        {
+            return Ok(TxExecutionStatus::Included);
+        }
+
+        if execution_outcome
+            .receipts_outcome
+            .iter()
+            .any(|e| e.outcome.status == ExecutionStatusView::Unknown)
+        {
+            return Ok(TxExecutionStatus::IncludedFinal);
+        }
+
+        let block_hashes: BTreeSet<CryptoHash> =
+            execution_outcome.receipts_outcome.iter().map(|e| e.block_hash).collect();
+        let mut headers = vec![];
+        for block_hash in block_hashes {
+            headers.push(self.chain.get_block_header(&block_hash)?);
+        }
+        // We can't sort and check only the last block;
+        // previous blocks may be not in the canonical chain
+        Ok(match self.chain.check_blocks_final_and_canonical(&headers) {
+            Err(_) => TxExecutionStatus::Executed,
+            Ok(_) => TxExecutionStatus::Final,
+        })
+    }
+
     fn get_tx_status(
         &mut self,
         tx_hash: CryptoHash,
         signer_account_id: AccountId,
         fetch_receipt: bool,
-    ) -> Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError> {
+    ) -> Result<TxStatusView, TxStatusError> {
         {
+            // TODO(telezhnaya): take into account `fetch_receipt()`
+            // https://github.com/near/nearcore/issues/9545
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
             if let Some(res) = request_manager.tx_status_response.pop(&tx_hash) {
                 request_manager.tx_status_requests.pop(&tx_hash);
-                return Ok(Some(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(res)));
+                let status = self.get_tx_execution_status(&res)?;
+                return Ok(TxStatusView {
+                    execution_outcome: Some(FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(
+                        res,
+                    )),
+                    status,
+                });
             }
         }
 
@@ -448,6 +491,7 @@ impl ViewClientActor {
         ) {
             match self.chain.get_final_transaction_result(&tx_hash) {
                 Ok(tx_result) => {
+                    let status = self.get_tx_execution_status(&tx_result)?;
                     let res = if fetch_receipt {
                         let final_result =
                             self.chain.get_final_transaction_result_with_receipt(tx_result)?;
@@ -457,11 +501,14 @@ impl ViewClientActor {
                     } else {
                         FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(tx_result)
                     };
-                    Ok(Some(res))
+                    Ok(TxStatusView { execution_outcome: Some(res), status })
                 }
                 Err(near_chain::Error::DBNotFoundErr(_)) => {
                     if self.chain.get_execution_outcome(&tx_hash).is_ok() {
-                        Ok(None)
+                        Ok(TxStatusView {
+                            execution_outcome: None,
+                            status: TxExecutionStatus::None,
+                        })
                     } else {
                         Err(TxStatusError::MissingTransaction(tx_hash))
                     }
@@ -484,7 +531,7 @@ impl ViewClientActor {
                     NetworkRequests::TxStatus(validator, signer_account_id, tx_hash),
                 ));
             }
-            Ok(None)
+            Ok(TxStatusView { execution_outcome: None, status: TxExecutionStatus::None })
         }
     }
 
@@ -513,7 +560,9 @@ impl ViewClientActor {
             .map_err(|e| e.into())
     }
 
-    fn check_state_sync_request(&self) -> bool {
+    /// Returns true if this request needs to be **dropped** due to exceeding a
+    /// rate limit of state sync requests.
+    fn throttle_state_sync_request(&self) -> bool {
         let mut cache = self.state_request_cache.lock().expect(POISONED_LOCK_ERR);
         let now = StaticClock::instant();
         while let Some(&instant) = cache.front() {
@@ -526,10 +575,31 @@ impl ViewClientActor {
             }
         }
         if cache.len() >= Self::MAX_NUM_STATE_REQUESTS {
-            return false;
+            return true;
         }
         cache.push_back(now);
-        true
+        false
+    }
+
+    fn has_state_snapshot(&self, sync_hash: &CryptoHash, shard_id: ShardId) -> Result<bool, Error> {
+        let header = self.chain.get_block_header(sync_hash)?;
+        let prev_header = self.chain.get_block_header(header.prev_hash())?;
+        let prev_epoch_id = prev_header.epoch_id();
+        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, prev_epoch_id)?;
+        let sync_prev_prev_hash = prev_header.prev_hash();
+        let status = self
+            .runtime
+            .get_tries()
+            .get_snapshot_flat_storage_status(*sync_prev_prev_hash, shard_uid)
+            .map_err(|err| Error::Other(err.to_string()))?;
+        match status {
+            FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }) => {
+                let flat_head_header = self.chain.get_block_header(&flat_head.hash)?;
+                let flat_head_epoch_id = flat_head_header.epoch_id();
+                Ok(flat_head_epoch_id == prev_epoch_id)
+            }
+            _ => Ok(false),
+        }
     }
 }
 
@@ -543,6 +613,7 @@ impl Handler<WithSpanContext<Query>> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<Query>, _: &mut Self::Context) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["Query"]).start_timer();
         self.handle_query(msg)
     }
@@ -555,6 +626,7 @@ impl Handler<WithSpanContext<GetBlock>> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<GetBlock>, _: &mut Self::Context) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlock"]).start_timer();
         let block = self.get_block_by_reference(&msg.0)?.ok_or(GetBlockError::NotSyncedYet)?;
@@ -576,6 +648,7 @@ impl Handler<WithSpanContext<GetBlockWithMerkleTree>> for ViewClientActor {
         ctx: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetBlockWithMerkleTree"])
             .start_timer();
@@ -594,6 +667,7 @@ impl Handler<WithSpanContext<GetChunk>> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<GetChunk>, _: &mut Self::Context) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetChunk"]).start_timer();
         let get_chunk_from_block = |block: Block,
@@ -646,11 +720,12 @@ impl Handler<WithSpanContext<GetChunk>> for ViewClientActor {
 }
 
 impl Handler<WithSpanContext<TxStatus>> for ViewClientActor {
-    type Result = Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError>;
+    type Result = Result<TxStatusView, TxStatusError>;
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<TxStatus>, _: &mut Self::Context) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatus"]).start_timer();
         self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt)
@@ -667,6 +742,7 @@ impl Handler<WithSpanContext<GetValidatorInfo>> for ViewClientActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetValidatorInfo"])
             .start_timer();
@@ -717,6 +793,7 @@ impl Handler<WithSpanContext<GetValidatorOrdered>> for ViewClientActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetValidatorOrdered"])
             .start_timer();
@@ -740,6 +817,7 @@ impl Handler<WithSpanContext<GetStateChangesInBlock>> for ViewClientActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetStateChangesInBlock"])
             .start_timer();
@@ -764,6 +842,7 @@ impl Handler<WithSpanContext<GetStateChanges>> for ViewClientActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetStateChanges"]).start_timer();
         Ok(self
@@ -787,6 +866,7 @@ impl Handler<WithSpanContext<GetStateChangesWithCauseInBlock>> for ViewClientAct
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetStateChangesWithCauseInBlock"])
             .start_timer();
@@ -812,6 +892,7 @@ impl Handler<WithSpanContext<GetStateChangesWithCauseInBlockForTrackedShards>> f
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetStateChangesWithCauseInBlockForTrackedShards"])
             .start_timer();
@@ -859,6 +940,7 @@ impl Handler<WithSpanContext<GetNextLightClientBlock>> for ViewClientActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetNextLightClientBlock"])
             .start_timer();
@@ -906,6 +988,7 @@ impl Handler<WithSpanContext<GetExecutionOutcome>> for ViewClientActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetExecutionOutcome"])
             .start_timer();
@@ -939,7 +1022,7 @@ impl Handler<WithSpanContext<GetExecutionOutcome>> for ViewClientActor {
                         .get_block(&h)?
                         .chunks()
                         .iter()
-                        .map(|header| header.outcome_root())
+                        .map(|header| header.prev_outcome_root())
                         .collect::<Vec<_>>();
                     if target_shard_id >= (outcome_roots.len() as u64) {
                         return Err(GetExecutionOutcomeError::InconsistentState {
@@ -995,11 +1078,13 @@ impl Handler<WithSpanContext<GetExecutionOutcomesForBlock>> for ViewClientActor 
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetExecutionOutcomesForBlock"])
             .start_timer();
         Ok(self
             .chain
+            .store()
             .get_block_execution_outcomes(&msg.block_hash)
             .map_err(|e| e.to_string())?
             .into_iter()
@@ -1014,6 +1099,7 @@ impl Handler<WithSpanContext<GetReceipt>> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<GetReceipt>, _: &mut Self::Context) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetReceipt"]).start_timer();
         Ok(self
@@ -1034,11 +1120,12 @@ impl Handler<WithSpanContext<GetBlockProof>> for ViewClientActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlockProof"]).start_timer();
         let block_header = self.chain.get_block_header(&msg.block_hash)?;
         let head_block_header = self.chain.get_block_header(&msg.head_block_hash)?;
-        self.chain.check_blocks_final_and_canonical(&[&block_header, &head_block_header])?;
+        self.chain.check_blocks_final_and_canonical(&[block_header.clone(), head_block_header])?;
         let block_header_lite = block_header.into();
         let proof = self.chain.get_block_proof(&msg.block_hash, &msg.head_block_hash)?;
         Ok(GetBlockProofResponse { block_header_lite, proof })
@@ -1055,6 +1142,7 @@ impl Handler<WithSpanContext<GetProtocolConfig>> for ViewClientActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetProtocolConfig"])
             .start_timer();
@@ -1083,6 +1171,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ViewClientActor {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["NetworkAdversarialMessage"])
             .start_timer();
@@ -1120,10 +1209,13 @@ impl Handler<WithSpanContext<TxStatusRequest>> for ViewClientActor {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatusRequest"]).start_timer();
         let TxStatusRequest { tx_hash, signer_account_id } = msg;
-        if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id, false) {
+        if let Ok(Some(result)) =
+            self.get_tx_status(tx_hash, signer_account_id, false).map(|s| s.execution_outcome)
+        {
             Some(Box::new(result.into_outcome()))
         } else {
             None
@@ -1141,6 +1233,7 @@ impl Handler<WithSpanContext<TxStatusResponse>> for ViewClientActor {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["TxStatusResponse"])
             .start_timer();
@@ -1163,6 +1256,7 @@ impl Handler<WithSpanContext<BlockRequest>> for ViewClientActor {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["BlockRequest"]).start_timer();
         let BlockRequest(hash) = msg;
@@ -1184,6 +1278,7 @@ impl Handler<WithSpanContext<BlockHeadersRequest>> for ViewClientActor {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["BlockHeadersRequest"])
             .start_timer();
@@ -1209,82 +1304,78 @@ impl Handler<WithSpanContext<StateRequestHeader>> for ViewClientActor {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["StateRequestHeader"])
             .start_timer();
         let StateRequestHeader { shard_id, sync_hash } = msg;
-        if !self.check_state_sync_request() {
+        if self.throttle_state_sync_request() {
+            tracing::debug!(target: "sync", ?sync_hash, "Throttle state sync requests");
             return None;
         }
-        let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
-            Ok(true) => {
-                let header = match self.chain.get_state_response_header(shard_id, sync_hash) {
-                    Ok(header) => Some(header),
-                    Err(e) => {
-                        error!(target: "sync", "Cannot build sync header (get_state_response_header): {}", e);
+        let header = match self.chain.check_sync_hash_validity(&sync_hash) {
+            Ok(true) => match self.chain.get_state_response_header(shard_id, sync_hash) {
+                Ok(header) => Some(header),
+                Err(err) => {
+                    error!(target: "sync", ?err, "Cannot build state sync header");
+                    None
+                }
+            },
+            Ok(false) => {
+                warn!(target: "sync", ?sync_hash, "sync_hash didn't pass validation, possible malicious behavior");
+                // Don't respond to the node, because the request is malformed.
+                return None;
+            }
+            Err(near_chain::Error::DBNotFoundErr(_)) => {
+                // This case may appear in case of latency in epoch switching.
+                // Request sender is ready to sync but we still didn't get the block.
+                info!(target: "sync", ?sync_hash, "Can't get sync_hash block for state request header");
+                None
+            }
+            Err(err) => {
+                error!(target: "sync", ?err, ?sync_hash, "Failed to verify sync_hash validity");
+                None
+            }
+        };
+        let state_response = match header {
+            Some(header) => {
+                let num_parts = header.num_state_parts();
+                let cached_parts = match self
+                    .chain
+                    .get_cached_state_parts(sync_hash, shard_id, num_parts)
+                {
+                    Ok(cached_parts) => Some(cached_parts),
+                    Err(err) => {
+                        tracing::error!(target: "sync", ?err, ?sync_hash, shard_id, "Failed to get cached state parts");
                         None
                     }
                 };
-                match header {
-                    None => ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
-                        header: None,
-                        part: None,
-                    }),
-                    Some(ShardStateSyncResponseHeader::V1(header)) => {
-                        ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
-                            header: Some(header),
-                            part: None,
-                        })
+                let header = match header {
+                    ShardStateSyncResponseHeader::V2(inner) => inner,
+                    _ => {
+                        tracing::error!(target: "sync", ?sync_hash, shard_id, "Invalid state sync header format");
+                        return None;
                     }
-                    Some(ShardStateSyncResponseHeader::V2(header)) => {
-                        ShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
-                            header: Some(header),
-                            part: None,
-                        })
-                    }
-                }
+                };
+
+                let can_generate = self.has_state_snapshot(&sync_hash, shard_id).is_ok();
+                ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
+                    header: Some(header),
+                    part: None,
+                    cached_parts,
+                    can_generate,
+                })
             }
-            Ok(false) => {
-                warn!(target: "sync", "sync_hash {:?} didn't pass validation, possible malicious behavior", sync_hash);
-                return None;
-            }
-            Err(e) => match e {
-                near_chain::Error::DBNotFoundErr(_) => {
-                    // This case may appear in case of latency in epoch switching.
-                    // Request sender is ready to sync but we still didn't get the block.
-                    info!(target: "sync", "Can't get sync_hash block {:?} for state request header", sync_hash);
-                    ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
-                        header: None,
-                        part: None,
-                    })
-                }
-                _ => {
-                    error!(target: "sync", "Failed to verify sync_hash {:?} validity, {:?}", sync_hash, e);
-                    ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
-                        header: None,
-                        part: None,
-                    })
-                }
-            },
+            None => ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
+                header: None,
+                part: None,
+                cached_parts: None,
+                can_generate: false,
+            }),
         };
-        match state_response {
-            ShardStateSyncResponse::V1(state_response) => {
-                let info = StateResponseInfo::V1(StateResponseInfoV1 {
-                    shard_id,
-                    sync_hash,
-                    state_response,
-                });
-                Some(StateResponse(Box::new(info)))
-            }
-            state_response @ ShardStateSyncResponse::V2(_) => {
-                let info = StateResponseInfo::V2(StateResponseInfoV2 {
-                    shard_id,
-                    sync_hash,
-                    state_response,
-                });
-                Some(StateResponse(Box::new(info)))
-            }
-        }
+        let info =
+            StateResponseInfo::V2(StateResponseInfoV2 { shard_id, sync_hash, state_response });
+        Some(StateResponse(Box::new(info)))
     }
 }
 
@@ -1298,46 +1389,73 @@ impl Handler<WithSpanContext<StateRequestPart>> for ViewClientActor {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["StateRequestPart"])
             .start_timer();
         let StateRequestPart { shard_id, sync_hash, part_id } = msg;
-        if !self.check_state_sync_request() {
+        if self.throttle_state_sync_request() {
+            tracing::debug!(target: "sync", ?sync_hash, "Throttle state sync requests");
             return None;
         }
-        trace!(target: "sync", "Computing state request part {} {} {}", shard_id, sync_hash, part_id);
-        let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
+        if let Err(err) = self.has_state_snapshot(&sync_hash, shard_id) {
+            tracing::debug!(target: "sync", ?err, ?sync_hash, "Node doesn't have a matching state snapshot");
+            return None;
+        }
+        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, ?part_id, "Computing state request part");
+        let part = match self.chain.check_sync_hash_validity(&sync_hash) {
             Ok(true) => {
                 let part = match self.chain.get_state_response_part(shard_id, part_id, sync_hash) {
                     Ok(part) => Some((part_id, part)),
-                    Err(e) => {
-                        error!(target: "sync", "Cannot build sync part #{:?} (get_state_response_part): {}", part_id, e);
+                    Err(err) => {
+                        error!(target: "sync", ?err, ?sync_hash, shard_id, part_id, "Cannot build state part");
                         None
                     }
                 };
 
-                trace!(target: "sync", "Finish computation for state request part {} {} {}", shard_id, sync_hash, part_id);
-                ShardStateSyncResponseV1 { header: None, part }
+                tracing::trace!(target: "sync", ?sync_hash, shard_id, part_id, "Finished computation for state request part");
+                part
             }
             Ok(false) => {
-                warn!(target: "sync", "sync_hash {:?} didn't pass validation, possible malicious behavior", sync_hash);
+                warn!(target: "sync", ?sync_hash, shard_id, "sync_hash didn't pass validation, possible malicious behavior");
+                // Do not respond, possible malicious behavior.
                 return None;
             }
-            Err(e) => match e {
-                near_chain::Error::DBNotFoundErr(_) => {
-                    // This case may appear in case of latency in epoch switching.
-                    // Request sender is ready to sync but we still didn't get the block.
-                    info!(target: "sync", "Can't get sync_hash block {:?} for state request part", sync_hash);
-                    ShardStateSyncResponseV1 { header: None, part: None }
-                }
-                _ => {
-                    error!(target: "sync", "Failed to verify sync_hash {:?} validity, {:?}", sync_hash, e);
-                    ShardStateSyncResponseV1 { header: None, part: None }
-                }
-            },
+            Err(near_chain::Error::DBNotFoundErr(_)) => {
+                // This case may appear in case of latency in epoch switching.
+                // Request sender is ready to sync but we still didn't get the block.
+                info!(target: "sync", ?sync_hash, "Can't get sync_hash block for state request part");
+                None
+            }
+            Err(err) => {
+                error!(target: "sync", ?err, ?sync_hash, "Failed to verify sync_hash validity");
+                None
+            }
         };
+        let num_parts = part.as_ref().and_then(|_| match self.chain.get_state_response_header(shard_id, sync_hash) {
+            Ok(header) => Some(header.num_state_parts()),
+            Err(err) => {
+                tracing::error!(target: "sync", ?err, ?sync_hash, shard_id, "Failed to get num state parts");
+                None
+            }
+        });
+        let cached_parts = num_parts.and_then(|num_parts|
+            match self.chain.get_cached_state_parts(sync_hash, shard_id, num_parts) {
+                Ok(cached_parts) => Some(cached_parts),
+                Err(err) => {
+                    tracing::error!(target: "sync", ?err, ?sync_hash, shard_id, "Failed to get cached state parts");
+                    None
+                }
+            });
+        let can_generate = part.is_some();
+        let state_response = ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
+            header: None,
+            part,
+            cached_parts,
+            can_generate,
+        });
         let info =
-            StateResponseInfo::V1(StateResponseInfoV1 { shard_id, sync_hash, state_response });
+            StateResponseInfo::V2(StateResponseInfoV2 { shard_id, sync_hash, state_response });
         Some(StateResponse(Box::new(info)))
     }
 }
@@ -1352,6 +1470,7 @@ impl Handler<WithSpanContext<AnnounceAccountRequest>> for ViewClientActor {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["AnnounceAccountRequest"])
             .start_timer();
@@ -1391,8 +1510,8 @@ impl Handler<WithSpanContext<AnnounceAccountRequest>> for ViewClientActor {
                 // (account_id,epoch_id) pair.
                 // We currently do NOT ban the peer for either.
                 // TODO(gprusak): consider whether we should change that.
-                Err(e) => {
-                    debug!(target: "view_client", "Failed to validate account announce signature: {}", e);
+                Err(err) => {
+                    tracing::debug!(target: "view_client", ?err, "Failed to validate account announce signature");
                 }
             }
         }
@@ -1410,10 +1529,11 @@ impl Handler<WithSpanContext<GetGasPrice>> for ViewClientActor {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetGasPrice"]).start_timer();
         let header = self.maybe_block_id_to_block_header(msg.block_id);
-        Ok(GasPriceView { gas_price: header?.gas_price() })
+        Ok(GasPriceView { gas_price: header?.next_gas_price() })
     }
 }
 
@@ -1427,6 +1547,7 @@ impl Handler<WithSpanContext<GetMaintenanceWindows>> for ViewClientActor {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         Ok(self.get_maintenance_windows(msg.account_id)?)
     }
 }
@@ -1439,8 +1560,8 @@ impl Handler<WithSpanContext<GetSplitStorageInfo>> for ViewClientActor {
         msg: WithSpanContext<GetSplitStorageInfo>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, _msg) = handler_debug_span!(target: "client", msg);
-        let _d = delay_detector::DelayDetector::new(|| "client get split storage info".into());
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
 
         let store = self.chain.store().store();
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;

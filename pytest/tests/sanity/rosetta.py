@@ -9,16 +9,20 @@ import time
 import typing
 import unittest
 
+import base64
 import base58
 import ed25519
 import requests
 import requests.exceptions
+import mocknet_helpers
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
+from utils import load_binary_file
 from configured_logger import logger
 import cluster
 import key
+import transaction
 
 JsonDict = typing.Dict[str, typing.Any]
 BlockIdentifier = typing.Union[str, int, JsonDict]
@@ -263,6 +267,40 @@ class RosettaRPC:
                     'value': str(amount),
                     'currency': currency
                 },
+            }, **kw)
+
+    def ft_transfer(self, *, src: key.Key, dst: key.Key, amount: int,
+                    **kw) -> RosettaExecResult:
+        currency = {'symbol': 'NEAR', 'decimals': 24}
+        return self.exec_operations(
+            src, {
+                'operation_identifier': {
+                    'index': 0
+                },
+                'type': 'INITIATE_FUNCTION_CALL',
+                'account': {
+                    'address': src.account_id
+                }
+            }, {
+                'operation_identifier': {
+                    'index': 0
+                },
+                'type': 'FUNCTION_CALL',
+                'account': {
+                    'address': src.account_id
+                },
+                'metadata': {
+                    'method_name':
+                        'ft_transfer',
+                    'args':
+                        bytes(
+                            json.dumps({
+                                'receiver_id': dst.account_id,
+                                'amount': 1
+                            }), 'utf-8').hex(),
+                    'attached_gas':
+                        "300000000000000",
+                }
             }, **kw)
 
     def add_full_access_key(self, account: key.Key, public_key_hex: str,
@@ -617,6 +655,62 @@ class RosettaTestCase(unittest.TestCase):
         self.assertEqual(
             trans_1,
             self.rosetta.get_transaction(block_id=block_1_id, tx_id=trans_1_id))
+
+    def test_fungible_token_transfer(self) -> None:
+        """Tests sending fungible token transfer.
+
+        First sends some funds from validator’s account to an implicit account,
+        then checks how the transaction looks through Data API and finally
+        deletes that account refunding the validator account.
+        """
+        test_amount = 1
+        validator = self.node.validator_key
+        implicit = key.Key.implicit_account()
+        contract_key = self.node.validator_key
+        contract = load_binary_file(
+            '../../../runtime/near-test-contracts/res/fungible_token.wasm')
+
+        ### 1. Deploy the ft smart contract
+        latest_block_hash = self.node.get_latest_block().hash
+        deploy_contract_tx = transaction.sign_deploy_contract_tx(
+            contract_key, contract, 10,
+            base58.b58decode(latest_block_hash.encode('utf8')))
+        deploy_contract_response = (self.node.send_tx_and_wait(
+            deploy_contract_tx, 100))
+        logger.info(f'Deploying contract: {deploy_contract_response}')
+
+        ### 2. Create implicit account.
+        logger.info(f'Creating implicit account: {implicit.account_id}')
+        result = self.rosetta.transfer(src=validator,
+                                       dst=implicit,
+                                       amount=test_amount)
+        ### 3. Storage deposit
+        account_id_arg = f'"account_id" : "{implicit.account_id}"'
+        data = json.dumps({'account_id': implicit.account_id})
+        logger.info(f'Account id of implicit: {data}')
+        s = f'{{"account_id": "{implicit.account_id}"}}'
+
+        block_hash = self.node.get_latest_block().hash_bytes
+        tx = transaction.sign_function_call_tx(contract_key,
+                                               contract_key.account_id,
+                                               'storage_deposit',
+                                               bytes(s,
+                                                     'utf-8'), 300000000000000,
+                                               1250000000000000000000, 20,
+                                               block_hash)
+        res = self.node.send_tx_and_wait(tx, 100)
+        logger.info(f'Storage deposit: {res}')
+        mocknet_helpers.wait_at_least_one_block()
+
+        ### 4. Rosetta ft_call
+        ft_result = self.rosetta.ft_transfer(src=validator,
+                                             dst=implicit,
+                                             amount=test_amount)
+        # logger.info(f'Ft_transfer result: {ft_result}')
+        # tx = ft_result.transaction()
+        # logger.info(f'Ft_transfer result: {tx}')
+        json_res = self.node.get_tx(ft_result.near_hash, implicit.account_id)
+        logger.info(f'Tx-result: {json_res}')
 
     def test_get_block_nonexistent(self) -> None:
         """Tests querying non-existent blocks and transactions.

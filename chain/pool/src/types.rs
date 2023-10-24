@@ -21,6 +21,8 @@ pub struct TransactionGroup {
     pub(crate) transactions: Vec<SignedTransaction>,
     /// Hashes of the transactions that were pulled from the group using `.next()`.
     pub(crate) removed_transaction_hashes: Vec<CryptoHash>,
+    /// Total size of transactions that were pulled from the group using `.next()`.
+    pub(crate) removed_transaction_size: u64,
 }
 
 impl TransactionGroup {
@@ -29,6 +31,7 @@ impl TransactionGroup {
     pub fn next(&mut self) -> Option<SignedTransaction> {
         if let Some(tx) = self.transactions.pop() {
             self.removed_transaction_hashes.push(tx.get_hash());
+            self.removed_transaction_size += tx.get_size();
             Some(tx)
         } else {
             None

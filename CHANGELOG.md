@@ -3,9 +3,35 @@
 ## [unreleased]
 
 ### Protocol Changes
+* The support for fixed shards in shard layout was removed. [#9219](https://github.com/near/nearcore/pull/9219)
+* Restrict the creation of non-implicit top-level account that are longer than 32 bytes. Only the registrar account can create them. [#9589](https://github.com/near/nearcore/pull/9589)
+* Adjust the number of block producers and chunk producers on testnet to facilitate testing of chunk-only producers [#9563](https://github.com/near/nearcore/pull/9563)
+
 
 ### Non-protocol Changes
+
+* New option `transaction_pool_size_limit` in `config.json` allows to limit the size of the node's transaction pool.
+  By default the limit is set to 100 MB. [#3284](https://github.com/near/nearcore/issues/3284)
+* Database snapshots at the end of an epoch. This lets a node obtain state parts using flat storage. [#9090](https://github.com/near/nearcore/pull/9090)
+* Number of transactions included in a chunk will be lowered if there is a congestion of more than 20000 delayed receipts in a shard. [#9222](https://github.com/near/nearcore/pull/9222)
+* Our more efficient and scalable V2 routing protocol is implemented. It shadows the V1 protocol for now while we verify its performance. [#9187](https://github.com/near/nearcore/pull/9187)
+* The default config now enables TIER1 outbound connections by default. [#9349](https://github.com/near/nearcore/pull/9349)
+* State Sync from GCS is available for experimental use. [#9398](https://github.com/near/nearcore/pull/9398)
+* Add prometheus metrics for the internal state of the doomslug. [#9458](https://github.com/near/nearcore/pull/9458)
+* Fix `EXPERIMENTAL_protocol_config` to apply overrides from `EpochConfig`. [#9692](https://github.com/near/nearcore/pull/9692)
+
+## 1.35.0
+
+### Protocol Changes
+
+* Upgrade the contract preparation code to use [finite-wasm](https://github.com/near/finite-wasm), which guarantees deterministic limits on execution time and space of compiled contracts
+
+### Non-protocol Changes
+
 * Dump state by multiple nodes, each node will refer to s3 for which parts need to be dumped. [#9049](https://github.com/near/nearcore/pull/9049)
+* Small values in the flat storage trie are inlined for faster accesses [#9029](https://github.com/near/nearcore/pull/9029)
+* A current protocol version metric is added to the prometheus metrics under near_current_protocol_version [#9030](https://github.com/near/nearcore/pull/9030)
+* The transaction pool size is tracked, and if the `transaction_pool_size_limit` config option is set, we now avoid storing more than the specified size of transactions in each shard's transaction pool [#8970](https://github.com/near/nearcore/pull/8970) and [#9036](https://github.com/near/nearcore/pull/9036)
 
 ## 1.34.0
 

@@ -4,6 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_part::PartId;
@@ -11,7 +12,6 @@ use num_rational::Ratio;
 
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
-use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -42,12 +42,11 @@ use near_primitives::views::{
     QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
 };
 use near_store::{
-    DBCol, PartialStorage, ShardTries, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
+    set_genesis_hash, set_genesis_state_roots, DBCol, PartialStorage, ShardTries, Store,
+    StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 
-use crate::types::{
-    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, RuntimeAdapter,
-};
+use crate::types::{ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter};
 use crate::BlockHeader;
 
 use near_primitives::epoch_manager::ShardConfig;
@@ -146,7 +145,6 @@ impl MockEpochManager {
         let map_with_default_hash3 = HashMap::from([(EpochId::default(), 0)]);
 
         let mut validators = HashMap::new();
-        #[allow(unused_mut)]
         let mut validators_by_valset: Vec<EpochValidatorSet> = vs
             .block_producers
             .iter()
@@ -351,12 +349,18 @@ impl KeyValueRuntime {
             receipt_nonces: HashSet::default(),
             tx_nonces: HashSet::default(),
         };
-        let data = kv_state.try_to_vec().unwrap();
+        let data = borsh::to_vec(&kv_state).unwrap();
         let data_len = data.len() as u64;
         // StateRoot is actually faked here.
         // We cannot do any reasonable validations of it in test_utils.
         let state = HashMap::from([(Trie::EMPTY_ROOT, kv_state)]);
         let state_size = HashMap::from([(Trie::EMPTY_ROOT, data_len)]);
+
+        let mut store_update = store.store_update();
+        let genesis_roots: Vec<CryptoHash> = (0..num_shards).map(|_| Trie::EMPTY_ROOT).collect();
+        set_genesis_state_roots(&mut store_update, &genesis_roots);
+        set_genesis_hash(&mut store_update, &CryptoHash::default());
+        store_update.commit().expect("Store failed on genesis intialization");
 
         Arc::new(KeyValueRuntime {
             store,
@@ -410,7 +414,7 @@ impl EpochManagerAdapter for MockEpochManager {
         self.hash_to_valset.write().unwrap().contains_key(epoch_id)
     }
 
-    fn num_shards(&self, _epoch_id: &EpochId) -> Result<ShardId, EpochError> {
+    fn num_shards(&self, _epoch_id: &EpochId) -> Result<NumShards, EpochError> {
         Ok(self.num_shards)
     }
 
@@ -741,6 +745,13 @@ impl EpochManagerAdapter for MockEpochManager {
         })
     }
 
+    fn add_validator_proposals(
+        &self,
+        _block_header_info: BlockHeaderInfo,
+    ) -> Result<StoreUpdate, EpochError> {
+        Ok(self.store.store_update())
+    }
+
     fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, EpochError> {
         Ok(0)
     }
@@ -842,7 +853,7 @@ impl EpochManagerAdapter for MockEpochManager {
         _prev_block_hash: &CryptoHash,
         _prev_block_height: BlockHeight,
         _block_height: BlockHeight,
-        _approvals: &[Option<Signature>],
+        _approvals: &[Option<Box<Signature>>],
     ) -> Result<bool, Error> {
         Ok(true)
     }
@@ -851,13 +862,13 @@ impl EpochManagerAdapter for MockEpochManager {
         &self,
         epoch_id: &EpochId,
         can_approved_block_be_produced: &dyn Fn(
-            &[Option<Signature>],
+            &[Option<Box<Signature>>],
             &[(Balance, Balance, bool)],
         ) -> bool,
         prev_block_hash: &CryptoHash,
         prev_block_height: BlockHeight,
         block_height: BlockHeight,
-        approvals: &[Option<Signature>],
+        approvals: &[Option<Box<Signature>>],
     ) -> Result<(), Error> {
         let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
         let message_to_sign = Approval::get_data_for_sig(
@@ -934,10 +945,6 @@ impl EpochManagerAdapter for MockEpochManager {
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self) -> (Store, Vec<StateRoot>) {
-        (self.store.clone(), ((0..self.num_shards).map(|_| Trie::EMPTY_ROOT).collect()))
-    }
-
     fn store(&self) -> &Store {
         &self.store
     }
@@ -958,8 +965,8 @@ impl RuntimeAdapter for KeyValueRuntime {
             .get_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }, state_root))
     }
 
-    fn get_flat_storage_manager(&self) -> Option<near_store::flat::FlatStorageManager> {
-        None
+    fn get_flat_storage_manager(&self) -> near_store::flat::FlatStorageManager {
+        self.tries.get_flat_storage_manager()
     }
 
     fn get_view_trie_for_shard(
@@ -1003,13 +1010,6 @@ impl RuntimeAdapter for KeyValueRuntime {
             res.push(iter.next().unwrap());
         }
         Ok(res)
-    }
-
-    fn add_validator_proposals(
-        &self,
-        _block_header_info: BlockHeaderInfo,
-    ) -> Result<StoreUpdate, Error> {
-        Ok(self.store.store_update())
     }
 
     fn apply_transactions_with_optional_storage_proof(
@@ -1158,7 +1158,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             }
         }
 
-        let data = state.try_to_vec()?;
+        let data = borsh::to_vec(&state)?;
         let state_size = data.len() as u64;
         let state_root = hash(&data);
         self.state.write().unwrap().insert(state_root, state);
@@ -1286,7 +1286,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             return Ok(vec![]);
         }
         let state = self.state.read().unwrap().get(state_root).unwrap().clone();
-        let data = state.try_to_vec().expect("should never fall");
+        let data = borsh::to_vec(&state).expect("should never fall");
         Ok(data)
     }
 
@@ -1308,7 +1308,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
         let state = KVState::try_from_slice(data).unwrap();
         self.state.write().unwrap().insert(*state_root, state.clone());
-        let data = state.try_to_vec()?;
+        let data = borsh::to_vec(&state)?;
         let state_size = data.len() as u64;
         self.state_size.write().unwrap().insert(*state_root, state_size);
         Ok(())
@@ -1320,14 +1320,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error> {
-        let data = self
-            .state
-            .read()
-            .unwrap()
-            .get(state_root)
-            .unwrap()
-            .clone()
-            .try_to_vec()
+        let data = borsh::to_vec(&self.state.read().unwrap().get(state_root).unwrap().clone())
             .expect("should never fall")
             .into();
         let memory_usage = *self.state_size.read().unwrap().get(state_root).unwrap();
@@ -1396,15 +1389,5 @@ impl RuntimeAdapter for KeyValueRuntime {
         _state_changes: StateChangesForSplitStates,
     ) -> Result<Vec<ApplySplitStateResult>, Error> {
         Ok(vec![])
-    }
-
-    fn build_state_for_split_shards(
-        &self,
-        _shard_uid: ShardUId,
-        _state_root: &StateRoot,
-        _next_epoch_shard_layout: &ShardLayout,
-        _state_split_status: Arc<StateSplitApplyingStatus>,
-    ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-        Ok(HashMap::new())
     }
 }

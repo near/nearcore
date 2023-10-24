@@ -1,20 +1,23 @@
-use crate::flat::FlatStorageManager;
+use crate::flat::{FlatStorageManager, FlatStorageStatus};
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
 use crate::{metrics, DBCol, PrefetchApi};
 use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
-use borsh::BorshSerialize;
-use near_primitives::borsh::maybestd::collections::HashMap;
+
+use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{self, ShardUId, ShardVersion};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
+
+use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 
 struct ShardTriesInner {
     store: Store,
@@ -26,6 +29,13 @@ struct ShardTriesInner {
     flat_storage_manager: FlatStorageManager,
     /// Prefetcher state, such as IO threads, per shard.
     prefetchers: RwLock<HashMap<ShardUId, (PrefetchApi, PrefetchingThreadsHandle)>>,
+    /// Provides access to the snapshot of the DB at the beginning of an epoch.
+    // Needs a synchronization primitive because it can be concurrently accessed:
+    // * writes by StateSnapshotActor
+    // * reads by ViewClientActor
+    state_snapshot: Arc<RwLock<Option<StateSnapshot>>>,
+    /// Configures how to make state snapshots.
+    state_snapshot_config: StateSnapshotConfig,
 }
 
 #[derive(Clone)]
@@ -37,9 +47,11 @@ impl ShardTries {
         trie_config: TrieConfig,
         shard_uids: &[ShardUId],
         flat_storage_manager: FlatStorageManager,
+        state_snapshot_config: StateSnapshotConfig,
     ) -> Self {
         let caches = Self::create_initial_caches(&trie_config, &shard_uids, false);
         let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
+        metrics::HAS_STATE_SNAPSHOT.set(0);
         ShardTries(Arc::new(ShardTriesInner {
             store,
             trie_config,
@@ -47,6 +59,8 @@ impl ShardTries {
             view_caches: RwLock::new(view_caches),
             flat_storage_manager,
             prefetchers: Default::default(),
+            state_snapshot: Arc::new(RwLock::new(None)),
+            state_snapshot_config,
         }))
     }
 
@@ -68,7 +82,8 @@ impl ShardTries {
             store.clone(),
             trie_config,
             &shard_uids,
-            FlatStorageManager::test(store, &shard_uids, CryptoHash::default()),
+            FlatStorageManager::new(store),
+            StateSnapshotConfig::default(),
         )
     }
 
@@ -84,10 +99,6 @@ impl ShardTries {
             .collect()
     }
 
-    pub(crate) fn is_same(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
-    }
-
     pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: StateRoot) -> TrieUpdate {
         TrieUpdate::new(self.get_trie_for_shard(shard_uid, state_root))
     }
@@ -96,7 +107,6 @@ impl ShardTries {
         TrieUpdate::new(self.get_view_trie_for_shard(shard_uid, state_root))
     }
 
-    #[allow(unused_variables)]
     fn get_trie_for_shard_internal(
         &self,
         shard_uid: ShardUId,
@@ -156,6 +166,26 @@ impl ShardTries {
         self.get_trie_for_shard_internal(shard_uid, state_root, false, None)
     }
 
+    pub fn get_trie_with_block_hash_for_shard_from_snapshot(
+        &self,
+        shard_uid: ShardUId,
+        state_root: StateRoot,
+        block_hash: &CryptoHash,
+    ) -> Result<Trie, StorageError> {
+        let (store, flat_storage_manager) = self.get_state_snapshot(block_hash)?;
+        let cache = {
+            let mut caches = self.0.view_caches.write().expect(POISONED_LOCK_ERR);
+            caches
+                .entry(shard_uid)
+                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, true))
+                .clone()
+        };
+        let storage = Rc::new(TrieCachingStorage::new(store, cache, shard_uid, true, None));
+        let flat_storage_chunk_view = flat_storage_manager.chunk_view(shard_uid, *block_hash);
+
+        Ok(Trie::new(storage, state_root, flat_storage_chunk_view))
+    }
+
     pub fn get_trie_with_block_hash_for_shard(
         &self,
         shard_uid: ShardUId,
@@ -171,7 +201,7 @@ impl ShardTries {
     }
 
     pub fn store_update(&self) -> StoreUpdate {
-        StoreUpdate::new_with_tries(self.clone())
+        StoreUpdate::new(self.get_db().clone())
     }
 
     pub fn get_store(&self) -> Store {
@@ -180,6 +210,18 @@ impl ShardTries {
 
     pub(crate) fn get_db(&self) -> &Arc<dyn crate::Database> {
         &self.0.store.storage
+    }
+
+    pub fn get_flat_storage_manager(&self) -> FlatStorageManager {
+        self.0.flat_storage_manager.clone()
+    }
+
+    pub fn state_snapshot_config(&self) -> &StateSnapshotConfig {
+        &self.0.state_snapshot_config
+    }
+
+    pub(crate) fn state_snapshot(&self) -> &Arc<RwLock<Option<StateSnapshot>>> {
+        &self.0.state_snapshot
     }
 
     pub fn update_cache(&self, ops: Vec<(&CryptoHash, Option<&[u8]>)>, shard_uid: ShardUId) {
@@ -197,7 +239,6 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
-        store_update.set_shard_tries(self);
         let mut ops = Vec::new();
         for TrieRefcountChange { trie_node_or_value_hash, rc, .. } in deletions.iter() {
             let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
@@ -217,7 +258,6 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
-        store_update.set_shard_tries(self);
         let mut ops = Vec::new();
         for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
             insertions.iter()
@@ -302,6 +342,17 @@ impl ShardTries {
     ) -> StateRoot {
         self.apply_all_inner(trie_changes, shard_uid, true, store_update)
     }
+
+    /// Returns the status of the given shard of flat storage in the state snapshot.
+    /// `sync_prev_prev_hash` needs to match the block hash that identifies that snapshot.
+    pub fn get_snapshot_flat_storage_status(
+        &self,
+        sync_prev_prev_hash: CryptoHash,
+        shard_uid: ShardUId,
+    ) -> Result<FlatStorageStatus, StorageError> {
+        let (_store, manager) = self.get_state_snapshot(&sync_prev_prev_hash)?;
+        Ok(manager.get_flat_storage_status(shard_uid))
+    }
 }
 
 pub struct WrappedTrieChanges {
@@ -310,6 +361,20 @@ pub struct WrappedTrieChanges {
     trie_changes: TrieChanges,
     state_changes: Vec<RawStateChangesWithTrieKey>,
     block_hash: CryptoHash,
+}
+
+// Partial implementation. Skips `tries` due to its complexity and
+// `trie_changes` and `state_changes` due to their large volume.
+impl std::fmt::Debug for WrappedTrieChanges {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WrappedTrieChanges")
+            .field("tries", &"<not shown>")
+            .field("shard_uid", &self.shard_uid)
+            .field("trie_changes", &"<not shown>")
+            .field("state_changes", &"<not shown>")
+            .field("block_hash", &self.block_hash)
+            .finish()
+    }
 }
 
 impl WrappedTrieChanges {
@@ -341,7 +406,7 @@ impl WrappedTrieChanges {
     ///
     /// NOTE: the changes are drained from `self`.
     pub fn state_changes_into(&mut self, store_update: &mut StoreUpdate) {
-        for change_with_trie_key in self.state_changes.drain(..) {
+        for mut change_with_trie_key in self.state_changes.drain(..) {
             assert!(
                 !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
                     cause,
@@ -350,13 +415,14 @@ impl WrappedTrieChanges {
                 "NotWritableToDisk changes must never be finalized."
             );
 
-            assert!(
-                !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
-                    cause,
-                    StateChangeCause::Resharding
-                )),
-                "Resharding changes must never be finalized."
-            );
+            // Resharding changes must not be finalized, however they may be introduced here when we are
+            // evaluating changes for split state in process_split_state function
+            change_with_trie_key
+                .changes
+                .retain(|change| change.cause != StateChangeCause::Resharding);
+            if change_with_trie_key.changes.is_empty() {
+                continue;
+            }
 
             let storage_key = if cfg!(feature = "serialize_all_state_changes") {
                 // Serialize all kinds of state changes without any filtering.
@@ -397,7 +463,7 @@ impl WrappedTrieChanges {
             store_update.set(
                 DBCol::StateChanges,
                 storage_key.as_ref(),
-                &change_with_trie_key.try_to_vec().expect("Borsh serialize cannot fail"),
+                &borsh::to_vec(&change_with_trie_key).expect("Borsh serialize cannot fail"),
             );
         }
     }
@@ -621,7 +687,8 @@ mod test {
             store.clone(),
             trie_config,
             &shard_uids,
-            FlatStorageManager::test(store, &shard_uids, CryptoHash::default()),
+            FlatStorageManager::new(store),
+            StateSnapshotConfig::default(),
         );
 
         let trie_caches = &trie.0.caches;
@@ -670,7 +737,8 @@ mod test {
             store.clone(),
             trie_config,
             &shard_uids,
-            FlatStorageManager::test(store, &shard_uids, CryptoHash::default()),
+            FlatStorageManager::new(store),
+            StateSnapshotConfig::default(),
         );
 
         let trie_caches = &trie.0.caches;

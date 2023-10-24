@@ -18,7 +18,7 @@ pub(crate) const MAX_PROCESSING_BLOCKS: usize = 5;
 /// Contains information from preprocessing a block
 pub(crate) struct BlockPreprocessInfo {
     pub(crate) is_caught_up: bool,
-    pub(crate) state_dl_info: Option<StateSyncInfo>,
+    pub(crate) state_sync_info: Option<StateSyncInfo>,
     pub(crate) incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
     pub(crate) challenges_result: ChallengesResult,
     pub(crate) challenged_blocks: Vec<CryptoHash>,

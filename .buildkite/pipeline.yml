@@ -1,6 +1,5 @@
 env:
   RUST_BACKTRACE: short
-  RUSTFLAGS: -D warnings
 
 steps:
   - label: "protobuf backward compatibility"
@@ -13,60 +12,11 @@ steps:
 
     agents:
       - "distro=amazonlinux"
-
-  - label: "cargo test integration-tests*"
-    command: |
-      source ~/.cargo/env && set -eux
-      cargo install cargo-nextest
-      cargo nextest run --locked -p 'integration-tests'
-
-    agents:
-      - "distro=amazonlinux"
-    branches: "!master"
-
-  - label: "cargo test not integration-tests*"
-    command: |
-      source ~/.cargo/env && set -eux
-      cargo install cargo-nextest
-      cargo nextest run --locked --workspace -p '*' --exclude 'integration-tests*'
-
-    agents:
-      - "distro=amazonlinux"
-    branches: "!master"
-
-  - label: "cargo test nightly integration-tests*"
-    command: |
-      source ~/.cargo/env && set -eux
-      cargo install cargo-nextest
-      cargo nextest run --features nightly,test_features -p 'integration-tests'
-
-    agents:
-      - "distro=amazonlinux"
-    branches: "!master"
-
-  - label: "cargo test nightly not integration-tests*"
-    command: |
-      source ~/.cargo/env && set -eux
-      cargo install cargo-nextest
-      cargo nextest run --workspace --features nightly,test_features,mock_node -p '*' --exclude 'integration-tests*'
-      cargo test --doc
-
-    agents:
-      - "distro=amazonlinux"
-    branches: "!master"
+      - "queue=default"
 
   - label: "sanity checks"
     command: |
       source ~/.cargo/env && set -eux
-      rustc --version && cargo --version
-      cargo install cargo-deny
-      cargo run -p themis --release
-      if [ -e deny.toml ]; then
-        cargo-deny --all-features check bans
-      fi
-      cargo check --workspace --all-targets --all-features
-      cargo check -p neard --features test_features
-      cargo check -p neard --features sandbox
 
       cargo build -p neard --bin neard --features nightly
       cd pytest
@@ -84,11 +34,11 @@ steps:
       python3 scripts/check_pytests.py
       python3 scripts/check_fuzzing.py
 
+      python3 scripts/fix_nightly_feature_flags.py
+
       ./scripts/formatting --check
 
-      ./scripts/run_clippy.sh
-
-      rm target/rpc_errors_schema.json
+      rm -f target/rpc_errors_schema.json
       cargo check -p near-jsonrpc --features dump_errors_schema
       if ! git --no-pager diff --no-index chain/jsonrpc/res/rpc_errors_schema.json target/rpc_errors_schema.json; then
           set +x
@@ -98,6 +48,7 @@ steps:
       fi >&2
     agents:
       - "distro=amazonlinux"
+      - "queue=default"
     branches: "!master"
 
   - label: "backward compatible"
@@ -112,6 +63,7 @@ steps:
     branches: "!master !beta !stable"
     agents:
       - "distro=amazonlinux"
+      - "queue=default"
 
   - label: "upgradable"
     command: |
@@ -122,6 +74,7 @@ steps:
     branches: "!master"
     agents:
       - "distro=amazonlinux"
+      - "queue=default"
 
   - label: "db migration"
     command: |
@@ -132,3 +85,4 @@ steps:
     branches: "!master !beta !stable"
     agents:
       - "distro=amazonlinux"
+      - "queue=default"

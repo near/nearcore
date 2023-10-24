@@ -4,7 +4,9 @@ use crate::{metadata, metrics, DBCol, StoreConfig, StoreStatistics, Temperature}
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
 };
+use once_cell::sync::Lazy;
 use std::io;
+use std::ops::Deref;
 use std::path::Path;
 use strum::IntoEnumIterator;
 use tracing::warn;
@@ -15,8 +17,29 @@ pub(crate) mod snapshot;
 /// List of integer RocskDB properties we’re reading when collecting statistics.
 ///
 /// In the end, they are exported as Prometheus metrics.
-const CF_PROPERTY_NAMES: [&'static std::ffi::CStr; 1] =
-    [::rocksdb::properties::LIVE_SST_FILES_SIZE];
+static CF_PROPERTY_NAMES: Lazy<Vec<std::ffi::CString>> = Lazy::new(|| {
+    use ::rocksdb::properties;
+    let mut ret = Vec::new();
+    ret.extend_from_slice(
+        &[
+            properties::LIVE_SST_FILES_SIZE,
+            properties::ESTIMATE_LIVE_DATA_SIZE,
+            properties::COMPACTION_PENDING,
+            properties::NUM_RUNNING_COMPACTIONS,
+            properties::ESTIMATE_PENDING_COMPACTION_BYTES,
+            properties::ESTIMATE_TABLE_READERS_MEM,
+            properties::BLOCK_CACHE_CAPACITY,
+            properties::BLOCK_CACHE_USAGE,
+            properties::CUR_SIZE_ACTIVE_MEM_TABLE,
+            properties::SIZE_ALL_MEM_TABLES,
+        ]
+        .map(std::ffi::CStr::to_owned),
+    );
+    for level in 0..=6 {
+        ret.push(properties::num_files_at_level(level));
+    }
+    ret
+});
 
 pub struct RocksDB {
     db: DB,
@@ -124,7 +147,7 @@ impl RocksDB {
         .map_err(into_other)?;
         if cfg!(feature = "single_thread_rocksdb") {
             // These have to be set after open db
-            let mut env = Env::default().unwrap();
+            let mut env = Env::new().unwrap();
             env.set_bottom_priority_background_threads(0);
             env.set_high_priority_background_threads(0);
             env.set_low_priority_background_threads(0);
@@ -274,6 +297,13 @@ impl RocksDB {
             _ => unreachable!(),
         }
     }
+
+    pub fn compact_column(&self, col: DBCol) -> io::Result<()> {
+        let none = Option::<&[u8]>::None;
+        tracing::info!(target: "db", column = %col, "Compact column");
+        self.db.compact_range_cf(self.cf_handle(col)?, none, none);
+        Ok(())
+    }
 }
 
 impl Database for RocksDB {
@@ -352,9 +382,8 @@ impl Database for RocksDB {
     }
 
     fn compact(&self) -> io::Result<()> {
-        let none = Option::<&[u8]>::None;
         for col in DBCol::iter() {
-            self.db.compact_range_cf(self.cf_handle(col)?, none, none);
+            self.compact_column(col)?;
         }
         Ok(())
     }
@@ -387,6 +416,8 @@ impl Database for RocksDB {
     }
 
     fn create_checkpoint(&self, path: &std::path::Path) -> anyhow::Result<()> {
+        let _span =
+            tracing::info_span!(target: "state_snapshot", "create_checkpoint", ?path).entered();
         let cp = ::rocksdb::checkpoint::Checkpoint::new(&self.db)?;
         cp.create_checkpoint(path)?;
         Ok(())
@@ -441,18 +472,30 @@ fn rocksdb_read_options() -> ReadOptions {
     read_options
 }
 
-fn rocksdb_block_based_options(
-    block_size: bytesize::ByteSize,
-    cache_size: bytesize::ByteSize,
-) -> BlockBasedOptions {
+/// If true then we enable caching of index blocks inside block cache
+fn use_block_cache_for_index_and_filter_blocks(db_col: DBCol) -> bool {
+    match db_col {
+        DBCol::FlatState => false,
+        _ => true,
+    }
+}
+
+fn rocksdb_block_based_options(store_config: &StoreConfig, db_col: DBCol) -> BlockBasedOptions {
+    let cache_size = store_config.col_cache_size(db_col);
+
     let mut block_opts = BlockBasedOptions::default();
-    block_opts.set_block_size(block_size.as_u64().try_into().unwrap());
-    // We create block_cache for each of 47 columns, so the total cache size is 32 * 47 = 1504mb
-    block_opts
-        .set_block_cache(&Cache::new_lru_cache(cache_size.as_u64().try_into().unwrap()).unwrap());
-    block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
-    block_opts.set_cache_index_and_filter_blocks(true);
+    block_opts.set_block_size(store_config.block_size.as_u64().try_into().unwrap());
+    // We create block_cache for each of the columns, so the total cache size is (num_of_columns - 2) * 32MiB
+    // Plus the 128MiB from FlatState and 512MiB from State columns
+    block_opts.set_block_cache(&Cache::new_lru_cache(cache_size.as_u64().try_into().unwrap()));
+    if use_block_cache_for_index_and_filter_blocks(db_col) {
+        block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
+        block_opts.set_cache_index_and_filter_blocks(true);
+    } else {
+        block_opts.set_cache_index_and_filter_blocks(false);
+    }
     block_opts.set_bloom_filter(10.0, true);
+
     block_opts
 }
 
@@ -460,11 +503,7 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     let mut opts = Options::default();
     set_compression_options(&mut opts);
     opts.set_level_compaction_dynamic_level_bytes(true);
-    let cache_size = store_config.col_cache_size(col);
-    opts.set_block_based_table_factory(&rocksdb_block_based_options(
-        store_config.block_size,
-        cache_size,
-    ));
+    opts.set_block_based_table_factory(&rocksdb_block_based_options(store_config, col));
 
     // Note that this function changes a lot of rustdb parameters including:
     //      write_buffer_size = memtable_memory_budget / 4
@@ -536,7 +575,7 @@ impl RocksDB {
 
     /// Gets every int property in CF_PROPERTY_NAMES for every column in DBCol.
     fn get_cf_statistics(&self, result: &mut StoreStatistics) {
-        for prop_name in CF_PROPERTY_NAMES {
+        for prop_name in CF_PROPERTY_NAMES.deref() {
             let values = self
                 .cf_handles()
                 .filter_map(|(col, handle)| {
@@ -559,7 +598,7 @@ impl Drop for RocksDB {
         if cfg!(feature = "single_thread_rocksdb") {
             // RocksDB with only one thread stuck on wait some condition var
             // Turn on additional threads to proceed
-            let mut env = Env::default().unwrap();
+            let mut env = Env::new().unwrap();
             env.set_background_threads(4);
         }
         self.db.cancel_all_background_work(true);
@@ -782,7 +821,7 @@ mod tests {
 
         let mut store_update = store.store_update();
         for key in &keys {
-            store_update.insert(column, key, &vec![42]);
+            store_update.insert(column, key.clone(), vec![42]);
         }
         store_update.commit().unwrap();
 

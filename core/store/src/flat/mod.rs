@@ -26,7 +26,7 @@
 //!                     inside flat storage).
 
 mod chunk_view;
-mod delta;
+pub mod delta;
 mod inlining_migration;
 mod manager;
 mod metrics;

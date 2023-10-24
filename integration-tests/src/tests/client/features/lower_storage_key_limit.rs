@@ -12,11 +12,11 @@ use near_primitives::transaction::{Action, FunctionCallAction, Transaction};
 use near_primitives::types::BlockHeight;
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 use crate::tests::client::process_blocks::{
     deploy_test_contract_with_protocol_version, produce_blocks_from_height_with_protocol_version,
 };
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 /// Check correctness of the protocol upgrade and ability to write 2 KB keys.
 #[test]
@@ -56,7 +56,7 @@ fn protocol_upgrade() {
         deploy_test_contract_with_protocol_version(
             &mut env,
             "test0".parse().unwrap(),
-            near_test_contracts::base_rs_contract(),
+            near_test_contracts::backwards_compatible_rs_contract(),
             epoch_length,
             1,
             old_protocol_version,
@@ -69,12 +69,12 @@ fn protocol_upgrade() {
         signer_id: "test0".parse().unwrap(),
         receiver_id: "test0".parse().unwrap(),
         public_key: signer.public_key(),
-        actions: vec![Action::FunctionCall(FunctionCallAction {
+        actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "write_key_value".to_string(),
             args,
             gas: 10u64.pow(14),
             deposit: 0,
-        })],
+        }))],
 
         nonce: 0,
         block_hash: CryptoHash::default(),
@@ -129,12 +129,12 @@ fn protocol_upgrade() {
             signer_id: "test0".parse().unwrap(),
             receiver_id: "test0".parse().unwrap(),
             public_key: signer.public_key(),
-            actions: vec![Action::FunctionCall(FunctionCallAction {
+            actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "write_key_value".to_string(),
                 args,
                 gas: 10u64.pow(14),
                 deposit: 0,
-            })],
+            }))],
 
             nonce: 0,
             block_hash: CryptoHash::default(),

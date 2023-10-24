@@ -3,42 +3,41 @@
 # sufficient number of blocks. Restart the stopped node and check that it can
 # still sync. Then check all old data is removed.
 
-import sys, time
 import pathlib
+import sys
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
+import state_sync_lib
 import utils
 
-TARGET_HEIGHT = 30
-AFTER_SYNC_HEIGHT = 150
+EPOCH_LENGTH = 20
+TARGET_HEIGHT = int(EPOCH_LENGTH * 2.5)
+AFTER_SYNC_HEIGHT = EPOCH_LENGTH * 10
 TIMEOUT = 300
 
-node_config = {
-    "consensus": {
-        # We're generating 150 blocks here - lower the min production delay to speed
-        # up the test running time a little.
-        "min_block_production_delay": {
-            "secs": 0,
-            "nanos": 100000000
-        },
-    },
-    # Enabling explicitly state sync, default value is False
-    "state_sync_enabled": True
+node_config = state_sync_lib.get_state_sync_config_combined()
+# We're generating many blocks here - lower the min production delay to speed
+# up the test running time a little.
+node_config["consensus.min_block_production_delay"] = {
+    "secs": 0,
+    "nanos": 100000000
 }
+node_config["consensus.block_fetch_horizon"] = 1
 
 nodes = start_cluster(
-    4, 0, 1, None,
-    [["epoch_length", 15], ["num_block_producer_seats_per_shard", [5]],
-     ["validators", 0, "amount", "60000000000000000000000000000000"],
-     ["block_producer_kickout_threshold", 50],
-     ["chunk_producer_kickout_threshold", 50],
-     [
-         "records", 0, "Account", "account", "locked",
-         "60000000000000000000000000000000"
-     ], ["total_supply", "5010000000000000000000000000000000"]],
+    4, 0, 1,
+    None, [["epoch_length", EPOCH_LENGTH],
+           ["num_block_producer_seats_per_shard", [5]],
+           ["validators", 0, "amount", "60000000000000000000000000000000"],
+           ["block_producer_kickout_threshold", 50],
+           ["chunk_producer_kickout_threshold", 50],
+           [
+               "records", 0, "Account", "account", "locked",
+               "60000000000000000000000000000000"
+           ], ["total_supply", "5010000000000000000000000000000000"]],
     {x: node_config for x in range(4)})
 
 node0_height, _ = utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT)
@@ -71,7 +70,7 @@ assert blocks_count > 0
 
 # all old data should be GCed
 blocks_count = 0
-for height in range(1, 60):
+for height in range(1, EPOCH_LENGTH * 4):
     block0 = nodes[0].json_rpc('block', [height], timeout=15)
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
     assert block0 == block1, (block0, block1)

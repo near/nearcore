@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use actix::{Actor, System};
-use borsh::BorshSerialize;
+
 use futures::{future, FutureExt, TryFutureExt};
 
 use crate::genesis_helpers::genesis_block;
@@ -384,7 +384,7 @@ fn test_tx_invalid_tx_error() {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 10 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            let bytes = transaction_copy.try_to_vec().unwrap();
+                            let bytes = borsh::to_vec(&transaction_copy).unwrap();
                             spawn_interruptible(
                                 client
                                     .EXPERIMENTAL_broadcast_tx_sync(to_base64(&bytes))

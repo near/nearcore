@@ -22,7 +22,7 @@ pub use _proto::network as proto;
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
-use borsh::{BorshDeserialize as _, BorshSerialize as _};
+use borsh::BorshDeserialize as _;
 use near_async::time;
 use near_crypto::PublicKey;
 use near_crypto::Signature;
@@ -35,7 +35,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
-use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
+use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseV1};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -87,36 +87,6 @@ impl std::str::FromStr for PeerAddr {
             peer_id: PeerId::new(parts[0].parse().map_err(Self::Err::PeerId)?),
             addr: parts[1].parse().map_err(Self::Err::SocketAddr)?,
         })
-    }
-}
-
-/// Proof that a given peer_id owns an ip address, included in Handshake message
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
-pub struct SignedIpAddress {
-    pub ip_address: std::net::IpAddr,
-    pub(crate) signature: near_crypto::Signature, // signature for signed ip_address
-}
-
-impl SignedIpAddress {
-    pub fn new(ip_address: std::net::IpAddr, secret_key: &near_crypto::SecretKey) -> Self {
-        let signature = secret_key.sign(&SignedIpAddress::ip_bytes_helper(&ip_address));
-        Self { ip_address: ip_address, signature: signature }
-    }
-
-    pub fn verify(&self, public_key: &PublicKey) -> bool {
-        self.signature.verify(&self.ip_bytes(), &public_key)
-    }
-
-    fn ip_bytes_helper(ip_address: &std::net::IpAddr) -> Vec<u8> {
-        let ip_bytes: Vec<u8> = match ip_address {
-            std::net::IpAddr::V4(ip) => ip.octets().to_vec(),
-            std::net::IpAddr::V6(ip) => ip.octets().to_vec(),
-        };
-        return ip_bytes;
-    }
-
-    fn ip_bytes(&self) -> Vec<u8> {
-        return SignedIpAddress::ip_bytes_helper(&self.ip_address);
     }
 }
 
@@ -318,6 +288,32 @@ impl RoutingTableUpdate {
         Self { edges, accounts }
     }
 }
+
+/// Denotes a network path to `destination` of length `distance`.
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct AdvertisedPeerDistance {
+    pub destination: PeerId,
+    pub distance: u32,
+}
+
+/// Struct shared by a peer listing the distances it has to other peers
+/// in the NEAR network.
+///
+/// It includes a collection of signed edges forming a spanning tree
+/// which verifiably achieves the advertised routing distances.
+///
+/// The distances in the tree may be the same or better than the advertised
+/// distances; see routing::graph_v2::tests::inconsistent_peers.
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct DistanceVector {
+    /// PeerId of the node sending the message.
+    pub root: PeerId,
+    /// List of distances the root has to other peers in the network.
+    pub distances: Vec<AdvertisedPeerDistance>,
+    /// Spanning tree of signed edges achieving the claimed distances (or better).
+    pub edges: Vec<Edge>,
+}
+
 /// Structure representing handshake between peers.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
@@ -337,8 +333,6 @@ pub struct Handshake {
     pub(crate) partial_edge_info: PartialEdgeInfo,
     /// Account owned by the sender.
     pub(crate) owned_account: Option<SignedOwnedAccount>,
-    /// Signed Ip Address of the sender
-    pub(crate) signed_ip_address: Option<SignedIpAddress>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr)]
@@ -393,6 +387,7 @@ pub enum PeerMessage {
     LastEdge(Edge),
     /// Contains accounts and edge information.
     SyncRoutingTable(RoutingTableUpdate),
+    DistanceVector(DistanceVector),
     RequestUpdateNonce(PartialEdgeInfo),
 
     SyncAccountsData(SyncAccountsData),
@@ -412,6 +407,10 @@ pub enum PeerMessage {
     /// Gracefully disconnect from other peer.
     Disconnect(Disconnect),
     Challenge(Challenge),
+
+    StateRequestHeader(ShardId, CryptoHash),
+    StateRequestPart(ShardId, CryptoHash, u64),
+    VersionedStateResponse(StateResponseInfo),
 }
 
 impl fmt::Display for PeerMessage {
@@ -443,7 +442,7 @@ impl PeerMessage {
     /// If the encoding is `Proto`, then also attaches current Span's context to the message.
     pub(crate) fn serialize(&self, enc: Encoding) -> Vec<u8> {
         match enc {
-            Encoding::Borsh => borsh_::PeerMessage::from(self).try_to_vec().unwrap(),
+            Encoding::Borsh => borsh::to_vec(&borsh_::PeerMessage::from(self)).unwrap(),
             Encoding::Proto => {
                 let mut msg = proto::PeerMessage::from(self);
                 let cx = Span::current().context();
@@ -509,8 +508,8 @@ pub enum RoutedMessageBody {
     /// Not used, but needed to borsh backward compatibility.
     _UnusedReceiptOutcomeResponse,
 
-    StateRequestHeader(ShardId, CryptoHash),
-    StateRequestPart(ShardId, CryptoHash, u64),
+    _UnusedStateRequestHeader,
+    _UnusedStateRequestPart,
     /// StateResponse in not produced since protocol version 58.
     /// We can remove the support for it in protocol version 60.
     /// It has been obsoleted by VersionedStateResponse which
@@ -523,7 +522,7 @@ pub enum RoutedMessageBody {
     Ping(Ping),
     Pong(Pong),
     VersionedPartialEncodedChunk(PartialEncodedChunk),
-    VersionedStateResponse(StateResponseInfo),
+    _UnusedVersionedStateResponse,
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
 }
 
@@ -562,12 +561,8 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::_UnusedQueryResponse => write!(f, "QueryResponse"),
             RoutedMessageBody::ReceiptOutcomeRequest(hash) => write!(f, "ReceiptRequest({})", hash),
             RoutedMessageBody::_UnusedReceiptOutcomeResponse => write!(f, "ReceiptResponse"),
-            RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
-                write!(f, "StateRequestHeader({}, {})", shard_id, sync_hash)
-            }
-            RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) => {
-                write!(f, "StateRequestPart({}, {}, {})", shard_id, sync_hash, part_id)
-            }
+            RoutedMessageBody::_UnusedStateRequestHeader => write!(f, "StateRequestHeader"),
+            RoutedMessageBody::_UnusedStateRequestPart => write!(f, "StateRequestPart"),
             RoutedMessageBody::StateResponse(response) => {
                 write!(f, "StateResponse({}, {})", response.shard_id, response.sync_hash)
             }
@@ -584,12 +579,6 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::VersionedPartialEncodedChunk(_) => {
                 write!(f, "VersionedPartialEncodedChunk(?)")
             }
-            RoutedMessageBody::VersionedStateResponse(response) => write!(
-                f,
-                "VersionedStateResponse({}, {})",
-                response.shard_id(),
-                response.sync_hash()
-            ),
             RoutedMessageBody::PartialEncodedChunkForward(forward) => write!(
                 f,
                 "PartialChunkForward({:?}, {:?})",
@@ -598,6 +587,7 @@ impl fmt::Debug for RoutedMessageBody {
             ),
             RoutedMessageBody::Ping(_) => write!(f, "Ping"),
             RoutedMessageBody::Pong(_) => write!(f, "Pong"),
+            RoutedMessageBody::_UnusedVersionedStateResponse => write!(f, "VersionedStateResponse"),
         }
     }
 }
@@ -680,8 +670,6 @@ impl RoutedMessage {
             self.body,
             RoutedMessageBody::Ping(_)
                 | RoutedMessageBody::TxStatusRequest(_, _)
-                | RoutedMessageBody::StateRequestHeader(_, _)
-                | RoutedMessageBody::StateRequestPart(_, _, _)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
                 | RoutedMessageBody::ReceiptOutcomeRequest(_)
         )
@@ -811,22 +799,6 @@ impl StateResponseInfo {
             Self::V2(info) => info.state_response,
         }
     }
-}
-
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    borsh::BorshSerialize,
-    borsh::BorshDeserialize,
-    serde::Serialize,
-)]
-pub enum AccountOrPeerIdOrHash {
-    AccountId(AccountId),
-    PeerId(PeerId),
-    Hash(CryptoHash),
 }
 
 pub(crate) struct RawRoutedMessage {

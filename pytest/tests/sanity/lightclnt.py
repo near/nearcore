@@ -36,11 +36,20 @@ if not config['local']:
     TIMEOUT = 600
 
 client_config_changes['archive'] = True
+client_config_changes['tracked_shards'] = [0]  # Track all shards
+
+no_state_snapshots_config = client_config_changes
+no_state_snapshots_config['store.state_snapshot_enabled'] = False
 
 nodes = start_cluster(
     4, 0, 4, None,
     [["epoch_length", 6], ["block_producer_kickout_threshold", 40],
-     ["chunk_producer_kickout_threshold", 40]], client_config_changes)
+     ["chunk_producer_kickout_threshold", 40]], {
+         0: no_state_snapshots_config,
+         1: client_config_changes,
+         2: client_config_changes,
+         3: client_config_changes
+     })
 
 for node in nodes:
     node.stop_checking_store()

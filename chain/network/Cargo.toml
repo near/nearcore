@@ -48,7 +48,6 @@ tokio-util.workspace = true
 tracing.workspace = true
 time.workspace = true
 
-delay-detector.workspace = true
 near-async.workspace = true
 near-fmt.workspace = true
 near-o11y.workspace = true
@@ -68,7 +67,21 @@ turn.workspace = true
 webrtc-util.workspace = true
 
 [features]
-delay_detector = ["delay-detector/delay_detector"]
+nightly_protocol = [
+  "near-async/nightly_protocol",
+  "near-fmt/nightly_protocol",
+  "near-o11y/nightly_protocol",
+  "near-primitives/nightly_protocol",
+  "near-store/nightly_protocol",
+]
+nightly = [
+  "nightly_protocol",
+  "near-async/nightly",
+  "near-fmt/nightly",
+  "near-o11y/nightly",
+  "near-primitives/nightly",
+  "near-store/nightly",
+]
 performance_stats = [
     "near-performance-metrics/performance_stats",
 ]

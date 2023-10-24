@@ -40,7 +40,7 @@ pub use self::validator_schedule::ValidatorSchedule;
 
 /// Wait for all blocks that started processing to be ready for postprocessing
 /// Returns true if there are new blocks that are ready
-pub fn wait_for_all_blocks_in_processing(chain: &mut Chain) -> bool {
+pub fn wait_for_all_blocks_in_processing(chain: &Chain) -> bool {
     chain.blocks_in_processing.wait_for_all_blocks()
 }
 
@@ -49,7 +49,7 @@ pub fn is_block_in_processing(chain: &Chain, block_hash: &CryptoHash) -> bool {
 }
 
 pub fn wait_for_block_in_processing(
-    chain: &mut Chain,
+    chain: &Chain,
     hash: &CryptoHash,
 ) -> Result<(), BlockNotInPoolError> {
     chain.blocks_in_processing.wait_for_block(hash)
@@ -86,7 +86,7 @@ pub fn setup() -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMem
     setup_with_tx_validity_period(100)
 }
 
-pub fn setup_with_tx_validity_period(
+fn setup_with_tx_validity_period(
     tx_validity_period: NumBlocks,
 ) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
@@ -112,6 +112,7 @@ pub fn setup_with_tx_validity_period(
         },
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
+        None,
     )
     .unwrap();
 
@@ -148,6 +149,7 @@ pub fn setup_with_validators(
         },
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
+        None,
     )
     .unwrap();
     (chain, epoch_manager, runtime, signers)
@@ -183,6 +185,7 @@ pub fn setup_with_validators_and_start_time(
         },
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
+        None,
     )
     .unwrap();
     (chain, epoch_manager, runtime, signers)
@@ -263,7 +266,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                             chunk_header.shard_id(),
                             chunk_producer,
                             chunk.transactions().len(),
-                            chunk.receipts().len()
+                            chunk.prev_outgoing_receipts().len()
                         );
                     } else if let Ok(partial_chunk) =
                         chain_store.get_partial_chunk(&chunk_header.chunk_hash())

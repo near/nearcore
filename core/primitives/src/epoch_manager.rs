@@ -1,5 +1,4 @@
 use crate::challenge::SlashedValidator;
-use crate::checked_feature;
 use crate::num_rational::Rational32;
 use crate::shard_layout::ShardLayout;
 use crate::types::validator_stake::ValidatorStakeV1;
@@ -9,6 +8,7 @@ use crate::types::{
 };
 use crate::version::PROTOCOL_VERSION;
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
 use smart_default::SmartDefault;
@@ -83,46 +83,92 @@ pub struct AllEpochConfig {
     use_production_config: bool,
     /// EpochConfig from genesis
     genesis_epoch_config: EpochConfig,
+    /// Chain Id. Some parameters are specific to certain chains.
+    chain_id: String,
 }
 
 impl AllEpochConfig {
-    pub fn new(use_production_config: bool, genesis_epoch_config: EpochConfig) -> Self {
-        Self { use_production_config, genesis_epoch_config }
+    pub fn new(
+        use_production_config: bool,
+        genesis_epoch_config: EpochConfig,
+        chain_id: &str,
+    ) -> Self {
+        Self { use_production_config, genesis_epoch_config, chain_id: chain_id.to_string() }
     }
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
-        // if SimpleNightshade is enabled, we override genesis shard config with
-        // the simple nightshade shard config
         let mut config = self.genesis_epoch_config.clone();
-        if self.use_production_config {
-            if checked_feature!("stable", SimpleNightshade, protocol_version) {
-                config.shard_layout = ShardLayout::get_simple_nightshade_layout();
-                config.num_block_producer_seats_per_shard = vec![
-                    config.num_block_producer_seats;
-                    config.shard_layout.num_shards()
-                        as usize
-                ];
-                config.avg_hidden_validator_seats_per_shard =
-                    vec![0; config.shard_layout.num_shards() as usize];
-            }
-            if checked_feature!("stable", ChunkOnlyProducers, protocol_version) {
-                // On testnet, genesis config set num_block_producer_seats to 200
-                // This is to bring it back to 100 to be the same as on mainnet
-                config.num_block_producer_seats = 100;
-                // Technically, after ChunkOnlyProducers is enabled, this field is no longer used
-                // We still set it here just in case
-                config.num_block_producer_seats_per_shard =
-                    vec![100; config.shard_layout.num_shards() as usize];
-                config.block_producer_kickout_threshold = 80;
-                config.chunk_producer_kickout_threshold = 80;
-                config.validator_selection_config.num_chunk_only_producer_seats = 200;
-            }
-
-            if checked_feature!("stable", MaxKickoutStake, protocol_version) {
-                config.validator_max_kickout_stake_perc = 30;
-            }
+        if !self.use_production_config {
+            return config;
         }
+
+        Self::config_nightshade(&mut config, protocol_version);
+
+        Self::config_chunk_only_producers(&mut config, &self.chain_id, protocol_version);
+
+        Self::config_max_kickout_stake(&mut config, protocol_version);
+
         config
+    }
+
+    fn config_nightshade(config: &mut EpochConfig, protocol_version: ProtocolVersion) {
+        #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+        if checked_feature!("stable", SimpleNightshadeV2, protocol_version) {
+            Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v2());
+            return;
+        }
+
+        if checked_feature!("stable", SimpleNightshade, protocol_version) {
+            Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout());
+            return;
+        }
+    }
+
+    fn config_nightshade_impl(config: &mut EpochConfig, shard_layout: ShardLayout) {
+        let num_shards = shard_layout.num_shards() as usize;
+        let num_block_producer_seats = config.num_block_producer_seats;
+        config.shard_layout = shard_layout;
+        config.num_block_producer_seats_per_shard = vec![num_block_producer_seats; num_shards];
+        config.avg_hidden_validator_seats_per_shard = vec![0; num_shards];
+    }
+
+    fn config_chunk_only_producers(
+        config: &mut EpochConfig,
+        chain_id: &str,
+        protocol_version: u32,
+    ) {
+        if checked_feature!("stable", ChunkOnlyProducers, protocol_version) {
+            let num_shards = config.shard_layout.num_shards() as usize;
+            // On testnet, genesis config set num_block_producer_seats to 200
+            // This is to bring it back to 100 to be the same as on mainnet
+            config.num_block_producer_seats = 100;
+            // Technically, after ChunkOnlyProducers is enabled, this field is no longer used
+            // We still set it here just in case
+            config.num_block_producer_seats_per_shard = vec![100; num_shards];
+            config.block_producer_kickout_threshold = 80;
+            config.chunk_producer_kickout_threshold = 80;
+            config.validator_selection_config.num_chunk_only_producer_seats = 200;
+        }
+
+        // Adjust the number of block and chunk producers for all chains except
+        // mainnet, to make it easier to test the change.
+        if chain_id != crate::chains::MAINNET
+            && checked_feature!("stable", TestnetFewerBlockProducers, protocol_version)
+        {
+            let num_shards = config.shard_layout.num_shards() as usize;
+            // Decrease the number of block producers from 100 to 20.
+            config.num_block_producer_seats = 20;
+            config.num_block_producer_seats_per_shard =
+                vec![config.num_block_producer_seats; num_shards];
+            // Decrease the number of chunk producers.
+            config.validator_selection_config.num_chunk_only_producer_seats = 100;
+        }
+    }
+
+    fn config_max_kickout_stake(config: &mut EpochConfig, protocol_version: u32) {
+        if checked_feature!("stable", MaxKickoutStake, protocol_version) {
+            config.validator_max_kickout_stake_perc = 30;
+        }
     }
 }
 
@@ -438,8 +484,9 @@ pub mod epoch_info {
     use std::collections::{BTreeMap, HashMap};
 
     use crate::types::validator_stake::ValidatorStakeV1;
-    use crate::{checked_feature, epoch_manager::RngSeed, rand::WeightedIndex};
+    use crate::{epoch_manager::RngSeed, rand::WeightedIndex};
     use near_primitives_core::{
+        checked_feature,
         hash::hash,
         types::{BlockHeight, ShardId},
     };
@@ -883,26 +930,10 @@ pub mod epoch_info {
                 }
                 Self::V3(v3) => {
                     let protocol_version = self.protocol_version();
-                    let seed =
-                        if checked_feature!(
-                            "stable",
-                            SynchronizeBlockChunkProduction,
-                            protocol_version
-                        ) && !checked_feature!("stable", ChunkOnlyProducers, protocol_version)
-                        {
-                            // This is same seed that used for determining block producer
-                            Self::block_produce_seed(height, &v3.rng_seed)
-                        } else {
-                            // 32 bytes from epoch_seed, 8 bytes from height, 8 bytes from shard_id
-                            let mut buffer = [0u8; 48];
-                            buffer[0..32].copy_from_slice(&v3.rng_seed);
-                            buffer[32..40].copy_from_slice(&height.to_le_bytes());
-                            buffer[40..48].copy_from_slice(&shard_id.to_le_bytes());
-                            hash(&buffer).0
-                        };
+                    let seed = Self::chunk_produce_seed(protocol_version, v3, height, shard_id);
                     let shard_id = shard_id as usize;
-                    v3.chunk_producers_settlement[shard_id]
-                        [v3.chunk_producers_sampler[shard_id].sample(seed)]
+                    let sample = v3.chunk_producers_sampler[shard_id].sample(seed);
+                    v3.chunk_producers_settlement[shard_id][sample]
                 }
             }
         }
@@ -913,6 +944,30 @@ pub mod epoch_info {
             buffer[0..32].copy_from_slice(seed);
             buffer[32..40].copy_from_slice(&height.to_le_bytes());
             hash(&buffer).0
+        }
+
+        fn chunk_produce_seed(
+            protocol_version: ProtocolVersion,
+            epoch_info_v3: &EpochInfoV3,
+            height: BlockHeight,
+            shard_id: ShardId,
+        ) -> [u8; 32] {
+            if checked_feature!("stable", SynchronizeBlockChunkProduction, protocol_version)
+                && !checked_feature!("stable", ChunkOnlyProducers, protocol_version)
+            {
+                // This is same seed that used for determining block
+                // producer. This seed does not contain the shard id
+                // so all shards will be produced by the same
+                // validator.
+                Self::block_produce_seed(height, &epoch_info_v3.rng_seed)
+            } else {
+                // 32 bytes from epoch_seed, 8 bytes from height, 8 bytes from shard_id
+                let mut buffer = [0u8; 48];
+                buffer[0..32].copy_from_slice(&epoch_info_v3.rng_seed);
+                buffer[32..40].copy_from_slice(&height.to_le_bytes());
+                buffer[40..48].copy_from_slice(&shard_id.to_le_bytes());
+                hash(&buffer).0
+            }
         }
     }
 
@@ -976,4 +1031,27 @@ pub enum SlashState {
     AlreadySlashed,
     /// All other cases (tokens should be entirely slashed),
     Other,
+}
+
+#[cfg(feature = "new_epoch_sync")]
+pub mod epoch_sync {
+    use crate::block_header::BlockHeader;
+    use crate::types::validator_stake::ValidatorStake;
+    use borsh::{BorshDeserialize, BorshSerialize};
+
+    #[derive(BorshSerialize, BorshDeserialize)]
+    pub struct BlockHeaderPair {
+        pub header: BlockHeader,
+        pub last_finalised_header: BlockHeader,
+    }
+
+    /// Struct to keep all the info that is transferred for one epoch during Epoch Sync.
+    #[derive(BorshSerialize, BorshDeserialize)]
+    pub struct EpochSyncInfo {
+        /// None is only used for corner case of the first epoch
+        pub first: BlockHeaderPair,
+        pub last: BlockHeaderPair,
+        pub prev_last: BlockHeaderPair,
+        pub block_producers: Vec<ValidatorStake>,
+    }
 }

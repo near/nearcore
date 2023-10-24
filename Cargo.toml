@@ -1,8 +1,8 @@
 [workspace.package]
-version = "0.0.0" # managed by cargo-workspaces, see below
+version = "0.0.0"                               # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
-rust-version = "1.69.0"
+rust-version = "1.73.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -12,6 +12,7 @@ version = "0.17.0"
 exclude = ["neard"]
 
 [workspace]
+resolver = "2"
 members = [
     "chain/chain",
     "chain/chunks",
@@ -46,16 +47,14 @@ members = [
     "integration-tests",
     "nearcore",
     "neard",
-    "runtime/near-vm/api",
+    "runtime/near-vm/test-api",
     "runtime/near-vm/compiler",
     "runtime/near-vm/compiler-singlepass",
     "runtime/near-vm/engine",
-    "runtime/near-vm/engine-universal",
     "runtime/near-vm/vm",
     "runtime/near-vm/types",
     "runtime/near-vm/wast",
     "runtime/near-vm/compiler-test-derive",
-    "runtime/near-vm-logic",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner/fuzz",
     "runtime/runtime",
@@ -66,11 +65,12 @@ members = [
     "test-utils/runtime-tester/fuzz",
     "test-utils/store-validator",
     "test-utils/testlib",
+    "test-utils/style",
+    "tools/database",
     "tools/chainsync-loadtest",
-    "tools/delay-detector",
+    "tools/fork-network",
     "tools/indexer/example",
     "tools/mirror",
-    "tools/mock-node",
     "tools/ping",
     "tools/restaked",
     "tools/rpctypegen/core",
@@ -109,8 +109,9 @@ bencher = "0.1.5"
 bitflags = "1.2"
 blake2 = "0.9.1"
 bn = { package = "zeropool-bn", version = "0.5.11" }
-bolero = "0.8.0"
-borsh = { version = "0.10.2", features = ["rc"] }
+# TODO: revert to upstream bolero once https://github.com/camshaft/bolero/pull/186 lands and gets released
+bolero = { version = "0.9.0", git = "https://github.com/camshaft/bolero", rev = "7d955a67fbd06f61ffaf28178e976280c33c045a", features = ["arbitrary"] }
+borsh = { version = "1.0.0", features = ["derive", "rc"] }
 bs58 = "0.4"
 bytes = "1"
 bytesize = { version = "1.1", features = ["serde"] }
@@ -120,19 +121,23 @@ cc = "1.0"
 cfg-if = "1.0"
 chrono = { version = "0.4.19", features = ["serde"] }
 clap = { version = "4.2.0", features = ["derive", "env", "string"] }
+cloud-storage = "0.11.1"
 conqueue = "0.4.0"
 cpu-time = "1.0"
-criterion = { version = "0.3.5", default_features = false, features = ["html_reports", "cargo_bench_support"] }
+criterion = { version = "0.3.5", default_features = false, features = [
+    "html_reports",
+    "cargo_bench_support",
+] }
 crossbeam = "0.8"
-crossbeam-channel = "0.5"
+crossbeam-channel = "0.5.8"
+crossbeam-queue = "0.3.8"
 csv = "1.2.1"
 curve25519-dalek = "3"
-delay-detector = { path = "tools/delay-detector" }
 derive-enum-from-into = "0.1.1"
 derive_more = "0.99.9"
 dirs = "4"
-dynasm = "1.0"
-dynasmrt = "1.0"
+dynasm = "2.0"
+dynasmrt = "2.0"
 easy-ext = "0.2"
 ed25519-dalek = "1"
 elastic-array = "0.11"
@@ -167,11 +172,12 @@ log = "0.4"
 loupe = "0.1"
 lru = "0.7.2"
 memmap2 = "0.5"
-memoffset = "0.6"
+memoffset = "0.8"
 more-asserts = "0.2"
 near-account-id = { path = "core/account-id", features = ["internal_unstable"] }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
+near-database-tool = { path = "tools/database" }
 near-async = { path = "core/async" }
 near-cache = { path = "utils/near-cache" }
 near-chain = { path = "chain/chain" }
@@ -188,13 +194,16 @@ near-crypto = { path = "core/crypto" }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
 near-flat-storage = { path = "tools/flat-storage" }
+near-fork-network = { path = "tools/fork-network" }
 near-fmt = { path = "utils/fmt" }
 near-indexer = { path = "chain/indexer" }
 near-indexer-primitives = { path = "chain/indexer-primitives" }
 near-jsonrpc = { path = "chain/jsonrpc" }
 near-jsonrpc-adversarial-primitives = { path = "chain/jsonrpc-adversarial-primitives" }
 near-jsonrpc-client = { path = "chain/jsonrpc/client" }
-near-jsonrpc-primitives = { path = "chain/jsonrpc-primitives", features = ["full"] }
+near-jsonrpc-primitives = { path = "chain/jsonrpc-primitives", features = [
+    "full",
+] }
 near-jsonrpc-tests = { path = "chain/jsonrpc/jsonrpc-tests" }
 near-mainnet-res = { path = "utils/mainnet-res" }
 near-mirror = { path = "tools/mirror" }
@@ -216,14 +225,12 @@ near-store = { path = "core/store" }
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
 near-undo-block = { path = "tools/undo-block" }
-near-vm = { path = "runtime/near-vm/api" }
+near-vm-test-api = { path = "runtime/near-vm/test-api" }
 near-vm-compiler = { path = "runtime/near-vm/compiler" }
 near-vm-compiler-singlepass = { path = "runtime/near-vm/compiler-singlepass" }
 near-vm-compiler-test-derive = { path = "runtime/near-vm/compiler-test-derive" }
 near-vm-engine = { path = "runtime/near-vm/engine" }
 near-vm-engine-universal = { path = "runtime/near-vm/engine-universal" }
-near-vm-errors = { path = "runtime/near-vm-errors" }
-near-vm-logic = { path = "runtime/near-vm-logic" }
 near-vm-runner = { path = "runtime/near-vm-runner" }
 near-vm-test-generator = { path = "runtime/near-vm/test-generator" }
 near-vm-types = { path = "runtime/near-vm/types" }
@@ -245,11 +252,12 @@ paperclip = { version = "0.8.0", features = ["actix4"] }
 parity-wasm = { version = "0.42", default-features = false }
 parity-wasm_41 = { package = "parity-wasm", version = "0.41" }
 parking_lot = "0.12.1"
+percent-encoding = "2.2.0"
 pin-project = "1.0"
 prefix-sum-vec = "0.1.2"
 pretty_assertions = "1.2"
 primitive-types = { version = "0.10", default-features = false }
-proc-macro2 = "1"
+proc-macro2 = "1.0.64"
 prometheus = "0.13.1"
 protobuf = "3.0.1"
 protobuf-codegen = "3.0.1"
@@ -269,11 +277,18 @@ reqwest = { version = "0.11.14", features = ["blocking"] }
 ripemd = "0.1.1"
 rkyv = "0.7.31"
 rlimit = "0.7"
-rocksdb = { version = "0.19.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib", "jemalloc"] }
+rocksdb = { version = "0.21.0", default-features = false, features = [
+    "snappy",
+    "lz4",
+    "zstd",
+    "zlib",
+    "jemalloc",
+] }
 runtime-tester = { path = "test-utils/runtime-tester" }
-rusqlite = { version = "0.27.0", features = ["bundled", "chrono", "functions"] }
+rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "functions"] }
 rustc-demangle = "0.1"
 rust-s3 = { version = "0.32.3", features = ["blocking"] }
+rustix = "0.37"
 secp256k1 = { version = "0.27.0", features = ["recovery", "rand-std"] }
 semver = "1.0.4"
 serde = { version = "1.0.136", features = ["alloc", "derive", "rc"] }
@@ -302,7 +317,14 @@ test-log = { version = "0.2", default-features = false, features = ["trace"] }
 thiserror = "1.0.30"
 tikv-jemallocator = "0.5.0"
 time = "0.3.9"
-tokio = { version = "~1.28", features = ["fs", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1.28", features = [
+    "fs",
+    "macros",
+    "net",
+    "rt-multi-thread",
+    "sync",
+    "time",
+] }
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec", "io"] }
 toml = "0.5.8"
@@ -311,27 +333,44 @@ tracing = { version = "0.1.36", features = ["std"] }
 tracing-appender = "0.2.2"
 tracing-opentelemetry = "0.17.0"
 tracing-span-tree = "0.1"
-tracing-subscriber = { version = "0.3.15", features = ["env-filter", "fmt", "registry", "std"] }
+tracing-subscriber = { version = "0.3.15", features = [
+    "env-filter",
+    "fmt",
+    "registry",
+    "std",
+] }
 trybuild = "1.0.11"
 turn = "0.6"
 validator = "0.12"
-wasm-encoder = "0.11.0"
-wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.0" }
-wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.0" }
-wasmer-engine = { package = "wasmer-engine-near", version = "=2.4.0" }
-wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.4.0", features = ["compiler"] }
-wasmer-runtime = { version = "0.18.0", package = "wasmer-runtime-near", features = ["default-backend-singlepass"], default-features = false }
+wasm-encoder = "0.27.0"
+wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.1" }
+wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.1" }
+wasmer-engine = { package = "wasmer-engine-near", version = "=2.4.1" }
+wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.4.1", features = [
+    "compiler",
+] }
+wasmer-runtime = { version = "0.18.0", package = "wasmer-runtime-near", features = [
+    "default-backend-singlepass",
+], default-features = false }
 wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near" }
-wasmer-types = { package = "wasmer-types-near", version = "=2.4.0" }
-wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.0" }
+wasmer-types = { package = "wasmer-types-near", version = "=2.4.1" }
+wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.1" }
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmprinter = "0.2"
 wasm-smith = "0.10"
-wasmtime = { version = "4.0.0", default-features = false, features = ["cranelift"] }
+wasmtime = { version = "9.0.3", default-features = false, features = [
+    "cranelift",
+] }
 wast = "40.0"
 wat = "1.0.40"
 webrtc-util = "0.7"
-winapi = { version = "0.3", features = ["winbase", "memoryapi", "errhandlingapi", "winnt", "impl-default"] }
+winapi = { version = "0.3", features = [
+    "winbase",
+    "memoryapi",
+    "errhandlingapi",
+    "winnt",
+    "impl-default",
+] }
 xshell = "0.2.1"
 xz2 = "0.1.6"
 
@@ -368,3 +407,13 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.sha2]
 opt-level = 3
+[profile.dev.package.curve25519-dalek]
+opt-level = 3
+[profile.dev.package.unsafe-libyaml]
+opt-level = 3
+[profile.dev.package.hashbrown]
+opt-level = 3
+[profile.dev.package.dynasmrt]
+opt-level = 3
+[profile.dev.package."*"]
+opt-level = 1

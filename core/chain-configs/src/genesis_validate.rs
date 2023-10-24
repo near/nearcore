@@ -1,4 +1,4 @@
-use crate::genesis_config::{Genesis, GenesisConfig};
+use crate::genesis_config::{Genesis, GenesisConfig, GenesisContents};
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::state_record::StateRecord;
@@ -8,6 +8,12 @@ use std::collections::{HashMap, HashSet};
 
 /// Validate genesis config and records. Returns ValidationError if semantic checks of genesis failed.
 pub fn validate_genesis(genesis: &Genesis) -> Result<(), ValidationError> {
+    if let GenesisContents::StateRoots { .. } = &genesis.contents {
+        // TODO(robin-near): We don't have a great way of validating the
+        // genesis records if we're given state roots directly, though we
+        // could still validate things that aren't related to records.
+        return Ok(());
+    }
     let mut validation_errors = ValidationErrors::new();
     let mut genesis_validator = GenesisValidator::new(&genesis.config, &mut validation_errors);
     tracing::info!(target: "config", "Validating Genesis config and records. This could take a few minutes...");
@@ -81,7 +87,7 @@ impl<'a> GenesisValidator<'a> {
             .into_iter()
             .map(|account_info| {
                 if !is_valid_staking_key(&account_info.public_key) {
-                    let error_message = "validator staking key is not valid".to_string();
+                    let error_message = format!("validator staking key is not valid");
                     self.validation_errors.push_genesis_semantics_error(error_message);
                 }
                 (account_info.account_id, account_info.amount)
@@ -94,7 +100,7 @@ impl<'a> GenesisValidator<'a> {
         }
 
         if validators.is_empty() {
-            let error_message = "No validators in genesis".to_string();
+            let error_message = format!("No validators in genesis");
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
@@ -104,7 +110,7 @@ impl<'a> GenesisValidator<'a> {
         }
 
         if validators != self.staked_accounts {
-            let error_message = "Validator accounts do not match staked accounts.".to_string();
+            let error_message = format!("Validator accounts do not match staked accounts.");
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
@@ -140,27 +146,25 @@ impl<'a> GenesisValidator<'a> {
 
         if *self.genesis_config.online_max_threshold.numer() >= 10_000_000 {
             let error_message =
-                "online_max_threshold's numerator is too large, may lead to overflow.".to_string();
+                format!("online_max_threshold's numerator is too large, may lead to overflow.");
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
         if *self.genesis_config.online_min_threshold.numer() >= 10_000_000 {
             let error_message =
-                "online_min_threshold's numerator is too large, may lead to overflow.".to_string();
+                format!("online_min_threshold's numerator is too large, may lead to overflow.");
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
         if *self.genesis_config.online_max_threshold.denom() >= 10_000_000 {
             let error_message =
-                "online_max_threshold's denominator is too large, may lead to overflow."
-                    .to_string();
+                format!("online_max_threshold's denominator is too large, may lead to overflow.");
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
         if *self.genesis_config.online_min_threshold.denom() >= 10_000_000 {
             let error_message =
-                "online_min_threshold's denominator is too large, may lead to overflow."
-                    .to_string();
+                format!("online_min_threshold's denominator is too large, may lead to overflow.");
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
@@ -173,7 +177,7 @@ impl<'a> GenesisValidator<'a> {
         }
 
         if self.genesis_config.epoch_length == 0 {
-            let error_message = "Epoch Length must be greater than 0".to_string();
+            let error_message = format!("Epoch Length must be greater than 0");
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
     }

@@ -1,4 +1,4 @@
-use crate::network_protocol::testonly::{self as data, make_signed_ip_addr};
+use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersRequest,
     PeersResponse, RoutedMessageBody,
@@ -199,8 +199,6 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     let inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
     let outbound_port = outbound_stream.local_addr.port();
     let mut outbound = Stream::new(outbound_encoding, outbound_stream);
-    let ip_addr = outbound.stream.local_addr.ip();
-    let signed_ip_address = make_signed_ip_addr(&ip_addr, &outbound_cfg.network.node_key);
 
     // Send too old PROTOCOL_VERSION, expect ProtocolVersionMismatch
     let mut handshake = Handshake {
@@ -212,7 +210,6 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         sender_chain_info: outbound_cfg.chain.get_peer_chain_info(),
         partial_edge_info: outbound_cfg.partial_edge_info(&inbound.cfg.id(), 1),
         owned_account: None,
-        signed_ip_address: Some(signed_ip_address),
     };
     // We will also introduce chain_id mismatch, but ProtocolVersionMismatch is expected to take priority.
     handshake.sender_chain_info.genesis_id.chain_id = "unknown_chain".to_string();
@@ -251,57 +248,6 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     assert_matches!(resp, PeerMessage::Tier2Handshake(_));
 }
 
-async fn test_backward_compatible_handshake_without_signed_ip_address(
-    outbound_encoding: Option<Encoding>,
-    inbound_encoding: Option<Encoding>,
-) {
-    let mut rng = make_rng(89028037453);
-    let mut clock = time::FakeClock::default();
-    let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
-
-    let inbound_cfg = PeerConfig {
-        network: chain.make_config(&mut rng),
-        chain: chain.clone(),
-        force_encoding: inbound_encoding,
-    };
-
-    let outbound_cfg = PeerConfig {
-        network: chain.make_config(&mut rng),
-        chain: chain.clone(),
-        force_encoding: outbound_encoding,
-    };
-
-    let (outbound_stream, inbound_stream) =
-        tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
-
-    // Set up both inbound stream and PeerActor process for it
-    let inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
-
-    // Initialize the handshake from this unit test's thread to act as the outbound peer
-    let outbound_port = outbound_stream.local_addr.port();
-    let mut outbound = Stream::new(outbound_encoding, outbound_stream);
-    let mut handshake = Handshake {
-        protocol_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
-        oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
-        sender_peer_id: outbound_cfg.id(),
-        target_peer_id: inbound.cfg.id(),
-        sender_listen_port: Some(outbound_port),
-        sender_chain_info: outbound_cfg.chain.get_peer_chain_info(),
-        partial_edge_info: outbound_cfg.partial_edge_info(&inbound.cfg.id(), 1),
-        owned_account: None,
-        signed_ip_address: None,
-    };
-    handshake.sender_chain_info = chain.get_peer_chain_info();
-
-    // Send an outdated Handshake, which doesn't contain a signed ip address and verify handshake still succeeds
-    // TODO(soon): In future, this needs to fail after all production nodes have included mandatory signed ip address
-    outbound.write(&PeerMessage::Tier2Handshake(handshake.clone())).await;
-
-    // Verify the handshake is successful from receiving a Tier2Handshake response from the inbound
-    let resp = outbound.read().await.unwrap();
-    assert_matches!(resp, PeerMessage::Tier2Handshake(_));
-}
-
 #[tokio::test]
 // Verifies that HandshakeFailures are served correctly.
 async fn handshake() -> anyhow::Result<()> {
@@ -316,7 +262,6 @@ async fn handshake() -> anyhow::Result<()> {
                 }
             }
             test_handshake(*outbound, *inbound).await;
-            test_backward_compatible_handshake_without_signed_ip_address(*outbound, *inbound).await;
         }
     }
     Ok(())

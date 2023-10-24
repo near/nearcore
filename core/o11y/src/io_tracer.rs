@@ -17,6 +17,7 @@
 //! analysis. The estimator has a replay command that understands the output
 //! produced by the IO trace.
 
+use base64::Engine;
 use std::collections::HashMap;
 use std::io::Write;
 use tracing::{span, Subscriber};
@@ -116,7 +117,7 @@ impl<S: Subscriber + for<'span> LookupSpan<'span>> Layer<S> for IoTraceLayer {
         }
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     fn on_exit(&self, id: &span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
         // When the span exits, produce one line for the span itself that
         // includes key=value pairs from `SpanInfo`. Then also add indentation
@@ -218,7 +219,15 @@ impl IoTraceLayer {
                 }
             }
             Some(IoEventType::StorageOp(storage_op)) => {
-                let key = visitor.key.as_deref().unwrap_or("?");
+                let key_bytes = visitor.key.map(|key| {
+                    base64::engine::general_purpose::STANDARD
+                        .decode(key)
+                        .expect("key was not properly base64-encoded")
+                });
+                let key = key_bytes
+                    .as_ref()
+                    .map(|k| format!("{}", near_fmt::Bytes(&*k)))
+                    .unwrap_or_else(|| String::from("?"));
                 let size = FormattedSize(visitor.size);
                 let tn_db_reads = visitor.tn_db_reads.unwrap();
                 let tn_mem_reads = visitor.tn_mem_reads.unwrap();
@@ -302,7 +311,7 @@ impl tracing::field::Visit for IoEventVisitor {
 }
 
 impl tracing::field::Visit for SpanInfo {
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
         // "count" is a special field, everything else are key values pairs.
         if field.name() == "counter" {

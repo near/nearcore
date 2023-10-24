@@ -26,6 +26,9 @@ impl PublicKey {
         self.is_valid(input.borrow(), value, proof)
     }
 
+    // FIXME: no clear fix is available here -- the underlying library runs a non-trivial amount of
+    // unchecked arithmetic inside and provides no apparent way to do it in a checked manner.
+    #[allow(clippy::arithmetic_side_effects)]
     fn is_valid(&self, input: &[u8], value: &Value, proof: &Proof) -> bool {
         let p = unwrap_or_return_false!(unpack(&value.0));
         let (r, c) = unwrap_or_return_false!(unpack(&proof.0));
@@ -38,6 +41,10 @@ impl PublicKey {
     }
 }
 
+// FIXME: no clear fix is available here -- the underlying library runs a non-trivial amount of
+// unchecked arithmetic inside and provides no apparent way to do it in a checked or wrapping
+// manner.
+#[allow(clippy::arithmetic_side_effects)]
 fn basemul(s: Scalar) -> Point {
     &s * &GT
 }
@@ -64,6 +71,10 @@ impl SecretKey {
         self.compute(input.borrow())
     }
 
+    // FIXME: no clear fix is available here -- the underlying library runs a non-trivial amount of
+    // unchecked arithmetic inside and provides no apparent way to do it in a checked or wrapping
+    // manner.
+    #[allow(clippy::arithmetic_side_effects)]
     fn compute(&self, input: &[u8]) -> Value {
         Value(basemul(safe_invert(self.0 + self.1.offset(input))).pack())
     }
@@ -72,6 +83,10 @@ impl SecretKey {
         self.compute_with_proof(input.borrow())
     }
 
+    // FIXME: no clear fix is available here -- the underlying library runs a non-trivial amount of
+    // unchecked arithmetic inside and provides no apparent way to do it in a checked or wrapping
+    // manner.
+    #[allow(clippy::arithmetic_side_effects)]
     fn compute_with_proof(&self, input: &[u8]) -> (Value, Proof) {
         let x = self.0 + self.1.offset(input);
         let inv = safe_invert(x);

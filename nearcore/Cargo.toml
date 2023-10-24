@@ -16,9 +16,11 @@ anyhow.workspace = true
 awc.workspace = true
 borsh.workspace = true
 chrono.workspace = true
+cloud-storage.workspace = true
 dirs.workspace = true
 easy-ext.workspace = true
 futures.workspace = true
+hex.workspace = true
 hyper-tls.workspace = true
 hyper.workspace = true
 indicatif.workspace = true
@@ -27,6 +29,7 @@ once_cell.workspace = true
 rand.workspace = true
 rayon.workspace = true
 regex.workspace = true
+reqwest.workspace = true
 rlimit.workspace = true
 rust-s3.workspace = true
 serde.workspace = true
@@ -50,6 +53,7 @@ near-crypto.workspace = true
 near-dyn-configs.workspace = true
 near-epoch-manager.workspace = true
 near-jsonrpc = { workspace = true, optional = true }
+near-jsonrpc-primitives = { workspace = true, optional = true }
 near-mainnet-res.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
@@ -62,8 +66,6 @@ near-telemetry.workspace = true
 near-vm-runner.workspace = true
 node-runtime.workspace = true
 near-config-utils.workspace = true
-
-delay-detector.workspace = true
 
 [dev-dependencies]
 bencher.workspace = true
@@ -101,9 +103,8 @@ no_cache = [
   "near-chain/no_cache",
   "near-epoch-manager/no_cache",
 ]
-delay_detector = ["near-client/delay_detector", "delay-detector/delay_detector"]
 rosetta_rpc = ["near-rosetta-rpc"]
-json_rpc = ["near-jsonrpc"]
+json_rpc = ["near-jsonrpc", "near-jsonrpc-primitives"]
 protocol_feature_fix_staking_threshold = [
   "near-primitives/protocol_feature_fix_staking_threshold",
   "near-epoch-manager/protocol_feature_fix_staking_threshold",
@@ -111,30 +112,63 @@ protocol_feature_fix_staking_threshold = [
 protocol_feature_fix_contract_loading_cost = [
   "near-vm-runner/protocol_feature_fix_contract_loading_cost",
 ]
-serialize_all_state_changes = ["near-store/serialize_all_state_changes"]
+protocol_feature_simple_nightshade_v2 = [
+    "near-primitives/protocol_feature_simple_nightshade_v2",
+]
+new_epoch_sync = [
+  "near-client/new_epoch_sync"
+]
 
+serialize_all_state_changes = ["near-store/serialize_all_state_changes"]
 nightly = [
   "nightly_protocol",
-  "near-primitives/nightly",
-  "near-client/nightly",
-  "near-epoch-manager/nightly",
-  "near-store/nightly",
-  "near-rosetta-rpc/nightly",
-  "near-vm-runner/nightly",
-  "protocol_feature_fix_staking_threshold",
   "protocol_feature_fix_contract_loading_cost",
+  "protocol_feature_fix_staking_threshold",
+  "protocol_feature_simple_nightshade_v2",
   "serialize_all_state_changes",
+  "near-async/nightly",
+  "near-chain-configs/nightly",
+  "near-chain/nightly",
+  "near-chunks/nightly",
+  "near-client-primitives/nightly",
+  "near-client/nightly",
+  "near-dyn-configs/nightly",
+  "near-epoch-manager/nightly",
+  "near-jsonrpc-primitives/nightly",
+  "near-jsonrpc/nightly",
+  "near-mainnet-res/nightly",
+  "near-network/nightly",
+  "near-o11y/nightly",
+  "near-pool/nightly",
+  "near-primitives/nightly",
+  "near-rosetta-rpc/nightly",
+  "near-store/nightly",
+  "near-telemetry/nightly",
+  "near-vm-runner/nightly",
+  "node-runtime/nightly",
 ]
 nightly_protocol = [
-  "near-primitives/nightly_protocol",
+  "near-async/nightly_protocol",
+  "near-chain-configs/nightly_protocol",
+  "near-chain/nightly_protocol",
+  "near-chunks/nightly_protocol",
+  "near-client-primitives/nightly_protocol",
+  "near-client/nightly_protocol",
+  "near-dyn-configs/nightly_protocol",
+  "near-epoch-manager/nightly_protocol",
+  "near-jsonrpc-primitives/nightly_protocol",
   "near-jsonrpc/nightly_protocol",
-  "node-runtime/nightly_protocol"
+  "near-mainnet-res/nightly_protocol",
+  "near-network/nightly_protocol",
+  "near-o11y/nightly_protocol",
+  "near-pool/nightly_protocol",
+  "near-primitives/nightly_protocol",
+  "near-rosetta-rpc/nightly_protocol",
+  "near-store/nightly_protocol",
+  "near-telemetry/nightly_protocol",
+  "near-vm-runner/nightly_protocol",
+  "node-runtime/nightly_protocol",
 ]
-
-# Force usage of a specific wasm vm irrespective of protocol version.
-force_wasmer2 = ["near-vm-runner/force_wasmer2"]
-force_wasmer0 = ["near-vm-runner/force_wasmer0"]
-force_wasmtime = ["near-vm-runner/force_wasmtime"]
 
 sandbox = [
   "near-client/sandbox",

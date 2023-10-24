@@ -24,9 +24,8 @@ use near_primitives::transaction::{
 use near_primitives::types::AccountId;
 use near_primitives::version::ProtocolFeature;
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use node_runtime::config::RuntimeConfig;
-
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 /// Tracked in https://github.com/near/nearcore/issues/8938
 const INCREASED_STORAGE_COSTS_PROTOCOL_VERSION: u32 = 61;
@@ -207,7 +206,7 @@ fn assert_compute_limit_reached(
     // setup: deploy the contract
     {
         // This contract has a bunch of methods to invoke storage operations.
-        let code = near_test_contracts::rs_contract().to_vec();
+        let code = near_test_contracts::backwards_compatible_rs_contract().to_vec();
         let actions = vec![Action::DeployContract(DeployContractAction { code })];
 
         let signer = InMemorySigner::from_seed(
@@ -236,7 +235,7 @@ fn assert_compute_limit_reached(
         &mut nonce,
     );
     let chunk_header = old_chunk.cloned_header();
-    let gas_burnt = chunk_header.gas_used();
+    let gas_burnt = chunk_header.prev_gas_used();
     let gas_limit: u64 = chunk_header.gas_limit();
     assert!(
         gas_burnt >= gas_limit,
@@ -257,8 +256,8 @@ fn assert_compute_limit_reached(
         &mut nonce,
     );
 
-    let old_receipts_num = old_chunk.receipts().len();
-    let new_receipts_num = new_chunk.receipts().len();
+    let old_receipts_num = old_chunk.prev_outgoing_receipts().len();
+    let new_receipts_num = new_chunk.prev_outgoing_receipts().len();
     if uses_storage {
         assert!(
             new_receipts_num < old_receipts_num,
@@ -295,8 +294,12 @@ fn produce_saturated_chunk(
 ) -> std::sync::Arc<ShardChunk> {
     let msg_len = (method_name.len() + args.len()) as u64; // needed for gas computation later
     let gas = 300_000_000_000_000;
-    let actions =
-        vec![Action::FunctionCall(FunctionCallAction { method_name, args, gas, deposit: 0 })];
+    let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
+        method_name,
+        args,
+        gas,
+        deposit: 0,
+    }))];
     let signer = InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account);
 
     let tip = env.clients[0].chain.head().unwrap();
@@ -341,7 +344,11 @@ fn produce_saturated_chunk(
     // chunk with transactions accepted but not yet executed
     {
         let chunk = chunk_info(env, tip.height + 2);
-        assert_eq!(0, chunk.receipts().len(), "First chunk should only include transactions");
+        assert_eq!(
+            0,
+            chunk.prev_outgoing_receipts().len(),
+            "First chunk should only include transactions"
+        );
         assert_eq!(
             num_transactions as usize,
             chunk.transactions().len(),
@@ -353,7 +360,7 @@ fn produce_saturated_chunk(
         let chunk = chunk_info(env, tip.height + 3);
         assert_eq!(
             num_transactions as usize,
-            chunk.receipts().len(),
+            chunk.prev_outgoing_receipts().len(),
             "Second chunk should include all receipts"
         );
         assert_eq!(0, chunk.transactions().len(), "Second chunk shouldn't have new transactions");
@@ -361,7 +368,7 @@ fn produce_saturated_chunk(
         // Note: Receipts are included in chunk, but executed are
         // transactions from previous chunk, so the gas here is for
         // transactions -> receipt conversion.
-        let gas_burnt = chunk.cloned_header().gas_used();
+        let gas_burnt = chunk.cloned_header().prev_gas_used();
         let want_gas_per_tx = config.fees.fee(ActionCosts::new_action_receipt).send_not_sir
             + config.fees.fee(ActionCosts::function_call_base).send_not_sir
             + config.fees.fee(ActionCosts::function_call_byte).send_not_sir * msg_len;
@@ -376,10 +383,10 @@ fn produce_saturated_chunk(
         let chunk: std::sync::Arc<ShardChunk> = chunk_info(env, tip.height + 4);
         assert_ne!(
             num_transactions as usize,
-            chunk.receipts().len(),
+            chunk.prev_outgoing_receipts().len(),
             "Not all receipts should fit in a single chunk"
         );
-        assert_ne!(0, chunk.receipts().len(), "No receipts executed");
+        assert_ne!(0, chunk.prev_outgoing_receipts().len(), "No receipts executed");
         chunk
     };
 
@@ -399,10 +406,7 @@ fn produce_saturated_chunk(
 }
 
 /// fetch chunk for shard 0 and specified block height
-fn chunk_info(
-    env: &mut TestEnv,
-    height: u64,
-) -> std::sync::Arc<near_primitives::sharding::ShardChunk> {
+fn chunk_info(env: &TestEnv, height: u64) -> std::sync::Arc<near_primitives::sharding::ShardChunk> {
     let block = &env.clients[0].chain.get_block_by_height(height).unwrap();
     let chunks = &block.chunks();
     assert_eq!(chunks.len(), 1, "test assumes single shard");

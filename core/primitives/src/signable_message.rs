@@ -1,7 +1,7 @@
-use crate::hash::hash;
-use crate::types::AccountId;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{Signature, Signer};
+use near_primitives_core::hash::hash;
+use near_primitives_core::types::AccountId;
 
 // These numbers are picked to be compatible with the current protocol and how
 // transactions are defined in it. Introducing this is no protocol change. This
@@ -55,7 +55,7 @@ pub struct MessageDiscriminant {
 /// Only used for constructing a signature, not used to transmit messages. The
 /// discriminant prefix is implicit and should be known by the receiver based on
 /// the context in which the message is received.
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize)]
 pub struct SignableMessage<'a, T> {
     pub discriminant: MessageDiscriminant,
     pub msg: &'a T,
@@ -95,7 +95,7 @@ impl<'a, T: BorshSerialize> SignableMessage<'a, T> {
     }
 
     pub fn sign(&self, signer: &dyn Signer) -> Signature {
-        let bytes = self.try_to_vec().expect("Failed to deserialize");
+        let bytes = borsh::to_vec(&self).expect("Failed to deserialize");
         let hash = hash(&bytes);
         signer.sign(hash.as_bytes())
     }
@@ -220,11 +220,17 @@ impl From<SignableMessageType> for MessageDiscriminant {
 
 #[cfg(test)]
 mod tests {
-    use near_crypto::PublicKey;
+    use near_crypto::{InMemorySigner, KeyType, PublicKey};
 
     use super::*;
-    use crate::delegate_action::{DelegateAction, SignedDelegateAction};
-    use crate::test_utils::create_user_test_signer;
+    use crate::action::delegate::{DelegateAction, SignedDelegateAction};
+
+    // Note: this is currently a simplified copy of near-primitives::test_utils::create_user_test_signer
+    // TODO: consider whether it’s worth re-unifying them? it’s test-only code anyway.
+    fn create_user_test_signer(account_name: &str) -> InMemorySigner {
+        let account_id = account_name.parse().unwrap();
+        InMemorySigner::from_seed(account_id, KeyType::ED25519, account_name)
+    }
 
     // happy path for NEP-366 signature
     #[test]
@@ -235,10 +241,7 @@ mod tests {
 
         let delegate_action = delegate_action(sender_id, receiver_id, signer.public_key());
         let signable = SignableMessage::new(&delegate_action, SignableMessageType::DelegateAction);
-        let signed = SignedDelegateAction {
-            signature: signable.sign(&signer),
-            delegate_action: delegate_action,
-        };
+        let signed = SignedDelegateAction { signature: signable.sign(&signer), delegate_action };
 
         assert!(signed.verify());
     }
@@ -256,10 +259,7 @@ mod tests {
             discriminant: MessageDiscriminant::new_on_chain(wrong_nep).unwrap(),
             msg: &delegate_action,
         };
-        let signed = SignedDelegateAction {
-            signature: signable.sign(&signer),
-            delegate_action: delegate_action,
-        };
+        let signed = SignedDelegateAction { signature: signable.sign(&signer), delegate_action };
 
         assert!(!signed.verify());
     }
@@ -276,10 +276,7 @@ mod tests {
         // here we use it as an off-chain only signature
         let wrong_discriminant = MessageDiscriminant::new_off_chain(correct_nep).unwrap();
         let signable = SignableMessage { discriminant: wrong_discriminant, msg: &delegate_action };
-        let signed = SignedDelegateAction {
-            signature: signable.sign(&signer),
-            delegate_action: delegate_action,
-        };
+        let signed = SignedDelegateAction { signature: signable.sign(&signer), delegate_action };
 
         assert!(!signed.verify());
     }

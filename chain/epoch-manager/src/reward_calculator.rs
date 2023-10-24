@@ -38,7 +38,7 @@ impl RewardCalculator {
     }
     /// Calculate validator reward for an epoch based on their block and chunk production stats.
     /// Returns map of validators with their rewards and amount of newly minted tokens including to protocol's treasury.
-    /// See spec <https://nomicon.io/Economics/README.html#rewards-calculation>.
+    /// See spec <https://nomicon.io/Economics/Economic#validator-rewards-calculation>.
     pub fn calculate_reward(
         &self,
         validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,

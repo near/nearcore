@@ -3,75 +3,11 @@ use super::*;
 
 use crate::network_protocol::proto;
 use crate::network_protocol::PeerAddr;
-use crate::network_protocol::{Edge, PartialEdgeInfo, PeerInfo, SignedIpAddress};
-use borsh::{BorshDeserialize as _, BorshSerialize as _};
+use crate::network_protocol::{Edge, PartialEdgeInfo, PeerInfo};
+use borsh::BorshDeserialize as _;
 use near_primitives::network::AnnounceAccount;
 use protobuf::MessageField as MF;
 use std::net::{IpAddr, SocketAddr};
-
-////////////////////////////////////////
-// Parse std::net::IpAddr to Protocol Buffer and back
-#[derive(thiserror::Error, Debug)]
-pub enum ParseIpAddrError {
-    #[error("invalid IP")]
-    InvalidIP,
-}
-
-impl From<&std::net::IpAddr> for proto::IpAddr {
-    fn from(x: &std::net::IpAddr) -> Self {
-        Self {
-            ip: match x {
-                std::net::IpAddr::V4(ip) => ip.octets().to_vec(),
-                std::net::IpAddr::V6(ip) => ip.octets().to_vec(),
-            },
-            ..Self::default()
-        }
-    }
-}
-
-impl TryFrom<&proto::IpAddr> for std::net::IpAddr {
-    type Error = ParseIpAddrError;
-    fn try_from(x: &proto::IpAddr) -> Result<Self, Self::Error> {
-        let ip = match x.ip.len() {
-            4 => IpAddr::from(<[u8; 4]>::try_from(&x.ip[..]).unwrap()),
-            16 => IpAddr::from(<[u8; 16]>::try_from(&x.ip[..]).unwrap()),
-            _ => return Err(Self::Error::InvalidIP),
-        };
-        Ok(ip)
-    }
-}
-
-////////////////////////////////////////
-// Parse SignedIpAddr to Protocol Buffer and back
-#[derive(thiserror::Error, Debug)]
-pub enum ParseSignedIpAddrError {
-    #[error("ip_addr: {0}")]
-    IpAddr(ParseRequiredError<ParseIpAddrError>),
-    #[error("signed_owned_ip_address: {0}")]
-    Signature(ParseRequiredError<ParseSignatureError>),
-}
-
-impl From<&SignedIpAddress> for proto::SignedIpAddr {
-    fn from(x: &SignedIpAddress) -> Self {
-        Self {
-            ip_addr: MF::some((&x.ip_address).into()),
-            signature: MF::some((&x.signature).into()),
-            ..Self::default()
-        }
-    }
-}
-
-impl TryFrom<&proto::SignedIpAddr> for SignedIpAddress {
-    type Error = ParseSignedIpAddrError;
-    fn try_from(p: &proto::SignedIpAddr) -> Result<Self, Self::Error> {
-        Ok(Self {
-            ip_address: try_from_required(&p.ip_addr).map_err(Self::Error::IpAddr)?,
-            signature: try_from_required(&p.signature).map_err(Self::Error::Signature)?,
-        })
-    }
-}
-
-////////////////////////////////////////
 
 #[derive(thiserror::Error, Debug)]
 pub enum ParseSocketAddrError {
@@ -141,11 +77,11 @@ impl TryFrom<&proto::PeerAddr> for PeerAddr {
 
 impl From<&PeerInfo> for proto::PeerInfo {
     fn from(x: &PeerInfo) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Self::default() }
     }
 }
 
-pub type ParsePeerInfoError = borsh::maybestd::io::Error;
+pub type ParsePeerInfoError = std::io::Error;
 
 impl TryFrom<&proto::PeerInfo> for PeerInfo {
     type Error = ParsePeerInfoError;
@@ -156,11 +92,11 @@ impl TryFrom<&proto::PeerInfo> for PeerInfo {
 
 ////////////////////////////////////////
 
-pub type ParsePartialEdgeInfoError = borsh::maybestd::io::Error;
+pub type ParsePartialEdgeInfoError = std::io::Error;
 
 impl From<&PartialEdgeInfo> for proto::PartialEdgeInfo {
     fn from(x: &PartialEdgeInfo) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Self::default() }
     }
 }
 
@@ -173,11 +109,11 @@ impl TryFrom<&proto::PartialEdgeInfo> for PartialEdgeInfo {
 
 ////////////////////////////////////////
 
-pub type ParseEdgeError = borsh::maybestd::io::Error;
+pub type ParseEdgeError = std::io::Error;
 
 impl From<&Edge> for proto::Edge {
     fn from(x: &Edge) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Self::default() }
     }
 }
 
@@ -190,11 +126,11 @@ impl TryFrom<&proto::Edge> for Edge {
 
 ////////////////////////////////////////
 
-pub type ParseAnnounceAccountError = borsh::maybestd::io::Error;
+pub type ParseAnnounceAccountError = std::io::Error;
 
 impl From<&AnnounceAccount> for proto::AnnounceAccount {
     fn from(x: &AnnounceAccount) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Self::default() }
     }
 }
 

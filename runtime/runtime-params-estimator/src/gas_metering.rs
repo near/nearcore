@@ -1,13 +1,12 @@
 use crate::config::Config;
 use crate::gas_cost::{GasCost, LeastSquaresTolerance};
 use crate::vm_estimator::create_context;
-use near_primitives::config::VMConfig;
-use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::types::CompiledContractCache;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::StoreCompiledContractCache;
-use near_vm_logic::mocks::mock_external::MockedExternal;
+use near_vm_runner::logic::mocks::mock_external::MockedExternal;
+use near_vm_runner::logic::CompiledContractCache;
+use near_vm_runner::ContractCode;
 use std::fmt::Write;
 
 pub(crate) fn gas_metering_cost(config: &Config) -> (GasCost, GasCost) {
@@ -133,8 +132,13 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
     let vm_config_gas = runtime_config.wasm_config.clone();
+    let vm_config_free = {
+        let mut cfg = vm_config_gas.clone();
+        cfg.make_free();
+        cfg
+    };
     let runtime = vm_kind.runtime(vm_config_gas).expect("runtime has not been enabled");
-    let runtime_free_gas = vm_kind.runtime(VMConfig::free()).expect("runtime has not been enabled");
+    let runtime_free_gas = vm_kind.runtime(vm_config_free).expect("runtime has not been enabled");
     let fees = runtime_config.fees.clone();
     let mut fake_external = MockedExternal::new();
     let fake_context = create_context(vec![]);
@@ -150,7 +154,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
                 fake_context.clone(),
                 &fees,
                 &promise_results,
-                PROTOCOL_VERSION,
                 cache,
             )
             .expect("fatal_error");
@@ -171,7 +174,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
                 fake_context.clone(),
                 &fees,
                 &promise_results,
-                PROTOCOL_VERSION,
                 cache,
             )
             .expect("fatal_error");
@@ -189,7 +191,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
                 fake_context.clone(),
                 &fees,
                 &promise_results,
-                PROTOCOL_VERSION,
                 cache,
             )
             .expect("fatal_error");
@@ -207,7 +208,6 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
                 fake_context.clone(),
                 &fees,
                 &promise_results,
-                PROTOCOL_VERSION,
                 cache,
             )
             .expect("fatal_error");

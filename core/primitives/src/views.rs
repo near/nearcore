@@ -4,14 +4,15 @@
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
+use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::{
     BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderInnerRestV3,
     BlockHeaderV1, BlockHeaderV2, BlockHeaderV3,
 };
+use crate::block_header::{BlockHeaderInnerRestV4, BlockHeaderV4};
 use crate::challenge::{Challenge, ChallengesResult};
-use crate::contract::ContractCode;
-use crate::delegate_action::{DelegateAction, SignedDelegateAction};
+use crate::checked_feature;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, MerklePath};
@@ -30,18 +31,20 @@ use crate::transaction::{
     SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
-    AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
-    EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind,
-    StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
-    StoreValue, ValidatorKickoutReason,
+    AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochHeight, EpochId, FunctionArgs, Gas,
+    Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind, StateChangeValue,
+    StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey, StoreValue,
+    ValidatorKickoutReason,
 };
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
-use near_primitives_core::config::{ActionCosts, ExtCosts, ParameterCost, VMConfig};
+use near_primitives_core::config::{ActionCosts, ExtCosts, ParameterCost};
 use near_primitives_core::runtime::fees::Fee;
+use near_vm_runner::logic::CompiledContractCache;
+use near_vm_runner::ContractCode;
 use num_rational::Rational32;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -453,6 +456,34 @@ pub struct EdgeView {
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub struct NetworkGraphView {
     pub edges: Vec<EdgeView>,
+    pub next_hops: HashMap<PeerId, Vec<PeerId>>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub struct LabeledEdgeView {
+    pub peer0: u32,
+    pub peer1: u32,
+    pub nonce: u64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub struct EdgeCacheView {
+    pub peer_labels: HashMap<PeerId, u32>,
+    pub spanning_trees: HashMap<u32, Vec<LabeledEdgeView>>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub struct PeerDistancesView {
+    pub distance: Vec<Option<u32>>,
+    pub min_nonce: u64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub struct NetworkRoutesView {
+    pub edge_cache: EdgeCacheView,
+    pub local_edges: HashMap<PeerId, EdgeView>,
+    pub peer_distances: HashMap<PeerId, PeerDistancesView>,
+    pub my_distances: HashMap<PeerId, u32>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
@@ -695,6 +726,7 @@ pub struct BlockHeaderView {
     pub hash: CryptoHash,
     pub prev_hash: CryptoHash,
     pub prev_state_root: CryptoHash,
+    pub block_body_hash: Option<CryptoHash>,
     pub chunk_receipts_root: CryptoHash,
     pub chunk_headers_root: CryptoHash,
     pub chunk_tx_root: CryptoHash,
@@ -725,7 +757,7 @@ pub struct BlockHeaderView {
     pub next_bp_hash: CryptoHash,
     pub block_merkle_root: CryptoHash,
     pub epoch_sync_data_hash: Option<CryptoHash>,
-    pub approvals: Vec<Option<Signature>>,
+    pub approvals: Vec<Option<Box<Signature>>>,
     pub signature: Signature,
     pub latest_protocol_version: ProtocolVersion,
 }
@@ -740,7 +772,8 @@ impl From<BlockHeader> for BlockHeaderView {
             hash: *header.hash(),
             prev_hash: *header.prev_hash(),
             prev_state_root: *header.prev_state_root(),
-            chunk_receipts_root: *header.chunk_receipts_root(),
+            block_body_hash: header.block_body_hash(),
+            chunk_receipts_root: *header.prev_chunk_outgoing_receipts_root(),
             chunk_headers_root: *header.chunk_headers_root(),
             chunk_tx_root: *header.chunk_tx_root(),
             chunks_included: header.chunks_included(),
@@ -749,14 +782,14 @@ impl From<BlockHeader> for BlockHeaderView {
             timestamp: header.raw_timestamp(),
             timestamp_nanosec: header.raw_timestamp(),
             random_value: *header.random_value(),
-            validator_proposals: header.validator_proposals().map(Into::into).collect(),
+            validator_proposals: header.prev_validator_proposals().map(Into::into).collect(),
             chunk_mask: header.chunk_mask().to_vec(),
             block_ordinal: if header.block_ordinal() != 0 {
                 Some(header.block_ordinal())
             } else {
                 None
             },
-            gas_price: header.gas_price(),
+            gas_price: header.next_gas_price(),
             rent_paid: 0,
             validator_reward: 0,
             total_supply: header.total_supply(),
@@ -780,7 +813,7 @@ impl From<BlockHeaderView> for BlockHeader {
             epoch_id: EpochId(view.epoch_id),
             next_epoch_id: EpochId(view.next_epoch_id),
             prev_state_root: view.prev_state_root,
-            outcome_root: view.outcome_root,
+            prev_outcome_root: view.outcome_root,
             timestamp: view.timestamp,
             next_bp_hash: view.next_bp_hash,
             block_merkle_root: view.block_merkle_root,
@@ -797,15 +830,15 @@ impl From<BlockHeaderView> for BlockHeader {
                 prev_hash: view.prev_hash,
                 inner_lite,
                 inner_rest: BlockHeaderInnerRest {
-                    chunk_receipts_root: view.chunk_receipts_root,
+                    prev_chunk_outgoing_receipts_root: view.chunk_receipts_root,
                     chunk_headers_root: view.chunk_headers_root,
                     chunk_tx_root: view.chunk_tx_root,
                     chunks_included: view.chunks_included,
                     challenges_root: view.challenges_root,
                     random_value: view.random_value,
-                    validator_proposals,
+                    prev_validator_proposals: validator_proposals,
                     chunk_mask: view.chunk_mask,
-                    gas_price: view.gas_price,
+                    next_gas_price: view.gas_price,
                     total_supply: view.total_supply,
                     challenges_result: view.challenges_result,
                     last_final_block: view.last_final_block,
@@ -828,14 +861,14 @@ impl From<BlockHeaderView> for BlockHeader {
                 prev_hash: view.prev_hash,
                 inner_lite,
                 inner_rest: BlockHeaderInnerRestV2 {
-                    chunk_receipts_root: view.chunk_receipts_root,
+                    prev_chunk_outgoing_receipts_root: view.chunk_receipts_root,
                     chunk_headers_root: view.chunk_headers_root,
                     chunk_tx_root: view.chunk_tx_root,
                     challenges_root: view.challenges_root,
                     random_value: view.random_value,
-                    validator_proposals,
+                    prev_validator_proposals: validator_proposals,
                     chunk_mask: view.chunk_mask,
-                    gas_price: view.gas_price,
+                    next_gas_price: view.gas_price,
                     total_supply: view.total_supply,
                     challenges_result: view.challenges_result,
                     last_final_block: view.last_final_block,
@@ -848,23 +881,23 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV2(Arc::new(header))
-        } else {
+        } else if !checked_feature!("stable", BlockHeaderV4, view.latest_protocol_version) {
             let mut header = BlockHeaderV3 {
                 prev_hash: view.prev_hash,
                 inner_lite,
                 inner_rest: BlockHeaderInnerRestV3 {
-                    chunk_receipts_root: view.chunk_receipts_root,
+                    prev_chunk_outgoing_receipts_root: view.chunk_receipts_root,
                     chunk_headers_root: view.chunk_headers_root,
                     chunk_tx_root: view.chunk_tx_root,
                     challenges_root: view.challenges_root,
                     random_value: view.random_value,
-                    validator_proposals: view
+                    prev_validator_proposals: view
                         .validator_proposals
                         .into_iter()
                         .map(Into::into)
                         .collect(),
                     chunk_mask: view.chunk_mask,
-                    gas_price: view.gas_price,
+                    next_gas_price: view.gas_price,
                     block_ordinal: view.block_ordinal.unwrap_or(0),
                     total_supply: view.total_supply,
                     challenges_result: view.challenges_result,
@@ -880,6 +913,39 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV3(Arc::new(header))
+        } else {
+            let mut header = BlockHeaderV4 {
+                prev_hash: view.prev_hash,
+                inner_lite,
+                inner_rest: BlockHeaderInnerRestV4 {
+                    block_body_hash: view.block_body_hash.unwrap_or_default(),
+                    prev_chunk_outgoing_receipts_root: view.chunk_receipts_root,
+                    chunk_headers_root: view.chunk_headers_root,
+                    chunk_tx_root: view.chunk_tx_root,
+                    challenges_root: view.challenges_root,
+                    random_value: view.random_value,
+                    prev_validator_proposals: view
+                        .validator_proposals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                    chunk_mask: view.chunk_mask,
+                    next_gas_price: view.gas_price,
+                    block_ordinal: view.block_ordinal.unwrap_or(0),
+                    total_supply: view.total_supply,
+                    challenges_result: view.challenges_result,
+                    last_final_block: view.last_final_block,
+                    last_ds_final_block: view.last_ds_final_block,
+                    prev_height: view.prev_height.unwrap_or_default(),
+                    epoch_sync_data_hash: view.epoch_sync_data_hash,
+                    approvals: view.approvals.clone(),
+                    latest_protocol_version: view.latest_protocol_version,
+                },
+                signature: view.signature,
+                hash: CryptoHash::default(),
+            };
+            header.init();
+            BlockHeader::BlockHeaderV4(Arc::new(header))
         }
     }
 }
@@ -914,13 +980,15 @@ impl From<BlockHeader> for BlockHeaderInnerLiteView {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite,
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite,
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_lite,
+            BlockHeader::BlockHeaderV5(header) => &header.inner_lite,
         };
         BlockHeaderInnerLiteView {
             height: inner_lite.height,
             epoch_id: inner_lite.epoch_id.0,
             next_epoch_id: inner_lite.next_epoch_id.0,
             prev_state_root: inner_lite.prev_state_root,
-            outcome_root: inner_lite.outcome_root,
+            outcome_root: inner_lite.prev_outcome_root,
             timestamp: inner_lite.timestamp,
             timestamp_nanosec: inner_lite.timestamp,
             next_bp_hash: inner_lite.next_bp_hash,
@@ -936,7 +1004,7 @@ impl From<BlockHeaderInnerLiteView> for BlockHeaderInnerLite {
             epoch_id: EpochId(view.epoch_id),
             next_epoch_id: EpochId(view.next_epoch_id),
             prev_state_root: view.prev_state_root,
-            outcome_root: view.outcome_root,
+            prev_outcome_root: view.outcome_root,
             timestamp: view.timestamp_nanosec,
             next_bp_hash: view.next_bp_hash,
             block_merkle_root: view.block_merkle_root,
@@ -980,21 +1048,21 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
         ChunkHeaderView {
             chunk_hash: hash.0,
             prev_block_hash: *inner.prev_block_hash(),
-            outcome_root: *inner.outcome_root(),
+            outcome_root: *inner.prev_outcome_root(),
             prev_state_root: *inner.prev_state_root(),
             encoded_merkle_root: *inner.encoded_merkle_root(),
             encoded_length: inner.encoded_length(),
             height_created: inner.height_created(),
             height_included,
             shard_id: inner.shard_id(),
-            gas_used: inner.gas_used(),
+            gas_used: inner.prev_gas_used(),
             gas_limit: inner.gas_limit(),
             rent_paid: 0,
             validator_reward: 0,
-            balance_burnt: inner.balance_burnt(),
-            outgoing_receipts_root: *inner.outgoing_receipts_root(),
+            balance_burnt: inner.prev_balance_burnt(),
+            outgoing_receipts_root: *inner.prev_outgoing_receipts_root(),
             tx_root: *inner.tx_root(),
-            validator_proposals: inner.validator_proposals().map(Into::into).collect(),
+            validator_proposals: inner.prev_validator_proposals().map(Into::into).collect(),
             signature,
         }
     }
@@ -1006,17 +1074,21 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
             inner: ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
                 prev_block_hash: view.prev_block_hash,
                 prev_state_root: view.prev_state_root,
-                outcome_root: view.outcome_root,
+                prev_outcome_root: view.outcome_root,
                 encoded_merkle_root: view.encoded_merkle_root,
                 encoded_length: view.encoded_length,
                 height_created: view.height_created,
                 shard_id: view.shard_id,
-                gas_used: view.gas_used,
+                prev_gas_used: view.gas_used,
                 gas_limit: view.gas_limit,
-                balance_burnt: view.balance_burnt,
-                outgoing_receipts_root: view.outgoing_receipts_root,
+                prev_balance_burnt: view.balance_burnt,
+                prev_outgoing_receipts_root: view.outgoing_receipts_root,
                 tx_root: view.tx_root,
-                validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
+                prev_validator_proposals: view
+                    .validator_proposals
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
             }),
             height_included: view.height_included,
             signature: view.signature,
@@ -1059,13 +1131,19 @@ impl ChunkView {
                 author,
                 header: ShardChunkHeader::V1(chunk.header).into(),
                 transactions: chunk.transactions.into_iter().map(Into::into).collect(),
-                receipts: chunk.receipts.into_iter().map(Into::into).collect(),
+                receipts: chunk.prev_outgoing_receipts.into_iter().map(Into::into).collect(),
             },
             ShardChunk::V2(chunk) => Self {
                 author,
                 header: chunk.header.into(),
                 transactions: chunk.transactions.into_iter().map(Into::into).collect(),
-                receipts: chunk.receipts.into_iter().map(Into::into).collect(),
+                receipts: chunk.prev_outgoing_receipts.into_iter().map(Into::into).collect(),
+            },
+            ShardChunk::V3(chunk) => Self {
+                author,
+                header: chunk.header.into(),
+                transactions: chunk.transactions.into_iter().map(Into::into).collect(),
+                receipts: chunk.outgoing_receipts.into_iter().map(Into::into).collect(),
             },
         }
     }
@@ -1164,31 +1242,28 @@ impl TryFrom<ActionView> for Action {
                 Action::DeployContract(DeployContractAction { code })
             }
             ActionView::FunctionCall { method_name, args, gas, deposit } => {
-                Action::FunctionCall(FunctionCallAction {
+                Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name,
                     args: args.into(),
                     gas,
                     deposit,
-                })
+                }))
             }
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
             ActionView::Stake { stake, public_key } => {
-                Action::Stake(StakeAction { stake, public_key })
+                Action::Stake(Box::new(StakeAction { stake, public_key }))
             }
             ActionView::AddKey { public_key, access_key } => {
-                Action::AddKey(AddKeyAction { public_key, access_key: access_key.into() })
+                Action::AddKey(Box::new(AddKeyAction { public_key, access_key: access_key.into() }))
             }
             ActionView::DeleteKey { public_key } => {
-                Action::DeleteKey(DeleteKeyAction { public_key })
+                Action::DeleteKey(Box::new(DeleteKeyAction { public_key }))
             }
             ActionView::DeleteAccount { beneficiary_id } => {
                 Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
             }
             ActionView::Delegate { delegate_action, signature } => {
-                Action::Delegate(SignedDelegateAction {
-                    delegate_action: delegate_action,
-                    signature,
-                })
+                Action::Delegate(Box::new(SignedDelegateAction { delegate_action, signature }))
             }
         })
     }
@@ -1585,6 +1660,42 @@ impl ExecutionOutcomeWithIdView {
     }
 }
 
+pub struct TxStatusView {
+    pub execution_outcome: Option<FinalExecutionOutcomeViewEnum>,
+    pub status: TxExecutionStatus,
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TxExecutionStatus {
+    /// Transaction is waiting to be included into the block
+    None,
+    /// Transaction is included into the block. The block may be not finalised yet
+    Included,
+    /// Transaction is included into finalised block
+    IncludedFinal,
+    /// Transaction is included into finalised block +
+    /// All the transaction receipts finished their execution.
+    /// The corresponding blocks for each receipt may be not finalised yet
+    Executed,
+    /// Transaction is included into finalised block +
+    /// Execution of transaction receipts is finalised
+    #[default]
+    Final,
+}
+
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, Debug)]
 #[serde(untagged)]
 pub enum FinalExecutionOutcomeViewEnum {
@@ -1601,12 +1712,28 @@ impl FinalExecutionOutcomeViewEnum {
     }
 }
 
-/// Final execution outcome of the transaction and all of subsequent the receipts.
+impl TxStatusView {
+    pub fn into_outcome(self) -> Option<FinalExecutionOutcomeView> {
+        self.execution_outcome.map(|outcome| match outcome {
+            FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(outcome) => outcome,
+            FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(outcome) => {
+                outcome.final_outcome
+            }
+        })
+    }
+}
+
+/// Execution outcome of the transaction and all of subsequent the receipts.
+/// Could be not finalised yet
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
 )]
 pub struct FinalExecutionOutcomeView {
-    /// Execution status. Contains the result in case of successful execution.
+    /// Execution status defined by chain.rs:get_final_transaction_result
+    /// FinalExecutionStatus::NotStarted - the tx is not converted to the receipt yet
+    /// FinalExecutionStatus::Started - we have at least 1 receipt, but the first leaf receipt_id (using dfs) hasn't finished the execution
+    /// FinalExecutionStatus::Failure - the result of the first leaf receipt_id
+    /// FinalExecutionStatus::SuccessValue - the result of the first leaf receipt_id
     pub status: FinalExecutionStatus,
     /// Signed Transaction
     pub transaction: SignedTransactionView,
@@ -1947,7 +2074,7 @@ pub struct LightClientBlockView {
     pub inner_lite: BlockHeaderInnerLiteView,
     pub inner_rest_hash: CryptoHash,
     pub next_bps: Option<Vec<ValidatorStakeView>>,
-    pub approvals_after_next: Vec<Option<Signature>>,
+    pub approvals_after_next: Vec<Option<Box<Signature>>>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
@@ -1971,7 +2098,7 @@ impl LightClientBlockLiteView {
         let block_header_inner_lite: BlockHeaderInnerLite = self.inner_lite.clone().into();
         combine_hash(
             &combine_hash(
-                &hash(&block_header_inner_lite.try_to_vec().unwrap()),
+                &hash(&borsh::to_vec(&block_header_inner_lite).unwrap()),
                 &self.inner_rest_hash,
             ),
             &self.prev_block_hash,
@@ -2409,31 +2536,68 @@ pub struct VMConfigView {
     /// Gas cost of a regular operation.
     pub regular_op_cost: u32,
 
+    /// See [`VMConfig::vm_kind`].
+    pub vm_kind: near_vm_runner::VMKind,
+    /// See [`VMConfig::disable_9393_fix`].
+    pub disable_9393_fix: bool,
+    /// See [`VMConfig::flat_storage_reads`].
+    pub storage_get_mode: near_vm_runner::logic::StorageGetMode,
+    /// See [`VMConfig::fix_contract_loading_cost`].
+    pub fix_contract_loading_cost: bool,
+    /// See [`VMConfig::implicit_account_creation`].
+    pub implicit_account_creation: bool,
+    /// See [`VMConfig::math_extension`].
+    pub math_extension: bool,
+    /// See [`VMConfig::ed25519_verify`].
+    pub ed25519_verify: bool,
+    /// See [`VMConfig::alt_bn128`].
+    pub alt_bn128: bool,
+    /// See [`VMConfig::function_call_weight`].
+    pub function_call_weight: bool,
+
     /// Describes limits for VM and Runtime.
     ///
     /// TODO: Consider changing this to `VMLimitConfigView` to avoid dependency
     /// on runtime.
-    pub limit_config: near_primitives_core::config::VMLimitConfig,
+    pub limit_config: near_vm_runner::logic::LimitConfig,
 }
 
-impl From<VMConfig> for VMConfigView {
-    fn from(config: VMConfig) -> Self {
+impl From<near_vm_runner::logic::Config> for VMConfigView {
+    fn from(config: near_vm_runner::logic::Config) -> Self {
         Self {
             ext_costs: ExtCostsConfigView::from(config.ext_costs),
             grow_mem_cost: config.grow_mem_cost,
             regular_op_cost: config.regular_op_cost,
+            disable_9393_fix: config.disable_9393_fix,
             limit_config: config.limit_config,
+            storage_get_mode: config.storage_get_mode,
+            fix_contract_loading_cost: config.fix_contract_loading_cost,
+            implicit_account_creation: config.implicit_account_creation,
+            math_extension: config.math_extension,
+            ed25519_verify: config.ed25519_verify,
+            alt_bn128: config.alt_bn128,
+            function_call_weight: config.function_call_weight,
+            vm_kind: config.vm_kind,
         }
     }
 }
 
-impl From<VMConfigView> for VMConfig {
+impl From<VMConfigView> for near_vm_runner::logic::Config {
     fn from(view: VMConfigView) -> Self {
         Self {
             ext_costs: near_primitives_core::config::ExtCostsConfig::from(view.ext_costs),
             grow_mem_cost: view.grow_mem_cost,
             regular_op_cost: view.regular_op_cost,
+            disable_9393_fix: view.disable_9393_fix,
             limit_config: view.limit_config,
+            storage_get_mode: view.storage_get_mode,
+            fix_contract_loading_cost: view.fix_contract_loading_cost,
+            implicit_account_creation: view.implicit_account_creation,
+            math_extension: view.math_extension,
+            ed25519_verify: view.ed25519_verify,
+            alt_bn128: view.alt_bn128,
+            function_call_weight: view.function_call_weight,
+            vm_kind: view.vm_kind,
         }
     }
 }
@@ -2754,31 +2918,29 @@ impl From<ExtCostsConfigView> for near_primitives_core::config::ExtCostsConfig {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(not(feature = "nightly"))]
     use super::ExecutionMetadataView;
-    #[cfg(not(feature = "nightly"))]
     use crate::transaction::ExecutionMetadata;
-    #[cfg(not(feature = "nightly"))]
-    use near_primitives_core::profile::{ProfileDataV2, ProfileDataV3};
+    use near_vm_runner::{ProfileDataV2, ProfileDataV3};
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
     #[test]
-    #[cfg(not(feature = "nightly"))]
+    #[cfg_attr(feature = "nightly", ignore)]
     fn test_runtime_config_view() {
         use crate::runtime::config::RuntimeConfig;
+        use crate::runtime::config_store::RuntimeConfigStore;
         use crate::views::RuntimeConfigView;
+        use near_primitives_core::version::PROTOCOL_VERSION;
 
-        // FIXME(#8202): This is snapshotting a config used for *tests*, rather than proper
-        // production configurations. That seems… subpar?
-        let config = RuntimeConfig::test();
-        let view = RuntimeConfigView::from(config);
+        let config_store = RuntimeConfigStore::new(None);
+        let config = config_store.get_config(PROTOCOL_VERSION);
+        let view = RuntimeConfigView::from(RuntimeConfig::clone(config));
         insta::assert_json_snapshot!(&view);
     }
 
     /// `ExecutionMetadataView` with profile V1 displayed on the RPC should not change.
     #[test]
-    #[cfg(not(feature = "nightly"))]
+    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v1_view() {
         let metadata = ExecutionMetadata::V1;
         let view = ExecutionMetadataView::from(metadata);
@@ -2787,7 +2949,7 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V2 displayed on the RPC should not change.
     #[test]
-    #[cfg(not(feature = "nightly"))]
+    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v2_view() {
         let metadata = ExecutionMetadata::V2(ProfileDataV2::test());
         let view = ExecutionMetadataView::from(metadata);
@@ -2796,7 +2958,7 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V3 displayed on the RPC should not change.
     #[test]
-    #[cfg(not(feature = "nightly"))]
+    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v3_view() {
         let metadata = ExecutionMetadata::V3(ProfileDataV3::test());
         let view = ExecutionMetadataView::from(metadata);

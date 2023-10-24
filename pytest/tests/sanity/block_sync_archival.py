@@ -42,7 +42,7 @@ import cluster
 from configured_logger import logger
 import utils
 
-EPOCH_LENGTH = 5
+EPOCH_LENGTH = 20
 TARGET_HEIGHT = 20 * EPOCH_LENGTH
 
 _DurationMaybe = typing.Optional[datetime.timedelta]

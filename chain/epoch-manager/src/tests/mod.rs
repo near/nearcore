@@ -1084,11 +1084,11 @@ fn test_expected_chunks() {
     assert_eq!(
         epoch_info.validator_kickout(),
         &[(
-            "test1".parse().unwrap(),
+            "test1".parse::<AccountId>().unwrap(),
             ValidatorKickoutReason::NotEnoughBlocks { produced: 0, expected }
         )]
         .into_iter()
-        .collect()
+        .collect::<HashMap<_, _>>()
     );
 }
 
@@ -1169,7 +1169,7 @@ fn test_expected_chunks_prev_block_not_produced() {
             ValidatorKickoutReason::NotEnoughBlocks { produced: 0, expected }
         )]
         .into_iter()
-        .collect()
+        .collect::<HashMap<_, _>>()
     );
 }
 
@@ -1274,7 +1274,7 @@ fn test_epoch_info_aggregator_data_loss() {
         ]
         .into_iter()
         .map(|p| (p.account_id().clone(), p))
-        .collect()
+        .collect::<BTreeMap<_, _>>()
     );
 }
 
@@ -1362,7 +1362,7 @@ fn test_epoch_info_aggregator_reorg_beginning_of_epoch() {
 }
 
 fn count_missing_blocks(
-    epoch_manager: &mut EpochManager,
+    epoch_manager: &EpochManager,
     epoch_id: &EpochId,
     height_range: std::ops::Range<u64>,
     produced_heights: &[u64],
@@ -2043,7 +2043,7 @@ fn check_kickout(epoch_info: &EpochInfo, reasons: &[(&str, ValidatorKickoutReaso
     let kickout = reasons
         .into_iter()
         .map(|(account, reason)| (account.parse().unwrap(), reason.clone()))
-        .collect();
+        .collect::<HashMap<_, _>>();
     assert_eq!(epoch_info.validator_kickout(), &kickout);
 }
 
@@ -2207,7 +2207,7 @@ fn test_protocol_version_switch_with_many_seats() {
         validator_selection_config: Default::default(),
         validator_max_kickout_stake_perc: 100,
     };
-    let config = AllEpochConfig::new(false, epoch_config);
+    let config = AllEpochConfig::new(false, epoch_config, "test-chain");
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
@@ -2507,7 +2507,6 @@ fn test_validator_kickout_sanity() {
 #[test]
 /// Test that the stake of validators kicked out in an epoch doesn't exceed the max_kickout_stake_ratio
 fn test_max_kickout_stake_ratio() {
-    #[allow(unused_mut)]
     let mut epoch_config =
         epoch_config(5, 2, 4, 0, 90, 80, 0).for_protocol_version(PROTOCOL_VERSION);
     let accounts = vec![

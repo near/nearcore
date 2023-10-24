@@ -1,8 +1,15 @@
 use near_o11y::metrics::{
-    exponential_buckets, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_gauge, Histogram, HistogramVec, IntCounter, IntGauge,
+    exponential_buckets, try_create_histogram, try_create_histogram_vec,
+    try_create_histogram_with_buckets, try_create_int_counter, try_create_int_gauge,
+    try_create_int_gauge_vec, Histogram, HistogramVec, IntCounter, IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
+
+fn processing_time_buckets() -> Vec<f64> {
+    let mut buckets = vec![0.01, 0.025, 0.05, 0.1, 0.25, 0.5];
+    buckets.extend_from_slice(&exponential_buckets(1.0, 1.3, 12).unwrap());
+    buckets
+}
 
 pub static BLOCK_PROCESSING_ATTEMPTS_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
@@ -16,15 +23,18 @@ pub static BLOCK_PROCESSED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
         .unwrap()
 });
 pub static BLOCK_PROCESSING_TIME: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram("near_block_processing_time", "Time taken to process blocks successfully, from when a block is ready to be processed till when the processing is finished. Measures only the time taken by the successful attempts of block processing")
-        .unwrap()
+    try_create_histogram_with_buckets(
+        "near_block_processing_time", 
+        "Time taken to process blocks successfully, from when a block is ready to be processed till when the processing is finished. Measures only the time taken by the successful attempts of block processing", 
+        processing_time_buckets()
+    ).unwrap()
 });
 pub static APPLYING_CHUNKS_TIME: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_applying_chunks_time",
         "Time taken to apply chunks per shard",
         &["shard_id"],
-        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
+        Some(processing_time_buckets()),
     )
     .unwrap()
 });
@@ -109,4 +119,103 @@ pub static STATE_PART_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
 });
 pub static NUM_INVALID_BLOCKS: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_num_invalid_blocks", "Number of invalid blocks").unwrap()
+});
+pub(crate) static SCHEDULED_CATCHUP_BLOCK: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_catchup_scheduled_block_height",
+        "Tracks the progress of blocks catching up",
+    )
+    .unwrap()
+});
+pub(crate) static LARGEST_TARGET_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_largest_target_height",
+        "The largest height for which we sent an approval (or skip)",
+    )
+    .unwrap()
+});
+pub(crate) static LARGEST_THRESHOLD_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_largest_threshold_height",
+        "The largest height where we got enough approvals",
+    )
+    .unwrap()
+});
+pub(crate) static LARGEST_APPROVAL_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_largest_approval_height",
+        "The largest height for which we've got at least one approval",
+    )
+    .unwrap()
+});
+pub(crate) static LARGEST_FINAL_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_largest_final_height",
+        "Largest height for which we saw a block containing 1/2 endorsements in it",
+    )
+    .unwrap()
+});
+
+pub(crate) enum ReshardingStatus {
+    /// The StateSplitRequest was send to the SyncJobsActor.
+    Scheduled,
+    /// The SyncJobsActor is performing the resharding.
+    BuildingState,
+    /// The resharding is finished.
+    Finished,
+}
+
+impl From<ReshardingStatus> for i64 {
+    /// Converts status to integer to export to prometheus later.
+    /// Cast inside enum does not work because it is not fieldless.
+    fn from(value: ReshardingStatus) -> Self {
+        match value {
+            ReshardingStatus::Scheduled => 0,
+            ReshardingStatus::BuildingState => 1,
+            ReshardingStatus::Finished => 2,
+        }
+    }
+}
+
+pub(crate) static SHARD_LAYOUT_VERSION: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_shard_layout_version",
+        "The version of the shard layout of the current head.",
+    )
+    .unwrap()
+});
+
+pub(crate) static SHARD_LAYOUT_NUM_SHARDS: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_shard_layout_num_shards",
+        "The number of shards in the shard layout of the current head.",
+    )
+    .unwrap()
+});
+
+pub(crate) static RESHARDING_BATCH_COUNT: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_resharding_batch_count",
+        "The number of batches committed to the db.",
+        &["shard_uid"],
+    )
+    .unwrap()
+});
+
+pub(crate) static RESHARDING_BATCH_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_resharding_batch_size",
+        "The size of batches committed to the db.",
+        &["shard_uid"],
+    )
+    .unwrap()
+});
+
+pub(crate) static RESHARDING_STATUS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_resharding_status",
+        "The status of the resharding process.",
+        &["shard_uid"],
+    )
+    .unwrap()
 });

@@ -4,6 +4,7 @@ use near_client::ViewClientActor;
 use near_o11y::WithSpanContextExt;
 use validated_operations::ValidatedOperation;
 
+pub(crate) mod nep141;
 mod transactions;
 mod validated_operations;
 
@@ -114,6 +115,7 @@ async fn convert_genesis_records_to_transaction(
 pub(crate) async fn convert_block_to_transactions(
     view_client_addr: &Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
+    currencies: &Option<Vec<crate::models::Currency>>,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     let state_changes = view_client_addr
         .send(
@@ -166,8 +168,12 @@ pub(crate) async fn convert_block_to_transactions(
     let runtime_config = crate::utils::query_protocol_config(block.header.hash, view_client_addr)
         .await?
         .runtime_config;
-    let exec_to_rx =
-        transactions::ExecutionToReceipts::for_block(view_client_addr, block.header.hash).await?;
+    let exec_to_rx = transactions::ExecutionToReceipts::for_block(
+        &view_client_addr,
+        block.header.hash,
+        currencies,
+    )
+    .await?;
     transactions::convert_block_changes_to_transactions(
         view_client_addr,
         &runtime_config,
@@ -184,11 +190,12 @@ pub(crate) async fn collect_transactions(
     genesis: &Genesis,
     view_client_addr: &Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
+    currencies: &Option<Vec<crate::models::Currency>>,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     if block.header.prev_hash == Default::default() {
         Ok(vec![convert_genesis_records_to_transaction(genesis, view_client_addr, block).await?])
     } else {
-        convert_block_to_transactions(view_client_addr, block).await
+        convert_block_to_transactions(view_client_addr, block, currencies).await
     }
 }
 
@@ -724,8 +731,8 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                         .try_set(&intitiate_signed_delegate_action_operation.sender_account)?;
 
                     let delegate_action: near_primitives::transaction::Action =
-                        near_primitives::delegate_action::SignedDelegateAction {
-                            delegate_action: near_primitives::delegate_action::DelegateAction {
+                        near_primitives::action::delegate::SignedDelegateAction {
+                            delegate_action: near_primitives::action::delegate::DelegateAction {
                                 sender_id: initiate_delegate_action_operation
                                     .sender_account
                                     .address
@@ -826,7 +833,7 @@ mod tests {
     use near_actix_test_utils::run_actix;
     use near_client::test_utils::setup_no_network;
     use near_crypto::{KeyType, SecretKey};
-    use near_primitives::delegate_action::{DelegateAction, SignedDelegateAction};
+    use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
     use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::transaction::{Action, TransferAction};
     use near_primitives::views::RuntimeConfigView;
@@ -1096,7 +1103,7 @@ mod tests {
         let original_near_actions = NearActions {
             sender_account_id: "proxy.near".parse().unwrap(),
             receiver_account_id: "account.near".parse().unwrap(),
-            actions: vec![Action::Delegate(SignedDelegateAction {
+            actions: vec![Action::Delegate(Box::new(SignedDelegateAction {
                 delegate_action: DelegateAction {
                     sender_id: "account.near".parse().unwrap(),
                     receiver_id: "receiver.near".parse().unwrap(),
@@ -1108,7 +1115,7 @@ mod tests {
                     public_key: sk.public_key(),
                 },
                 signature: sk.sign(&[0]),
-            })],
+            }))],
         };
 
         let operations: Vec<crate::models::Operation> =

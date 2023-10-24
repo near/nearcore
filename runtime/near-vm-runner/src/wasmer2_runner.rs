@@ -1,22 +1,22 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::imports::wasmer2::Wasmer2Imports;
-use crate::internal::VMKind;
-use crate::prepare::{self, WASM_FEATURES};
-use crate::runner::VMResult;
-use crate::{get_contract_cache_key, imports};
-use memoffset::offset_of;
-use near_primitives::contract::ContractCode;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::types::{CompiledContract, CompiledContractCache};
-use near_stable_hasher::StableHasher;
-use near_vm_errors::{
+use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
-use near_vm_logic::gas_counter::FastGasCounter;
-use near_vm_logic::types::{PromiseResult, ProtocolVersion};
-use near_vm_logic::{External, MemSlice, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
+use crate::logic::gas_counter::FastGasCounter;
+use crate::logic::types::PromiseResult;
+use crate::logic::{
+    CompiledContract, CompiledContractCache, Config, External, MemSlice, MemoryLike, VMContext,
+    VMLogic, VMOutcome,
+};
+use crate::prepare;
+use crate::runner::VMResult;
+use crate::VMKind;
+use crate::{get_contract_cache_key, imports, ContractCode};
+use memoffset::offset_of;
+use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use std::borrow::Cow;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::mem::size_of;
 use std::sync::Arc;
 use wasmer_compiler_singlepass::Singlepass;
@@ -24,22 +24,9 @@ use wasmer_engine::{Engine, Executable};
 use wasmer_engine_universal::{
     Universal, UniversalEngine, UniversalExecutable, UniversalExecutableRef,
 };
-use wasmer_types::{Features, FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
+use wasmer_types::{FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
 use wasmer_vm::{
     Artifact, Instantiatable, LinearMemory, LinearTable, Memory, MemoryStyle, TrapCode, VMMemory,
-};
-
-const WASMER_FEATURES: Features = Features {
-    threads: WASM_FEATURES.threads,
-    reference_types: WASM_FEATURES.reference_types,
-    simd: WASM_FEATURES.simd,
-    bulk_memory: WASM_FEATURES.bulk_memory,
-    multi_value: WASM_FEATURES.multi_value,
-    tail_call: WASM_FEATURES.tail_call,
-    module_linking: WASM_FEATURES.module_linking,
-    multi_memory: WASM_FEATURES.multi_memory,
-    memory64: WASM_FEATURES.memory64,
-    exceptions: WASM_FEATURES.exceptions,
 };
 
 #[derive(Clone)]
@@ -164,7 +151,7 @@ fn translate_runtime_error(
 ) -> Result<FunctionCallError, VMRunnerError> {
     // Errors produced by host function calls also become `RuntimeError`s that wrap a dynamic
     // instance of `VMLogicError` internally. See the implementation of `Wasmer2Imports`.
-    let error = match error.downcast::<near_vm_errors::VMLogicError>() {
+    let error = match error.downcast::<crate::logic::VMLogicError>() {
         Ok(vm_logic) => {
             return vm_logic.try_into();
         }
@@ -222,18 +209,16 @@ struct Wasmer2Config {
 
 impl Wasmer2Config {
     fn config_hash(self: Self) -> u64 {
-        let mut s = StableHasher::new();
-        self.hash(&mut s);
-        s.finish()
+        crate::utils::stable_hash(&self)
     }
 }
 
 // We use following scheme for the bits forming seed:
-//  kind << 10, kind is 1 for Wasmer2
+//  kind << 29, kind is 1 for Wasmer2
 //  major version << 6
 //  minor version
 const WASMER2_CONFIG: Wasmer2Config = Wasmer2Config {
-    seed: (1 << 10) | (10 << 6) | 0,
+    seed: (1 << 29) | (12 << 6) | 1,
     engine: WasmerEngine::Universal,
     compiler: WasmerCompiler::Singlepass,
 };
@@ -245,24 +230,26 @@ pub(crate) fn wasmer2_vm_hash() -> u64 {
 pub(crate) type VMArtifact = Arc<wasmer_engine_universal::UniversalArtifact>;
 
 pub(crate) struct Wasmer2VM {
-    pub(crate) config: VMConfig,
+    pub(crate) config: Config,
     pub(crate) engine: UniversalEngine,
 }
 
 impl Wasmer2VM {
-    pub(crate) fn new_for_target(config: VMConfig, target: wasmer_compiler::Target) -> Self {
+    pub(crate) fn new_for_target(config: Config, target: wasmer_compiler::Target) -> Self {
         // We only support singlepass compiler at the moment.
         assert_eq!(WASMER2_CONFIG.compiler, WasmerCompiler::Singlepass);
         let compiler = Singlepass::new();
         // We only support universal engine at the moment.
         assert_eq!(WASMER2_CONFIG.engine, WasmerEngine::Universal);
+        let features =
+            crate::features::WasmFeatures::from(config.limit_config.contract_prepare_version);
         Self {
             config,
-            engine: Universal::new(compiler).target(target).features(WASMER_FEATURES).engine(),
+            engine: Universal::new(compiler).target(target).features(features.into()).engine(),
         }
     }
 
-    pub(crate) fn new(config: VMConfig) -> Self {
+    pub(crate) fn new(config: Config) -> Self {
         use wasmer_compiler::{CpuFeature, Target, Triple};
         let target_features = if cfg!(feature = "no_cpu_compatibility_checks") {
             let mut fs = CpuFeature::set();
@@ -309,7 +296,7 @@ impl Wasmer2VM {
         cache: Option<&dyn CompiledContractCache>,
     ) -> Result<Result<UniversalExecutable, CompilationError>, CacheError> {
         let executable_or_error = self.compile_uncached(code);
-        let key = get_contract_cache_key(code, VMKind::Wasmer2, &self.config);
+        let key = get_contract_cache_key(code, &self.config);
 
         if let Some(cache) = cache {
             let record = match &executable_or_error {
@@ -342,7 +329,7 @@ impl Wasmer2VM {
         // outcome). And `cache`, being a database, can fail with an `io::Error`.
         let _span = tracing::debug_span!(target: "vm", "Wasmer2VM::compile_and_load").entered();
 
-        let key = get_contract_cache_key(code, VMKind::Wasmer2, &self.config);
+        let key = get_contract_cache_key(code, &self.config);
 
         let compile_or_read_from_cache = || -> VMResult<Result<VMArtifact, CompilationError>> {
             let _span = tracing::debug_span!(target: "vm", "Wasmer2VM::compile_or_read_from_cache")
@@ -395,21 +382,7 @@ impl Wasmer2VM {
             })
         };
 
-        #[cfg(feature = "no_cache")]
         return compile_or_read_from_cache();
-
-        #[cfg(not(feature = "no_cache"))]
-        return {
-            static MEM_CACHE: once_cell::sync::Lazy<
-                near_cache::SyncLruCache<
-                    near_primitives::hash::CryptoHash,
-                    Result<VMArtifact, CompilationError>,
-                >,
-            > = once_cell::sync::Lazy::new(|| {
-                near_cache::SyncLruCache::new(crate::cache::CACHE_SIZE)
-            });
-            MEM_CACHE.get_or_try_put(key, |_key| compile_or_read_from_cache())
-        };
     }
 
     fn run_method(
@@ -594,7 +567,6 @@ impl crate::runner::VM for Wasmer2VM {
         context: VMContext,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
-        current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
         let mut memory = Wasmer2Memory::new(
@@ -606,21 +578,10 @@ impl crate::runner::VM for Wasmer2VM {
         // FIXME: this mostly duplicates the `run_module` method.
         // Note that we don't clone the actual backing memory, just increase the RC.
         let vmmemory = memory.vm();
-        let mut logic = VMLogic::new_with_protocol_version(
-            ext,
-            context,
-            &self.config,
-            fees_config,
-            promise_results,
-            &mut memory,
-            current_protocol_version,
-        );
+        let mut logic =
+            VMLogic::new(ext, context, &self.config, fees_config, promise_results, &mut memory);
 
-        let result = logic.before_loading_executable(
-            method_name,
-            current_protocol_version,
-            code.code().len(),
-        );
+        let result = logic.before_loading_executable(method_name, code.code().len());
         if let Err(e) = result {
             return Ok(VMOutcome::abort(logic, e));
         }
@@ -633,22 +594,13 @@ impl crate::runner::VM for Wasmer2VM {
             }
         };
 
-        let result = logic.after_loading_executable(current_protocol_version, code.code().len());
+        let result = logic.after_loading_executable(code.code().len());
         if let Err(e) = result {
             return Ok(VMOutcome::abort(logic, e));
         }
-        let import = imports::wasmer2::build(
-            vmmemory,
-            &mut logic,
-            current_protocol_version,
-            artifact.engine(),
-        );
+        let import = imports::wasmer2::build(vmmemory, &mut logic, artifact.engine());
         if let Err(e) = get_entrypoint_index(&*artifact, method_name) {
-            return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
-                logic,
-                e,
-                current_protocol_version,
-            ));
+            return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e));
         }
         match self.run_method(&artifact, import, method_name)? {
             Ok(()) => Ok(VMOutcome::ok(logic)),
@@ -660,8 +612,10 @@ impl crate::runner::VM for Wasmer2VM {
         &self,
         code: &ContractCode,
         cache: &dyn CompiledContractCache,
-    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, near_vm_errors::CacheError>
-    {
+    ) -> Result<
+        Result<ContractPrecompilatonResult, CompilationError>,
+        crate::logic::errors::CacheError,
+    > {
         Ok(self
             .compile_and_cache(code, Some(cache))?
             .map(|_| ContractPrecompilatonResult::ContractCompiled))
@@ -670,5 +624,5 @@ impl crate::runner::VM for Wasmer2VM {
 
 #[test]
 fn test_memory_like() {
-    near_vm_logic::test_utils::test_memory_like(|| Box::new(Wasmer2Memory::new(1, 1).unwrap()));
+    crate::logic::test_utils::test_memory_like(|| Box::new(Wasmer2Memory::new(1, 1).unwrap()));
 }

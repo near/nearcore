@@ -106,6 +106,11 @@ message BlockHeader {
   bytes borsh = 1;
 }
 
+// Wrapper of the borsh-encoded StateResponseInfo.
+message StateResponseInfo {
+  bytes borsh = 1;
+}
+
 // Unique identifier of the NEAR chain.
 message GenesisId {
   // Name of the chain (for example "mainnet").
@@ -168,8 +173,7 @@ message Handshake {
   PartialEdgeInfo partial_edge_info = 7;
   // See description of OwnedAccount.
   AccountKeySignedPayload owned_account = 8; // optional
-  // Sender's signature to verify ip address of the sender
-  SignedIpAddr signed_ip_addr = 9; // required, but marked as optional for protocol buffer backward compatibility
+  reserved 9; // https://github.com/near/nearcore/pull/9191
 }
 
 // Response to Handshake, in case the Handshake was rejected.
@@ -199,16 +203,6 @@ message HandshakeFailure {
 // TODO: document it.
 message LastEdge {
   Edge edge = 1;
-}
-
-message IpAddr {
-  // IPv4 (4 bytes) or IPv6 (16 bytes) in network byte order.
-  bytes ip = 1;
-}
-
-message SignedIpAddr {
-  IpAddr ip_addr = 1;
-  Signature signature = 2;
 }
 
 message SocketAddr {
@@ -269,6 +263,29 @@ message RoutingTableUpdate {
   repeated Edge edges = 1;
   // list of known NEAR validator accounts 
   repeated AnnounceAccount accounts = 2;
+}
+
+// Denotes an available route to `destination` of length `distance`
+message AdvertisedPeerDistance {
+  PublicKey destination = 1;
+  uint32 distance = 2;
+}
+
+/// Message shared by a peer listing the distances it has to other peers
+/// in the NEAR network.
+///
+/// It includes a collection of signed edges forming a spanning tree
+/// which verifiably achieves the advertised routing distances.
+///
+/// The distances in the tree may be the same or better than the advertised
+/// distances; see routing::graph_v2::tests::inconsistent_peers.
+message DistanceVector {
+  // PeerId of the node sending the message.
+  PublicKey root = 1;
+  // List of distances the root has to other peers in the network.
+  repeated AdvertisedPeerDistance distances = 2;
+  // Spanning tree of signed edges achieving the claimed distances (or better).
+  repeated Edge edges = 3;
 }
 
 // TODO: document it.
@@ -397,6 +414,21 @@ message TraceContext {
   SamplingPriority sampling_priority = 3;
 }
 
+message StateRequestHeader {
+  uint64 shard_id = 1;
+  CryptoHash sync_hash = 2;
+}
+
+message StateRequestPart {
+  uint64 shard_id = 1;
+  CryptoHash sync_hash = 2;
+  uint64 part_id = 3;
+}
+
+message StateResponse {
+  StateResponseInfo state_response_info = 1;
+}
+
 // PeerMessage is a wrapper of all message types exchanged between NEAR nodes.
 // The wire format of a single message M consists of len(M)+4 bytes:
 // <len(M)> : 4 bytes : little endian uint32
@@ -428,6 +460,7 @@ message PeerMessage {
     HandshakeFailure handshake_failure = 5;
     LastEdge last_edge = 6;
     RoutingTableUpdate sync_routing_table = 7;
+    DistanceVector distance_vector = 28;
     
     UpdateNonceRequest update_nonce_request = 8;
     UpdateNonceResponse update_nonce_response = 9;
@@ -447,5 +480,9 @@ message PeerMessage {
     RoutedMessage routed = 17;
     Disconnect disconnect = 18;
     Challenge challenge = 19;
+
+    StateRequestHeader state_request_header = 29;
+    StateRequestPart state_request_part = 30;
+    StateResponse state_response = 31;
   }
 }

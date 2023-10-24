@@ -163,7 +163,7 @@ impl TrieKey {
                 buf.push(col::ACCESS_KEY);
                 buf.extend(account_id.as_ref().as_bytes());
                 buf.push(col::ACCESS_KEY);
-                buf.extend(public_key.try_to_vec().unwrap());
+                buf.extend(borsh::to_vec(&public_key).unwrap());
             }
             TrieKey::ReceivedData { receiver_id, data_id } => {
                 buf.push(col::RECEIVED_DATA);
@@ -356,7 +356,6 @@ pub mod trie_key_parsers {
         Ok(TrieKey::AccessKey { account_id, public_key })
     }
 
-    #[allow(unused)]
     pub fn parse_account_id_from_raw_key(
         raw_key: &[u8],
     ) -> Result<Option<AccountId>, std::io::Error> {
