@@ -4,10 +4,13 @@
 /// by the client_actor while the heavy resharding build_state_for_split_shards is done by SyncJobsActor
 /// so as to not affect client.
 use crate::metrics::{
-    ReshardingStatus, RESHARDING_BATCH_COUNT, RESHARDING_BATCH_SIZE, RESHARDING_STATUS,
+    ReshardingStatus, RESHARDING_BATCH_APPLY_TIME, RESHARDING_BATCH_COMMIT_TIME,
+    RESHARDING_BATCH_COUNT, RESHARDING_BATCH_PREPARE_TIME, RESHARDING_BATCH_SIZE,
+    RESHARDING_STATUS,
 };
 use crate::Chain;
 use itertools::Itertools;
+use near_chain_configs::StateSplitConfig;
 use near_chain_primitives::error::Error;
 use near_primitives::errors::StorageError::StorageInconsistentState;
 use near_primitives::hash::CryptoHash;
@@ -27,8 +30,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
 
-// This is the approx batch size of the trie key, value pair entries that are written to the child shard trie.
-const RESHARDING_BATCH_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(300 * bytesize::MIB);
 const MAX_RESHARDING_POLL_TIME: Duration = Duration::from_secs(5 * 60 * 60); // 5 hrs
 
 /// StateSplitRequest has all the information needed to start a resharding job. This message is sent
@@ -51,6 +52,8 @@ pub struct StateSplitRequest {
     pub next_epoch_shard_layout: ShardLayout,
     // Time we've spent polling for the state snapshot to be ready. We autofail after a certain time.
     pub curr_poll_time: Duration,
+    // Configuration for resharding. Can be used to throttle resharding if needed.
+    pub config: StateSplitConfig,
 }
 
 // Skip `runtime_adapter`, because it's a complex object that has complex logic
@@ -108,8 +111,9 @@ struct TrieUpdateBatch {
 }
 
 // Function to return batches of trie key, value pairs from flat storage iter. We return None at the end of iter.
-// The batch size is roughly RESHARDING_BATCH_MEMORY_LIMIT (300 MB)
+// The batch size is roughly batch_memory_limit.
 fn get_trie_update_batch(
+    config: &StateSplitConfig,
     iter: &mut impl Iterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
 ) -> Option<TrieUpdateBatch> {
     let mut size: u64 = 0;
@@ -117,7 +121,7 @@ fn get_trie_update_batch(
     while let Some((key, value)) = iter.next() {
         size += key.len() as u64 + value.as_ref().map_or(0, |v| v.len() as u64);
         entries.push((key, value));
-        if size > RESHARDING_BATCH_MEMORY_LIMIT.as_u64() {
+        if size > config.batch_size.as_u64() {
             break;
         }
     }
@@ -129,6 +133,7 @@ fn get_trie_update_batch(
 }
 
 fn apply_delayed_receipts<'a>(
+    config: &StateSplitConfig,
     tries: &ShardTries,
     orig_shard_uid: ShardUId,
     orig_state_root: StateRoot,
@@ -140,7 +145,7 @@ fn apply_delayed_receipts<'a>(
     let mut start_index = None;
     let mut new_state_roots = state_roots;
     while let Some((next_index, receipts)) =
-        get_delayed_receipts(&orig_trie_update, start_index, RESHARDING_BATCH_MEMORY_LIMIT)?
+        get_delayed_receipts(&orig_trie_update, start_index, config.batch_size)?
     {
         let (store_update, updated_state_roots) = tries.apply_delayed_receipts_to_split_states(
             &new_state_roots,
@@ -203,6 +208,7 @@ impl Chain {
             state_root,
             next_epoch_shard_layout,
             curr_poll_time: Duration::ZERO,
+            config: self.state_split_config,
         });
 
         for shard_uid in child_shard_uids.unwrap_or_default() {
@@ -250,10 +256,11 @@ impl Chain {
             shard_uid,
             state_root,
             next_epoch_shard_layout,
+            config,
             ..
         } = state_split_request;
 
-        tracing::debug!(target: "resharding", ?shard_uid, "build_state_for_split_shards_impl starting");
+        tracing::debug!(target: "resharding", ?config, ?shard_uid, "build_state_for_split_shards_impl starting");
 
         let shard_id = shard_uid.shard_id();
         let new_shards = next_epoch_shard_layout
@@ -317,25 +324,52 @@ impl Chain {
         let checked_account_id_to_shard_uid =
             get_checked_account_id_to_shard_uid_fn(shard_uid, new_shards, next_epoch_shard_layout);
 
+        let shard_uid_string = shard_uid.to_string();
+        let metrics_labels = [shard_uid_string.as_str()];
+
         // Once we build the iterator, we break it into batches using the get_trie_update_batch function.
-        while let Some(batch) = get_trie_update_batch(&mut iter) {
+        loop {
+            // Prepare the batch.
+            let batch = {
+                let histogram = RESHARDING_BATCH_PREPARE_TIME.with_label_values(&metrics_labels);
+                let _timer = histogram.start_timer();
+                let Some(batch) = get_trie_update_batch(&config, &mut iter) else { break };
+                batch
+            };
+
+            // Apply the batch - add values to the split states.
             let TrieUpdateBatch { entries, size } = batch;
-            // TODO(#9435): This is highly inefficient as for each key in the batch, we are parsing the account_id
-            // A better way would be to use the boundary account to construct the from and to key range for flat storage iterator
-            let (store_update, new_state_roots) = tries.add_values_to_split_states(
-                &state_roots,
-                entries,
-                &checked_account_id_to_shard_uid,
-            )?;
-            state_roots = new_state_roots;
-            store_update.commit()?;
-            RESHARDING_BATCH_COUNT.with_label_values(&[shard_uid.to_string().as_str()]).inc();
-            RESHARDING_BATCH_SIZE
-                .with_label_values(&[shard_uid.to_string().as_str()])
-                .add(size as i64)
+            let store_update = {
+                let histogram = RESHARDING_BATCH_APPLY_TIME.with_label_values(&metrics_labels);
+                let _timer = histogram.start_timer();
+                // TODO(#9435): This is highly inefficient as for each key in the batch, we are parsing the account_id
+                // A better way would be to use the boundary account to construct the from and to key range for flat storage iterator
+                let (store_update, new_state_roots) = tries.add_values_to_split_states(
+                    &state_roots,
+                    entries,
+                    &checked_account_id_to_shard_uid,
+                )?;
+                state_roots = new_state_roots;
+                store_update
+            };
+
+            // Commit the store update.
+            {
+                let histogram = RESHARDING_BATCH_COMMIT_TIME.with_label_values(&metrics_labels);
+                let _timer = histogram.start_timer();
+                store_update.commit()?;
+            }
+
+            RESHARDING_BATCH_COUNT.with_label_values(&metrics_labels).inc();
+            RESHARDING_BATCH_SIZE.with_label_values(&metrics_labels).add(size as i64);
+
+            // sleep between batches in order to throttle resharding and leave
+            // some resource for the regular node operation
+            std::thread::sleep(config.batch_delay);
         }
 
         state_roots = apply_delayed_receipts(
+            &config,
             &tries,
             shard_uid,
             state_root,

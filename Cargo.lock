@@ -3464,6 +3464,7 @@ name = "near-chain-configs"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "bytesize",
  "chrono",
  "derive_more",
  "near-config-utils",
@@ -3729,6 +3730,7 @@ dependencies = [
 name = "near-fork-network"
 version = "0.0.0"
 dependencies = [
+ "actix",
  "anyhow",
  "chrono",
  "clap 4.2.4",
@@ -3737,9 +3739,11 @@ dependencies = [
  "near-crypto",
  "near-epoch-manager",
  "near-mirror",
+ "near-o11y",
  "near-primitives",
  "near-store",
  "nearcore",
+ "rayon",
  "serde",
  "serde_json",
  "strum",
