@@ -5627,7 +5627,7 @@ impl<'a> ChainUpdate<'a> {
                 apply_split_result_or_state_changes,
             }) => {
                 let new_block_hash = apply_result.trie_changes.block_hash.clone();
-                let (block_hash, block) = if new_block_hash == block_hash {
+                let (block_hash, block) = if &new_block_hash == block_hash {
                     (block_hash, block.clone())
                 } else {
                     (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
@@ -5687,7 +5687,7 @@ impl<'a> ChainUpdate<'a> {
                 apply_split_result_or_state_changes,
             }) => {
                 let new_block_hash = apply_result.trie_changes.block_hash.clone();
-                let (block_hash, block) = if new_block_hash == block_hash {
+                let (block_hash, block) = if &new_block_hash == block_hash {
                     (block_hash, block.clone())
                 } else {
                     (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
