@@ -3878,19 +3878,37 @@ impl Chain {
         }
 
         let prev_block = self.get_block(prev_hash)?;
+        let shard_uid =
+            self.epoch_manager.shard_id_to_uid(shard_id as ShardId, block.header().epoch_id())?;
+        let epoch_manager = self.epoch_manager.clone();
+        let runtime = self.runtime_adapter.clone();
         println!("get a job");
-        let maybe_job = self.get_apply_chunk_job(
-            me,
+        let maybe_job = self.get_apply_chunk_job_new_chunk(
             block,
             &prev_block,
+            None,
             &block.chunks()[shard_id],
             &prev_block.chunks()[shard_id],
-            shard_id,
-            ApplyChunksMode::IsCaughtUp, // if I am producer, this is the case, right?
-            false,                       // will_shard_layout_change, - I don't know
+            shard_uid,
+            false, // ??
             &incoming_receipts,
             SandboxStatePatch::default(),
+            runtime,
+            epoch_manager,
+            None, // ??
         )?;
+        // let maybe_job = self.get_apply_chunk_job(
+        //     me,
+        //     block,
+        //     &prev_block,
+        //     &block.chunks()[shard_id],
+        //     &prev_block.chunks()[shard_id],
+        //     shard_id,
+        //     ApplyChunksMode::IsCaughtUp, // if I am producer, this is the case, right?
+        //     false,                       // will_shard_layout_change, - I don't know
+        //     &incoming_receipts,
+        //     SandboxStatePatch::default(),
+        // )?;
 
         let job = match maybe_job {
             Some(job) => job,
@@ -4428,8 +4446,11 @@ impl Chain {
                         gas_limit,
                         apply_result.total_balance_burnt,
                     );
-                    let next_chunk_header = next_chunk_header.unwrap();
-                    validate(&chunk_extra, &next_chunk_header)?;
+                    // if this is called for chunk production, there is no next chunk header and also
+                    // no need to validate ourselves. Lol.
+                    if let Some(next_chunk_header) = next_chunk_header {
+                        validate(&chunk_extra, &next_chunk_header)?;
+                    }
                 }
                 // validate fields of next chunk by get_apply_chunks_job?
                 // save new chunk extras?
