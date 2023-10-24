@@ -139,7 +139,7 @@ impl LoopCheckCommand {
 
         tracing::info!("started running LoopCheckCommand");
 
-        let result = run_loop_single_shard(
+        let result = run_loop_all_shards(
             chain_id,
             root_dir,
             s3_bucket,
@@ -149,14 +149,14 @@ impl LoopCheckCommand {
             &self.prometheus_addr,
         );
 
-        tracing::info!("run_loop_single_shard finished");
+        tracing::info!("run_loop_all_shards finished");
 
         match result {
             Ok(_) => {
-                tracing::info!("run_loop_single_shard returned OK()");
+                tracing::info!("run_loop_all_shards returned OK()");
             }
             Err(err) => {
-                tracing::info!("run_loop_single_shard errored out with {}", err);
+                tracing::info!("run_loop_all_shards errored out with {}", err);
             }
         }
 
@@ -217,7 +217,7 @@ fn validate_state_part(state_root: &StateRoot, part_id: PartId, part: &[u8]) -> 
     }
 }
 
-fn run_loop_single_shard(
+fn run_loop_all_shards(
     chain_id: String,
     root_dir: Option<PathBuf>,
     s3_bucket: Option<String>,
@@ -237,10 +237,13 @@ fn run_loop_single_shard(
 
     let sys = actix::System::new();
     loop {
-        tracing::info!("running the loop inside run_loop_single_shard");
+        tracing::info!("running the loop inside run_loop_all_shards");
         let dump_check_iter_info_res = get_processing_epoch_information(&rpc_client);
-        if let Err(_) = dump_check_iter_info_res {
-            tracing::info!("sleeping for 60s");
+        if let Err(err) = dump_check_iter_info_res {
+            tracing::info!(
+                "get_processing_epoch_information errs out with {}. sleeping for 60s.",
+                err
+            );
             sleep(Duration::from_secs(60));
             continue;
         }
@@ -250,18 +253,17 @@ fn run_loop_single_shard(
             tracing::info!("started check for shard_id {}", shard_id);
             let dump_check_iter_info = dump_check_iter_info.clone();
             match last_check_status_vec[shard_id as usize] {
-                Ok(StatePartsDumpCheckStatus::Done { epoch_height })
-                | Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height }) => {
-                    tracing::info!("last one was done or waiting");
+                Ok(StatePartsDumpCheckStatus::Done { epoch_height }) => {
+                    tracing::info!("last one was done, epoch_height: {}", epoch_height);
                     if epoch_height >= dump_check_iter_info.prev_epoch_height {
-                        tracing::info!("current height was already checked");
-                        tracing::info!("sleeping for 60s");
+                        tracing::info!("current height was already checked. sleeping for 60s.");
                         sleep(Duration::from_secs(60));
                         continue;
                     }
 
-                    tracing::info!("current height was not already checked");
+                    tracing::info!("current height was not already checked, will start checking.");
                     if dump_check_iter_info.prev_epoch_height > epoch_height + 1 {
+                        tracing::info!("there is a skip between last done epoch at epoch_height: {}, and latest available epoch at {}", epoch_height, dump_check_iter_info.prev_epoch_height);
                         crate::metrics::STATE_SYNC_DUMP_CHECK_HAS_SKIPPED_EPOCH
                             .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
                             .set(1);
@@ -271,7 +273,23 @@ fn run_loop_single_shard(
                             .set(0);
                     }
                 }
-                Err(_) => (),
+                Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height }) => {
+                    tracing::info!("last one was waiting, epoch_height: {}", epoch_height);
+                    if dump_check_iter_info.prev_epoch_height > epoch_height {
+                        tracing::info!("last one was never finished. There is a skip between last waiting epoch at epoch_height: {}, and latest available epoch at {}", epoch_height, dump_check_iter_info.prev_epoch_height);
+                        crate::metrics::STATE_SYNC_DUMP_CHECK_HAS_SKIPPED_EPOCH
+                            .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
+                            .set(1);
+                    } else {
+                        tracing::info!("last one was waiting. Latest epoch is the same as last one waiting. Will recheck the same epoch at epoch_height: {}", epoch_height);
+                        crate::metrics::STATE_SYNC_DUMP_CHECK_HAS_SKIPPED_EPOCH
+                            .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
+                            .set(0);
+                    }
+                }
+                Err(_) => {
+                    tracing::info!("last one errored out, will start check from the latest epoch");
+                }
             }
 
             let state_root_str = rpc_client
@@ -308,7 +326,7 @@ fn run_loop_single_shard(
                     tokio::spawn(server);
                 }
 
-                run_single_check(
+                run_single_check_with_3_retries(
                     chain_id,
                     prev_epoch_id,
                     last_check_iter_info.prev_epoch_height,
@@ -318,12 +336,75 @@ fn run_loop_single_shard(
                     s3_bucket,
                     s3_region,
                     gcs_bucket,
-                )
-                .await
+                ).await
             });
             is_prometheus_server_up = true;
         }
     }
+}
+
+async fn run_single_check_with_3_retries(
+    chain_id: String,
+    epoch_id: EpochId,
+    epoch_height: u64,
+    shard_id: ShardId,
+    state_root: StateRoot,
+    root_dir: Option<PathBuf>,
+    s3_bucket: Option<String>,
+    s3_region: Option<String>,
+    gcs_bucket: Option<String>,
+) -> anyhow::Result<StatePartsDumpCheckStatus> {
+    const MAX_RETRIES: u32 = 3;
+    let mut retries = 0;
+    let mut res;
+    loop {
+        let chain_id = chain_id.clone();
+        let root_dir = root_dir.clone();
+        let s3_bucket = s3_bucket.clone();
+        let s3_region = s3_region.clone();
+        let gcs_bucket = gcs_bucket.clone();
+        let epoch_id = epoch_id.clone();
+        res = run_single_check(
+            chain_id,
+            epoch_id,
+            epoch_height,
+            shard_id,
+            state_root,
+            root_dir,
+            s3_bucket,
+            s3_region,
+            gcs_bucket,
+        )
+        .await;
+        match res {
+            Ok(_) => {
+                tracing::info!(
+                    "run_single_check returned OK for shard_id: {}, epoch_height: {}",
+                    shard_id,
+                    epoch_height
+                );
+                break;
+            }
+            Err(_) if retries < MAX_RETRIES => {
+                tracing::info!(
+                    "run_single_check failure for shard_id: {}, epoch_height: {}. Retrying...",
+                    shard_id,
+                    epoch_height
+                );
+                retries += 1;
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            }
+            Err(_) => {
+                tracing::info!(
+                    "run_single_check failure for shard_id: {}, epoch_height: {}. No more retries",
+                    shard_id,
+                    epoch_height
+                );
+                break;
+            }
+        }
+    }
+    res
 }
 
 async fn run_single_check(
@@ -337,7 +418,11 @@ async fn run_single_check(
     s3_region: Option<String>,
     gcs_bucket: Option<String>,
 ) -> anyhow::Result<StatePartsDumpCheckStatus> {
-    tracing::info!("epoch_height: {}, state_root: {}", epoch_height, state_root);
+    tracing::info!(
+        "run_single_check for epoch_height: {}, state_root: {}",
+        epoch_height,
+        state_root
+    );
     crate::metrics::STATE_SYNC_DUMP_CHECK_EPOCH_HEIGHT
         .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
         .set(epoch_height as i64);
@@ -369,8 +454,9 @@ async fn run_single_check(
     let directory_path =
         external_storage_location_directory(&chain_id, &epoch_id, epoch_height, shard_id);
     let part_file_names = external.list_state_parts(shard_id, &directory_path).await?;
-    // TODO: return error instead of assert!()
-    assert!(!part_file_names.is_empty(), "Number of state parts is 0");
+    if part_file_names.is_empty() {
+        return Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height: epoch_height });
+    }
     let part_file_ids: HashSet<_> = part_file_names
         .iter()
         .map(|file_name| extract_part_id_from_part_file_name(file_name))
@@ -380,7 +466,15 @@ async fn run_single_check(
         .iter()
         .map(|file_name| get_num_parts_from_filename(file_name).unwrap())
         .min()
-        .unwrap();
+        .unwrap() as u64;
+
+    tracing::info!(
+        "epoch_height: {}, state_root: {}, total state parts required: {},  num parts: {}",
+        epoch_height,
+        state_root,
+        total_required_parts,
+        num_parts
+    );
 
     crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_TOTAL
         .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
@@ -398,7 +492,6 @@ async fn run_single_check(
     }
 
     tracing::info!(
-        //target: "store", %shard_id, %epoch_height, %num_parts,
         "Spawning threads to download and validate state parts for shard_id: {}, epoch_height: {}, num_parts: {}",
         shard_id, epoch_height, num_parts
     );
@@ -410,49 +503,16 @@ async fn run_single_check(
         let epoch_id = epoch_id.clone();
         let external = external.clone();
         let handle = tokio::spawn(async move {
-            const MAX_RETRIES: u32 = 3;
-            let mut retries = 0;
-            loop {
-                let chain_id = chain_id.clone();
-                let epoch_id = epoch_id.clone();
-                let external = external.clone();
-                match process_part(
-                    part_id,
-                    chain_id,
-                    epoch_id,
-                    epoch_height,
-                    shard_id,
-                    state_root,
-                    num_parts,
-                    external,
-                ).await {
-                    Ok(_) => {
-                        tracing::info!(
-                            //target: "store", %shard_id, %epoch_height, %num_parts,
-                            "Success for shard_id: {}, epoch_height: {}, part_id: {}",
-                            shard_id, epoch_height, part_id
-                        );
-                        break;
-                    },
-                    Err(e) if retries < MAX_RETRIES => {
-                        tracing::info!(
-                            //target: "store", %shard_id, %epoch_height, %num_parts,
-                            "Failure for shard_id: {}, epoch_height: {}, part_id: {}, with error: {}. Retrying...",
-                            shard_id, epoch_height, part_id, e
-                        );
-                        retries += 1;
-                        tokio::time::sleep(Duration::from_secs(5)).await;
-                    },
-                    Err(e) => {
-                        tracing::info!(
-                            //target: "store", %shard_id, %epoch_height, %num_parts,
-                            "Failure for shard_id: {}, epoch_height: {}, part_id: {}, with error: {}. No more retries",
-                            shard_id, epoch_height, part_id, e
-                        );
-                        break;
-                    },
-                }
-            }
+            process_part_with_3_retries(
+                part_id,
+                chain_id,
+                epoch_id,
+                epoch_height,
+                shard_id,
+                state_root,
+                num_parts,
+                external,
+            ).await
         });
         handles.push(handle);
     }
@@ -464,6 +524,64 @@ async fn run_single_check(
     let duration = start.elapsed();
     tracing::info!("Time elapsed in downloading and validating the parts is: {:?}", duration);
     Ok(StatePartsDumpCheckStatus::Done { epoch_height: epoch_height })
+}
+
+async fn process_part_with_3_retries(
+    part_id: u64,
+    chain_id: String,
+    epoch_id: EpochId,
+    epoch_height: u64,
+    shard_id: ShardId,
+    state_root: StateRoot,
+    num_parts: u64,
+    external: ExternalConnection,
+) -> anyhow::Result<()> {
+    const MAX_RETRIES: u32 = 3;
+    let mut retries = 0;
+    let mut res;
+    loop {
+        let chain_id = chain_id.clone();
+        let epoch_id = epoch_id.clone();
+        let external = external.clone();
+        res = process_part(
+            part_id,
+            chain_id,
+            epoch_id,
+            epoch_height,
+            shard_id,
+            state_root,
+            num_parts,
+            external,
+        )
+        .await;
+        match res {
+            Ok(_) => {
+                tracing::info!(
+                    "process_part success for shard_id: {}, epoch_height: {}, part_id: {}",
+                    shard_id,
+                    epoch_height,
+                    part_id
+                );
+                break;
+            }
+            Err(_) if retries < MAX_RETRIES => {
+                tracing::info!(
+                            "process_part failure for shard_id: {}, epoch_height: {}, part_id: {}. Retrying...",
+                            shard_id, epoch_height, part_id
+                        );
+                retries += 1;
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+            Err(_) => {
+                tracing::info!(
+                            "process_part failure for shard_id: {}, epoch_height: {}, part_id: {}. No more retries",
+                            shard_id, epoch_height, part_id
+                        );
+                break;
+            }
+        }
+    }
+    res
 }
 
 async fn process_part(
