@@ -4427,7 +4427,7 @@ impl Chain {
                 // validate fields of next chunk by get_apply_chunks_job?
                 apply_result
             } else {
-                validate(prev_chunk_extra?.as_ref(), chunk_header)?;
+                validate(prev_chunk_extra?.as_ref(), &chunk_header_copy)?;
                 apply_txs()
             };
             // Validate that all next chunk information matches previous chunk extra.
