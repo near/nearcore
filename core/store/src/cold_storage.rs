@@ -167,21 +167,21 @@ pub fn update_cold_head(
     // Write HEAD to the cold db.
     {
         let mut transaction = DBTransaction::new();
-        transaction.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), tip.try_to_vec()?);
+        transaction.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
         cold_db.write(transaction)?;
     }
 
     // Write COLD_HEAD_KEY to the cold db.
     {
         let mut transaction = DBTransaction::new();
-        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), tip.try_to_vec()?);
+        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
         cold_db.write(transaction)?;
     }
 
     // Write COLD_HEAD to the hot db.
     {
         let mut transaction = DBTransaction::new();
-        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), tip.try_to_vec()?);
+        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
         hot_store.storage.write(transaction)?;
 
         crate::metrics::COLD_HEAD_HEIGHT.set(*height as i64);

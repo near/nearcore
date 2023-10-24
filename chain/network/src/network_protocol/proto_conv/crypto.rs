@@ -30,7 +30,7 @@ pub type ParsePublicKeyError = borsh::maybestd::io::Error;
 
 impl From<&PublicKey> for proto::PublicKey {
     fn from(x: &PublicKey) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Self::default() }
     }
 }
 
@@ -60,7 +60,7 @@ pub type ParseSignatureError = borsh::maybestd::io::Error;
 
 impl From<&near_crypto::Signature> for proto::Signature {
     fn from(x: &near_crypto::Signature) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Self::default() }
     }
 }
 

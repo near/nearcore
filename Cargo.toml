@@ -32,8 +32,6 @@ members = [
     "chain/rosetta-rpc",
     "chain/telemetry",
     "core/async",
-    "core/account-id",
-    "core/account-id/fuzz",
     "core/chain-configs",
     "core/crypto",
     "core/dyn-configs",
@@ -110,7 +108,7 @@ bitflags = "1.2"
 blake2 = "0.9.1"
 bn = { package = "zeropool-bn", version = "0.5.11" }
 bolero = "0.8.0"
-borsh = { version = "0.10.2", features = ["rc"] }
+borsh = { version = "1.0.0", features = ["derive", "rc"] }
 bs58 = "0.4"
 bytes = "1"
 bytesize = { version = "1.1", features = ["serde"] }
@@ -173,7 +171,7 @@ lru = "0.7.2"
 memmap2 = "0.5"
 memoffset = "0.8"
 more-asserts = "0.2"
-near-account-id = { path = "core/account-id", features = ["internal_unstable"] }
+near-account-id = { git = "https://github.com/near/near-account-id", features = ["internal_unstable", "serde", "borsh"], branch = "main" }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
 near-database-tool = { path = "tools/database" }
@@ -241,7 +239,7 @@ num-bigint = "0.3"
 num_cpus = "1.11"
 num-rational = { version = "0.3.1", features = ["serde"] }
 num-traits = "0.2.15"
-once_cell = "1.13.1"
+once_cell = "1.18.0"
 openssl = { version = "0.10", features = ["vendored"] }
 openssl-probe = "0.1.4"
 opentelemetry = { version = "0.17.0", features = ["rt-tokio", "trace"] }

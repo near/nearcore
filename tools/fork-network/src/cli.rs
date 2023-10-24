@@ -131,7 +131,7 @@ impl ForkNetworkCommand {
         let fork_head_block = store
             .get_ser::<near_primitives::block::Block>(
                 DBCol::Block,
-                &fork_head.try_to_vec().unwrap(),
+                borsh::to_vec(&fork_head).unwrap(),
             )?
             .unwrap();
 

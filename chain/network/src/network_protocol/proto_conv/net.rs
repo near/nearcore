@@ -77,7 +77,7 @@ impl TryFrom<&proto::PeerAddr> for PeerAddr {
 
 impl From<&PeerInfo> for proto::PeerInfo {
     fn from(x: &PeerInfo) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Self::default() }
     }
 }
 
@@ -96,7 +96,7 @@ pub type ParsePartialEdgeInfoError = borsh::maybestd::io::Error;
 
 impl From<&PartialEdgeInfo> for proto::PartialEdgeInfo {
     fn from(x: &PartialEdgeInfo) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Self::default() }
     }
 }
 
@@ -113,7 +113,7 @@ pub type ParseEdgeError = borsh::maybestd::io::Error;
 
 impl From<&Edge> for proto::Edge {
     fn from(x: &Edge) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Self::default() }
     }
 }
 
@@ -130,7 +130,7 @@ pub type ParseAnnounceAccountError = borsh::maybestd::io::Error;
 
 impl From<&AnnounceAccount> for proto::AnnounceAccount {
     fn from(x: &AnnounceAccount) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Self::default() }
     }
 }
 

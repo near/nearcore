@@ -258,8 +258,7 @@ pub fn inline_flat_state_values(
                         store_update.set(
                             DBCol::FlatState,
                             &key,
-                            &FlatStateValue::inlined(value)
-                                .try_to_vec()
+                            &borsh::to_vec(&FlatStateValue::inlined(value))
                                 .expect("borsh should not fail here"),
                         );
                         inlined_batch_count += 1;

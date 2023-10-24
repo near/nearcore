@@ -625,8 +625,8 @@ mod tests {
                     initial_account
                         .storage_usage()
                         .checked_add(
-                            public_key.try_to_vec().unwrap().len() as u64
-                                + access_key.try_to_vec().unwrap().len() as u64
+                            borsh::to_vec(&public_key).unwrap().len() as u64
+                                + borsh::to_vec(&access_key).unwrap().len() as u64
                                 + 40, // storage_config.num_extra_bytes_record,
                         )
                         .unwrap(),

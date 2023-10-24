@@ -9,6 +9,7 @@ use super::{StorageGetMode, ValuePtr};
 use crate::config::Config;
 use crate::ProfileDataV3;
 use near_crypto::Secp256K1Signature;
+use near_primitives_core::account::id::AccountIdRef;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::ViewConfig;
 use near_primitives_core::config::{ActionCosts, ExtCosts};
@@ -477,11 +478,12 @@ impl<'a> VMLogic<'a> {
     pub fn current_account_id(&mut self, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
 
+        let account_ref: &AccountIdRef = self.context.current_account_id.as_ref();
         self.registers.set(
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            self.context.current_account_id.as_ref().as_bytes(),
+            account_ref.as_bytes(),
         )
     }
 
@@ -507,11 +509,12 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
+        let account_ref: &AccountIdRef = self.context.current_account_id.as_ref();
         self.registers.set(
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            self.context.signer_account_id.as_ref().as_bytes(),
+            account_ref.as_bytes(),
         )
     }
 
@@ -565,11 +568,12 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
+        let account_ref: &AccountIdRef = self.context.predecessor_account_id.as_ref();
         self.registers.set(
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            self.context.predecessor_account_id.as_ref().as_bytes(),
+            account_ref.as_bytes(),
         )
     }
 

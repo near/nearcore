@@ -449,7 +449,7 @@ mod tests {
     fn routed_message_body_compatibility_smoke_test() {
         #[track_caller]
         fn check(msg: RoutedMessageBody, expected: &[u8]) {
-            let actual = msg.try_to_vec().unwrap();
+            let actual = borsh::to_vec(&msg).unwrap();
             assert_eq!(actual.as_slice(), expected);
         }
 

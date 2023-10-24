@@ -71,7 +71,7 @@ impl DelegateAction {
     /// For more details, see: [NEP-461](https://github.com/near/NEPs/pull/461)
     pub fn get_nep461_hash(&self) -> CryptoHash {
         let signable = SignableMessage::new(&self, SignableMessageType::DelegateAction);
-        let bytes = signable.try_to_vec().expect("Failed to deserialize");
+        let bytes = borsh::to_vec(&signable).expect("Failed to deserialize");
         hash(&bytes)
     }
 }
@@ -79,6 +79,7 @@ impl DelegateAction {
 /// A small private module to protect the private fields inside `NonDelegateAction`.
 mod private_non_delegate_action {
     use super::*;
+    use std::io::Read;
 
     /// This is Action which mustn't contain DelegateAction.
     ///
@@ -116,9 +117,7 @@ mod private_non_delegate_action {
     }
 
     impl borsh::de::BorshDeserialize for NonDelegateAction {
-        fn deserialize_reader<R: borsh::maybestd::io::Read>(
-            rd: &mut R,
-        ) -> ::core::result::Result<Self, borsh::maybestd::io::Error> {
+        fn deserialize_reader<R: Read>(rd: &mut R) -> ::core::result::Result<Self, Error> {
             match u8::deserialize_reader(rd)? {
                 ACTION_DELEGATE_NUMBER => Err(Error::new(
                     ErrorKind::InvalidInput,
@@ -175,7 +174,7 @@ mod tests {
         );
 
         let delegate_action = create_delegate_action(Vec::<Action>::new());
-        let serialized_non_delegate_action = delegate_action.try_to_vec().expect("Expect ok");
+        let serialized_non_delegate_action = borsh::to_vec(&delegate_action).expect("Expect ok");
 
         // Expected Action::Delegate has not been moved in enum Action
         assert_eq!(serialized_non_delegate_action[0], ACTION_DELEGATE_NUMBER);
@@ -189,7 +188,7 @@ mod tests {
 
         let delegate_action =
             create_delegate_action(vec![Action::CreateAccount(CreateAccountAction {})]);
-        let serialized_delegate_action = delegate_action.try_to_vec().expect("Expect ok");
+        let serialized_delegate_action = borsh::to_vec(&delegate_action).expect("Expect ok");
 
         // Valid action
         assert_eq!(

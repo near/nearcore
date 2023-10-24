@@ -70,7 +70,7 @@ macro_rules! imports {
         macro_rules! for_each_available_import {
             ($config:expr, $M:ident) => {$(
                 $(#[cfg(feature = $feature_name)])?
-                if true $(&& ($config).$config_field)? {
+                if true $(& ($config).$config_field)? {
                     call_with_name!($M => $( @in $mod : )? $( @as $name : )? $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
                 }
             )*}

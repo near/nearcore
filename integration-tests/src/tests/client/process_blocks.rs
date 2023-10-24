@@ -2627,7 +2627,7 @@ fn test_catchup_gas_price_change() {
             .remove_flat_storage_for_shard(msg.shard_uid)
             .unwrap());
         for part_id in 0..msg.num_parts {
-            let key = StatePartKey(msg.sync_hash, shard_id, part_id).try_to_vec().unwrap();
+            let key = StatePartKey(msg.sync_hash, shard_id, borsh::to_vec(&part_id)).unwrap();
             let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
 
             rt.apply_state_part(
@@ -3348,8 +3348,8 @@ fn test_header_version_downgrade() {
                 header.inner_rest.latest_protocol_version = PROTOCOL_VERSION;
                 let (hash, signature) = validator_signer.sign_block_header_parts(
                     header.prev_hash,
-                    &header.inner_lite.try_to_vec().expect("Failed to serialize"),
-                    &header.inner_rest.try_to_vec().expect("Failed to serialize"),
+                    borsh::to_vec(&header.inner_lite).expect("Failed to serialize"),
+                    borsh::to_vec(&header.inner_rest).expect("Failed to serialize"),
                 );
                 header.hash = hash;
                 header.signature = signature;

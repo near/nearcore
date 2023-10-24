@@ -671,7 +671,8 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                     .unwrap());
 
                 for part_id in 0..msg.num_parts {
-                    let key = StatePartKey(msg.sync_hash, shard_id, part_id).try_to_vec().unwrap();
+                    let key =
+                        StatePartKey(msg.sync_hash, shard_id, borsh::to_vec(&part_id)).unwrap();
                     let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
 
                     rt.apply_state_part(

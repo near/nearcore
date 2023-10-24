@@ -461,7 +461,7 @@ impl WrappedTrieChanges {
             store_update.set(
                 DBCol::StateChanges,
                 storage_key.as_ref(),
-                &change_with_trie_key.try_to_vec().expect("Borsh serialize cannot fail"),
+                borsh::to_vec(&change_with_trie_key).expect("Borsh serialize cannot fail"),
             );
         }
     }

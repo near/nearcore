@@ -562,7 +562,7 @@ impl ScanDbColumnCmd {
             (None, Some(bytes), None) => {
                 Some(bytes.split(",").map(|s| s.parse::<u8>().unwrap()).collect::<Vec<u8>>())
             }
-            (None, None, Some(hash)) => Some(hash.try_to_vec().unwrap()),
+            (None, None, Some(hash)) => borsh::to_vec(&Some(hash).unwrap()),
             _ => panic!("Need to provide exactly one of bytes, str, or hash"),
         }
     }

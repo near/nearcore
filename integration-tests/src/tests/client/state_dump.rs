@@ -303,7 +303,7 @@ fn run_state_sync_with_dumped_parts(
             .unwrap());
 
         for part_id in 0..num_parts {
-            let key = StatePartKey(sync_hash, 0, part_id).try_to_vec().unwrap();
+            let key = StatePartKey(sync_hash, 0, borsh::to_vec(&part_id)).unwrap();
             let part = client_0_store.get(DBCol::StateParts, &key).unwrap().unwrap();
 
             runtime_client_1

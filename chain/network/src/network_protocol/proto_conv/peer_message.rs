@@ -113,7 +113,7 @@ impl TryFrom<&proto::DistanceVector> for DistanceVector {
 
 impl From<&BlockHeader> for proto::BlockHeader {
     fn from(x: &BlockHeader) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Default::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Default::default() }
     }
 }
 
@@ -130,7 +130,7 @@ impl TryFrom<&proto::BlockHeader> for BlockHeader {
 
 impl From<&Block> for proto::Block {
     fn from(x: &Block) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Default::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Default::default() }
     }
 }
 
@@ -147,7 +147,7 @@ impl TryFrom<&proto::Block> for Block {
 
 impl From<&StateResponseInfo> for proto::StateResponseInfo {
     fn from(x: &StateResponseInfo) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Default::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Default::default() }
     }
 }
 
@@ -226,11 +226,11 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::Transaction(t) => ProtoMT::Transaction(proto::SignedTransaction {
-                    borsh: t.try_to_vec().unwrap(),
+                    borsh: borsh::to_vec(&t).unwrap(),
                     ..Default::default()
                 }),
                 PeerMessage::Routed(r) => ProtoMT::Routed(proto::RoutedMessage {
-                    borsh: r.msg.try_to_vec().unwrap(),
+                    borsh: borsh::to_vec(&r.msg).unwrap(),
                     created_at: MF::from_option(r.created_at.as_ref().map(utc_to_proto)),
                     num_hops: r.num_hops,
                     ..Default::default()
@@ -240,7 +240,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::Challenge(r) => ProtoMT::Challenge(proto::Challenge {
-                    borsh: r.try_to_vec().unwrap(),
+                    borsh: borsh::to_vec(&r).unwrap(),
                     ..Default::default()
                 }),
                 PeerMessage::StateRequestHeader(shard_id, sync_hash) => {

@@ -109,6 +109,7 @@ impl PublicKey {
                 account_id: account_id.clone(),
             });
         }
+        let account_id: &near_account_id::AccountIdRef = account_id.as_ref();
         let mut public_key_data = Vec::with_capacity(33);
         public_key_data.push(KeyType::ED25519 as u8);
         public_key_data.extend(

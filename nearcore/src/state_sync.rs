@@ -466,7 +466,7 @@ fn obtain_and_store_state_part(
         PartId::new(part_id, num_parts),
     )?;
 
-    let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+    let key = StatePartKey(sync_hash, shard_id, borsh::to_vec(&part_id))?;
     let mut store_update = chain.store().store().store_update();
     store_update.set(DBCol::StateParts, &key, &state_part);
     store_update.commit()?;

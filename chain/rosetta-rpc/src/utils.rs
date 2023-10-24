@@ -40,7 +40,7 @@ where
         S: serde::Serializer,
     {
         serializer.serialize_str(&hex::encode(
-            self.0.try_to_vec().expect("borsh serialization should never fail"),
+            borsh::to_vec(&self.0).expect("borsh serialization should never fail"),
         ))
     }
 }

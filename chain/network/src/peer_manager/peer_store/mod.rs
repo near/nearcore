@@ -170,7 +170,7 @@ impl Inner {
     /// Find a random subset of peers based on filter.
     fn find_peers<F>(&self, filter: F, count: usize) -> Vec<PeerInfo>
     where
-        F: FnMut(&&KnownPeerState) -> bool,
+        F: FnMut(&KnownPeerState) -> bool,
     {
         (self.peer_states.iter().map(|(_, v)| v))
             .filter(filter)

@@ -107,7 +107,7 @@ impl AccountRecords {
                 for (public_key, access_key) in self.keys {
                     let storage_usage = account.storage_usage()
                         + public_key.len() as u64
-                        + access_key.try_to_vec().unwrap().len() as u64
+                        + borsh::to_vec(&access_key).unwrap().len() as u64
                         + num_extra_bytes_record;
                     account.set_storage_usage(storage_usage);
 

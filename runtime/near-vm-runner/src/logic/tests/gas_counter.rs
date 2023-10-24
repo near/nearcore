@@ -721,11 +721,12 @@ fn op_limit(gas_limit: Gas) -> u32 {
 }
 
 fn test_pk() -> Vec<u8> {
-    let pk = "ed25519:22W5rKuvbMRphnDoCj6nfrWhRKvh9Xf9SWXfGHaeXGde"
-        .parse::<near_crypto::PublicKey>()
-        .unwrap()
-        .try_to_vec()
-        .unwrap();
+    let pk = borsh::to_vec(
+        &"ed25519:22W5rKuvbMRphnDoCj6nfrWhRKvh9Xf9SWXfGHaeXGde"
+            .parse::<near_crypto::PublicKey>()
+            .unwrap(),
+    )
+    .unwrap();
     pk
 }
 

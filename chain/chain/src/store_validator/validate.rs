@@ -854,7 +854,7 @@ pub(crate) fn state_part_header_exists(
 ) -> Result<(), StoreValidatorError> {
     let StatePartKey(block_hash, shard_id, part_id) = *key;
     let state_header_key = unwrap_or_err!(
-        StateHeaderKey(shard_id, block_hash).try_to_vec(),
+        StateHeaderKey(shard_id, borsh::to_vec(&block_hash)),
         "Can't serialize StateHeaderKey"
     );
     let header = unwrap_or_err_db!(

@@ -53,7 +53,7 @@ impl SyncJobsActor {
 
         let shard_id = msg.shard_uid.shard_id as ShardId;
         for part_id in 0..msg.num_parts {
-            let key = StatePartKey(msg.sync_hash, shard_id, part_id).try_to_vec()?;
+            let key = StatePartKey(msg.sync_hash, shard_id, borsh::to_vec(&part_id))?;
             let part = store.get(DBCol::StateParts, &key)?.unwrap();
 
             msg.runtime_adapter.apply_state_part(

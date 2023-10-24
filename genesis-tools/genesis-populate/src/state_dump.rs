@@ -44,7 +44,7 @@ impl StateDump {
             let mut roots_files = dir;
             roots_files.push(GENESIS_ROOTS_FILE);
             let mut file = File::create(roots_files)?;
-            let data = self.roots.try_to_vec()?;
+            let data = borsh::to_vec(&self.roots)?;
             file.write_all(&data)?;
         }
         Ok(())
