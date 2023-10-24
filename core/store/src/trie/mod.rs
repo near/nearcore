@@ -345,14 +345,11 @@ pub struct Trie {
     /// state proof so that the same access pattern can be replayed using only
     /// the captured result.
     recorder: Option<RefCell<TrieRecorder>>,
-    /// This can only be true if the storage is based on a recorded partial
-    /// trie, i.e. replaying lookups on a state proof, where flat storage may
-    /// not be available so we always have to go through the trie. If this
-    /// flag is true, trie node lookups will not go through the accounting
-    /// cache, i.e. the access is free from the trie's perspective, just like
-    /// flat storage. (Note that dereferencing ValueRef still has the same cost
-    /// no matter what.) This allows us to accurately calculate storage gas
-    /// costs even with only a state proof.
+    /// If true, access to trie nodes (not values) charges gas and affects the
+    /// accounting cache. If false, access to trie nodes will not charge gas or
+    /// affect the accounting cache. Value accesses always charge gas no matter
+    /// what, and lookups done via get_ref with `KeyLookupMode::Trie` will
+    /// also charge gas no matter what.
     charge_gas_for_trie_node_access: bool,
 }
 
@@ -977,6 +974,21 @@ impl Trie {
         }
     }
 
+    /// Retrieves the value (inlined or reference) for the given key, from flat storage.
+    /// In general, flat storage may inline a value if the value is short, but otherwise
+    /// it would defer the storage of the value to the trie. This method will return
+    /// whatever the flat storage has.
+    ///
+    /// If an inlined value is returned, this method will charge the corresponding gas
+    /// as if the value were accessed from the trie storage. It will also insert the
+    /// value into the accounting cache, as well as recording the access to the value
+    /// if recording is enabled. In other words, if an inlined value is returned the
+    /// behavior is equivalent to if the trie were used to access the value reference
+    /// and then the reference were used to look up the full value.
+    ///
+    /// If `ref_only` is true, even if the flat storage gives us the inlined value, we
+    /// would still convert it to a reference. This is useful if making an access for
+    /// the value (thereby charging gas for it) is not desired.
     fn lookup_from_flat_storage(
         &self,
         key: &[u8],
@@ -1017,14 +1029,19 @@ impl Trie {
         Ok(value)
     }
 
+    /// Looks up the given key by walking the trie nodes on disk (but still
+    /// going through applicable caches).
+    ///
+    /// The `charge_gas_for_trie_node_access` parameter controls whether the
+    /// lookup incurs any gas.
     fn lookup_from_disk(
         &self,
         mut key: NibbleSlice<'_>,
-        use_accounting_cache: bool,
+        charge_gas_for_trie_node_access: bool,
     ) -> Result<Option<ValueRef>, StorageError> {
         let mut hash = self.root;
         loop {
-            let node = match self.retrieve_raw_node(&hash, use_accounting_cache)? {
+            let node = match self.retrieve_raw_node(&hash, charge_gas_for_trie_node_access)? {
                 None => return Ok(None),
                 Some((_bytes, node)) => node.node,
             };
