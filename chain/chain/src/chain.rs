@@ -1786,7 +1786,8 @@ impl Chain {
         let height = block.header().height();
         let mut receipt_proofs_by_shard_id = HashMap::new();
 
-        for chunk_header in block.chunks().iter() {
+        for (i, chunk_header) in block.chunks().iter().enumerate() {
+            println!("chunk {i} {} {}", chunk_header.height_included(), height);
             if chunk_header.height_included() != height {
                 continue;
             }
@@ -1794,7 +1795,8 @@ impl Chain {
             // there are no partial chunks for genesis block, btw
             let partial_encoded_chunk =
                 self.store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
-            for receipt in partial_encoded_chunk.receipts().iter() {
+            for (j, receipt) in partial_encoded_chunk.receipts().iter().enumerate() {
+                println!("{j} {} {}", receipt.1.from_shard_id, receipt.1.to_shard_id);
                 let ReceiptProof(_, shard_proof) = receipt;
                 let ShardProof { to_shard_id, .. } = shard_proof;
                 receipt_proofs_by_shard_id

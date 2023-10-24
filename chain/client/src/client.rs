@@ -798,7 +798,7 @@ impl Client {
                 shard_id as usize,
                 &incoming_receipts,
             );
-            result.unwrap(); // if there is an error, it means something weird which I don't perceive yet
+            result.unwrap(); // ideally ApplyChunkResult and state witness must be taken here
         }
 
         let validator_signer = self
