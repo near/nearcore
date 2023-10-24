@@ -839,6 +839,7 @@ impl Client {
             validator_signer.validator_id()
         );
 
+        println!("produce_pre_state_root_chunk");
         let ret = self.produce_pre_state_root_chunk(
             validator_signer.as_ref(),
             *prev_block_hash,
@@ -847,6 +848,7 @@ impl Client {
             next_height,
             shard_id,
         )?;
+        println!("CHUNK PARTS: {}", ret.0.content().parts.len());
 
         metrics::CHUNK_PRODUCED_TOTAL.inc();
         self.chunk_production_info.put(
@@ -1894,6 +1896,7 @@ impl Client {
                 }
                 Ok(None) => {}
                 Err(err) => {
+                    println!("Error producing chunk {:?}", err);
                     error!(target: "client", "Error producing chunk {:?}", err);
                 }
             }
