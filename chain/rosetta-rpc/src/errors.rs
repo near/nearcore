@@ -1,3 +1,7 @@
+use std::num::ParseIntError;
+
+use near_account_id::ParseAccountError;
+
 #[derive(Debug, strum::EnumIter, thiserror::Error)]
 pub(crate) enum ErrorKind {
     #[error("Invalid input: {0}")]
@@ -55,6 +59,23 @@ impl From<near_client::TxStatusError> for ErrorKind {
     }
 }
 
+impl From<ParseAccountError> for ErrorKind {
+    fn from(value: ParseAccountError) -> Self {
+        Self::InvalidInput(format!("Parse Account Error: kind {:?}", value.kind()))
+    }
+}
+
+impl From<ParseIntError> for ErrorKind {
+    fn from(value: ParseIntError) -> Self {
+        Self::InvalidInput(format!("Parse Int Error: kind {:?}", value.kind()))
+    }
+}
+
+impl From<serde_json::Error> for ErrorKind {
+    fn from(value: serde_json::Error) -> Self {
+        Self::InternalInvariantError(format!("JSON Serialisation Error, {:?}", value))
+    }
+}
 impl From<near_client_primitives::types::GetStateChangesError> for ErrorKind {
     fn from(err: near_client_primitives::types::GetStateChangesError) -> Self {
         match err {
