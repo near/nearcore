@@ -4369,6 +4369,10 @@ impl Chain {
         let random_seed = *block.header().random_value();
         let height = chunk_header.height_included();
         let prev_block_hash = *chunk_header.prev_block_hash();
+        // genesis
+        if prev_block_hash == CryptoHash::default() {
+            return Ok(None);
+        }
 
         Ok(Some(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
             let _span = tracing::debug_span!(
