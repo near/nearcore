@@ -8,6 +8,7 @@ use near_epoch_manager::{shard_tracker::ShardTracker, EpochManagerAdapter};
 use near_network::{
     shards_manager::ShardsManagerRequestFromNetwork, types::PeerManagerMessageRequest,
 };
+use near_o11y::WithSpanContext;
 use near_performance_metrics_macros::perf;
 use near_primitives::types::AccountId;
 use near_store::{DBCol, Store, HEADER_HEAD_KEY, HEAD_KEY};
@@ -47,21 +48,29 @@ impl Actor for ShardsManagerActor {
     }
 }
 
-impl Handler<ShardsManagerRequestFromClient> for ShardsManagerActor {
+impl Handler<WithSpanContext<ShardsManagerRequestFromClient>> for ShardsManagerActor {
     type Result = ();
 
     #[perf]
-    fn handle(&mut self, msg: ShardsManagerRequestFromClient, _ctx: &mut Context<Self>) {
-        self.shards_mgr.handle_client_request(msg);
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<ShardsManagerRequestFromClient>,
+        _ctx: &mut Context<Self>,
+    ) {
+        self.shards_mgr.handle_client_request(msg.msg);
     }
 }
 
-impl Handler<ShardsManagerRequestFromNetwork> for ShardsManagerActor {
+impl Handler<WithSpanContext<ShardsManagerRequestFromNetwork>> for ShardsManagerActor {
     type Result = ();
 
     #[perf]
-    fn handle(&mut self, msg: ShardsManagerRequestFromNetwork, _ctx: &mut Context<Self>) {
-        self.shards_mgr.handle_network_request(msg);
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<ShardsManagerRequestFromNetwork>,
+        _ctx: &mut Context<Self>,
+    ) {
+        self.shards_mgr.handle_network_request(msg.msg);
     }
 }
 
