@@ -10,6 +10,7 @@ use near_actix_test_utils::spawn_interruptible;
 use near_client::{GetBlock, GetExecutionOutcome, GetValidatorInfo};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
+use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
 use near_network::test_utils::WaitOrTimeoutActor;
 use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
@@ -22,7 +23,9 @@ use near_primitives::types::{
     BlockId, BlockReference, EpochId, EpochReference, Finality, TransactionOrReceiptId,
 };
 use near_primitives::version::ProtocolVersion;
-use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView, RuntimeConfigView};
+use near_primitives::views::{
+    ExecutionOutcomeView, ExecutionStatusView, RuntimeConfigView, TxExecutionStatus,
+};
 use std::time::Duration;
 
 #[test]
@@ -615,8 +618,12 @@ fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
                 let res = view_client.send(GetBlock::latest().with_span_context()).await;
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
+                        let request = RpcTransactionStatusRequest {
+                            transaction_info: TransactionInfo::from_signed_tx(transaction),
+                            wait_until: TxExecutionStatus::None,
+                        };
                         let _ = client
-                            .tx(transaction.get_hash().to_string(), "near.1".parse().unwrap())
+                            .tx(request)
                             .map_err(|err| {
                                 assert_eq!(
                                     err.data.unwrap(),
