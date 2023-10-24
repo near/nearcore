@@ -6,17 +6,20 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
 
+/// Reads records, makes changes to them and writes them to a new file.
+/// `records_file_in` must be different from `records_file_out`.
+/// Writes a secret to `secret_file_out`.
 pub fn map_records<P: AsRef<Path>>(
     records_file_in: P,
     records_file_out: P,
     no_secret: bool,
     secret_file_out: P,
 ) -> anyhow::Result<()> {
-    let secret = if !no_secret {
-        Some(crate::secret::generate(secret_file_out)?)
-    } else {
+    let secret = if no_secret {
         crate::secret::write_empty(secret_file_out)?;
         None
+    } else {
+        Some(crate::secret::generate(secret_file_out)?)
     };
     let reader = BufReader::new(File::open(records_file_in)?);
     let records_out = BufWriter::new(File::create(records_file_out)?);
