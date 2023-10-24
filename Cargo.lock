@@ -3464,6 +3464,7 @@ name = "near-chain-configs"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "bytesize",
  "chrono",
  "derive_more",
  "near-config-utils",

@@ -26,6 +26,7 @@ use chrono::Duration;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use itertools::Itertools;
 use lru::LruCache;
+use near_chain_configs::StateSplitConfig;
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::types::BlockHeaderInfo;
@@ -477,6 +478,8 @@ pub struct Chain {
 
     /// Lets trigger new state snapshots.
     state_snapshot_helper: Option<StateSnapshotHelper>,
+
+    pub(crate) state_split_config: near_chain_configs::StateSplitConfig,
 }
 
 /// Lets trigger new state snapshots.
@@ -579,6 +582,7 @@ impl Chain {
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
             state_snapshot_helper: None,
+            state_split_config: StateSplitConfig::default(),
         })
     }
 
@@ -749,6 +753,7 @@ impl Chain {
                     .state_snapshot_every_n_blocks
                     .map(|n| (0, n)),
             }),
+            state_split_config: chain_config.state_split_config,
         })
     }
 
