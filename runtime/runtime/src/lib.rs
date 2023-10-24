@@ -53,6 +53,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::debug;
+use near_primitives_core::account::id::AccountIdRef;
 
 mod actions;
 pub mod adapter;
@@ -307,7 +308,7 @@ impl Runtime {
         result.compute_usage = exec_fees;
         let account_id = &receipt.receiver_id;
         let is_the_only_action = actions.len() == 1;
-        let is_refund = AccountId::is_system(&receipt.predecessor_id);
+        let is_refund = AccountIdRef::is_system(&receipt.predecessor_id);
         // Account validation
         if let Err(e) = check_account_existence(
             action,
@@ -575,7 +576,7 @@ impl Runtime {
             }
         }
 
-        let gas_deficit_amount = if AccountId::is_system(&receipt.predecessor_id) {
+        let gas_deficit_amount = if AccountIdRef::is_system(&receipt.predecessor_id) {
             // We will set gas_burnt for refund receipts to be 0 when we calculate tx_burnt_amount
             // Here we don't set result.gas_burnt to be zero if CountRefundReceiptsInGasLimit is
             // enabled because we want it to be counted in gas limit calculation later
@@ -626,7 +627,7 @@ impl Runtime {
 
         // If the receipt is a refund, then we consider it free without burnt gas.
         let gas_burnt: Gas =
-            if AccountId::is_system(&receipt.predecessor_id) { 0 } else { result.gas_burnt };
+            if AccountIdRef::is_system(&receipt.predecessor_id) { 0 } else { result.gas_burnt };
         // `gas_deficit_amount` is strictly less than `gas_price * gas_burnt`.
         let mut tx_burnt_amount =
             safe_gas_to_balance(apply_state.gas_price, gas_burnt)? - gas_deficit_amount;

@@ -254,7 +254,7 @@ impl ActionEstimation {
         let signer_id = tb.account_by_requirement(self.signer, None);
         let predecessor_id = tb.account_by_requirement(self.predecessor, Some(&signer_id));
         let receiver_id = tb.account_by_requirement(self.receiver, Some(&signer_id));
-        let signer_public_key = PublicKey::from_seed(KeyType::ED25519, &signer_id);
+        let signer_public_key = PublicKey::from_seed(KeyType::ED25519, signer_id.as_str());
 
         let action_receipt = ActionReceipt {
             signer_id,
@@ -761,7 +761,7 @@ pub(crate) fn empty_delegate_action(
     use near_primitives::signable_message::{SignableMessage, SignableMessageType};
     use near_primitives::test_utils::create_user_test_signer;
 
-    let signer = create_user_test_signer(&sender_id);
+    let signer = create_user_test_signer(sender_id.as_str());
     let delegate_action = DelegateAction {
         sender_id,
         receiver_id,

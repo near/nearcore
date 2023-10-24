@@ -19,6 +19,7 @@ use near_primitives::types::{AccountId, Balance};
 use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
+use near_primitives_core::account::id::AccountIdRef;
 use near_store::{
     get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
 };
@@ -238,7 +239,8 @@ pub fn verify_and_charge_transaction(
                 )
                 .into());
             }
-            if transaction.receiver_id.as_ref() != function_call_permission.receiver_id {
+            let account_id_ref: &AccountIdRef = transaction.receiver_id.as_ref();
+            if  account_id_ref != function_call_permission.receiver_id {
                 return Err(InvalidTxError::InvalidAccessKeyError(
                     InvalidAccessKeyError::ReceiverMismatch {
                         tx_receiver: transaction.receiver_id.clone(),
@@ -517,7 +519,7 @@ fn validate_add_key_action(
 ///
 /// Checks that the `beneficiary_id` is a valid account ID.
 fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsValidationError> {
-    if AccountId::validate(&action.beneficiary_id).is_err() {
+    if AccountId::validate(action.beneficiary_id.as_str()).is_err() {
         return Err(ActionsValidationError::InvalidAccountId {
             account_id: action.beneficiary_id.to_string(),
         });

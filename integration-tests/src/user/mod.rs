@@ -261,7 +261,7 @@ pub trait User {
         relayer_id: AccountId,
         actions: Vec<Action>,
     ) -> Result<FinalExecutionOutcomeView, ServerError> {
-        let inner_signer = create_user_test_signer(&signer_id);
+        let inner_signer = create_user_test_signer(signer_id.as_str());
         let user_nonce = self
             .get_access_key(&signer_id, &inner_signer.public_key)
             .expect("failed reading user's nonce for access key")

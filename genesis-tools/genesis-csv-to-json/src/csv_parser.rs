@@ -13,6 +13,7 @@ use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
+use near_primitives::account::id::AccountIdRef;
 
 /// Methods that can be called by a non-privileged access key.
 const REGULAR_METHOD_NAMES: &[&str] = &["stake", "transfer"];
@@ -245,11 +246,12 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
             }
             _ => unimplemented!(),
         };
+        let account_id_ref: &AccountIdRef = row.account_id.as_ref();
         let receipt = Receipt {
             predecessor_id: row.account_id.clone(),
             receiver_id: row.account_id.clone(),
             // `receipt_id` can be anything as long as it is unique.
-            receipt_id: hash(row.account_id.as_ref().as_bytes()),
+            receipt_id: hash(account_id_ref.as_bytes()),
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: row.account_id.clone(),
                 // `signer_public_key` can be anything because the key checks are not applied when

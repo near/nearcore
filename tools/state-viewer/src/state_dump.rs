@@ -20,6 +20,7 @@ use std::fs;
 use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
+use near_primitives_core::account::id::AccountIdRef;
 
 /// Returns a `NearConfig` with genesis records taken from the current state.
 /// If `records_path` argument is provided, then records will be streamed into a separate file,
@@ -150,7 +151,8 @@ pub fn state_dump_redis(
             if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
                 if let StateRecord::Account { account_id, account } = &sr {
                     println!("Account: {}", account_id);
-                    let redis_key = account_id.as_ref().as_bytes();
+                    let account_id_ref:&AccountIdRef = account_id.as_ref();
+                    let redis_key = account_id_ref.as_bytes();
                     redis_connection.zadd(
                         [b"account:", redis_key].concat(),
                         block_hash.as_ref(),
@@ -166,8 +168,9 @@ pub fn state_dump_redis(
 
                 if let StateRecord::Data { account_id, data_key, value } = &sr {
                     println!("Data: {}", account_id);
+                    let account_id_ref:&AccountIdRef = account_id.as_ref();
                     let redis_key =
-                        [account_id.as_ref().as_bytes(), b":", data_key.as_ref()].concat();
+                        [account_id_ref.as_bytes(), b":", data_key.as_ref()].concat();
                     redis_connection.zadd(
                         [b"data:", redis_key.as_slice()].concat(),
                         block_hash.as_ref(),
@@ -183,7 +186,8 @@ pub fn state_dump_redis(
 
                 if let StateRecord::Contract { account_id, code } = &sr {
                     println!("Contract: {}", account_id);
-                    let redis_key = [b"code:", account_id.as_ref().as_bytes()].concat();
+                    let account_id_ref:&AccountIdRef = account_id.as_ref();
+                    let redis_key = [b"code:", account_id_ref.as_bytes()].concat();
                     redis_connection.zadd(redis_key.clone(), block_hash.as_ref(), block_height)?;
                     let value_vec: &[u8] = code.as_ref();
                     redis_connection.set(
