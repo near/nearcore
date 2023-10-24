@@ -128,14 +128,6 @@ mod params {
             self.0.unwrap_or_else(Self::parse)
         }
 
-        /// Finish chain of parsing without trying of parsing to `T` directly
-        pub fn unwrap(self) -> Result<T, RpcParseError> {
-            match self.0 {
-                Ok(res) => res,
-                Err(e) => Err(RpcParseError(format!("Failed parsing args: {e}"))),
-            }
-        }
-
         /// If value hasn’t been parsed yet and it’s a one-element array
         /// (i.e. singleton) deserialises the element and calls `func` on it.
         ///

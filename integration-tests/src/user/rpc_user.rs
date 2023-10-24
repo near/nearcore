@@ -10,6 +10,7 @@ use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_jsonrpc_client::ChunkId;
 use near_jsonrpc_primitives::errors::ServerError;
 use near_jsonrpc_primitives::types::query::{RpcQueryRequest, RpcQueryResponse};
+use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::to_base64;
@@ -20,7 +21,7 @@ use near_primitives::types::{
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
     EpochValidatorInfo, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryRequest,
-    ViewStateResult,
+    TxExecutionStatus, ViewStateResult,
 };
 
 use crate::user::User;
@@ -183,9 +184,14 @@ impl User for RpcUser {
     }
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
-        let account_id = self.account_id.clone();
-        let hash = hash.to_string();
-        self.actix(move |client| client.tx(hash, account_id))
+        let request = RpcTransactionStatusRequest {
+            transaction_info: TransactionInfo::TransactionId {
+                tx_hash: *hash,
+                sender_account_id: self.account_id.clone(),
+            },
+            wait_until: TxExecutionStatus::Final,
+        };
+        self.actix(move |client| client.tx(request))
             .unwrap()
             .final_execution_outcome
             .unwrap()

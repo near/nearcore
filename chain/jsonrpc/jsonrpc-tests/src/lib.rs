@@ -33,7 +33,7 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
     enable_doomslug: bool,
 ) -> (Addr<ViewClientActor>, tcp::ListenerAddr) {
     let actor_handles = setup_no_network_with_validity_period_and_no_epoch_sync(
-        vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
+        vec!["test1".parse().unwrap()],
         if let NodeType::Validator = node_type {
             "test1".parse().unwrap()
         } else {

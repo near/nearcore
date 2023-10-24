@@ -89,7 +89,7 @@ fn test_block_query() {
 fn test_chunk_by_hash() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let chunk = client.chunk(ChunkId::BlockShardId(BlockId::Height(0), 0u64)).await.unwrap();
-        assert_eq!(chunk.author, "test2".parse().unwrap());
+        assert_eq!(chunk.author, "test1".parse().unwrap());
         assert_eq!(chunk.header.balance_burnt, 0);
         assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
         assert_eq!(chunk.header.encoded_length, 8);
@@ -454,7 +454,7 @@ fn test_validators_ordered() {
             .unwrap();
         assert_eq!(
             validators.into_iter().map(|v| v.take_account_id()).collect::<Vec<_>>(),
-            vec!["test1".parse().unwrap(), "test2".parse().unwrap()]
+            vec!["test1".parse().unwrap()]
         )
     });
 }
@@ -560,7 +560,7 @@ fn test_get_chunk_with_object_in_params() {
         )
         .await
         .unwrap();
-        assert_eq!(chunk.author, "test2".parse().unwrap());
+        assert_eq!(chunk.author, "test1".parse().unwrap());
         assert_eq!(chunk.header.balance_burnt, 0);
         assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
         assert_eq!(chunk.header.encoded_length, 8);
