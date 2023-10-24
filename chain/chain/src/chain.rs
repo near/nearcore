@@ -5618,6 +5618,7 @@ impl<'a> ChainUpdate<'a> {
         let block_hash = block.hash();
         let prev_hash = block.header().prev_hash();
         let height = block.header().height();
+        println!("process_apply_chunk_result ORIG: {block_hash} {prev_hash} {height}");
         match result {
             ApplyChunkResult::SameHeight(SameHeightResult {
                 gas_limit,
@@ -5625,6 +5626,12 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 apply_split_result_or_state_changes,
             }) => {
+                let block_hash = &apply_result.trie_changes.block_hash;
+                let block = self.chain_store_update.get_block(block_hash)?;
+                let prev_hash = block.header().prev_hash();
+                let height = block.header().height();
+                println!("process_apply_chunk_result NEW SAME: {block_hash} {prev_hash} {height}");
+
                 let (outcome_root, outcome_paths) =
                     ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();
@@ -5667,7 +5674,7 @@ impl<'a> ChainUpdate<'a> {
                     outcome_paths,
                 );
                 if let Some(apply_results_or_state_changes) = apply_split_result_or_state_changes {
-                    self.process_split_state(block, &shard_uid, apply_results_or_state_changes)?;
+                    self.process_split_state(&block, &shard_uid, apply_results_or_state_changes)?;
                 }
             }
             ApplyChunkResult::DifferentHeight(DifferentHeightResult {
@@ -5675,6 +5682,12 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 apply_split_result_or_state_changes,
             }) => {
+                let block_hash = &apply_result.trie_changes.block_hash;
+                let block = self.chain_store_update.get_block(block_hash)?;
+                let prev_hash = block.header().prev_hash();
+                let height = block.header().height();
+                println!("process_apply_chunk_result NEW DIFF: {block_hash} {prev_hash} {height}");
+
                 let old_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
 
                 let mut new_extra = ChunkExtra::clone(&old_extra);
@@ -5694,10 +5707,11 @@ impl<'a> ChainUpdate<'a> {
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
 
                 if let Some(apply_results_or_state_changes) = apply_split_result_or_state_changes {
-                    self.process_split_state(block, &shard_uid, apply_results_or_state_changes)?;
+                    self.process_split_state(&block, &shard_uid, apply_results_or_state_changes)?;
                 }
             }
             ApplyChunkResult::SplitState(SplitStateResult { shard_uid, results }) => {
+                // prev block again??
                 self.chain_store_update
                     .remove_state_changes_for_split_states(*block.hash(), shard_uid.shard_id());
                 self.process_split_state(
@@ -5786,12 +5800,24 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.inc_block_refcount(prev_hash)?;
 
         // Save receipt_id_to_shard_id for all outgoing receipts generated in this block
-        self.save_receipt_id_to_shard_id_for_block(
-            me,
-            block.hash(),
-            prev_hash,
-            block.chunks().len() as NumShards,
-        )?;
+        if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+            let prev_header = self.chain_store_update.get_block_header(prev_hash)?;
+            let prev_prev_hash = prev_header.prev_hash();
+            self.save_receipt_id_to_shard_id_for_block(
+                me,
+                prev_hash,
+                prev_prev_hash,
+                // how many chunks?
+                block.chunks().len() as NumShards,
+            )?;
+        } else {
+            self.save_receipt_id_to_shard_id_for_block(
+                me,
+                block.hash(),
+                prev_hash,
+                block.chunks().len() as NumShards,
+            )?;
+        }
 
         // Update the chain head if it's the new tip
         let res = self.update_head(block.header())?;
