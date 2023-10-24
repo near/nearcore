@@ -5630,7 +5630,7 @@ impl<'a> ChainUpdate<'a> {
                 let (block_hash, block) = if new_block_hash == block_hash {
                     (block_hash, block.clone())
                 } else {
-                    (new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
+                    (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
                 };
                 let prev_hash = block.header().prev_hash();
                 let height = block.header().height();
@@ -5690,7 +5690,7 @@ impl<'a> ChainUpdate<'a> {
                 let (block_hash, block) = if new_block_hash == block_hash {
                     (block_hash, block.clone())
                 } else {
-                    (new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
+                    (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
                 };
                 let prev_hash = block.header().prev_hash();
                 let height = block.header().height();
