@@ -5626,7 +5626,8 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 apply_split_result_or_state_changes,
             }) => {
-                let block_hash = &apply_result.trie_changes.block_hash;
+                let block_hash = apply_result.trie_changes.block_hash.clone();
+                let block_hash = &block_hash;
                 let block = self.chain_store_update.get_block(block_hash)?;
                 let prev_hash = block.header().prev_hash();
                 let height = block.header().height();
@@ -5682,7 +5683,8 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 apply_split_result_or_state_changes,
             }) => {
-                let block_hash = &apply_result.trie_changes.block_hash;
+                let block_hash = apply_result.trie_changes.block_hash.clone();
+                let block_hash = &block_hash;
                 let block = self.chain_store_update.get_block(block_hash)?;
                 let prev_hash = block.header().prev_hash();
                 let height = block.header().height();
