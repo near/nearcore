@@ -4425,6 +4425,7 @@ impl Chain {
                     validate(&chunk_extra, &next_chunk_header)?;
                 }
                 // validate fields of next chunk by get_apply_chunks_job?
+                // save new chunk extras?
                 apply_result
             } else {
                 validate(prev_chunk_extra?.as_ref(), &chunk_header_copy)?;
