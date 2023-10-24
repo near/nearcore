@@ -4224,7 +4224,7 @@ impl Chain {
         let prev_block_copy = prev_block.clone();
         let block_copy = block.clone();
         let chunk_header_copy = chunk_header.clone();
-        let prev_chunk_extra = self.get_chunk_extra(&prev_hash, &shard_uid)?;
+        let prev_chunk_extra = self.get_chunk_extra(&prev_hash, &shard_uid);
 
         // we can't use hash from the current block here yet because the incoming receipts
         // for this block is not stored yet
@@ -4320,16 +4320,14 @@ impl Chain {
                     true,
                 )
             };
-
-            // Validate state root.
-            if ProtocolFeature::DelayChunkExecution.protocol_version() != 200 {
+            let validate = |chunk_extra: &ChunkExtra| {
                 validate_chunk_with_chunk_extra(
                     // It's safe here to use ChainStore instead of ChainStoreUpdate
                     // because we're asking prev_chunk_header for already committed block
                     &outgoing_receipts,
                     epoch_manager_adapter.as_ref(),
                     &prev_hash,
-                    &prev_chunk_extra,
+                    chunk_extra,
                     // prev_chunk_height_included,
                     &chunk_header_copy,
                 )
@@ -4341,7 +4339,7 @@ impl Chain {
                     block_hash=?block_copy.header().hash(),
                     shard_id,
                     prev_chunk_height_included,
-                    ?prev_chunk_extra,
+                    ?chunk_extra,
                     ?chunk_header_copy,
                     "Failed to validate chunk extra");
                     byzantine_assert!(false);
@@ -4354,58 +4352,34 @@ impl Chain {
                         Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
                         Err(err) => err,
                     }
-                })?;
-            }
+                })
+            };
+
+            // Validate state root.
+            let apply_result = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+                let apply_result = apply_txs();
+                if let Ok(apply_result) = &apply_result {
+                    let (outcome_root, _) =
+                        ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+                    let prev_chunk_extra = ChunkExtra::new(
+                        &apply_result.new_root,
+                        outcome_root,
+                        apply_result.validator_proposals.clone(),
+                        apply_result.total_gas_burnt,
+                        gas_limit,
+                        apply_result.total_balance_burnt,
+                    );
+                    validate(&prev_chunk_extra)?;
+                }
+                apply_result
+            } else {
+                validate(prev_chunk_extra?.as_ref())?;
+                apply_txs()
+            };
             // Validate that all next chunk information matches previous chunk extra.
 
-            match apply_txs() {
+            match apply_result {
                 Ok(apply_result) => {
-                    if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
-                        let (outcome_root, _) =
-                            ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
-                        let prev_chunk_extra = ChunkExtra::new(
-                            &apply_result.new_root,
-                            outcome_root,
-                            apply_result.validator_proposals.clone(),
-                            apply_result.total_gas_burnt,
-                            gas_limit,
-                            apply_result.total_balance_burnt,
-                        );
-
-                        validate_chunk_with_chunk_extra(
-                            // It's safe here to use ChainStore instead of ChainStoreUpdate
-                            // because we're asking prev_chunk_header for already committed block
-                            &outgoing_receipts,
-                            epoch_manager_adapter.as_ref(),
-                            &prev_hash,
-                            &prev_chunk_extra,
-                            // prev_chunk_height_included,
-                            &chunk_header_copy,
-                        )
-                        .map_err(|err| {
-                            warn!(
-                                target: "chain",
-                                ?err,
-                                prev_block_hash=?prev_hash,
-                                block_hash=?block_copy.header().hash(),
-                                shard_id,
-                                prev_chunk_height_included,
-                                ?prev_chunk_extra,
-                                ?chunk_header_copy,
-                                "Failed to validate chunk extra");
-                            byzantine_assert!(false);
-                            match Chain::create_chunk_state_challenge(
-                                &prev_chunk,
-                                &prev_block_copy,
-                                &block_copy,
-                                &chunk_header_copy,
-                            ) {
-                                Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
-                                Err(err) => err,
-                            }
-                        })?;
-                    }
-
                     let apply_split_result_or_state_changes = if will_shard_layout_change {
                         Some(ChainUpdate::apply_split_state_changes(
                             epoch_manager.as_ref(),
