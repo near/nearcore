@@ -26,6 +26,7 @@ pub mod state;
 pub mod state_part;
 pub mod state_record;
 pub mod state_sync;
+pub mod state_witness;
 pub mod static_clock;
 pub mod telemetry;
 pub mod test_utils;
