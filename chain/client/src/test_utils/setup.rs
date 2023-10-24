@@ -20,7 +20,7 @@ use near_chain::state_snapshot_actor::MakeSnapshotCallback;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
-use near_chain_configs::ClientConfig;
+use near_chain_configs::{ClientConfig, StateSplitConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::start_shards_manager;
@@ -110,7 +110,11 @@ pub fn setup(
         runtime.clone(),
         &chain_genesis,
         doomslug_threshold_mode,
-        ChainConfig { save_trie_changes: true, background_migration_threads: 1 },
+        ChainConfig {
+            save_trie_changes: true,
+            background_migration_threads: 1,
+            state_split_config: StateSplitConfig::default(),
+        },
         None,
     )
     .unwrap();
@@ -228,7 +232,11 @@ pub fn setup_only_view(
         runtime.clone(),
         &chain_genesis,
         doomslug_threshold_mode,
-        ChainConfig { save_trie_changes: true, background_migration_threads: 1 },
+        ChainConfig {
+            save_trie_changes: true,
+            background_migration_threads: 1,
+            state_split_config: StateSplitConfig::default(),
+        },
         None,
     )
     .unwrap();
@@ -992,7 +1000,11 @@ pub fn setup_synchronous_shards_manager(
         runtime,
         chain_genesis,
         DoomslugThresholdMode::TwoThirds, // irrelevant
-        ChainConfig { save_trie_changes: true, background_migration_threads: 1 }, // irrelevant
+        ChainConfig {
+            save_trie_changes: true,
+            background_migration_threads: 1,
+            state_split_config: StateSplitConfig::default(),
+        }, // irrelevant
         None,
     )
     .unwrap();
