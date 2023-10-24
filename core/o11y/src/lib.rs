@@ -24,6 +24,7 @@ pub use {tracing, tracing_appender, tracing_subscriber};
 
 /// Custom tracing subscriber implementation that produces IO traces.
 pub mod context;
+pub mod env_filter;
 mod io_tracer;
 pub mod log_config;
 pub mod macros;

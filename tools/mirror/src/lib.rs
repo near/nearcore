@@ -41,11 +41,11 @@ use tokio::sync::mpsc;
 mod chain_tracker;
 pub mod cli;
 mod genesis;
-mod key_mapping;
+pub mod key_mapping;
 mod metrics;
 mod offline;
 mod online;
-mod secret;
+pub mod secret;
 
 pub use cli::MirrorCommand;
 

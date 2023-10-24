@@ -133,7 +133,12 @@ impl NeardCmd {
                 cmd.run(&home_dir)?;
             }
             NeardSubCommand::ForkNetwork(cmd) => {
-                cmd.run(&home_dir, genesis_validation)?;
+                cmd.run(
+                    &home_dir,
+                    genesis_validation,
+                    neard_cmd.opts.verbose_target(),
+                    &neard_cmd.opts.o11y,
+                )?;
             }
         };
         Ok(())
