@@ -107,7 +107,7 @@ pub fn validate_transactions_order(transactions: &[SignedTransaction]) -> bool {
 /// Validate that all next chunk information matches previous chunk extra.
 pub fn validate_chunk_with_chunk_extra(
     // chain_store: &ChainStore,
-    outgoing_receipts: Vec<Receipt>,
+    outgoing_receipts: &[Receipt],
     epoch_manager: &dyn EpochManagerAdapter,
     prev_block_hash: &CryptoHash,
     prev_chunk_extra: &ChunkExtra,
@@ -144,7 +144,7 @@ pub fn validate_chunk_with_chunk_extra(
 
     let outgoing_receipts_hashes = {
         let shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_block_hash)?;
-        Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)
+        Chain::build_receipts_hashes(outgoing_receipts, &shard_layout)
     };
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 

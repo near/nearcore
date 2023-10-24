@@ -2503,7 +2503,7 @@ fn test_validate_chunk_extra() {
         )
         .unwrap();
     assert!(validate_chunk_with_chunk_extra(
-        outgoing_receipts, // &mut chain_store,
+        &outgoing_receipts, // &mut chain_store,
         env.clients[0].epoch_manager.as_ref(),
         block1.hash(),
         &chunk_extra,
