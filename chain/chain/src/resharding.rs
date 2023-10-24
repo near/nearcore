@@ -208,7 +208,7 @@ impl Chain {
             state_root,
             next_epoch_shard_layout,
             curr_poll_time: Duration::ZERO,
-            config: self.state_split_config.clone(),
+            config: self.state_split_config,
         });
 
         for shard_uid in child_shard_uids.unwrap_or_default() {
