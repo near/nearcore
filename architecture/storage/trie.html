@@ -200,7 +200,8 @@ using the <code>retrieve_raw_bytes</code> method.</p>
 <p>Note that these storages use database keys, which are retrieved using hashes of
 trie nodes using the <code>get_key_from_shard_id_and_hash</code> method.</p>
 <h3 id="shardtries"><a class="header" href="#shardtries">ShardTries</a></h3>
-<p>Contains stores and caches and allows to get <code>Trie</code> object for any shard.</p>
+<p>This is the main struct that is used to access all Tries. There's usually only a single instance of this and it contains stores and caches. We use this to gain access to the <code>Trie</code> for a single shard by calling the <code>get_trie_for_shard</code> or equivalent methods.</p>
+<p>Each shard within <code>ShardTries</code> has their own <code>cache</code> and <code>view_cache</code>. The <code>cache</code> stores the most frequently accessed nodes and is usually used during block production. The <code>view_cache</code> is used to serve user request to get data, which usually come in via network. It is a good idea to have an independent cache for this as we can have patterns in accessing user data independent of block production.</p>
 <h2 id="primitives"><a class="header" href="#primitives">Primitives</a></h2>
 <h3 id="triekey"><a class="header" href="#triekey">TrieKey</a></h3>
 <p>Describes all keys which may be inserted to <code>Trie</code>:</p>
