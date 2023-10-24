@@ -789,11 +789,12 @@ impl Client {
             };
             // if block is genesis, there is no partial chunk
             let last_hash = last_header.prev_block_hash();
+            println!("{last_hash}");
             let mut incoming_receipts = if last_hash != &CryptoHash::default() {
                 let last_block = self.chain.get_block(last_hash)?;
                 self.chain.collect_incoming_receipts_from_block(&me, &last_block).unwrap()
             } else {
-                HashMap::new()
+                HashMap::from_iter([(shard_id, vec![])])
             };
             // incoming_receipts.entry(shard_id).or_insert_with(|| vec![]);
 
