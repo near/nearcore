@@ -67,6 +67,11 @@ pub fn validate_chunk_proofs(
         };
         let outgoing_receipts_hashes = Chain::build_receipts_hashes(receipts, &shard_layout);
         let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
+        println!(
+            "{} {} {receipts_root} {outgoing_receipts_root}",
+            chunk.height_created(),
+            chunk.height_included()
+        );
         if receipts_root != outgoing_receipts_root {
             byzantine_assert!(false);
             return Ok(false);
