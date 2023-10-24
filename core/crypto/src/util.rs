@@ -6,6 +6,7 @@ use curve25519_dalek::traits::VartimeMultiscalarMul;
 
 pub use curve25519_dalek::ristretto::RistrettoPoint as Point;
 pub use curve25519_dalek::scalar::Scalar;
+use near_account_id::AccountIdRef;
 
 pub fn vmul2(s1: Scalar, p1: &Point, s2: Scalar, p2: &Point) -> Point {
     Point::vartime_multiscalar_mul(&[s1, s2], [p1, p2].iter().copied())
@@ -111,8 +112,9 @@ impl PublicKey {
         }
         let mut public_key_data = Vec::with_capacity(33);
         public_key_data.push(KeyType::ED25519 as u8);
+        let account_id_ref: &AccountIdRef = account_id.as_ref();
         public_key_data.extend(
-            hex::decode(account_id.as_ref().as_bytes())
+            hex::decode(account_id_ref.as_bytes())
                 .expect("account id was a valid hex of length 64 resulting in 32 bytes"),
         );
         debug_assert_eq!(public_key_data.len(), 33);

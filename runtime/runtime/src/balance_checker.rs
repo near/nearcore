@@ -15,6 +15,7 @@ use near_primitives::types::{AccountId, Balance};
 use near_primitives_core::config::ActionCosts;
 use near_store::{get, get_account, get_postponed_receipt, TrieAccess, TrieUpdate};
 use std::collections::HashSet;
+use near_primitives_core::account::id::AccountIdRef;
 
 /// Returns delayed receipts with given range of indices.
 fn get_delayed_receipts(
@@ -41,7 +42,7 @@ fn receipt_cost(
     Ok(match &receipt.receipt {
         ReceiptEnum::Action(action_receipt) => {
             let mut total_cost = total_deposit(&action_receipt.actions)?;
-            if !AccountId::is_system(&receipt.predecessor_id) {
+            if !AccountIdRef::is_system(&receipt.predecessor_id) {
                 let mut total_gas = safe_add_gas(
                     config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
                     total_prepaid_exec_fees(config, &action_receipt.actions, &receipt.receiver_id)?,

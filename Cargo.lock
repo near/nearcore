@@ -3342,23 +3342,11 @@ dependencies = [
 
 [[package]]
 name = "near-account-id"
-version = "0.0.0"
+version = "0.17.0"
+source = "git+https://github.com/ruseinov/near-account-id?branch=ru/chore/len#f68ca374aa1cc52c3a2ca7bed1961af31895dee4"
 dependencies = [
- "arbitrary",
- "bolero",
  "borsh 1.0.0",
  "serde",
- "serde_json",
-]
-
-[[package]]
-name = "near-account-id-fuzz"
-version = "0.0.0"
-dependencies = [
- "borsh 1.0.0",
- "libfuzzer-sys",
- "near-account-id",
- "serde_json",
 ]
 
 [[package]]

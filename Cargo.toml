@@ -32,8 +32,6 @@ members = [
     "chain/rosetta-rpc",
     "chain/telemetry",
     "core/async",
-    "core/account-id",
-    "core/account-id/fuzz",
     "core/chain-configs",
     "core/crypto",
     "core/dyn-configs",
@@ -173,7 +171,7 @@ lru = "0.7.2"
 memmap2 = "0.5"
 memoffset = "0.8"
 more-asserts = "0.2"
-near-account-id = { path = "core/account-id", features = ["internal_unstable"] }
+near-account-id = { git = "https://github.com/ruseinov/near-account-id", features = ["internal_unstable", "serde", "borsh"], branch = "ru/chore/len" }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
 near-database-tool = { path = "tools/database" }

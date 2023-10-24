@@ -5,7 +5,7 @@ use crate::types as primitives;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time;
 use near_crypto::Signature;
-use near_primitives::account::id::AccountId;
+use near_primitives::account::id::{AccountId, AccountIdRef};
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_store::DBCol;
 use std::io;
@@ -20,7 +20,8 @@ pub struct AccountIdFormat;
 impl Format for AccountIdFormat {
     type T = AccountId;
     fn encode<W: io::Write>(a: &AccountId, w: &mut W) -> io::Result<()> {
-        w.write_all(a.as_ref().as_bytes())
+        let account_id_ref: &AccountIdRef = a.as_ref();
+        w.write_all(account_id_ref.as_bytes())
     }
     fn decode(a: &[u8]) -> Result<AccountId, Error> {
         std::str::from_utf8(a).map_err(invalid_data)?.parse().map_err(invalid_data)
