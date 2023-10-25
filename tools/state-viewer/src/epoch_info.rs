@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use core::ops::Range;
 use itertools::Itertools;
-use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain::{ChainStore, ChainStoreAccess, Error};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::id::AccountId;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
@@ -116,21 +116,39 @@ fn get_block_height_range(
     let mut cur_block_info = epoch_manager.get_block_info(&head.last_block_hash)?;
     loop {
         if cur_block_info.epoch_id() == epoch_id {
+            // Found the requested epoch.
             let epoch_start_height = epoch_manager.get_epoch_start_height(cur_block_info.hash())?;
-            let next_epoch_start_height =
-                epoch_start_height + epoch_manager.get_epoch_config(epoch_id)?.epoch_length;
-            if next_epoch_start_height <= head.height {
-                for height in epoch_start_height..head.height {
-                    let hash = chain_store.get_block_hash_by_height(height)?;
-                    let header = chain_store.get_block_header(&hash)?;
-                    if header.epoch_id() != epoch_id {
-                        return Ok(epoch_start_height..height);
-                    }
-                }
-                return Ok(epoch_start_height..head.height + 1);
+            if &head.epoch_id == epoch_id {
+                // This is the current epoch and we can't know when exactly it will end.
+                // Estimate that the epoch should end at this height.
+                let next_epoch_start_height =
+                    epoch_start_height + epoch_manager.get_epoch_config(epoch_id)?.epoch_length;
+                return Ok(
+                    epoch_start_height..std::cmp::max(head.height + 1, next_epoch_start_height)
+                );
             }
-            return Ok(epoch_start_height..next_epoch_start_height);
+            // Head is in a different epoch, therefore the requested epoch must be complete.
+            // Iterate over block heights to find the first block in a different epoch.
+            for height in epoch_start_height..=head.height {
+                match chain_store.get_block_hash_by_height(height) {
+                    Ok(hash) => {
+                        let header = chain_store.get_block_header(&hash)?;
+                        if header.epoch_id() != epoch_id {
+                            return Ok(epoch_start_height..height);
+                        }
+                    }
+                    Err(Error::DBNotFoundErr(_)) => {
+                        // Block is missing, skip.
+                        continue;
+                    }
+                    Err(err) => {
+                        panic!("Failed to get block hash at height {height}: {err:?}");
+                    }
+                };
+            }
+            return Ok(epoch_start_height..head.height + 1);
         } else {
+            // Go to the previous epoch.
             let first_block_info =
                 epoch_manager.get_block_info(cur_block_info.epoch_first_block())?;
             let prev_block_info = epoch_manager.get_block_info(first_block_info.prev_hash())?;
