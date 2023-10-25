@@ -58,7 +58,7 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::static_clock::StaticClock;
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -1591,6 +1591,7 @@ impl ClientActor {
             }
 
             SyncRequirement::SyncNeeded { highest_height, .. } => {
+                let mut notify_start_sync = false;
                 if !currently_syncing {
                     info!(
                         target: "client",
@@ -1636,6 +1637,8 @@ impl ClientActor {
                             }
                             let s = StateSyncStatus { sync_hash, sync_status: HashMap::default() };
                             self.client.sync_status = SyncStatus::StateSync(s);
+                            // This is the first time we run state sync.
+                            notify_start_sync = true;
                         }
                     };
                     let state_sync_status = match &mut self.client.sync_status {
@@ -1657,7 +1660,7 @@ impl ClientActor {
                         .unwrap()
                         .epoch_id()
                         .clone();
-                    let shards_to_sync =
+                    let shards_to_sync: Vec<ShardId> =
                         (0..self.client.epoch_manager.num_shards(&epoch_id).unwrap())
                             .filter(|x| {
                                 cares_about_shard_this_or_next_epoch(
@@ -1674,23 +1677,28 @@ impl ClientActor {
                         matches!(self.client.config.log_summary_style, LogSummaryStyle::Colored);
 
                     // Notify each shard to sync.
-                    let shard_layout = self
-                        .client
-                        .epoch_manager
-                        .get_shard_layout(&epoch_id)
-                        .expect("Cannot get shard layout");
-
-                    let sync_hash = state_sync_status.sync_hash;
-                    for &shard_id in &shards_to_sync {
-                        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-                        match self.client.state_sync_adapter.clone().read() {
-                            Ok(sync_adapter) => sync_adapter.send(
-                                shard_uid,
-                                (SyncMessage::StartSync(SyncShardInfo { shard_uid, sync_hash }))
+                    if notify_start_sync {
+                        let sync_hash = state_sync_status.sync_hash;
+                        let shard_layout = self
+                            .client
+                            .epoch_manager
+                            .get_shard_layout(&epoch_id)
+                            .expect("Cannot get shard layout");
+                        for &shard_id in &shards_to_sync {
+                            let shard_uid =
+                                ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+                            match self.client.state_sync_adapter.clone().read() {
+                                Ok(sync_adapter) => sync_adapter.send(
+                                    shard_uid,
+                                    (SyncMessage::StartSync(SyncShardInfo {
+                                        shard_uid,
+                                        sync_hash,
+                                    }))
                                     .with_span_context(),
-                            ),
-                            Err(_) => {
-                                error!(target:"client", "State sync adapter lock is poisoned.")
+                                ),
+                                Err(_) => {
+                                    error!(target:"client", "State sync adapter lock is poisoned.")
+                                }
                             }
                         }
                     }
