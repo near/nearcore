@@ -4204,7 +4204,7 @@ impl Chain {
                 if prev_prev_hash == &CryptoHash::default() {
                     let old_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
                     let mut new_extra = ChunkExtra::clone(&old_extra);
-                    let mut store_update = self.store().store_update();
+                    let mut store_update = self.store.store_update();
                     store_update.save_chunk_extra(block.hash(), &shard_uid, new_extra);
                     store_update.commit()?;
 
