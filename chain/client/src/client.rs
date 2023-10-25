@@ -1704,7 +1704,7 @@ impl Client {
                 return;
             }
         };
-        println!("DEBUG {:?} {:?}", block.header().height(), value);
+        println!("GOT BLOCK {:?} TEST VALUE {:?}", block.header().height(), value);
         let _ = self.check_and_update_doomslug_tip();
 
         // If we produced the block, then it should have already been broadcasted.
@@ -1725,6 +1725,8 @@ impl Client {
                 self.collect_block_approval(&approval, approval_type);
             }
         }
+
+        println!("status");
 
         if status.is_new_head() {
             let last_final_block = block.header().last_final_block();
@@ -1775,13 +1777,17 @@ impl Client {
             }
         }
 
+        println!("validator_signer");
+
         if let Some(validator_signer) = self.validator_signer.clone() {
             let validator_id = validator_signer.validator_id().clone();
 
             if !self.reconcile_transaction_pool(validator_id.clone(), status, &block) {
+                println!("not reconcile_transaction_pool");
                 return;
             }
 
+            println!("{provenance} {:?} {skip_produce_chunk}", self.sync_status);
             if provenance != Provenance::SYNC
                 && !self.sync_status.is_syncing()
                 && !skip_produce_chunk

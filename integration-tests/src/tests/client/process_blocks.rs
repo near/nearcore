@@ -3236,6 +3236,7 @@ fn test_fork_execution_outcome() {
     }
 
     // start from 3.
+    // produce 3, produce 4
     // process 4 , process 3
     // produce 6^, produce 5^
     // problem: 5 has no chunk
