@@ -3,7 +3,6 @@ use std::mem::size_of;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::PublicKey;
-use near_primitives_core::account::id::AccountIdRef;
 
 use crate::hash::CryptoHash;
 use crate::types::AccountId;

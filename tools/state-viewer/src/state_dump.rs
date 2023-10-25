@@ -9,7 +9,6 @@ use near_primitives::block::BlockHeader;
 use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountInfo, Balance, StateRoot};
-use near_primitives_core::account::id::AccountIdRef;
 use nearcore::config::NearConfig;
 use nearcore::NightshadeRuntime;
 use redis::Commands;

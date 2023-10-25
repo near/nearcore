@@ -5,7 +5,6 @@ use crate::types::{PoolIterator, PoolKey, TransactionGroup};
 
 use near_crypto::PublicKey;
 use near_o11y::metrics::prometheus::core::{AtomicI64, GenericGauge};
-use near_primitives::account::id::AccountIdRef;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;

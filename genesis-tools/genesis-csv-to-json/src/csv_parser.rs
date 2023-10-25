@@ -4,7 +4,6 @@ use chrono::Utc;
 use csv::ReaderBuilder;
 use near_crypto::{KeyType, PublicKey};
 use near_network::types::PeerInfo;
-use near_primitives::account::id::AccountIdRef;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
