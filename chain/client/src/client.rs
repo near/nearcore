@@ -564,6 +564,7 @@ impl Client {
         next_height: BlockHeight,
         prev_hash: CryptoHash,
     ) -> Result<Option<Block>, Error> {
+        println!("PRODUCING BLOCK ON HEIGHT {} PREV {}", next_height, prev_hash);
         let known_height = self.chain.store().get_latest_known()?.height;
         let validator_signer = self
             .validator_signer
@@ -612,6 +613,7 @@ impl Client {
             }
         }
 
+        println!("TAKING CHUNK HEADERS");
         let new_chunks = self.get_chunk_headers_ready_for_inclusion(&epoch_id, &prev_hash);
         debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}, {} new chunks", validator_signer.validator_id(),
                next_height, prev.height(), format_hash(prev_hash), new_chunks.len());
