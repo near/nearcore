@@ -159,6 +159,8 @@ pub fn validate_chunk_with_chunk_extra(
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
     if outgoing_receipts_root != chunk_header.prev_outgoing_receipts_root() {
+        println!("OUTGOING RECEIPTS: {:?}", outgoing_receipts);
+        println!("{} {}", outgoing_receipts_root, chunk_header.prev_outgoing_receipts_root());
         return Err(Error::InvalidReceiptsProof);
     }
 
