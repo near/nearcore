@@ -3883,33 +3883,33 @@ impl Chain {
         // let epoch_manager = self.epoch_manager.clone();
         // let runtime = self.runtime_adapter.clone();
         println!("get a job");
-        // let maybe_job = self.get_apply_chunk_job_new_chunk(
-        //     block,
-        //     &prev_block,
-        //     None,
-        //     &block.chunks()[shard_id],
-        //     &prev_block.chunks()[shard_id],
-        //     shard_uid,
-        //     false, // ??
-        //     &incoming_receipts,
-        //     SandboxStatePatch::default(),
-        //     runtime,
-        //     epoch_manager,
-        //     None, // ??
-        // )?;
-        let maybe_job = self.get_apply_chunk_job(
-            me,
+        let maybe_job = self.get_apply_chunk_job_new_chunk(
             block,
             &prev_block,
+            None,
             &block.chunks()[shard_id],
-            &prev_block.chunks()[shard_id],
-            shard_id,
-            ApplyChunksMode::IsCaughtUp, // if I am producer, this is the case, right?
-            false,                       // will_shard_layout_change, - I don't know
-            &HashMap::default(),
+            prev_block.chunks()[shard_id].height_included(),
+            shard_uid,
+            false, // ??
+            &incoming_receipts,
             SandboxStatePatch::default(),
-            false,
+            runtime,
+            epoch_manager,
+            None, // ??
         )?;
+        // let maybe_job = self.get_apply_chunk_job(
+        //     me,
+        //     block,
+        //     &prev_block,
+        //     &block.chunks()[shard_id],
+        //     &prev_block.chunks()[shard_id],
+        //     shard_id,
+        //     ApplyChunksMode::IsCaughtUp, // if I am producer, this is the case, right?
+        //     false,                       // will_shard_layout_change, - I don't know
+        //     &HashMap::default(),
+        //     SandboxStatePatch::default(),
+        //     false,
+        // )?;
 
         let job = match maybe_job {
             Some(job) => job,
@@ -4181,6 +4181,7 @@ impl Chain {
             None
         };
 
+        let is_new_chunk = chunk_header.height_included() == block.header().height();
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id())?;
         let epoch_manager = self.epoch_manager.clone();
         let runtime = self.runtime_adapter.clone();
@@ -4255,7 +4256,6 @@ impl Chain {
                     incoming_receipts.clone(),
                 )
             };
-            let is_new_chunk = chunk_header.height_included() == block.header().height();
 
             if is_new_chunk {
                 self.get_apply_chunk_job_new_chunk(
