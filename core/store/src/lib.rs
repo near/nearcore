@@ -739,6 +739,7 @@ pub fn set_delayed_receipt(
     delayed_receipts_indices: &mut DelayedReceiptIndices,
     receipt: &Receipt,
 ) {
+    println!("delay receipt {}", receipt.receipt_id);
     set(
         state_update,
         TrieKey::DelayedReceipt { index: delayed_receipts_indices.next_available_index },
