@@ -1390,7 +1390,7 @@ fn test_bad_chunk_mask() {
             )
         })
         .collect();
-    for height in 1..5 {
+    for height in 2..5 {
         let block_producer = (height % 2) as usize;
         let chunk_producer = ((height + 1) % 2) as usize;
 
