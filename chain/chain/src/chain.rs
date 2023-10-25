@@ -4349,6 +4349,7 @@ impl Chain {
         let chunk = self.get_chunk_clone_from_header(&chunk_header.clone())?;
 
         let transactions = chunk.transactions();
+        let chunk_prev_outgoing_receipts = chunk.prev_outgoing_receipts().to_vec();
         if !validate_transactions_order(transactions) {
             let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
             let chunk_proof = ChunkProofs {
@@ -4433,6 +4434,7 @@ impl Chain {
                 )
             };
             let validate = |prev_chunk_extra: &ChunkExtra, chunk_header: &ShardChunkHeader| {
+                println!("CHUNK PREV OUTGOING: {:?}", chunk_prev_outgoing_receipts);
                 validate_chunk_with_chunk_extra(
                     // It's safe here to use ChainStore instead of ChainStoreUpdate
                     // because we're asking prev_chunk_header for already committed block
