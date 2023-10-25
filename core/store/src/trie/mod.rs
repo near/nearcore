@@ -1004,7 +1004,8 @@ impl Trie {
             // as they are needed to prove the value. Also, it's important that this lookup
             // is done even if the key was not found, because intermediate trie nodes may be
             // needed to prove the non-existence of the key.
-            let value_ref_from_trie = self.lookup_from_disk(NibbleSlice::new(key), false)?;
+            let value_ref_from_trie =
+                self.lookup_from_state_column(NibbleSlice::new(key), false)?;
             match &value {
                 Some(FlatStateValue::Inlined(value)) => {
                     assert!(value_ref_from_trie.is_some());
@@ -1023,18 +1024,19 @@ impl Trie {
             if let Some(FlatStateValue::Inlined(value)) = &value {
                 self.accounting_cache
                     .borrow_mut()
-                    .retroactively_account(&hash(value), value.clone().into());
+                    .retroactively_account(hash(value), value.clone().into());
             }
         }
         Ok(value)
     }
 
-    /// Looks up the given key by walking the trie nodes on disk (but still
-    /// going through applicable caches).
+    /// Looks up the given key by walking the trie nodes stored in the
+    /// `DBCol::State` column in the database (but still going through
+    /// applicable caches).
     ///
     /// The `charge_gas_for_trie_node_access` parameter controls whether the
     /// lookup incurs any gas.
-    fn lookup_from_disk(
+    fn lookup_from_state_column(
         &self,
         mut key: NibbleSlice<'_>,
         charge_gas_for_trie_node_access: bool,
@@ -1182,7 +1184,7 @@ impl Trie {
         if use_flat_storage {
             Ok(self.lookup_from_flat_storage(key, true)?.map(|value| value.to_value_ref()))
         } else {
-            self.lookup_from_disk(NibbleSlice::new(key), charge_gas_for_trie_node_access)
+            self.lookup_from_state_column(NibbleSlice::new(key), charge_gas_for_trie_node_access)
         }
     }
 
@@ -1194,7 +1196,10 @@ impl Trie {
             self.lookup_from_flat_storage(key, false)
         } else {
             Ok(self
-                .lookup_from_disk(NibbleSlice::new(key), self.charge_gas_for_trie_node_access)?
+                .lookup_from_state_column(
+                    NibbleSlice::new(key),
+                    self.charge_gas_for_trie_node_access,
+                )?
                 .map(|value| FlatStateValue::Ref(value)))
         }
     }

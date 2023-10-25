@@ -118,14 +118,14 @@ impl TrieAccountingCache {
 
     /// Used to retroactively account for a node or value that was already accessed
     /// through other means (e.g. flat storage read).
-    pub fn retroactively_account(&mut self, hash: &CryptoHash, data: Arc<[u8]>) {
-        if self.cache.contains_key(hash) {
+    pub fn retroactively_account(&mut self, hash: CryptoHash, data: Arc<[u8]>) {
+        if self.cache.contains_key(&hash) {
             self.mem_read_nodes += 1;
         } else {
             self.db_read_nodes += 1;
         }
         if self.enable {
-            self.cache.insert(*hash, data);
+            self.cache.insert(hash, data);
             if let Some(metrics) = &self.metrics {
                 metrics.accounting_cache_size.set(self.cache.len() as i64);
             }
