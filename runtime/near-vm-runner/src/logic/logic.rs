@@ -477,12 +477,11 @@ impl<'a> VMLogic<'a> {
     /// `base + write_register_base + write_register_byte * num_bytes`
     pub fn current_account_id(&mut self, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        let account_id_ref: &AccountIdRef = self.context.current_account_id.as_ref();
         self.registers.set(
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            account_id_ref.as_bytes(),
+            self.context.current_account_id.as_bytes(),
         )
     }
 
@@ -508,12 +507,11 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let account_id_ref: &AccountIdRef = self.context.current_account_id.as_ref();
         self.registers.set(
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            account_id_ref.as_bytes(),
+            self.context.current_account_id.as_bytes(),
         )
     }
 
@@ -567,12 +565,11 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let account_id_ref: &AccountIdRef = self.context.predecessor_account_id.as_ref();
         self.registers.set(
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            account_id_ref.as_bytes(),
+            self.context.predecessor_account_id.as_bytes(),
         )
     }
 

@@ -112,9 +112,8 @@ impl PublicKey {
         }
         let mut public_key_data = Vec::with_capacity(33);
         public_key_data.push(KeyType::ED25519 as u8);
-        let account_id_ref: &AccountIdRef = account_id.as_ref();
         public_key_data.extend(
-            hex::decode(account_id_ref.as_bytes())
+            hex::decode(account_id.as_bytes())
                 .expect("account id was a valid hex of length 64 resulting in 32 bytes"),
         );
         debug_assert_eq!(public_key_data.len(), 33);

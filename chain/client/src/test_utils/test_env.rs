@@ -435,8 +435,10 @@ impl TestEnv {
         relayer: AccountId,
         receiver_id: AccountId,
     ) -> SignedTransaction {
-        let inner_signer = InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, sender.as_str());
-        let relayer_signer = InMemorySigner::from_seed(relayer.clone(), KeyType::ED25519, relayer.as_str());
+        let inner_signer =
+            InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, sender.as_str());
+        let relayer_signer =
+            InMemorySigner::from_seed(relayer.clone(), KeyType::ED25519, relayer.as_str());
         let tip = self.clients[0].chain.head().unwrap();
         let user_nonce = tip.height + 1;
         let relayer_nonce = tip.height + 1;
