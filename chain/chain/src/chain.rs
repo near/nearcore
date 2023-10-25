@@ -4347,6 +4347,8 @@ impl Chain {
         let receipts = [new_receipts, old_receipts].concat();
 
         let chunk = self.get_chunk_clone_from_header(&chunk_header.clone())?;
+        let next_chunk =
+            next_chunk_header.as_ref().map(|header| self.get_chunk_clone_from_header(header)?);
 
         let transactions = chunk.transactions();
         let chunk_prev_outgoing_receipts = chunk.prev_outgoing_receipts().to_vec();
@@ -4435,6 +4437,10 @@ impl Chain {
             };
             let validate = |prev_chunk_extra: &ChunkExtra, chunk_header: &ShardChunkHeader| {
                 println!("CHUNK PREV OUTGOING: {:?}", chunk_prev_outgoing_receipts);
+                match next_chunk {
+                    Some(next_chunk) => println!("{:?}", next_chunk.prev_outgoing_receipts()),
+                    None => println!("NEXT CHUNK IS NONE"),
+                };
                 validate_chunk_with_chunk_extra(
                     // It's safe here to use ChainStore instead of ChainStoreUpdate
                     // because we're asking prev_chunk_header for already committed block
