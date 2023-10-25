@@ -4325,7 +4325,7 @@ impl Chain {
                 prev_hash.clone(),
                 chunk_header.shard_id(),
                 prev_chunk_height_included,
-            )?;
+            )?
         };
 
         let prev_block_copy = prev_block.clone();
