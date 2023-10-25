@@ -406,12 +406,6 @@ impl TrieRefcountAddition {
     }
 }
 
-impl TrieRefcountSubtraction {
-    pub fn hash(&self) -> &CryptoHash {
-        &self.trie_node_or_value_hash
-    }
-}
-
 /// Helps produce a list of additions and subtractions to the trie,
 /// especially in the case where deletions don't carry the full value.
 pub struct TrieRefcountDeltaMap {
