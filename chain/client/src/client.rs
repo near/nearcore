@@ -776,6 +776,10 @@ impl Client {
         next_height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
+        println!(
+            "produce_chunk {next_height} {shard_id} prev_block_hash={}",
+            prev_block.header().hash()
+        );
         let timer = Instant::now();
         let _timer =
             metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
@@ -787,23 +791,8 @@ impl Client {
                 Some(validator_signer) => Some(validator_signer.validator_id().clone()),
                 None => None,
             };
-            // if block is genesis, there is no partial chunk
-            let last_hash = last_header.prev_block_hash();
-            println!("{last_hash}");
-            let mut incoming_receipts = if last_hash != &CryptoHash::default() {
-                let last_block = self.chain.get_block(last_hash)?;
-                self.chain.collect_incoming_receipts_from_block(&me, &last_block).unwrap()
-            } else {
-                HashMap::from_iter([(shard_id, vec![])])
-            };
-            // incoming_receipts.entry(shard_id).or_insert_with(|| vec![]);
-
-            let result = self.chain.apply_prev_chunk_before_production(
-                &me,
-                prev_block,
-                shard_id as usize,
-                &incoming_receipts,
-            );
+            let result =
+                self.chain.apply_prev_chunk_before_production(&me, prev_block, shard_id as usize);
             result.unwrap(); // ideally ApplyChunkResult and state witness must be taken here
         }
 

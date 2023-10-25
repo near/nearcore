@@ -3863,7 +3863,6 @@ impl Chain {
         me: &Option<AccountId>,
         block: &Block,
         shard_id: usize,
-        incoming_receipts: &HashMap<u64, Vec<ReceiptProof>>,
     ) -> Result<(), Error> {
         println!(
             "apply_prev_chunk_before_production {} {}",
@@ -3907,7 +3906,7 @@ impl Chain {
             shard_id,
             ApplyChunksMode::IsCaughtUp, // if I am producer, this is the case, right?
             false,                       // will_shard_layout_change, - I don't know
-            &incoming_receipts,
+            &HashMap::default(),
             SandboxStatePatch::default(),
             false,
         )?;
