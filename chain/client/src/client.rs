@@ -799,6 +799,7 @@ impl Client {
             // incoming_receipts.entry(shard_id).or_insert_with(|| vec![]);
 
             let result = self.chain.apply_prev_chunk_before_production(
+                &me,
                 prev_block,
                 shard_id as usize,
                 &incoming_receipts,

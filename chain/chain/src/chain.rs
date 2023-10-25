@@ -3861,6 +3861,7 @@ impl Chain {
 
     pub fn apply_prev_chunk_before_production(
         &mut self,
+        me: &Option<AccountId>,
         block: &Block,
         shard_id: usize,
         incoming_receipts: &HashMap<u64, Vec<ReceiptProof>>,
@@ -3881,8 +3882,8 @@ impl Chain {
         let prev_block = self.get_block(prev_hash)?;
         let shard_uid =
             self.epoch_manager.shard_id_to_uid(shard_id as ShardId, block.header().epoch_id())?;
-        let epoch_manager = self.epoch_manager.clone();
-        let runtime = self.runtime_adapter.clone();
+        // let epoch_manager = self.epoch_manager.clone();
+        // let runtime = self.runtime_adapter.clone();
         println!("get a job");
         // let maybe_job = self.get_apply_chunk_job_new_chunk(
         //     block,
