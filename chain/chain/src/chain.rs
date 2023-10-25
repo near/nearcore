@@ -3922,17 +3922,17 @@ impl Chain {
         let apply_chunk_result = job(&_span)?;
 
         println!("chain_update");
-        // looks like a big mistake.
+        // looks like a big mistake - there is no next block hash for which I could save outcomes.
         // this should only generate witness.
         // why did I decide to save everything here?
-        // let mut chain_update = self.chain_update();
-        // chain_update.apply_chunk_postprocessing(block, vec![apply_chunk_result])?;
-        // let receipts_map =
-        //     chain_update.get_receipt_id_to_shard_id(block.hash(), shard_id as u64)?;
-        // for (receipt_id, to_shard_id) in receipts_map.into_iter() {
-        //     chain_update.chain_store_update.save_receipt_id_to_shard_id(receipt_id, to_shard_id);
-        // }
-        // chain_update.commit()?;
+        let mut chain_update = self.chain_update();
+        chain_update.apply_chunk_postprocessing(block, vec![apply_chunk_result])?;
+        let receipts_map =
+            chain_update.get_receipt_id_to_shard_id(block.hash(), shard_id as u64)?;
+        for (receipt_id, to_shard_id) in receipts_map.into_iter() {
+            chain_update.chain_store_update.save_receipt_id_to_shard_id(receipt_id, to_shard_id);
+        }
+        chain_update.commit()?;
 
         Ok(())
     }
@@ -4205,11 +4205,12 @@ impl Chain {
                 let prev_prev_hash = prev_block.header().prev_hash();
                 // chunk to apply is genesis chunk. its execution result will be trivial.
                 if prev_prev_hash == &CryptoHash::default() {
-                    let old_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
-                    let mut new_extra = ChunkExtra::clone(&old_extra);
-                    let mut store_update = self.store.store_update();
-                    store_update.save_chunk_extra(block.hash(), &shard_uid, new_extra);
-                    store_update.commit()?;
+                    // logunov: keep it, when we shift chunk extra index
+                    // let old_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
+                    // let mut new_extra = ChunkExtra::clone(&old_extra);
+                    // let mut store_update = self.store.store_update();
+                    // store_update.save_chunk_extra(block.hash(), &shard_uid, new_extra);
+                    // store_update.commit()?;
 
                     return Ok(None);
                     // (
@@ -4574,13 +4575,14 @@ impl Chain {
         println!("get_apply_chunk_job_old_chunk {}", block.header().height());
         let shard_id = shard_uid.shard_id();
         let prev_block_hash = *prev_block.hash();
-        let new_extra = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
-            println!("get curr");
-            self.get_chunk_extra(block.hash(), &shard_uid)?
-        } else {
-            println!("get prev");
-            self.get_chunk_extra(&prev_block_hash, &shard_uid)?
-        };
+        let new_extra = self.get_chunk_extra(&prev_block_hash, &shard_uid)?;
+        // let new_extra = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+        //     println!("get curr");
+        //     self.get_chunk_extra(block.hash(), &shard_uid)?
+        // } else {
+        //     println!("get prev");
+        //     self.get_chunk_extra(&prev_block_hash, &shard_uid)?
+        // };
 
         let block_hash = *block.hash();
         let challenges_result = block.header().challenges_result().clone();
@@ -5734,15 +5736,15 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 apply_split_result_or_state_changes,
             }) => {
-                // let new_block_hash = apply_result.trie_changes.block_hash.clone();
-                // let (block_hash, block) = if &new_block_hash == block_hash {
-                //     (block_hash, block.clone())
-                // } else {
-                //     (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
-                // };
-                // let prev_hash = block.header().prev_hash();
-                // let height = block.header().height();
-                // println!("process_apply_chunk_result NEW SAME: {block_hash} {prev_hash} {height}");
+                let new_block_hash = apply_result.trie_changes.block_hash.clone();
+                let (block_hash, block) = if &new_block_hash == block_hash {
+                    (block_hash, block.clone())
+                } else {
+                    (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
+                };
+                let prev_hash = block.header().prev_hash();
+                let height = block.header().height();
+                println!("process_apply_chunk_result NEW SAME: {block_hash} {prev_hash} {height}");
 
                 let (outcome_root, outcome_paths) =
                     ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
@@ -5794,15 +5796,15 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 apply_split_result_or_state_changes,
             }) => {
-                // let new_block_hash = apply_result.trie_changes.block_hash.clone();
-                // let (block_hash, block) = if &new_block_hash == block_hash {
-                //     (block_hash, block.clone())
-                // } else {
-                //     (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
-                // };
-                // let prev_hash = block.header().prev_hash();
-                // let height = block.header().height();
-                // println!("process_apply_chunk_result NEW DIFF: {block_hash} {prev_hash} {height}");
+                let new_block_hash = apply_result.trie_changes.block_hash.clone();
+                let (block_hash, block) = if &new_block_hash == block_hash {
+                    (block_hash, block.clone())
+                } else {
+                    (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
+                };
+                let prev_hash = block.header().prev_hash();
+                let height = block.header().height();
+                println!("process_apply_chunk_result NEW DIFF: {block_hash} {prev_hash} {height}");
 
                 let old_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
 
