@@ -2623,12 +2623,10 @@ impl Chain {
 
         // by this, we mark new pre-state-root changes
         // to replace with protocol feature
-        let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
         let apply_chunk_work = self.apply_chunks_preprocessing(
             me,
             block,
             &prev_block,
-            &incoming_receipts,
             // If we have the state for shards in the next epoch already downloaded, apply the state transition
             // for these states as well
             // otherwise put the block into the permanent storage, waiting for be caught up
@@ -3542,12 +3540,10 @@ impl Chain {
             let block = self.store.get_block(&pending_block)?.clone();
             let prev_block = self.store.get_block(block.header().prev_hash())?.clone();
 
-            let receipts_by_shard = self.collect_incoming_receipts_from_block(me, &block)?;
             let work = self.apply_chunks_preprocessing(
                 me,
                 &block,
                 &prev_block,
-                &receipts_by_shard,
                 ApplyChunksMode::CatchingUp,
                 Default::default(),
                 &mut Vec::new(),
@@ -4079,12 +4075,17 @@ impl Chain {
         me: &Option<AccountId>,
         block: &Block,
         prev_block: &Block,
-        incoming_receipts: &HashMap<ShardId, Vec<ReceiptProof>>,
         mode: ApplyChunksMode,
         mut state_patch: SandboxStatePatch,
         invalid_chunks: &mut Vec<ShardChunkHeader>,
     ) -> Result<Vec<ApplyChunkJob>, Error> {
+        println!(
+            "apply_chunks_preprocessing {} {}",
+            block.header().height(),
+            block.header().hash()
+        );
         let _span = tracing::debug_span!(target: "chain", "apply_chunks_preprocessing").entered();
+        let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
         let prev_hash = block.header().prev_hash();
         let will_shard_layout_change = self.epoch_manager.will_shard_layout_change(prev_hash)?;
         let prev_chunk_headers =
@@ -4108,7 +4109,7 @@ impl Chain {
                     shard_id,
                     mode,
                     will_shard_layout_change,
-                    incoming_receipts,
+                    &incoming_receipts,
                     state_patch,
                     ProtocolFeature::DelayChunkExecution.protocol_version() == 200,
                 );
