@@ -4319,13 +4319,13 @@ impl Chain {
         let next_chunk =
             next_chunk_header.as_ref().map(|header| self.get_chunk_clone_from_header(header));
         let outgoing_receipts = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
-            next_chunk.unwrap()?.prev_outgoing_receipts().to_vec()
+            next_chunk.map(|chunk| chunk?.prev_outgoing_receipts().to_vec())
         } else {
-            self.get_outgoing_receipts_for_shard(
+            Some(self.get_outgoing_receipts_for_shard(
                 prev_hash.clone(),
                 chunk_header.shard_id(),
                 prev_chunk_height_included,
-            )?
+            )?)
         };
 
         let prev_block_copy = prev_block.clone();
@@ -4448,7 +4448,7 @@ impl Chain {
                 validate_chunk_with_chunk_extra(
                     // It's safe here to use ChainStore instead of ChainStoreUpdate
                     // because we're asking prev_chunk_header for already committed block
-                    &outgoing_receipts,
+                    &outgoing_receipts.unwrap(),
                     epoch_manager_adapter.as_ref(),
                     &prev_hash,
                     prev_chunk_extra,
