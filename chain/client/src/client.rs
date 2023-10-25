@@ -1787,7 +1787,7 @@ impl Client {
                 return;
             }
 
-            println!("{provenance} {:?} {skip_produce_chunk}", self.sync_status);
+            println!("{provenance:?} {:?} {skip_produce_chunk}", self.sync_status);
             if provenance != Provenance::SYNC
                 && !self.sync_status.is_syncing()
                 && !skip_produce_chunk
