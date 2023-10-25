@@ -3235,6 +3235,10 @@ fn test_fork_execution_outcome() {
         last_height = last_block.header().height();
     }
 
+    // start from 3.
+    // process 4 , process 3
+    // produce 6^, produce 5^
+    // problem: 5 has no chunk
     println!("START TEST FROM {}", last_height + 1);
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");

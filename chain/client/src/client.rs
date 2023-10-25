@@ -1565,6 +1565,7 @@ impl Client {
             .get_mut(prev_block_hash)
             .unwrap()
             .insert(chunk_header.shard_id(), (chunk_header, chrono::Utc::now(), chunk_producer));
+        println!("CHUNK READY FOR INCLUSION ON HEIGHT {}", chunk_header.height_created());
     }
 
     pub fn sync_block_headers(
