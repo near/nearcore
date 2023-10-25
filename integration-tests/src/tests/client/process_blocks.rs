@@ -3189,7 +3189,7 @@ fn test_fork_receipt_ids() {
     // Process two blocks on two different forks that contain the same chunk.
     // Reverse block order to additionally check that both outcomes are recorded.
     for (height, block) in
-        vec![(last_height + 2, &mut block2), (last_height + 1, &mut block1)].into_iter()
+        vec![(last_height + 1, &mut block1), (last_height + 2, &mut block2)].into_iter()
     {
         let mut chunk_header = encoded_chunk.cloned_header();
         *chunk_header.height_included_mut() = height;
