@@ -1874,7 +1874,7 @@ impl Client {
     }
 
     // Produce new chunks
-    fn produce_chunks(&mut self, block: &Block, validator_id: AccountId) {
+    pub fn produce_chunks(&mut self, block: &Block, validator_id: AccountId) {
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
         for shard_id in 0..self.epoch_manager.num_shards(&epoch_id).unwrap() {
