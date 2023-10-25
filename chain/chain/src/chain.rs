@@ -4319,7 +4319,7 @@ impl Chain {
         let next_chunk =
             next_chunk_header.as_ref().map(|header| self.get_chunk_clone_from_header(header));
         let outgoing_receipts = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
-            next_chunk.clone().unwrap()?.prev_outgoing_receipts().to_vec()
+            next_chunk.unwrap()?.prev_outgoing_receipts().to_vec()
         } else {
             self.get_outgoing_receipts_for_shard(
                 prev_hash.clone(),
@@ -4441,10 +4441,10 @@ impl Chain {
             };
             let validate = |prev_chunk_extra: &ChunkExtra, chunk_header: &ShardChunkHeader| {
                 println!("CHUNK PREV OUTGOING: {:?}", chunk_prev_outgoing_receipts);
-                match next_chunk {
-                    Some(next_chunk) => println!("{:?}", next_chunk?.prev_outgoing_receipts()),
-                    None => println!("NEXT CHUNK IS NONE"),
-                };
+                // match next_chunk {
+                //     Some(next_chunk) => println!("{:?}", next_chunk?.prev_outgoing_receipts()),
+                //     None => println!("NEXT CHUNK IS NONE"),
+                // };
                 validate_chunk_with_chunk_extra(
                     // It's safe here to use ChainStore instead of ChainStoreUpdate
                     // because we're asking prev_chunk_header for already committed block
