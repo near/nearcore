@@ -4490,15 +4490,17 @@ impl Chain {
                     ?chunk_header,
                     "Failed to validate chunk extra");
                     byzantine_assert!(false);
-                    match Chain::create_chunk_state_challenge(
-                        &prev_chunk,
-                        &prev_block_copy,
-                        &block_copy,
-                        chunk_header,
-                    ) {
-                        Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
-                        Err(err) => err,
-                    }
+                    err
+                    // drop challenges. chunk extra error is more readable
+                    // match Chain::create_chunk_state_challenge(
+                    //     &prev_chunk,
+                    //     &prev_block_copy,
+                    //     &block_copy,
+                    //     chunk_header,
+                    // ) {
+                    //     Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
+                    //     Err(err) => err,
+                    // }
                 })
             };
 
