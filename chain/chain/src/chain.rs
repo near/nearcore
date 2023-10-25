@@ -4181,7 +4181,6 @@ impl Chain {
             None
         };
 
-        let is_new_chunk = chunk_header.height_included() == block.header().height();
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id())?;
         let epoch_manager = self.epoch_manager.clone();
         let runtime = self.runtime_adapter.clone();
@@ -4256,6 +4255,8 @@ impl Chain {
                     incoming_receipts.clone(),
                 )
             };
+            let is_new_chunk = chunk_header.height_included() == block.header().height();
+
             if is_new_chunk {
                 self.get_apply_chunk_job_new_chunk(
                     block,
@@ -4519,7 +4520,6 @@ impl Chain {
                         gas_limit,
                         apply_result.total_balance_burnt,
                     );
-                    println!("generated extra: {:?}", chunk_extra);
                     // if this is called for chunk production, there is no next chunk header and also
                     // no need to validate ourselves. Lol.
                     if let Some(next_chunk_header) = next_chunk_header {
