@@ -4189,11 +4189,13 @@ impl Chain {
                 will_shard_layout_change,
                 incoming_receipts,
             ) = if delay_execution {
+                println!("a1");
                 // this shouldn't be even triggered as genesis chunks are never processed.
                 // just in case
                 if prev_hash == &CryptoHash::default() {
                     return Ok(None);
                 }
+                println!("a2");
                 let prev_prev_hash = prev_block.header().prev_hash();
                 // chunk to apply is genesis chunk. its execution result will be trivial.
                 if prev_prev_hash == &CryptoHash::default() {
@@ -4205,8 +4207,10 @@ impl Chain {
                     &prev_prev_block,
                     shard_id,
                 )?;
+                println!("a3");
                 let incoming_receipts =
                     self.collect_incoming_receipts_from_block(me, prev_block)?;
+                println!("a4");
                 let will_shard_layout_change =
                     self.epoch_manager.will_shard_layout_change(prev_hash)?;
                 (
