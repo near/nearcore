@@ -4331,7 +4331,11 @@ impl Chain {
         let prev_block_copy = prev_block.clone();
         let block_copy = block.clone();
         let chunk_header_copy = chunk_header.clone();
-        let prev_chunk_extra = self.get_chunk_extra(&prev_hash, &shard_uid);
+        let prev_chunk_extra = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+            None
+        } else {
+            Some(self.get_chunk_extra(&prev_hash, &shard_uid)?)
+        };
 
         // we can't use hash from the current block here yet because the incoming receipts
         // for this block is not stored yet
@@ -4506,7 +4510,7 @@ impl Chain {
                 apply_result
             } else {
                 println!("before apply - other");
-                validate(prev_chunk_extra?.as_ref(), &chunk_header_copy)?;
+                validate(&prev_chunk_extra.unwrap(), &chunk_header_copy)?;
                 apply_txs()
             };
             // Validate that all next chunk information matches previous chunk extra.
@@ -4551,7 +4555,11 @@ impl Chain {
     ) -> Result<Option<ApplyChunkJob>, Error> {
         let shard_id = shard_uid.shard_id();
         let prev_block_hash = *prev_block.hash();
-        let new_extra = self.get_chunk_extra(&prev_block_hash, &shard_uid)?;
+        let new_extra = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+            self.get_chunk_extra(block.hash(), &shard_uid)?;
+        } else {
+            self.get_chunk_extra(&prev_block_hash, &shard_uid)?;
+        }
 
         let block_hash = *block.hash();
         let challenges_result = block.header().challenges_result().clone();
@@ -5575,6 +5583,7 @@ impl<'a> ChainUpdate<'a> {
                 // generated per shard using the old shard layout and stored in the database.
                 // For these proofs to work, we must store the outcome root per shard
                 // using the old shard layout instead of the new shard layout
+                // (logunov)get_chunk_extra
                 let chunk_extra = self.chain_store_update.get_chunk_extra(block_hash, shard_uid)?;
                 let next_epoch_shard_layout = {
                     let epoch_id =
@@ -5704,15 +5713,15 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 apply_split_result_or_state_changes,
             }) => {
-                let new_block_hash = apply_result.trie_changes.block_hash.clone();
-                let (block_hash, block) = if &new_block_hash == block_hash {
-                    (block_hash, block.clone())
-                } else {
-                    (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
-                };
-                let prev_hash = block.header().prev_hash();
-                let height = block.header().height();
-                println!("process_apply_chunk_result NEW SAME: {block_hash} {prev_hash} {height}");
+                // let new_block_hash = apply_result.trie_changes.block_hash.clone();
+                // let (block_hash, block) = if &new_block_hash == block_hash {
+                //     (block_hash, block.clone())
+                // } else {
+                //     (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
+                // };
+                // let prev_hash = block.header().prev_hash();
+                // let height = block.header().height();
+                // println!("process_apply_chunk_result NEW SAME: {block_hash} {prev_hash} {height}");
 
                 let (outcome_root, outcome_paths) =
                     ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
@@ -5764,15 +5773,15 @@ impl<'a> ChainUpdate<'a> {
                 apply_result,
                 apply_split_result_or_state_changes,
             }) => {
-                let new_block_hash = apply_result.trie_changes.block_hash.clone();
-                let (block_hash, block) = if &new_block_hash == block_hash {
-                    (block_hash, block.clone())
-                } else {
-                    (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
-                };
-                let prev_hash = block.header().prev_hash();
-                let height = block.header().height();
-                println!("process_apply_chunk_result NEW DIFF: {block_hash} {prev_hash} {height}");
+                // let new_block_hash = apply_result.trie_changes.block_hash.clone();
+                // let (block_hash, block) = if &new_block_hash == block_hash {
+                //     (block_hash, block.clone())
+                // } else {
+                //     (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
+                // };
+                // let prev_hash = block.header().prev_hash();
+                // let height = block.header().height();
+                // println!("process_apply_chunk_result NEW DIFF: {block_hash} {prev_hash} {height}");
 
                 let old_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
 
@@ -5797,7 +5806,6 @@ impl<'a> ChainUpdate<'a> {
                 }
             }
             ApplyChunkResult::SplitState(SplitStateResult { shard_uid, results }) => {
-                // prev block again??
                 self.chain_store_update
                     .remove_state_changes_for_split_states(*block.hash(), shard_uid.shard_id());
                 self.process_split_state(
@@ -6232,6 +6240,7 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.get_block_header(block_header.prev_hash())?;
 
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
+        // (logunov)get_chunk_extra
         let chunk_extra =
             self.chain_store_update.get_chunk_extra(prev_block_header.hash(), &shard_uid)?;
 
