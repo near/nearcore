@@ -3884,36 +3884,41 @@ impl Chain {
         let epoch_manager = self.epoch_manager.clone();
         let runtime = self.runtime_adapter.clone();
         println!("get a job");
-        let maybe_job = self.get_apply_chunk_job_new_chunk(
-            block,
-            &prev_block,
-            None,
-            &block.chunks()[shard_id],
-            &prev_block.chunks()[shard_id],
-            shard_uid,
-            false, // ??
-            &incoming_receipts,
-            SandboxStatePatch::default(),
-            runtime,
-            epoch_manager,
-            None, // ??
-        )?;
-        // let maybe_job = self.get_apply_chunk_job(
-        //     me,
+        // let maybe_job = self.get_apply_chunk_job_new_chunk(
         //     block,
         //     &prev_block,
+        //     None,
         //     &block.chunks()[shard_id],
         //     &prev_block.chunks()[shard_id],
-        //     shard_id,
-        //     ApplyChunksMode::IsCaughtUp, // if I am producer, this is the case, right?
-        //     false,                       // will_shard_layout_change, - I don't know
+        //     shard_uid,
+        //     false, // ??
         //     &incoming_receipts,
         //     SandboxStatePatch::default(),
+        //     runtime,
+        //     epoch_manager,
+        //     None, // ??
         // )?;
+        let maybe_job = self.get_apply_chunk_job(
+            me,
+            block,
+            &prev_block,
+            &block.chunks()[shard_id],
+            &prev_block.chunks()[shard_id],
+            shard_id,
+            ApplyChunksMode::IsCaughtUp, // if I am producer, this is the case, right?
+            false,                       // will_shard_layout_change, - I don't know
+            &incoming_receipts,
+            SandboxStatePatch::default(),
+            false,
+        )?;
 
         let job = match maybe_job {
             Some(job) => job,
-            None => return Ok(()), // no chunk => no chunk extra to save
+            None => {
+                let new_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
+                let mut chain_update = self.chain_update();
+                return Ok(());
+            } // no chunk => no chunk extra to save
         };
         let apply_chunk_result = job(&_span)?;
 
@@ -3989,6 +3994,7 @@ impl Chain {
                 will_shard_layout_change,
                 &incoming_receipts,
                 state_patch,
+                false,
             );
 
             let result = match apply_chunk_job_result {
@@ -4042,6 +4048,7 @@ impl Chain {
                 will_shard_layout_change,
                 &incoming_receipts,           // doesn't matter
                 SandboxStatePatch::default(), // doesn't matter
+                false,
             );
             if let Err(err) = apply_chunk_job_result {
                 apply_chunk_errors.push((shard_id, err));
@@ -4102,6 +4109,7 @@ impl Chain {
                     will_shard_layout_change,
                     incoming_receipts,
                     state_patch,
+                    ProtocolFeature::DelayChunkExecution.protocol_version() == 200,
                 );
 
                 match apply_chunk_job {
@@ -4131,6 +4139,7 @@ impl Chain {
         will_shard_layout_change: bool,
         incoming_receipts: &HashMap<u64, Vec<ReceiptProof>>,
         state_patch: SandboxStatePatch,
+        delay_execution: bool,
     ) -> Result<Option<ApplyChunkJob>, Error> {
         let shard_id = shard_id as ShardId;
         let prev_hash = block.header().prev_hash();
@@ -4178,7 +4187,7 @@ impl Chain {
                 prev_chunk_header,
                 will_shard_layout_change,
                 incoming_receipts,
-            ) = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+            ) = if delay_execution {
                 // this shouldn't be even triggered as genesis chunks are never processed.
                 // just in case
                 if prev_hash == &CryptoHash::default() {
