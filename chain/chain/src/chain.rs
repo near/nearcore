@@ -65,6 +65,7 @@ use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStakeIter;
+use near_primitives::types::BlockId::Hash;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
     NumBlocks, NumShards, ShardId, StateChangesForSplitStates, StateRoot,
@@ -3880,8 +3881,8 @@ impl Chain {
         let prev_block = self.get_block(prev_hash)?;
         let shard_uid =
             self.epoch_manager.shard_id_to_uid(shard_id as ShardId, block.header().epoch_id())?;
-        // let epoch_manager = self.epoch_manager.clone();
-        // let runtime = self.runtime_adapter.clone();
+        let epoch_manager = self.epoch_manager.clone();
+        let runtime = self.runtime_adapter.clone();
         println!("get a job");
         let maybe_job = self.get_apply_chunk_job_new_chunk(
             block,
@@ -3891,7 +3892,7 @@ impl Chain {
             prev_block.chunks()[shard_id].height_included(),
             shard_uid,
             false, // ??
-            &incoming_receipts,
+            &HashMap::default(),
             SandboxStatePatch::default(),
             runtime,
             epoch_manager,
