@@ -321,11 +321,8 @@ pub fn start_with_config_and_synchronization(
     let state_snapshot_actor = Arc::new(
         StateSnapshotActor::new(runtime.get_flat_storage_manager(), runtime.get_tries()).start(),
     );
-    let make_state_snapshot_callback = get_make_snapshot_callback(
-        state_snapshot_actor,
-        runtime.get_flat_storage_manager(),
-        config.config.store.state_snapshot_compaction_enabled,
-    );
+    let make_state_snapshot_callback =
+        get_make_snapshot_callback(state_snapshot_actor, runtime.get_flat_storage_manager());
 
     let (client_actor, client_arbiter_handle) = start_client(
         config.client_config.clone(),
