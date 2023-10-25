@@ -1,5 +1,7 @@
 use super::sync_actor::SyncActor;
-use actix::{dev::ToEnvelope, prelude::SendError, Actor, Message};
+use actix::dev::ToEnvelope;
+use actix::prelude::SendError;
+use actix::{Actor, Message};
 use core::fmt::Debug;
 use near_async::messaging::Sender;
 use near_chain_configs::StateSyncConfig;
@@ -74,6 +76,12 @@ impl SyncAdapter {
     /// Stop the actor and remove it
     pub fn stop(&mut self, shard_uid: ShardUId) {
         self.actor_handler_map.remove(&shard_uid).expect("Actor not started.").arbiter.stop();
+    }
+
+    pub fn stop_all(&mut self) {
+        self.actor_handler_map.drain().for_each(|(_shard_uid, handler)| {
+            handler.arbiter.stop();
+        });
     }
 
     /// Forward message to the right shard

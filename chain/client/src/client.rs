@@ -2755,16 +2755,10 @@ impl Client {
 impl Drop for Client {
     fn drop(&mut self) {
         // Stop the running actors.
-        let epoch_id = self.chain.store().head().expect("Cannot get chain head.").epoch_id;
-        let shard_layout =
-            self.epoch_manager.get_shard_layout(&epoch_id).expect("Cannot get shard layout.");
-        match self.state_sync_adapter.to_owned().write() {
-            Ok(mut state_sync_adapter) => {
-                for shard_uid in shard_layout.get_shard_uids() {
-                    state_sync_adapter.stop(shard_uid);
-                }
-            }
-            Err(_) => panic!("Cannot acquire write lock on sync adapter. Lock poisoned."),
-        }
+        self.state_sync_adapter
+            .to_owned()
+            .write()
+            .expect("Cannot acquire write lock on sync adapter. Lock poisoned.")
+            .stop_all();
     }
 }

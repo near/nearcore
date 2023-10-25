@@ -157,16 +157,17 @@ pub fn setup(
     );
     let shards_manager_adapter = Arc::new(shards_manager_addr.with_auto_span_context());
 
+    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
+        Sender::noop(),
+        Sender::noop(),
+        config.state_sync.clone(),
+    )));
     let client = Client::new(
         config.clone(),
         chain_genesis,
         epoch_manager,
         shard_tracker,
-        Arc::new(RwLock::new(SyncAdapter::new(
-            Sender::noop(),
-            Sender::noop(),
-            config.state_sync.clone(),
-        ))),
+        state_sync_adapter,
         runtime,
         network_adapter.clone(),
         shards_manager_adapter.as_sender(),
@@ -933,16 +934,17 @@ pub fn setup_client_with_runtime(
         true,
     );
     config.epoch_length = chain_genesis.epoch_length;
+    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
+        Sender::noop(),
+        Sender::noop(),
+        config.state_sync.clone(),
+    )));
     let mut client = Client::new(
         config.clone(),
         chain_genesis,
         epoch_manager,
         shard_tracker,
-        Arc::new(RwLock::new(SyncAdapter::new(
-            Sender::noop(),
-            Sender::noop(),
-            config.state_sync.clone(),
-        ))),
+        state_sync_adapter,
         runtime,
         network_adapter,
         shards_manager_adapter.client.into(),
