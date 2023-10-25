@@ -499,7 +499,8 @@ impl Client {
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
     ) -> HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)> {
-        self.prev_block_to_chunk_headers_ready_for_inclusion
+        let result = self
+            .prev_block_to_chunk_headers_ready_for_inclusion
             .peek(prev_block_hash)
             .cloned()
             .unwrap_or_default()
@@ -518,7 +519,9 @@ impl Client {
                 }
                 !banned
             })
-            .collect()
+            .collect();
+        println!("CHUNKS READY FOR INCLUSION ON PREV {}: {:?}", prev_block_hash, result);
+        result
     }
 
     pub fn num_chunk_headers_ready_for_inclusion(
@@ -1558,8 +1561,12 @@ impl Client {
         chunk_header: ShardChunkHeader,
         chunk_producer: AccountId,
     ) {
-        println!("CHUNK READY FOR INCLUSION ON HEIGHT {}", chunk_header.height_created());
         let prev_block_hash = chunk_header.prev_block_hash();
+        println!(
+            "CHUNK READY FOR INCLUSION ON HEIGHT {} PREV {}",
+            chunk_header.height_created(),
+            prev_block_hash
+        );
         self.prev_block_to_chunk_headers_ready_for_inclusion
             .get_or_insert(*prev_block_hash, || HashMap::new());
         self.prev_block_to_chunk_headers_ready_for_inclusion
