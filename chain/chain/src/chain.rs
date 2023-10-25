@@ -4319,7 +4319,7 @@ impl Chain {
         let next_chunk =
             next_chunk_header.as_ref().map(|header| self.get_chunk_clone_from_header(header));
         let outgoing_receipts = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
-            next_chunk.unwrap()?.prev_outgoing_receipts().to_vec()
+            next_chunk.as_ref().unwrap()?.prev_outgoing_receipts().to_vec()
         } else {
             self.get_outgoing_receipts_for_shard(
                 prev_hash.clone(),
