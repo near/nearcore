@@ -1,21 +1,18 @@
-use std::collections::HashMap;
-
-use borsh::BorshSerialize;
-
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::state::ValueRef;
-
+use super::TrieRefcountDeltaMap;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{
     Children, NodeHandle, RawTrieNode, RawTrieNodeWithSize, StorageHandle, StorageValueHandle,
     TrieNode, TrieNodeWithSize, ValueHandle,
 };
 use crate::{StorageError, Trie, TrieChanges};
+use borsh::BorshSerialize;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::state::ValueRef;
 
 pub(crate) struct NodesStorage {
     nodes: Vec<Option<TrieNodeWithSize>>,
     values: Vec<Option<Vec<u8>>>,
-    pub(crate) refcount_changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
+    pub(crate) refcount_changes: TrieRefcountDeltaMap,
 }
 
 const INVALID_STORAGE_HANDLE: &str = "invalid storage handle";
@@ -23,7 +20,11 @@ const INVALID_STORAGE_HANDLE: &str = "invalid storage handle";
 /// Local mutable storage that owns node objects.
 impl NodesStorage {
     pub fn new() -> NodesStorage {
-        NodesStorage { nodes: Vec::new(), refcount_changes: HashMap::new(), values: Vec::new() }
+        NodesStorage {
+            nodes: Vec::new(),
+            refcount_changes: TrieRefcountDeltaMap::new(),
+            values: Vec::new(),
+        }
     }
 
     fn destroy(&mut self, handle: StorageHandle) -> TrieNodeWithSize {
@@ -604,14 +605,11 @@ impl Trie {
             raw_node_with_size.serialize(&mut buffer).unwrap();
             let key = hash(&buffer);
 
-            let (_value, rc) =
-                memory.refcount_changes.entry(key).or_insert_with(|| (buffer.clone(), 0));
-            *rc += 1;
+            memory.refcount_changes.add(key, buffer.clone(), 1);
             buffer.clear();
             last_hash = key;
         }
-        let (insertions, deletions) =
-            Trie::convert_to_insertions_and_deletions(memory.refcount_changes);
+        let (insertions, deletions) = memory.refcount_changes.into_changes();
         Ok(TrieChanges { old_root: *old_root, new_root: last_hash, insertions, deletions })
     }
 
@@ -621,9 +619,7 @@ impl Trie {
                 let value = memory.value_ref(value_handle).to_vec();
                 let value_length = value.len() as u32;
                 let value_hash = hash(&value);
-                let (_value, rc) =
-                    memory.refcount_changes.entry(value_hash).or_insert_with(|| (value, 0));
-                *rc += 1;
+                memory.refcount_changes.add(value_hash, value, 1);
                 ValueRef { length: value_length, hash: value_hash }
             }
             ValueHandle::HashAndSize(value) => value,
