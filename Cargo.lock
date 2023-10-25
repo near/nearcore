@@ -4223,7 +4223,7 @@ dependencies = [
  "actix",
  "actix-web",
  "anyhow",
- "borsh 0.10.2",
+ "borsh 1.0.0",
  "clap 4.2.4",
  "cloud-storage",
  "near-client",
