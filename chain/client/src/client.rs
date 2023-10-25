@@ -1704,7 +1704,12 @@ impl Client {
                 return;
             }
         };
-        println!("GOT BLOCK {:?} TEST VALUE {:?}", block.header().height(), value);
+        println!(
+            "GOT BLOCK {:?} STATUS {:?} TEST VALUE {:?}",
+            block.header().height(),
+            status,
+            value
+        );
         let _ = self.check_and_update_doomslug_tip();
 
         // If we produced the block, then it should have already been broadcasted.
