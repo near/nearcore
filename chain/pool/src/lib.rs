@@ -5,12 +5,12 @@ use crate::types::{PoolIterator, PoolKey, TransactionGroup};
 
 use near_crypto::PublicKey;
 use near_o11y::metrics::prometheus::core::{AtomicI64, GenericGauge};
+use near_primitives::account::id::AccountIdRef;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use std::ops::Bound;
-use near_primitives::account::id::AccountIdRef;
 
 mod metrics;
 pub mod types;
@@ -75,8 +75,7 @@ impl TransactionPool {
     fn key(&self, account_id: &AccountId, public_key: &PublicKey) -> PoolKey {
         let mut v = borsh::to_vec(&public_key).unwrap();
         v.extend_from_slice(&self.key_seed);
-        let account_id_ref: &AccountIdRef = account_id.as_ref();
-        v.extend_from_slice(account_id_ref.as_bytes());
+        v.extend_from_slice(account_id.as_bytes());
         hash(&v)
     }
 

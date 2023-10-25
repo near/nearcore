@@ -239,8 +239,7 @@ pub fn verify_and_charge_transaction(
                 )
                 .into());
             }
-            let account_id_ref: &AccountIdRef = transaction.receiver_id.as_ref();
-            if  account_id_ref != function_call_permission.receiver_id {
+            if transaction.receiver_id != function_call_permission.receiver_id {
                 return Err(InvalidTxError::InvalidAccessKeyError(
                     InvalidAccessKeyError::ReceiverMismatch {
                         tx_receiver: transaction.receiver_id.clone(),

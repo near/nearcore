@@ -161,9 +161,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
         for record in records.iter_mut() {
             if let StateRecord::Account { account_id: record_account_id, ref mut account } = record
             {
-                let account_id_ref:&AccountIdRef = record_account_id.as_ref();
-
-                if account_id_ref == seed {
+                if record_account_id.as_str().to_string() == seed {
                     is_account_record_found = true;
                     account.set_code_hash(*ContractCode::new(code.to_vec(), None).hash());
                 }

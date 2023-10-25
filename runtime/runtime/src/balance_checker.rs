@@ -12,10 +12,10 @@ use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
+use near_primitives_core::account::id::AccountIdRef;
 use near_primitives_core::config::ActionCosts;
 use near_store::{get, get_account, get_postponed_receipt, TrieAccess, TrieUpdate};
 use std::collections::HashSet;
-use near_primitives_core::account::id::AccountIdRef;
 
 /// Returns delayed receipts with given range of indices.
 fn get_delayed_receipts(
