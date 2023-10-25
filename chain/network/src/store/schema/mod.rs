@@ -5,7 +5,7 @@ use crate::types as primitives;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time;
 use near_crypto::Signature;
-use near_primitives::account::id::{AccountId, AccountIdRef};
+use near_primitives::account::id::AccountId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_store::DBCol;
 use std::io;

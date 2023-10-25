@@ -6,7 +6,6 @@ use curve25519_dalek::traits::VartimeMultiscalarMul;
 
 pub use curve25519_dalek::ristretto::RistrettoPoint as Point;
 pub use curve25519_dalek::scalar::Scalar;
-use near_account_id::AccountIdRef;
 
 pub fn vmul2(s1: Scalar, p1: &Point, s2: Scalar, p2: &Point) -> Point {
     Point::vartime_multiscalar_mul(&[s1, s2], [p1, p2].iter().copied())

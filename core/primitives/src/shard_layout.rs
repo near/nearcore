@@ -1,7 +1,6 @@
 use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::account::id::AccountIdRef;
 use near_primitives_core::types::ShardId;
 use std::cmp::Ordering::Greater;
 use std::collections::HashMap;
