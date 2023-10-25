@@ -42,7 +42,7 @@ use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
     to_timestamp,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::LightClientBlockView;
 use near_store::{
     DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate, WrappedTrieChanges, CHUNK_TAIL_KEY,
@@ -228,6 +228,8 @@ pub trait ChainStoreAccess {
 
         let target_shard_id = shard_id;
         let target_shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash)?;
+        let delayed_chunk_execution =
+            ProtocolFeature::DelayChunkExecution.protocol_version() == 200;
 
         loop {
             let header = self.get_block_header(&block_hash)?;
@@ -236,7 +238,8 @@ pub trait ChainStoreAccess {
                 panic!("get_incoming_receipts_for_shard failed");
             }
 
-            if header.height() == last_chunk_height_included {
+            let is_last_chunk = header.height() == last_chunk_height_included;
+            if is_last_chunk && !delayed_chunk_execution {
                 break;
             }
 
@@ -292,6 +295,9 @@ pub trait ChainStoreAccess {
                 }
             }
 
+            if is_last_chunk && delayed_chunk_execution {
+                break;
+            }
             block_hash = *prev_hash;
         }
 

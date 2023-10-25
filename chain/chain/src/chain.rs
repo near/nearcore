@@ -3915,8 +3915,8 @@ impl Chain {
         let job = match maybe_job {
             Some(job) => job,
             None => {
-                let new_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
-                let mut chain_update = self.chain_update();
+                // let new_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
+                // let mut chain_update = self.chain_update();
                 return Ok(());
             } // no chunk => no chunk extra to save
         };
@@ -4331,7 +4331,13 @@ impl Chain {
         // we can't use hash from the current block here yet because the incoming receipts
         // for this block is not stored yet
         println!("{:?}", incoming_receipts);
-        let new_receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
+        let new_receipts = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+            // ignore "new incoming receipts"
+            // for delayed execution it's enough to call get_incoming_receipts_for_shard
+            vec![]
+        } else {
+            collect_receipts(incoming_receipts.get(&shard_id).unwrap());
+        };
         let old_receipts = &self.store().get_incoming_receipts_for_shard(
             self.epoch_manager.as_ref(),
             shard_id,
