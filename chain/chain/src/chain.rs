@@ -4519,6 +4519,7 @@ impl Chain {
                         gas_limit,
                         apply_result.total_balance_burnt,
                     );
+                    println!("generated extra: {:?}", chunk_extra);
                     // if this is called for chunk production, there is no next chunk header and also
                     // no need to validate ourselves. Lol.
                     if let Some(next_chunk_header) = next_chunk_header {
