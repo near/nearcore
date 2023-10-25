@@ -4279,6 +4279,12 @@ impl Chain {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         split_state_roots: Option<HashMap<ShardUId, CryptoHash>>,
     ) -> Result<Option<ApplyChunkJob>, Error> {
+        println!(
+            "get_apply_chunk_job_new_chunk {} {} {}",
+            block.header().height(),
+            block.header().hash(),
+            shard_uid
+        );
         let prev_hash = block.header().prev_hash().clone();
         let shard_id = shard_uid.shard_id();
 
@@ -4440,6 +4446,7 @@ impl Chain {
 
             let apply_result = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
                 // must accept witness here
+                println!("before apply");
                 let apply_result = apply_txs();
                 if let Ok(apply_result) = &apply_result {
                     let (outcome_root, _) =
@@ -4455,6 +4462,7 @@ impl Chain {
                     // if this is called for chunk production, there is no next chunk header and also
                     // no need to validate ourselves. Lol.
                     if let Some(next_chunk_header) = next_chunk_header {
+                        println!("validate");
                         validate(&chunk_extra, &next_chunk_header)?;
                     }
                 }
@@ -4462,6 +4470,7 @@ impl Chain {
                 // save new chunk extras?
                 apply_result
             } else {
+                println!("before apply - other");
                 validate(prev_chunk_extra?.as_ref(), &chunk_header_copy)?;
                 apply_txs()
             };
