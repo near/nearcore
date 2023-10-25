@@ -4188,7 +4188,7 @@ impl Chain {
                 prev_block,
                 next_chunk_header,
                 chunk_header,
-                prev_chunk_header,
+                prev_chunk_header_included,
                 will_shard_layout_change,
                 incoming_receipts,
             ) = if delay_execution {
@@ -4203,35 +4203,45 @@ impl Chain {
                 // chunk to apply is genesis chunk. its execution result will be trivial.
                 if prev_prev_hash == &CryptoHash::default() {
                     return Ok(None);
+                    // (
+                    //     prev_block,
+                    //     None,
+                    //     Some(chunk_header.clone()),
+                    //     prev_chunk_header,
+                    //     0, // genesis height
+                    //     false,
+                    //     HashMap::default(),
+                    // )
+                } else {
+                    let prev_prev_block = self.get_block(prev_block.header().prev_hash())?;
+                    let prev_prev_chunk_header = Chain::get_prev_chunk_header(
+                        self.epoch_manager.as_ref(),
+                        &prev_prev_block,
+                        shard_id,
+                    )?;
+                    println!("a3");
+                    let incoming_receipts =
+                        self.collect_incoming_receipts_from_block(me, prev_block)?;
+                    println!("a4");
+                    let will_shard_layout_change =
+                        self.epoch_manager.will_shard_layout_change(prev_hash)?;
+                    (
+                        prev_block,
+                        prev_prev_block,
+                        Some(chunk_header.clone()),
+                        prev_chunk_header,
+                        prev_prev_chunk_header.height_included(),
+                        will_shard_layout_change,
+                        incoming_receipts,
+                    )
                 }
-                let prev_prev_block = self.get_block(prev_block.header().prev_hash())?;
-                let prev_prev_chunk_header = Chain::get_prev_chunk_header(
-                    self.epoch_manager.as_ref(),
-                    &prev_prev_block,
-                    shard_id,
-                )?;
-                println!("a3");
-                let incoming_receipts =
-                    self.collect_incoming_receipts_from_block(me, prev_block)?;
-                println!("a4");
-                let will_shard_layout_change =
-                    self.epoch_manager.will_shard_layout_change(prev_hash)?;
-                (
-                    prev_block,
-                    prev_prev_block,
-                    Some(chunk_header.clone()),
-                    prev_chunk_header,
-                    prev_prev_chunk_header,
-                    will_shard_layout_change,
-                    incoming_receipts,
-                )
             } else {
                 (
                     block,
                     prev_block.clone(),
                     None,
                     chunk_header,
-                    prev_chunk_header.clone(),
+                    prev_chunk_header.height_included(),
                     will_shard_layout_change,
                     incoming_receipts.clone(),
                 )
@@ -4242,7 +4252,7 @@ impl Chain {
                     &prev_block,
                     next_chunk_header,
                     chunk_header,
-                    &prev_chunk_header,
+                    prev_chunk_header_included,
                     shard_uid,
                     will_shard_layout_change,
                     &incoming_receipts,
@@ -4287,7 +4297,7 @@ impl Chain {
         // provided in case of stateless validation
         next_chunk_header: Option<ShardChunkHeader>,
         chunk_header: &ShardChunkHeader,
-        prev_chunk_header: &ShardChunkHeader,
+        prev_chunk_height_included: BlockHeight,
         shard_uid: ShardUId,
         will_shard_layout_change: bool,
         incoming_receipts: &HashMap<u64, Vec<ReceiptProof>>,
@@ -4315,7 +4325,6 @@ impl Chain {
             .get_chunk_clone_from_header(&prev_block.chunks()[prev_shard_id as usize].clone())
             .unwrap();
 
-        let prev_chunk_height_included = prev_chunk_header.height_included();
         let next_chunk =
             next_chunk_header.as_ref().map(|header| self.get_chunk_clone_from_header(header));
         let outgoing_receipts = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
