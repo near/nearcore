@@ -200,6 +200,7 @@ impl TestReshardingEnv {
         let env = builder
             .clients_count(num_clients)
             .validator_seats(num_validators)
+            .use_state_snapshots()
             .real_stores()
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)

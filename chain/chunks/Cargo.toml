@@ -19,6 +19,7 @@ lru.workspace = true
 once_cell.workspace = true
 rand.workspace = true
 reed-solomon-erasure.workspace = true
+strum.workspace = true
 time.workspace = true
 tracing.workspace = true
 # itertools has collect_vec which is useful in quick debugging prints

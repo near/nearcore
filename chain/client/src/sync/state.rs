@@ -34,7 +34,6 @@ use near_chain::resharding::StateSplitRequest;
 use near_chain::types::RuntimeAdapter;
 use near_chain::Chain;
 use near_chain_configs::{ExternalStorageConfig, ExternalStorageLocation, SyncConfig};
-use near_client_primitives::types::format_shard_sync_phase_per_shard;
 use near_client_primitives::types::{
     format_shard_sync_phase, DownloadStatus, ShardSyncDownload, ShardSyncStatus,
 };
@@ -72,11 +71,10 @@ pub const MAX_PENDING_PART: u64 = MAX_STATE_PART_REQUEST * 10000;
 pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: u64 = 300;
 
 pub enum StateSyncResult {
-    /// No shard has changed its status
-    Unchanged,
-    /// At least one shard has changed its status
-    /// Boolean parameter specifies whether the client needs to start fetching the block
-    Changed(bool),
+    /// State sync still in progress. No action needed by the caller.
+    InProgress,
+    /// The client needs to start fetching the block
+    RequestBlock,
     /// The state for all shards was downloaded.
     Completed,
 }
@@ -248,16 +246,13 @@ impl StateSync {
         Ok((request_block, have_block))
     }
 
-    // In the tuple of bools returned by this function, the first one
-    // indicates whether something has changed in `new_shard_sync`,
-    // and therefore whether the client needs to update its
-    // `sync_status`. The second indicates whether state sync is
+    // The return value indicates whether state sync is
     // finished, in which case the client will transition to block sync
     fn sync_shards_status(
         &mut self,
         me: &Option<AccountId>,
         sync_hash: CryptoHash,
-        new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
+        sync_status: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
         epoch_manager: &dyn EpochManagerAdapter,
         highest_height_peers: &[HighestHeightPeerInfo],
@@ -268,9 +263,8 @@ impl StateSync {
         state_parts_arbiter_handle: &ArbiterHandle,
         use_colour: bool,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-    ) -> Result<(bool, bool), near_chain::Error> {
+    ) -> Result<bool, near_chain::Error> {
         let mut all_done = true;
-        let mut update_sync_status = false;
 
         let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let prev_epoch_id = chain.get_block_header(&prev_hash)?.epoch_id().clone();
@@ -287,13 +281,11 @@ impl StateSync {
         for shard_id in tracking_shards {
             let mut download_timeout = false;
             let mut run_shard_state_download = false;
-            let shard_sync_download = new_shard_sync.entry(shard_id).or_insert_with(|| {
+            let shard_sync_download = sync_status.entry(shard_id).or_insert_with(|| {
                 run_shard_state_download = true;
-                update_sync_status = true;
                 ShardSyncDownload::new_download_state_header(now)
             });
 
-            let old_status = shard_sync_download.status.clone();
             let mut shard_sync_done = false;
             match &shard_sync_download.status {
                 ShardSyncStatus::StateDownloadHeader => {
@@ -311,7 +303,6 @@ impl StateSync {
                         self.sync_shards_download_parts_status(shard_id, shard_sync_download, now);
                     download_timeout = res.0;
                     run_shard_state_download = res.1;
-                    update_sync_status |= res.2;
                 }
                 ShardSyncStatus::StateDownloadScheduling => {
                     self.sync_shards_download_scheduling_status(
@@ -387,7 +378,6 @@ impl StateSync {
 
             // Execute syncing for shard `shard_id`
             if run_shard_state_download {
-                update_sync_status = true;
                 self.request_shard(
                     shard_id,
                     chain,
@@ -398,26 +388,17 @@ impl StateSync {
                     state_parts_arbiter_handle,
                 )?;
             }
-            update_sync_status |= shard_sync_download.status != old_status;
-        }
-        if update_sync_status {
-            // Print debug messages only if something changed.
-            // Otherwise it spams the debug logs.
-            tracing::debug!(
-                target: "sync",
-                progress_per_shard = ?format_shard_sync_phase_per_shard(new_shard_sync, false));
         }
 
-        Ok((update_sync_status, all_done))
+        Ok(all_done)
     }
 
     // Checks the message queue for new downloaded parts and writes them.
     fn process_downloaded_parts(
         &mut self,
         sync_hash: CryptoHash,
-        new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
-    ) -> bool {
-        let mut update_sync_status = false;
+        shard_sync: &mut HashMap<u64, ShardSyncDownload>,
+    ) {
         for StateSyncGetPartResult { sync_hash: msg_sync_hash, shard_id, part_id, part_result } in
             self.state_parts_mpsc_rx.try_iter()
         {
@@ -432,14 +413,14 @@ impl StateSync {
                 continue;
             }
             info!(target: "sync", ?part_result, ?part_id, ?shard_id, "downloaded a state part");
-            if let Some(shard_sync_download) = new_shard_sync.get_mut(&shard_id) {
+            if let Some(shard_sync_download) = shard_sync.get_mut(&shard_id) {
                 if shard_sync_download.status != ShardSyncStatus::StateDownloadParts {
                     continue;
                 }
                 if let Some(part_download) =
                     shard_sync_download.downloads.get_mut(part_id.idx as usize)
                 {
-                    update_sync_status |= process_part_response(
+                    process_part_response(
                         part_id.idx,
                         shard_id,
                         sync_hash,
@@ -449,7 +430,6 @@ impl StateSync {
                 }
             }
         }
-        return update_sync_status;
     }
 
     // Called by the client actor, when it finished applying all the downloaded parts.
@@ -735,7 +715,7 @@ impl StateSync {
         &mut self,
         me: &Option<AccountId>,
         sync_hash: CryptoHash,
-        new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
+        sync_status: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
         epoch_manager: &dyn EpochManagerAdapter,
         highest_height_peers: &[HighestHeightPeerInfo],
@@ -762,7 +742,11 @@ impl StateSync {
             //    in the previous (or about a subset of them), return success right away
 
             return if !have_block {
-                Ok(StateSyncResult::Changed(request_block))
+                if request_block {
+                    Ok(StateSyncResult::RequestBlock)
+                } else {
+                    Ok(StateSyncResult::InProgress)
+                }
             } else {
                 Ok(StateSyncResult::Completed)
             };
@@ -770,11 +754,11 @@ impl StateSync {
         // The downloaded parts are from all shards. This function takes all downloaded parts and
         // saves them to the DB.
         // TODO: Ideally, we want to process the downloads on a different thread than the one that runs the Client.
-        let mut update_sync_status = self.process_downloaded_parts(sync_hash, new_shard_sync);
-        let (update, all_done) = self.sync_shards_status(
+        self.process_downloaded_parts(sync_hash, sync_status);
+        let all_done = self.sync_shards_status(
             me,
             sync_hash,
-            new_shard_sync,
+            sync_status,
             chain,
             epoch_manager,
             highest_height_peers,
@@ -786,17 +770,12 @@ impl StateSync {
             use_colour,
             runtime_adapter,
         )?;
-        update_sync_status |= update;
 
         if have_block && all_done {
             return Ok(StateSyncResult::Completed);
         }
 
-        Ok(if update_sync_status || request_block {
-            StateSyncResult::Changed(request_block)
-        } else {
-            StateSyncResult::Unchanged
-        })
+        Ok(if request_block { StateSyncResult::RequestBlock } else { StateSyncResult::InProgress })
     }
 
     pub fn update_download_on_state_response_message(
@@ -908,20 +887,18 @@ impl StateSync {
 
     /// Checks if the parts are downloaded.
     /// If download of all parts is complete, then moves forward to `StateDownloadScheduling`.
-    /// Returns `(download_timeout, run_shard_state_download, update_sync_status)` where:
+    /// Returns `(download_timeout, run_shard_state_download)` where:
     /// * `download_timeout` means that the state header request timed out (and needs to be retried).
     /// * `run_shard_state_download` means that header or part download requests need to run for this shard.
-    /// * `update_sync_status` means that something changed in `ShardSyncDownload` and it needs to be persisted.
     fn sync_shards_download_parts_status(
         &mut self,
         shard_id: ShardId,
         shard_sync_download: &mut ShardSyncDownload,
         now: DateTime<Utc>,
-    ) -> (bool, bool, bool) {
+    ) -> (bool, bool) {
         // Step 2 - download all the parts (each part is usually around 1MB).
         let mut download_timeout = false;
         let mut run_shard_state_download = false;
-        let mut update_sync_status = false;
 
         let mut parts_done = true;
         let num_parts = shard_sync_download.downloads.len();
@@ -944,7 +921,6 @@ impl StateSync {
                         part_download.run_me.store(true, Ordering::SeqCst);
                         part_download.error = false;
                         part_download.prev_update_time = now;
-                        update_sync_status = true;
                     }
                 }
                 if part_download.run_me.load(Ordering::SeqCst) {
@@ -967,9 +943,8 @@ impl StateSync {
                 downloads: vec![],
                 status: ShardSyncStatus::StateDownloadScheduling,
             };
-            update_sync_status = true;
         }
-        (download_timeout, run_shard_state_download, update_sync_status)
+        (download_timeout, run_shard_state_download)
     }
 
     fn sync_shards_download_scheduling_status(
@@ -1250,15 +1225,13 @@ fn sent_request_part(
 /// Works around how data requests to external storage are done.
 /// This function investigates if the response is valid and updates `done` and `error` appropriately.
 /// If the response is successful, then also writes the state part to the DB.
-///
-/// Returns whether something changed in `DownloadStatus` which means it needs to be persisted.
 fn process_part_response(
     part_id: u64,
     shard_id: ShardId,
     sync_hash: CryptoHash,
     part_download: &mut DownloadStatus,
     part_result: Result<u64, String>,
-) -> bool {
+) {
     match part_result {
         Ok(data_len) => {
             // No error, aka Success.
@@ -1279,7 +1252,6 @@ fn process_part_response(
             part_download.error = true;
         }
     }
-    true
 }
 
 /// Create an abstract collection of elements to be shuffled.
