@@ -4178,6 +4178,7 @@ impl Chain {
             None
         };
 
+        let is_new_chunk = chunk_header.height_included() == block.header().height();
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id())?;
         let epoch_manager = self.epoch_manager.clone();
         let runtime = self.runtime_adapter.clone();
