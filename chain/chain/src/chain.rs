@@ -3922,14 +3922,17 @@ impl Chain {
         let apply_chunk_result = job(&_span)?;
 
         println!("chain_update");
-        let mut chain_update = self.chain_update();
-        chain_update.apply_chunk_postprocessing(block, vec![apply_chunk_result])?;
-        let receipts_map =
-            chain_update.get_receipt_id_to_shard_id(block.hash(), shard_id as u64)?;
-        for (receipt_id, to_shard_id) in receipts_map.into_iter() {
-            chain_update.chain_store_update.save_receipt_id_to_shard_id(receipt_id, to_shard_id);
-        }
-        chain_update.commit()?;
+        // looks like a big mistake.
+        // this should only generate witness.
+        // why did I decide to save everything here?
+        // let mut chain_update = self.chain_update();
+        // chain_update.apply_chunk_postprocessing(block, vec![apply_chunk_result])?;
+        // let receipts_map =
+        //     chain_update.get_receipt_id_to_shard_id(block.hash(), shard_id as u64)?;
+        // for (receipt_id, to_shard_id) in receipts_map.into_iter() {
+        //     chain_update.chain_store_update.save_receipt_id_to_shard_id(receipt_id, to_shard_id);
+        // }
+        // chain_update.commit()?;
 
         Ok(())
     }
