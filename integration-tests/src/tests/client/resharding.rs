@@ -176,6 +176,7 @@ impl TestReshardingEnv {
         gas_limit: Option<u64>,
         genesis_protocol_version: ProtocolVersion,
         rng_seed: u64,
+        state_snapshot_enabled: bool,
     ) -> Self {
         let mut rng = SeedableRng::seed_from_u64(rng_seed);
         let validators: Vec<AccountId> =
@@ -190,10 +191,14 @@ impl TestReshardingEnv {
             genesis_protocol_version,
         );
         let chain_genesis = ChainGenesis::new(&genesis);
-        let env = TestEnv::builder(chain_genesis)
+        let builder = if state_snapshot_enabled {
+            TestEnv::builder(chain_genesis).use_state_snapshots()
+        } else {
+            TestEnv::builder(chain_genesis)
+        };
+        let env = builder
             .clients_count(num_clients)
             .validator_seats(num_validators)
-            .use_state_snapshots()
             .real_stores()
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
@@ -800,7 +805,11 @@ fn generate_create_accounts_txs(
     .collect()
 }
 
-fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_seed: u64) {
+fn test_shard_layout_upgrade_simple_impl(
+    resharding_type: ReshardingType,
+    rng_seed: u64,
+    state_snapshot_enabled: bool,
+) {
     init_test_logger();
     tracing::info!(target: "test", "test_shard_layout_upgrade_simple_impl starting");
 
@@ -809,8 +818,16 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_se
 
     // setup
     let epoch_length = 5;
-    let mut test_env =
-        TestReshardingEnv::new(epoch_length, 2, 2, 100, None, genesis_protocol_version, rng_seed);
+    let mut test_env = TestReshardingEnv::new(
+        epoch_length,
+        2,
+        2,
+        100,
+        None,
+        genesis_protocol_version,
+        rng_seed,
+        state_snapshot_enabled,
+    );
     test_env.set_init_tx(vec![]);
 
     let mut nonce = 100;
@@ -850,25 +867,30 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_se
 
 #[test]
 fn test_shard_layout_upgrade_simple_v1() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V1, 42);
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V1, 42, false);
+}
+
+#[test]
+fn test_shard_layout_upgrade_simple_v1_with_snapshot_enabled() {
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V1, 42, true);
 }
 
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_42() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 42);
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 42, false);
 }
 
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_43() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 43);
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 43, false);
 }
 
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_44() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44);
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44, false);
 }
 
 const GAS_1: u64 = 300_000_000_000_000;
@@ -887,6 +909,7 @@ fn create_test_env_for_cross_contract_test(
         Some(100_000_000_000_000),
         genesis_protocol_version,
         rng_seed,
+        false,
     )
 }
 

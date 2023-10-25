@@ -231,7 +231,6 @@ impl Chain {
         tries.get_state_snapshot(prev_prev_hash).is_err_and(|err| match err {
             SnapshotError::SnapshotNotFound(_) => true,
             SnapshotError::LockWouldBlock => true,
-            SnapshotError::SnapshotConfigDisabled => false,
             SnapshotError::IncorrectSnapshotRequested(_, _) => false,
             SnapshotError::Other(_) => false,
         })
