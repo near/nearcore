@@ -6,17 +6,20 @@ use actix_web::{web, App, HttpServer};
 use anyhow::anyhow;
 use borsh::BorshDeserialize;
 use near_client::sync::external::{create_bucket_readonly, ExternalConnection};
+use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
-use near_primitives::types::{EpochId, ShardId, StateRoot};
+use near_primitives::types::{BlockId, BlockReference, EpochId, Finality, ShardId, StateRoot};
+use near_primitives::views::BlockView;
 use near_store::Trie;
 use nearcore::state_sync::extract_part_id_from_part_file_name;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+
+const MAX_RETRIES: u32 = 3;
 
 #[derive(clap::Parser)]
 pub struct StatePartsDumpCheckCommand {
@@ -45,6 +48,8 @@ pub struct LoopCheckCommand {
     /// Listen address for prometheus metrics.
     #[clap(long, default_value = "0.0.0.0:9090")]
     prometheus_addr: String,
+    #[clap(long)]
+    rpc_server_addr: Option<String>,
 }
 
 #[derive(clap::Parser)]
@@ -108,7 +113,7 @@ impl SingleCheckCommand {
     ) -> anyhow::Result<()> {
         let sys = actix::System::new();
         sys.block_on(async move {
-            let _check_result = run_single_check(
+            let _check_result = run_single_check_with_3_retries(
                 chain_id,
                 self.epoch_id.clone(),
                 self.epoch_height,
@@ -135,7 +140,18 @@ impl LoopCheckCommand {
         s3_region: Option<String>,
         gcs_bucket: Option<String>,
     ) -> anyhow::Result<()> {
-        let rpc_client = crate::rpc_requests::RpcClient::new(&chain_id);
+        let rpc_server_addr = match &self.rpc_server_addr {
+            None => {
+                if chain_id == "mainnet" || chain_id == "testnet" {
+                    format!("http://rpc.{}.near.org", chain_id)
+                } else {
+                    return Err(anyhow!("rpc_server_addr needs to be supplied if chain_id is not mainnet or testnet"));
+                }
+            }
+            Some(addr) => addr.to_string(),
+        };
+
+        let rpc_client = new_client(&rpc_server_addr);
 
         tracing::info!("started running LoopCheckCommand");
 
@@ -145,7 +161,7 @@ impl LoopCheckCommand {
             s3_bucket,
             s3_region,
             gcs_bucket,
-            rpc_client,
+            &rpc_client,
             &self.prometheus_addr,
         );
 
@@ -166,10 +182,9 @@ impl LoopCheckCommand {
 
 #[derive(Clone)]
 pub struct DumpCheckIterInfo {
-    pub latest_block_hash: String,
-    pub latest_epoch_id: String,
-    pub prev_epoch_id: String,
+    pub prev_epoch_id: EpochId,
     pub prev_epoch_height: u64,
+    pub prev_epoch_state_roots: Vec<CryptoHash>,
 }
 
 pub fn create_external_connection(
@@ -223,7 +238,7 @@ fn run_loop_all_shards(
     s3_bucket: Option<String>,
     s3_region: Option<String>,
     gcs_bucket: Option<String>,
-    rpc_client: crate::rpc_requests::RpcClient,
+    rpc_client: &JsonRpcClient,
     prometheus_addr: &str,
 ) -> anyhow::Result<()> {
     let mut last_check_status_vec = vec![];
@@ -231,14 +246,14 @@ fn run_loop_all_shards(
         last_check_status_vec
             .push(Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height: 0 }));
     }
-    let mut last_check_iter_info: DumpCheckIterInfo;
 
     let mut is_prometheus_server_up: bool = false;
 
     let sys = actix::System::new();
     loop {
         tracing::info!("running the loop inside run_loop_all_shards");
-        let dump_check_iter_info_res = get_processing_epoch_information(&rpc_client);
+        let dump_check_iter_info_res =
+            sys.block_on(async move { get_processing_epoch_information(&rpc_client).await });
         if let Err(err) = dump_check_iter_info_res {
             tracing::info!(
                 "get_processing_epoch_information errs out with {}. sleeping for 60s.",
@@ -247,12 +262,12 @@ fn run_loop_all_shards(
             sleep(Duration::from_secs(60));
             continue;
         }
-        let dump_check_iter_info = dump_check_iter_info_res.unwrap();
+        let dump_check_iter_info = dump_check_iter_info_res?;
 
-        for shard_id in 0..4 as u64 {
+        for shard_id in 0..4 as usize {
             tracing::info!("started check for shard_id {}", shard_id);
             let dump_check_iter_info = dump_check_iter_info.clone();
-            match last_check_status_vec[shard_id as usize] {
+            match last_check_status_vec[shard_id] {
                 Ok(StatePartsDumpCheckStatus::Done { epoch_height }) => {
                     tracing::info!("last one was done, epoch_height: {}", epoch_height);
                     if epoch_height >= dump_check_iter_info.prev_epoch_height {
@@ -292,24 +307,12 @@ fn run_loop_all_shards(
                 }
             }
 
-            let state_root_str = rpc_client
-                .get_prev_epoch_state_root(&dump_check_iter_info.prev_epoch_id, shard_id)
-                .or_else(|_| Err(anyhow!("get_prev_epoch_state_root failed")))?;
-
-            let state_root: StateRoot = CryptoHash::from_str(&state_root_str)
-                .or_else(|_| Err(anyhow!("convert str to StateRoot failed")))?;
-            let prev_epoch_id = EpochId(
-                CryptoHash::from_str(&dump_check_iter_info.prev_epoch_id)
-                    .or_else(|_| Err(anyhow!("convert str to EpochId failed")))?,
-            );
-
-            last_check_iter_info = dump_check_iter_info;
             let chain_id = chain_id.clone();
             let root_dir = root_dir.clone();
             let s3_bucket = s3_bucket.clone();
             let s3_region = s3_region.clone();
             let gcs_bucket = gcs_bucket.clone();
-            last_check_status_vec[shard_id as usize] = sys.block_on(async move {
+            last_check_status_vec[shard_id] = sys.block_on(async move {
                 if !is_prometheus_server_up {
                     let server = HttpServer::new(move || {
                         App::new().service(
@@ -317,8 +320,7 @@ fn run_loop_all_shards(
                                 .route(web::get().to(near_jsonrpc::prometheus_handler)),
                         )
                     })
-                    .bind(prometheus_addr)
-                    .unwrap()
+                    .bind(prometheus_addr)?
                     .workers(1)
                     .shutdown_timeout(3)
                     .disable_signals()
@@ -328,15 +330,16 @@ fn run_loop_all_shards(
 
                 run_single_check_with_3_retries(
                     chain_id,
-                    prev_epoch_id,
-                    last_check_iter_info.prev_epoch_height,
-                    shard_id,
-                    state_root,
+                    dump_check_iter_info.prev_epoch_id,
+                    dump_check_iter_info.prev_epoch_height,
+                    shard_id as u64,
+                    dump_check_iter_info.prev_epoch_state_roots[shard_id],
                     root_dir,
                     s3_bucket,
                     s3_region,
                     gcs_bucket,
-                ).await
+                )
+                .await
             });
             is_prometheus_server_up = true;
         }
@@ -354,7 +357,6 @@ async fn run_single_check_with_3_retries(
     s3_region: Option<String>,
     gcs_bucket: Option<String>,
 ) -> anyhow::Result<StatePartsDumpCheckStatus> {
-    const MAX_RETRIES: u32 = 3;
     let mut retries = 0;
     let mut res;
     loop {
@@ -512,7 +514,8 @@ async fn run_single_check(
                 state_root,
                 num_parts,
                 external,
-            ).await
+            )
+            .await
         });
         handles.push(handle);
     }
@@ -536,7 +539,6 @@ async fn process_part_with_3_retries(
     num_parts: u64,
     external: ExternalConnection,
 ) -> anyhow::Result<()> {
-    const MAX_RETRIES: u32 = 3;
     let mut retries = 0;
     let mut res;
     loop {
@@ -613,28 +615,55 @@ async fn process_part(
     Ok(())
 }
 
-fn get_processing_epoch_information(
-    rpc_client: &crate::rpc_requests::RpcClient,
+async fn get_processing_epoch_information(
+    rpc_client: &JsonRpcClient,
 ) -> anyhow::Result<DumpCheckIterInfo> {
-    let latest_block_hash = rpc_client
-        .get_final_block_hash()
-        .or_else(|_| Err(anyhow!("get_final_block_hash failed")))?;
-    let latest_epoch_id = rpc_client
-        .get_epoch_id(&latest_block_hash)
-        .or_else(|_| Err(anyhow!("get_epoch_id failed")))?;
-
-    let prev_epoch_id_str = rpc_client
-        .get_prev_epoch_id(&latest_epoch_id)
-        .or_else(|_| Err(anyhow!("get_prev_epoch_id failed")))?;
-    let prev_epoch_height = rpc_client
-        .get_epoch_height(&latest_epoch_id)
-        .or_else(|_| Err(anyhow!("get_epoch_height failed")))?
-        - 1;
+    let latest_block_response = rpc_client
+        .block(BlockReference::Finality(Finality::Final))
+        .await
+        .or_else(|_| Err(anyhow!("get final block failed")))?;
+    let latest_epoch_id = latest_block_response.header.epoch_id;
+    let prev_epoch_last_block_response =
+        get_previous_epoch_last_block_response(rpc_client, latest_epoch_id).await?;
+    let prev_epoch_id = prev_epoch_last_block_response.header.epoch_id;
+    let prev_epoch_response = rpc_client
+        .validators_by_epoch_id(EpochId(prev_epoch_id))
+        .await
+        .or_else(|_| Err(anyhow!("validators_by_epoch_id for prev_epoch_id failed")))?;
+    let prev_epoch_height = prev_epoch_response.epoch_height;
+    let prev_prev_epoch_last_block_response =
+        get_previous_epoch_last_block_response(rpc_client, prev_epoch_id).await?;
+    let shard_ids: Vec<usize> = (0..4).collect();
+    // state roots ordered by shard_id
+    let prev_epoch_state_roots: Vec<CryptoHash> = shard_ids
+        .iter()
+        .map(|&shard_id| prev_prev_epoch_last_block_response.chunks[shard_id].prev_state_root)
+        .collect();
 
     Ok(DumpCheckIterInfo {
-        latest_block_hash: latest_block_hash,
-        latest_epoch_id: latest_epoch_id,
-        prev_epoch_id: prev_epoch_id_str,
+        prev_epoch_id: EpochId(prev_epoch_id),
         prev_epoch_height: prev_epoch_height,
+        prev_epoch_state_roots: prev_epoch_state_roots,
     })
+}
+
+async fn get_previous_epoch_last_block_response(
+    rpc_client: &JsonRpcClient,
+    current_epoch_id: CryptoHash,
+) -> anyhow::Result<BlockView> {
+    let current_epoch_response = rpc_client
+        .validators_by_epoch_id(EpochId(current_epoch_id))
+        .await
+        .or_else(|_| Err(anyhow!("validators_by_epoch_id for current_epoch_id failed")))?;
+    let current_epoch_first_block_height = current_epoch_response.epoch_start_height;
+    let current_epoch_first_block_response = rpc_client
+        .block_by_id(BlockId::Height(current_epoch_first_block_height))
+        .await
+        .or_else(|_| Err(anyhow!("block_by_id failed for current_epoch_first_block_height")))?;
+    let prev_epoch_last_block_hash = current_epoch_first_block_response.header.prev_hash;
+    let prev_epoch_last_block_response = rpc_client
+        .block_by_id(BlockId::Hash(prev_epoch_last_block_hash))
+        .await
+        .or_else(|_| Err(anyhow!("block_by_id failed for prev_epoch_last_block_hash")))?;
+    Ok(prev_epoch_last_block_response)
 }
