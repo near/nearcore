@@ -4556,10 +4556,10 @@ impl Chain {
         let shard_id = shard_uid.shard_id();
         let prev_block_hash = *prev_block.hash();
         let new_extra = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
-            self.get_chunk_extra(block.hash(), &shard_uid)?;
+            self.get_chunk_extra(block.hash(), &shard_uid)?
         } else {
-            self.get_chunk_extra(&prev_block_hash, &shard_uid)?;
-        }
+            self.get_chunk_extra(&prev_block_hash, &shard_uid)?
+        };
 
         let block_hash = *block.hash();
         let challenges_result = block.header().challenges_result().clone();
