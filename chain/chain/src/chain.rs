@@ -4073,7 +4073,7 @@ impl Chain {
 
     /// Creates jobs that would apply chunks
     fn apply_chunks_preprocessing(
-        &self,
+        &mut self,
         me: &Option<AccountId>,
         block: &Block,
         prev_block: &Block,
@@ -4132,7 +4132,7 @@ impl Chain {
 
     /// This method returns the closure that is responsible for applying of a single chunk.
     fn get_apply_chunk_job(
-        &self,
+        &mut self,
         me: &Option<AccountId>,
         block: &Block,
         prev_block: &Block,
