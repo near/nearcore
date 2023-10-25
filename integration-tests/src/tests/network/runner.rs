@@ -1,7 +1,7 @@
 use actix::{Actor, Addr};
 use anyhow::{anyhow, bail, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::messaging::{IntoSender, LateBoundSender};
+use near_async::messaging::{IntoSender, LateBoundSender, Sender};
 use near_async::time;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::RuntimeAdapter;
@@ -32,7 +32,7 @@ use std::future::Future;
 use std::iter::Iterator;
 use std::net::{Ipv6Addr, SocketAddr};
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tracing::debug;
 
 pub(crate) type ControlFlow = std::ops::ControlFlow<()>;
@@ -73,6 +73,11 @@ fn setup_network_node(
     let network_adapter = Arc::new(LateBoundSender::default());
     let shards_manager_adapter = Arc::new(LateBoundSender::default());
     let adv = near_client::adversarial::Controls::default();
+    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
+        Sender::noop(),
+        Sender::noop(),
+        client_config.state_sync.clone(),
+    )));
     let client_actor = start_client(
         client_config.clone(),
         chain_genesis.clone(),
@@ -80,7 +85,7 @@ fn setup_network_node(
         shard_tracker.clone(),
         runtime.clone(),
         config.node_id(),
-        Arc::new(RwLock::new(SyncAdapter::new(Sender::noop(), Sender::noop(), config.state_sync.clone()))),
+        state_sync_adapter.clone(),
         network_adapter.clone().into(),
         shards_manager_adapter.as_sender(),
         Some(signer.clone()),
