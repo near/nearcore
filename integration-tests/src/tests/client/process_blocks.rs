@@ -3506,7 +3506,7 @@ fn test_congestion_receipt_execution() {
     env.process_block(0, block.clone(), Provenance::NONE); // 5
 
     // let all receipts finish
-    for i in height + 2..height + 7 {
+    for i in height + 2..height + 11 {
         // 6..11
         env.produce_block(0, i);
     }
