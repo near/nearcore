@@ -1558,6 +1558,7 @@ impl Client {
         chunk_header: ShardChunkHeader,
         chunk_producer: AccountId,
     ) {
+        println!("CHUNK READY FOR INCLUSION ON HEIGHT {}", chunk_header.height_created());
         let prev_block_hash = chunk_header.prev_block_hash();
         self.prev_block_to_chunk_headers_ready_for_inclusion
             .get_or_insert(*prev_block_hash, || HashMap::new());
@@ -1565,7 +1566,6 @@ impl Client {
             .get_mut(prev_block_hash)
             .unwrap()
             .insert(chunk_header.shard_id(), (chunk_header, chrono::Utc::now(), chunk_producer));
-        println!("CHUNK READY FOR INCLUSION ON HEIGHT {}", chunk_header.height_created());
     }
 
     pub fn sync_block_headers(
