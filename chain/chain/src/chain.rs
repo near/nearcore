@@ -4179,7 +4179,6 @@ impl Chain {
         };
 
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id())?;
-        let is_new_chunk = chunk_header.height_included() == block.header().height();
         let epoch_manager = self.epoch_manager.clone();
         let runtime = self.runtime_adapter.clone();
         if should_apply_transactions {
@@ -4202,6 +4201,12 @@ impl Chain {
                 let prev_prev_hash = prev_block.header().prev_hash();
                 // chunk to apply is genesis chunk. its execution result will be trivial.
                 if prev_prev_hash == &CryptoHash::default() {
+                    let old_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
+                    let mut new_extra = ChunkExtra::clone(&old_extra);
+                    let mut store_update = self.store().store_update();
+                    store_update.save_chunk_extra(block.hash(), &shard_uid, new_extra);
+                    store_update.commit()?;
+
                     return Ok(None);
                     // (
                     //     prev_block,
@@ -4562,11 +4567,14 @@ impl Chain {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         split_state_roots: Option<HashMap<ShardUId, CryptoHash>>,
     ) -> Result<Option<ApplyChunkJob>, Error> {
+        println!("get_apply_chunk_job_old_chunk {}", block.header().height());
         let shard_id = shard_uid.shard_id();
         let prev_block_hash = *prev_block.hash();
         let new_extra = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+            println!("get curr");
             self.get_chunk_extra(block.hash(), &shard_uid)?
         } else {
+            println!("get prev");
             self.get_chunk_extra(&prev_block_hash, &shard_uid)?
         };
 
