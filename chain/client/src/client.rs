@@ -2379,6 +2379,7 @@ impl Client {
         apply_chunks_done_callback: DoneApplyChunkCallback,
         state_parts_arbiter_handle: &ArbiterHandle,
     ) -> Result<(), Error> {
+        let mut notify_state_sync = false;
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos()? {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
@@ -2394,6 +2395,7 @@ impl Client {
             // entry contains the same data?
             let (state_sync, shards_to_split, blocks_catch_up_state) =
                 self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
+                    notify_state_sync = true;
                     (
                         StateSync::new(
                             network_adapter,
@@ -2414,18 +2416,22 @@ impl Client {
             let tracking_shards: Vec<u64> =
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect();
             // Notify each shard to sync.
-            let shard_layout =
-                self.epoch_manager.get_shard_layout(&epoch_id).expect("Cannot get shard layout");
-            for &shard_id in &tracking_shards {
-                let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-                match self.state_sync_adapter.clone().read() {
-                    Ok(sync_adapter) => sync_adapter.send(
-                        shard_uid,
-                        (SyncMessage::StartSync(SyncShardInfo { shard_uid, sync_hash }))
-                            .with_span_context(),
-                    ),
-                    Err(_) => {
-                        error!(target:"catchup", "State sync adapter lock is poisoned.")
+            if notify_state_sync {
+                let shard_layout = self
+                    .epoch_manager
+                    .get_shard_layout(&epoch_id)
+                    .expect("Cannot get shard layout");
+                for &shard_id in &tracking_shards {
+                    let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+                    match self.state_sync_adapter.clone().read() {
+                        Ok(sync_adapter) => sync_adapter.send(
+                            shard_uid,
+                            (SyncMessage::StartSync(SyncShardInfo { shard_uid, sync_hash }))
+                                .with_span_context(),
+                        ),
+                        Err(_) => {
+                            error!(target:"catchup", "State sync adapter lock is poisoned.")
+                        }
                     }
                 }
             }
