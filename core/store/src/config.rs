@@ -128,7 +128,7 @@ pub struct StateSnapshotConfig {
     pub compaction_enabled: bool,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub enum StateSnapshotType {
     /// Consider this as the default "disabled" option. We need to have snapshotting enabled for resharding
     /// State snapshots involve filesystem operations and costly IO operations.
