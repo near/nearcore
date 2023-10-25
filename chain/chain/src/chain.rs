@@ -4336,7 +4336,7 @@ impl Chain {
             // for delayed execution it's enough to call get_incoming_receipts_for_shard
             vec![]
         } else {
-            collect_receipts(incoming_receipts.get(&shard_id).unwrap());
+            collect_receipts(incoming_receipts.get(&shard_id).unwrap())
         };
         let old_receipts = &self.store().get_incoming_receipts_for_shard(
             self.epoch_manager.as_ref(),
