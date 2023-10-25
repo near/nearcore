@@ -4316,11 +4316,17 @@ impl Chain {
             .unwrap();
 
         let prev_chunk_height_included = prev_chunk_header.height_included();
-        let outgoing_receipts = self.get_outgoing_receipts_for_shard(
-            prev_hash.clone(),
-            chunk_header.shard_id(),
-            prev_chunk_height_included,
-        )?;
+        let next_chunk =
+            next_chunk_header.as_ref().map(|header| self.get_chunk_clone_from_header(header));
+        let outgoing_receipts = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+            next_chunk.unwrap()?.prev_outgoing_receipts().to_vec()
+        } else {
+            self.get_outgoing_receipts_for_shard(
+                prev_hash.clone(),
+                chunk_header.shard_id(),
+                prev_chunk_height_included,
+            )?;
+        };
 
         let prev_block_copy = prev_block.clone();
         let block_copy = block.clone();
@@ -4347,8 +4353,6 @@ impl Chain {
         let receipts = [new_receipts, old_receipts].concat();
 
         let chunk = self.get_chunk_clone_from_header(&chunk_header.clone())?;
-        let next_chunk =
-            next_chunk_header.as_ref().map(|header| self.get_chunk_clone_from_header(header));
 
         let transactions = chunk.transactions();
         let chunk_prev_outgoing_receipts = chunk.prev_outgoing_receipts().to_vec();
