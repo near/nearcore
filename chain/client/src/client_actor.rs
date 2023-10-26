@@ -1896,16 +1896,16 @@ pub fn start_client(
     )
     .unwrap();
     // without this stuff 17 tests in process_blocks fail
-    // if let Some(validator_signer) = client.validator_signer.clone() {
-    //     let validator_id = validator_signer.validator_id().clone();
-    //     let tip = client.chain.head().unwrap();
-    //     let block = client.chain.get_block(&tip.last_block_hash).unwrap();
-    //     if tip.prev_block_hash == CryptoHash::default()
-    //         && ProtocolFeature::DelayChunkExecution.protocol_version() == 200
-    //     {
-    //         client.produce_chunks(&block, validator_id);
-    //     }
-    // }
+    if let Some(validator_signer) = client.validator_signer.clone() {
+        let validator_id = validator_signer.validator_id().clone();
+        let tip = client.chain.head().unwrap();
+        let block = client.chain.get_block(&tip.last_block_hash).unwrap();
+        if tip.prev_block_hash == CryptoHash::default()
+            && ProtocolFeature::DelayChunkExecution.protocol_version() == 200
+        {
+            client.produce_chunks(&block, validator_id);
+        }
+    }
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
         ClientActor::new(
             client,

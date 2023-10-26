@@ -171,16 +171,16 @@ pub fn setup(
         None,
     )
     .unwrap();
-    // if let Some(validator_signer) = client.validator_signer.clone() {
-    //     let validator_id = validator_signer.validator_id().clone();
-    //     let tip = client.chain.head().unwrap();
-    //     let block = client.chain.get_block(&tip.last_block_hash).unwrap();
-    //     if tip.prev_block_hash == CryptoHash::default()
-    //         && ProtocolFeature::DelayChunkExecution.protocol_version() == 200
-    //     {
-    //         client.produce_chunks(&block, validator_id);
-    //     }
-    // }
+    if let Some(validator_signer) = client.validator_signer.clone() {
+        let validator_id = validator_signer.validator_id().clone();
+        let tip = client.chain.head().unwrap();
+        let block = client.chain.get_block(&tip.last_block_hash).unwrap();
+        if tip.prev_block_hash == CryptoHash::default()
+            && ProtocolFeature::DelayChunkExecution.protocol_version() == 200
+        {
+            client.produce_chunks(&block, validator_id);
+        }
+    }
     let client_actor = ClientActor::new(
         client,
         ctx.address(),
@@ -952,16 +952,16 @@ pub fn setup_client_with_runtime(
         make_state_snapshot_callback,
     )
     .unwrap();
-    // if let Some(validator_signer) = client.validator_signer.clone() {
-    //     let validator_id = validator_signer.validator_id().clone();
-    //     let tip = client.chain.head().unwrap();
-    //     let block = client.chain.get_block(&tip.last_block_hash).unwrap();
-    //     if tip.prev_block_hash == CryptoHash::default()
-    //         && ProtocolFeature::DelayChunkExecution.protocol_version() == 200
-    //     {
-    //         client.produce_chunks(&block, validator_id);
-    //     }
-    // }
+    if let Some(validator_signer) = client.validator_signer.clone() {
+        let validator_id = validator_signer.validator_id().clone();
+        let tip = client.chain.head().unwrap();
+        let block = client.chain.get_block(&tip.last_block_hash).unwrap();
+        if tip.prev_block_hash == CryptoHash::default()
+            && ProtocolFeature::DelayChunkExecution.protocol_version() == 200
+        {
+            client.produce_chunks(&block, validator_id);
+        }
+    }
     client.sync_status = SyncStatus::NoSync;
     client
 }
