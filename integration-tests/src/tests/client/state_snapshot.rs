@@ -134,8 +134,9 @@ fn verify_make_snapshot(
     block_hash: CryptoHash,
     block: &Block,
 ) -> Result<(), anyhow::Error> {
-    state_snapshot_test_env.shard_tries.make_state_snapshot(
-        &block_hash,
+    state_snapshot_test_env.shard_tries.delete_state_snapshot();
+    state_snapshot_test_env.shard_tries.create_state_snapshot(
+        block_hash,
         &vec![ShardUId::single_shard()],
         block,
     )?;
@@ -245,7 +246,8 @@ fn test_make_state_snapshot() {
         )
     );
 
-    // check that if the snapshot is deleted from file system while there's entry in DBCol::STATE_SNAPSHOT_KEY and write lock is nonempty, making a snpashot of the same hash will not write to the file system
+    // check that if the snapshot is deleted from file system while there's entry in DBCol::STATE_SNAPSHOT_KEY
+    // recreating the snapshot will succeed
     let snapshot_hash = head.last_block_hash;
     let snapshot_path = ShardTries::get_state_snapshot_base_dir(
         &snapshot_hash,
@@ -254,14 +256,11 @@ fn test_make_state_snapshot() {
         &state_snapshot_test_env.state_snapshot_subdir,
     );
     delete_content_at_path(snapshot_path.to_str().unwrap()).unwrap();
-    assert_ne!(
+    assert_eq!(
         format!("{:?}", Ok::<(), anyhow::Error>(())),
         format!(
             "{:?}",
             verify_make_snapshot(&state_snapshot_test_env, head.last_block_hash, &head_block)
         )
     );
-    if let Ok(entries) = std::fs::read_dir(snapshot_path) {
-        assert_eq!(entries.count(), 0);
-    }
 }

@@ -12,7 +12,9 @@ use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{IntoSender, LateBoundSender};
 use near_async::time;
-use near_chain::state_snapshot_actor::{get_make_snapshot_callback, StateSnapshotActor};
+use near_chain::state_snapshot_actor::{
+    get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks, StateSnapshotActor,
+};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::SyncConfig;
@@ -321,11 +323,10 @@ pub fn start_with_config_and_synchronization(
     let state_snapshot_actor = Arc::new(
         StateSnapshotActor::new(runtime.get_flat_storage_manager(), runtime.get_tries()).start(),
     );
-    let make_state_snapshot_callback = get_make_snapshot_callback(
-        state_snapshot_actor,
-        runtime.get_flat_storage_manager(),
-        config.config.store.state_snapshot_compaction_enabled,
-    );
+    let delete_snapshot_callback = get_delete_snapshot_callback(state_snapshot_actor.clone());
+    let make_snapshot_callback =
+        get_make_snapshot_callback(state_snapshot_actor, runtime.get_flat_storage_manager());
+    let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
     let (client_actor, client_arbiter_handle) = start_client(
         config.client_config.clone(),
@@ -338,7 +339,7 @@ pub fn start_with_config_and_synchronization(
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
         telemetry,
-        Some(make_state_snapshot_callback),
+        Some(snapshot_callbacks),
         shutdown_signal,
         adv,
         config_updater,

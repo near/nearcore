@@ -25,6 +25,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryRequest};
 use near_primitives_core::num_rational::Rational32;
 use near_store::test_utils::{gen_account, gen_unique_accounts};
+use near_store::trie::SnapshotError;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
@@ -176,6 +177,7 @@ impl TestReshardingEnv {
         gas_limit: Option<u64>,
         genesis_protocol_version: ProtocolVersion,
         rng_seed: u64,
+        state_snapshot_enabled: bool,
     ) -> Self {
         let mut rng = SeedableRng::seed_from_u64(rng_seed);
         let validators: Vec<AccountId> =
@@ -190,10 +192,14 @@ impl TestReshardingEnv {
             genesis_protocol_version,
         );
         let chain_genesis = ChainGenesis::new(&genesis);
-        let env = TestEnv::builder(chain_genesis)
+        let builder = if state_snapshot_enabled {
+            TestEnv::builder(chain_genesis).use_state_snapshots()
+        } else {
+            TestEnv::builder(chain_genesis)
+        };
+        let env = builder
             .clients_count(num_clients)
             .validator_seats(num_validators)
-            .use_state_snapshots()
             .real_stores()
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
@@ -600,6 +606,57 @@ impl TestReshardingEnv {
             }
         }
     }
+
+    // function to check whether the state snapshot exists or not and whether it exists at the correct
+    // hash for both cases when state snapshot is enabled and disabled
+    fn check_snapshot(&mut self, state_snapshot_enabled: bool) {
+        let env = &mut self.env;
+        let head = env.clients[0].chain.head().unwrap();
+        let block_header = env.clients[0].chain.get_block_header(&head.prev_block_hash).unwrap();
+        let snapshot = env.clients[0]
+            .chain
+            .runtime_adapter
+            .get_tries()
+            .get_state_snapshot(&block_header.prev_hash());
+
+        // There are two main cases we would like to check, when state_snapshot is enabled and disabled
+        // 1. with state snapshot enabled, we expect to create a new snapshot with every epoch boundry
+        // 2. with state snapshot disabled, we should ONLY be creating the snapshot at the first epoch boundry
+        //    i.e. when resharding happens, and subsequently, at the next epoch boundry, the state snapshot
+        //    must be deleted.
+        if head.height <= self.epoch_length {
+            // No snapshot for height less than epoch length, i.e. first epoch
+            assert!(snapshot
+                .is_err_and(|e| e == SnapshotError::SnapshotNotFound(*block_header.prev_hash())));
+        } else if head.height == self.epoch_length + 1 {
+            // At the epoch boundary, right before resharding, snapshot should exist
+            assert!(snapshot.is_ok());
+        } else if head.height <= 2 * self.epoch_length {
+            // All blocks in the epoch while resharding is going on, snapshot should exist but we should get
+            // IncorrectSnapshotRequested as snapshot exists at hash as of the last block of the previous epoch
+            let snapshot_block_header =
+                env.clients[0].chain.get_block_header_by_height(self.epoch_length).unwrap();
+            assert!(snapshot.is_err_and(|e| e
+                == SnapshotError::IncorrectSnapshotRequested(
+                    *block_header.prev_hash(),
+                    *snapshot_block_header.prev_hash(),
+                )));
+        } else if (head.height - 1) % self.epoch_length == 0 {
+            // At other epoch boundries, snapshot should exist only if state_snapshot_enabled is true
+            assert_eq!(state_snapshot_enabled, snapshot.is_ok());
+        } else {
+            // And for the rest of the height which are not at the epoch boundary, snapshot should
+            // 1. Either not exist if state_snapshot_enabled is false OR
+            // 2. snapshot should exist (but with hash as of last block of prev epoch) if state_snapshot is enabled
+            assert!(snapshot.is_err_and(|err| {
+                match err {
+                    SnapshotError::SnapshotNotFound(_) => !state_snapshot_enabled,
+                    SnapshotError::IncorrectSnapshotRequested(_, _) => state_snapshot_enabled,
+                    _ => false,
+                }
+            }));
+        }
+    }
 }
 
 // Returns the block producer for the next block after the current head.
@@ -800,7 +857,11 @@ fn generate_create_accounts_txs(
     .collect()
 }
 
-fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_seed: u64) {
+fn test_shard_layout_upgrade_simple_impl(
+    resharding_type: ReshardingType,
+    rng_seed: u64,
+    state_snapshot_enabled: bool,
+) {
     init_test_logger();
     tracing::info!(target: "test", "test_shard_layout_upgrade_simple_impl starting");
 
@@ -809,8 +870,16 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_se
 
     // setup
     let epoch_length = 5;
-    let mut test_env =
-        TestReshardingEnv::new(epoch_length, 2, 2, 100, None, genesis_protocol_version, rng_seed);
+    let mut test_env = TestReshardingEnv::new(
+        epoch_length,
+        2,
+        2,
+        100,
+        None,
+        genesis_protocol_version,
+        rng_seed,
+        state_snapshot_enabled,
+    );
     test_env.set_init_tx(vec![]);
 
     let mut nonce = 100;
@@ -839,6 +908,7 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_se
     for _ in 1..4 * epoch_length {
         test_env.step_impl(&drop_chunk_condition, target_protocol_version, &resharding_type);
         test_env.check_receipt_id_to_shard_id();
+        test_env.check_snapshot(state_snapshot_enabled);
     }
 
     test_env.check_tx_outcomes(false);
@@ -850,25 +920,30 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_se
 
 #[test]
 fn test_shard_layout_upgrade_simple_v1() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V1, 42);
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V1, 42, false);
+}
+
+#[test]
+fn test_shard_layout_upgrade_simple_v1_with_snapshot_enabled() {
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V1, 42, true);
 }
 
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_42() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 42);
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 42, false);
 }
 
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_43() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 43);
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 43, false);
 }
 
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_44() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44);
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44, false);
 }
 
 const GAS_1: u64 = 300_000_000_000_000;
@@ -887,6 +962,7 @@ fn create_test_env_for_cross_contract_test(
         Some(100_000_000_000_000),
         genesis_protocol_version,
         rng_seed,
+        false,
     )
 }
 
