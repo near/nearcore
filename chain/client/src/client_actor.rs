@@ -1002,7 +1002,7 @@ impl ClientActor {
 
         if let Some(validator_signer) = self.client.validator_signer.clone() {
             let validator_id = validator_signer.validator_id().clone();
-            let block = client.chain.get_block(&head.last_block_hash).unwrap();
+            let block = self.client.chain.get_block(&head.last_block_hash).unwrap();
             if head.prev_block_hash == CryptoHash::default()
                 && ProtocolFeature::DelayChunkExecution.protocol_version() == 200
             {
