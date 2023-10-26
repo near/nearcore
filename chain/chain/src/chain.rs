@@ -5262,7 +5262,7 @@ impl Chain {
         let debug: Vec<_> = outcomes
             .iter()
             .cloned()
-            .map(|o| (o.block_hash, self.get_block_header(&o.block_hash)?.height()))
+            .map(|o| (o.block_hash, self.get_block_header(&o.block_hash).unwrap().height()))
             .collect();
         println!("outcomes of {id}: {:?}", debug);
         outcomes
