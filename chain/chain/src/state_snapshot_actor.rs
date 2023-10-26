@@ -121,8 +121,15 @@ impl actix::Handler<WithSpanContext<CompactSnapshotRequest>> for StateSnapshotAc
     }
 }
 
-pub type MakeSnapshotCallback =
+type MakeSnapshotCallback =
     Arc<dyn Fn(CryptoHash, Vec<ShardUId>, Block) -> () + Send + Sync + 'static>;
+
+type DeleteSnapshotCallback = Arc<dyn Fn() -> () + Send + Sync + 'static>;
+
+pub struct SnapshotCallbacks {
+    pub make_snapshot_callback: MakeSnapshotCallback,
+    pub delete_snapshot_callback: DeleteSnapshotCallback,
+}
 
 /// Sends a request to make a state snapshot.
 pub fn get_make_snapshot_callback(
@@ -134,7 +141,7 @@ pub fn get_make_snapshot_callback(
             target: "state_snapshot",
             ?prev_block_hash,
             ?shard_uids,
-            "start_snapshot_callback sends `MakeSnapshotCallback` to state_snapshot_addr");
+            "make_snapshot_callback sends `DeleteAndMaybeCreateSnapshotRequest` to state_snapshot_addr");
         // We need to stop flat head updates synchronously in the client thread.
         // Async update in state_snapshot_actor and potentially lead to flat head progressing beyond prev_block_hash
         if !flat_storage_manager.set_flat_state_updates_mode(false) {
@@ -147,6 +154,21 @@ pub fn get_make_snapshot_callback(
                 create_snapshot_request: Some(create_snapshot_request),
             }
             .with_span_context(),
+        );
+    })
+}
+
+/// Sends a request to delete a state snapshot.
+pub fn get_delete_snapshot_callback(
+    state_snapshot_addr: Arc<actix::Addr<StateSnapshotActor>>,
+) -> DeleteSnapshotCallback {
+    Arc::new(move || {
+        tracing::info!(
+            target: "state_snapshot",
+            "delete_snapshot_callback sends `DeleteAndMaybeCreateSnapshotRequest` to state_snapshot_addr");
+        state_snapshot_addr.do_send(
+            DeleteAndMaybeCreateSnapshotRequest { create_snapshot_request: None }
+                .with_span_context(),
         );
     })
 }
