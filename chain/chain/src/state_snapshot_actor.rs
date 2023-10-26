@@ -30,7 +30,7 @@ impl actix::Actor for StateSnapshotActor {
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-struct DeleteSnapshotRequest {
+struct DeleteAndMaybeCreateSnapshotRequest {
     /// Optionally send request to create a new snapshot after deleting any existing snapshots.
     create_snapshot_request: Option<CreateSnapshotRequest>,
 }
@@ -50,16 +50,20 @@ struct CreateSnapshotRequest {
 #[rtype(result = "()")]
 struct CompactSnapshotRequest {}
 
-impl actix::Handler<WithSpanContext<DeleteSnapshotRequest>> for StateSnapshotActor {
+impl actix::Handler<WithSpanContext<DeleteAndMaybeCreateSnapshotRequest>> for StateSnapshotActor {
     type Result = ();
 
     #[perf]
-    fn handle(&mut self, msg: WithSpanContext<DeleteSnapshotRequest>, context: &mut Context<Self>) {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<DeleteAndMaybeCreateSnapshotRequest>,
+        context: &mut Context<Self>,
+    ) {
         let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
         tracing::debug!(target: "state_snapshot", ?msg);
 
         // We don't need to acquire any locks on flat storage or snapshot.
-        let DeleteSnapshotRequest { create_snapshot_request } = msg;
+        let DeleteAndMaybeCreateSnapshotRequest { create_snapshot_request } = msg;
         self.tries.delete_state_snapshot();
 
         // Optionally send a create_snapshot_request after deletion
@@ -137,7 +141,7 @@ pub fn get_make_snapshot_callback(
             target: "state_snapshot",
             ?prev_block_hash,
             ?shard_uids,
-            "start_snapshot_callback sends `SnapshotCallbacks` to state_snapshot_addr");
+            "make_snapshot_callback sends `DeleteAndMaybeCreateSnapshotRequest` to state_snapshot_addr");
         // We need to stop flat head updates synchronously in the client thread.
         // Async update in state_snapshot_actor and potentially lead to flat head progressing beyond prev_block_hash
         if !flat_storage_manager.set_flat_state_updates_mode(false) {
@@ -146,8 +150,10 @@ pub fn get_make_snapshot_callback(
         }
         let create_snapshot_request = CreateSnapshotRequest { prev_block_hash, shard_uids, block };
         state_snapshot_addr.do_send(
-            DeleteSnapshotRequest { create_snapshot_request: Some(create_snapshot_request) }
-                .with_span_context(),
+            DeleteAndMaybeCreateSnapshotRequest {
+                create_snapshot_request: Some(create_snapshot_request),
+            }
+            .with_span_context(),
         );
     })
 }
@@ -159,8 +165,10 @@ pub fn get_delete_snapshot_callback(
     Arc::new(move || {
         tracing::info!(
             target: "state_snapshot",
-            "start_delete_snapshot_callback sends `DeleteSnapshotRequest` to state_snapshot_addr");
-        state_snapshot_addr
-            .do_send(DeleteSnapshotRequest { create_snapshot_request: None }.with_span_context());
+            "delete_snapshot_callback sends `DeleteAndMaybeCreateSnapshotRequest` to state_snapshot_addr");
+        state_snapshot_addr.do_send(
+            DeleteAndMaybeCreateSnapshotRequest { create_snapshot_request: None }
+                .with_span_context(),
+        );
     })
 }
