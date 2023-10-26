@@ -3941,7 +3941,7 @@ impl Chain {
                 Arc::new(ChunkExtra::new(
                     &apply_result.apply_result.new_root,
                     outcome_root,
-                    apply_result.apply_result.validator_proposals,
+                    apply_result.apply_result.validator_proposals.clone(),
                     apply_result.apply_result.total_gas_burnt,
                     apply_result.gas_limit,
                     apply_result.apply_result.total_balance_burnt,
