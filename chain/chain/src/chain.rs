@@ -3956,7 +3956,7 @@ impl Chain {
         // this should only generate witness.
         // why did I decide to save everything here?
         let mut chain_update = self.chain_update();
-        chain_update.apply_chunk_postprocessing(block, vec![apply_chunk_result])?;
+        // chain_update.apply_chunk_postprocessing(block, vec![apply_chunk_result])?;
         let receipts_map =
             chain_update.get_receipt_id_to_shard_id(block.hash(), shard_id as u64)?;
         for (receipt_id, to_shard_id) in receipts_map.into_iter() {
