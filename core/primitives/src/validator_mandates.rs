@@ -105,7 +105,7 @@ impl ValidatorMandates {
     where
         R: Rng + ?Sized,
     {
-        let shuffled_mandates = self.shuffle(rng);
+        let shuffled_mandates = self.shuffled(rng);
 
         // Assign shuffled seat at position `i` to the shard with id `i % num_shards`.
         let mut assignments_per_shard = Vec::with_capacity(self.config.num_shards);
@@ -123,7 +123,7 @@ impl ValidatorMandates {
 
     /// Clones the contained mandates and shuffles them. Cloning is required as a shuffle happens at
     /// every height while the `ValidatorMandates` are to be valid for an epoch.
-    fn shuffle<R>(&self, rng: &mut R) -> Vec<ValidatorId>
+    fn shuffled<R>(&self, rng: &mut R) -> Vec<ValidatorId>
     where
         R: Rng + ?Sized,
     {
@@ -173,7 +173,8 @@ mod tests {
     /// The mandates are (verified in [`test_validator_mandates_new`]):
     /// `vec![0, 0, 0, 1, 1, 3, 4, 4, 4]`
     ///
-    /// The shuffling based on `new_fixed_rng` is (verified in [`test_validator_mandates_shuffle`]):
+    /// The shuffling based on `new_fixed_rng` is (verified in
+    /// [`test_validator_mandates_shuffled`]):
     /// `vec![0, 0, 0, 1, 1, 3, 4, 4, 4]`
     fn new_validator_stakes() -> Vec<ValidatorStake> {
         let new_vs = |account_id: &str, balance: Balance| -> ValidatorStake {
@@ -206,12 +207,12 @@ mod tests {
     }
 
     #[test]
-    fn test_validator_mandates_shuffle() {
+    fn test_validator_mandates_shuffled() {
         let validators = new_validator_stakes();
         let config = ValidatorMandatesConfig::new(10, 1, 4);
         let mandates = ValidatorMandates::new(config, &validators);
         let mut rng = new_fixed_rng();
-        let assignment = mandates.shuffle(&mut rng);
+        let assignment = mandates.shuffled(&mut rng);
         let expected_assignment: Vec<ValidatorId> = vec![0, 1, 1, 4, 4, 4, 0, 3, 0];
         assert_eq!(assignment, expected_assignment);
     }
