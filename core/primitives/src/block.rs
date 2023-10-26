@@ -326,7 +326,7 @@ impl Block {
             block_merkle_root,
             prev.height(),
         );
-
+        println!("block_produce {} {}", header.height(), header.latest_protocol_version());
         Self::block_from_protocol_version(
             this_epoch_protocol_version,
             next_epoch_protocol_version,
