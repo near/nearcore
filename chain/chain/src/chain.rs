@@ -5265,13 +5265,29 @@ impl Chain {
             .map(|o| (o.block_hash, self.get_block_header(&o.block_hash).unwrap().height()))
             .collect();
         println!("outcomes of {id}: {:?}", debug);
-        outcomes
-            .into_iter()
-            .find(|outcome| match self.get_block_header(&outcome.block_hash) {
-                Ok(header) => self.is_on_current_chain(&header).unwrap_or(false),
-                Err(_) => false,
-            })
-            .ok_or_else(|| Error::DBNotFoundErr(format!("EXECUTION OUTCOME: {}", id)))
+        let mut result = None;
+        let mut max_height = 0;
+        for outcome in outcomes.into_iter() {
+            match self.get_block_header(&outcome.block_hash) {
+                Ok(header) => {
+                    if self.is_on_current_chain(&header) {
+                        let height = header.height();
+                        if height > max_height {
+                            max_height = height;
+                            result = Some(outcome);
+                        }
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+        result.ok_or_else(|| Error::DBNotFoundErr(format!("EXECUTION OUTCOME: {}", id)))
+        // outcomes
+        //     .into_iter()
+        //     .find(|outcome| match self.get_block_header(&outcome.block_hash) {
+        //         Ok(header) => self.is_on_current_chain(&header).unwrap_or(false),
+        //         Err(_) => false,
+        //     })
     }
 
     /// Retrieve the up to `max_headers_returned` headers on the main chain
