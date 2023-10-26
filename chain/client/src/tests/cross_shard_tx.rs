@@ -37,10 +37,10 @@ fn test_keyvalue_runtime_balances() {
         let vs = ValidatorSchedule::new()
             .num_shards(4)
             .block_producers_per_epoch(vec![vec![
-                "test1".parse().unwrap(),
-                "test2".parse().unwrap(),
-                "test3".parse().unwrap(),
-                "test4".parse().unwrap(),
+                "test1".parse::<AccountId>().unwrap(),
+                "test2".parse::<AccountId>().unwrap(),
+                "test3".parse::<AccountId>().unwrap(),
+                "test4".parse::<AccountId>().unwrap(),
             ]])
             .validator_groups(2);
         let validators = vs.all_block_producers().cloned().collect::<Vec<_>>();

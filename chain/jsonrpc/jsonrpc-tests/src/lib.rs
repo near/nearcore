@@ -11,7 +11,7 @@ use near_jsonrpc_primitives::{
     types::entity_debug::DummyEntityDebugHandler,
 };
 use near_network::tcp;
-use near_primitives::types::NumBlocks;
+use near_primitives::types::{AccountId, NumBlocks};
 use once_cell::sync::Lazy;
 use serde_json::json;
 
@@ -33,11 +33,11 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
     enable_doomslug: bool,
 ) -> (Addr<ViewClientActor>, tcp::ListenerAddr) {
     let actor_handles = setup_no_network_with_validity_period_and_no_epoch_sync(
-        vec!["test1".parse().unwrap()],
+        vec!["test1".parse::<AccountId>().unwrap()],
         if let NodeType::Validator = node_type {
-            "test1".parse().unwrap()
+            "test1".parse::<AccountId>().unwrap()
         } else {
-            "other".parse().unwrap()
+            "other".parse::<AccountId>().unwrap()
         },
         true,
         transaction_validity_period,

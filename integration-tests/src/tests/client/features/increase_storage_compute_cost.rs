@@ -186,8 +186,8 @@ fn assert_compute_limit_reached(
 
     // Prepare TestEnv with a contract at the old protocol version.
     let epoch_length = 100;
-    let contract_account: AccountId = "test0".parse().unwrap();
-    let user_account: AccountId = "test1".parse().unwrap();
+    let contract_account: AccountId = "test0".parse::<AccountId>().unwrap();
+    let user_account: AccountId = "test1".parse::<AccountId>().unwrap();
     let runtime_config_store = RuntimeConfigStore::new(None);
     let old_config = runtime_config_store.get_config(old_protocol_version).clone();
     let new_config = runtime_config_store.get_config(new_protocol_version).clone();
@@ -212,7 +212,7 @@ fn assert_compute_limit_reached(
         let signer = InMemorySigner::from_seed(
             contract_account.clone(),
             KeyType::ED25519,
-            &contract_account,
+            contract_account.as_str(),
         );
         let tx = env.tx_from_actions(actions, &signer, signer.account_id.clone());
         env.execute_tx(tx).unwrap().assert_success();
@@ -300,7 +300,8 @@ fn produce_saturated_chunk(
         gas,
         deposit: 0,
     }))];
-    let signer = InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account);
+    let signer =
+        InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account.as_str());
 
     let tip = env.clients[0].chain.head().unwrap();
     let mut tx_factory = || {

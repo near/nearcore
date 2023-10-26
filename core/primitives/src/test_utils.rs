@@ -251,8 +251,8 @@ impl SignedTransaction {
     pub fn empty(block_hash: CryptoHash) -> Self {
         Self::from_actions(
             0,
-            "test".parse().unwrap(),
-            "test".parse().unwrap(),
+            "test".parse::<AccountId>().unwrap(),
+            "test".parse::<AccountId>().unwrap(),
             &EmptySigner {},
             vec![],
             block_hash,
@@ -564,7 +564,7 @@ pub fn create_user_test_signer(account_name: &str) -> InMemorySigner {
 
 /// A fixed implicit account for which tests can know the private key.
 pub fn implicit_test_account() -> AccountId {
-    "061b1dd17603213b00e1a1e53ba060ad427cef4887bd34a5e0ef09010af23b0a".parse().unwrap()
+    "061b1dd17603213b00e1a1e53ba060ad427cef4887bd34a5e0ef09010af23b0a".parse::<AccountId>().unwrap()
 }
 
 /// Private key for the fixed implicit test account.

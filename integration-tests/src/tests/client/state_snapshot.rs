@@ -8,6 +8,7 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::AccountId;
 use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
 use near_store::{
@@ -190,7 +191,7 @@ fn delete_content_at_path(path: &str) -> std::io::Result<()> {
 // transaction creating an account.
 fn test_make_state_snapshot() {
     init_test_logger();
-    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    let genesis = Genesis::test(vec!["test0".parse::<AccountId>().unwrap()], 1);
     let mut env = TestEnv::builder(ChainGenesis::test())
         .clients_count(1)
         .use_state_snapshots()
@@ -199,7 +200,8 @@ fn test_make_state_snapshot() {
         .nightshade_runtimes(&genesis)
         .build();
 
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer =
+        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
 
@@ -213,7 +215,7 @@ fn test_make_state_snapshot() {
         let nonce = i;
         let tx = SignedTransaction::create_account(
             nonce,
-            "test0".parse().unwrap(),
+            "test0".parse::<AccountId>().unwrap(),
             new_account_id.parse().unwrap(),
             NEAR_BASE,
             signer.public_key(),

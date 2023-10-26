@@ -5,6 +5,7 @@ use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{Action, DeployContractAction};
+use near_primitives::types::AccountId;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::version::PROTOCOL_VERSION;
@@ -32,7 +33,7 @@ fn test_deploy_cost_increased() {
     // Prepare TestEnv with a contract at the old protocol version.
     let epoch_length = 5;
     let mut env = {
-        let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+        let mut genesis = Genesis::test(vec!["test0".parse::<AccountId>().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
@@ -45,7 +46,8 @@ fn test_deploy_cost_increased() {
             .build()
     };
 
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer =
+        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
     let actions = vec![Action::DeployContract(DeployContractAction { code: test_contract })];
 
     let tx = env.tx_from_actions(actions.clone(), &signer, signer.account_id.clone());

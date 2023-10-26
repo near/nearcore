@@ -19,6 +19,7 @@ use nearcore::config::NearConfig;
 use network::Network;
 use openssl_probe;
 use std::sync::Arc;
+use near_primitives::types::AccountId;
 
 fn genesis_hash(chain_id: &str) -> CryptoHash {
     return match chain_id {
@@ -62,7 +63,7 @@ fn download_configs(chain_id: &str, dir: &std::path::Path) -> anyhow::Result<Nea
     let config = config::Config::from_file(config_path)?;
 
     // Generate node key.
-    let account_id = "node".parse().unwrap();
+    let account_id = "node".parse::<AccountId>().unwrap();
     let node_signer =
         near_crypto::InMemorySigner::from_random(account_id, near_crypto::KeyType::ED25519);
     let mut genesis = Genesis::default();

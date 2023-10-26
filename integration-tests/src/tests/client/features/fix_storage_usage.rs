@@ -16,7 +16,7 @@ fn process_blocks_with_storage_usage_fix(
     check_storage_usage: fn(AccountId, u64, u64),
 ) {
     let epoch_length = 5;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    let mut genesis = Genesis::test(vec!["test0".parse::<AccountId>().unwrap()], 1);
     genesis.config.chain_id = chain_id;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = ProtocolFeature::FixStorageUsage.protocol_version() - 1;
@@ -30,7 +30,7 @@ fn process_blocks_with_storage_usage_fix(
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
         set_block_protocol_version(
             &mut block,
-            "test0".parse().unwrap(),
+            "test0".parse::<AccountId>().unwrap(),
             ProtocolFeature::FixStorageUsage.protocol_version(),
         );
 
@@ -47,19 +47,23 @@ fn process_blocks_with_storage_usage_fix(
         let state_update = TrieUpdate::new(trie);
         use near_primitives::account::Account;
         let mut account_near_raw = state_update
-            .get(&TrieKey::Account { account_id: "near".parse().unwrap() })
+            .get(&TrieKey::Account { account_id: "near".parse::<AccountId>().unwrap() })
             .unwrap()
             .unwrap()
             .clone();
         let account_near = Account::try_from_slice(&mut account_near_raw).unwrap();
         let mut account_test0_raw = state_update
-            .get(&TrieKey::Account { account_id: "test0".parse().unwrap() })
+            .get(&TrieKey::Account { account_id: "test0".parse::<AccountId>().unwrap() })
             .unwrap()
             .unwrap()
             .clone();
         let account_test0 = Account::try_from_slice(&mut account_test0_raw).unwrap();
-        check_storage_usage("near".parse().unwrap(), i, account_near.storage_usage());
-        check_storage_usage("test0".parse().unwrap(), i, account_test0.storage_usage());
+        check_storage_usage("near".parse::<AccountId>().unwrap(), i, account_near.storage_usage());
+        check_storage_usage(
+            "test0".parse::<AccountId>().unwrap(),
+            i,
+            account_test0.storage_usage(),
+        );
     }
 }
 
@@ -69,7 +73,7 @@ fn test_fix_storage_usage_migration() {
     process_blocks_with_storage_usage_fix(
         near_primitives::chains::MAINNET.to_string(),
         |account_id: AccountId, block_height: u64, storage_usage: u64| {
-            if account_id.as_ref() == "near" && block_height >= 11 {
+            if account_id.as_str() == "near" && block_height >= 11 {
                 assert_eq!(storage_usage, 4378);
             } else {
                 assert_eq!(storage_usage, 182);

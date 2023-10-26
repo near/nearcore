@@ -83,14 +83,14 @@ fn benchmark_write_partial_encoded_chunk(bench: &mut Bencher) {
 }
 
 fn validator_signer() -> InMemoryValidatorSigner {
-    InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519)
+    InMemoryValidatorSigner::from_random("test".parse::<AccountId>().unwrap(), KeyType::ED25519)
 }
 
 /// All receipts together are ~24MB
 ///
 /// 24 MB isn't the norm but certainly possible.
 fn create_benchmark_receipts() -> Vec<Receipt> {
-    let account_id: AccountId = "test".parse().unwrap();
+    let account_id: AccountId = "test".parse::<AccountId>().unwrap();
     let signer = InMemorySigner::from_random(account_id.clone(), KeyType::ED25519);
     let action = Action::FunctionCall(Box::new(FunctionCallAction {
         args: vec![42u8; 2_000_000],

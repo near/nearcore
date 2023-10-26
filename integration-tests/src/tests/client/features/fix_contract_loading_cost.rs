@@ -39,7 +39,7 @@ fn unchanged_gas_cost() {
 
     let epoch_length: BlockHeight = 5;
 
-    let account: AccountId = "test0".parse().unwrap();
+    let account: AccountId = "test0".parse::<AccountId>().unwrap();
     let mut env =
         prepare_env_with_contract(epoch_length, old_protocol_version, account.clone(), contract);
 
@@ -68,7 +68,7 @@ fn preparation_error_gas_cost() {
 
     let epoch_length: BlockHeight = 5;
 
-    let account: AccountId = "test0".parse().unwrap();
+    let account: AccountId = "test0".parse::<AccountId>().unwrap();
     let mut env = prepare_env_with_contract(
         epoch_length,
         old_protocol_version,

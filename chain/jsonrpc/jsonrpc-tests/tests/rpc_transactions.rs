@@ -13,7 +13,7 @@ use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::BlockReference;
+use near_primitives::types::{AccountId, BlockReference};
 use near_primitives::views::{FinalExecutionStatus, TxExecutionStatus};
 
 use near_jsonrpc_tests::{self as test_utils, test_with_client};
@@ -35,12 +35,15 @@ fn test_send_tx_async() {
 
         actix::spawn(client.block(BlockReference::latest()).then(move |res| {
             let block_hash = res.unwrap().header.hash;
-            let signer =
-                InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+            let signer = InMemorySigner::from_seed(
+                "test1".parse::<AccountId>().unwrap(),
+                KeyType::ED25519,
+                "test1",
+            );
             let tx = SignedTransaction::send_money(
                 1,
                 signer_account_id.parse().unwrap(),
-                "test2".parse().unwrap(),
+                "test2".parse::<AccountId>().unwrap(),
                 &signer,
                 100,
                 block_hash,
@@ -56,7 +59,7 @@ fn test_send_tx_async() {
         let client1 = new_client(&format!("http://{}", addr));
         WaitOrTimeoutActor::new(
             Box::new(move |_| {
-                let signer_account_id = "test1".parse().unwrap();
+                let signer_account_id = "test1".parse::<AccountId>().unwrap();
                 if let Some(tx_hash) = *tx_hash2_2.lock().unwrap() {
                     actix::spawn(
                         client1
@@ -91,11 +94,15 @@ fn test_send_tx_async() {
 fn test_send_tx_commit() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
         let block_hash = client.block(BlockReference::latest()).await.unwrap().header.hash;
-        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed(
+            "test1".parse::<AccountId>().unwrap(),
+            KeyType::ED25519,
+            "test1",
+        );
         let tx = SignedTransaction::send_money(
             1,
-            "test1".parse().unwrap(),
-            "test2".parse().unwrap(),
+            "test1".parse::<AccountId>().unwrap(),
+            "test2".parse::<AccountId>().unwrap(),
             &signer,
             100,
             block_hash,
@@ -141,14 +148,14 @@ fn test_expired_tx() {
                         if let Some(height) = height {
                             if header.height - height >= 2 {
                                 let signer = InMemorySigner::from_seed(
-                                    "test1".parse().unwrap(),
+                                    "test1".parse::<AccountId>().unwrap(),
                                     KeyType::ED25519,
                                     "test1",
                                 );
                                 let tx = SignedTransaction::send_money(
                                     1,
-                                    "test1".parse().unwrap(),
-                                    "test2".parse().unwrap(),
+                                    "test1".parse::<AccountId>().unwrap(),
+                                    "test2".parse::<AccountId>().unwrap(),
                                     &signer,
                                     100,
                                     block_hash,
@@ -188,11 +195,15 @@ fn test_expired_tx() {
 #[test]
 fn test_replay_protection() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
-        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed(
+            "test1".parse::<AccountId>().unwrap(),
+            KeyType::ED25519,
+            "test1",
+        );
         let tx = SignedTransaction::send_money(
             1,
-            "test1".parse().unwrap(),
-            "test2".parse().unwrap(),
+            "test1".parse::<AccountId>().unwrap(),
+            "test2".parse::<AccountId>().unwrap(),
             &signer,
             100,
             hash(&[1]),
@@ -210,7 +221,7 @@ fn test_tx_status_missing_tx() {
         let request = RpcTransactionStatusRequest {
             transaction_info: TransactionInfo::TransactionId {
                 tx_hash: CryptoHash::new(),
-                sender_account_id: "test1".parse().unwrap(),
+                sender_account_id: "test1".parse::<AccountId>().unwrap(),
             },
             wait_until: TxExecutionStatus::None,
         };
@@ -227,13 +238,17 @@ fn test_tx_status_missing_tx() {
 #[test]
 fn test_check_invalid_tx() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
-        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed(
+            "test1".parse::<AccountId>().unwrap(),
+            KeyType::ED25519,
+            "test1",
+        );
         // invalid base hash
         let request = RpcTransactionStatusRequest {
             transaction_info: TransactionInfo::from_signed_tx(SignedTransaction::send_money(
                 1,
-                "test1".parse().unwrap(),
-                "test2".parse().unwrap(),
+                "test1".parse::<AccountId>().unwrap(),
+                "test2".parse::<AccountId>().unwrap(),
                 &signer,
                 100,
                 hash(&[1]),

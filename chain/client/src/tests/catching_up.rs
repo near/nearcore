@@ -70,7 +70,8 @@ fn send_tx(
     nonce: u64,
     block_hash: CryptoHash,
 ) {
-    let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+    let signer =
+        InMemorySigner::from_seed("test1".parse::<AccountId>().unwrap(), KeyType::ED25519, "test1");
     connector.do_send(
         ProcessTxRequest {
             transaction: SignedTransaction::send_money(
@@ -163,8 +164,8 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
             false,
             Box::new(move |_, _account_id: _, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();
-                let account_from = "test3.3".parse().unwrap();
-                let account_to = "test1.1".parse().unwrap();
+                let account_from = "test3.3".parse::<AccountId>().unwrap();
+                let account_to = "test1.1".parse::<AccountId>().unwrap();
                 let source_shard_id = account_id_to_shard_id(&account_from, 4);
                 let destination_shard_id = account_id_to_shard_id(&account_to, 4);
 
@@ -689,8 +690,8 @@ fn test_chunk_grieving() {
         let archive = vec![false; vs.all_block_producers().count()];
         let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
 
-        let malicious_node = "test3.6".parse().unwrap();
-        let victim_node = "test3.5".parse().unwrap();
+        let malicious_node = "test3.6".parse::<AccountId>().unwrap();
+        let victim_node = "test3.5".parse::<AccountId>().unwrap();
         let phase = Arc::new(RwLock::new(ChunkGrievingPhases::FirstAttack));
         let grieving_chunk_hash = Arc::new(RwLock::new(ChunkHash::default()));
         let unaccepted_block_hash = Arc::new(RwLock::new(CryptoHash::default()));

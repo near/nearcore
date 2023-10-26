@@ -62,32 +62,32 @@ impl Test {
             .num_shards(4)
             .block_producers_per_epoch(vec![
                 vec![
-                    "test1".parse().unwrap(),
-                    "test2".parse().unwrap(),
-                    "test3".parse().unwrap(),
-                    "test4".parse().unwrap(),
+                    "test1".parse::<AccountId>().unwrap(),
+                    "test2".parse::<AccountId>().unwrap(),
+                    "test3".parse::<AccountId>().unwrap(),
+                    "test4".parse::<AccountId>().unwrap(),
                 ],
                 vec![
-                    "test5".parse().unwrap(),
-                    "test6".parse().unwrap(),
-                    "test7".parse().unwrap(),
-                    "test8".parse().unwrap(),
+                    "test5".parse::<AccountId>().unwrap(),
+                    "test6".parse::<AccountId>().unwrap(),
+                    "test7".parse::<AccountId>().unwrap(),
+                    "test8".parse::<AccountId>().unwrap(),
                 ],
             ])
             .validator_groups(self.validator_groups);
         if self.chunk_only_producers {
             vs = vs.chunk_only_producers_per_epoch_per_shard(vec![
                 vec![
-                    vec!["cop1".parse().unwrap()],
-                    vec!["cop2".parse().unwrap()],
-                    vec!["cop3".parse().unwrap()],
-                    vec!["cop4".parse().unwrap()],
+                    vec!["cop1".parse::<AccountId>().unwrap()],
+                    vec!["cop2".parse::<AccountId>().unwrap()],
+                    vec!["cop3".parse::<AccountId>().unwrap()],
+                    vec!["cop4".parse::<AccountId>().unwrap()],
                 ],
                 vec![
-                    vec!["cop5".parse().unwrap()],
-                    vec!["cop6".parse().unwrap()],
-                    vec!["cop7".parse().unwrap()],
-                    vec!["cop8".parse().unwrap()],
+                    vec!["cop5".parse::<AccountId>().unwrap()],
+                    vec!["cop6".parse::<AccountId>().unwrap()],
+                    vec!["cop7".parse::<AccountId>().unwrap()],
+                    vec!["cop8".parse::<AccountId>().unwrap()],
                 ],
             ]);
         }
@@ -195,7 +195,7 @@ impl Test {
                     } => {
                         partial_chunk_msgs += 1;
                         if self.drop_to_4_from.contains(&from_whom.as_str())
-                            && to_whom.as_ref() == "test4"
+                            && to_whom.as_str() == "test4"
                         {
                             println!(
                                 "Dropping Partial Encoded Chunk Message from {from_whom} to test4"
@@ -209,7 +209,7 @@ impl Test {
                             return (NetworkResponses::NoResponse.into(), false);
                         }
                         if self.drop_to_4_from.contains(&from_whom.as_str())
-                            && to_whom.as_ref() == "test4"
+                            && to_whom.as_str() == "test4"
                         {
                             println!(
                             "Dropping Partial Encoded Chunk Forward Message from {from_whom} to test4"
@@ -225,14 +225,14 @@ impl Test {
                         ..
                     } => {
                         if self.drop_to_4_from.contains(&to_whom.as_str())
-                            && from_whom.as_ref() == "test4"
+                            && from_whom.as_str() == "test4"
                         {
                             info!("Dropping Partial Encoded Chunk Request from test4 to {to_whom}");
                             return (NetworkResponses::NoResponse.into(), false);
                         }
                         if !self.drop_to_4_from.is_empty()
-                            && from_whom.as_ref() == "test4"
-                            && to_whom.as_ref() == "test2"
+                            && from_whom.as_str() == "test4"
+                            && to_whom.as_str() == "test2"
                         {
                             info!("Observed Partial Encoded Chunk Request from test4 to test2");
                         }

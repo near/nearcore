@@ -766,7 +766,7 @@ fn test_account_factory() {
                      ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}), {
                         assert_eq!(output_data_receivers.len(), 1);
                         data_id = output_data_receivers[0].data_id;
-                        assert_eq!(output_data_receivers[0].receiver_id.as_ref(), "near_2");
+                        assert_eq!(output_data_receivers[0].receiver_id.as_str(), "near_2");
                      },
                      actions,
                      a0, Action::CreateAccount(CreateAccountAction{}), {},
@@ -778,7 +778,7 @@ fn test_account_factory() {
                         assert_eq!(add_key_action.access_key.nonce, 0);
                         assert_eq!(add_key_action.access_key.permission, AccessKeyPermission::FunctionCall(FunctionCallPermission {
                             allowance: Some(TESTING_INIT_BALANCE / 2),
-                            receiver_id: "near_1".parse().unwrap(),
+                            receiver_id: "near_1".to_string(),
                             method_names: vec!["call_promise".to_string(), "hello".to_string()],
                         }));
                      },
@@ -929,7 +929,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                         assert_eq!(delete_key_action.public_key, signer_new_account.public_key);
                      },
                      a6, Action::DeleteAccount(DeleteAccountAction{beneficiary_id}), {
-                        assert_eq!(beneficiary_id.as_ref(), "near_2");
+                        assert_eq!(beneficiary_id.as_str(), "near_2");
                      }
                      => [r2, r3, ref1] );
 
@@ -950,11 +950,19 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
 
 #[test]
 fn test_transfer_64len_hex() {
-    let pk = InMemorySigner::from_seed("test_hex".parse().unwrap(), KeyType::ED25519, "test_hex");
+    let pk = InMemorySigner::from_seed(
+        "test_hex".parse::<AccountId>().unwrap(),
+        KeyType::ED25519,
+        "test_hex",
+    );
     let account_id = AccountId::try_from(hex::encode(pk.public_key.unwrap_as_ed25519().0)).unwrap();
 
     let group = RuntimeGroup::new_with_account_ids(
-        vec!["near_0".parse().unwrap(), "near_1".parse().unwrap(), account_id.clone()],
+        vec![
+            "near_0".parse::<AccountId>().unwrap(),
+            "near_1".parse::<AccountId>().unwrap(),
+            account_id.clone(),
+        ],
         2,
         near_test_contracts::rs_contract(),
     );
@@ -1000,7 +1008,7 @@ fn test_transfer_64len_hex() {
                         assert_eq!(function_call_action.deposit, 0);
                      }
                      => [r1, ref0] );
-    assert_receipts!(group, "near_1" => r1 @ account_id.as_ref(),
+    assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::Transfer(TransferAction{deposit}), {
@@ -1013,11 +1021,19 @@ fn test_transfer_64len_hex() {
 
 #[test]
 fn test_create_transfer_64len_hex_fail() {
-    let pk = InMemorySigner::from_seed("test_hex".parse().unwrap(), KeyType::ED25519, "test_hex");
+    let pk = InMemorySigner::from_seed(
+        "test_hex".parse::<AccountId>().unwrap(),
+        KeyType::ED25519,
+        "test_hex",
+    );
     let account_id = AccountId::try_from(hex::encode(pk.public_key.unwrap_as_ed25519().0)).unwrap();
 
     let group = RuntimeGroup::new_with_account_ids(
-        vec!["near_0".parse().unwrap(), "near_1".parse().unwrap(), account_id.clone()],
+        vec![
+            "near_0".parse::<AccountId>().unwrap(),
+            "near_1".parse::<AccountId>().unwrap(),
+            account_id.clone(),
+        ],
         2,
         near_test_contracts::rs_contract(),
     );
@@ -1066,7 +1082,7 @@ fn test_create_transfer_64len_hex_fail() {
                         assert_eq!(function_call_action.deposit, 0);
                      }
                      => [r1, ref0] );
-    assert_receipts!(group, "near_1" => r1 @ account_id.as_ref(),
+    assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::CreateAccount(CreateAccountAction{}), {},

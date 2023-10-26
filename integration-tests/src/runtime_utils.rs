@@ -17,11 +17,11 @@ pub const TEST_SHARD_UID: ShardUId = ShardUId { version: 1, shard_id: 0 };
 
 pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
     let mut genesis = Genesis::test_sharded_new_version(
-        vec![alice_account(), bob_account(), "carol.near".parse().unwrap()],
+        vec![alice_account(), bob_account(), "carol.near".parse::<AccountId>().unwrap()],
         3,
         vec![3],
     );
-    add_test_contract(&mut genesis, &"test.contract".parse().unwrap());
+    add_test_contract(&mut genesis, &"test.contract".parse::<AccountId>().unwrap());
     get_runtime_and_trie_from_genesis(&genesis)
 }
 

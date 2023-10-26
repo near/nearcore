@@ -3,6 +3,7 @@ use actix::System;
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
 use near_client_primitives::types::GetMaintenanceWindows;
+use near_primitives::types::AccountId;
 
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
@@ -13,13 +14,14 @@ fn test_get_maintenance_windows_for_validator() {
     init_test_logger();
     run_actix(async {
         let actor_handles = setup_no_network(
-            vec!["test".parse().unwrap(), "other".parse().unwrap()],
-            "other".parse().unwrap(),
+            vec!["test".parse::<AccountId>().unwrap(), "other".parse::<AccountId>().unwrap()],
+            "other".parse::<AccountId>().unwrap(),
             true,
             true,
         );
         let actor = actor_handles.view_client_actor.send(
-            GetMaintenanceWindows { account_id: "test".parse().unwrap() }.with_span_context(),
+            GetMaintenanceWindows { account_id: "test".parse::<AccountId>().unwrap() }
+                .with_span_context(),
         );
 
         // block_height: 0 bp: test         cps: [AccountId("test")]
@@ -45,10 +47,15 @@ fn test_get_maintenance_windows_for_validator() {
 fn test_get_maintenance_windows_for_not_validator() {
     init_test_logger();
     run_actix(async {
-        let actor_handles =
-            setup_no_network(vec!["test".parse().unwrap()], "other".parse().unwrap(), true, true);
+        let actor_handles = setup_no_network(
+            vec!["test".parse::<AccountId>().unwrap()],
+            "other".parse::<AccountId>().unwrap(),
+            true,
+            true,
+        );
         let actor = actor_handles.view_client_actor.send(
-            GetMaintenanceWindows { account_id: "alice".parse().unwrap() }.with_span_context(),
+            GetMaintenanceWindows { account_id: "alice".parse::<AccountId>().unwrap() }
+                .with_span_context(),
         );
         let actor = actor.then(|res| {
             assert_eq!(res.unwrap().unwrap(), vec![0..10]);

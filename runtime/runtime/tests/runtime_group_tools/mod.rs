@@ -322,7 +322,7 @@ impl RuntimeGroup {
         self.executed_receipts
             .lock()
             .unwrap()
-            .get(executing_runtime)
+            .get(&executing_runtime.parse::<AccountId>().unwrap())
             .expect("Runtime not found")
             .iter()
             .find_map(|r| if &r.get_hash() == hash { Some(r.clone()) } else { None })
@@ -396,8 +396,8 @@ macro_rules! assert_receipts {
     $($action_name:ident, $action_pat:pat, $action_assert:block ),+
      => [ $($produced_receipt:ident),*] ) => {
         let r = $group.get_receipt($to, $receipt);
-        assert_eq!(r.predecessor_id.as_ref(), $from);
-        assert_eq!(r.receiver_id.as_ref(), $to);
+        assert_eq!(r.predecessor_id, $from);
+        assert_eq!(r.receiver_id, $to);
         match &r.receipt {
             $receipt_pat => {
                 $receipt_assert
