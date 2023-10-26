@@ -486,6 +486,11 @@ impl TestEnv {
         let tip = self.clients[0].chain.head().unwrap();
         for i in 0..max_iters {
             let block = self.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
+            println!(
+                "execute_tx {} {}",
+                block.header().height(),
+                block.header().latest_protocol_version()
+            );
             self.process_block(0, block.clone(), Provenance::PRODUCED);
             if let Ok(outcome) = self.clients[0].chain.get_final_transaction_result(&tx_hash) {
                 return Ok(outcome);
