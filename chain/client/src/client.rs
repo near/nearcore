@@ -68,6 +68,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::Gas;
 use near_primitives::types::StateRoot;
@@ -800,11 +801,17 @@ impl Client {
                 self.chain.apply_prev_chunk_before_production(&me, prev_block, shard_id as usize);
             result? // ideally ApplyChunkResult and state witness must be taken here
         } else {
-            self.chain.get_outgoing_receipts_for_shard(
-                *prev_block_hash,
-                shard_id,
-                last_header.height_included(),
-            )?
+            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
+            (
+                self.chain.get_outgoing_receipts_for_shard(
+                    *prev_block_hash,
+                    shard_id,
+                    last_header.height_included(),
+                )?,
+                self.chain.get_chunk_extra(&prev_block_hash, &shard_uid).map_err(|err| {
+                    Error::ChunkProducer(format!("No chunk extra available: {}", err))
+                })?,
+            )
         };
 
         let validator_signer = self
@@ -872,12 +879,13 @@ impl Client {
         next_height: BlockHeight,
         shard_id: ShardId,
         outgoing_receipts: Vec<Receipt>,
+        chunk_extra: Arc<ChunkExtra>,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>), Error> {
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
-        let chunk_extra = self
-            .chain
-            .get_chunk_extra(&prev_block_hash, &shard_uid)
-            .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
+        // let chunk_extra = self
+        //     .chain
+        //     .get_chunk_extra(&prev_block_hash, &shard_uid)
+        //     .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
         let prev_block_header = self.chain.get_block_header(&prev_block_hash)?;
         let transactions = self.prepare_transactions(

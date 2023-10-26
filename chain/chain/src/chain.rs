@@ -3873,7 +3873,7 @@ impl Chain {
         me: &Option<AccountId>,
         block: &Block,
         shard_id: usize,
-    ) -> Result<Vec<Receipt>, Error> {
+    ) -> Result<(Vec<Receipt>, Arc<ChunkExtra>), Error> {
         println!(
             "apply_prev_chunk_before_production {} {}",
             block.header().height(),
@@ -3884,7 +3884,7 @@ impl Chain {
         let prev_hash = block.header().prev_hash();
         if prev_hash == &CryptoHash::default() {
             // genesis, already applied
-            return Ok(vec![]);
+            return Ok((vec![], self.get_chunk_extra(block.hash()));
         }
 
         let prev_block = self.get_block(prev_hash)?;
@@ -3926,15 +3926,28 @@ impl Chain {
             None => {
                 // let new_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
                 // let mut chain_update = self.chain_update();
-                return Ok(vec![]);
+                panic!("!!!");
             } // no chunk => no chunk extra to save
         };
         let apply_chunk_result = job(&_span)?;
-        let outgoing_receipts = if let ApplyChunkResult::SameHeight(result) = &apply_chunk_result {
-            result.apply_result.outgoing_receipts.clone()
-        } else {
-            vec![]
-        };
+        let (outgoing_receipts, chunk_extra) =
+            if let ApplyChunkResult::SameHeight(apply_result) = apply_chunk_result {
+                let (outcome_root, _) =
+                    ApplyTransactionResult::compute_outcomes_proof(&apply_result.apply_result.outcomes);
+                (
+                    apply_result.apply_result.outgoing_receipts.clone(),
+                    Arc::new(ChunkExtra::new(
+                        &apply_result.apply_result.new_root,
+                        outcome_root,
+                        apply_result.apply_result.validator_proposals,
+                        apply_result.apply_result.total_gas_burnt,
+                        apply_result.gas_limit,
+                        apply_result.apply_result.total_balance_burnt,
+                    )),
+                )
+            } else {
+                panic!("...")
+            };
         println!("chain_update");
         // looks like a big mistake - there is no next block hash for which I could save outcomes.
         // this should only generate witness.
@@ -3948,7 +3961,7 @@ impl Chain {
         }
         chain_update.commit()?;
 
-        Ok(outgoing_receipts)
+        Ok((outgoing_receipts, chunk_extra))
     }
 
     // Validate chunks by applying old chunks!
