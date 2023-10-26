@@ -3884,7 +3884,7 @@ impl Chain {
         let prev_hash = block.header().prev_hash();
         if prev_hash == &CryptoHash::default() {
             // genesis, already applied
-            return Ok((vec![], self.get_chunk_extra(block.hash()));
+            return Ok((vec![], self.get_chunk_extra(block.hash())));
         }
 
         let prev_block = self.get_block(prev_hash)?;
@@ -3930,24 +3930,25 @@ impl Chain {
             } // no chunk => no chunk extra to save
         };
         let apply_chunk_result = job(&_span)?;
-        let (outgoing_receipts, chunk_extra) =
-            if let ApplyChunkResult::SameHeight(apply_result) = apply_chunk_result {
-                let (outcome_root, _) =
-                    ApplyTransactionResult::compute_outcomes_proof(&apply_result.apply_result.outcomes);
-                (
-                    apply_result.apply_result.outgoing_receipts.clone(),
-                    Arc::new(ChunkExtra::new(
-                        &apply_result.apply_result.new_root,
-                        outcome_root,
-                        apply_result.apply_result.validator_proposals,
-                        apply_result.apply_result.total_gas_burnt,
-                        apply_result.gas_limit,
-                        apply_result.apply_result.total_balance_burnt,
-                    )),
-                )
-            } else {
-                panic!("...")
-            };
+        let (outgoing_receipts, chunk_extra) = if let ApplyChunkResult::SameHeight(apply_result) =
+            apply_chunk_result
+        {
+            let (outcome_root, _) =
+                ApplyTransactionResult::compute_outcomes_proof(&apply_result.apply_result.outcomes);
+            (
+                apply_result.apply_result.outgoing_receipts.clone(),
+                Arc::new(ChunkExtra::new(
+                    &apply_result.apply_result.new_root,
+                    outcome_root,
+                    apply_result.apply_result.validator_proposals,
+                    apply_result.apply_result.total_gas_burnt,
+                    apply_result.gas_limit,
+                    apply_result.apply_result.total_balance_burnt,
+                )),
+            )
+        } else {
+            panic!("...")
+        };
         println!("chain_update");
         // looks like a big mistake - there is no next block hash for which I could save outcomes.
         // this should only generate witness.
