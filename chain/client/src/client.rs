@@ -792,7 +792,10 @@ impl Client {
         let _span = tracing::debug_span!(target: "client", "produce_chunk", next_height, shard_id, ?epoch_id).entered();
 
         let prev_block_hash = prev_block.hash();
-        let outgoing_receipts = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+        let (outgoing_receipts, chunk_extra) = if ProtocolFeature::DelayChunkExecution
+            .protocol_version()
+            == 200
+        {
             let me = match &self.validator_signer {
                 Some(validator_signer) => Some(validator_signer.validator_id().clone()),
                 None => None,
@@ -856,6 +859,7 @@ impl Client {
             next_height,
             shard_id,
             outgoing_receipts,
+            chunk_extra,
         )?;
         println!("CHUNK PARTS: {}", ret.0.content().parts.len());
 
