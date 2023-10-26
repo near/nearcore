@@ -10,7 +10,7 @@ use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
-use near_o11y::testonly::init_test_logger;
+use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_primitives::account::AccessKey;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -226,6 +226,7 @@ fn test_transaction_hash_collision_for_implicit_account_ok() {
 /// Test that chunks with transactions that have expired are considered invalid.
 #[test]
 fn test_chunk_transaction_validity() {
+    init_integration_logger();
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
@@ -246,8 +247,10 @@ fn test_chunk_transaction_validity() {
     for i in 1..200 {
         env.produce_block(0, i);
     }
+    println!("FIRST");
     let (encoded_shard_chunk, merkle_path, receipts, block) =
         create_chunk_with_transactions(&mut env.clients[0], vec![tx]);
+    println!("SECOND");
     let validator_id = env.clients[0].validator_signer.as_ref().unwrap().validator_id().clone();
     env.clients[0]
         .persist_and_distribute_encoded_chunk(
@@ -257,6 +260,7 @@ fn test_chunk_transaction_validity() {
             validator_id,
         )
         .unwrap();
+    println!("LAST");
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidTransactions);
 }
