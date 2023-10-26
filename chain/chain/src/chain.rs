@@ -2427,10 +2427,13 @@ impl Chain {
                 let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
                 // let prev_block = self.get_block(block.header().prev_hash())?;
-                let mut new_flat_head = *block.header().last_final_block();
+                let mut new_flat_head = *block.chunks()[shard_id as usize].prev_block_hash();
                 if new_flat_head != CryptoHash::default() {
-                    new_flat_head = *self.get_block_header(&new_flat_head)?.prev_hash();
+                    new_flat_head = *self.get_block_header(&new_flat_head)?.last_final_block();
                 }
+                // if new_flat_head != CryptoHash::default() {
+                //     new_flat_head = *self.get_block_header(&new_flat_head)?.prev_hash();
+                // }
                 flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head)?;
             }
         }
