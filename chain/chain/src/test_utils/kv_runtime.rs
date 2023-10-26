@@ -523,7 +523,6 @@ impl EpochManagerAdapter for MockEpochManager {
             1,
             1,
             RngSeed::default(),
-            Default::default(),
         )))
     }
 

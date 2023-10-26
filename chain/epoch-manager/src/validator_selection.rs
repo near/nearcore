@@ -7,7 +7,6 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, ProtocolVersion, ValidatorId, ValidatorKickoutReason,
 };
-use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
 use num_rational::Ratio;
 use std::cmp::{self, Ordering};
 use std::collections::hash_map;
@@ -172,16 +171,6 @@ pub fn proposals_to_epoch_info(
             .collect()
     };
 
-    // We can use `all_validators` to construct mandates Since a validator's position in
-    // `all_validators` corresponds to its `ValidatorId`
-    // TODO(chunk-validator-assignment) determine required stake per mandate instead of reusing seat price.
-    // TODO(chunk-validator-assignment) determine `min_mandates_per_shard`
-    // TODO(chunk-validator-assignment) pre chunk-validation, just pass empty vec instead of `all_validators` to avoid costs?
-    let min_mandates_per_shard = 0;
-    let validator_mandates_config =
-        ValidatorMandatesConfig::new(threshold, min_mandates_per_shard, num_shards as usize);
-    let validator_mandates = ValidatorMandates::new(validator_mandates_config, &all_validators);
-
     let fishermen_to_index = fishermen
         .iter()
         .enumerate()
@@ -204,7 +193,6 @@ pub fn proposals_to_epoch_info(
         threshold,
         next_version,
         rng_seed,
-        validator_mandates,
     ))
 }
 
