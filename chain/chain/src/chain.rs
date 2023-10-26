@@ -3959,7 +3959,7 @@ impl Chain {
         let mut chain_update = self.chain_update();
         // chain_update.apply_chunk_postprocessing(block, vec![apply_chunk_result])?;
         // Lol, just lol. Future processing requires some data
-        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        let flat_storage_manager = runtime.get_flat_storage_manager();
         let store_update = flat_storage_manager.save_flat_state_changes(
             *block.hash(),
             *prev_hash,
