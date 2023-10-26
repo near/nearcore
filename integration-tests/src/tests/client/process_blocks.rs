@@ -3233,12 +3233,13 @@ fn test_fork_execution_outcome() {
     let (mut env, tx_hash) = prepare_env_with_transaction();
 
     let mut last_height = 0;
-    for i in 1..4 {
+    for i in 1..3 {
         let last_block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, last_block.clone(), Provenance::PRODUCED);
         last_height = last_block.header().height();
     }
 
+    // last_height = 3
     // start from 3.
     // produce 3, produce 4
     // process 4 , process 3
