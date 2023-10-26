@@ -208,7 +208,7 @@ mod trie_storage_tests {
     use crate::test_utils::{create_test_store, create_tries};
     use crate::trie::accounting_cache::TrieAccountingCache;
     use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage};
-    use crate::trie::TrieRefcountChange;
+    use crate::trie::TrieRefcountAddition;
     use crate::{Store, TrieChanges, TrieConfig};
     use assert_matches::assert_matches;
     use near_primitives::hash::hash;
@@ -218,7 +218,7 @@ mod trie_storage_tests {
         let mut trie_changes = TrieChanges::empty(Trie::EMPTY_ROOT);
         trie_changes.insertions = values
             .iter()
-            .map(|value| TrieRefcountChange {
+            .map(|value| TrieRefcountAddition {
                 trie_node_or_value_hash: hash(value),
                 trie_node_or_value: value.clone(),
                 rc: std::num::NonZeroU32::new(1).unwrap(),

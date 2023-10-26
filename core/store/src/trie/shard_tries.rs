@@ -2,7 +2,7 @@ use crate::flat::{FlatStorageManager, FlatStorageStatus};
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
-use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
+use crate::trie::{TrieRefcountAddition, POISONED_LOCK_ERR};
 use crate::{metrics, DBCol, PrefetchApi};
 use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 
@@ -18,6 +18,7 @@ use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 
 use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
+use super::TrieRefcountSubtraction;
 
 struct ShardTriesInner {
     store: Store,
@@ -235,12 +236,12 @@ impl ShardTries {
 
     fn apply_deletions_inner(
         &self,
-        deletions: &[TrieRefcountChange],
+        deletions: &[TrieRefcountSubtraction],
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
         let mut ops = Vec::new();
-        for TrieRefcountChange { trie_node_or_value_hash, rc, .. } in deletions.iter() {
+        for TrieRefcountSubtraction { trie_node_or_value_hash, rc } in deletions.iter() {
             let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
                 shard_uid,
                 trie_node_or_value_hash,
@@ -254,12 +255,12 @@ impl ShardTries {
 
     fn apply_insertions_inner(
         &self,
-        insertions: &[TrieRefcountChange],
+        insertions: &[TrieRefcountAddition],
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
         let mut ops = Vec::new();
-        for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
+        for TrieRefcountAddition { trie_node_or_value_hash, trie_node_or_value, rc } in
             insertions.iter()
         {
             let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
@@ -331,7 +332,11 @@ impl ShardTries {
         metrics::REVERTED_TRIE_INSERTIONS
             .with_label_values(&[&shard_id])
             .inc_by(trie_changes.insertions.len() as u64);
-        self.apply_deletions_inner(&trie_changes.insertions, shard_uid, store_update)
+        self.apply_deletions_inner(
+            &trie_changes.insertions.iter().map(|insertion| insertion.revert()).collect::<Vec<_>>(),
+            shard_uid,
+            store_update,
+        )
     }
 
     pub fn apply_all(
