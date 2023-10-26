@@ -491,7 +491,8 @@ impl TestEnvBuilder {
                     let tries = runtime.get_tries();
                     let make_state_snapshot_callback: MakeSnapshotCallback = Arc::new(move |prev_block_hash, shard_uids, block| {
                         tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
-                        tries.make_state_snapshot(&prev_block_hash, &shard_uids, &block).unwrap();
+                        tries.delete_state_snapshot();
+                        tries.create_state_snapshot(prev_block_hash, &shard_uids, &block).unwrap();
                     });
                     setup_client_with_runtime(
                         u64::try_from(num_validators).unwrap(),
