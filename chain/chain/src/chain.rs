@@ -3964,12 +3964,13 @@ impl Chain {
         // looks like a big mistake - there is no next block hash for which I could save outcomes.
         // this should only generate witness.
         // why did I decide to save everything here?
+        let fs_hash = trie_changes.block_hash;
+        let fs_header = self.get_block_header(&fs_hash)?;
+
         let mut chain_update = self.chain_update();
         // chain_update.apply_chunk_postprocessing(block, vec![apply_chunk_result])?;
         // Lol, just lol. Future processing requires some data
         let flat_storage_manager = runtime.get_flat_storage_manager();
-        let fs_hash = trie_changes.block_hash;
-        let fs_header = self.get_block_header(&fs_hash)?;
         let store_update = flat_storage_manager.save_flat_state_changes(
             fs_hash,
             *fs_header.prev_hash(),
