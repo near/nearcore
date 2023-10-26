@@ -3967,8 +3967,8 @@ impl Chain {
             shard_uid,
             trie_changes.state_changes(),
         )?;
-        self.chain_store_update.merge(store_update);
-        self.chain_store_update.save_trie_changes(trie_changes);
+        chain_update.chain_store_update.merge(store_update);
+        chain_update.chain_store_update.save_trie_changes(trie_changes);
         let receipts_map =
             chain_update.get_receipt_id_to_shard_id(block.hash(), shard_id as u64)?;
         for (receipt_id, to_shard_id) in receipts_map.into_iter() {
