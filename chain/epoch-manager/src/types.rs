@@ -149,6 +149,7 @@ impl EpochInfoAggregator {
         // Step 3: update version tracker
         let block_producer_id =
             EpochManager::block_producer_from_info(epoch_info, block_info_height);
+        println!("TRACK VERSION {block_producer_id} {}", block_info.latest_protocol_version());
         self.version_tracker
             .entry(block_producer_id)
             .or_insert_with(|| *block_info.latest_protocol_version());
