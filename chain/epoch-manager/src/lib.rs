@@ -1612,6 +1612,7 @@ impl EpochManager {
         block_info: Arc<BlockInfo>,
     ) -> Result<(), EpochError> {
         let block_hash = *block_info.hash();
+        println!("block_info {} {}", block_info.height(), block_info.latest_protocol_version());
         store_update
             .insert_ser(DBCol::BlockInfo, block_hash.as_ref(), &block_info)
             .map_err(EpochError::from)?;
