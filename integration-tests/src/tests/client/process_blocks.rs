@@ -3292,6 +3292,13 @@ fn test_fork_execution_outcome() {
     println!("GET {}", receipt_id);
     let receipt_execution_outcomes =
         env.clients[0].chain.mut_store().get_outcomes_by_id(&receipt_id).unwrap();
+    for outcome in receipt_execution_outcomes.clone() {
+        println!(
+            "{} {}",
+            outcome.block_hash,
+            env.clients[0].chain.get_block_header(&outcome.block_hash).unwrap().height()
+        );
+    }
     assert_eq!(receipt_execution_outcomes.len(), 2);
     let canonical_chain_outcome = env.clients[0].chain.get_execution_outcome(&receipt_id).unwrap();
     assert_eq!(canonical_chain_outcome.block_hash, *block2.hash());
