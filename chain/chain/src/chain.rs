@@ -5259,6 +5259,12 @@ impl Chain {
         id: &CryptoHash,
     ) -> Result<ExecutionOutcomeWithIdAndProof, Error> {
         let outcomes = self.store.get_outcomes_by_id(id)?;
+        let debug: Vec<_> = outcomes
+            .iter()
+            .cloned()
+            .map(|o| (o.block_hash, self.get_block_header(&o.block_hash)?.height()))
+            .collect();
+        println!("outcomes of {id}: {:?}", debug);
         outcomes
             .into_iter()
             .find(|outcome| match self.get_block_header(&outcome.block_hash) {
