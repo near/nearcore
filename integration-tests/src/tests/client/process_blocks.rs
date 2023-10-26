@@ -3239,7 +3239,7 @@ fn test_fork_execution_outcome() {
         last_height = last_block.header().height();
     }
 
-    // last_height = 3
+    // last_height = 2
     // start from 3.
     // produce 3, produce 4
     // process 4 , process 3
