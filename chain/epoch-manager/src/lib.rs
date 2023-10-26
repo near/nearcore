@@ -621,6 +621,7 @@ impl EpochManager {
         last_block_hash: &CryptoHash,
         rng_seed: RngSeed,
     ) -> Result<(), EpochError> {
+        println!("FINALIZING EPOCH FOR BLOCK {block_info:?}");
         let epoch_summary = self.collect_blocks_info(block_info, last_block_hash)?;
         let epoch_info = self.get_epoch_info(block_info.epoch_id())?;
         let epoch_protocol_version = epoch_info.protocol_version();
@@ -690,6 +691,7 @@ impl EpochManager {
             self.config.for_protocol_version(next_next_epoch_info.protocol_version()));
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
+        println!("SAVING EPOCH INFO {next_next_epoch_info:?}");
         self.save_epoch_info(store_update, &next_next_epoch_id, Arc::new(next_next_epoch_info))?;
         Ok(())
     }
