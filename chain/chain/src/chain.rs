@@ -3932,31 +3932,43 @@ impl Chain {
             } // no chunk => no chunk extra to save
         };
         let apply_chunk_result = job(&_span)?;
-        let (outgoing_receipts, chunk_extra) = if let ApplyChunkResult::SameHeight(apply_result) =
-            &apply_chunk_result
-        {
-            let (outcome_root, _) =
-                ApplyTransactionResult::compute_outcomes_proof(&apply_result.apply_result.outcomes);
-            (
-                apply_result.apply_result.outgoing_receipts.clone(),
-                Arc::new(ChunkExtra::new(
-                    &apply_result.apply_result.new_root,
-                    outcome_root,
-                    apply_result.apply_result.validator_proposals.clone(),
-                    apply_result.apply_result.total_gas_burnt.clone(),
-                    apply_result.gas_limit.clone(),
-                    apply_result.apply_result.total_balance_burnt.clone(),
-                )),
-            )
-        } else {
-            panic!("...")
-        };
+        let (outgoing_receipts, chunk_extra, trie_changes) =
+            if let ApplyChunkResult::SameHeight(apply_result) = &apply_chunk_result {
+                let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(
+                    &apply_result.apply_result.outcomes,
+                );
+                (
+                    apply_result.apply_result.outgoing_receipts.clone(),
+                    Arc::new(ChunkExtra::new(
+                        &apply_result.apply_result.new_root,
+                        outcome_root,
+                        apply_result.apply_result.validator_proposals.clone(),
+                        apply_result.apply_result.total_gas_burnt.clone(),
+                        apply_result.gas_limit.clone(),
+                        apply_result.apply_result.total_balance_burnt.clone(),
+                    )),
+                    apply_result.apply_result.trie_changes.clone(),
+                )
+            } else {
+                panic!("...")
+            };
         println!("chain_update");
         // looks like a big mistake - there is no next block hash for which I could save outcomes.
         // this should only generate witness.
         // why did I decide to save everything here?
         let mut chain_update = self.chain_update();
         // chain_update.apply_chunk_postprocessing(block, vec![apply_chunk_result])?;
+        // Lol, just lol. Future processing requires some data
+        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        let store_update = flat_storage_manager.save_flat_state_changes(
+            *block.hash(),
+            *prev_hash,
+            block.header().height(),
+            shard_uid,
+            trie_changes.state_changes(),
+        )?;
+        self.chain_store_update.merge(store_update);
+        self.chain_store_update.save_trie_changes(trie_changes);
         let receipts_map =
             chain_update.get_receipt_id_to_shard_id(block.hash(), shard_id as u64)?;
         for (receipt_id, to_shard_id) in receipts_map.into_iter() {
