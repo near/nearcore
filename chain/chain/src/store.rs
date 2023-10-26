@@ -574,12 +574,15 @@ impl ChainStore {
         println!("get_outgoing_receipts_for_shard {prev_block_hash} {shard_id}");
         let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&prev_block_hash)?;
         let mut receipts_block_hash = prev_block_hash;
+
         loop {
             let block_header = self.get_block_header(&receipts_block_hash)?;
 
-            if block_header.height() != last_included_height {
-                receipts_block_hash = *block_header.prev_hash();
-                continue;
+            if ProtocolFeature::DelayChunkExecution.protocol_version() != 200 {
+                if block_header.height() != last_included_height {
+                    receipts_block_hash = *block_header.prev_hash();
+                    continue;
+                }
             }
             println!(
                 "TAKING FROM {receipts_block_hash} {}",

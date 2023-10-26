@@ -4333,12 +4333,10 @@ impl Chain {
         let sl = epoch_manager_adapter.get_shard_layout(block.header().epoch_id())?;
         let prev_shard_id = if psl != sl { sl.get_parent_shard_id(shard_id)? } else { shard_id };
 
-        let prev_chunk = self
-            .get_chunk_clone_from_header(&prev_block.chunks()[prev_shard_id as usize].clone())
-            .unwrap();
-
         let next_chunk =
             next_chunk_header.as_ref().map(|header| self.get_chunk_clone_from_header(header));
+
+        // should give the same result btw
         let outgoing_receipts = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
             next_chunk.map(|chunk| chunk.unwrap().prev_outgoing_receipts().to_vec())
         } else {
