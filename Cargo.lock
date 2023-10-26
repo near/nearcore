@@ -4234,10 +4234,7 @@ dependencies = [
  "near-store",
  "nearcore",
  "once_cell",
- "rayon",
  "reqwest",
- "serde",
- "serde_json",
  "tokio",
  "tracing",
 ]

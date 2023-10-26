@@ -1,11 +1,10 @@
-use near_client::sync::external::{
-    external_storage_location, external_storage_location_directory, get_num_parts_from_filename,
-};
-extern crate rayon;
 use actix_web::{web, App, HttpServer};
 use anyhow::anyhow;
 use borsh::BorshDeserialize;
 use near_client::sync::external::{create_bucket_readonly, ExternalConnection};
+use near_client::sync::external::{
+    external_storage_location, external_storage_location_directory, get_num_parts_from_filename,
+};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
