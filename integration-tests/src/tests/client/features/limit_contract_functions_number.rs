@@ -3,6 +3,7 @@ use assert_matches::assert_matches;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::errors::{
     ActionErrorKind, CompilationError, FunctionCallError, PrepareError, TxExecutionError,
 };
@@ -18,6 +19,7 @@ fn verify_contract_limits_upgrade(
     local_limit: u32,
     expected_prepare_err: PrepareError,
 ) {
+    init_integration_logger();
     let old_protocol_version = feature.protocol_version() - 1;
     let new_protocol_version = feature.protocol_version();
 
