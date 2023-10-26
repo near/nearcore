@@ -214,7 +214,7 @@ pub fn transfer_exec_fee(
     let mut result = cfg.fee(ActionCosts::transfer).exec_fee();
     if is_receiver_implicit {
         result += cfg.fee(ActionCosts::create_account).exec_fee();
-        if receiver_account_type != AccountType::EthImplicitAccount {
+        if receiver_account_type == AccountType::NearImplicitAccount {
             result += cfg.fee(ActionCosts::add_full_access_key).exec_fee();
         }
     }
@@ -230,7 +230,7 @@ pub fn transfer_send_fee(
     let mut result = cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
     if is_receiver_implicit {
         result += cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver);
-        if receiver_account_type != AccountType::EthImplicitAccount {
+        if receiver_account_type == AccountType::NearImplicitAccount {
             result += cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver);
         }
     }

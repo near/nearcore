@@ -2,7 +2,9 @@ use hkdf::Hkdf;
 use near_crypto::{ED25519PublicKey, ED25519SecretKey, PublicKey, Secp256K1PublicKey, SecretKey};
 use near_primitives_core::account::id::AccountType;
 use near_primitives::types::AccountId;
+use near_primitives::utils::derive_account_id_from_public_key;
 use sha2::Sha256;
+use std::fmt::Debug;
 
 // there is nothing special about this key, it's just some randomly generated one.
 // We will ensure that every account in the target chain has at least one full access
@@ -47,11 +49,11 @@ fn map_ed25519(
     ED25519SecretKey(buf)
 }
 
-fn secp256k1_from_slice(buf: &mut [u8], public: &Secp256K1PublicKey) -> secp256k1::SecretKey {
+fn secp256k1_from_slice<T: Debug>(buf: &mut [u8], mapped_from: &T) -> secp256k1::SecretKey {
     match secp256k1::SecretKey::from_slice(buf) {
         Ok(s) => s,
         Err(_) => {
-            tracing::warn!(target: "mirror", "Something super unlikely occurred! SECP256K1 key mapped from {:?} is too large. Flipping most significant bit.", public);
+            tracing::warn!(target: "mirror", "Something super unlikely occurred! SECP256K1 key mapped from {:?} is too large. Flipping most significant bit.", mapped_from);
             // If we got an error, it means that either `buf` is all zeros, or that when interpreted as a 256-bit
             // int, it is larger than the order of the secp256k1 curve. Since the order of the curve starts with 0xFF,
             // in either case flipping the first bit should work, and we can unwrap() below.
@@ -81,30 +83,81 @@ fn map_secp256k1(
 }
 
 // This maps the public key to a secret key so that we can sign
-// transactions on the target chain.  If secret is None, then we just
+// transactions on the target chain. If secret is None, then we just
 // use the bytes of the public key directly, otherwise we feed the
 // public key to a key derivation function.
-pub fn map_key(key: &PublicKey, secret: Option<&[u8; crate::secret::SECRET_LEN]>) -> SecretKey {
-    match key {
-        PublicKey::ED25519(k) => SecretKey::ED25519(map_ed25519(k, secret)),
-        PublicKey::SECP256K1(k) => SecretKey::SECP256K1(map_secp256k1(k, secret)),
+// If the `key` corresponds to a ETH-implicit `account_id`,
+// then the new key will be derived from that ETH address.
+pub fn map_key(
+    key: &PublicKey,
+    secret: Option<&[u8; crate::secret::SECRET_LEN]>,
+    account_id: &AccountId,
+) -> SecretKey {
+    match account_id.get_account_type() {
+        AccountType::NearImplicitAccount => {
+            match key {
+                PublicKey::ED25519(k) => SecretKey::ED25519(map_ed25519(k, secret)),
+                // TODO Is it true?
+                _ => panic!("NEAR-implicit account can only have ED25519 access key added"),
+            }
+        },
+        AccountType::EthImplicitAccount => {
+            match key {
+                PublicKey::SECP256K1(_) => map_secp256k1_from_eth_address(account_id, secret),
+                // TODO Is it true?
+                _ => panic!("ETH-implicit account can only have SECP256K1 access key added"),
+            }
+        },
+        AccountType::NamedAccount => {
+            match key {
+                PublicKey::ED25519(k) => SecretKey::ED25519(map_ed25519(k, secret)),
+                PublicKey::SECP256K1(k) => SecretKey::SECP256K1(map_secp256k1(k, secret)),
+            }
+        }
     }
 }
 
-// If it's an implicit account, interprets it as an ed25519 public key, maps that and then returns
-// the resulting implicit account. Otherwise does nothing. We do this so that transactions creating
-// an implicit account by sending money will generate an account that we can control
+// TODO Deriving secret keys from ETH addresses reduces potential entropy.
+// However, it is only for the Mirror tool. Are we ok with that?
+fn map_secp256k1_from_eth_address(
+    account_id: &AccountId,
+    secret: Option<&[u8; crate::secret::SECRET_LEN]>,
+) -> SecretKey {
+    let mut buf = [0; secp256k1::constants::SECRET_KEY_SIZE];
+
+    match secret {
+        Some(secret) => {
+            let hk = Hkdf::<Sha256>::new(None, secret);
+            hk.expand(account_id.as_bytes(), &mut buf).unwrap();
+        }
+        None => {
+            // We zero-pad ETH address.
+            buf[0..21].copy_from_slice(account_id.as_bytes());
+        }
+    };
+
+    let secret_key = secp256k1_from_slice(&mut buf, account_id);
+    SecretKey::SECP256K1(secret_key)
+}
+
+// If it's a NEAR-implicit account, interprets it as an ed25519 public key, maps that and then returns the resulting implicit account.
+// If it's an ETH-implicit account, derive a new secp256k1 secret key from the address, and use the new public key to derive a new ETH-address.
+// For named account does nothing. We do this so that transactions creating an implicit account by sending money will generate an account that we can control.
 pub fn map_account(
     account_id: &AccountId,
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
 ) -> AccountId {
-    if account_id.get_account_type() == AccountType::NearImplicitAccount {
-        let public_key =
-            PublicKey::from_near_implicit_account(account_id).expect("must be implicit");
-        let mapped_key = map_key(&public_key, secret);
-        hex::encode(mapped_key.public_key().key_data()).parse().unwrap()
-    } else {
-        // TODO what if it is ETH-implicit?
-        account_id.clone()
+    match account_id.get_account_type() {
+        AccountType::NearImplicitAccount => {
+            let public_key =
+                PublicKey::from_near_implicit_account(account_id).expect("must be implicit");
+            let mapped_key = map_key(&public_key, secret, account_id);
+            derive_account_id_from_public_key(&mapped_key.public_key())
+        },
+        AccountType::EthImplicitAccount => {
+            let mapped_key = map_secp256k1_from_eth_address(account_id, secret);
+            derive_account_id_from_public_key(&mapped_key.public_key())
+        },
+        AccountType::NamedAccount => account_id.clone()
     }
 }

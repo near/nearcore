@@ -26,12 +26,14 @@ use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, QueryRequest, QueryResponseKind,
     SignedTransactionView,
 };
-use near_primitives_core::account::{AccessKey, AccessKeyPermission, id::AccountType};
+use near_primitives_core::account::id::AccountType;
+use near_primitives_core::account::{AccessKey, AccessKeyPermission};
 use near_primitives_core::types::{Nonce, ShardId};
 use nearcore::config::NearConfig;
 use rocksdb::DB;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::panic;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -53,7 +55,7 @@ pub use cli::MirrorCommand;
 enum DBCol {
     Misc,
     // This tracks nonces for Access Keys added by AddKey transactions
-    // or transfers to NEAR-implicit accounts (not present in the genesis state).
+    // or transfers to implicit accounts (not present in the genesis state).
     // For a given (account ID, public key), if we're preparing a transaction
     // and there's no entry in the DB, then the key was present in the genesis
     // state. Otherwise, we map tx nonces according to the values in this column.
@@ -970,7 +972,7 @@ impl<T: ChainAccess> TxMirror<T> {
                         full_key_added = true;
                     }
                     let public_key =
-                        crate::key_mapping::map_key(&add_key.public_key, self.secret.as_ref())
+                        crate::key_mapping::map_key(&add_key.public_key, self.secret.as_ref(), tx.receiver_id())
                             .public_key();
                     let receiver_id =
                         crate::key_mapping::map_account(tx.receiver_id(), self.secret.as_ref());
@@ -983,7 +985,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 }
                 Action::DeleteKey(delete_key) => {
                     let replacement =
-                        crate::key_mapping::map_key(&delete_key.public_key, self.secret.as_ref());
+                        crate::key_mapping::map_key(&delete_key.public_key, self.secret.as_ref(), tx.receiver_id());
                     let public_key = replacement.public_key();
 
                     actions.push(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })));
@@ -1001,10 +1003,11 @@ impl<T: ChainAccess> TxMirror<T> {
                                 )
                             })?
                         {
-                            // TODO handle eth-implicit account, no public key would be added to `nonce_updates`
-                            let public_key = PublicKey::from_near_implicit_account(&target_account)
-                                .expect("must be implicit");
-                            nonce_updates.insert((target_account, public_key));
+                            // TODO Tools/Mirror: For ETH-implicit account we do not add access key on creation, but make sure it is ok for Mirror.
+                            if target_account.get_account_type() == AccountType::NearImplicitAccount {
+                                let public_key = PublicKey::from_near_implicit_account(&target_account).expect("must be implicit");
+                                nonce_updates.insert((target_account, public_key));
+                            }
                         }
                     }
                     actions.push(action.clone());
@@ -1135,7 +1138,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 let mut key = None;
                 let mut first_key = None;
                 for k in keys.iter() {
-                    let target_secret_key = crate::key_mapping::map_key(k, self.secret.as_ref());
+                    let target_secret_key = crate::key_mapping::map_key(k, self.secret.as_ref(), &receiver_id);
                     if fetch_access_key_nonce(
                         &self.target_view_client,
                         &target_signer_id,
@@ -1194,7 +1197,7 @@ impl<T: ChainAccess> TxMirror<T> {
                         full_key_added = true;
                     }
                     let target_public_key =
-                        crate::key_mapping::map_key(&a.public_key, self.secret.as_ref())
+                        crate::key_mapping::map_key(&a.public_key, self.secret.as_ref(), &receiver_id)
                             .public_key();
 
                     nonce_updates.insert((target_receiver_id.clone(), target_public_key.clone()));
@@ -1515,7 +1518,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     continue;
                 }
                 let target_private_key =
-                    crate::key_mapping::map_key(source_tx.public_key(), self.secret.as_ref());
+                    crate::key_mapping::map_key(source_tx.public_key(), self.secret.as_ref(), source_tx.receiver_id());
 
                 let target_signer_id =
                     crate::key_mapping::map_account(source_tx.signer_id(), self.secret.as_ref());

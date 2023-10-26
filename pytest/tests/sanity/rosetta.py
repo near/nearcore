@@ -427,7 +427,7 @@ class RosettaTestCase(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.node.cleanup()
 
-    # For ETH-implicit account, we will not store access keys, so not additional storage cost.
+    # TODO Pytest/Rosetta: Test with ETH-implicit account?
     def test_zero_balance_account(self) -> None:
         """Tests storage staking requirements for low-storage accounts.
 
@@ -774,9 +774,9 @@ class RosettaTestCase(unittest.TestCase):
             self.fail(f'Account {account.account_id} does not exist')
         return None
 
-    # TODO add corresponding test for ETH-implicit account
-    def test_near_implicit_account(self) -> None:
-        """Tests creating and deleting NEAR-implicit account
+    # TODO Pytest/Rosetta: Test with ETH-implicit account?
+    def test_implicit_account(self) -> None:
+        """Tests creating and deleting implicit account
 
         First sends some funds from validator’s account to an implicit account,
         then checks how the transaction looks through Data API and finally
@@ -787,7 +787,7 @@ class RosettaTestCase(unittest.TestCase):
         implicit = key.Key.implicit_account()
 
         # 1. Create implicit account.
-        logger.info(f'Creating NEAR-implicit account: {implicit.account_id}')
+        logger.info(f'Creating implicit account: {implicit.account_id}')
         result = self.rosetta.transfer(src=validator,
                                        dst=implicit,
                                        amount=test_amount)
@@ -934,7 +934,7 @@ class RosettaTestCase(unittest.TestCase):
             }, related.transaction())
 
         # 2. Delete the account.
-        logger.info(f'Deleting NEAR-implicit account: {implicit.account_id}')
+        logger.info(f'Deleting implicit account: {implicit.account_id}')
         result = self.rosetta.delete_account(implicit, refund_to=validator)
 
         self.assertEqual(

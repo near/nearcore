@@ -22,7 +22,7 @@ class Key:
         keys = ed25519.create_keypair(entropy=os.urandom)
         return cls.from_keypair(account_id, keys)
 
-    # TODO what about ETH-implicit account?
+    # TODO Pytest: add method for creating ETH-implicit accounts
     @classmethod
     def implicit_account(cls) -> 'Key':
         keys = ed25519.create_keypair(entropy=os.urandom)

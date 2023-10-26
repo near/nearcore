@@ -486,13 +486,13 @@ impl ForkNetworkCommand {
             if let Some(sr) = StateRecord::from_raw_key_value(key.clone(), value.clone()) {
                 match sr {
                     StateRecord::AccessKey { account_id, public_key, access_key } => {
-                        if !account_id.is_implicit()
+                        if !account_id.get_account_type().is_implicit()
                             && access_key.permission == AccessKeyPermission::FullAccess
                         {
                             has_full_key.insert(account_id.clone());
                         }
                         let new_account_id = map_account(&account_id, None);
-                        let replacement = map_key(&public_key, None);
+                        let replacement = map_key(&public_key, None, &account_id);
                         storage_mutator.delete_access_key(account_id, public_key)?;
                         storage_mutator.set_access_key(
                             new_account_id,
@@ -503,7 +503,7 @@ impl ForkNetworkCommand {
                     }
 
                     StateRecord::Account { account_id, account } => {
-                        if account_id.is_implicit() {
+                        if account_id.get_account_type().is_implicit() {
                             let new_account_id = map_account(&account_id, None);
                             storage_mutator.delete_account(account_id)?;
                             storage_mutator.set_account(new_account_id, account)?;
@@ -511,7 +511,7 @@ impl ForkNetworkCommand {
                         }
                     }
                     StateRecord::Data { account_id, data_key, value } => {
-                        if account_id.is_implicit() {
+                        if account_id.get_account_type().is_implicit() {
                             let new_account_id = map_account(&account_id, None);
                             storage_mutator.delete_data(account_id, &data_key)?;
                             storage_mutator.set_data(new_account_id, &data_key, value)?;
@@ -519,7 +519,7 @@ impl ForkNetworkCommand {
                         }
                     }
                     StateRecord::Contract { account_id, code } => {
-                        if account_id.is_implicit() {
+                        if account_id.get_account_type().is_implicit() {
                             let new_account_id = map_account(&account_id, None);
                             storage_mutator.delete_code(account_id)?;
                             storage_mutator.set_code(new_account_id, code)?;
@@ -527,7 +527,7 @@ impl ForkNetworkCommand {
                         }
                     }
                     StateRecord::PostponedReceipt(receipt) => {
-                        if receipt.predecessor_id.is_implicit() || receipt.receiver_id.is_implicit()
+                        if receipt.predecessor_id.get_account_type().is_implicit() || receipt.receiver_id.get_account_type().is_implicit()
                         {
                             let new_receipt = Receipt {
                                 predecessor_id: map_account(&receipt.predecessor_id, None),
@@ -541,7 +541,7 @@ impl ForkNetworkCommand {
                         }
                     }
                     StateRecord::ReceivedData { account_id, data_id, data } => {
-                        if account_id.is_implicit() {
+                        if account_id.get_account_type().is_implicit() {
                             let new_account_id = map_account(&account_id, None);
                             storage_mutator.delete_received_data(account_id, data_id)?;
                             storage_mutator.set_received_data(new_account_id, data_id, &data)?;
@@ -549,7 +549,7 @@ impl ForkNetworkCommand {
                         }
                     }
                     StateRecord::DelayedReceipt(receipt) => {
-                        if receipt.predecessor_id.is_implicit() || receipt.receiver_id.is_implicit()
+                        if receipt.predecessor_id.get_account_type().is_implicit() || receipt.receiver_id.get_account_type().is_implicit()
                         {
                             let new_receipt = Receipt {
                                 predecessor_id: map_account(&receipt.predecessor_id, None),

@@ -2,7 +2,6 @@
 
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::IntegerOverflowError;
-use near_primitives_core::account::id::AccountType;
 use near_primitives_core::config::ActionCosts;
 use num_bigint::BigUint;
 use num_traits::cast::ToPrimitive;

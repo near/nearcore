@@ -553,6 +553,7 @@ def added_keys_send_transfers(nodes, added_keys, receivers, amount, block_hash):
         node_idx %= len(nodes)
 
 
+# TODO Pytest/Mirror: This function uses implicit account
 def start_source_chain(config, num_source_validators=3):
     # for now we need at least 2 because we're sending traffic for source_nodes[1].signer_key
     # Could fix that but for now this assert is fine
@@ -632,6 +633,7 @@ def start_source_chain(config, num_source_validators=3):
     return near_root, source_nodes, target_node_dirs, traffic_data
 
 
+# TODO Pytest/Mirror: This function uses implicit account
 # callback will be called once for every iteration of the utils.poll_blocks()
 # loop, and we break if it returns False
 def send_traffic(near_root, source_nodes, traffic_data, callback):

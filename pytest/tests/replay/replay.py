@@ -194,9 +194,9 @@ if __name__ == '__main__':
                         help="Path of the new home directory")
     args = parser.parse_args()
 
-    # TODO support for ETH-implicit accounts?
     if args.operation == 'generate':
         if args.genesis:
+            # TODO Pytest/replay: Test save_genesis with ETH-implicit account key?
             key_pair = generate_new_key()
             save_genesis_with_new_key_pair(args.genesis, key_pair,
                                            args.home_dir)

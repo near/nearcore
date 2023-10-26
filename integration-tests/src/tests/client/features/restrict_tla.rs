@@ -23,7 +23,7 @@ fn test_create_top_level_accounts() {
         .build();
 
     // These accounts cannot be created because they are top level accounts that are not implicit.
-    // Note that implicit accounts have to be 64 or 42 characters long.
+    // Note that implicit accounts have to be 64 or 42 (in case start with '0x') characters long.
     let top_level_accounts = [
         "0x06012c8cf97bead5deae237070f9587f8e7a266da",
         "0a5e97870f263700f46aa00d967821199b9bc5a120",

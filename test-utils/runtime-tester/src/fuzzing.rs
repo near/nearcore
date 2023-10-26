@@ -518,6 +518,7 @@ impl Scope {
         Ok(self.accounts[self.accounts.len() - 1].clone())
     }
 
+    // Test-utils/fuzzing: used for runtime tests, make sure everything is ok.
     pub fn new_account(&mut self, u: &mut Unstructured) -> Result<Account> {
         let account = if u.arbitrary::<bool>()? {
             self.new_implicit_account(u)?

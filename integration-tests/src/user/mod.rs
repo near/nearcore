@@ -4,7 +4,7 @@ use futures::{future::LocalBoxFuture, FutureExt};
 
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, id::AccountType};
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -262,10 +262,19 @@ pub trait User {
         actions: Vec<Action>,
     ) -> Result<FinalExecutionOutcomeView, ServerError> {
         let inner_signer = create_user_test_signer(&signer_id);
-        let user_nonce = self
-            .get_access_key(&signer_id, &inner_signer.public_key)
-            .expect("failed reading user's nonce for access key")
-            .nonce;
+        let access_key = self.get_access_key(&signer_id, &inner_signer.public_key);
+
+        let user_nonce = match access_key {
+            Ok(access_key) => access_key.nonce,
+            Err(_) => match signer_id.get_account_type() {
+                AccountType::EthImplicitAccount => {
+                    // TODO Integration-tests/MetaTx: What nonce should we use here?
+                    0
+                }
+                _ => panic!("failed reading user's nonce for access key"),
+            },
+        };
+
         let delegate_action = DelegateAction {
             sender_id: signer_id.clone(),
             receiver_id,

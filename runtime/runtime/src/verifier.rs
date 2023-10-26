@@ -1,7 +1,6 @@
 use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
 use crate::near_primitives::account::Account;
 use crate::VerificationResult;
-use near_crypto::{PublicKey, KeyType};
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::delegate::SignedDelegateAction;
@@ -18,6 +17,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::types::{BlockHeight, StorageUsage};
+use near_primitives::utils::derive_account_id_from_public_key;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::id::AccountType;
@@ -125,18 +125,6 @@ pub fn validate_transaction(
         .map_err(|_| InvalidTxError::CostOverflow.into())
 }
 
-fn is_pk_valid_for_eth_address(public_key: &PublicKey, account_id: &AccountId) -> bool {
-    match public_key.key_type() {
-        KeyType::SECP256K1 => {
-            use sha3::Digest;
-            let pk_hash = sha3::Keccak256::digest(&public_key.key_data());
-            format!("0x{}", hex::encode(&pk_hash[12..32])) == account_id.as_str()
-        },
-        // Should panic instead?
-        KeyType::ED25519 => false,
-    }
-}
-
 /// Verifies the signed transaction on top of given state, charges transaction fees
 /// and balances, and updates the state for the used account and access keys.
 pub fn verify_and_charge_transaction(
@@ -167,11 +155,20 @@ pub fn verify_and_charge_transaction(
         }
     };
     let mut access_key = match get_access_key(state_update, signer_id, public_key)? {
-        Some(access_key) => access_key,
+        Some(access_key) => {
+            if transaction.nonce <= access_key.nonce {
+                return Err(InvalidTxError::InvalidNonce {
+                    tx_nonce: transaction.nonce,
+                    ak_nonce: access_key.nonce,
+                }
+                .into());
+            }
+            access_key
+        }
         None => match signer_id.get_account_type() {
             AccountType::EthImplicitAccount => {
-                if is_pk_valid_for_eth_address(public_key, signer_id) {
-                    // TODO what about increasing storage usage for that account
+                if derive_account_id_from_public_key(public_key) == *signer_id {
+                    // TODO What about increasing storage usage for that account, because we added access key?
                     AccessKey::full_access()
                 } else {
                     return Err(InvalidTxError::InvalidAccessKeyError(
@@ -193,13 +190,6 @@ pub fn verify_and_charge_transaction(
         }
     };
 
-    if transaction.nonce <= access_key.nonce {
-        return Err(InvalidTxError::InvalidNonce {
-            tx_nonce: transaction.nonce,
-            ak_nonce: access_key.nonce,
-        }
-        .into());
-    }
     if checked_feature!("stable", AccessKeyNonceRange, current_protocol_version) {
         if let Some(height) = block_height {
             let upper_bound =

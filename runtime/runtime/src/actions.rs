@@ -477,7 +477,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     + fee_config.storage_usage_config.num_extra_bytes_record,
             ));
         },
-        AccountType::NamedAccount => panic!("Should only be called for an implicit account"),
+        AccountType::NamedAccount => panic!("must be implicit"),
     }
 
     

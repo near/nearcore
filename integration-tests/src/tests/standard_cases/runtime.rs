@@ -24,7 +24,7 @@ fn create_runtime_with_expensive_storage() -> RuntimeNode {
     match &mut records[0] {
         StateRecord::Account { account, .. } => account.set_amount(TESTING_INIT_BALANCE * 10000),
         _ => {
-            panic!("the first record is expected to be alice account creation!");
+            std::panic!("the first record is expected to be alice account creation!");
         }
     }
     records.push(StateRecord::Data {
@@ -113,18 +113,32 @@ fn test_send_money_runtime() {
     test_send_money(node);
 }
 
-// TODO add corresponding test for ETH-implicit account
 #[test]
 fn test_transfer_tokens_near_implicit_account_runtime() {
     let node = create_runtime_node();
-    transfer_tokens_near_implicit_account(node);
+    let public_key = node.user().signer().public_key();
+    transfer_tokens_implicit_account(node, public_key);
 }
 
-// TODO add corresponding test for ETH-implicit account
+#[test]
+fn test_transfer_tokens_eth_implicit_account_runtime() {
+    let node = create_runtime_node();
+    let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
+    transfer_tokens_implicit_account(node, secret_key.public_key());
+}
+
 #[test]
 fn test_trying_to_create_near_implicit_account_runtime() {
     let node = create_runtime_node();
-    trying_to_create_near_implicit_account(node);
+    let public_key = node.user().signer().public_key();
+    trying_to_create_implicit_account(node, public_key);
+}
+
+#[test]
+fn test_trying_to_create_eth_implicit_account_runtime() {
+    let node = create_runtime_node();
+    let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
+    trying_to_create_implicit_account(node, secret_key.public_key());
 }
 
 #[test]
