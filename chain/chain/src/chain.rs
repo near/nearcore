@@ -3904,7 +3904,7 @@ impl Chain {
             false, // ??
             &HashMap::default(),
             SandboxStatePatch::default(),
-            runtime,
+            runtime.clone(),
             epoch_manager,
             None, // ??
         )?;
