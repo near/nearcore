@@ -819,7 +819,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             ),
         };
         if storage_config.record_storage {
-            trie = trie.recording_reads()
+            trie = trie.recording_reads();
         }
 
         match self.process_state_update(
