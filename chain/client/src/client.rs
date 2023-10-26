@@ -798,7 +798,7 @@ impl Client {
             };
             let result =
                 self.chain.apply_prev_chunk_before_production(&me, prev_block, shard_id as usize);
-            result.unwrap(); // ideally ApplyChunkResult and state witness must be taken here
+            result?; // ideally ApplyChunkResult and state witness must be taken here
         }
 
         let validator_signer = self
