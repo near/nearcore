@@ -5916,6 +5916,11 @@ impl<'a> ChainUpdate<'a> {
         block_preprocess_info: BlockPreprocessInfo,
         apply_chunks_results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<Option<Tip>, Error> {
+        println!(
+            "postprocess_block {} {}",
+            block.header().height(),
+            block.header().latest_protocol_version()
+        );
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|x| {
             if let Err(err) = &x {
