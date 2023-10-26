@@ -1026,9 +1026,9 @@ pub mod epoch_info {
         ) -> Vec<HashMap<ValidatorId, u16>> {
             // Chunk validator assignment was introduced with `V4`.
             match &self {
-                Self::V1(_v1) => Default::default(),
-                Self::V2(_v2) => Default::default(),
-                Self::V3(_v4) => Default::default(),
+                Self::V1(_) => Default::default(),
+                Self::V2(_) => Default::default(),
+                Self::V3(_) => Default::default(),
                 Self::V4(v4) => {
                     let mut rng = Self::chunk_validate_rng(&v4.rng_seed, height);
                     v4.validator_mandates.sample(&mut rng)
