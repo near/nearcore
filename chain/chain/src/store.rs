@@ -2059,6 +2059,7 @@ impl<'a> ChainStoreUpdate<'a> {
         shard_id: ShardId,
         outgoing_receipts: Vec<Receipt>,
     ) {
+        println!("save_outgoing_receipt {hash} {shard_id} {outgoing_receipts:?}");
         self.chain_store_cache_update
             .outgoing_receipts
             .insert((*hash, shard_id), Arc::new(outgoing_receipts));
