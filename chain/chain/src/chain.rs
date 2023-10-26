@@ -3262,6 +3262,7 @@ impl Chain {
             return Err(Error::Other("set_shard_state failed: invalid proofs".into()));
         }
         let mut hash_to_compare = sync_hash;
+        let proofs_len = shard_state_header.incoming_receipts_proofs().len();
         for (i, receipt_response) in
             shard_state_header.incoming_receipts_proofs().iter().enumerate()
         {
@@ -3276,7 +3277,10 @@ impl Chain {
                 ));
             }
             let header = self.get_block_header(&hash_to_compare)?;
-            hash_to_compare = *header.prev_hash();
+            if i + 1 < proofs_len || ProtocolFeature::DelayChunkExecution.protocol_version() != 200
+            {
+                hash_to_compare = *header.prev_hash();
+            }
 
             let block_header = self.get_block_header(block_hash)?;
             // 4c. Checking len of receipt_proofs for current block
