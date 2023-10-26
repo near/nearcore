@@ -185,7 +185,7 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV2 => 135,
             ProtocolFeature::PostStateRoot => 136,
             ProtocolFeature::TestnetFewerBlockProducers => 140,
-            ProtocolFeature::DelayChunkExecution => 300,
+            ProtocolFeature::DelayChunkExecution => 200,
         }
     }
 }
