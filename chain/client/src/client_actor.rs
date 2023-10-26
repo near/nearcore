@@ -61,7 +61,7 @@ use near_primitives::types::BlockHeight;
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
@@ -1900,7 +1900,9 @@ pub fn start_client(
         let validator_id = validator_signer.validator_id().clone();
         let tip = client.chain.head().unwrap();
         let block = client.chain.get_block(&tip.last_block_hash).unwrap();
-        if tip.prev_block_hash == CryptoHash::default() {
+        if tip.prev_block_hash == CryptoHash::default()
+            && ProtocolFeature::DelayChunkExecution.protocol_version() == 200
+        {
             client.produce_chunks(&block, validator_id);
         }
     }

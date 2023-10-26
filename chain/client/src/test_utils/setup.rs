@@ -45,7 +45,7 @@ use near_primitives::static_clock::StaticClock;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, BlockHeightDelta, NumBlocks, NumSeats};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
@@ -175,7 +175,9 @@ pub fn setup(
         let validator_id = validator_signer.validator_id().clone();
         let tip = client.chain.head().unwrap();
         let block = client.chain.get_block(&tip.last_block_hash).unwrap();
-        if tip.prev_block_hash == CryptoHash::default() {
+        if tip.prev_block_hash == CryptoHash::default()
+            && ProtocolFeature::DelayChunkExecution.protocol_version() == 200
+        {
             client.produce_chunks(&block, validator_id);
         }
     }
@@ -954,7 +956,9 @@ pub fn setup_client_with_runtime(
         let validator_id = validator_signer.validator_id().clone();
         let tip = client.chain.head().unwrap();
         let block = client.chain.get_block(&tip.last_block_hash).unwrap();
-        if tip.prev_block_hash == CryptoHash::default() {
+        if tip.prev_block_hash == CryptoHash::default()
+            && ProtocolFeature::DelayChunkExecution.protocol_version() == 200
+        {
             client.produce_chunks(&block, validator_id);
         }
     }
