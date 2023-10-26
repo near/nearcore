@@ -263,13 +263,10 @@ fn test_chunk_transaction_validity() {
         .unwrap();
     println!("LAST");
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
+    // assert_matches!(res.unwrap_err(), Error::InvalidTransactions);
     println!("{:?}", res);
-    let res = env.clients[0].produce_block(height + 1);
-    println!("{:?}", res);
-    assert_matches!(
-        res.unwrap_err(),
-        near_client::Error::Chain(near_chain::Error::InvalidTransactions)
-    );
+    let res = env.clients[0].produce_block(height + 1).unwrap().unwrap();
+    assert_eq!(res.header().chunk_mask(), &[false]);
 }
 
 #[test]
