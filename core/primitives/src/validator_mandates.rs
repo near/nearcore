@@ -73,7 +73,7 @@ impl ValidatorMandates {
 
         let required_mandates = config.min_mandates_per_shard * config.num_shards;
         if mandates.len() < required_mandates {
-            // TODO(chunk-validator-assignment) dynamically lower `stake_per_mandate` to reach enough mandates
+            // TODO(#10014) dynamically lower `stake_per_mandate` to reach enough mandates
             panic!(
                 "not enough validator mandates: got {}, need {}",
                 mandates.len(),
