@@ -3933,7 +3933,7 @@ impl Chain {
         };
         let apply_chunk_result = job(&_span)?;
         let (outgoing_receipts, chunk_extra, trie_changes) =
-            if let ApplyChunkResult::SameHeight(apply_result) = &apply_chunk_result {
+            if let ApplyChunkResult::SameHeight(apply_result) = apply_chunk_result {
                 let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(
                     &apply_result.apply_result.outcomes,
                 );
@@ -3947,7 +3947,7 @@ impl Chain {
                         apply_result.gas_limit.clone(),
                         apply_result.apply_result.total_balance_burnt.clone(),
                     )),
-                    apply_result.apply_result.trie_changes.clone(),
+                    apply_result.apply_result.trie_changes,
                 )
             } else {
                 panic!("...")
