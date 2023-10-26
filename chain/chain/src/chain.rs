@@ -3268,6 +3268,7 @@ impl Chain {
             let ReceiptProofResponse(block_hash, receipt_proofs) = receipt_response;
 
             // 4b. Checking that there is a valid sequence of continuous blocks
+            println!("comparing {block_hash} {hash_to_compare}");
             if *block_hash != hash_to_compare {
                 byzantine_assert!(false);
                 return Err(Error::Other(
