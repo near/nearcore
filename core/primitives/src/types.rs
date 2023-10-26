@@ -652,8 +652,6 @@ pub mod validator_stake {
             }
         }
 
-        // TODO(chunk-validator-assignment) if `ValidatorStake` is recalculated every epoch, this should be a field of (new) `ValidatorStakeV2`?
-        // Pro: do the division only once. Con: Adding a field probably requires a `V2`, though is it worth it?
         /// Returns the validator's number of mandates (rounded down) at `stake_per_seat`.
         ///
         /// It returns `u16` since it allows infallible conversion to `usize` and with [`u16::MAX`]
