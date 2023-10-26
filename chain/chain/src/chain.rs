@@ -5270,7 +5270,7 @@ impl Chain {
         for outcome in outcomes.into_iter() {
             match self.get_block_header(&outcome.block_hash) {
                 Ok(header) => {
-                    if self.is_on_current_chain(&header) {
+                    if let Ok(true) = self.is_on_current_chain(&header) {
                         let height = header.height();
                         if height > max_height {
                             max_height = height;
