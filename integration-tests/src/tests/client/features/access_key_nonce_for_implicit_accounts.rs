@@ -250,6 +250,7 @@ fn test_chunk_transaction_validity() {
     println!("FIRST");
     let (encoded_shard_chunk, merkle_path, receipts, block) =
         create_chunk_with_transactions(&mut env.clients[0], vec![tx]);
+    let height = block.header().height();
     println!("SECOND");
     let validator_id = env.clients[0].validator_signer.as_ref().unwrap().validator_id().clone();
     env.clients[0]
@@ -262,6 +263,9 @@ fn test_chunk_transaction_validity() {
         .unwrap();
     println!("LAST");
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
+    println!("{:?}", res);
+    let res = env.clients[0].produce_block(height + 1);
+    println!("{:?}", res);
     assert_matches!(res.unwrap_err(), Error::InvalidTransactions);
 }
 
