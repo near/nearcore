@@ -1,10 +1,12 @@
-use itertools::Itertools;
+use itertools::{multizip, Itertools};
+use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_store::config::StateSnapshotType;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use near_async::messaging::IntoSender;
-use near_chain::state_snapshot_actor::MakeSnapshotCallback;
+use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
@@ -16,7 +18,7 @@ use near_network::test_utils::MockPeerManagerAdapter;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::types::{AccountId, NumShards};
 use near_store::test_utils::create_test_store;
-use near_store::{NodeStorage, Store, StoreConfig};
+use near_store::{NodeStorage, ShardUId, Store, StoreConfig};
 
 use super::setup::{setup_client_with_runtime, setup_synchronous_shards_manager};
 use super::test_env::TestEnv;
@@ -254,56 +256,61 @@ impl TestEnvBuilder {
     fn ensure_epoch_managers(self) -> Self {
         let mut ret = self.ensure_stores();
         if ret.epoch_managers.is_some() {
-            ret
-        } else {
-            let epoch_managers: Vec<EpochManagerKind> = (0..ret.clients.len())
-                .map(|i| {
-                    let vs = ValidatorSchedule::new_with_shards(ret.num_shards.unwrap_or(1))
-                        .block_producers_per_epoch(vec![ret.validators.clone()]);
-                    MockEpochManager::new_with_validators(
-                        ret.stores.as_ref().unwrap()[i].clone(),
-                        vs,
-                        ret.chain_genesis.epoch_length,
-                    )
-                    .into()
-                })
-                .collect();
-            assert!(
-                ret.shard_trackers.is_none(),
-                "Cannot override shard_trackers without overriding epoch_managers"
-            );
-            assert!(
-                ret.runtimes.is_none(),
-                "Cannot override runtimes without overriding epoch_managers"
-            );
-            ret.epoch_managers = Some(epoch_managers);
-            ret
+            return ret;
         }
+        let epoch_managers: Vec<EpochManagerKind> = (0..ret.clients.len())
+            .map(|i| {
+                let vs = ValidatorSchedule::new_with_shards(ret.num_shards.unwrap_or(1))
+                    .block_producers_per_epoch(vec![ret.validators.clone()]);
+                MockEpochManager::new_with_validators(
+                    ret.stores.as_ref().unwrap()[i].clone(),
+                    vs,
+                    ret.chain_genesis.epoch_length,
+                )
+                .into()
+            })
+            .collect();
+        assert!(
+            ret.shard_trackers.is_none(),
+            "Cannot override shard_trackers without overriding epoch_managers"
+        );
+        assert!(
+            ret.runtimes.is_none(),
+            "Cannot override runtimes without overriding epoch_managers"
+        );
+        ret.epoch_managers = Some(epoch_managers);
+        ret
     }
 
     /// Visible for extension methods in integration-tests.
-    pub fn internal_ensure_epoch_managers_for_nightshade_runtime(
+    pub fn internal_initialize_nightshade_runtimes(
         self,
-    ) -> (Self, Vec<PathBuf>, Vec<Store>, Vec<Arc<EpochManagerHandle>>, bool) {
-        let state_snapshot_enabled = self.state_snapshot_enabled;
-        let builder = self.ensure_epoch_managers();
-        let default_home_dirs =
-            (0..builder.clients.len()).map(|_| PathBuf::from("../../../..")).collect_vec();
-        let home_dirs = builder.home_dirs.clone().unwrap_or(default_home_dirs);
-        let stores = builder.stores.clone().unwrap();
-        let epoch_managers = builder
-            .epoch_managers
-            .clone()
-            .unwrap()
-            .into_iter()
-            .map(|kind| match kind {
+        runtime_configs: Vec<RuntimeConfigStore>,
+        nightshade_runtime_creator: impl Fn(
+            PathBuf,
+            Store,
+            Arc<EpochManagerHandle>,
+            RuntimeConfigStore,
+        ) -> Arc<dyn RuntimeAdapter>,
+    ) -> Self {
+        let builder = self.ensure_home_dirs().ensure_epoch_managers().ensure_stores();
+        let runtimes = multizip((
+            builder.home_dirs.clone().unwrap(),
+            builder.stores.clone().unwrap(),
+            builder.epoch_managers.clone().unwrap(),
+            runtime_configs,
+        ))
+        .map(|(home_dir, store, epoch_manager, runtime_config)| {
+            let epoch_manager = match epoch_manager {
                 EpochManagerKind::Mock(_) => {
                     panic!("NightshadeRuntime can only be instantiated with EpochManagerHandle")
                 }
                 EpochManagerKind::Handle(handle) => handle,
-            })
-            .collect();
-        (builder, home_dirs, stores, epoch_managers, state_snapshot_enabled)
+            };
+            nightshade_runtime_creator(home_dir, store, epoch_manager, runtime_config)
+        })
+        .collect();
+        builder.runtimes(runtimes)
     }
 
     /// Specifies custom ShardTracker for each client.  This allows us to
@@ -336,22 +343,18 @@ impl TestEnvBuilder {
     fn ensure_shard_trackers(self) -> Self {
         let ret = self.ensure_epoch_managers();
         if ret.shard_trackers.is_some() {
-            ret
-        } else {
-            let shard_trackers = ret
-                .epoch_managers
-                .as_ref()
-                .unwrap()
-                .iter()
-                .map(|epoch_manager| {
-                    ShardTracker::new(
-                        TrackedConfig::new_empty(),
-                        epoch_manager.clone().into_adapter(),
-                    )
-                })
-                .collect();
-            ret.shard_trackers(shard_trackers)
+            return ret;
         }
+        let shard_trackers = ret
+            .epoch_managers
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|epoch_manager| {
+                ShardTracker::new(TrackedConfig::new_empty(), epoch_manager.clone().into_adapter())
+            })
+            .collect();
+        ret.shard_trackers(shard_trackers)
     }
 
     /// Specifies custom RuntimeAdapter for each client.  This allows us to
@@ -368,28 +371,25 @@ impl TestEnvBuilder {
         let state_snapshot_enabled = self.state_snapshot_enabled;
         let ret = self.ensure_epoch_managers();
         if ret.runtimes.is_some() {
-            ret
-        } else {
-            assert!(
+            return ret;
+        }
+        assert!(
                 !state_snapshot_enabled,
                 "State snapshot is not supported with KeyValueRuntime. Consider adding nightshade_runtimes"
             );
-            let runtimes = (0..ret.clients.len())
-                .map(|i| {
-                    let epoch_manager = match &ret.epoch_managers.as_ref().unwrap()[i] {
-                        EpochManagerKind::Mock(mock) => mock.as_ref(),
-                        EpochManagerKind::Handle(_) => {
-                            panic!(
-                                "Can only default construct KeyValueRuntime with MockEpochManager"
-                            )
-                        }
-                    };
-                    KeyValueRuntime::new(ret.stores.as_ref().unwrap()[i].clone(), epoch_manager)
-                        as Arc<dyn RuntimeAdapter>
-                })
-                .collect();
-            ret.runtimes(runtimes)
-        }
+        let runtimes = (0..ret.clients.len())
+            .map(|i| {
+                let epoch_manager = match &ret.epoch_managers.as_ref().unwrap()[i] {
+                    EpochManagerKind::Mock(mock) => mock.as_ref(),
+                    EpochManagerKind::Handle(_) => {
+                        panic!("Can only default construct KeyValueRuntime with MockEpochManager")
+                    }
+                };
+                KeyValueRuntime::new(ret.stores.as_ref().unwrap()[i].clone(), epoch_manager)
+                    as Arc<dyn RuntimeAdapter>
+            })
+            .collect();
+        ret.runtimes(runtimes)
     }
 
     /// Specifies custom network adaptors for each client.
@@ -489,10 +489,20 @@ impl TestEnvBuilder {
                         None => TEST_SEED,
                     };
                     let tries = runtime.get_tries();
-                    let make_state_snapshot_callback: MakeSnapshotCallback = Arc::new(move |prev_block_hash, shard_uids, block| {
+                    let make_snapshot_callback = Arc::new(move |prev_block_hash, shard_uids: Vec<ShardUId>, block| {
                         tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
-                        tries.make_state_snapshot(&prev_block_hash, &shard_uids, &block).unwrap();
+                        tries.delete_state_snapshot();
+                        tries.create_state_snapshot(prev_block_hash, &shard_uids, &block).unwrap();
                     });
+                    let tries = runtime.get_tries();
+                    let delete_snapshot_callback = Arc::new(move || {
+                        tracing::info!(target: "state_snapshot", "delete_snapshot_callback");
+                        tries.delete_state_snapshot();
+                    });
+                    let snapshot_callbacks = SnapshotCallbacks {
+                        make_snapshot_callback,
+                        delete_snapshot_callback,
+                    };
                     setup_client_with_runtime(
                         u64::try_from(num_validators).unwrap(),
                         Some(account_id),
@@ -506,7 +516,7 @@ impl TestEnvBuilder {
                         rng_seed,
                         self.archive,
                         self.save_trie_changes,
-                        Some(make_state_snapshot_callback),
+                        Some(snapshot_callbacks),
                     )
                 })
                 .collect();
@@ -539,5 +549,13 @@ impl TestEnvBuilder {
         assert!(self.runtimes.is_none(), "Set up snapshot config before runtimes");
         self.state_snapshot_enabled = true;
         self
+    }
+
+    pub fn state_snapshot_type(&self) -> StateSnapshotType {
+        if self.state_snapshot_enabled {
+            StateSnapshotType::EveryEpoch
+        } else {
+            StateSnapshotType::ForReshardingOnly
+        }
     }
 }

@@ -10,6 +10,8 @@ We run a single ‘round’ of GC after a new block is accepted to the chain - a
 in order not to delay the chain too much, we make sure that each round removes
 at most 2 blocks from the chain.
 
+For more details look at function `clear_data()` in file `chain/chain/src/chain.rs`
+
 ## How it works:
 
 Imagine the following chain (with 2 forks)

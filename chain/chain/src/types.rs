@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use chrono::Utc;
+use near_chain_configs::StateSplitConfig;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_store::flat::FlatStorageManager;
 use num_rational::Rational32;
@@ -210,7 +211,7 @@ pub struct ChainConfig {
     /// Number of threads to execute background migration work.
     /// Currently used for flat storage background creation.
     pub background_migration_threads: usize,
-    pub state_snapshot_every_n_blocks: Option<u64>,
+    pub state_split_config: StateSplitConfig,
 }
 
 impl ChainConfig {
@@ -218,7 +219,7 @@ impl ChainConfig {
         Self {
             save_trie_changes: true,
             background_migration_threads: 1,
-            state_snapshot_every_n_blocks: None,
+            state_split_config: StateSplitConfig::default(),
         }
     }
 }

@@ -15,7 +15,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
-use near_primitives::state::ValueRef;
+use near_primitives::state::{FlatStateValue, ValueRef};
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
 use near_primitives::trie_key::TrieKey;
@@ -76,6 +76,7 @@ pub struct TrieCosts {
 }
 
 /// Whether a key lookup will be performed through flat storage or through iterating the trie
+#[derive(PartialEq, Eq)]
 pub enum KeyLookupMode {
     FlatStorage,
     Trie,
@@ -344,15 +345,12 @@ pub struct Trie {
     /// state proof so that the same access pattern can be replayed using only
     /// the captured result.
     recorder: Option<RefCell<TrieRecorder>>,
-    /// This can only be true if the storage is based on a recorded partial
-    /// trie, i.e. replaying lookups on a state proof, where flat storage may
-    /// not be available so we always have to go through the trie. If this
-    /// flag is true, trie node lookups will not go through the accounting
-    /// cache, i.e. the access is free from the trie's perspective, just like
-    /// flat storage. (Note that dereferencing ValueRef still has the same cost
-    /// no matter what.) This allows us to accurately calculate storage gas
-    /// costs even with only a state proof.
-    skip_accounting_cache_for_trie_nodes: bool,
+    /// If true, access to trie nodes (not values) charges gas and affects the
+    /// accounting cache. If false, access to trie nodes will not charge gas or
+    /// affect the accounting cache. Value accesses always charge gas no matter
+    /// what, and lookups done via get_ref with `KeyLookupMode::Trie` will
+    /// also charge gas no matter what.
+    charge_gas_for_trie_node_access: bool,
 }
 
 /// Trait for reading data from a trie.
@@ -473,10 +471,10 @@ impl Trie {
         Trie {
             storage,
             root,
+            charge_gas_for_trie_node_access: flat_storage_chunk_view.is_none(),
             flat_storage_chunk_view,
             accounting_cache,
             recorder: None,
-            skip_accounting_cache_for_trie_nodes: false,
         }
     }
 
@@ -511,7 +509,7 @@ impl Trie {
         let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
         let storage = Rc::new(TrieMemoryPartialStorage::new(recorded_storage));
         let mut trie = Self::new(storage, root, None);
-        trie.skip_accounting_cache_for_trie_nodes = flat_storage_used;
+        trie.charge_gas_for_trie_node_access = !flat_storage_used;
         trie
     }
 
@@ -976,14 +974,76 @@ impl Trie {
         }
     }
 
-    fn lookup(
+    /// Retrieves the value (inlined or reference) for the given key, from flat storage.
+    /// In general, flat storage may inline a value if the value is short, but otherwise
+    /// it would defer the storage of the value to the trie. This method will return
+    /// whatever the flat storage has.
+    ///
+    /// If an inlined value is returned, this method will charge the corresponding gas
+    /// as if the value were accessed from the trie storage. It will also insert the
+    /// value into the accounting cache, as well as recording the access to the value
+    /// if recording is enabled. In other words, if an inlined value is returned the
+    /// behavior is equivalent to if the trie were used to access the value reference
+    /// and then the reference were used to look up the full value.
+    ///
+    /// If `ref_only` is true, even if the flat storage gives us the inlined value, we
+    /// would still convert it to a reference. This is useful if making an access for
+    /// the value (thereby charging gas for it) is not desired.
+    fn lookup_from_flat_storage(
+        &self,
+        key: &[u8],
+        ref_only: bool,
+    ) -> Result<Option<FlatStateValue>, StorageError> {
+        let flat_storage_chunk_view = self.flat_storage_chunk_view.as_ref().unwrap();
+        let mut value = flat_storage_chunk_view.get_value(key)?;
+        if ref_only {
+            value = value.map(|value| FlatStateValue::Ref(value.to_value_ref()));
+        }
+        if self.recorder.is_some() {
+            // If recording, we need to look up in the trie as well to record the trie nodes,
+            // as they are needed to prove the value. Also, it's important that this lookup
+            // is done even if the key was not found, because intermediate trie nodes may be
+            // needed to prove the non-existence of the key.
+            let value_ref_from_trie =
+                self.lookup_from_state_column(NibbleSlice::new(key), false)?;
+            match &value {
+                Some(FlatStateValue::Inlined(value)) => {
+                    assert!(value_ref_from_trie.is_some());
+                    let value_from_trie =
+                        self.retrieve_value(&value_ref_from_trie.unwrap().hash)?;
+                    assert_eq!(&value_from_trie, value);
+                }
+                Some(FlatStateValue::Ref(value_ref)) => {
+                    assert_eq!(value_ref_from_trie.as_ref(), Some(value_ref));
+                }
+                None => {
+                    assert!(value_ref_from_trie.is_none());
+                }
+            }
+        } else {
+            if let Some(FlatStateValue::Inlined(value)) = &value {
+                self.accounting_cache
+                    .borrow_mut()
+                    .retroactively_account(hash(value), value.clone().into());
+            }
+        }
+        Ok(value)
+    }
+
+    /// Looks up the given key by walking the trie nodes stored in the
+    /// `DBCol::State` column in the database (but still going through
+    /// applicable caches).
+    ///
+    /// The `charge_gas_for_trie_node_access` parameter controls whether the
+    /// lookup incurs any gas.
+    fn lookup_from_state_column(
         &self,
         mut key: NibbleSlice<'_>,
-        use_accounting_cache: bool,
+        charge_gas_for_trie_node_access: bool,
     ) -> Result<Option<ValueRef>, StorageError> {
         let mut hash = self.root;
         loop {
-            let node = match self.retrieve_raw_node(&hash, use_accounting_cache)? {
+            let node = match self.retrieve_raw_node(&hash, charge_gas_for_trie_node_access)? {
                 None => return Ok(None),
                 Some((_bytes, node)) => node.node,
             };
@@ -1118,36 +1178,37 @@ impl Trie {
         mode: KeyLookupMode,
     ) -> Result<Option<ValueRef>, StorageError> {
         let use_flat_storage =
-            matches!(mode, KeyLookupMode::FlatStorage) && self.flat_storage_chunk_view.is_some();
-
+            mode == KeyLookupMode::FlatStorage && self.flat_storage_chunk_view.is_some();
+        let charge_gas_for_trie_node_access =
+            mode == KeyLookupMode::Trie || self.charge_gas_for_trie_node_access;
         if use_flat_storage {
-            let value_from_flat_storage = self
-                .flat_storage_chunk_view
-                .as_ref()
-                .unwrap()
-                .get_value(&key)?
-                .map(|value| value.to_value_ref());
-            if self.recorder.is_some() {
-                // If recording, we need to look up in the trie as well to record the trie nodes,
-                // as they are needed to prove the value. Also, it's important that this lookup
-                // is done even if the key was not found, because intermediate trie nodes may be
-                // needed to prove the non-existence of the key.
-                let key_nibbles = NibbleSlice::new(key);
-                let value_from_trie = self.lookup(key_nibbles, false)?;
-                assert_eq!(&value_from_flat_storage, &value_from_trie);
-            }
-            Ok(value_from_flat_storage)
+            Ok(self.lookup_from_flat_storage(key, true)?.map(|value| value.to_value_ref()))
         } else {
-            let key_nibbles = NibbleSlice::new(key);
-            self.lookup(key_nibbles, !self.skip_accounting_cache_for_trie_nodes)
+            self.lookup_from_state_column(NibbleSlice::new(key), charge_gas_for_trie_node_access)
         }
     }
 
+    /// Retrieves a value, which may or may not be the complete value, for the given key.
+    /// If the full value could be obtained cheaply it is returned; otherwise only the reference
+    /// is returned.
+    fn get_flat_value(&self, key: &[u8]) -> Result<Option<FlatStateValue>, StorageError> {
+        if self.flat_storage_chunk_view.is_some() {
+            self.lookup_from_flat_storage(key, false)
+        } else {
+            Ok(self
+                .lookup_from_state_column(
+                    NibbleSlice::new(key),
+                    self.charge_gas_for_trie_node_access,
+                )?
+                .map(|value| FlatStateValue::Ref(value)))
+        }
+    }
+
+    /// Retrieves the full value for the given key.
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
-        match self.get_ref(key, KeyLookupMode::FlatStorage)? {
-            Some(ValueRef { hash, .. }) => {
-                self.internal_retrieve_trie_node(&hash, true).map(|bytes| Some(bytes.to_vec()))
-            }
+        match self.get_flat_value(key)? {
+            Some(FlatStateValue::Ref(value_ref)) => self.retrieve_value(&value_ref.hash).map(Some),
+            Some(FlatStateValue::Inlined(value)) => Ok(Some(value)),
             None => Ok(None),
         }
     }

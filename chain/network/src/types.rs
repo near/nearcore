@@ -3,7 +3,14 @@ pub use crate::network_protocol::{
     Disconnect, Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
     SignedAccountData,
 };
+/// Exported types, which are part of network protocol.
+pub use crate::network_protocol::{
+    Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
+    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, StateResponseInfo,
+    StateResponseInfoV1, StateResponseInfoV2,
+};
 use crate::routing::routing_table_view::RoutingTableInfo;
+pub use crate::state_sync::{StateSync, StateSyncResponse};
 use near_async::messaging::{
     AsyncSender, CanSend, CanSendAsync, IntoAsyncSender, IntoSender, Sender,
 };
@@ -21,13 +28,6 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
-
-/// Exported types, which are part of network protocol.
-pub use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, StateResponseInfo,
-    StateResponseInfoV1, StateResponseInfoV2,
-};
 
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network

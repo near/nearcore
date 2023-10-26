@@ -211,6 +211,36 @@ pub(crate) static RESHARDING_BATCH_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
+pub static RESHARDING_BATCH_PREPARE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_resharding_batch_prepare_time",
+        "Time needed to prepare a batch in resharding.",
+        &["shard_uid"],
+        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+pub static RESHARDING_BATCH_APPLY_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_resharding_batch_apply_time",
+        "Time needed to apply a batch in resharding.",
+        &["shard_uid"],
+        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+pub static RESHARDING_BATCH_COMMIT_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_resharding_batch_commit_time",
+        "Time needed to commit a batch in resharding.",
+        &["shard_uid"],
+        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
+});
+
 pub(crate) static RESHARDING_STATUS: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_resharding_status",

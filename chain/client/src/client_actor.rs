@@ -13,6 +13,7 @@ use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
+use crate::sync::adapter::SyncMessage;
 use crate::sync::state::{StateSync, StateSyncResult};
 use crate::sync_jobs_actor::{create_sync_job_scheduler, SyncJobsActor};
 use crate::{metrics, StatusResponse};
@@ -24,7 +25,7 @@ use near_chain::chain::{
     ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest, BlockCatchUpResponse,
 };
 use near_chain::resharding::{StateSplitRequest, StateSplitResponse};
-use near_chain::state_snapshot_actor::MakeSnapshotCallback;
+use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
 #[cfg(feature = "test_features")]
@@ -1857,6 +1858,18 @@ impl Handler<WithSpanContext<GetClientConfig>> for ClientActor {
     }
 }
 
+impl Handler<WithSpanContext<SyncMessage>> for ClientActor {
+    type Result = ();
+
+    #[perf]
+    fn handle(&mut self, msg: WithSpanContext<SyncMessage>, _: &mut Context<Self>) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
+        // TODO
+        // process messages from SyncActors
+    }
+}
+
 /// Returns random seed sampled from the current thread
 pub fn random_seed_from_thread() -> RngSeed {
     let mut rng_seed: RngSeed = [0; 32];
@@ -1876,7 +1889,7 @@ pub fn start_client(
     shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-    make_state_snapshot_callback: Option<MakeSnapshotCallback>,
+    snapshot_callbacks: Option<SnapshotCallbacks>,
     sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
     config_updater: Option<ConfigUpdater>,
@@ -1896,7 +1909,7 @@ pub fn start_client(
         validator_signer.clone(),
         true,
         random_seed_from_thread(),
-        make_state_snapshot_callback,
+        snapshot_callbacks,
     )
     .unwrap();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {

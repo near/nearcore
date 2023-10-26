@@ -19,7 +19,7 @@ use near_chain::chain::{
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::resharding::StateSplitRequest;
-use near_chain::state_snapshot_actor::MakeSnapshotCallback;
+use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::ApplyTransactionResult;
 use near_chain::types::RuntimeAdapter;
@@ -214,7 +214,7 @@ impl Client {
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         enable_doomslug: bool,
         rng_seed: RngSeed,
-        make_state_snapshot_callback: Option<MakeSnapshotCallback>,
+        snapshot_callbacks: Option<SnapshotCallbacks>,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -224,7 +224,7 @@ impl Client {
         let chain_config = ChainConfig {
             save_trie_changes: config.save_trie_changes,
             background_migration_threads: config.client_background_migration_threads,
-            state_snapshot_every_n_blocks: config.state_snapshot_every_n_blocks,
+            state_split_config: config.state_split_config,
         };
         let chain = Chain::new(
             epoch_manager.clone(),
@@ -233,7 +233,7 @@ impl Client {
             &chain_genesis,
             doomslug_threshold_mode,
             chain_config.clone(),
-            make_state_snapshot_callback,
+            snapshot_callbacks,
         )?;
         // Create flat storage or initiate migration to flat storage.
         let flat_storage_creator = FlatStorageCreator::new(
