@@ -359,9 +359,9 @@ fn test_request_chunks_for_orphan() {
         env.process_block(0, block, Provenance::PRODUCED);
     }
 
-    let _ = env.clients[1].process_block_test(blocks[0].clone().into(), Provenance::NONE).unwrap();
-    // process blocks 1, 2 successfully
     // for 200
+    // let _ = env.clients[1].process_block_test(blocks[0].clone().into(), Provenance::NONE).unwrap();
+    // process blocks 1, 2 successfully
     for i in 0..3 {
         let res = env.clients[1].process_block_test(blocks[i].clone().into(), Provenance::NONE);
         assert_matches!(

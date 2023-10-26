@@ -1895,6 +1895,7 @@ pub fn start_client(
         make_state_snapshot_callback,
     )
     .unwrap();
+    // without this stuff 17 tests in process_blocks fail
     if let Some(validator_signer) = client.validator_signer.clone() {
         let validator_id = validator_signer.validator_id().clone();
         let tip = client.chain.head().unwrap();
