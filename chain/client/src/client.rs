@@ -791,15 +791,21 @@ impl Client {
         let _span = tracing::debug_span!(target: "client", "produce_chunk", next_height, shard_id, ?epoch_id).entered();
 
         let prev_block_hash = prev_block.hash();
-        if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+        let outgoing_receipts = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
             let me = match &self.validator_signer {
                 Some(validator_signer) => Some(validator_signer.validator_id().clone()),
                 None => None,
             };
             let result =
                 self.chain.apply_prev_chunk_before_production(&me, prev_block, shard_id as usize);
-            result?; // ideally ApplyChunkResult and state witness must be taken here
-        }
+            result? // ideally ApplyChunkResult and state witness must be taken here
+        } else {
+            self.chain.get_outgoing_receipts_for_shard(
+                *prev_block_hash,
+                shard_id,
+                last_header.height_included(),
+            )?
+        };
 
         let validator_signer = self
             .validator_signer
@@ -842,6 +848,7 @@ impl Client {
             last_header,
             next_height,
             shard_id,
+            outgoing_receipts,
         )?;
         println!("CHUNK PARTS: {}", ret.0.content().parts.len());
 
@@ -864,6 +871,7 @@ impl Client {
         last_header: ShardChunkHeader,
         next_height: BlockHeight,
         shard_id: ShardId,
+        outgoing_receipts: Vec<Receipt>,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>), Error> {
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
         let chunk_extra = self
@@ -886,11 +894,6 @@ impl Client {
         );
         let num_filtered_transactions = transactions.len();
         let (tx_root, _) = merklize(&transactions);
-        let outgoing_receipts = self.chain.get_outgoing_receipts_for_shard(
-            prev_block_hash,
-            shard_id,
-            last_header.height_included(),
-        )?;
 
         let outgoing_receipts_root = self.calculate_receipts_root(epoch_id, &outgoing_receipts)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;

@@ -3873,7 +3873,7 @@ impl Chain {
         me: &Option<AccountId>,
         block: &Block,
         shard_id: usize,
-    ) -> Result<(), Error> {
+    ) -> Result<Vec<Receipt>, Error> {
         println!(
             "apply_prev_chunk_before_production {} {}",
             block.header().height(),
@@ -3884,7 +3884,7 @@ impl Chain {
         let prev_hash = block.header().prev_hash();
         if prev_hash == &CryptoHash::default() {
             // genesis, already applied
-            return Ok(());
+            return Ok(vec![]);
         }
 
         let prev_block = self.get_block(prev_hash)?;
@@ -3926,11 +3926,15 @@ impl Chain {
             None => {
                 // let new_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
                 // let mut chain_update = self.chain_update();
-                return Ok(());
+                return Ok(vec![]);
             } // no chunk => no chunk extra to save
         };
         let apply_chunk_result = job(&_span)?;
-
+        let outgoing_receipts = if let ApplyChunkResult::SameHeight(result) = apply_chunk_result {
+            result.apply_result.outgoing_receipts.clone()
+        } else {
+            vec![]
+        };
         println!("chain_update");
         // looks like a big mistake - there is no next block hash for which I could save outcomes.
         // this should only generate witness.
@@ -3944,7 +3948,7 @@ impl Chain {
         }
         chain_update.commit()?;
 
-        Ok(())
+        Ok(outgoing_receipts)
     }
 
     // Validate chunks by applying old chunks!
