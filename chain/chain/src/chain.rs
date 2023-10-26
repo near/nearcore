@@ -2426,8 +2426,12 @@ impl Chain {
             if need_flat_storage_update {
                 let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-                let prev_block = self.get_block(block.header().prev_hash())?;
-                flat_storage_manager.update_flat_storage_for_shard(shard_uid, &prev_block)?;
+                // let prev_block = self.get_block(block.header().prev_hash())?;
+                let mut new_flat_head = *block.header().last_final_block();
+                if new_flat_head != CryptoHash::default() {
+                    new_flat_head = *self.get_block_header(&new_flat_head)?.prev_hash();
+                }
+                flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head)?;
             }
         }
 
@@ -3603,7 +3607,9 @@ impl Chain {
             ) {
                 let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-                flat_storage_manager.update_flat_storage_for_shard(shard_uid, &block)?;
+                // fix
+                flat_storage_manager
+                    .update_flat_storage_for_shard(shard_uid, *block.header().last_final_block())?;
             }
         }
 
@@ -5761,7 +5767,11 @@ impl<'a> ChainUpdate<'a> {
                         result.shard_uid,
                         result.trie_changes.state_changes(),
                     )?;
-                    flat_storage_manager.update_flat_storage_for_shard(*shard_uid, block)?;
+                    // fix
+                    flat_storage_manager.update_flat_storage_for_shard(
+                        *shard_uid,
+                        *block.header().last_final_block(),
+                    )?;
                     self.chain_store_update.merge(store_update);
 
                     self.chain_store_update.save_chunk_extra(
