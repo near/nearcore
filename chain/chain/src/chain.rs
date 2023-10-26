@@ -3323,7 +3323,9 @@ impl Chain {
         }
         // 4g. Checking that there are no more heights to get incoming_receipts
         let header = self.get_block_header(&hash_to_compare)?;
-        if header.height() != prev_chunk_header.map_or(0, |h| h.height_included()) {
+        let prev_height_included = prev_chunk_header.map_or(0, |h| h.height_included());
+        println!("comparing heights: {} {prev_height_included}", header.height());
+        if header.height() != prev_height_included {
             byzantine_assert!(false);
             return Err(Error::Other("set_shard_state failed: invalid incoming receipts".into()));
         }
