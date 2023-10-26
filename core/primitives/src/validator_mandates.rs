@@ -111,14 +111,10 @@ impl ValidatorMandates {
         let mut assignments_per_shard = Vec::with_capacity(self.config.num_shards);
         for shard_id in 0..self.config.num_shards {
             let mut assignments = HashMap::new();
-            let mut idx = shard_id;
-
-            while idx < shuffled_mandates.len() {
+            for idx in (shard_id..shuffled_mandates.len()).step_by(self.config.num_shards) {
                 let id = shuffled_mandates[idx];
                 assignments.entry(id).and_modify(|counter| *counter += 1).or_insert(1);
-                idx += self.config.num_shards;
             }
-
             assignments_per_shard.push(assignments)
         }
 
