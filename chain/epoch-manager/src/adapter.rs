@@ -655,6 +655,10 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         block_header_info: BlockHeaderInfo,
     ) -> Result<StoreUpdate, EpochError> {
+        println!(
+            "add_validator_proposals {} {}",
+            block_header_info.height, block_header_info.latest_protocol_version
+        );
         let mut epoch_manager = self.write();
         epoch_manager.add_validator_proposals(block_header_info)
     }
