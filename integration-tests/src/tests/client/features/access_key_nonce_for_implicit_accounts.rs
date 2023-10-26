@@ -266,7 +266,7 @@ fn test_chunk_transaction_validity() {
     println!("{:?}", res);
     let res = env.clients[0].produce_block(height + 1);
     println!("{:?}", res);
-    assert_matches!(res.unwrap_err(), Error::InvalidTransactions);
+    assert_matches!(res.unwrap_err(), near_chain::Error::InvalidTransactions);
 }
 
 #[test]
