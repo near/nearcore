@@ -3500,9 +3500,14 @@ fn test_congestion_receipt_execution() {
     testlib::process_blocks::set_no_chunk_in_block(&mut block, &prev_block);
     env.process_block(0, block.clone(), Provenance::NONE);
 
+    let mut block = env.clients[0].produce_block(height + 2).unwrap().unwrap();
+    env.process_block(0, block.clone(), Provenance::NONE);
+
     // DELAY!
-    let chunk_extra =
-        env.clients[0].chain.get_chunk_extra(prev_block.hash(), &ShardUId::single_shard()).unwrap();
+    let chunk_extra = env.clients[0]
+        .chain
+        .get_chunk_extra(block.header().prev_hash(), &ShardUId::single_shard())
+        .unwrap();
     assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
     let state_update = env.clients[0]
         .runtime_adapter
@@ -3513,7 +3518,7 @@ fn test_congestion_receipt_execution() {
     assert!(delayed_indices.next_available_index > 0);
 
     // let all receipts finish
-    for i in height + 2..height + 11 {
+    for i in height + 3..height + 7 {
         // 6..11
         env.produce_block(0, i);
     }
