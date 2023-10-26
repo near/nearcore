@@ -3930,7 +3930,7 @@ impl Chain {
             } // no chunk => no chunk extra to save
         };
         let apply_chunk_result = job(&_span)?;
-        let outgoing_receipts = if let ApplyChunkResult::SameHeight(result) = apply_chunk_result {
+        let outgoing_receipts = if let ApplyChunkResult::SameHeight(result) = &apply_chunk_result {
             result.apply_result.outgoing_receipts.clone()
         } else {
             vec![]
