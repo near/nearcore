@@ -65,7 +65,8 @@ pub(crate) fn get_protocol_version_internal(
         next_epoch_protocol_version
     } else {
         // The time has passed, announce the latest supported protocol version.
-        client_protocol_version
+        // DELAY! & TEST SOME LONG STANDING ISSUE!
+        next_epoch_protocol_version // client_protocol_version
     }
 }
 
