@@ -3882,14 +3882,15 @@ impl Chain {
         let _span =
             tracing::debug_span!(target: "chain", "apply_prev_chunk_before_production").entered();
         let prev_hash = block.header().prev_hash();
+        let shard_uid =
+            self.epoch_manager.shard_id_to_uid(shard_id as ShardId, block.header().epoch_id())?;
         if prev_hash == &CryptoHash::default() {
             // genesis, already applied
-            return Ok((vec![], self.get_chunk_extra(block.hash())));
+            return Ok((vec![], self.get_chunk_extra(block.hash(), &shard_uid)?));
         }
 
         let prev_block = self.get_block(prev_hash)?;
-        let shard_uid =
-            self.epoch_manager.shard_id_to_uid(shard_id as ShardId, block.header().epoch_id())?;
+
         let epoch_manager = self.epoch_manager.clone();
         let runtime = self.runtime_adapter.clone();
         println!("get a job");
