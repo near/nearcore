@@ -2426,7 +2426,8 @@ impl Chain {
             if need_flat_storage_update {
                 let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-                flat_storage_manager.update_flat_storage_for_shard(shard_uid, &block)?;
+                let prev_block = self.get_block(block.header().prev_hash())?;
+                flat_storage_manager.update_flat_storage_for_shard(shard_uid, &prev_block)?;
             }
         }
 
@@ -3960,15 +3961,15 @@ impl Chain {
         let mut chain_update = self.chain_update();
         // chain_update.apply_chunk_postprocessing(block, vec![apply_chunk_result])?;
         // Lol, just lol. Future processing requires some data
-        // let flat_storage_manager = runtime.get_flat_storage_manager();
-        // let store_update = flat_storage_manager.save_flat_state_changes(
-        //     *block.hash(),
-        //     *prev_hash,
-        //     block.header().height(),
-        //     shard_uid,
-        //     trie_changes.state_changes(),
-        // )?;
-        // chain_update.chain_store_update.merge(store_update);
+        let flat_storage_manager = runtime.get_flat_storage_manager();
+        let store_update = flat_storage_manager.save_flat_state_changes(
+            *block.hash(),
+            *prev_hash,
+            block.header().height(),
+            shard_uid,
+            trie_changes.state_changes(),
+        )?;
+        chain_update.chain_store_update.merge(store_update);
         chain_update.chain_store_update.save_trie_changes(trie_changes);
         let receipts_map =
             chain_update.get_receipt_id_to_shard_id(block.hash(), shard_id as u64)?;
