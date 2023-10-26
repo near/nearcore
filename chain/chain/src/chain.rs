@@ -3932,7 +3932,7 @@ impl Chain {
         };
         let apply_chunk_result = job(&_span)?;
         let (outgoing_receipts, chunk_extra) = if let ApplyChunkResult::SameHeight(apply_result) =
-            apply_chunk_result
+            &apply_chunk_result
         {
             let (outcome_root, _) =
                 ApplyTransactionResult::compute_outcomes_proof(&apply_result.apply_result.outcomes);
@@ -3942,9 +3942,9 @@ impl Chain {
                     &apply_result.apply_result.new_root,
                     outcome_root,
                     apply_result.apply_result.validator_proposals.clone(),
-                    apply_result.apply_result.total_gas_burnt,
-                    apply_result.gas_limit,
-                    apply_result.apply_result.total_balance_burnt,
+                    apply_result.apply_result.total_gas_burnt.clone(),
+                    apply_result.gas_limit.clone(),
+                    apply_result.apply_result.total_balance_burnt.clone(),
                 )),
             )
         } else {
