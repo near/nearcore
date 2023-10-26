@@ -3927,7 +3927,8 @@ impl Chain {
             None => {
                 // let new_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
                 // let mut chain_update = self.chain_update();
-                panic!("!!!");
+                // panic!("!!!");
+                return Ok((vec![], self.get_chunk_extra(prev_hash, &shard_uid)?));
             } // no chunk => no chunk extra to save
         };
         let apply_chunk_result = job(&_span)?;
