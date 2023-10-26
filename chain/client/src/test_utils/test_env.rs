@@ -433,8 +433,8 @@ impl TestEnv {
         let inner_signer = InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, &sender);
         let relayer_signer = InMemorySigner::from_seed(relayer.clone(), KeyType::ED25519, &relayer);
         let tip = self.clients[0].chain.head().unwrap();
-        let user_nonce = tip.height + 1;
-        let relayer_nonce = tip.height + 2;
+        let user_nonce = tip.height + 2;
+        let relayer_nonce = tip.height + 1;
         let delegate_action = DelegateAction {
             sender_id: inner_signer.account_id.clone(),
             receiver_id,
