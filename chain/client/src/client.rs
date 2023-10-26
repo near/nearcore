@@ -285,7 +285,7 @@ impl Client {
         let epoch_id = chain.store().head().expect("Cannot get chain head.").epoch_id;
         let shard_layout =
             epoch_manager.get_shard_layout(&epoch_id).expect("Cannot get shard layout.");
-        match state_sync_adapter.to_owned().write() {
+        match state_sync_adapter.write() {
             Ok(mut state_sync_adapter) => {
                 for shard_uid in shard_layout.get_shard_uids() {
                     state_sync_adapter.start(shard_uid);
@@ -2760,7 +2760,8 @@ impl Client {
 
 impl Drop for Client {
     fn drop(&mut self) {
-        // Stop the running actors.
+        // State sync is tied to the client logic. When the client goes out of scope or it is restarted,
+        // the running sync actors should also stop.
         self.state_sync_adapter
             .to_owned()
             .write()

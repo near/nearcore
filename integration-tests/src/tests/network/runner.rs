@@ -73,11 +73,8 @@ fn setup_network_node(
     let network_adapter = Arc::new(LateBoundSender::default());
     let shards_manager_adapter = Arc::new(LateBoundSender::default());
     let adv = near_client::adversarial::Controls::default();
-    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-        Sender::noop(),
-        Sender::noop(),
-        client_config.state_sync.clone(),
-    )));
+    let state_sync_adapter =
+        Arc::new(RwLock::new(SyncAdapter::new(Sender::noop(), Sender::noop())));
     let client_actor = start_client(
         client_config.clone(),
         chain_genesis.clone(),
@@ -85,7 +82,7 @@ fn setup_network_node(
         shard_tracker.clone(),
         runtime.clone(),
         config.node_id(),
-        state_sync_adapter.clone(),
+        state_sync_adapter,
         network_adapter.clone().into(),
         shards_manager_adapter.as_sender(),
         Some(signer.clone()),
