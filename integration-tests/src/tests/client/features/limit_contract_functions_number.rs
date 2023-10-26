@@ -1,4 +1,6 @@
-use crate::tests::client::process_blocks::deploy_test_contract;
+use crate::tests::client::process_blocks::{
+    deploy_test_contract, deploy_test_contract_with_protocol_version,
+};
 use assert_matches::assert_matches;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
@@ -39,7 +41,8 @@ fn verify_contract_limits_upgrade(
             )
             .build();
 
-        deploy_test_contract(
+        // oh lol.
+        deploy_test_contract_with_protocol_version(
             &mut env,
             "test0".parse().unwrap(),
             &near_test_contracts::LargeContract {
@@ -50,6 +53,7 @@ fn verify_contract_limits_upgrade(
             .make(),
             epoch_length,
             1,
+            old_protocol_version,
         );
         env
     };
