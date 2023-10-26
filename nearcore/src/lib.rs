@@ -295,7 +295,6 @@ pub fn start_with_config_and_synchronization(
     let sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
         client_adapter_for_sync.as_sender(),
         network_adapter_for_sync.as_sender(),
-        config.client_config.state_sync.clone(),
     )));
 
     let node_id = config.network_config.node_id();

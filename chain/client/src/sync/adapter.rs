@@ -4,7 +4,6 @@ use actix::prelude::SendError;
 use actix::{Actor, Message};
 use core::fmt::Debug;
 use near_async::messaging::Sender;
-use near_chain_configs::StateSyncConfig;
 use near_network::types::{
     PeerManagerMessageRequest, StateSync as NetworkStateSync, StateSyncResponse,
 };
@@ -47,17 +46,14 @@ pub struct SyncAdapter {
     client_adapter: Sender<SyncMessage>,
     /// Message channel with network
     network_adapter: Sender<PeerManagerMessageRequest>,
-    /// Sync config
-    config: StateSyncConfig,
 }
 
 impl SyncAdapter {
     pub fn new(
         client_adapter: Sender<SyncMessage>,
         network_adapter: Sender<PeerManagerMessageRequest>,
-        config: StateSyncConfig,
     ) -> Self {
-        Self { actor_handler_map: [].into(), client_adapter, network_adapter, config }
+        Self { actor_handler_map: [].into(), client_adapter, network_adapter }
     }
 
     /// Starts a new arbiter and runs the actor on it
