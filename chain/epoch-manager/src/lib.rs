@@ -552,6 +552,7 @@ impl EpochManager {
         let config = self.config.for_protocol_version(protocol_version);
         // Note: non-deterministic iteration is fine here, there can be only one
         // version with large enough stake.
+        println!("VERSION STAKES: {versions}");
         let next_version = if let Some((version, stake)) =
             versions.into_iter().max_by_key(|&(_version, stake)| stake)
         {
@@ -621,10 +622,10 @@ impl EpochManager {
         last_block_hash: &CryptoHash,
         rng_seed: RngSeed,
     ) -> Result<(), EpochError> {
-        println!("FINALIZING EPOCH FOR BLOCK {block_info:?}");
         let epoch_summary = self.collect_blocks_info(block_info, last_block_hash)?;
         let epoch_info = self.get_epoch_info(block_info.epoch_id())?;
         let epoch_protocol_version = epoch_info.protocol_version();
+        println!("FINALIZING EPOCH FOR BLOCK {block_info:?} {epoch_protocol_version}");
         let validator_stake =
             epoch_info.validators_iter().map(|r| r.account_and_stake()).collect::<HashMap<_, _>>();
         let next_epoch_id = self.get_next_epoch_id_from_info(block_info)?;
