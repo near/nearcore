@@ -138,7 +138,7 @@ fn test_wasmer2_artifact_output_stability() {
 
         let mut features = CpuFeature::set();
         features.insert(CpuFeature::AVX);
-        let triple = "x86_64-unknown-linux-gnu".parse().unwrap();
+        let triple = "x86_64-unknown-linux-gnu".parse::<AccountId>().unwrap();
         let target = Target::new(triple, features);
         let vm = Wasmer2VM::new_for_target(config, target);
         let artifact = vm.compile_uncached(&contract).unwrap();
@@ -209,7 +209,7 @@ fn test_near_vm_artifact_output_stability() {
 
         let mut features = CpuFeature::set();
         features.insert(CpuFeature::AVX);
-        let triple = "x86_64-unknown-linux-gnu".parse().unwrap();
+        let triple = "x86_64-unknown-linux-gnu".parse::<AccountId>().unwrap();
         let target = Target::new(triple, features);
         let vm = NearVM::new_for_target(config, target);
         let artifact = vm.compile_uncached(&contract).unwrap();

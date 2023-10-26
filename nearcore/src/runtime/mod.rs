@@ -1739,24 +1739,27 @@ mod test {
                 .iter()
                 .map(|x| (x.0.account_id().clone(), x.1))
                 .collect::<HashMap<_, _>>(),
-            vec![("test3".parse().unwrap(), false), ("test1".parse().unwrap(), false)]
-                .into_iter()
-                .collect::<HashMap<_, _>>()
+            vec![
+                ("test3".parse::<AccountId>().unwrap(), false),
+                ("test1".parse::<AccountId>().unwrap(), false)
+            ]
+            .into_iter()
+            .collect::<HashMap<_, _>>()
         );
 
-        let test1_acc = env.view_account(&"test1".parse().unwrap());
+        let test1_acc = env.view_account(&"test1".parse::<AccountId>().unwrap());
         // Staked 2 * X, sent 3 * X to test3.
         assert_eq!(
             (test1_acc.amount, test1_acc.locked),
             (TESTING_INIT_BALANCE - 5 * TESTING_INIT_STAKE, 2 * TESTING_INIT_STAKE)
         );
-        let test2_acc = env.view_account(&"test2".parse().unwrap());
+        let test2_acc = env.view_account(&"test2".parse::<AccountId>().unwrap());
         // Become fishermen instead
         assert_eq!(
             (test2_acc.amount, test2_acc.locked),
             (TESTING_INIT_BALANCE - test2_stake_amount, test2_stake_amount)
         );
-        let test3_acc = env.view_account(&"test3".parse().unwrap());
+        let test3_acc = env.view_account(&"test3".parse::<AccountId>().unwrap());
         // Got 3 * X, staking 2 * X of them.
         assert_eq!(
             (test3_acc.amount, test3_acc.locked),
@@ -2095,13 +2098,13 @@ mod test {
                 let bp = em.get_block_producer_info(&epoch_id, height).unwrap();
                 let cp = em.get_chunk_producer_info(&epoch_id, height, 0).unwrap();
 
-                if bp.account_id().as_ref() == "test1" {
+                if bp.account_id().as_str() == "test1" {
                     expected_blocks[0] += 1;
                 } else {
                     expected_blocks[1] += 1;
                 }
 
-                if cp.account_id().as_ref() == "test1" {
+                if cp.account_id().as_str() == "test1" {
                     expected_chunks[0] += 1;
                 } else {
                     expected_chunks[1] += 1;
@@ -2117,7 +2120,7 @@ mod test {
         update_validator_stats(&mut env, &mut expected_blocks, &mut expected_chunks);
         let mut current_epoch_validator_info = vec![
             CurrentEpochValidatorInfo {
-                account_id: "test1".parse().unwrap(),
+                account_id: "test1".parse::<AccountId>().unwrap(),
                 public_key: block_producers[0].public_key(),
                 is_slashed: false,
                 stake: TESTING_INIT_STAKE,
@@ -2130,7 +2133,7 @@ mod test {
                 num_expected_chunks_per_shard: vec![expected_chunks[0]],
             },
             CurrentEpochValidatorInfo {
-                account_id: "test2".parse().unwrap(),
+                account_id: "test2".parse::<AccountId>().unwrap(),
                 public_key: block_producers[1].public_key(),
                 is_slashed: false,
                 stake: TESTING_INIT_STAKE,
@@ -2145,13 +2148,13 @@ mod test {
         ];
         let next_epoch_validator_info = vec![
             NextEpochValidatorInfo {
-                account_id: "test1".parse().unwrap(),
+                account_id: "test1".parse::<AccountId>().unwrap(),
                 public_key: block_producers[0].public_key(),
                 stake: TESTING_INIT_STAKE,
                 shards: vec![0],
             },
             NextEpochValidatorInfo {
-                account_id: "test2".parse().unwrap(),
+                account_id: "test2".parse::<AccountId>().unwrap(),
                 public_key: block_producers[1].public_key(),
                 stake: TESTING_INIT_STAKE,
                 shards: vec![0],
@@ -2169,7 +2172,7 @@ mod test {
                 current_fishermen: vec![],
                 next_fishermen: vec![],
                 current_proposals: vec![ValidatorStake::new(
-                    "test1".parse().unwrap(),
+                    "test1".parse::<AccountId>().unwrap(),
                     block_producers[0].public_key(),
                     0,
                 )
@@ -2204,7 +2207,7 @@ mod test {
         assert_eq!(
             response.next_validators,
             vec![NextEpochValidatorInfo {
-                account_id: "test2".parse().unwrap(),
+                account_id: "test2".parse::<AccountId>().unwrap(),
                 public_key: block_producers[1].public_key(),
                 stake: TESTING_INIT_STAKE,
                 shards: vec![0],
@@ -2214,7 +2217,7 @@ mod test {
         assert_eq!(
             response.prev_epoch_kickout,
             vec![ValidatorKickoutView {
-                account_id: "test1".parse().unwrap(),
+                account_id: "test1".parse::<AccountId>().unwrap(),
                 reason: ValidatorKickoutReason::Unstaked
             }]
         );
@@ -2223,14 +2226,20 @@ mod test {
 
     #[test]
     fn test_challenges() {
-        let mut env =
-            TestEnv::new(vec![vec!["test1".parse().unwrap(), "test2".parse().unwrap()]], 2, true);
+        let mut env = TestEnv::new(
+            vec![vec![
+                "test1".parse::<AccountId>().unwrap(),
+                "test2".parse::<AccountId>().unwrap(),
+            ]],
+            2,
+            true,
+        );
         env.step(
             vec![vec![]],
             vec![true],
-            vec![SlashedValidator::new("test2".parse().unwrap(), false)],
+            vec![SlashedValidator::new("test2".parse::<AccountId>().unwrap(), false)],
         );
-        assert_eq!(env.view_account(&"test2".parse().unwrap()).locked, 0);
+        assert_eq!(env.view_account(&"test2".parse::<AccountId>().unwrap()).locked, 0);
         let mut bps = env
             .epoch_manager
             .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
@@ -2239,16 +2248,26 @@ mod test {
             .map(|x| (x.0.account_id().clone(), x.1))
             .collect::<Vec<_>>();
         bps.sort_unstable();
-        assert_eq!(bps, vec![("test1".parse().unwrap(), false), ("test2".parse().unwrap(), true)]);
+        assert_eq!(
+            bps,
+            vec![
+                ("test1".parse::<AccountId>().unwrap(), false),
+                ("test2".parse::<AccountId>().unwrap(), true)
+            ]
+        );
         let msg = vec![0, 1, 2];
-        let signer = InMemorySigner::from_seed("test2".parse().unwrap(), KeyType::ED25519, "test2");
+        let signer = InMemorySigner::from_seed(
+            "test2".parse::<AccountId>().unwrap(),
+            KeyType::ED25519,
+            "test2",
+        );
         let signature = signer.sign(&msg);
         assert!(!env
             .epoch_manager
             .verify_validator_signature(
                 &env.head.epoch_id,
                 &env.head.last_block_hash,
-                &"test2".parse().unwrap(),
+                &"test2".parse::<AccountId>().unwrap(),
                 &msg,
                 &signature,
             )
@@ -2281,9 +2300,12 @@ mod test {
         env.step(
             vec![vec![staking_transaction]],
             vec![true],
-            vec![SlashedValidator::new("test2".parse().unwrap(), true)],
+            vec![SlashedValidator::new("test2".parse::<AccountId>().unwrap(), true)],
         );
-        assert_eq!(env.view_account(&"test2".parse().unwrap()).locked, TESTING_INIT_STAKE);
+        assert_eq!(
+            env.view_account(&"test2".parse::<AccountId>().unwrap()).locked,
+            TESTING_INIT_STAKE
+        );
         let mut bps = env
             .epoch_manager
             .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
@@ -2295,20 +2317,24 @@ mod test {
         assert_eq!(
             bps,
             vec![
-                ("test1".parse().unwrap(), false),
-                ("test2".parse().unwrap(), true),
-                ("test3".parse().unwrap(), false)
+                ("test1".parse::<AccountId>().unwrap(), false),
+                ("test2".parse::<AccountId>().unwrap(), true),
+                ("test3".parse::<AccountId>().unwrap(), false)
             ]
         );
         let msg = vec![0, 1, 2];
-        let signer = InMemorySigner::from_seed("test2".parse().unwrap(), KeyType::ED25519, "test2");
+        let signer = InMemorySigner::from_seed(
+            "test2".parse::<AccountId>().unwrap(),
+            KeyType::ED25519,
+            "test2",
+        );
         let signature = signer.sign(&msg);
         assert!(!env
             .epoch_manager
             .verify_validator_signature(
                 &env.head.epoch_id,
                 &env.head.last_block_hash,
-                &"test2".parse().unwrap(),
+                &"test2".parse::<AccountId>().unwrap(),
                 &msg,
                 &signature,
             )
@@ -2320,16 +2346,16 @@ mod test {
         env.step(
             vec![vec![]],
             vec![true],
-            vec![SlashedValidator::new("test3".parse().unwrap(), true)],
+            vec![SlashedValidator::new("test3".parse::<AccountId>().unwrap(), true)],
         );
-        let account = env.view_account(&"test3".parse().unwrap());
+        let account = env.view_account(&"test3".parse::<AccountId>().unwrap());
         assert_eq!(account.locked, TESTING_INIT_STAKE / 3);
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE / 3);
 
         for _ in 11..14 {
             env.step_default(vec![]);
         }
-        let account = env.view_account(&"test3".parse().unwrap());
+        let account = env.view_account(&"test3".parse::<AccountId>().unwrap());
         let slashed = (TESTING_INIT_STAKE / 3) * 3 / 4;
         let remaining = TESTING_INIT_STAKE / 3 - slashed;
         assert_eq!(account.locked, remaining);
@@ -2339,11 +2365,11 @@ mod test {
             env.step_default(vec![]);
         }
 
-        let account = env.view_account(&"test2".parse().unwrap());
+        let account = env.view_account(&"test2".parse::<AccountId>().unwrap());
         assert_eq!(account.locked, 0);
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
 
-        let account = env.view_account(&"test3".parse().unwrap());
+        let account = env.view_account(&"test3".parse::<AccountId>().unwrap());
         assert_eq!(account.locked, 0);
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE / 3 + remaining);
     }
@@ -2364,12 +2390,12 @@ mod test {
         env.step(
             vec![vec![]],
             vec![true],
-            vec![SlashedValidator::new("test1".parse().unwrap(), true)],
+            vec![SlashedValidator::new("test1".parse::<AccountId>().unwrap(), true)],
         );
         env.step(
             vec![vec![]],
             vec![true],
-            vec![SlashedValidator::new("test2".parse().unwrap(), true)],
+            vec![SlashedValidator::new("test2".parse::<AccountId>().unwrap(), true)],
         );
         let msg = vec![0, 1, 2];
         for i in 0..=1 {
@@ -2389,11 +2415,11 @@ mod test {
         for _ in 3..17 {
             env.step_default(vec![]);
         }
-        let account = env.view_account(&"test1".parse().unwrap());
+        let account = env.view_account(&"test1".parse::<AccountId>().unwrap());
         assert_eq!(account.locked, 0);
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
 
-        let account = env.view_account(&"test2".parse().unwrap());
+        let account = env.view_account(&"test2".parse::<AccountId>().unwrap());
         assert_eq!(account.locked, 0);
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
     }
@@ -2412,27 +2438,27 @@ mod test {
             vec![vec![]],
             vec![true],
             vec![
-                SlashedValidator::new("test1".parse().unwrap(), true),
-                SlashedValidator::new("test2".parse().unwrap(), false),
+                SlashedValidator::new("test1".parse::<AccountId>().unwrap(), true),
+                SlashedValidator::new("test2".parse::<AccountId>().unwrap(), false),
             ],
         );
         env.step(
             vec![vec![]],
             vec![true],
             vec![
-                SlashedValidator::new("test1".parse().unwrap(), false),
-                SlashedValidator::new("test2".parse().unwrap(), true),
+                SlashedValidator::new("test1".parse::<AccountId>().unwrap(), false),
+                SlashedValidator::new("test2".parse::<AccountId>().unwrap(), true),
             ],
         );
 
         for _ in 3..11 {
             env.step_default(vec![]);
         }
-        let account = env.view_account(&"test1".parse().unwrap());
+        let account = env.view_account(&"test1".parse::<AccountId>().unwrap());
         assert_eq!(account.locked, 0);
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
 
-        let account = env.view_account(&"test2".parse().unwrap());
+        let account = env.view_account(&"test2".parse::<AccountId>().unwrap());
         assert_eq!(account.locked, 0);
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
     }
@@ -2486,7 +2512,7 @@ mod test {
                 .into_iter()
                 .map(|fishermen| fishermen.take_account_id())
                 .collect::<Vec<_>>(),
-            vec!["test1".parse().unwrap(), "test2".parse().unwrap()]
+            vec!["test1".parse::<AccountId>().unwrap(), "test2".parse::<AccountId>().unwrap()]
         );
         let staking_transaction = stake(2, &signers[0], &block_producers[0], TESTING_INIT_STAKE);
         let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 0);
@@ -2553,7 +2579,7 @@ mod test {
                 .into_iter()
                 .map(|fishermen| fishermen.take_account_id())
                 .collect::<Vec<_>>(),
-            vec!["test1".parse().unwrap()]
+            vec!["test1".parse::<AccountId>().unwrap()]
         );
         let staking_transaction = stake(2, &signers[0], &block_producers[0], 0);
         env.step_default(vec![staking_transaction]);
@@ -2702,7 +2728,7 @@ mod test {
     /// state optimization to view calls.
     #[test]
     fn test_flat_state_usage() {
-        let env = TestEnv::new(vec![vec!["test1".parse().unwrap()]], 4, false);
+        let env = TestEnv::new(vec![vec!["test1".parse::<AccountId>().unwrap()]], 4, false);
         let trie = env
             .runtime
             .get_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT, true)

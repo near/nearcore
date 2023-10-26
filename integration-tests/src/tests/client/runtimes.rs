@@ -11,6 +11,7 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
+use near_primitives::types::AccountId;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -19,7 +20,10 @@ use std::sync::Arc;
 
 #[test]
 fn test_pending_approvals() {
-    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let genesis = Genesis::test(
+        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
+        1,
+    );
     let mut env = TestEnv::builder(ChainGenesis::test())
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -30,16 +34,21 @@ fn test_pending_approvals() {
     let peer_id = PeerId::random();
     env.clients[0].collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id.clone()));
     let approvals = env.clients[0].pending_approvals.pop(&ApprovalInner::Endorsement(parent_hash));
-    let expected =
-        vec![("test0".parse().unwrap(), (approval, ApprovalType::PeerApproval(peer_id)))]
-            .into_iter()
-            .collect::<HashMap<_, _>>();
+    let expected = vec![(
+        "test0".parse::<AccountId>().unwrap(),
+        (approval, ApprovalType::PeerApproval(peer_id)),
+    )]
+    .into_iter()
+    .collect::<HashMap<_, _>>();
     assert_eq!(approvals, Some(expected));
 }
 
 #[test]
 fn test_invalid_approvals() {
-    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let genesis = Genesis::test(
+        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
+        1,
+    );
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let mut env = TestEnv::builder(ChainGenesis::test())
         .real_epoch_managers(&genesis.config)
@@ -54,8 +63,11 @@ fn test_invalid_approvals() {
     env.clients[0].collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id.clone()));
     assert_eq!(env.clients[0].pending_approvals.len(), 0);
     // Approval with invalid signature. Should be dropped
-    let signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "random");
+    let signer = InMemoryValidatorSigner::from_seed(
+        "test0".parse::<AccountId>().unwrap(),
+        KeyType::ED25519,
+        "random",
+    );
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     let approval = Approval::new(genesis_hash, 0, 1, &signer);
     env.clients[0].collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
@@ -66,7 +78,10 @@ fn test_invalid_approvals() {
 fn test_cap_max_gas_price() {
     use near_chain::Provenance;
     use near_primitives::version::ProtocolFeature;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let mut genesis = Genesis::test(
+        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
+        1,
+    );
     let epoch_length = 5;
     genesis.config.min_gas_price = 1_000;
     genesis.config.max_gas_price = 1_000_000;

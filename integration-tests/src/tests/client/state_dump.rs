@@ -16,7 +16,7 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::flat::store_helper;
 use near_store::DBCol;
@@ -35,7 +35,10 @@ use std::time::Duration;
 fn test_state_dump() {
     init_test_logger();
 
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let mut genesis = Genesis::test(
+        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
+        1,
+    );
     genesis.config.epoch_length = 25;
 
     near_actix_test_utils::run_actix(async {
@@ -67,7 +70,7 @@ fn test_state_dump() {
             epoch_manager.clone(),
             shard_tracker,
             runtime,
-            Some("test0".parse().unwrap()),
+            Some("test0".parse::<AccountId>().unwrap()),
         )
         .unwrap();
 
@@ -136,7 +139,7 @@ fn run_state_sync_with_dumped_parts(
         tracing::info!("Testing for case when head is in new epoch, but final block isn't for the dumping node...");
     }
     near_actix_test_utils::run_actix(async {
-        let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+        let mut genesis = Genesis::test(vec!["test0".parse::<AccountId>().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
         let chain_genesis = ChainGenesis::new(&genesis);
         let num_clients = 2;
@@ -148,7 +151,11 @@ fn run_state_sync_with_dumped_parts(
             .nightshade_runtimes(&genesis)
             .build();
 
-        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+        let signer = InMemorySigner::from_seed(
+            "test0".parse::<AccountId>().unwrap(),
+            KeyType::ED25519,
+            "test0",
+        );
         let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
         let genesis_hash = *genesis_block.hash();
 
@@ -171,7 +178,7 @@ fn run_state_sync_with_dumped_parts(
             epoch_manager.clone(),
             shard_tracker,
             runtime,
-            Some("test0".parse().unwrap()),
+            Some("test0".parse::<AccountId>().unwrap()),
         )
         .unwrap();
 
@@ -187,8 +194,8 @@ fn run_state_sync_with_dumped_parts(
             if i == account_creation_at_height {
                 let tx = SignedTransaction::create_account(
                     1,
-                    "test0".parse().unwrap(),
-                    "test_account".parse().unwrap(),
+                    "test0".parse::<AccountId>().unwrap(),
+                    "test_account".parse::<AccountId>().unwrap(),
                     NEAR_BASE,
                     signer.public_key(),
                     &signer,
@@ -215,7 +222,9 @@ fn run_state_sync_with_dumped_parts(
                 &head.prev_block_hash,
                 &head.last_block_hash,
                 head_block.header().epoch_id(),
-                &QueryRequest::ViewAccount { account_id: "test_account".parse().unwrap() },
+                &QueryRequest::ViewAccount {
+                    account_id: "test_account".parse::<AccountId>().unwrap(),
+                },
             )
             .unwrap();
         assert_matches!(response.kind, QueryResponseKind::ViewAccount(_));
@@ -321,7 +330,7 @@ fn run_state_sync_with_dumped_parts(
             &synced_block_tip.prev_block_hash,
             &synced_block_tip.last_block_hash,
             synced_block_header.epoch_id(),
-            &QueryRequest::ViewAccount { account_id: "test_account".parse().unwrap() },
+            &QueryRequest::ViewAccount { account_id: "test_account".parse::<AccountId>().unwrap() },
         );
 
         if is_final_block_in_new_epoch {

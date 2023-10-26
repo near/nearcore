@@ -22,6 +22,7 @@ use near_primitives::state_part::PartId;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
+    AccountId,
     Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, ShardId,
     StateChangesForSplitStates, StateRoot, StateRootNode,
 };
@@ -487,7 +488,7 @@ mod tests {
                 gas_burnt: 100,
                 compute_usage: Some(200),
                 tokens_burnt: 10000,
-                executor_id: "alice".parse().unwrap(),
+                executor_id: "alice".parse::<AccountId>().unwrap(),
                 metadata: ExecutionMetadata::V1,
             },
         };
@@ -500,7 +501,7 @@ mod tests {
                 gas_burnt: 0,
                 compute_usage: Some(0),
                 tokens_burnt: 0,
-                executor_id: "bob".parse().unwrap(),
+                executor_id: "bob".parse::<AccountId>().unwrap(),
                 metadata: ExecutionMetadata::V1,
             },
         };

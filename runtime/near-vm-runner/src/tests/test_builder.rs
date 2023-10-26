@@ -1,6 +1,7 @@
 use near_primitives::runtime::{
     config::RuntimeConfig, config_store::RuntimeConfigStore, fees::RuntimeFeesConfig,
 };
+use near_primitives_core::types::AccountId;
 use near_primitives_core::types::Gas;
 use near_primitives_core::version::ProtocolFeature;
 use near_vm_runner::logic::{
@@ -12,10 +13,10 @@ use std::{collections::HashSet, fmt::Write, sync::Arc};
 
 pub(crate) fn test_builder() -> TestBuilder {
     let context = VMContext {
-        current_account_id: "alice".parse().unwrap(),
-        signer_account_id: "bob".parse().unwrap(),
+        current_account_id: "alice".parse::<AccountId>().unwrap(),
+        signer_account_id: "bob".parse::<AccountId>().unwrap(),
         signer_account_pk: vec![0, 1, 2],
-        predecessor_account_id: "carol".parse().unwrap(),
+        predecessor_account_id: "carol".parse::<AccountId>().unwrap(),
         input: Vec::new(),
         block_height: 10,
         block_timestamp: 42,

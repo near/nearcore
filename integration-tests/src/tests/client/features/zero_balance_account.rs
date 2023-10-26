@@ -52,7 +52,10 @@ fn assert_zero_balance_account(env: &TestEnv, account_id: &AccountId) {
 #[test]
 fn test_zero_balance_account_creation() {
     let epoch_length = 1000;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let mut genesis = Genesis::test(
+        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
+        1,
+    );
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = ProtocolFeature::ZeroBalanceAccount.protocol_version();
     let mut env = TestEnv::builder(ChainGenesis::test())
@@ -61,8 +64,9 @@ fn test_zero_balance_account_creation() {
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
-    let new_account_id: AccountId = "hello.test0".parse().unwrap();
-    let signer0 = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let new_account_id: AccountId = "hello.test0".parse::<AccountId>().unwrap();
+    let signer0 =
+        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
     let new_signer =
         InMemorySigner::from_seed(new_account_id.clone(), KeyType::ED25519, "hello.test0");
 
@@ -87,7 +91,7 @@ fn test_zero_balance_account_creation() {
     assert_zero_balance_account(&mut env, &new_account_id);
 
     // create a zero balance account with contract deployed. The transaction should fail
-    let new_account_id: AccountId = "hell.test0".parse().unwrap();
+    let new_account_id: AccountId = "hell.test0".parse::<AccountId>().unwrap();
     let contract = near_test_contracts::sized_contract(ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT as usize);
     let create_account_tx = SignedTransaction::create_contract(
         2,
@@ -123,7 +127,10 @@ fn test_zero_balance_account_creation() {
 #[test]
 fn test_zero_balance_account_add_key() {
     let epoch_length = 1000;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let mut genesis = Genesis::test(
+        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
+        1,
+    );
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = ProtocolFeature::ZeroBalanceAccount.protocol_version();
     // create free runtime config for transaction costs to make it easier to assert
@@ -142,8 +149,9 @@ fn test_zero_balance_account_add_key() {
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
-    let new_account_id: AccountId = "hello.test0".parse().unwrap();
-    let signer0 = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let new_account_id: AccountId = "hello.test0".parse::<AccountId>().unwrap();
+    let signer0 =
+        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
     let new_signer =
         InMemorySigner::from_seed(new_account_id.clone(), KeyType::ED25519, "hello.test0");
 
@@ -252,7 +260,10 @@ fn test_zero_balance_account_upgrade() {
     std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
 
     let epoch_length = 5;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let mut genesis = Genesis::test(
+        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
+        1,
+    );
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = ProtocolFeature::ZeroBalanceAccount.protocol_version() - 1;
     let mut env = TestEnv::builder(ChainGenesis::test())
@@ -261,8 +272,9 @@ fn test_zero_balance_account_upgrade() {
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
-    let new_account_id: AccountId = "hello.test0".parse().unwrap();
-    let signer0 = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let new_account_id: AccountId = "hello.test0".parse::<AccountId>().unwrap();
+    let signer0 =
+        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
     let new_signer =
         InMemorySigner::from_seed(new_account_id.clone(), KeyType::ED25519, "hello.test0");
 

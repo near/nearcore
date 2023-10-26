@@ -26,6 +26,7 @@ use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::Block;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::AccountId;
 
 #[test]
 fn repro_1183() {
@@ -36,10 +37,10 @@ fn repro_1183() {
         let vs = ValidatorSchedule::new()
             .num_shards(4)
             .block_producers_per_epoch(vec![vec![
-                "test1".parse().unwrap(),
-                "test2".parse().unwrap(),
-                "test3".parse().unwrap(),
-                "test4".parse().unwrap(),
+                "test1".parse::<AccountId>().unwrap(),
+                "test2".parse::<AccountId>().unwrap(),
+                "test3".parse::<AccountId>().unwrap(),
+                "test4".parse::<AccountId>().unwrap(),
             ]])
             .validator_groups(2);
         let validators = vs.all_block_producers().cloned().collect::<Vec<_>>();
@@ -118,7 +119,7 @@ fn repro_1183() {
                                             &InMemorySigner::from_seed(
                                                 from.clone(),
                                                 KeyType::ED25519,
-                                                from.as_ref(),
+                                                from.as_str(),
                                             ),
                                             1,
                                             *block.header().prev_hash(),
@@ -166,10 +167,10 @@ fn repro_1183() {
 fn test_sync_from_archival_node() {
     init_test_logger();
     let vs = ValidatorSchedule::new().num_shards(4).block_producers_per_epoch(vec![vec![
-        "test1".parse().unwrap(),
-        "test2".parse().unwrap(),
-        "test3".parse().unwrap(),
-        "test4".parse().unwrap(),
+        "test1".parse::<AccountId>().unwrap(),
+        "test2".parse::<AccountId>().unwrap(),
+        "test3".parse::<AccountId>().unwrap(),
+        "test4".parse::<AccountId>().unwrap(),
     ]]);
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
@@ -274,9 +275,10 @@ fn test_sync_from_archival_node() {
 #[test]
 fn test_long_gap_between_blocks() {
     init_test_logger();
-    let vs = ValidatorSchedule::new()
-        .num_shards(2)
-        .block_producers_per_epoch(vec![vec!["test1".parse().unwrap(), "test2".parse().unwrap()]]);
+    let vs = ValidatorSchedule::new().num_shards(2).block_producers_per_epoch(vec![vec![
+        "test1".parse::<AccountId>().unwrap(),
+        "test2".parse::<AccountId>().unwrap(),
+    ]]);
     let key_pairs = vec![PeerInfo::random(), PeerInfo::random()];
     let epoch_length = 1000;
     let target_height = 600;
@@ -315,7 +317,7 @@ fn test_long_gap_between_blocks() {
                             if approval_message.approval.target_height < target_height {
                                 (NetworkResponses::NoResponse.into(), false)
                             } else {
-                                if approval_message.target.as_ref() == "test1" {
+                                if approval_message.target == "test1" {
                                     (NetworkResponses::NoResponse.into(), true)
                                 } else {
                                     (NetworkResponses::NoResponse.into(), false)

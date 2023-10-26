@@ -7,6 +7,7 @@ use near_primitives::errors::{
     ActionErrorKind, CompilationError, FunctionCallError, PrepareError, TxExecutionError,
 };
 use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_primitives::types::AccountId;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
@@ -24,8 +25,10 @@ fn verify_contract_limits_upgrade(
     let epoch_length = 5;
     // Prepare TestEnv with a contract at the old protocol version.
     let mut env = {
-        let mut genesis =
-            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        let mut genesis = Genesis::test(
+            vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
+            1,
+        );
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
@@ -39,7 +42,7 @@ fn verify_contract_limits_upgrade(
 
         deploy_test_contract(
             &mut env,
-            "test0".parse().unwrap(),
+            "test0".parse::<AccountId>().unwrap(),
             &near_test_contracts::LargeContract {
                 functions: function_limit + 1,
                 locals_per_function: local_limit + 1,
@@ -52,7 +55,7 @@ fn verify_contract_limits_upgrade(
         env
     };
 
-    let account = "test0".parse().unwrap();
+    let account = "test0".parse::<AccountId>().unwrap();
     let old_outcome = env.call_main(&account);
 
     env.upgrade_protocol(new_protocol_version);

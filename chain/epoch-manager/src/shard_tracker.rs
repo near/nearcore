@@ -193,7 +193,7 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{BlockHeight, EpochId, NumShards, ProtocolVersion, ShardId};
+    use near_primitives::types::{AccountId, BlockHeight, EpochId, NumShards, ProtocolVersion, ShardId};
     use near_primitives::version::ProtocolFeature::SimpleNightshade;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
@@ -230,7 +230,7 @@ mod tests {
             num_blocks_per_year: 1000000,
             epoch_length: 1,
             protocol_reward_rate: Ratio::from_integer(0),
-            protocol_treasury_account: "test".parse().unwrap(),
+            protocol_treasury_account: "test".parse::<AccountId>().unwrap(),
             online_max_threshold: initial_epoch_config.online_max_threshold,
             online_min_threshold: initial_epoch_config.online_min_threshold,
             num_seconds_per_year: 1000000,
@@ -241,7 +241,7 @@ mod tests {
             genesis_protocol_version,
             reward_calculator,
             vec![ValidatorStake::new(
-                "test".parse().unwrap(),
+                "test".parse::<AccountId>().unwrap(),
                 PublicKey::empty(KeyType::ED25519),
                 100,
             )],
@@ -305,14 +305,15 @@ mod tests {
         let num_shards = 4;
         let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, false);
         let shard_layout = epoch_manager.read().get_shard_layout(&EpochId::default()).unwrap();
-        let tracked_accounts = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
+        let tracked_accounts =
+            vec!["test1".parse::<AccountId>().unwrap(), "test2".parse::<AccountId>().unwrap()];
         let tracker =
             ShardTracker::new(TrackedConfig::Accounts(tracked_accounts), Arc::new(epoch_manager));
         let mut total_tracked_shards = HashSet::new();
         total_tracked_shards
-            .insert(account_id_to_shard_id(&"test1".parse().unwrap(), &shard_layout));
+            .insert(account_id_to_shard_id(&"test1".parse::<AccountId>().unwrap(), &shard_layout));
         total_tracked_shards
-            .insert(account_id_to_shard_id(&"test2".parse().unwrap(), &shard_layout));
+            .insert(account_id_to_shard_id(&"test2".parse::<AccountId>().unwrap(), &shard_layout));
 
         assert_eq!(
             get_all_shards_care_about(&tracker, num_shards, &CryptoHash::default()),
@@ -388,8 +389,11 @@ mod tests {
     fn test_track_shards_shard_layout_change() {
         let simple_nightshade_version = SimpleNightshade.protocol_version();
         let epoch_manager = get_epoch_manager(simple_nightshade_version - 1, 1, true);
-        let tracked_accounts =
-            vec!["a.near".parse().unwrap(), "near".parse().unwrap(), "zoo".parse().unwrap()];
+        let tracked_accounts = vec![
+            "a.near".parse::<AccountId>().unwrap(),
+            "near".parse::<AccountId>().unwrap(),
+            "zoo".parse::<AccountId>().unwrap(),
+        ];
         let tracker = ShardTracker::new(
             TrackedConfig::Accounts(tracked_accounts.clone()),
             Arc::new(epoch_manager.clone()),

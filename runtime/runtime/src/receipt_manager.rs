@@ -394,7 +394,7 @@ impl ReceiptManager {
 #[cfg(test)]
 mod tests {
     use near_primitives::transaction::Action;
-    use near_primitives_core::types::{Gas, GasWeight};
+    use near_primitives_core::types::{AccountId, Gas, GasWeight};
 
     #[track_caller]
     fn function_call_weight_verify(function_calls: &[(Gas, u64, Gas)], after_distribute: bool) {
@@ -404,7 +404,7 @@ mod tests {
         let mut receipt_manager = super::ReceiptManager::default();
         for &(static_gas, gas_weight, _) in function_calls {
             let index = receipt_manager
-                .create_receipt(vec![], vec![], "rick.test".parse().unwrap())
+                .create_receipt(vec![], vec![], "rick.test".parse::<AccountId>().unwrap())
                 .unwrap();
             gas_limit = gas_limit.saturating_sub(static_gas);
             receipt_manager

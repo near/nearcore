@@ -26,10 +26,10 @@ fn create_transaction() -> SignedTransaction {
     SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
         Transaction {
-            signer_id: "123213123123".parse().unwrap(),
+            signer_id: "123213123123".parse::<AccountId>().unwrap(),
             public_key: PublicKey::empty(KeyType::ED25519),
             nonce: 123,
-            receiver_id: "1231231232131".parse().unwrap(),
+            receiver_id: "1231231232131".parse::<AccountId>().unwrap(),
             block_hash: Default::default(),
             actions,
         },
@@ -47,7 +47,10 @@ fn create_block() -> Block {
         1_000,
         CryptoHash::default(),
     );
-    let signer = InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519);
+    let signer = InMemoryValidatorSigner::from_random(
+        "test".parse::<AccountId>().unwrap(),
+        KeyType::ED25519,
+    );
     Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,

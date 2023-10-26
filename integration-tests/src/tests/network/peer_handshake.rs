@@ -13,6 +13,7 @@ use near_network::PeerManagerActor;
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
+use near_primitives::types::AccountId;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -210,7 +211,7 @@ fn check_connection_with_new_identity() -> anyhow::Result<()> {
     runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
 
     runner.push(Action::Stop(1));
-    runner.push_action(change_account_id(1, "far".parse().unwrap()));
+    runner.push_action(change_account_id(1, "far".parse::<AccountId>().unwrap()));
     runner.push(Action::CheckRoutingTable(0, vec![]));
     runner.push_action(restart(1));
 

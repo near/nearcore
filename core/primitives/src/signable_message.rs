@@ -235,9 +235,9 @@ mod tests {
     // happy path for NEP-366 signature
     #[test]
     fn nep_366_ok() {
-        let sender_id: AccountId = "alice.near".parse().unwrap();
-        let receiver_id: AccountId = "bob.near".parse().unwrap();
-        let signer = create_user_test_signer(&sender_id);
+        let sender_id: AccountId = "alice.near".parse::<AccountId>().unwrap();
+        let receiver_id: AccountId = "bob.near".parse::<AccountId>().unwrap();
+        let signer = create_user_test_signer(sender_id.as_str());
 
         let delegate_action = delegate_action(sender_id, receiver_id, signer.public_key());
         let signable = SignableMessage::new(&delegate_action, SignableMessageType::DelegateAction);
@@ -249,9 +249,9 @@ mod tests {
     // Try to use a wrong nep number in NEP-366 signature verification.
     #[test]
     fn nep_366_wrong_nep() {
-        let sender_id: AccountId = "alice.near".parse().unwrap();
-        let receiver_id: AccountId = "bob.near".parse().unwrap();
-        let signer = create_user_test_signer(&sender_id);
+        let sender_id: AccountId = "alice.near".parse::<AccountId>().unwrap();
+        let receiver_id: AccountId = "bob.near".parse::<AccountId>().unwrap();
+        let signer = create_user_test_signer(sender_id.as_str());
 
         let delegate_action = delegate_action(sender_id, receiver_id, signer.public_key());
         let wrong_nep = 777;
@@ -267,9 +267,9 @@ mod tests {
     // Try to use a wrong message type in NEP-366 signature verification.
     #[test]
     fn nep_366_wrong_msg_type() {
-        let sender_id: AccountId = "alice.near".parse().unwrap();
-        let receiver_id: AccountId = "bob.near".parse().unwrap();
-        let signer = create_user_test_signer(&sender_id);
+        let sender_id: AccountId = "alice.near".parse::<AccountId>().unwrap();
+        let receiver_id: AccountId = "bob.near".parse::<AccountId>().unwrap();
+        let signer = create_user_test_signer(sender_id.as_str());
 
         let delegate_action = delegate_action(sender_id, receiver_id, signer.public_key());
         let correct_nep = 366;

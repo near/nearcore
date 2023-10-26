@@ -457,7 +457,7 @@ mod test {
     use near_crypto::{InMemorySigner, KeyType};
     use near_epoch_manager::EpochManager;
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks};
+    use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, NumBlocks};
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
@@ -468,8 +468,10 @@ mod test {
     use crate::apply_chain_range::apply_chain_range;
 
     fn setup(epoch_length: NumBlocks) -> (Store, Genesis, TestEnv) {
-        let mut genesis =
-            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        let mut genesis = Genesis::test(
+            vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
+            1,
+        );
         genesis.config.num_block_producer_seats = 2;
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
@@ -533,10 +535,14 @@ mod test {
         let epoch_length = 4;
         let (store, genesis, mut env) = setup(epoch_length);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed(
+            "test1".parse::<AccountId>().unwrap(),
+            KeyType::ED25519,
+            "test1",
+        );
         let tx = SignedTransaction::stake(
             1,
-            "test1".parse().unwrap(),
+            "test1".parse::<AccountId>().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
             signer.public_key.clone(),
@@ -575,10 +581,14 @@ mod test {
         let epoch_length = 4;
         let (store, genesis, mut env) = setup(epoch_length);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed(
+            "test1".parse::<AccountId>().unwrap(),
+            KeyType::ED25519,
+            "test1",
+        );
         let tx = SignedTransaction::stake(
             1,
-            "test1".parse().unwrap(),
+            "test1".parse::<AccountId>().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
             signer.public_key.clone(),

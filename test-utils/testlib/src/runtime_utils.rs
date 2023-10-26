@@ -6,20 +6,20 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountId, Balance};
 
 pub fn alice_account() -> AccountId {
-    "alice.near".parse().unwrap()
+    "alice.near".parse::<AccountId>().unwrap()
 }
 pub fn bob_account() -> AccountId {
-    "bob.near".parse().unwrap()
+    "bob.near".parse::<AccountId>().unwrap()
 }
 pub fn carol_account() -> AccountId {
-    "carol.near".parse().unwrap()
+    "carol.near".parse::<AccountId>().unwrap()
 }
 pub fn eve_dot_alice_account() -> AccountId {
-    "eve.alice.near".parse().unwrap()
+    "eve.alice.near".parse::<AccountId>().unwrap()
 }
 
 pub fn x_dot_y_dot_alice_account() -> AccountId {
-    "x.y.alice.near".parse().unwrap()
+    "x.y.alice.near".parse::<AccountId>().unwrap()
 }
 
 /// Pre-deploy in genesis the standard test contract for a given account.

@@ -119,7 +119,7 @@ fn test_view_call() {
     let result = viewer.call_function(
         root,
         view_state,
-        &"test.contract".parse().unwrap(),
+        &"test.contract".parse::<AccountId>().unwrap(),
         "run_test",
         &[],
         &mut logs,
@@ -147,7 +147,7 @@ fn test_view_call_try_changing_storage() {
     let result = viewer.call_function(
         root,
         view_state,
-        &"test.contract".parse().unwrap(),
+        &"test.contract".parse::<AccountId>().unwrap(),
         "run_test_with_storage_change",
         &[],
         &mut logs,
@@ -179,7 +179,7 @@ fn test_view_call_with_args() {
     let view_call_result = viewer.call_function(
         root,
         view_state,
-        &"test.contract".parse().unwrap(),
+        &"test.contract".parse::<AccountId>().unwrap(),
         "sum_with_input",
         &args,
         &mut logs,
@@ -196,7 +196,7 @@ fn assert_view_state(
     want_proof: &[&'static str],
 ) -> ProofVerifier {
     let alice = alice_account();
-    let alina = "alina".parse().unwrap();
+    let alina = "alina".parse::<AccountId>().unwrap();
 
     let values = want_values
         .iter()
@@ -274,11 +274,17 @@ fn test_view_state() {
         b"321".to_vec(),
     );
     state_update.set(
-        TrieKey::ContractData { account_id: "alina".parse().unwrap(), key: b"qqq".to_vec() },
+        TrieKey::ContractData {
+            account_id: "alina".parse::<AccountId>().unwrap(),
+            key: b"qqq".to_vec(),
+        },
         b"321".to_vec(),
     );
     state_update.set(
-        TrieKey::ContractData { account_id: "alex".parse().unwrap(), key: b"qqq".to_vec() },
+        TrieKey::ContractData {
+            account_id: "alex".parse::<AccountId>().unwrap(),
+            key: b"qqq".to_vec(),
+        },
         b"321".to_vec(),
     );
     state_update.commit(StateChangeCause::InitialState);
@@ -401,7 +407,7 @@ fn test_log_when_panic() {
         .call_function(
             root,
             view_state,
-            &"test.contract".parse().unwrap(),
+            &"test.contract".parse::<AccountId>().unwrap(),
             "panic_after_logging",
             &[],
             &mut logs,

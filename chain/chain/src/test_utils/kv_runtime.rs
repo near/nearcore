@@ -131,8 +131,8 @@ struct KVState {
 
 impl MockEpochManager {
     pub fn new(store: Store, epoch_length: u64) -> Arc<Self> {
-        let vs =
-            ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
+        let vs = ValidatorSchedule::new()
+            .block_producers_per_epoch(vec![vec!["test".parse::<AccountId>().unwrap()]]);
         Self::new_with_validators(store, vs, epoch_length)
     }
 

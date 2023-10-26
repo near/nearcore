@@ -5,7 +5,7 @@ use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::migration_data::MigrationData;
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::version::ProtocolFeature;
 use nearcore::config::GenesisExt;
 use nearcore::migrations::load_migration_data;
@@ -25,7 +25,10 @@ fn run_test(
 
     let protocol_version =
         ProtocolFeature::RestoreReceiptsAfterFixApplyChunks.protocol_version() - 1;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let mut genesis = Genesis::test(
+        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
+        1,
+    );
     genesis.config.chain_id = String::from(chain_id);
     genesis.config.epoch_length = EPOCH_LENGTH;
     genesis.config.protocol_version = protocol_version;
@@ -68,7 +71,7 @@ fn run_test(
         }
         set_block_protocol_version(
             &mut block,
-            "test0".parse().unwrap(),
+            "test0".parse::<AccountId>().unwrap(),
             ProtocolFeature::RestoreReceiptsAfterFixApplyChunks.protocol_version(),
         );
 

@@ -150,8 +150,8 @@ mod tests {
     fn create_delegate_action(actions: Vec<Action>) -> Action {
         Action::Delegate(Box::new(SignedDelegateAction {
             delegate_action: DelegateAction {
-                sender_id: "aaa".parse().unwrap(),
-                receiver_id: "bbb".parse().unwrap(),
+                sender_id: "aaa".parse::<AccountId>().unwrap(),
+                receiver_id: "bbb".parse::<AccountId>().unwrap(),
                 actions: actions
                     .iter()
                     .map(|a| NonDelegateAction::try_from(a.clone()).unwrap())

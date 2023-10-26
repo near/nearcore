@@ -10,6 +10,7 @@ use near_client::test_utils::{create_chunk_on_height, TestEnv};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
+use near_primitives::types::AccountId;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
@@ -28,7 +29,10 @@ fn benchmark_large_chunk_production_time() {
     let n_txes = 20;
     let tx_size = 3 * mb;
 
-    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let genesis = Genesis::test(
+        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
+        1,
+    );
     let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)

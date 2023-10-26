@@ -679,7 +679,7 @@ mod tests {
                 gas_burnt: 100,
                 compute_usage: Some(200),
                 tokens_burnt: 2000,
-                executor_id: "someone.near".parse().unwrap(),
+                executor_id: "someone.near".parse::<AccountId>().unwrap(),
                 status: ExecutionStatus::SuccessValue(vec![]),
                 metadata: ExecutionMetadata::default(),
             },

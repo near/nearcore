@@ -727,7 +727,7 @@ impl NearConfig {
         }
 
         let network_signer = InMemorySigner::from_secret_key(
-            "node".parse().unwrap(),
+            "node".parse::<AccountId>().unwrap(),
             self.network_config.node_key.clone(),
         );
         network_signer
@@ -891,7 +891,12 @@ fn generate_or_load_keys(
     account_id: Option<AccountId>,
     test_seed: Option<&str>,
 ) -> anyhow::Result<()> {
-    generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
+    generate_or_load_key(
+        dir,
+        &config.node_key_file,
+        Some("node".parse::<AccountId>().unwrap()),
+        None,
+    )?;
     match chain_id {
         near_primitives::chains::MAINNET
         | near_primitives::chains::TESTNET
@@ -899,7 +904,8 @@ fn generate_or_load_keys(
             generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
         }
         _ => {
-            let account_id = account_id.unwrap_or_else(|| "test.near".parse().unwrap());
+            let account_id =
+                account_id.unwrap_or_else(|| "test.near".parse::<AccountId>().unwrap());
             generate_or_load_key(dir, &config.validator_key_file, Some(account_id), test_seed)?;
         }
     }
@@ -1174,7 +1180,9 @@ pub fn create_testnet_configs_from_seeds(
         seeds.iter().map(|seed| create_test_signer(seed.as_str())).collect::<Vec<_>>();
     let network_signers = seeds
         .iter()
-        .map(|seed| InMemorySigner::from_seed("node".parse().unwrap(), KeyType::ED25519, seed))
+        .map(|seed| {
+            InMemorySigner::from_seed("node".parse::<AccountId>().unwrap(), KeyType::ED25519, seed)
+        })
         .collect::<Vec<_>>();
 
     let shard_layout = ShardLayout::v0(num_shards, 0);
@@ -1477,8 +1485,10 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
     config.consensus.max_block_production_delay =
         Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
     let (signer, validator_signer) = if seed.is_empty() {
-        let signer =
-            Arc::new(InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519));
+        let signer = Arc::new(InMemorySigner::from_random(
+            "node".parse::<AccountId>().unwrap(),
+            KeyType::ED25519,
+        ));
         (signer, None)
     } else {
         let signer =

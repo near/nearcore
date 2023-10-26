@@ -694,7 +694,7 @@ fn stake_action() -> Action {
 
 fn delete_account_action() -> Action {
     Action::DeleteAccount(near_primitives::transaction::DeleteAccountAction {
-        beneficiary_id: "bob.near".parse().unwrap(),
+        beneficiary_id: "bob.near".parse::<AccountId>().unwrap(),
     })
 }
 
