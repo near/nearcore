@@ -1383,10 +1383,11 @@ impl Client {
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), near_chain::Error> {
         println!(
-            "START PROCESS {} HASH = {} MASK = {:?}",
+            "START PROCESS {} HASH = {} MASK = {:?} PV = {}",
             block.header().height(),
             block.header().hash(),
-            block.header().chunk_mask()
+            block.header().chunk_mask(),
+            block.header().latest_protocol_version(),
         );
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 

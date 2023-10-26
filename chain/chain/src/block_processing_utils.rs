@@ -96,7 +96,11 @@ impl BlocksInProcessing {
         preprocess_info: BlockPreprocessInfo,
     ) -> Result<(), AddError> {
         self.add_dry_run(block.hash())?;
-
+        println!(
+            "preprocessed_block {} {}",
+            block.header().height(),
+            block.header().latest_protocol_version()
+        );
         self.preprocessed_blocks.insert(*block.hash(), (block, preprocess_info));
         Ok(())
     }
