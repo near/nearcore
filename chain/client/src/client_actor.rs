@@ -13,14 +13,15 @@ use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
-use crate::sync::adapter::SyncMessage;
+use crate::sync::adapter::{SyncAdapter, SyncMessage};
 use crate::sync::state::{StateSync, StateSyncResult};
 use crate::sync_jobs_actor::{create_sync_job_scheduler, SyncJobsActor};
 use crate::{metrics, StatusResponse};
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
 use actix_rt::ArbiterHandle;
 use chrono::{DateTime, Utc};
-use near_async::messaging::{CanSend, Sender};
+use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::messaging::{CanSend, IntoSender, Sender};
 use near_chain::chain::{
     ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest, BlockCatchUpResponse,
 };
@@ -59,6 +60,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::static_clock::StaticClock;
 use near_primitives::types::BlockHeight;
+use near_primitives::types::ShardId;
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -110,7 +112,7 @@ pub struct ClientActor {
     doomslug_timer_next_attempt: DateTime<Utc>,
     sync_timer_next_attempt: DateTime<Utc>,
     sync_started: bool,
-    state_parts_task_scheduler: Box<dyn Fn(ApplyStatePartsRequest)>,
+    state_sync_adapter: SyncAdapter,
     block_catch_up_scheduler: Box<dyn Fn(BlockCatchUpRequest)>,
     state_split_scheduler: Box<dyn Fn(StateSplitRequest)>,
     state_parts_client_arbiter: Arbiter,
@@ -202,9 +204,7 @@ impl ClientActor {
             doomslug_timer_next_attempt: now,
             sync_timer_next_attempt: now,
             sync_started: false,
-            state_parts_task_scheduler: create_sync_job_scheduler::<ApplyStatePartsRequest>(
-                sync_jobs_actor_addr.clone(),
-            ),
+            state_sync_adapter: SyncAdapter::new(),
             block_catch_up_scheduler: create_sync_job_scheduler::<BlockCatchUpRequest>(
                 sync_jobs_actor_addr.clone(),
             ),
@@ -1131,7 +1131,7 @@ impl ClientActor {
                 self.sync_wait_period(),
                 self.sync_timer_next_attempt,
                 ctx,
-                |act, _| act.run_sync_step(),
+                |act, ctx| act.run_sync_step(ctx),
                 "sync",
             );
 
@@ -1490,15 +1490,43 @@ impl ClientActor {
         Ok(epoch_start_sync_hash)
     }
 
+    fn start_state_sync_actors(&mut self, ctx: &mut Context<ClientActor>, shards: &[ShardId]) {
+        // TODO: Right now we just lazily start them here and never stop them. It would make sense to
+        // start these state sync actors when we recognize that state sync is needed, and then have them
+        // exit when they're done applying their shards' state. Then if in the future we need state sync again,
+        // we would start them again.
+        for shard_id in shards.iter() {
+            if !self.state_sync_adapter.contains(*shard_id) {
+                let self_addr = ctx.address();
+                self.state_sync_adapter.start(
+                    *shard_id,
+                    self_addr.with_auto_span_context().into_sender(),
+                    self.network_adapter.request_sender.clone(),
+                );
+            }
+        }
+    }
+
     /// Runs catchup on repeat, if this client is a validator.
     /// Schedules itself again if it was not ran as response to state parts job result
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
         {
             // An extra scope to limit the lifetime of the span.
             let _span = tracing::debug_span!(target: "client", "catchup").entered();
+            let shards = match self.client.catchup_shards() {
+                Ok(s) => s,
+                Err(err) => {
+                    error!(target: "client", "Error occurred reading catchup shards for the next epoch: {:?}", err);
+                    return;
+                }
+            };
+            self.start_state_sync_actors(ctx, &shards);
+            let state_parts_task_scheduler = |m: ApplyStatePartsRequest| {
+                self.state_sync_adapter.send(m.shard_uid.shard_id(), m.with_span_context());
+            };
             if let Err(err) = self.client.run_catchup(
                 &self.network_info.highest_height_peers,
-                &self.state_parts_task_scheduler,
+                &state_parts_task_scheduler,
                 &self.block_catch_up_scheduler,
                 &self.state_split_scheduler,
                 self.get_apply_chunks_done_callback(),
@@ -1560,7 +1588,7 @@ impl ClientActor {
     /// Main syncing job responsible for syncing client with other peers.
     /// Runs itself iff it was not ran as reaction for message with results of
     /// finishing state part job
-    fn run_sync_step(&mut self) {
+    fn run_sync_step(&mut self, ctx: &mut Context<ClientActor>) {
         let _span = tracing::debug_span!(target: "client", "run_sync_step").entered();
 
         macro_rules! unwrap_and_report (($obj: expr) => (match $obj {
@@ -1637,26 +1665,19 @@ impl ClientActor {
                             self.client.sync_status = SyncStatus::StateSync(s);
                         }
                     };
-                    let state_sync_status = match &mut self.client.sync_status {
-                        SyncStatus::StateSync(s) => s,
+                    let sync_hash = match &self.client.sync_status {
+                        SyncStatus::StateSync(s) => s.sync_hash,
                         _ => unreachable!(),
                     };
 
                     let me =
                         self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-                    let block_header = unwrap_and_report!(self
-                        .client
-                        .chain
-                        .get_block_header(&state_sync_status.sync_hash));
+                    let block_header =
+                        unwrap_and_report!(self.client.chain.get_block_header(&sync_hash));
                     let prev_hash = *block_header.prev_hash();
-                    let epoch_id = self
-                        .client
-                        .chain
-                        .get_block_header(&state_sync_status.sync_hash)
-                        .unwrap()
-                        .epoch_id()
-                        .clone();
-                    let shards_to_sync =
+                    let epoch_id =
+                        self.client.chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
+                    let shards_to_sync: Vec<_> =
                         (0..self.client.epoch_manager.num_shards(&epoch_id).unwrap())
                             .filter(|x| {
                                 cares_about_shard_this_or_next_epoch(
@@ -1668,7 +1689,16 @@ impl ClientActor {
                                 )
                             })
                             .collect();
-
+                    self.start_state_sync_actors(ctx, &shards_to_sync);
+                    // This is just a temporary measure to fit the existing signature of StateSync::run(),
+                    // and in the future this can be done in a more direct way.
+                    let state_parts_task_scheduler = |m: ApplyStatePartsRequest| {
+                        self.state_sync_adapter.send(m.shard_uid.shard_id(), m.with_span_context());
+                    };
+                    let state_sync_status = match &mut self.client.sync_status {
+                        SyncStatus::StateSync(s) => s,
+                        _ => unreachable!(),
+                    };
                     let use_colour =
                         matches!(self.client.config.log_summary_style, LogSummaryStyle::Colored);
                     match unwrap_and_report!(self.client.state_sync.run(
@@ -1679,7 +1709,7 @@ impl ClientActor {
                         self.client.epoch_manager.as_ref(),
                         &self.network_info.highest_height_peers,
                         shards_to_sync,
-                        &self.state_parts_task_scheduler,
+                        &state_parts_task_scheduler,
                         &self.state_split_scheduler,
                         &self.state_parts_client_arbiter.handle(),
                         use_colour,

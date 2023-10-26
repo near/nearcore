@@ -1,4 +1,4 @@
-use near_store::ShardUId;
+use near_primitives::types::ShardId;
 
 /// State sync response from peers.
 #[derive(actix::Message, Debug)]
@@ -13,5 +13,5 @@ pub enum StateSyncResponse {
 /// actors.
 #[async_trait::async_trait]
 pub trait StateSync: Send + Sync + 'static {
-    async fn send(&mut self, shard_uid: ShardUId, msg: StateSyncResponse);
+    async fn send(&mut self, shard_uid: ShardId, msg: StateSyncResponse);
 }
