@@ -2681,7 +2681,7 @@ fn test_block_execution_outcomes() {
         tx_hashes.push(tx.get_hash());
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
-    for i in 1..5 {
+    for i in 1..4 {
         env.produce_block(0, i);
     }
 
