@@ -1276,6 +1276,11 @@ impl Client {
         }
 
         let prev_hash = *block.header().prev_hash();
+        println!(
+            "receive_block_impl {} {}",
+            block.header().height(),
+            block.header().latest_protocol_version()
+        );
         let block = block.into();
         self.verify_and_rebroadcast_block(&block, was_requested, &peer_id)?;
         let provenance =

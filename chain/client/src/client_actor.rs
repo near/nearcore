@@ -1263,6 +1263,11 @@ impl ClientActor {
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
         if let Some(block) = self.client.produce_block(next_height)? {
+            println!(
+                "produce_block {} {}",
+                block.header().height(),
+                block.header().latest_protocol_version()
+            );
             // If we produced the block, send it out before we apply the block.
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Block { block: block.clone() },
