@@ -230,7 +230,10 @@ pub trait ChainStoreAccess {
         let target_shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash)?;
         let delayed_chunk_execution =
             ProtocolFeature::DelayChunkExecution.protocol_version() == 200;
-
+        if !delayed_chunk_execution {
+            let header = self.get_block_header(&block_hash)?;
+            block_hash = header.prev_hash().clone();
+        }
         loop {
             let header = self.get_block_header(&block_hash)?;
 
