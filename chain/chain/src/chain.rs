@@ -13,7 +13,7 @@ use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplySplitStateResultOrStateChanges,
     ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader, BlockStatus, ChainConfig,
-    ChainGenesis, Provenance, RuntimeAdapter,
+    ChainGenesis, Provenance, RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -888,7 +888,7 @@ impl Chain {
 
         self.runtime_adapter.apply_transactions(
             shard_id,
-            &prev_state_root,
+            RuntimeStorageConfig::new(prev_state_root, true),
             block_height,
             block_timestamp,
             prev_block_hash,
@@ -902,8 +902,6 @@ impl Chain {
             random_seed,
             true,
             is_first_block_with_chunk_of_version,
-            Default::default(),
-            true,
         )
     }
 
@@ -4116,9 +4114,16 @@ impl Chain {
                 shard_id)
             .entered();
             let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
+            let storage_config = RuntimeStorageConfig {
+                state_root: *chunk_inner.prev_state_root(),
+                use_flat_storage: true,
+                source: crate::types::StorageDataSource::Db,
+                state_patch,
+                record_storage: false,
+            };
             match runtime.apply_transactions(
                 shard_id,
-                chunk_inner.prev_state_root(),
+                storage_config,
                 height,
                 block_timestamp,
                 &prev_block_hash,
@@ -4132,8 +4137,6 @@ impl Chain {
                 random_seed,
                 true,
                 is_first_block_with_chunk_of_version,
-                state_patch,
-                true,
             ) {
                 Ok(apply_result) => {
                     let apply_split_result_or_state_changes = if will_shard_layout_change {
@@ -4198,9 +4201,16 @@ impl Chain {
                 "existing_chunk",
                 shard_id)
             .entered();
+            let storage_config = RuntimeStorageConfig {
+                state_root: *new_extra.state_root(),
+                use_flat_storage: true,
+                source: crate::types::StorageDataSource::Db,
+                state_patch,
+                record_storage: false,
+            };
             match runtime.apply_transactions(
                 shard_id,
-                new_extra.state_root(),
+                storage_config,
                 height,
                 block_timestamp,
                 &prev_block_hash,
@@ -4214,8 +4224,6 @@ impl Chain {
                 random_seed,
                 false,
                 false,
-                state_patch,
-                true,
             ) {
                 Ok(apply_result) => {
                     let apply_split_result_or_state_changes = if will_shard_layout_change {
@@ -5758,7 +5766,7 @@ impl<'a> ChainUpdate<'a> {
 
         let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
-            &chunk_header.prev_state_root(),
+            RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
             chunk_header.height_included(),
             block_header.raw_timestamp(),
             &chunk_header.prev_block_hash(),
@@ -5772,8 +5780,6 @@ impl<'a> ChainUpdate<'a> {
             *block_header.random_value(),
             true,
             is_first_block_with_chunk_of_version,
-            Default::default(),
-            true,
         )?;
 
         let (outcome_root, outcome_proofs) =
@@ -5853,7 +5859,7 @@ impl<'a> ChainUpdate<'a> {
 
         let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
-            chunk_extra.state_root(),
+            RuntimeStorageConfig::new(*chunk_extra.state_root(), true),
             block_header.height(),
             block_header.raw_timestamp(),
             prev_block_header.hash(),
@@ -5867,8 +5873,6 @@ impl<'a> ChainUpdate<'a> {
             *block_header.random_value(),
             false,
             false,
-            Default::default(),
-            true,
         )?;
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         let store_update = flat_storage_manager.save_flat_state_changes(
