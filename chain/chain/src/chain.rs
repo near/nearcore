@@ -5634,8 +5634,8 @@ impl<'a> ChainUpdate<'a> {
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
                 let store_update = flat_storage_manager.save_flat_state_changes(
                     *block.hash(),
-                    *block.prev_hash(),
-                    block.height(),
+                    *block.header().prev_hash(),
+                    block.header().height(),
                     shard_uid,
                     &[],
                 )?;
