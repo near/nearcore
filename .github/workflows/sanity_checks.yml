@@ -1,0 +1,50 @@
+name: Sanity checks
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+  merge_group:
+
+jobs:
+  sanity_checks:
+    runs-on: ubuntu-22.04-16core
+    strategy:
+      fail-fast: false
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v2
+      - run: cargo build -p neard --bin neard --features nightly
+      - name: run spin_up_cluster.py
+        # Note: We're not running spin_up_cluster.py for non-nightly
+        # because spinning up non-nightly clusters is already covered
+        # by other steps in the CI, e.g. upgradable.
+        run: |
+          cd pytest
+          python3 -m pip install --progress-bar off --user -r requirements.txt
+          python3 tests/sanity/spin_up_cluster.py
+
+      - run: cargo build -p neard --bin neard
+      - run: python3 scripts/state/update_res.py check
+
+      - run: python3 scripts/check_nightly.py
+      - run: python3 scripts/check_pytests.py
+      - run: python3 scripts/check_fuzzing.py
+
+      - run: python3 scripts/fix_nightly_feature_flags.py
+
+      - run: ./scripts/formatting --check
+
+      - name: check rpc_errors_schema.json
+      - run: |
+        rm -f target/rpc_errors_schema.json
+        cargo check -p near-jsonrpc --features dump_errors_schema
+        if ! git --no-pager diff --no-index chain/jsonrpc/res/rpc_errors_schema.json target/rpc_errors_schema.json; then
+            set +x
+            echo 'The RPC errors schema reflects outdated typing structure; please run'
+            echo '    ./chain/jsonrpc/build_errors_schema.sh'
+            exit 1
+        fi >&2
