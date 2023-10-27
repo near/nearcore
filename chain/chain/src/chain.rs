@@ -3905,10 +3905,14 @@ impl Chain {
         let epoch_manager = self.epoch_manager.clone();
         let runtime = self.runtime_adapter.clone();
         println!("get a job");
+        // should give the same result btw
+
+        // let outgoing_receipts = ;
+
         let maybe_job = self.get_apply_chunk_job_new_chunk(
             block,
             &prev_block,
-            None, // sorry, not produced yet
+            None,
             &block.chunks()[shard_id],
             prev_block.chunks()[shard_id].height_included(),
             shard_uid,
@@ -3918,6 +3922,7 @@ impl Chain {
             runtime.clone(),
             epoch_manager,
             None, // ??
+            true,
         )?;
         // let maybe_job = self.get_apply_chunk_job(
         //     me,
@@ -4368,6 +4373,8 @@ impl Chain {
         prev_block: &Block,
         // provided in case of stateless validation
         next_chunk_header: Option<ShardChunkHeader>,
+        // next_outgoing_receipts for stateless validation
+        // outgoing_receipts: Vec<Receipt>,
         chunk_header: &ShardChunkHeader,
         prev_chunk_height_included: BlockHeight,
         shard_uid: ShardUId,
@@ -4395,15 +4402,19 @@ impl Chain {
 
         let next_chunk =
             next_chunk_header.as_ref().map(|header| self.get_chunk_clone_from_header(header));
-
-        // should give the same result btw
-        let outgoing_receipts = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
-            next_chunk.map(|chunk| chunk.unwrap().prev_outgoing_receipts().to_vec())
+        let outgoing_receipts = if let Some(Ok(chunk)) = next_chunk {
+            // if we validate by next existing chunk header
+            Some(chunk.prev_outgoing_receipts().to_vec())
+            // next_chunk.map(|chunk| chunk.unwrap().prev_outgoing_receipts().to_vec())
+        } else if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+            // if we are producer, so outgoing receipts are not generated yet
+            None
         } else {
+            // if we are in non-delayed world and want to execute outgoing receipts here
             Some(self.get_outgoing_receipts_for_shard(
-                prev_hash.clone(),
-                chunk_header.shard_id(),
-                prev_chunk_height_included,
+                *block.hash(),
+                shard_id as ShardId,
+                prev_block.chunks()[shard_id].height_included(),
             )?)
         };
 
