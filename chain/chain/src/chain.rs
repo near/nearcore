@@ -5821,16 +5821,12 @@ impl<'a> ChainUpdate<'a> {
                 apply_split_result_or_state_changes,
             }) => {
                 let new_block_hash = apply_result.trie_changes.block_hash.clone();
-                let (fs_hash, block_hash, block) = if &new_block_hash == block_hash {
-                    (block_hash.clone(), block_hash, block.clone())
+                let fs_header = block.header();
+                let (block_hash, block) = if &new_block_hash == block_hash {
+                    (block_hash, block.clone())
                 } else {
-                    (
-                        block_hash.clone(),
-                        &new_block_hash,
-                        self.chain_store_update.get_block(&new_block_hash)?,
-                    )
+                    (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
                 };
-                let fs_header = self.chain_store_update.get_block_header(&fs_hash)?;
                 let prev_hash = block.header().prev_hash();
                 let height = block.header().height();
                 println!("process_apply_chunk_result NEW SAME: {block_hash} {prev_hash} {height}");
@@ -5889,16 +5885,12 @@ impl<'a> ChainUpdate<'a> {
                 apply_split_result_or_state_changes,
             }) => {
                 let new_block_hash = apply_result.trie_changes.block_hash.clone();
-                let (fs_hash, block_hash, block) = if &new_block_hash == block_hash {
-                    (block_hash.clone(), block_hash, block.clone())
+                let fs_header = block.header();
+                let (block_hash, block) = if &new_block_hash == block_hash {
+                    (block_hash, block.clone())
                 } else {
-                    (
-                        block_hash.clone(),
-                        &new_block_hash,
-                        self.chain_store_update.get_block(&new_block_hash)?,
-                    )
+                    (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
                 };
-                let fs_header = self.chain_store_update.get_block_header(&fs_hash)?;
                 let prev_hash = block.header().prev_hash();
                 let height = block.header().height();
                 println!("process_apply_chunk_result NEW DIFF: {block_hash} {prev_hash} {height}");
