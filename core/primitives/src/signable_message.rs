@@ -237,7 +237,7 @@ mod tests {
     fn nep_366_ok() {
         let sender_id: AccountId = "alice.near".parse().unwrap();
         let receiver_id: AccountId = "bob.near".parse().unwrap();
-        let signer = create_user_test_signer(&sender_id);
+        let signer = create_user_test_signer(sender_id.as_ref());
 
         let delegate_action = delegate_action(sender_id, receiver_id, signer.public_key());
         let signable = SignableMessage::new(&delegate_action, SignableMessageType::DelegateAction);
@@ -251,7 +251,7 @@ mod tests {
     fn nep_366_wrong_nep() {
         let sender_id: AccountId = "alice.near".parse().unwrap();
         let receiver_id: AccountId = "bob.near".parse().unwrap();
-        let signer = create_user_test_signer(&sender_id);
+        let signer = create_user_test_signer(sender_id.as_ref());
 
         let delegate_action = delegate_action(sender_id, receiver_id, signer.public_key());
         let wrong_nep = 777;
@@ -269,7 +269,7 @@ mod tests {
     fn nep_366_wrong_msg_type() {
         let sender_id: AccountId = "alice.near".parse().unwrap();
         let receiver_id: AccountId = "bob.near".parse().unwrap();
-        let signer = create_user_test_signer(&sender_id);
+        let signer = create_user_test_signer(sender_id.as_ref());
 
         let delegate_action = delegate_action(sender_id, receiver_id, signer.public_key());
         let correct_nep = 366;
