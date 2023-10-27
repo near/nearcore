@@ -5615,8 +5615,32 @@ impl<'a> ChainUpdate<'a> {
         apply_results: Vec<ApplyChunkResult>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing").entered();
+        // another hack for flat storage.
+        let mut shard_uids: HashSet<_> = (0..block.chunks().len())
+            .into_iter()
+            .map(|shard_id| {
+                self.epoch_manager
+                    .shard_id_to_uid(shard_id as ShardId, block.header().epoch_id())?
+            })
+            .collect();
         for result in apply_results {
-            self.process_apply_chunk_result(block, result)?
+            let shard_uid = self.process_apply_chunk_result(block, result)?;
+            shard_uids.remove(&shard_uid);
+        }
+        let prev_hash = block.header().prev_hash();
+        let prev_prev_hash = self.chain_store_update.get_block_header(prev_hash)?.prev_hash();
+        if prev_prev_hash == &CryptoHash::default() {
+            for shard_uid in shard_uids.into_iter() {
+                let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+                let store_update = flat_storage_manager.save_flat_state_changes(
+                    *block.hash(),
+                    *block.prev_hash(),
+                    block.height(),
+                    shard_uid,
+                    &[],
+                )?;
+                self.chain_store_update.merge(store_update);
+            }
         }
         Ok(())
     }
@@ -5808,12 +5832,12 @@ impl<'a> ChainUpdate<'a> {
         &mut self,
         block: &Block,
         result: ApplyChunkResult,
-    ) -> Result<(), Error> {
+    ) -> Result<ShardUId, Error> {
         let block_hash = block.hash();
         let prev_hash = block.header().prev_hash();
         let height = block.header().height();
         println!("process_apply_chunk_result ORIG: {block_hash} {prev_hash} {height}");
-        match result {
+        let shard_uid = match result {
             ApplyChunkResult::SameHeight(SameHeightResult {
                 gas_limit,
                 shard_uid,
@@ -5878,6 +5902,7 @@ impl<'a> ChainUpdate<'a> {
                 if let Some(apply_results_or_state_changes) = apply_split_result_or_state_changes {
                     self.process_split_state(&block, &shard_uid, apply_results_or_state_changes)?;
                 }
+                shard_uid
             }
             ApplyChunkResult::DifferentHeight(DifferentHeightResult {
                 shard_uid,
@@ -5919,6 +5944,7 @@ impl<'a> ChainUpdate<'a> {
                 if let Some(apply_results_or_state_changes) = apply_split_result_or_state_changes {
                     self.process_split_state(&block, &shard_uid, apply_results_or_state_changes)?;
                 }
+                shard_uid
             }
             ApplyChunkResult::SplitState(SplitStateResult { shard_uid, results }) => {
                 self.chain_store_update
@@ -5928,9 +5954,10 @@ impl<'a> ChainUpdate<'a> {
                     &shard_uid,
                     ApplySplitStateResultOrStateChanges::ApplySplitStateResults(results),
                 )?;
+                shard_uid
             }
         };
-        Ok(())
+        Ok(shard_uid)
     }
 
     /// This is the last step of process_block_single, where we take the preprocess block info
