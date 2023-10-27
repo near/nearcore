@@ -15,9 +15,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04-8core
+          - os: ubuntu-22.04-16core
             flags: ""
-          - os: ubuntu-22.04-8core
+          - os: ubuntu-22.04-16core
             flags: "--features nightly,test_features"
           - os: macos-latest-xlarge
             # FIXME: some of these tests don't work very well on MacOS at the moment. Should fix
