@@ -578,6 +578,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: StateRoot,
         use_flat_storage: bool,
     ) -> Result<Trie, Error> {
+        println!("get_trie_for_shard {prev_hash}")
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
         if use_flat_storage {
             Ok(self

@@ -3901,7 +3901,7 @@ impl Chain {
         }
 
         let prev_block = self.get_block(prev_hash)?;
-
+        println!("prev_block_height {}", prev_block.header().height());
         let epoch_manager = self.epoch_manager.clone();
         let runtime = self.runtime_adapter.clone();
         println!("get a job");
