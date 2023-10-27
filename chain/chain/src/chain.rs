@@ -6030,9 +6030,11 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.get_block_header(last_final_block)?.height()
         };
 
-        let epoch_manager_update = self
-            .epoch_manager
-            .add_validator_proposals(BlockHeaderInfo::new(block.header(), last_finalized_height))?;
+        let block_with_info =
+            self.chain_store_update.get_block_header(block.header().prev_hash())?; // block.header();
+        let epoch_manager_update = self.epoch_manager.add_validator_proposals(
+            BlockHeaderInfo::new(&block_with_info, last_finalized_height),
+        )?;
         self.chain_store_update.merge(epoch_manager_update);
 
         #[cfg(feature = "new_epoch_sync")]
