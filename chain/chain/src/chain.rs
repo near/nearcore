@@ -5620,7 +5620,8 @@ impl<'a> ChainUpdate<'a> {
             .into_iter()
             .map(|shard_id| {
                 self.epoch_manager
-                    .shard_id_to_uid(shard_id as ShardId, block.header().epoch_id())?
+                    .shard_id_to_uid(shard_id as ShardId, block.header().epoch_id())
+                    .unwrap()
             })
             .collect();
         for result in apply_results {
