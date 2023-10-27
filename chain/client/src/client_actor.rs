@@ -1004,7 +1004,7 @@ impl ClientActor {
             let validator_id = validator_signer.validator_id().clone();
             let block = self.client.chain.get_block(&head.last_block_hash).unwrap();
             if head.prev_block_hash == CryptoHash::default()
-                && ProtocolFeature::DelayChunkExecution.protocol_version() == 20
+                && ProtocolFeature::DelayChunkExecution.protocol_version() == 200
             {
                 self.client.produce_chunks(&block, validator_id);
             }
@@ -1917,7 +1917,7 @@ pub fn start_client(
     //     let tip = client.chain.head().unwrap();
     //     let block = client.chain.get_block(&tip.last_block_hash).unwrap();
     //     if tip.prev_block_hash == CryptoHash::default()
-    //         && ProtocolFeature::DelayChunkExecution.protocol_version() == 20
+    //         && ProtocolFeature::DelayChunkExecution.protocol_version() == 200
     //     {
     //         client.produce_chunks(&block, validator_id);
     //     }

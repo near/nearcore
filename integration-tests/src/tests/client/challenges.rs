@@ -84,7 +84,7 @@ fn test_invalid_chunk_state() {
         .build();
     env.produce_block(0, 1);
     let block_hash = env.clients[0].chain.get_block_hash_by_height(1).unwrap();
-    let next_height = if ProtocolFeature::DelayChunkExecution.protocol_version() == 20 {
+    let next_height = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
         env.produce_block(0, 2);
         3
     } else {
