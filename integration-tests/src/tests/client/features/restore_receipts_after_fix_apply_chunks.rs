@@ -132,7 +132,7 @@ fn test_first_chunk_in_epoch_missing() {
 #[test]
 fn test_all_chunks_in_epoch_missing() {
     // If all chunks are missing in the first epoch, no receipts should be applied
-    run_test(near_primitives::chains::MAINNET, 11, 11 + EPOCH_LENGTH, false);
+    run_test(near_primitives::chains::MAINNET, 11, 11 + EPOCH_LENGTH + 2, false);
 }
 
 #[test]
