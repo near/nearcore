@@ -4,7 +4,10 @@ use crate::NearConfig;
 
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
-use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter, Tip};
+use near_chain::types::{
+    ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter, RuntimeStorageConfig,
+    StorageDataSource, Tip,
+};
 use near_chain::Error;
 use near_chain_configs::{
     GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, MIN_GC_NUM_EPOCHS_TO_KEEP,
@@ -42,7 +45,7 @@ use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
 use near_store::{
-    ApplyStatePartResult, DBCol, PartialStorage, ShardTries, StateSnapshotConfig, Store,
+    ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store,
     StoreCompiledContractCache, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_runner::logic::CompiledContractCache;
@@ -794,10 +797,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn apply_transactions_with_optional_storage_proof(
+    fn apply_transactions(
         &self,
         shard_id: ShardId,
-        state_root: &StateRoot,
+        storage_config: RuntimeStorageConfig,
         height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
@@ -809,20 +812,29 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_limit: Gas,
         challenges: &ChallengesResult,
         random_seed: CryptoHash,
-        generate_storage_proof: bool,
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
-        states_to_patch: SandboxStatePatch,
-        use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
-        let trie =
-            self.get_trie_for_shard(shard_id, prev_block_hash, *state_root, use_flat_storage)?;
+        let _timer =
+            metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
 
-        // TODO (#6316): support chunk nodes caching for TrieRecordingStorage
-        if generate_storage_proof {
-            panic!("Storage proof generation is not enabled yet");
+        let mut trie = match storage_config.source {
+            StorageDataSource::Db => self.get_trie_for_shard(
+                shard_id,
+                prev_block_hash,
+                storage_config.state_root,
+                storage_config.use_flat_storage,
+            )?,
+            StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
+                storage,
+                storage_config.state_root,
+                storage_config.use_flat_storage,
+            ),
+        };
+        if storage_config.record_storage {
+            trie = trie.recording_reads();
         }
-        // let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
+
         match self.process_state_update(
             trie,
             shard_id,
@@ -839,7 +851,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             random_seed,
             is_new_chunk,
             is_first_block_with_chunk_of_version,
-            states_to_patch,
+            storage_config.state_patch,
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e {
@@ -850,46 +862,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                 _ => Err(e),
             },
         }
-    }
-
-    fn check_state_transition(
-        &self,
-        partial_storage: PartialStorage,
-        shard_id: ShardId,
-        state_root: &StateRoot,
-        height: BlockHeight,
-        block_timestamp: u64,
-        prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
-        receipts: &[Receipt],
-        transactions: &[SignedTransaction],
-        last_validator_proposals: ValidatorStakeIter,
-        gas_price: Balance,
-        gas_limit: Gas,
-        challenges: &ChallengesResult,
-        random_value: CryptoHash,
-        is_new_chunk: bool,
-        is_first_block_with_chunk_of_version: bool,
-    ) -> Result<ApplyTransactionResult, Error> {
-        let trie = Trie::from_recorded_storage(partial_storage, *state_root, true);
-        self.process_state_update(
-            trie,
-            shard_id,
-            height,
-            block_hash,
-            block_timestamp,
-            prev_block_hash,
-            receipts,
-            transactions,
-            last_validator_proposals,
-            gas_price,
-            gas_limit,
-            challenges,
-            random_value,
-            is_new_chunk,
-            is_first_block_with_chunk_of_version,
-            Default::default(),
-        )
     }
 
     fn query(
@@ -1324,6 +1296,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 mod test {
     use std::collections::BTreeSet;
 
+    use near_chain::types::RuntimeStorageConfig;
     use near_chain::{Chain, ChainGenesis};
     use near_epoch_manager::types::BlockHeaderInfo;
     use near_epoch_manager::EpochManager;
@@ -1392,7 +1365,7 @@ mod test {
             let mut result = self
                 .apply_transactions(
                     shard_id,
-                    state_root,
+                    RuntimeStorageConfig::new(*state_root, true),
                     height,
                     block_timestamp,
                     prev_block_hash,
@@ -1406,8 +1379,6 @@ mod test {
                     CryptoHash::default(),
                     true,
                     false,
-                    Default::default(),
-                    true,
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();

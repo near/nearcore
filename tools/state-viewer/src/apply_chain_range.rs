@@ -1,6 +1,6 @@
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
-use near_chain::types::{ApplyTransactionResult, RuntimeAdapter};
+use near_chain::types::{ApplyTransactionResult, RuntimeAdapter, RuntimeStorageConfig};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_configs::Genesis;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
@@ -229,7 +229,7 @@ fn apply_block_from_range(
         runtime_adapter
             .apply_transactions(
                 shard_id,
-                chunk_inner.prev_state_root(),
+                RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
                 height,
                 block.header().raw_timestamp(),
                 block.header().prev_hash(),
@@ -243,8 +243,6 @@ fn apply_block_from_range(
                 *block.header().random_value(),
                 true,
                 is_first_block_with_chunk_of_version,
-                Default::default(),
-                use_flat_storage,
             )
             .unwrap()
     } else {
@@ -256,7 +254,7 @@ fn apply_block_from_range(
         runtime_adapter
             .apply_transactions(
                 shard_id,
-                chunk_extra.state_root(),
+                RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
                 block.header().height(),
                 block.header().raw_timestamp(),
                 block.header().prev_hash(),
@@ -270,8 +268,6 @@ fn apply_block_from_range(
                 *block.header().random_value(),
                 false,
                 false,
-                Default::default(),
-                use_flat_storage,
             )
             .unwrap()
     };

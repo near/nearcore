@@ -8,7 +8,6 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_store::flat::FlatStorageManager;
 use num_rational::Rational32;
 
-use crate::metrics;
 use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
 use near_pool::types::PoolIterator;
@@ -241,6 +240,31 @@ impl ChainGenesis {
     }
 }
 
+pub enum StorageDataSource {
+    Db,
+    Recorded(PartialStorage),
+}
+
+pub struct RuntimeStorageConfig {
+    pub state_root: StateRoot,
+    pub use_flat_storage: bool,
+    pub source: StorageDataSource,
+    pub state_patch: SandboxStatePatch,
+    pub record_storage: bool,
+}
+
+impl RuntimeStorageConfig {
+    pub fn new(state_root: StateRoot, use_flat_storage: bool) -> Self {
+        Self {
+            state_root,
+            use_flat_storage,
+            source: StorageDataSource::Db,
+            state_patch: Default::default(),
+            record_storage: false,
+        }
+    }
+}
+
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
@@ -321,7 +345,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn apply_transactions(
         &self,
         shard_id: ShardId,
-        state_root: &StateRoot,
+        storage: RuntimeStorageConfig,
         height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
@@ -333,73 +357,6 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
-        is_new_chunk: bool,
-        is_first_block_with_chunk_of_version: bool,
-        state_patch: SandboxStatePatch,
-        use_flat_storage: bool,
-    ) -> Result<ApplyTransactionResult, Error> {
-        let _timer =
-            metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
-        self.apply_transactions_with_optional_storage_proof(
-            shard_id,
-            state_root,
-            height,
-            block_timestamp,
-            prev_block_hash,
-            block_hash,
-            receipts,
-            transactions,
-            last_validator_proposals,
-            gas_price,
-            gas_limit,
-            challenges_result,
-            random_seed,
-            false,
-            is_new_chunk,
-            is_first_block_with_chunk_of_version,
-            state_patch,
-            use_flat_storage,
-        )
-    }
-
-    fn apply_transactions_with_optional_storage_proof(
-        &self,
-        shard_id: ShardId,
-        state_root: &StateRoot,
-        height: BlockHeight,
-        block_timestamp: u64,
-        prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
-        receipts: &[Receipt],
-        transactions: &[SignedTransaction],
-        last_validator_proposals: ValidatorStakeIter,
-        gas_price: Balance,
-        gas_limit: Gas,
-        challenges_result: &ChallengesResult,
-        random_seed: CryptoHash,
-        generate_storage_proof: bool,
-        is_new_chunk: bool,
-        is_first_block_with_chunk_of_version: bool,
-        state_patch: SandboxStatePatch,
-        use_flat_storage: bool,
-    ) -> Result<ApplyTransactionResult, Error>;
-
-    fn check_state_transition(
-        &self,
-        partial_storage: PartialStorage,
-        shard_id: ShardId,
-        state_root: &StateRoot,
-        height: BlockHeight,
-        block_timestamp: u64,
-        prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
-        receipts: &[Receipt],
-        transactions: &[SignedTransaction],
-        last_validator_proposals: ValidatorStakeIter,
-        gas_price: Balance,
-        gas_limit: Gas,
-        challenges_result: &ChallengesResult,
-        random_value: CryptoHash,
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error>;
