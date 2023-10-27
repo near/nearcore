@@ -52,12 +52,7 @@ decl_test_bytes!(
     ctx,
     ctx.current_account_id.as_bytes()
 );
-decl_test_bytes!(
-    test_signer_account_id,
-    signer_account_id,
-    ctx,
-    ctx.signer_account_id.as_bytes()
-);
+decl_test_bytes!(test_signer_account_id, signer_account_id, ctx, ctx.signer_account_id.as_bytes());
 decl_test_bytes!(
     test_predecessor_account_id,
     predecessor_account_id,
