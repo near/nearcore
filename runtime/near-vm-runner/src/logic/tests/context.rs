@@ -50,19 +50,19 @@ decl_test_bytes!(
     test_current_account_id,
     current_account_id,
     ctx,
-    ctx.current_account_id.as_ref().as_bytes()
+    ctx.current_account_id.as_bytes()
 );
 decl_test_bytes!(
     test_signer_account_id,
     signer_account_id,
     ctx,
-    ctx.signer_account_id.as_ref().as_bytes()
+    ctx.signer_account_id.as_bytes()
 );
 decl_test_bytes!(
     test_predecessor_account_id,
     predecessor_account_id,
     ctx,
-    ctx.predecessor_account_id.as_ref().as_bytes()
+    ctx.predecessor_account_id.as_bytes()
 );
 decl_test_bytes!(test_signer_account_pk, signer_account_pk, ctx, ctx.signer_account_pk);
 
