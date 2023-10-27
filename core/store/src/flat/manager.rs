@@ -141,6 +141,7 @@ impl FlatStorageManager {
         shard_uid: ShardUId,
         state_changes: &[RawStateChangesWithTrieKey],
     ) -> Result<StoreUpdate, StorageError> {
+        println!("optimistic_delta_save {prev_hash} {block_hash} {height}");
         let prev_block_with_changes = if state_changes.is_empty() {
             // The current block has no flat state changes.
             // Find the last block with flat state changes by looking it up in
@@ -166,6 +167,7 @@ impl FlatStorageManager {
         };
 
         let store_update = if let Some(flat_storage) = self.get_flat_storage_for_shard(shard_uid) {
+            println!("pessimistic_delta_save {prev_hash} {block_hash} {height}");
             // If flat storage exists, we add a block to it.
             flat_storage.add_delta(delta).map_err(|e| StorageError::from(e))?
         } else {

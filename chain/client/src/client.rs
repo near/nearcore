@@ -792,30 +792,28 @@ impl Client {
         let _span = tracing::debug_span!(target: "client", "produce_chunk", next_height, shard_id, ?epoch_id).entered();
 
         let prev_block_hash = prev_block.hash();
-        let (outgoing_receipts, chunk_extra) = if ProtocolFeature::DelayChunkExecution
-            .protocol_version()
-            == 200
-        {
-            let me = match &self.validator_signer {
-                Some(validator_signer) => Some(validator_signer.validator_id().clone()),
-                None => None,
+        let (outgoing_receipts, chunk_extra) =
+            if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+                let me = match &self.validator_signer {
+                    Some(validator_signer) => Some(validator_signer.validator_id().clone()),
+                    None => None,
+                };
+                let result =
+                    self.chain.apply_prev_chunk_before_production(prev_block, shard_id as usize);
+                result? // ideally ApplyChunkResult and state witness must be taken here
+            } else {
+                let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
+                (
+                    self.chain.get_outgoing_receipts_for_shard(
+                        *prev_block_hash,
+                        shard_id,
+                        last_header.height_included(),
+                    )?,
+                    self.chain.get_chunk_extra(&prev_block_hash, &shard_uid).map_err(|err| {
+                        Error::ChunkProducer(format!("No chunk extra available: {}", err))
+                    })?,
+                )
             };
-            let result =
-                self.chain.apply_prev_chunk_before_production(&me, prev_block, shard_id as usize);
-            result? // ideally ApplyChunkResult and state witness must be taken here
-        } else {
-            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
-            (
-                self.chain.get_outgoing_receipts_for_shard(
-                    *prev_block_hash,
-                    shard_id,
-                    last_header.height_included(),
-                )?,
-                self.chain.get_chunk_extra(&prev_block_hash, &shard_uid).map_err(|err| {
-                    Error::ChunkProducer(format!("No chunk extra available: {}", err))
-                })?,
-            )
-        };
 
         let validator_signer = self
             .validator_signer

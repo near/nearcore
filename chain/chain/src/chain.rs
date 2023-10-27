@@ -2427,13 +2427,14 @@ impl Chain {
                 let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
                 // let prev_block = self.get_block(block.header().prev_hash())?;
-                let mut new_flat_head = *block.chunks()[shard_id as usize].prev_block_hash();
-                if new_flat_head != CryptoHash::default() {
-                    new_flat_head = *self.get_block_header(&new_flat_head)?.last_final_block();
-                }
+                // let mut new_flat_head = *block.chunks()[shard_id as usize].prev_block_hash();
+                // if new_flat_head != CryptoHash::default() {
+                //     new_flat_head = *self.get_block_header(&new_flat_head)?.last_final_block();
+                // }
                 // if new_flat_head != CryptoHash::default() {
                 //     new_flat_head = *self.get_block_header(&new_flat_head)?.prev_hash();
                 // }
+                let new_flat_head = *self.get_block_header(&block_hash)?.last_final_block();
                 flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head)?;
             }
         }
@@ -3881,7 +3882,6 @@ impl Chain {
 
     pub fn apply_prev_chunk_before_production(
         &mut self,
-        me: &Option<AccountId>,
         block: &Block,
         shard_id: usize,
     ) -> Result<(Vec<Receipt>, Arc<ChunkExtra>), Error> {
@@ -3973,6 +3973,7 @@ impl Chain {
         let mut chain_update = self.chain_update();
         // chain_update.apply_chunk_postprocessing(block, vec![apply_chunk_result])?;
         // Lol, just lol. Future processing requires some data
+        // Don't do FS updates now because next block doesn't exist
         // let flat_storage_manager = runtime.get_flat_storage_manager();
         // let store_update = flat_storage_manager.save_flat_state_changes(
         //     fs_hash,
@@ -5820,11 +5821,16 @@ impl<'a> ChainUpdate<'a> {
                 apply_split_result_or_state_changes,
             }) => {
                 let new_block_hash = apply_result.trie_changes.block_hash.clone();
-                let (block_hash, block) = if &new_block_hash == block_hash {
-                    (block_hash, block.clone())
+                let (fs_hash, block_hash, block) = if &new_block_hash == block_hash {
+                    (block_hash.clone(), block_hash, block.clone())
                 } else {
-                    (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
+                    (
+                        block_hash,
+                        &new_block_hash,
+                        self.chain_store_update.get_block(&new_block_hash)?,
+                    )
                 };
+                let fs_header = self.chain_store_update.get_block_header(&fs_hash)?;
                 let prev_hash = block.header().prev_hash();
                 let height = block.header().height();
                 println!("process_apply_chunk_result NEW SAME: {block_hash} {prev_hash} {height}");
@@ -5849,9 +5855,12 @@ impl<'a> ChainUpdate<'a> {
 
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
                 let store_update = flat_storage_manager.save_flat_state_changes(
-                    *block_hash,
-                    *prev_hash,
-                    height,
+                    *fs_header.hash(),
+                    *fs_header.prev_hash(),
+                    fs_header.height(),
+                    // *block_hash,
+                    // *prev_hash,
+                    // height,
                     shard_uid,
                     apply_result.trie_changes.state_changes(),
                 )?;
@@ -5880,11 +5889,16 @@ impl<'a> ChainUpdate<'a> {
                 apply_split_result_or_state_changes,
             }) => {
                 let new_block_hash = apply_result.trie_changes.block_hash.clone();
-                let (block_hash, block) = if &new_block_hash == block_hash {
-                    (block_hash, block.clone())
+                let (fs_hash, block_hash, block) = if &new_block_hash == block_hash {
+                    (block_hash.clone(), block_hash, block.clone())
                 } else {
-                    (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
+                    (
+                        block_hash,
+                        &new_block_hash,
+                        self.chain_store_update.get_block(&new_block_hash)?,
+                    )
                 };
+                let fs_header = self.chain_store_update.get_block_header(&fs_hash)?;
                 let prev_hash = block.header().prev_hash();
                 let height = block.header().height();
                 println!("process_apply_chunk_result NEW DIFF: {block_hash} {prev_hash} {height}");
@@ -5896,9 +5910,12 @@ impl<'a> ChainUpdate<'a> {
 
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
                 let store_update = flat_storage_manager.save_flat_state_changes(
-                    *block_hash,
-                    *prev_hash,
-                    height,
+                    *fs_header.hash(),
+                    *fs_header.prev_hash(),
+                    fs_header.height(),
+                    // *block_hash,
+                    // *prev_hash,
+                    // height,
                     shard_uid,
                     apply_result.trie_changes.state_changes(),
                 )?;
