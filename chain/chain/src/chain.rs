@@ -1542,7 +1542,7 @@ impl Chain {
         // Check that block body hash matches the block body. This makes sure that the block body
         // content is not tampered
         println!(
-            "block {} epoch id {epoch_id} pv {epoch_protocol_version}",
+            "block {} epoch id {epoch_id:?} pv {epoch_protocol_version}",
             block.header().height()
         );
         if checked_feature!("stable", BlockHeaderV4, epoch_protocol_version) {
