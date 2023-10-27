@@ -129,10 +129,6 @@ pytest sanity/restart.py
 pytest sanity/restart.py --features nightly
 pytest sanity/rpc_finality.py
 pytest sanity/rpc_finality.py --features nightly
-# TODO(#4618): Those tests are currently broken.  Comment out while we’re
-# working on a fix / deciding whether to remove them.
-#pytest sanity/state_migration.py
-#pytest sanity/state_migration.py --features nightly
 
 pytest sanity/rpc_hash.py
 pytest sanity/rpc_hash.py --features nightly
