@@ -7,6 +7,7 @@ use crate::config::ActionCosts;
 use crate::num_rational::Rational32;
 use crate::types::{Balance, Gas};
 use enum_map::EnumMap;
+use near_account_id::AccountType;
 
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
@@ -203,28 +204,35 @@ impl StorageUsageConfig {
 
 /// Helper functions for computing Transfer fees.
 /// In case of implicit account creation they always include extra fees for the CreateAccount and
-/// AddFullAccessKey actions that are implicit.
+/// AddFullAccessKey (for NEAR-implicit account only) actions that are implicit.
 /// We can assume that no overflow will happen here.
-pub fn transfer_exec_fee(cfg: &RuntimeFeesConfig, is_receiver_implicit: bool) -> Gas {
+pub fn transfer_exec_fee(
+    cfg: &RuntimeFeesConfig,
+    is_receiver_implicit: bool,
+    receiver_account_type: AccountType,
+) -> Gas {
+    let mut result = cfg.fee(ActionCosts::transfer).exec_fee();
     if is_receiver_implicit {
-        cfg.fee(ActionCosts::create_account).exec_fee()
-            + cfg.fee(ActionCosts::add_full_access_key).exec_fee()
-            + cfg.fee(ActionCosts::transfer).exec_fee()
-    } else {
-        cfg.fee(ActionCosts::transfer).exec_fee()
+        result += cfg.fee(ActionCosts::create_account).exec_fee();
+        if receiver_account_type == AccountType::NearImplicitAccount {
+            result += cfg.fee(ActionCosts::add_full_access_key).exec_fee();
+        }
     }
+    result
 }
 
 pub fn transfer_send_fee(
     cfg: &RuntimeFeesConfig,
     sender_is_receiver: bool,
     is_receiver_implicit: bool,
+    receiver_account_type: AccountType,
 ) -> Gas {
+    let mut result = cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
     if is_receiver_implicit {
-        cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
-            + cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
-            + cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver)
-    } else {
-        cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver)
+        result += cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver);
+        if receiver_account_type == AccountType::NearImplicitAccount {
+            result += cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver);
+        }
     }
+    result
 }

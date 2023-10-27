@@ -4,9 +4,9 @@ mod rpc;
 mod runtime;
 
 use assert_matches::assert_matches;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_jsonrpc_primitives::errors::ServerError;
-use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission, id::AccountType};
 use near_primitives::config::{ActionCosts, ExtCosts};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, FunctionCallError, InvalidAccessKeyError, InvalidTxError,
@@ -14,6 +14,7 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{AccountId, Balance, TrieNodesCount};
+use near_primitives::utils::derive_account_id_from_public_key;
 use near_primitives::views::{
     AccessKeyView, AccountView, ExecutionMetadataView, FinalExecutionOutcomeView,
     FinalExecutionStatus,
@@ -327,16 +328,20 @@ pub fn test_send_money(node: impl Node) {
     );
 }
 
-pub fn transfer_tokens_implicit_account(node: impl Node) {
+pub fn transfer_tokens_implicit_account(node: impl Node, public_key: PublicKey) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
     let tokens_used = 10u128.pow(25);
     let fee_helper = fee_helper(&node);
-    let transfer_cost = fee_helper.transfer_cost_64len_hex();
-    let public_key = node_user.signer().public_key();
-    let raw_public_key = public_key.unwrap_as_ed25519().0.to_vec();
-    let receiver_id = AccountId::try_from(hex::encode(&raw_public_key)).unwrap();
+    let receiver_id = derive_account_id_from_public_key(&public_key);
+
+    let transfer_cost = match receiver_id.get_account_type() {
+        AccountType::NearImplicitAccount => fee_helper.create_account_transfer_full_key_cost(),
+        AccountType::EthImplicitAccount => std::panic!("must be implicit"),
+        AccountType::NamedAccount => std::panic!("must be implicit"),
+    };
+
     let transaction_result =
         node_user.send_money(account_id.clone(), receiver_id.clone(), tokens_used).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
@@ -357,8 +362,14 @@ pub fn transfer_tokens_implicit_account(node: impl Node) {
     let AccountView { amount, locked, .. } = node_user.view_account(&receiver_id).unwrap();
     assert_eq!((amount, locked), (tokens_used, 0));
 
-    let view_access_key = node_user.get_access_key(&receiver_id, &public_key).unwrap();
-    assert_eq!(view_access_key, AccessKey::full_access().into());
+    let view_access_key = node_user.get_access_key(&receiver_id, &public_key);
+    match receiver_id.get_account_type() {
+        AccountType::NearImplicitAccount => {
+            assert_eq!(view_access_key.unwrap(), AccessKey::full_access().into());
+        },
+        AccountType::EthImplicitAccount => std::panic!("must be implicit"),
+        AccountType::NamedAccount => std::panic!("must be implicit"),
+    }
 
     let transaction_result =
         node_user.send_money(account_id.clone(), receiver_id.clone(), tokens_used).unwrap();
@@ -382,16 +393,13 @@ pub fn transfer_tokens_implicit_account(node: impl Node) {
     assert_eq!((amount, locked), (tokens_used * 2, 0));
 }
 
-pub fn trying_to_create_implicit_account(node: impl Node) {
+pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
     let tokens_used = 10u128.pow(25);
     let fee_helper = fee_helper(&node);
-
-    let public_key = node_user.signer().public_key();
-    let raw_public_key = public_key.unwrap_as_ed25519().0.to_vec();
-    let receiver_id = AccountId::try_from(hex::encode(&raw_public_key)).unwrap();
+    let receiver_id = derive_account_id_from_public_key(&public_key);
 
     let transaction_result = node_user
         .create_account(
@@ -402,14 +410,19 @@ pub fn trying_to_create_implicit_account(node: impl Node) {
         )
         .unwrap();
 
-    let cost = fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
-        + fee_helper.gas_to_balance(
-            fee_helper.cfg().fee(ActionCosts::create_account).send_fee(false)
+    let cost = match receiver_id.get_account_type() {
+        AccountType::NearImplicitAccount =>
+            fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
+            + fee_helper.gas_to_balance(
+                fee_helper.cfg().fee(ActionCosts::create_account).send_fee(false)
                 + fee_helper
                     .cfg()
                     .fee(near_primitives::config::ActionCosts::add_full_access_key)
                     .send_fee(false),
-        );
+            ),
+        AccountType::EthImplicitAccount => std::panic!("must be implicit"),
+        AccountType::NamedAccount => std::panic!("must be implicit"),
+    };
 
     assert_eq!(
         transaction_result.status,
