@@ -828,7 +828,7 @@ class NeardRunner:
         # something so lightweight
         main_loop = threading.Thread(target=self.main_loop)
         main_loop.start()
-        s = RpcServer(('0.0.0.0', port), self)
+        s = RpcServer(('localhost', port), self)
         s.serve_forever()
 
 
