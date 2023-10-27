@@ -1541,7 +1541,10 @@ impl Chain {
         let epoch_protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         // Check that block body hash matches the block body. This makes sure that the block body
         // content is not tampered
-        println!("block {} epoch pv {epoch_protocol_version}", block.header().height());
+        println!(
+            "block {} epoch id {epoch_id} pv {epoch_protocol_version}",
+            block.header().height()
+        );
         if checked_feature!("stable", BlockHeaderV4, epoch_protocol_version) {
             let block_body_hash = block.compute_block_body_hash();
             if block_body_hash.is_none() {
