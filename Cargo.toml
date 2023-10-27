@@ -171,7 +171,7 @@ lru = "0.7.2"
 memmap2 = "0.5"
 memoffset = "0.8"
 more-asserts = "0.2"
-near-account-id = { git = "https://github.com/ruseinov/near-account-id", features = ["internal_unstable", "serde", "borsh"], branch = "ru/chore/len" }
+near-account-id = { git = "https://github.com/near/near-account-id-rs", features = ["internal_unstable", "serde", "borsh"], branch = "main" }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
 near-database-tool = { path = "tools/database" }
