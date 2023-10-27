@@ -4414,7 +4414,8 @@ impl Chain {
         } else {
             // if we are in non-delayed world and want to execute outgoing receipts here
             Some(self.get_outgoing_receipts_for_shard(
-                *block.hash(),
+                // because block is not in storage yet
+                *prev_block.hash(), // *block.hash(),
                 shard_id as ShardId,
                 prev_chunk_height_included,
             )?)
