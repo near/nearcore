@@ -309,8 +309,8 @@ impl TestEnv {
             // self.produce_block(0, tip.height + i + 2);
             let mut block = self.clients[0].produce_block(tip.height + i + 2).unwrap().unwrap();
             println!("Producing block with version {protocol_version}");
-            // block.mut_header().set_latest_protocol_version(protocol_version);
-            // block.mut_header().resign(&create_test_signer(block_producer.as_str()));
+            block.mut_header().set_latest_protocol_version(protocol_version);
+            block.mut_header().resign(&create_test_signer(block_producer.as_str()));
             let _ = self.clients[0]
                 .process_block_test_no_produce_chunk(block.into(), Provenance::NONE)
                 .unwrap();

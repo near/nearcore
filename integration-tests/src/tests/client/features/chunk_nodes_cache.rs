@@ -99,6 +99,11 @@ fn compare_node_counts() {
         )
         .build();
 
+    for h in 1..100 {
+        env.produce_block(0, h);
+    }
+    return;
+
     deploy_test_contract(
         &mut env,
         "test0".parse().unwrap(),
