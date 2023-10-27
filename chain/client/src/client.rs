@@ -1169,7 +1169,7 @@ impl Client {
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), near_chain::Error> {
         let _span =
-            tracing::debug_span!(target: "chain", "start_process_block", ?provenance).entered();
+            tracing::debug_span!(target: "chain", "start_process_block", ?provenance, block_height = block.header().height()).entered();
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
         let result = {
@@ -1264,6 +1264,8 @@ impl Client {
         &mut self,
         block_processing_artifacts: BlockProcessingArtifact,
     ) {
+        let _span =
+            tracing::debug_span!(target: "client", "process_block_processing_artifact").entered();
         let BlockProcessingArtifact {
             orphans_missing_chunks,
             blocks_missing_chunks,
@@ -1742,6 +1744,8 @@ impl Client {
         &mut self,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
+        let _span =
+            tracing::debug_span!(target: "client", "process_blocks_with_missing_chunks").entered();
         let me =
             self.validator_signer.as_ref().map(|validator_signer| validator_signer.validator_id());
         let mut blocks_processing_artifacts = BlockProcessingArtifact::default();
@@ -2185,6 +2189,7 @@ impl Client {
         apply_chunks_done_callback: DoneApplyChunkCallback,
         state_parts_arbiter_handle: &ArbiterHandle,
     ) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "sync", "run_catchup").entered();
         let mut notify_state_sync = false;
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos()? {
