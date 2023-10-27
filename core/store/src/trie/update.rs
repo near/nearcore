@@ -169,10 +169,10 @@ impl crate::TrieAccess for TrieUpdate {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::{create_tries, create_tries_complex};
-    use near_primitives::types::AccountId;
     use super::*;
+    use crate::test_utils::{create_tries, create_tries_complex};
     use crate::ShardUId;
+    use near_primitives::types::AccountId;
     const SHARD_VERSION: u32 = 1;
     const COMPLEX_SHARD_UID: ShardUId = ShardUId { version: SHARD_VERSION, shard_id: 0 };
 

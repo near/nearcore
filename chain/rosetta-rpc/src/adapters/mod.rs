@@ -836,8 +836,8 @@ mod tests {
     use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
     use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::transaction::{Action, TransferAction};
-    use near_primitives::views::RuntimeConfigView;
     use near_primitives::types::AccountId;
+    use near_primitives::views::RuntimeConfigView;
 
     #[test]
     fn test_convert_block_changes_to_transactions() {

@@ -3,6 +3,7 @@
 use anyhow::Context;
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
+use near_primitives::types::AccountId;
 use near_primitives::views::RuntimeConfigView;
 use near_vm_runner::VMKind;
 use replay::ReplayCmd;
@@ -18,7 +19,6 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time;
 use tracing_subscriber::Layer;
-use near_primitives::types::AccountId;
 
 mod replay;
 

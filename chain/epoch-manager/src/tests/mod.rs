@@ -1746,8 +1746,14 @@ fn test_fishermen_unstake() {
         ],
     );
     let kickout = epoch_info.validator_kickout();
-    assert_eq!(kickout.get(&"test2".parse::<AccountId>().unwrap()).unwrap(), &ValidatorKickoutReason::Unstaked);
-    matches!(kickout.get(&"test3".parse::<AccountId>().unwrap()), Some(ValidatorKickoutReason::NotEnoughStake { .. }));
+    assert_eq!(
+        kickout.get(&"test2".parse::<AccountId>().unwrap()).unwrap(),
+        &ValidatorKickoutReason::Unstaked
+    );
+    matches!(
+        kickout.get(&"test3".parse::<AccountId>().unwrap()),
+        Some(ValidatorKickoutReason::NotEnoughStake { .. })
+    );
 }
 
 #[test]

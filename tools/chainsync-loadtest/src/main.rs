@@ -14,12 +14,12 @@ use near_network::PeerManagerActor;
 use near_o11y::tracing::{error, info};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::AccountId;
 use nearcore::config;
 use nearcore::config::NearConfig;
 use network::Network;
 use openssl_probe;
 use std::sync::Arc;
-use near_primitives::types::AccountId;
 
 fn genesis_hash(chain_id: &str) -> CryptoHash {
     return match chain_id {

@@ -175,7 +175,9 @@ mod tests {
     use super::FlatStateChanges;
     use near_primitives::state::FlatStateValue;
     use near_primitives::trie_key::TrieKey;
-    use near_primitives::types::{AccountId, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause};
+    use near_primitives::types::{
+        AccountId, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause,
+    };
 
     /// Check correctness of creating `FlatStateChanges` from state changes.
     #[test]
