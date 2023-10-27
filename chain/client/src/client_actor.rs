@@ -1490,12 +1490,12 @@ impl ClientActor {
         Ok(epoch_start_sync_hash)
     }
 
-    fn start_state_sync_actors(&mut self, ctx: &mut Context<ClientActor>, shards: &[ShardId]) {
+    fn ensure_sync_actors_running(&mut self, ctx: &mut Context<ClientActor>, shards: &[ShardId]) {
         // TODO: Right now we just lazily start them here and never stop them. It would make sense to
         // start these state sync actors when we recognize that state sync is needed, and then have them
         // exit when they're done applying their shards' state. Then if in the future we need state sync again,
         // we would start them again.
-        for shard_id in shards.iter() {
+        for shard_id in shards {
             if !self.state_sync_adapter.contains(*shard_id) {
                 let self_addr = ctx.address();
                 self.state_sync_adapter.start(
@@ -1516,11 +1516,11 @@ impl ClientActor {
             let shards = match self.client.catchup_shards() {
                 Ok(s) => s,
                 Err(err) => {
-                    error!(target: "client", "Error occurred reading catchup shards for the next epoch: {:?}", err);
+                    error!(target: "client", ?err, "Error occurred reading catchup shards for the next epoch");
                     return;
                 }
             };
-            self.start_state_sync_actors(ctx, &shards);
+            self.ensure_sync_actors_running(ctx, &shards);
             let state_parts_task_scheduler = |m: ApplyStatePartsRequest| {
                 self.state_sync_adapter.send(m.shard_uid.shard_id(), m.with_span_context());
             };
@@ -1689,7 +1689,7 @@ impl ClientActor {
                                 )
                             })
                             .collect();
-                    self.start_state_sync_actors(ctx, &shards_to_sync);
+                    self.ensure_sync_actors_running(ctx, &shards_to_sync);
                     // This is just a temporary measure to fit the existing signature of StateSync::run(),
                     // and in the future this can be done in a more direct way.
                     let state_parts_task_scheduler = |m: ApplyStatePartsRequest| {

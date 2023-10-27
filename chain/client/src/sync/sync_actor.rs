@@ -1,5 +1,6 @@
 use super::adapter::{SyncMessage as ClientSyncMessage, SyncShardInfo};
 use near_async::messaging::Sender;
+use near_chain::chain::{ApplyStatePartsRequest, ApplyStatePartsResponse};
 use near_network::types::{PeerManagerMessageRequest, StateSyncResponse};
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
@@ -8,8 +9,6 @@ use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::ShardId;
 use near_store::DBCol;
-
-use near_chain::chain::{ApplyStatePartsRequest, ApplyStatePartsResponse};
 use tracing::{debug, info, warn};
 
 /// Message channels
@@ -171,6 +170,7 @@ impl actix::Handler<WithSpanContext<ApplyStatePartsRequest>> for SyncActor {
             }
             Ok(false) => {
                 // Can't panic here, because that breaks many KvRuntime tests.
+                // TODO: figure out how to fix things so that we can panic here
                 tracing::error!(target: "client", shard_uid = ?msg.shard_uid, "Failed to delete Flat State, but proceeding with applying state parts.");
             }
             Ok(true) => {

@@ -2348,10 +2348,11 @@ impl Client {
         Ok(false)
     }
 
+    /// Returns the shard IDs of shards that the client needs to run catchup for
     pub fn catchup_shards(&self) -> Result<Vec<ShardId>, Error> {
         let mut shards = HashSet::new();
         for (_sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos()? {
-            shards.extend(state_sync_info.shards.iter().map(|tuple| tuple.0));
+            shards.extend(state_sync_info.shards.iter().map(|shard_info| shard_info.0));
         }
         Ok(shards.into_iter().collect())
     }
