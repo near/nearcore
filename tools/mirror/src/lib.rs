@@ -990,8 +990,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     actions.push(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })));
                 }
                 Action::Transfer(_) => {
-                    // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                    if tx.receiver_id().get_account_type() == AccountType::NearImplicitAccount
+                    if tx.receiver_id().get_account_type().is_implicit()
                         && source_actions.len() == 1
                     {
                         let target_account =
@@ -1009,7 +1008,7 @@ impl<T: ChainAccess> TxMirror<T> {
                             {
                                 let public_key =
                                     PublicKey::from_near_implicit_account(&target_account)
-                                        .expect("must be near-implicit");
+                                        .expect("must be implicit");
                                 nonce_updates.insert((target_account, public_key));
                             }
                         }

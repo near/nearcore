@@ -22,7 +22,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode};
-use near_primitives::utils::create_random_seed;
+use near_primitives::utils::{create_random_seed, derive_account_id_from_public_key};
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
@@ -473,9 +473,16 @@ pub(crate) fn action_implicit_account_creation_transfer(
         }
         // Invariant: The `account_id` is implicit.
         // It holds because in the only calling site, we've checked the permissions before.
-        AccountType::EthImplicitAccount | AccountType::NamedAccount => {
-            panic!("must be near-implicit")
+        AccountType::EthImplicitAccount => {
+            *account = Some(Account::new(
+                transfer.deposit,
+                0,
+                CryptoHash::default(),
+                fee_config.storage_usage_config.num_bytes_account
+                    + fee_config.storage_usage_config.num_extra_bytes_record,
+            ));
         }
+        AccountType::NamedAccount => panic!("must be implicit"),
     }
 }
 
@@ -738,31 +745,58 @@ fn validate_delegate_action_key(
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     // 'delegate_action.sender_id' account existence must be checked by a caller
-    let mut access_key = match get_access_key(
-        state_update,
-        &delegate_action.sender_id,
-        &delegate_action.public_key,
-    )? {
-        Some(access_key) => access_key,
-        None => {
-            result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
-                InvalidAccessKeyError::AccessKeyNotFound {
-                    account_id: delegate_action.sender_id.clone(),
-                    public_key: delegate_action.public_key.clone(),
-                },
-            )
+    let signer_id = &delegate_action.sender_id;
+    let public_key = &delegate_action.public_key;
+    // By default, we always check nonce.
+    let mut should_check_nonce = true;
+    let mut access_key =
+        match get_access_key(state_update, &signer_id, &delegate_action.public_key)? {
+            Some(access_key) => access_key,
+            None => match signer_id.get_account_type() {
+                // Access key is missing, but in the case of a transaction from ETH-implicit account
+                // there is a possibility that full access key will be created now.
+                AccountType::EthImplicitAccount => {
+                    if derive_account_id_from_public_key(public_key) == *signer_id {
+                        // This is the only case we do not compare access key nonce with transaction nonce,
+                        // because the access key is created now.
+                        should_check_nonce = false;
+                        // TODO What about increasing storage usage for that account, because we added access key?
+                        AccessKey::full_access()
+                    } else {
+                        // Provided public key is not the one from which the signer address was derived.
+                        result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                            InvalidAccessKeyError::InvalidPkForEthAddress {
+                                account_id: signer_id.clone(),
+                                public_key: public_key.clone(),
+                            },
+                        )
+                        .into());
+                        return Ok(());
+                    }
+                }
+                // Transactions done from non-ETH-implicit account must have access key already added.
+                _ => {
+                    result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                        InvalidAccessKeyError::AccessKeyNotFound {
+                            account_id: signer_id.clone(),
+                            public_key: public_key.clone(),
+                        },
+                    )
+                    .into());
+                    return Ok(());
+                }
+            },
+        };
+
+    if should_check_nonce {
+        if delegate_action.nonce <= access_key.nonce {
+            result.result = Err(ActionErrorKind::DelegateActionInvalidNonce {
+                delegate_nonce: delegate_action.nonce,
+                ak_nonce: access_key.nonce,
+            }
             .into());
             return Ok(());
         }
-    };
-
-    if delegate_action.nonce <= access_key.nonce {
-        result.result = Err(ActionErrorKind::DelegateActionInvalidNonce {
-            delegate_nonce: delegate_action.nonce,
-            ak_nonce: access_key.nonce,
-        }
-        .into());
-        return Ok(());
     }
 
     let upper_bound = apply_state.block_height
@@ -831,12 +865,7 @@ fn validate_delegate_action_key(
         }
     };
 
-    set_access_key(
-        state_update,
-        delegate_action.sender_id.clone(),
-        delegate_action.public_key.clone(),
-        &access_key,
-    );
+    set_access_key(state_update, signer_id.clone(), public_key.clone(), &access_key);
 
     Ok(())
 }
@@ -897,8 +926,7 @@ pub(crate) fn check_account_existence(
             } else {
                 // TODO: this should be `config.implicit_account_creation`.
                 if config.wasm_config.implicit_account_creation
-                    // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                    && account_id.get_account_type() == AccountType::NearImplicitAccount
+                    && account_id.get_account_type().is_implicit()
                 {
                     // If the account doesn't exist and it's implicit, then you
                     // should only be able to create it using single transfer action.
@@ -920,8 +948,7 @@ pub(crate) fn check_account_existence(
             if account.is_none() {
                 return if config.wasm_config.implicit_account_creation
                     && is_the_only_action
-                    // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                    && account_id.get_account_type() == AccountType::NearImplicitAccount
+                    && account_id.get_account_type().is_implicit()
                     && !is_refund
                 {
                     // OK. It's implicit account creation.

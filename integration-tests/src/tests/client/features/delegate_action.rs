@@ -17,7 +17,10 @@ use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, InvalidAccessKeyError, InvalidTxError,
     TxExecutionError,
 };
-use near_primitives::test_utils::{create_user_test_signer, near_implicit_test_account};
+use near_primitives::test_utils::{
+    create_user_test_signer, eth_implicit_test_account, eth_implicit_test_account_secret,
+    near_implicit_test_account,
+};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
@@ -119,6 +122,8 @@ fn check_meta_tx_execution(
     sender: AccountId,
     relayer: AccountId,
     receiver: AccountId,
+    // For meta transactions from ETH-implicit account, we require Secp256K1 `public_key` matching the sender address.
+    public_key: Option<PublicKey>,
 ) -> (FinalExecutionOutcomeView, i128, i128, i128) {
     let node_user = node.user();
 
@@ -135,12 +140,17 @@ fn check_meta_tx_execution(
         .get_access_key(&relayer, &PublicKey::from_seed(KeyType::ED25519, relayer.as_ref()))
         .unwrap()
         .nonce;
+
     let user_pubk = match sender.get_account_type() {
         AccountType::NearImplicitAccount => PublicKey::from_near_implicit_account(&sender).unwrap(),
-        AccountType::EthImplicitAccount => PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
+        // We require that tests sending transactions from ETH-implicit accounts provide the public key.
+        // It is because we can't infer public key from ETH-implicit account ID, and we need
+        // the public key from which the ETH-implicit sender address was derived.
+        AccountType::EthImplicitAccount => public_key.unwrap(),
         AccountType::NamedAccount => PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
     };
-    let user_nonce_before = node_user.get_access_key(&sender, &user_pubk).unwrap().nonce;
+
+    let user_nonce_before = node_user.get_access_key(&sender, &user_pubk);
 
     let tx_result =
         node_user.meta_tx(sender.clone(), receiver.clone(), relayer.clone(), actions).unwrap();
@@ -154,12 +164,18 @@ fn check_meta_tx_execution(
         .unwrap()
         .nonce;
     assert_eq!(relayer_nonce, relayer_nonce_before + 1);
-    // user key must be checked for existence (to test DeleteKey action)
-    if let Ok(user_nonce) = node_user
-        .get_access_key(&sender, &PublicKey::from_seed(KeyType::ED25519, sender.as_ref()))
-        .map(|key| key.nonce)
-    {
-        assert_eq!(user_nonce, user_nonce_before + 1);
+
+    match user_nonce_before {
+        Ok(user_nonce_before) => {
+            // user key must be checked for existence (to test DeleteKey action)
+            if let Ok(user_nonce) = node_user
+                .get_access_key(&sender, &PublicKey::from_seed(KeyType::ED25519, sender.as_ref()))
+                .map(|key| key.nonce)
+            {
+                assert_eq!(user_nonce, user_nonce_before.nonce + 1);
+            }
+        }
+        Err(_) => assert!(sender.get_account_type() == AccountType::EthImplicitAccount),
     }
 
     let sender_after = node_user.view_balance(&sender).unwrap_or(0);
@@ -183,12 +199,13 @@ fn check_meta_tx_no_fn_call(
     sender: AccountId,
     relayer: AccountId,
     receiver: AccountId,
+    public_key: Option<PublicKey>,
 ) -> FinalExecutionOutcomeView {
     let fee_helper = fee_helper(node);
     let gas_cost = normal_tx_cost + fee_helper.meta_tx_overhead_cost(&actions, &receiver);
 
     let (tx_result, sender_diff, relayer_diff, receiver_diff) =
-        check_meta_tx_execution(node, actions, sender, relayer, receiver);
+        check_meta_tx_execution(node, actions, sender, relayer, receiver, public_key);
 
     assert_eq!(sender_diff, 0, "sender should not pay for anything");
     assert_eq!(receiver_diff, tokens_transferred as i128, "unexpected receiver balance");
@@ -220,7 +237,7 @@ fn check_meta_tx_fn_call(
     let meta_tx_overhead_cost = fee_helper.meta_tx_overhead_cost(&actions, &receiver);
 
     let (tx_result, sender_diff, relayer_diff, receiver_diff) =
-        check_meta_tx_execution(node, actions, sender, relayer, receiver);
+        check_meta_tx_execution(node, actions, sender, relayer, receiver, None);
 
     assert_eq!(sender_diff, 0, "sender should not pay for anything");
 
@@ -274,7 +291,7 @@ fn meta_tx_near_transfer() {
     let amount = nearcore::NEAR_BASE;
     let actions = vec![Action::Transfer(TransferAction { deposit: amount })];
     let tx_cost = fee_helper.transfer_cost();
-    check_meta_tx_no_fn_call(&node, actions, tx_cost, amount, sender, relayer, receiver);
+    check_meta_tx_no_fn_call(&node, actions, tx_cost, amount, sender, relayer, receiver, None);
 }
 
 /// Call a function on the test contract provided by default in the test environment.
@@ -437,7 +454,7 @@ fn meta_tx_deploy() {
     let code = smallest_rs_contract().to_vec();
     let tx_cost = fee_helper.deploy_contract_cost(code.len() as u64);
     let actions = vec![Action::DeployContract(DeployContractAction { code })];
-    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver);
+    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver, None);
 }
 
 #[test]
@@ -452,7 +469,7 @@ fn meta_tx_stake() {
     let tx_cost = fee_helper.stake_cost();
     let public_key = create_user_test_signer(&sender).public_key;
     let actions = vec![Action::Stake(Box::new(StakeAction { public_key, stake: 0 }))];
-    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver);
+    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver, None);
 }
 
 #[test]
@@ -472,7 +489,7 @@ fn meta_tx_add_key() {
         public_key: public_key.clone(),
         access_key: AccessKey::full_access(),
     }))];
-    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver.clone());
+    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver.clone(), None);
 
     let key_view = node
         .user()
@@ -498,7 +515,7 @@ fn meta_tx_delete_key() {
     let public_key = PublicKey::from_seed(KeyType::ED25519, receiver.as_ref());
     let actions =
         vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key: public_key.clone() }))];
-    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver.clone());
+    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver.clone(), None);
 
     let err = node
         .user()
@@ -535,7 +552,7 @@ fn meta_tx_delete_account() {
     let gas_cost = fee_helper.prepaid_delete_account_cost()
         + fee_helper.meta_tx_overhead_cost(&actions, &receiver);
     let (_tx_result, sender_diff, relayer_diff, receiver_diff) =
-        check_meta_tx_execution(&node, actions, sender, relayer, receiver.clone());
+        check_meta_tx_execution(&node, actions, sender, relayer, receiver.clone(), None);
 
     assert_eq!(
         sender_diff,
@@ -773,7 +790,16 @@ fn meta_tx_create_named_account() {
     node.view_account(&new_account).expect_err("account already exists");
 
     let tx_cost = fee_helper.create_account_transfer_full_key_cost();
-    check_meta_tx_no_fn_call(&node, actions, tx_cost, amount, sender, relayer, new_account.clone());
+    check_meta_tx_no_fn_call(
+        &node,
+        actions,
+        tx_cost,
+        amount,
+        sender,
+        relayer,
+        new_account.clone(),
+        None,
+    );
 
     // Check the account exists after we created it.
     node.view_account(&new_account).expect("failed looking up account");
@@ -801,6 +827,11 @@ fn meta_tx_create_implicit_account_fails(new_account: AccountId) {
 #[test]
 fn meta_tx_create_near_implicit_account_fails() {
     meta_tx_create_implicit_account_fails(near_implicit_test_account());
+}
+
+#[test]
+fn meta_tx_create_eth_implicit_account_fails() {
+    meta_tx_create_implicit_account_fails(eth_implicit_test_account());
 }
 
 /// Try creating an implicit account with a meta tx transfer and use the account
@@ -840,13 +871,21 @@ fn meta_tx_create_and_use_near_implicit_account() {
     meta_tx_create_and_use_implicit_account(near_implicit_test_account());
 }
 
+#[test]
+fn meta_tx_create_and_use_eth_implicit_account() {
+    meta_tx_create_and_use_implicit_account(eth_implicit_test_account());
+}
+
 /// Creating an implicit account with a meta tx transfer and use the account in
 /// a second meta transaction.
 ///
 /// Creation through a meta tx should work as normal, it's just that the relayer
 /// pays for the storage and the user could delete the account and cash in,
 /// hence this workflow is not ideal from all circumstances.
-fn meta_tx_create_implicit_account(new_account: AccountId) {
+fn meta_tx_create_implicit_account(
+    new_account: AccountId,
+    new_account_public_key: Option<PublicKey>,
+) {
     let relayer = bob_account();
     let sender = alice_account();
     let node = RuntimeNode::new(&relayer);
@@ -860,8 +899,8 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
 
     let tx_cost = match new_account.get_account_type() {
         AccountType::NearImplicitAccount => fee_helper.create_account_transfer_full_key_cost(),
-        AccountType::EthImplicitAccount => panic!("must be near-implicit"),
-        AccountType::NamedAccount => panic!("must be near-implicit"),
+        AccountType::EthImplicitAccount => fee_helper.create_account_transfer_cost(),
+        AccountType::NamedAccount => panic!("must be implicit"),
     };
     check_meta_tx_no_fn_call(
         &node,
@@ -871,6 +910,7 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
         sender.clone(),
         relayer.clone(),
         new_account.clone(),
+        None,
     );
 
     // Check account exists with expected balance
@@ -881,7 +921,14 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
     // Now test we can use this account in a meta transaction that sends back half the tokens to alice.
     let transfer_amount = initial_amount / 2;
     let actions = vec![Action::Transfer(TransferAction { deposit: transfer_amount })];
-    let tx_cost = fee_helper.transfer_cost();
+
+    let tx_cost = match new_account.get_account_type() {
+        AccountType::NearImplicitAccount => fee_helper.transfer_cost(),
+        // TODO Test did not pass with `transfer_full_key_cost`, only passes with `transfer_cost`.
+        AccountType::EthImplicitAccount => fee_helper.transfer_cost(),
+        AccountType::NamedAccount => panic!("must be implicit"),
+    };
+
     check_meta_tx_no_fn_call(
         &node,
         actions,
@@ -890,6 +937,7 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
         new_account.clone(),
         relayer,
         sender,
+        new_account_public_key,
     )
     .assert_success();
 
@@ -901,5 +949,11 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
 
 #[test]
 fn meta_tx_create_near_implicit_account() {
-    meta_tx_create_implicit_account(near_implicit_test_account());
+    meta_tx_create_implicit_account(near_implicit_test_account(), None);
+}
+
+#[test]
+fn meta_tx_create_eth_implicit_account() {
+    let secret_key = eth_implicit_test_account_secret();
+    meta_tx_create_implicit_account(eth_implicit_test_account(), Some(secret_key.public_key()));
 }

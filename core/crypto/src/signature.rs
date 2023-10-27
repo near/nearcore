@@ -156,6 +156,13 @@ impl PublicKey {
             Self::SECP256K1(_) => panic!(),
         }
     }
+
+    pub fn unwrap_as_secp256k1(&self) -> &Secp256K1PublicKey {
+        match self {
+            Self::SECP256K1(key) => key,
+            Self::ED25519(_) => panic!(),
+        }
+    }
 }
 
 // This `Hash` implementation is safe since it retains the property

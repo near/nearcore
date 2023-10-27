@@ -12,13 +12,13 @@ use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::AccessKey;
-use near_primitives::errors::InvalidTxError;
+use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives::utils::derive_near_implicit_account_id;
+use near_primitives::utils::derive_account_id_from_public_key;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
@@ -198,13 +198,243 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
     response
 }
 
+/// Test that duplicate transactions from ETH-implicit account can be properly rejected
+/// if we set nonce to `(block_height - 1) * 1e6` for transactions that results in
+/// access key being added to the ETH-implicit account.
+#[test]
+fn test_transaction_eth_implicit_account() {
+    let epoch_length = 10;
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    let mut env = TestEnv::builder(ChainGenesis::test())
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
+        .build();
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let deposit_for_account_creation = 10u128.pow(23);
+    let mut height = 1;
+    let blocks_number = 5;
+    let signer1 = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+
+    let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
+    let implicit_account_id = derive_account_id_from_public_key(&secret_key.public_key());
+    let implicit_account_signer =
+        InMemorySigner::from_secret_key(implicit_account_id.clone(), secret_key);
+
+    // Send money to ETH-implicit account, invoking its creation.
+    let send_money_tx = SignedTransaction::send_money(
+        1,
+        "test1".parse().unwrap(),
+        implicit_account_id.clone(),
+        &signer1,
+        deposit_for_account_creation,
+        *genesis_block.hash(),
+    );
+    // Check for tx success status and get new block height.
+    height = check_tx_processing(&mut env, send_money_tx, height, blocks_number);
+    let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
+
+    // Sending money from ETH-implicit account using `(block_height - 1) * 1e6` as nonce.
+    // That will add full access key to this account with this nonce.
+    let original_access_key_nonce = (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+    let send_money_from_implicit_account_tx = SignedTransaction::send_money(
+        original_access_key_nonce,
+        implicit_account_id.clone(),
+        "test0".parse().unwrap(),
+        &implicit_account_signer,
+        100,
+        *block.hash(),
+    );
+    height =
+        check_tx_processing(&mut env, send_money_from_implicit_account_tx, height, blocks_number);
+    let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
+
+    // Try to delete implicit account. Access key is already added, so the transaction nonce will be compared
+    // with that access key's nonce. We should have been used greater nonce than `access_key_nonce` so this
+    // transaction should fail.
+    let try_delete_account_tx = SignedTransaction::delete_account(
+        original_access_key_nonce,
+        implicit_account_id.clone(),
+        implicit_account_id.clone(),
+        "test0".parse().unwrap(),
+        &implicit_account_signer,
+        *block.hash(),
+    );
+    let response = env.clients[0].process_tx(try_delete_account_tx, false, false);
+    assert_matches!(response, ProcessTxResponse::InvalidTx(InvalidTxError::InvalidNonce { .. }));
+
+    // Delete implicit account. This time we set transaction nonce to `access_key_nonce + 1`.
+    // We do not have to use `(block_height - 1) * 1e6` if no access key would be added
+    // to the ETH-implicit account in this transaction.
+    let delete_account_tx = SignedTransaction::delete_account(
+        original_access_key_nonce + 1,
+        implicit_account_id.clone(),
+        implicit_account_id.clone(),
+        "test0".parse().unwrap(),
+        &implicit_account_signer,
+        *block.hash(),
+    );
+    height = check_tx_processing(&mut env, delete_account_tx, height, blocks_number);
+    let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
+
+    // Send money to the ETH-implicit account again, but with incorrect nonce.
+    let try_send_money_again_tx = SignedTransaction::send_money(
+        1,
+        "test1".parse().unwrap(),
+        implicit_account_id.clone(),
+        &signer1,
+        deposit_for_account_creation,
+        *block.hash(),
+    );
+    let response = env.clients[0].process_tx(try_send_money_again_tx, false, false);
+    assert_matches!(response, ProcessTxResponse::InvalidTx(InvalidTxError::InvalidNonce { .. }));
+
+    // Send money to the ETH-implicit account again, but with correct nonce.
+    // This will recreate the ETH-implicit account.
+    let send_money_again_tx = SignedTransaction::send_money(
+        2,
+        "test1".parse().unwrap(),
+        implicit_account_id.clone(),
+        &signer1,
+        deposit_for_account_creation,
+        *block.hash(),
+    );
+    height = check_tx_processing(&mut env, send_money_again_tx, height, blocks_number);
+    let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
+
+    // Sending money from ETH-implicit account again using `(block_height - 1) * 1e6` as nonce.
+    // That will add full access key to this account again and set its nonce to the transaction nonce.
+    let send_money_from_implicit_account_again_tx = SignedTransaction::send_money(
+        (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER,
+        implicit_account_id.clone(),
+        "test0".parse().unwrap(),
+        &implicit_account_signer,
+        100,
+        *block.hash(),
+    );
+    height = check_tx_processing(
+        &mut env,
+        send_money_from_implicit_account_again_tx,
+        height,
+        blocks_number,
+    );
+    let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
+
+    // Sending money from ETH-implicit account again, but this time ignoring the fact that the account and access key
+    // were recreated. Using `original_access_key_nonce + 2` would work, but the access key was recreated
+    // using `(block_height - 1) * 1e6` as the new nonce (current block height has changed since the last time).
+    let try_send_money_from_implicit_account_again_tx = SignedTransaction::send_money(
+        original_access_key_nonce + 2,
+        implicit_account_id,
+        "test0".parse().unwrap(),
+        &implicit_account_signer,
+        100,
+        *block.hash(),
+    );
+    let response =
+        env.clients[0].process_tx(try_send_money_from_implicit_account_again_tx, false, false);
+    assert_matches!(response, ProcessTxResponse::InvalidTx(InvalidTxError::InvalidNonce { .. }));
+}
+
+/// Test that the signer is correctly verified for transactions done from an ETH-implicit account.
+#[test]
+fn test_transaction_eth_implicit_account_invalid_pk() {
+    let epoch_length = 10;
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    let mut env = TestEnv::builder(ChainGenesis::test())
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
+        .build();
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let deposit_for_account_creation = 10u128.pow(23);
+    let mut height = 1;
+    let blocks_number = 5;
+    let signer1 = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+
+    let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
+    let implicit_account_id = derive_account_id_from_public_key(&secret_key.public_key());
+    let implicit_account_signer =
+        InMemorySigner::from_secret_key(implicit_account_id.clone(), secret_key);
+
+    // Send money to ETH-implicit account, invoking its creation.
+    let send_money_tx = SignedTransaction::send_money(
+        1,
+        "test1".parse().unwrap(),
+        implicit_account_id.clone(),
+        &signer1,
+        deposit_for_account_creation,
+        *genesis_block.hash(),
+    );
+    height = check_tx_processing(&mut env, send_money_tx, height, blocks_number);
+    let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
+
+    let secret_key_2 = SecretKey::from_seed(KeyType::SECP256K1, "test2");
+    let invalid_signer_2 =
+        InMemorySigner::from_secret_key(implicit_account_id.clone(), secret_key_2);
+
+    // Try sending money from ETH-implicit account using incorrect signer.
+    // That will check if signer's account ID is derived from the provided public key.
+    // As the providede public key does not match the account address, no access key would be added.
+    let try_send_money_from_implicit_account_tx = SignedTransaction::send_money(
+        (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER,
+        implicit_account_id.clone(),
+        "test0".parse().unwrap(),
+        &invalid_signer_2,
+        100,
+        *block.hash(),
+    );
+    let response = env.clients[0].process_tx(try_send_money_from_implicit_account_tx, false, false);
+    assert_matches!(
+        response,
+        ProcessTxResponse::InvalidTx(InvalidTxError::InvalidAccessKeyError(
+            InvalidAccessKeyError::InvalidPkForEthAddress { .. }
+        ))
+    );
+
+    let secret_key_3 = SecretKey::from_seed(KeyType::ED25519, "test");
+    let invalid_signer_3 =
+        InMemorySigner::from_secret_key(implicit_account_id.clone(), secret_key_3);
+
+    // Now we try sending money from ETH-implicit account providing ED25519 public key.
+    // The transaction would result in creating access key, so it should be signed by Secp256k1 key.
+    let try_send_money_from_implicit_account_again_tx = SignedTransaction::send_money(
+        (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER,
+        implicit_account_id.clone(),
+        "test0".parse().unwrap(),
+        &invalid_signer_3,
+        100,
+        *block.hash(),
+    );
+    let response =
+        env.clients[0].process_tx(try_send_money_from_implicit_account_again_tx, false, false);
+    assert_matches!(
+        response,
+        ProcessTxResponse::InvalidTx(InvalidTxError::InvalidAccessKeyError(
+            InvalidAccessKeyError::InvalidPkForEthAddress { .. }
+        ))
+    );
+
+    // Now we send money from ETH-implicit account using correct signing key.
+    // As this is the first valid transaction from that account, no access key has been added yet,
+    // so using 0 nonce should pass (we should not use 0 nonce in real transaction).
+    let send_money_from_implicit_account_tx = SignedTransaction::send_money(
+        0,
+        implicit_account_id,
+        "test0".parse().unwrap(),
+        &implicit_account_signer,
+        100,
+        *block.hash(),
+    );
+    check_tx_processing(&mut env, send_money_from_implicit_account_tx, height, blocks_number);
+}
+
 /// Test that duplicate transactions from NEAR-implicit accounts are properly rejected.
 #[test]
-fn test_transaction_hash_collision_for_implicit_account_fail() {
+fn test_transaction_hash_collision_for_near_implicit_account_fail() {
     let protocol_version = ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version();
     let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
-    let implicit_account_id =
-        derive_near_implicit_account_id(secret_key.public_key().unwrap_as_ed25519());
+    let implicit_account_id = derive_account_id_from_public_key(&secret_key.public_key());
     let implicit_account_signer = InMemorySigner::from_secret_key(implicit_account_id, secret_key);
     assert_matches!(
         get_status_of_tx_hash_collision_for_implicit_account(
@@ -217,12 +447,11 @@ fn test_transaction_hash_collision_for_implicit_account_fail() {
 
 /// Test that duplicate transactions from NEAR-implicit accounts are not rejected until protocol upgrade.
 #[test]
-fn test_transaction_hash_collision_for_implicit_account_ok() {
+fn test_transaction_hash_collision_for_near_implicit_account_ok() {
     let protocol_version =
         ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
     let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
-    let implicit_account_id =
-        derive_near_implicit_account_id(secret_key.public_key().unwrap_as_ed25519());
+    let implicit_account_id = derive_account_id_from_public_key(&secret_key.public_key());
     let implicit_account_signer = InMemorySigner::from_secret_key(implicit_account_id, secret_key);
     assert_matches!(
         get_status_of_tx_hash_collision_for_implicit_account(
@@ -231,6 +460,28 @@ fn test_transaction_hash_collision_for_implicit_account_ok() {
         ),
         ProcessTxResponse::ValidTx
     );
+}
+
+/// Test that duplicate transactions from ETH-implicit accounts are not rejected before and after protocol upgrade.
+/// It is responsibility of the transaction signer to choose nonce equal to `(block_height - 1) * 1e6` in case the transaction
+/// results in adding a new key to an ETH-implicit account (see https://github.com/near/NEPs/issues/498#issuecomment-1782881395).
+#[test]
+fn test_transaction_hash_collision_for_eth_implicit_account_ok() {
+    let protocol_version =
+        ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
+    for protocol_version in protocol_version..=protocol_version + 1 {
+        let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
+        let implicit_account_id = derive_account_id_from_public_key(&secret_key.public_key());
+        let implicit_account_signer =
+            InMemorySigner::from_secret_key(implicit_account_id, secret_key);
+        assert_matches!(
+            get_status_of_tx_hash_collision_for_implicit_account(
+                protocol_version,
+                implicit_account_signer
+            ),
+            ProcessTxResponse::ValidTx
+        );
+    }
 }
 
 /// Test that chunks with transactions that have expired are considered invalid.

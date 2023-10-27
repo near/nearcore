@@ -446,7 +446,8 @@
         "MethodNameMismatch",
         "RequiresFullAccess",
         "NotEnoughAllowance",
-        "DepositWithFunctionCall"
+        "DepositWithFunctionCall",
+        "InvalidPkForEthAddress"
       ],
       "props": {}
     },
@@ -485,6 +486,14 @@
       "props": {
         "ak_nonce": "",
         "tx_nonce": ""
+      }
+    },
+    "InvalidPkForEthAddress": {
+      "name": "InvalidPkForEthAddress",
+      "subtypes": [],
+      "props": {
+        "account_id": "",
+        "public_key": ""
       }
     },
     "InvalidPredecessorId": {

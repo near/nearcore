@@ -56,8 +56,32 @@ impl FeeHelper {
         exec_gas + send_gas
     }
 
+    pub fn create_account_transfer_fee(&self) -> Gas {
+        let exec_gas = self.cfg().fee(ActionCosts::new_action_receipt).exec_fee()
+            + self.cfg().fee(ActionCosts::create_account).exec_fee()
+            + self.cfg().fee(ActionCosts::transfer).exec_fee();
+        let send_gas = self.cfg().fee(ActionCosts::new_action_receipt).send_fee(false)
+            + self.cfg().fee(ActionCosts::create_account).send_fee(false)
+            + self.cfg().fee(ActionCosts::transfer).send_fee(false);
+        exec_gas + send_gas
+    }
+
+    pub fn transfer_full_key_fee(&self) -> Gas {
+        let exec_gas = self.cfg().fee(ActionCosts::new_action_receipt).exec_fee()
+            + self.cfg().fee(ActionCosts::transfer).exec_fee()
+            + self.cfg().fee(ActionCosts::add_full_access_key).exec_fee();
+        let send_gas = self.cfg().fee(ActionCosts::new_action_receipt).send_fee(false)
+            + self.cfg().fee(ActionCosts::transfer).send_fee(false)
+            + self.cfg().fee(ActionCosts::add_full_access_key).send_fee(false);
+        exec_gas + send_gas
+    }
+
     pub fn create_account_transfer_full_key_cost(&self) -> Balance {
         self.gas_to_balance(self.create_account_transfer_full_key_fee())
+    }
+
+    pub fn create_account_transfer_cost(&self) -> Balance {
+        self.gas_to_balance(self.create_account_transfer_fee())
     }
 
     pub fn create_account_transfer_full_key_cost_no_reward(&self) -> Balance {
@@ -79,6 +103,15 @@ impl FeeHelper {
             + self.cfg().fee(ActionCosts::create_account).send_fee(false)
             + self.cfg().fee(ActionCosts::transfer).send_fee(false)
             + self.cfg().fee(ActionCosts::add_full_access_key).send_fee(false);
+        self.gas_to_balance(exec_gas + send_gas)
+    }
+
+    pub fn create_account_transfer_cost_fail_on_create_account(&self) -> Balance {
+        let exec_gas = self.cfg().fee(ActionCosts::new_action_receipt).exec_fee()
+            + self.cfg().fee(ActionCosts::create_account).exec_fee();
+        let send_gas = self.cfg().fee(ActionCosts::new_action_receipt).send_fee(false)
+            + self.cfg().fee(ActionCosts::create_account).send_fee(false)
+            + self.cfg().fee(ActionCosts::transfer).send_fee(false);
         self.gas_to_balance(exec_gas + send_gas)
     }
 
@@ -118,8 +151,8 @@ impl FeeHelper {
         self.gas_to_balance(self.transfer_fee())
     }
 
-    pub fn transfer_cost_64len_hex(&self) -> Balance {
-        self.create_account_transfer_full_key_cost()
+    pub fn transfer_full_key_cost(&self) -> Balance {
+        self.gas_to_balance(self.transfer_full_key_fee())
     }
 
     pub fn stake_cost(&self) -> Balance {
