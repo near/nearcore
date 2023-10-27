@@ -15,13 +15,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      - run: |
-        cd pytest
-        pip3 install --user -r requirements.txt
-        pwd
-        ls ..
-        python3 tests/sanity/backward_compatible.py
-        ls ../target/debug
+      - name: run tests/sanity/backward_compatible.py
+        run: |
+          cd pytest
+          pip3 install --user -r requirements.txt
+          pwd
+          ls ..
+          python3 tests/sanity/backward_compatible.py
+          ls ../target/debug
 
   cargo_nextest:
     name: "Cargo Nextest"
@@ -65,10 +66,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      - run: |
-        cd pytest
-        pip3 install --user -r requirements.txt
-        python3 tests/sanity/db_migration.py
+      - name: run tests/sanity/db_migration.py
+        run: |
+          cd pytest
+          pip3 install --user -r requirements.txt
+          python3 tests/sanity/db_migration.py
 
   protobuf_backward_compat:
     name: "Protobuf Backward Compatibility"
@@ -112,15 +114,15 @@ jobs:
       - run: ./scripts/formatting --check
 
       - name: check rpc_errors_schema.json
-      - run: |
-        rm -f target/rpc_errors_schema.json
-        cargo check -p near-jsonrpc --features dump_errors_schema
-        if ! git --no-pager diff --no-index chain/jsonrpc/res/rpc_errors_schema.json target/rpc_errors_schema.json; then
-            set +x
-            echo 'The RPC errors schema reflects outdated typing structure; please run'
-            echo '    ./chain/jsonrpc/build_errors_schema.sh'
-            exit 1
-        fi >&2
+        run: |
+          rm -f target/rpc_errors_schema.json
+          cargo check -p near-jsonrpc --features dump_errors_schema
+          if ! git --no-pager diff --no-index chain/jsonrpc/res/rpc_errors_schema.json target/rpc_errors_schema.json; then
+              set +x
+              echo 'The RPC errors schema reflects outdated typing structure; please run'
+              echo '    ./chain/jsonrpc/build_errors_schema.sh'
+              exit 1
+          fi >&2
 
   upgradability:
     name: "Upgradability"
@@ -128,7 +130,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      - run: |
-        cd pytest
-        pip3 install --user -r requirements.txt
-        python3 tests/sanity/upgradable.py
+      - name: check tests/sanity/upgradable.py
+        run: |
+          cd pytest
+          pip3 install --user -r requirements.txt
+          python3 tests/sanity/upgradable.py
