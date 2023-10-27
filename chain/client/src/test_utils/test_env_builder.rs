@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use near_async::messaging::IntoSender;
-use near_chain::state_snapshot_actor::MakeSnapshotCallback;
+use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
@@ -18,7 +18,7 @@ use near_network::test_utils::MockPeerManagerAdapter;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::types::{AccountId, NumShards};
 use near_store::test_utils::create_test_store;
-use near_store::{NodeStorage, Store, StoreConfig};
+use near_store::{NodeStorage, ShardUId, Store, StoreConfig};
 
 use super::setup::{setup_client_with_runtime, setup_synchronous_shards_manager};
 use super::test_env::TestEnv;
@@ -489,10 +489,20 @@ impl TestEnvBuilder {
                         None => TEST_SEED,
                     };
                     let tries = runtime.get_tries();
-                    let make_state_snapshot_callback: MakeSnapshotCallback = Arc::new(move |prev_block_hash, shard_uids, block| {
+                    let make_snapshot_callback = Arc::new(move |prev_block_hash, shard_uids: Vec<ShardUId>, block| {
                         tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
-                        tries.make_state_snapshot(&prev_block_hash, &shard_uids, &block).unwrap();
+                        tries.delete_state_snapshot();
+                        tries.create_state_snapshot(prev_block_hash, &shard_uids, &block).unwrap();
                     });
+                    let tries = runtime.get_tries();
+                    let delete_snapshot_callback = Arc::new(move || {
+                        tracing::info!(target: "state_snapshot", "delete_snapshot_callback");
+                        tries.delete_state_snapshot();
+                    });
+                    let snapshot_callbacks = SnapshotCallbacks {
+                        make_snapshot_callback,
+                        delete_snapshot_callback,
+                    };
                     setup_client_with_runtime(
                         u64::try_from(num_validators).unwrap(),
                         Some(account_id),
@@ -506,7 +516,7 @@ impl TestEnvBuilder {
                         rng_seed,
                         self.archive,
                         self.save_trie_changes,
-                        Some(make_state_snapshot_callback),
+                        Some(snapshot_callbacks),
                     )
                 })
                 .collect();

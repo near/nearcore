@@ -8,7 +8,7 @@ use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
 use crate::state_request_tracker::StateRequestTracker;
-use crate::state_snapshot_actor::MakeSnapshotCallback;
+use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplySplitStateResultOrStateChanges,
@@ -487,7 +487,7 @@ pub struct Chain {
 #[derive(Default)]
 struct StateSnapshotHelper {
     /// A callback to initiate state snapshot.
-    make_snapshot_callback: Option<MakeSnapshotCallback>,
+    snapshot_callbacks: Option<SnapshotCallbacks>,
 
     /// Count of blocks since the last snapshot.
     /// Useful for keeping track of count if StateSnapshotType is EveryEpochAndNBlocks
@@ -595,7 +595,7 @@ impl Chain {
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_config: ChainConfig,
-        make_snapshot_callback: Option<MakeSnapshotCallback>,
+        snapshot_callbacks: Option<SnapshotCallbacks>,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
@@ -750,7 +750,7 @@ impl Chain {
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
             state_snapshot_helper: StateSnapshotHelper {
-                make_snapshot_callback,
+                snapshot_callbacks,
                 blocks_since_last_snapshot: 0,
             },
             state_split_config: chain_config.state_split_config,
@@ -4276,31 +4276,38 @@ impl Chain {
 
     /// Function to create a new snapshot if needed
     fn process_snapshot(&mut self) -> Result<(), Error> {
-        if !self.need_snapshot()? {
+        let (make_snapshot, delete_snapshot) = self.should_make_or_delete_snapshot()?;
+        if !make_snapshot && !delete_snapshot {
             return Ok(());
         }
-        if let Some(make_snapshot_callback) = &self.state_snapshot_helper.make_snapshot_callback {
-            let head = self.head()?;
-            let shard_uids = self
-                .epoch_manager
-                .get_shard_layout_from_prev_block(&head.prev_block_hash)?
-                .get_shard_uids();
-            let last_block = self.get_block(&head.last_block_hash)?;
-            make_snapshot_callback(head.prev_block_hash, shard_uids, last_block);
+        if let Some(snapshot_callbacks) = &self.state_snapshot_helper.snapshot_callbacks {
+            if make_snapshot {
+                let head = self.head()?;
+                let shard_uids = self
+                    .epoch_manager
+                    .get_shard_layout_from_prev_block(&head.prev_block_hash)?
+                    .get_shard_uids();
+                let last_block = self.get_block(&head.last_block_hash)?;
+                let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
+                make_snapshot_callback(head.prev_block_hash, shard_uids, last_block);
+            } else if delete_snapshot {
+                let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
+                delete_snapshot_callback();
+            }
         }
         Ok(())
     }
 
     /// Function to check whether we need to create a new snapshot while processing the current block
     /// Note that this functions is called as a part of block preprocesing, so the head is not updated to current block
-    fn need_snapshot(&mut self) -> Result<bool, Error> {
+    fn should_make_or_delete_snapshot(&mut self) -> Result<(bool, bool), Error> {
         self.state_snapshot_helper.blocks_since_last_snapshot += 1;
 
         // head value is that of the previous block, i.e. curr_block.prev_hash
         let head = self.head()?;
         if head.prev_block_hash == CryptoHash::default() {
             // genesis block, do not snapshot
-            return Ok(false);
+            return Ok((false, false));
         }
 
         let is_epoch_boundary =
@@ -4309,7 +4316,7 @@ impl Chain {
             self.epoch_manager.will_shard_layout_change(&head.last_block_hash)?;
         let tries = self.runtime_adapter.get_tries();
         let snapshot_config = tries.state_snapshot_config();
-        let need_snapshot = match snapshot_config.state_snapshot_type {
+        let make_snapshot = match snapshot_config.state_snapshot_type {
             // For every epoch, we snapshot if the next block would be in a different epoch
             StateSnapshotType::EveryEpoch => is_epoch_boundary,
             // For resharding only, we snapshot if next block would be in a different shard layout
@@ -4321,11 +4328,15 @@ impl Chain {
             }
         };
 
-        if need_snapshot {
+        // We need to delete the existing snapshot at the epoch boundary if we are not making a new snapshot
+        // This is useful for the next epoch after resharding where make_snapshot is false but it's an epoch boundary
+        let delete_snapshot = !make_snapshot && is_epoch_boundary;
+
+        if make_snapshot {
             self.state_snapshot_helper.blocks_since_last_snapshot = 0;
         }
 
-        Ok(need_snapshot)
+        Ok((make_snapshot, delete_snapshot))
     }
 
     /// Returns a description of state parts cached for the given shard of the given epoch.
