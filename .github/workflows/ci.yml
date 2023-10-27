@@ -1,0 +1,134 @@
+name: CI
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+  merge_group:
+
+jobs:
+  backward_compat:
+    name: "Backward Compatibility"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - run: |
+        cd pytest
+        pip3 install --user -r requirements.txt
+        pwd
+        ls ..
+        python3 tests/sanity/backward_compatible.py
+        ls ../target/debug
+
+  cargo_nextest:
+    name: "Cargo Nextest"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04-8core
+            flags: ""
+          - os: ubuntu-22.04-8core
+            flags: "--features nightly,test_features"
+          - os: macos-latest-xlarge
+            # FIXME: some of these tests don't work very well on MacOS at the moment. Should fix
+            # them at earliest convenience :)
+            flags: "--exclude integration-tests --exclude node-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse"
+    timeout-minutes: 90
+
+    steps:
+      # Some of the tests allocate really sparse maps, so heuristic-based overcommit limits are not
+      # appropriate here.
+      # FIXME(#9634): remove this once the issue is resolved.
+      - run: sudo sysctl vm.overcommit_memory=1 || true
+      - uses: actions/checkout@v2
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: cargo-nextest
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: cargo-deny
+      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
+        with:
+          prefix-key: "0" # change this to invalidate CI cache
+      - run: cargo nextest run --locked --workspace -p '*' --cargo-profile quick-release --profile ci ${{ matrix.flags }}
+        env:
+          RUST_BACKTRACE: short
+
+  db_migration:
+    name: "Database Migration"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - run: |
+        cd pytest
+        pip3 install --user -r requirements.txt
+        python3 tests/sanity/db_migration.py
+
+  protobuf_backward_compat:
+    name: "Protobuf Backward Compatibility"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: bufbuild/buf-setup-action@v1
+      - uses: bufbuild/buf-breaking-action@v1
+        with:
+          against: "https://github.com/near/nearcore.git#ref=${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}"
+
+  sanity_checks:
+    name: "Sanity Checks"
+    runs-on: ubuntu-22.04-16core
+    strategy:
+      fail-fast: false
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v2
+      - run: cargo build -p neard --bin neard --features nightly
+      - name: run spin_up_cluster.py
+        # Note: We're not running spin_up_cluster.py for non-nightly
+        # because spinning up non-nightly clusters is already covered
+        # by other steps in the CI, e.g. upgradable.
+        run: |
+          cd pytest
+          python3 -m pip install --progress-bar off --user -r requirements.txt
+          python3 tests/sanity/spin_up_cluster.py
+
+      - run: cargo build -p neard --bin neard
+      - run: python3 scripts/state/update_res.py check
+
+      - run: python3 scripts/check_nightly.py
+      - run: python3 scripts/check_pytests.py
+      - run: python3 scripts/check_fuzzing.py
+
+      - run: python3 scripts/fix_nightly_feature_flags.py
+
+      - run: ./scripts/formatting --check
+
+      - name: check rpc_errors_schema.json
+      - run: |
+        rm -f target/rpc_errors_schema.json
+        cargo check -p near-jsonrpc --features dump_errors_schema
+        if ! git --no-pager diff --no-index chain/jsonrpc/res/rpc_errors_schema.json target/rpc_errors_schema.json; then
+            set +x
+            echo 'The RPC errors schema reflects outdated typing structure; please run'
+            echo '    ./chain/jsonrpc/build_errors_schema.sh'
+            exit 1
+        fi >&2
+
+  upgradability:
+    name: "Upgradability"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - run: |
+        cd pytest
+        pip3 install --user -r requirements.txt
+        python3 tests/sanity/upgradable.py
