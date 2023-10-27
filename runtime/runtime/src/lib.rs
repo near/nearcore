@@ -1186,15 +1186,16 @@ impl Runtime {
         let root = trie.root.clone();
         let mut prefetcher = TriePrefetcher::new_if_enabled(&trie);
         let mut state_update = TrieUpdate::new(trie);
-        let account =
-            get_account(&state_update, &AccountId::from_str("test0").unwrap()).unwrap().unwrap();
-        println!(
-            "VALCHECK: AT {} {}: test0 {} {}",
-            apply_state.block_height,
-            root,
-            account.amount(),
-            account.locked()
-        );
+        let account = get_account(&state_update, &AccountId::from_str("test0").unwrap()).unwrap();
+        if let Some(account) = account {
+            println!(
+                "VALCHECK: AT {} {}: test0 {} {}",
+                apply_state.block_height,
+                root,
+                account.amount(),
+                account.locked()
+            );
+        }
         if let Some(prefetcher) = &mut prefetcher {
             // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_transactions_data(transactions);
