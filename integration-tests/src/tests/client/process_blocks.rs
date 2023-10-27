@@ -1778,7 +1778,7 @@ fn test_gc_execution_outcome() {
     for i in 1..epoch_length {
         env.produce_block(0, i);
     }
-    assert!(env.clients[0].chain.get_final_transaction_result(&tx_hash).is_ok());
+    assert_matches!(env.clients[0].chain.get_final_transaction_result(&tx_hash), Ok(_));
 
     for i in epoch_length..=epoch_length * 6 + 1 {
         env.produce_block(0, i);
