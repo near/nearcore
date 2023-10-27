@@ -2,6 +2,7 @@ use super::sync_actor::SyncActor;
 use actix::dev::ToEnvelope;
 use actix::prelude::SendError;
 use actix::{Actor, Message};
+use actix_rt::Arbiter;
 use core::fmt::Debug;
 use near_async::messaging::Sender;
 use near_network::types::{
@@ -59,7 +60,7 @@ impl SyncAdapter {
     /// Starts a new arbiter and runs the actor on it
     pub fn start(&mut self, shard_uid: ShardUId) {
         assert!(!self.actor_handler_map.contains_key(&shard_uid), "Actor already started.");
-        let arbiter = actix::Arbiter::new();
+        let arbiter = Arbiter::new();
         let arbiter_handle = arbiter.handle();
         let client = self.client_adapter.clone();
         let network = self.network_adapter.clone();

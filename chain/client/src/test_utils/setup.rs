@@ -10,6 +10,7 @@ use crate::adapter::{
 };
 use crate::{start_view_client, Client, ClientActor, SyncAdapter, SyncStatus, ViewClientActor};
 use actix::{Actor, Addr, AsyncContext, Context};
+use actix_rt::System;
 use chrono::DateTime;
 use chrono::Utc;
 use futures::{future, FutureExt};
@@ -1042,6 +1043,9 @@ pub fn setup_client_with_synchronous_shards_manager(
     archive: bool,
     save_trie_changes: bool,
 ) -> Client {
+    if let None = System::try_current() {
+        let _ = System::new();
+    }
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
     let epoch_manager =
         MockEpochManager::new_with_validators(store.clone(), vs, chain_genesis.epoch_length);

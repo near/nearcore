@@ -282,16 +282,18 @@ impl Client {
             config.state_sync_enabled,
         );
         // Start one actor per shard.
-        let epoch_id = chain.store().head().expect("Cannot get chain head.").epoch_id;
-        let shard_layout =
-            epoch_manager.get_shard_layout(&epoch_id).expect("Cannot get shard layout.");
-        match state_sync_adapter.write() {
-            Ok(mut state_sync_adapter) => {
-                for shard_uid in shard_layout.get_shard_uids() {
-                    state_sync_adapter.start(shard_uid);
+        if config.state_sync_enabled {
+            let epoch_id = chain.store().head().expect("Cannot get chain head.").epoch_id;
+            let shard_layout =
+                epoch_manager.get_shard_layout(&epoch_id).expect("Cannot get shard layout.");
+            match state_sync_adapter.write() {
+                Ok(mut state_sync_adapter) => {
+                    for shard_uid in shard_layout.get_shard_uids() {
+                        state_sync_adapter.start(shard_uid);
+                    }
                 }
+                Err(_) => panic!("Cannot acquire write lock on sync adapter. Lock poisoned."),
             }
-            Err(_) => panic!("Cannot acquire write lock on sync adapter. Lock poisoned."),
         }
 
         let state_sync = StateSync::new(
