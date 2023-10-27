@@ -1753,7 +1753,7 @@ fn test_gc_chunk_tail() {
 #[test]
 fn test_gc_execution_outcome() {
     init_test_logger();
-    let epoch_length = 5;
+    let epoch_length = 7;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
