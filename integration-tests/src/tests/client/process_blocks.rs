@@ -1753,6 +1753,7 @@ fn test_gc_chunk_tail() {
 #[test]
 fn test_gc_execution_outcome() {
     init_test_logger();
+    // DELAY!
     let epoch_length = 7;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;

@@ -578,7 +578,7 @@ impl BlockHeader {
                 last_ds_final_block,
                 approvals,
                 // TEST
-                latest_protocol_version: get_protocol_version(next_epoch_protocol_version), // PROTOCOL_VERSION,
+                latest_protocol_version: PROTOCOL_VERSION,
             };
             let (hash, signature) = signer.sign_block_header_parts(
                 prev_hash,
