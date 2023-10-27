@@ -3939,7 +3939,7 @@ impl Chain {
                 // let new_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
                 // let mut chain_update = self.chain_update();
                 // panic!("!!!");
-                return Ok((vec![], self.get_chunk_extra(prev_hash, &shard_uid)?));
+                return Ok((vec![], self.get_chunk_extra(block.hash(), &shard_uid)?));
             } // no chunk => no chunk extra to save
         };
         let apply_chunk_result = job(&_span)?;
@@ -3974,6 +3974,10 @@ impl Chain {
         // chain_update.apply_chunk_postprocessing(block, vec![apply_chunk_result])?;
         // Lol, just lol. Future processing requires some data
         // Don't do FS updates now because next block doesn't exist
+        // Flat storage update below is incorrect.
+        // FS changes must be saved on top of NEXT block which doesn't exist yet.
+        // But we don't care, as prepare_transactions uses only trie
+        // Trie changes are saved though.
         // let flat_storage_manager = runtime.get_flat_storage_manager();
         // let store_update = flat_storage_manager.save_flat_state_changes(
         //     *block.hash(),
@@ -5852,11 +5856,11 @@ impl<'a> ChainUpdate<'a> {
             }) => {
                 let new_block_hash = apply_result.trie_changes.block_hash.clone();
                 let fs_header = block.header();
-                let (block_hash, block) = if &new_block_hash == block_hash {
-                    (block_hash, block.clone())
-                } else {
-                    (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
-                };
+                // let (block_hash, block) = if &new_block_hash == block_hash {
+                //     (block_hash, block.clone())
+                // } else {
+                //     (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
+                // };
                 let prev_hash = block.header().prev_hash();
                 let height = block.header().height();
                 println!("process_apply_chunk_result NEW SAME: {block_hash} {prev_hash} {height}");
@@ -5881,12 +5885,12 @@ impl<'a> ChainUpdate<'a> {
 
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
                 let store_update = flat_storage_manager.save_flat_state_changes(
-                    *fs_header.hash(),
-                    *fs_header.prev_hash(),
-                    fs_header.height(),
-                    // *block_hash,
-                    // *prev_hash,
-                    // height,
+                    // *fs_header.hash(),
+                    // *fs_header.prev_hash(),
+                    // fs_header.height(),
+                    *block_hash,
+                    *prev_hash,
+                    height,
                     shard_uid,
                     apply_result.trie_changes.state_changes(),
                 )?;
@@ -5917,11 +5921,11 @@ impl<'a> ChainUpdate<'a> {
             }) => {
                 let new_block_hash = apply_result.trie_changes.block_hash.clone();
                 let fs_header = block.header();
-                let (block_hash, block) = if &new_block_hash == block_hash {
-                    (block_hash, block.clone())
-                } else {
-                    (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
-                };
+                // let (block_hash, block) = if &new_block_hash == block_hash {
+                //     (block_hash, block.clone())
+                // } else {
+                //     (&new_block_hash, self.chain_store_update.get_block(&new_block_hash)?)
+                // };
                 let prev_hash = block.header().prev_hash();
                 let height = block.header().height();
                 println!("process_apply_chunk_result NEW DIFF: {block_hash} {prev_hash} {height}");
@@ -5933,12 +5937,12 @@ impl<'a> ChainUpdate<'a> {
 
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
                 let store_update = flat_storage_manager.save_flat_state_changes(
-                    *fs_header.hash(),
-                    *fs_header.prev_hash(),
-                    fs_header.height(),
-                    // *block_hash,
-                    // *prev_hash,
-                    // height,
+                    // *fs_header.hash(),
+                    // *fs_header.prev_hash(),
+                    // fs_header.height(),
+                    *block_hash,
+                    *prev_hash,
+                    height,
                     shard_uid,
                     apply_result.trie_changes.state_changes(),
                 )?;
