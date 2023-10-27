@@ -3974,15 +3974,15 @@ impl Chain {
         // chain_update.apply_chunk_postprocessing(block, vec![apply_chunk_result])?;
         // Lol, just lol. Future processing requires some data
         // Don't do FS updates now because next block doesn't exist
-        // let flat_storage_manager = runtime.get_flat_storage_manager();
-        // let store_update = flat_storage_manager.save_flat_state_changes(
-        //     fs_hash,
-        //     *fs_header.prev_hash(),
-        //     fs_header.height(),
-        //     shard_uid,
-        //     trie_changes.state_changes(),
-        // )?;
-        // chain_update.chain_store_update.merge(store_update);
+        let flat_storage_manager = runtime.get_flat_storage_manager();
+        let store_update = flat_storage_manager.save_flat_state_changes(
+            *block.hash(),
+            *block.header().prev_hash(),
+            block.header().height(),
+            shard_uid,
+            trie_changes.state_changes(),
+        )?;
+        chain_update.chain_store_update.merge(store_update);
         chain_update.chain_store_update.save_trie_changes(trie_changes);
         let receipts_map =
             chain_update.get_receipt_id_to_shard_id(block.hash(), shard_id as u64)?;
