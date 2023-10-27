@@ -4413,7 +4413,7 @@ impl Chain {
             Some(self.get_outgoing_receipts_for_shard(
                 *block.hash(),
                 shard_id as ShardId,
-                prev_block.chunks()[shard_id].height_included(),
+                prev_chunk_height_included,
             )?)
         };
 
