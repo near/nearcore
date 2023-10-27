@@ -336,6 +336,10 @@ def neard_runner_jsonrpc(node, method, params=[]):
         'jsonrpc': '2.0'
     }
     body = json.dumps(body)
+    # '"'"' will be interpreted as ending the first quote and then concatenating it with "'",
+    # followed by a new quote started with ' and the rest of the string, to get any single quotes
+    # in method or params into the command correctly
+    body = body.replace("'", "'\"'\"'")
     r = run_cmd(node, f'curl localhost:3000 -d \'{body}\'')
     response = json.loads(r.stdout)
     if 'error' in response:
