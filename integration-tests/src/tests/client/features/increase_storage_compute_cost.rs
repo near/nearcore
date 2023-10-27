@@ -212,7 +212,7 @@ fn assert_compute_limit_reached(
         let signer = InMemorySigner::from_seed(
             contract_account.clone(),
             KeyType::ED25519,
-            &contract_account,
+            contract_account.as_ref(),
         );
         let tx = env.tx_from_actions(actions, &signer, signer.account_id.clone());
         env.execute_tx(tx).unwrap().assert_success();
@@ -300,7 +300,7 @@ fn produce_saturated_chunk(
         gas,
         deposit: 0,
     }))];
-    let signer = InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account);
+    let signer = InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account.as_ref());
 
     let tip = env.clients[0].chain.head().unwrap();
     let mut tx_factory = || {

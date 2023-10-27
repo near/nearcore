@@ -64,7 +64,7 @@ fn test_get_validator_info_rpc() {
                         assert!(res
                             .current_validators
                             .iter()
-                            .any(|r| r.account_id.as_ref() == "near.0"));
+                            .any(|r| r.account_id == "near.0"));
                         System::current().stop();
                     }
                 });
