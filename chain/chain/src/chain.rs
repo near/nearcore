@@ -5629,8 +5629,9 @@ impl<'a> ChainUpdate<'a> {
             shard_uids.remove(&shard_uid);
         }
         let prev_hash = block.header().prev_hash();
-        let prev_prev_hash = self.chain_store_update.get_block_header(prev_hash)?.prev_hash();
-        if prev_prev_hash == &CryptoHash::default() {
+        let prev_prev_hash =
+            self.chain_store_update.get_block_header(prev_hash)?.prev_hash().clone();
+        if prev_prev_hash == CryptoHash::default() {
             for shard_uid in shard_uids.into_iter() {
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
                 let store_update = flat_storage_manager.save_flat_state_changes(
