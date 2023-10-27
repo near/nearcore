@@ -319,6 +319,7 @@ mod test {
     use crate::state_dump::state_dump;
     use near_primitives::hash::CryptoHash;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
+    use near_primitives_core::account::id::AccountIdRef;
 
     fn setup(
         epoch_length: NumBlocks,
@@ -628,7 +629,7 @@ mod test {
                 .into_iter()
                 .map(|r| r.account_id)
                 .collect::<Vec<_>>(),
-            vec!["test0".parse().unwrap()]
+            vec!["test0"]
         );
         validate_genesis(&new_genesis).unwrap();
     }
@@ -914,7 +915,7 @@ mod test {
                 .iter()
                 .map(|x| x.account_id.clone())
                 .collect::<Vec<AccountId>>(),
-            vec!["test1".parse().unwrap()]
+            vec!["test1"]
         );
 
         let mut stake = HashMap::<AccountId, Balance>::new();
@@ -924,7 +925,10 @@ mod test {
             }
         });
 
-        assert_eq!(stake.get("test0").unwrap_or(&(0 as Balance)), &(0 as Balance));
+        assert_eq!(
+            stake.get(AccountIdRef::new_or_panic("test0")).unwrap_or(&(0 as Balance)),
+            &(0 as Balance)
+        );
 
         validate_genesis(&new_genesis).unwrap();
     }
