@@ -4439,7 +4439,7 @@ impl Chain {
         let old_receipts = &self.store().get_incoming_receipts_for_shard(
             self.epoch_manager.as_ref(),
             shard_id,
-            *prev_hash,
+            prev_hash.clone(),
             prev_chunk_height_included,
         )?;
         let old_receipts = collect_receipts_from_response(old_receipts);
