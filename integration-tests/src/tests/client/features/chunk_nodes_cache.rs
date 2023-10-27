@@ -1,4 +1,6 @@
-use crate::tests::client::process_blocks::{deploy_test_contract, set_block_protocol_version};
+use crate::tests::client::process_blocks::{
+    deploy_test_contract, deploy_test_contract_with_protocol_version, set_block_protocol_version,
+};
 use assert_matches::assert_matches;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
@@ -99,17 +101,13 @@ fn compare_node_counts() {
         )
         .build();
 
-    for h in 1..100 {
-        env.produce_block(0, h);
-    }
-    return;
-
-    deploy_test_contract(
+    deploy_test_contract_with_protocol_version(
         &mut env,
         "test0".parse().unwrap(),
         near_test_contracts::backwards_compatible_rs_contract(),
         num_blocks,
         1,
+        old_protocol_version,
     );
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
