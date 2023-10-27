@@ -362,13 +362,13 @@ impl Ord for OrderedValidatorStake {
 mod tests {
     use super::*;
     use near_crypto::{KeyType, PublicKey};
+    use near_primitives::account::id::AccountIdRef;
     use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochInfoV3};
     use near_primitives::epoch_manager::ValidatorSelectionConfig;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
-    use near_primitives::account::id::AccountIdRef;
 
     #[test]
     fn test_validator_assignment_all_block_producers() {

@@ -300,7 +300,8 @@ fn produce_saturated_chunk(
         gas,
         deposit: 0,
     }))];
-    let signer = InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account.as_ref());
+    let signer =
+        InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account.as_ref());
 
     let tip = env.clients[0].chain.head().unwrap();
     let mut tx_factory = || {

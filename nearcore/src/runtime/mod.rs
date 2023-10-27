@@ -1353,9 +1353,9 @@ mod test {
 
     use super::*;
 
+    use near_primitives::account::id::AccountIdRef;
     use near_primitives::trie_key::TrieKey;
     use primitive_types::U256;
-    use near_primitives::account::id::AccountIdRef;
 
     fn stake(
         nonce: Nonce,
