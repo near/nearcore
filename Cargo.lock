@@ -3341,7 +3341,7 @@ dependencies = [
 [[package]]
 name = "near-account-id"
 version = "0.17.0"
-source = "git+https://github.com/ruseinov/near-account-id?branch=ru/chore/len#f68ca374aa1cc52c3a2ca7bed1961af31895dee4"
+source = "git+https://github.com/near/near-account-id-rs?branch=main#dc69707ee47adbeb5f9319328aa21b723ae0f4cf"
 dependencies = [
  "borsh 1.0.0",
  "serde",
