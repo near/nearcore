@@ -581,11 +581,9 @@ impl ChainStore {
         loop {
             let block_header = self.get_block_header(&receipts_block_hash)?;
 
-            if ProtocolFeature::DelayChunkExecution.protocol_version() != 200 {
-                if block_header.height() != last_included_height {
-                    receipts_block_hash = *block_header.prev_hash();
-                    continue;
-                }
+            if block_header.height() != last_included_height {
+                receipts_block_hash = *block_header.prev_hash();
+                continue;
             }
             println!(
                 "TAKING FROM {receipts_block_hash} {}",
