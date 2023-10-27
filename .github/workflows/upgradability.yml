@@ -1,0 +1,20 @@
+name: Upgradability
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+  merge_group:
+
+jobs:
+  upgradability:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - run: |
+        cd pytest
+        pip3 install --user -r requirements.txt
+        python3 tests/sanity/upgradable.py
