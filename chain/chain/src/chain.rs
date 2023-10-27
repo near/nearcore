@@ -4181,7 +4181,7 @@ impl Chain {
                     will_shard_layout_change,
                     incoming_receipts,
                     state_patch,
-                    ProtocolFeature::DelayChunkExecution.protocol_version() == 200,
+                    ProtocolFeature::DelayChunkExecution.protocol_version() == 20,
                 );
 
                 match apply_chunk_job {
@@ -4405,7 +4405,7 @@ impl Chain {
             // if we validate by next existing chunk header
             Some(chunk.prev_outgoing_receipts().to_vec())
             // next_chunk.map(|chunk| chunk.unwrap().prev_outgoing_receipts().to_vec())
-        } else if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+        } else if ProtocolFeature::DelayChunkExecution.protocol_version() == 20 {
             // if we are producer, so outgoing receipts are not generated yet
             None
         } else {
@@ -4420,7 +4420,7 @@ impl Chain {
         let prev_block_copy = prev_block.clone();
         let block_copy = block.clone();
         let chunk_header_copy = chunk_header.clone();
-        let prev_chunk_extra = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+        let prev_chunk_extra = if ProtocolFeature::DelayChunkExecution.protocol_version() == 20 {
             None
         } else {
             Some(self.get_chunk_extra(&prev_hash, &shard_uid)?)
@@ -4429,7 +4429,7 @@ impl Chain {
         // we can't use hash from the current block here yet because the incoming receipts
         // for this block is not stored yet
         println!("{:?}", incoming_receipts);
-        let new_receipts = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+        let new_receipts = if ProtocolFeature::DelayChunkExecution.protocol_version() == 20 {
             // ignore "new incoming receipts"
             // for delayed execution it's enough to call get_incoming_receipts_for_shard
             vec![]
@@ -4497,7 +4497,7 @@ impl Chain {
         let next_gas_price = prev_block.header().next_gas_price();
         let random_seed = *block.header().random_value();
         let (height, prev_block_hash) =
-            if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+            if ProtocolFeature::DelayChunkExecution.protocol_version() == 20 {
                 (block.header().height(), *block.header().prev_hash())
             } else {
                 (chunk_header.height_included(), *chunk_header.prev_block_hash())
@@ -4578,7 +4578,7 @@ impl Chain {
                 })
             };
 
-            let apply_result = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+            let apply_result = if ProtocolFeature::DelayChunkExecution.protocol_version() == 20 {
                 // must accept witness here
                 println!("before apply");
                 let apply_result = apply_txs();
@@ -4652,7 +4652,7 @@ impl Chain {
         let shard_id = shard_uid.shard_id();
         let prev_block_hash = *prev_block.hash();
         let new_extra = self.get_chunk_extra(&prev_block_hash, &shard_uid)?;
-        // let new_extra = if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+        // let new_extra = if ProtocolFeature::DelayChunkExecution.protocol_version() == 20 {
         //     println!("get curr");
         //     self.get_chunk_extra(block.hash(), &shard_uid)?
         // } else {
@@ -6077,7 +6077,7 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.inc_block_refcount(prev_hash)?;
 
         // Save receipt_id_to_shard_id for all outgoing receipts generated in this block
-        if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+        if ProtocolFeature::DelayChunkExecution.protocol_version() == 20 {
             let prev_header = self.chain_store_update.get_block_header(prev_hash)?;
             let prev_prev_hash = prev_header.prev_hash();
             self.save_receipt_id_to_shard_id_for_block(

@@ -793,7 +793,7 @@ impl Client {
 
         let prev_block_hash = prev_block.hash();
         let (outgoing_receipts, chunk_extra) =
-            if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+            if ProtocolFeature::DelayChunkExecution.protocol_version() == 20 {
                 let me = match &self.validator_signer {
                     Some(validator_signer) => Some(validator_signer.validator_id().clone()),
                     None => None,

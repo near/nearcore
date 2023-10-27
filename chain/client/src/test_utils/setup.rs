@@ -176,7 +176,7 @@ pub fn setup(
     //     let tip = client.chain.head().unwrap();
     //     let block = client.chain.get_block(&tip.last_block_hash).unwrap();
     //     if tip.prev_block_hash == CryptoHash::default()
-    //         && ProtocolFeature::DelayChunkExecution.protocol_version() == 200
+    //         && ProtocolFeature::DelayChunkExecution.protocol_version() == 20
     //     {
     //         client.produce_chunks(&block, validator_id);
     //     }
@@ -957,7 +957,7 @@ pub fn setup_client_with_runtime(
         let tip = client.chain.head().unwrap();
         let block = client.chain.get_block(&tip.last_block_hash).unwrap();
         if tip.prev_block_hash == CryptoHash::default()
-            && ProtocolFeature::DelayChunkExecution.protocol_version() == 200
+            && ProtocolFeature::DelayChunkExecution.protocol_version() == 20
         {
             client.produce_chunks(&block, validator_id);
         }
