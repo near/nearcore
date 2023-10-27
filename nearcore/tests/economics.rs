@@ -15,14 +15,11 @@ use near_store::{genesis::initialize_genesis_state, test_utils::create_test_stor
 use nearcore::{config::GenesisExt, NightshadeRuntime};
 use testlib::fees_utils::FeeHelper;
 
-use near_primitives::types::{AccountId, EpochId};
+use near_primitives::types::EpochId;
 use primitive_types::U256;
 
 fn build_genesis() -> Genesis {
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = 2;
     genesis.config.num_blocks_per_year = 2;
     genesis.config.protocol_reward_rate = Ratio::new_raw(1, 10);
@@ -73,16 +70,15 @@ fn test_burn_mint() {
         .unwrap()
         .runtime_config;
     let fee_helper = FeeHelper::new(config, genesis.config.min_gas_price);
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let initial_total_supply = env.chain_genesis.total_supply;
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     assert_eq!(
         env.clients[0].process_tx(
             SignedTransaction::send_money(
                 1,
-                "test0".parse::<AccountId>().unwrap(),
-                "test1".parse::<AccountId>().unwrap(),
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
                 &signer,
                 1000,
                 genesis_hash,
@@ -92,7 +88,7 @@ fn test_burn_mint() {
         ),
         ProcessTxResponse::ValidTx
     );
-    let near_balance = env.query_balance("near".parse::<AccountId>().unwrap());
+    let near_balance = env.query_balance("near".parse().unwrap());
     assert_eq!(calc_total_supply(&mut env), initial_total_supply);
     for i in 1..6 {
         env.produce_block(0, i);
@@ -127,10 +123,7 @@ fn test_burn_mint() {
     assert_eq!(block4.header().total_supply(), block3.header().total_supply() - half_transfer_cost);
     assert_eq!(block4.chunks()[0].prev_balance_burnt(), half_transfer_cost);
     // Check that Protocol Treasury account got it's 1% as well.
-    assert_eq!(
-        env.query_balance("near".parse::<AccountId>().unwrap()),
-        near_balance + epoch_total_reward / 10
-    );
+    assert_eq!(env.query_balance("near".parse().unwrap()), near_balance + epoch_total_reward / 10);
     // Block 5: reward from previous block.
     let block5 = env.clients[0].chain.get_block_by_height(5).unwrap();
     let prev_total_supply = block4.header().total_supply();

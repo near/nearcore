@@ -274,17 +274,14 @@ mod tests {
     use near_crypto::KeyType;
     use near_primitives::hash::CryptoHash;
     use near_primitives::sharding::{PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV2};
-    use near_primitives::types::AccountId;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     use crate::chunk_cache::EncodedChunksCache;
     use crate::ChunkRequestInfo;
 
     fn create_chunk_header(height: u64, shard_id: u64) -> ShardChunkHeader {
-        let signer = InMemoryValidatorSigner::from_random(
-            "test".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-        );
+        let signer =
+            InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519);
         ShardChunkHeader::V2(ShardChunkHeaderV2::new(
             CryptoHash::default(),
             CryptoHash::default(),

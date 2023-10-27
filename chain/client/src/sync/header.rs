@@ -295,7 +295,7 @@ mod test {
     use super::*;
     use near_network::types::{BlockInfo, FullPeerInfo, PeerInfo};
     use near_primitives::merkle::PartialMerkleTree;
-    use near_primitives::types::{AccountId, EpochId};
+    use near_primitives::types::EpochId;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
 
@@ -641,7 +641,7 @@ mod test {
         );
 
         let vs = ValidatorSchedule::new()
-            .block_producers_per_epoch(vec![vec!["test0".parse::<AccountId>().unwrap()]]);
+            .block_producers_per_epoch(vec![vec!["test0".parse().unwrap()]]);
         let genesis_time = StaticClock::utc();
         // Don't bother with epoch switches. It's not relevant.
         let (mut chain, _, _, _) =

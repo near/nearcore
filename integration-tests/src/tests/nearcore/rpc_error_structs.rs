@@ -16,7 +16,7 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId};
+use near_primitives::types::BlockId;
 
 // Queries json-rpc block that doesn't exists
 // Checks if the struct is expected and contains the proper data
@@ -362,15 +362,12 @@ fn test_tx_invalid_tx_error() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed(
-            "near.5".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "near.5",
-        );
+        let signer =
+            InMemorySigner::from_seed("near.5".parse().unwrap(), KeyType::ED25519, "near.5");
         let transaction = SignedTransaction::send_money(
             1,
-            "near.5".parse::<AccountId>().unwrap(),
-            "near.2".parse::<AccountId>().unwrap(),
+            "near.5".parse().unwrap(),
+            "near.2".parse().unwrap(),
             &signer,
             10000,
             genesis_hash,
@@ -444,7 +441,7 @@ fn test_query_rpc_account_view_unknown_block_must_return_error() {
                     1,
                 )),
                 request: near_primitives::views::QueryRequest::ViewAccount {
-                    account_id: "near.0".parse::<AccountId>().unwrap(),
+                    account_id: "near.0".parse().unwrap(),
                 },
             })
             .await;

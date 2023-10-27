@@ -19,7 +19,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{CachedParts, StatePartKey};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, BlockReference, EpochId, EpochReference};
+use near_primitives::types::{BlockId, BlockReference, EpochId, EpochReference};
 use near_primitives::utils::MaybeValidated;
 use near_primitives_core::types::ShardId;
 use near_store::DBCol;
@@ -36,7 +36,7 @@ fn sync_state_nodes() {
     heavy_test(|| {
         init_integration_logger();
 
-        let genesis = Genesis::test(vec!["test1".parse::<AccountId>().unwrap()], 1);
+        let genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
 
         let (port1, port2) =
             (tcp::ListenerAddr::reserve_for_test(), tcp::ListenerAddr::reserve_for_test());
@@ -137,10 +137,10 @@ fn sync_state_nodes_multishard() {
 
         let mut genesis = Genesis::test_sharded_new_version(
             vec![
-                "test1".parse::<AccountId>().unwrap(),
-                "test2".parse::<AccountId>().unwrap(),
-                "test3".parse::<AccountId>().unwrap(),
-                "test4".parse::<AccountId>().unwrap(),
+                "test1".parse().unwrap(),
+                "test2".parse().unwrap(),
+                "test3".parse().unwrap(),
+                "test4".parse().unwrap(),
             ],
             4,
             vec![2, 2],
@@ -295,7 +295,7 @@ fn sync_empty_state() {
         init_integration_logger();
 
         let mut genesis = Genesis::test_sharded_new_version(
-            vec!["test1".parse::<AccountId>().unwrap(), "test2".parse::<AccountId>().unwrap()],
+            vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
             1,
             vec![1, 1, 1, 1],
         );
@@ -420,7 +420,7 @@ fn sync_state_dump() {
         init_integration_logger();
 
         let mut genesis = Genesis::test_sharded_new_version(
-            vec!["test1".parse::<AccountId>().unwrap(), "test2".parse::<AccountId>().unwrap()],
+            vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
             1,
             vec![1],
         );
@@ -558,10 +558,8 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
 
         for num_last_chunks_missing in 0..6 {
             assert!(num_last_chunks_missing < epoch_length);
-            let mut genesis = Genesis::test(
-                vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-                1,
-            );
+            let mut genesis =
+                Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
             genesis.config.epoch_length = epoch_length;
             let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
                 .clients_count(2)
@@ -573,11 +571,8 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
 
             let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
             let mut blocks = vec![genesis_block.clone()];
-            let signer = InMemorySigner::from_seed(
-                "test0".parse::<AccountId>().unwrap(),
-                KeyType::ED25519,
-                "test0",
-            );
+            let signer =
+                InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
             let target_height = epoch_length + 1;
             for i in 1..=target_height {
                 let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -607,8 +602,8 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
 
                 let tx = SignedTransaction::send_money(
                     i + 1,
-                    "test0".parse::<AccountId>().unwrap(),
-                    "test1".parse::<AccountId>().unwrap(),
+                    "test0".parse().unwrap(),
+                    "test1".parse().unwrap(),
                     &signer,
                     1,
                     *genesis_block.hash(),
@@ -727,7 +722,7 @@ fn test_state_sync_headers() {
         init_test_logger();
 
         run_actix(async {
-            let mut genesis = Genesis::test(vec!["test1".parse::<AccountId>().unwrap()], 1);
+            let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
             // Increase epoch_length if the test is flaky.
             genesis.config.epoch_length = 50;
 
@@ -921,7 +916,7 @@ fn test_state_sync_headers_no_tracked_shards() {
         init_test_logger();
 
         run_actix(async {
-            let mut genesis = Genesis::test(vec!["test1".parse::<AccountId>().unwrap()], 1);
+            let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
             // Increase epoch_length if the test is flaky.
             let epoch_length = 50;
             genesis.config.epoch_length = epoch_length;

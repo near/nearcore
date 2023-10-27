@@ -4,7 +4,6 @@ use near_crypto::KeyType;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Approval, ApprovalType};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::AccountId;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 
 /// This file contains tests that test the interaction of client and doomslug, including how client handles approvals, etc.
@@ -27,11 +26,8 @@ fn test_processing_skips_on_forks() {
     assert_eq!(b1.header().prev_hash(), b2.header().prev_hash());
     env.process_block(1, b1, Provenance::NONE);
     env.process_block(1, b2, Provenance::NONE);
-    let validator_signer = InMemoryValidatorSigner::from_seed(
-        "test1".parse::<AccountId>().unwrap(),
-        KeyType::ED25519,
-        "test1",
-    );
+    let validator_signer =
+        InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let approval = Approval::new(CryptoHash::default(), 1, 3, &validator_signer);
     env.clients[1].collect_block_approval(&approval, ApprovalType::SelfApproval);
     assert!(!env.clients[1].doomslug.approval_status_at_height(&3).approvals.is_empty());

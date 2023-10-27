@@ -271,7 +271,7 @@ impl TestConfig {
     }
 
     fn peer_id(&self) -> PeerId {
-        peer_id_from_seed(&self.account_id.as_str())
+        peer_id_from_seed(&self.account_id)
     }
 
     fn peer_info(&self) -> PeerInfo {
@@ -398,7 +398,7 @@ impl Runner {
             config.whitelist.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
 
         let mut network_config =
-            config::NetworkConfig::from_seed(config.account_id.as_str(), config.node_addr);
+            config::NetworkConfig::from_seed(&config.account_id, config.node_addr);
         network_config.peer_store.ban_window = config.ban_window;
         network_config.max_num_peers = config.max_num_peers;
         network_config.ttl_account_id_router = time::Duration::seconds(5);

@@ -410,7 +410,7 @@ mod tests {
         SignedTransaction::send_money(
             nonce,
             account_id,
-            "bob".parse::<AccountId>().unwrap(),
+            "bob".parse().unwrap(),
             &signer,
             10,
             CryptoHash::default(),

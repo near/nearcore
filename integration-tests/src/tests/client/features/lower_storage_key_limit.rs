@@ -9,7 +9,7 @@ use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{Action, FunctionCallAction, Transaction};
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::BlockHeight;
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -39,10 +39,8 @@ fn protocol_upgrade() {
 
     // Prepare TestEnv with a contract at the old protocol version.
     let mut env = {
-        let mut genesis = Genesis::test(
-            vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-            1,
-        );
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
@@ -57,7 +55,7 @@ fn protocol_upgrade() {
 
         deploy_test_contract_with_protocol_version(
             &mut env,
-            "test0".parse::<AccountId>().unwrap(),
+            "test0".parse().unwrap(),
             near_test_contracts::backwards_compatible_rs_contract(),
             epoch_length,
             1,
@@ -66,11 +64,10 @@ fn protocol_upgrade() {
         env
     };
 
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let tx = Transaction {
-        signer_id: "test0".parse::<AccountId>().unwrap(),
-        receiver_id: "test0".parse::<AccountId>().unwrap(),
+        signer_id: "test0".parse().unwrap(),
+        receiver_id: "test0".parse().unwrap(),
         public_key: signer.public_key(),
         actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "write_key_value".to_string(),
@@ -129,8 +126,8 @@ fn protocol_upgrade() {
             .chain(near_primitives::test_utils::encode(&[20u64]).into_iter())
             .collect();
         let tx = Transaction {
-            signer_id: "test0".parse::<AccountId>().unwrap(),
-            receiver_id: "test0".parse::<AccountId>().unwrap(),
+            signer_id: "test0".parse().unwrap(),
+            receiver_id: "test0".parse().unwrap(),
             public_key: signer.public_key(),
             actions: vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "write_key_value".to_string(),

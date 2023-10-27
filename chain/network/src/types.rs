@@ -454,10 +454,7 @@ mod tests {
         }
 
         check(
-            RoutedMessageBody::TxStatusRequest(
-                "test_x".parse::<AccountId>().unwrap(),
-                CryptoHash([42; 32]),
-            ),
+            RoutedMessageBody::TxStatusRequest("test_x".parse().unwrap(), CryptoHash([42; 32])),
             &[
                 2, 6, 0, 0, 0, 116, 101, 115, 116, 95, 120, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
                 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,

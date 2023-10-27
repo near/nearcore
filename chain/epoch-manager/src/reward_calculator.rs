@@ -166,31 +166,29 @@ mod tests {
             num_blocks_per_year: 1000000,
             epoch_length,
             protocol_reward_rate: Ratio::new(0, 1),
-            protocol_treasury_account: "near".parse::<AccountId>().unwrap(),
+            protocol_treasury_account: "near".parse().unwrap(),
             online_min_threshold: Ratio::new(9, 10),
             online_max_threshold: Ratio::new(1, 1),
             num_seconds_per_year: 1000000,
         };
         let validator_block_chunk_stats = HashMap::from([
             (
-                "test1".parse::<AccountId>().unwrap(),
+                "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
                     chunk_stats: ValidatorStats { produced: 0, expected: 0 },
                 },
             ),
             (
-                "test2".parse::<AccountId>().unwrap(),
+                "test2".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 1 },
                     chunk_stats: ValidatorStats { produced: 0, expected: 1 },
                 },
             ),
         ]);
-        let validator_stake = HashMap::from([
-            ("test1".parse::<AccountId>().unwrap(), 100),
-            ("test2".parse::<AccountId>().unwrap(), 100),
-        ]);
+        let validator_stake =
+            HashMap::from([("test1".parse().unwrap(), 100), ("test2".parse().unwrap(), 100)]);
         let total_supply = 1_000_000_000_000;
         let result = reward_calculator.calculate_reward(
             validator_block_chunk_stats,
@@ -203,9 +201,9 @@ mod tests {
         assert_eq!(
             result.0,
             HashMap::from([
-                ("near".parse::<AccountId>().unwrap(), 0u128),
-                ("test1".parse::<AccountId>().unwrap(), 0u128),
-                ("test2".parse::<AccountId>().unwrap(), 0u128)
+                ("near".parse().unwrap(), 0u128),
+                ("test1".parse().unwrap(), 0u128),
+                ("test2".parse().unwrap(), 0u128)
             ])
         );
     }
@@ -219,28 +217,28 @@ mod tests {
             num_blocks_per_year: 1000,
             epoch_length,
             protocol_reward_rate: Ratio::new(0, 10),
-            protocol_treasury_account: "near".parse::<AccountId>().unwrap(),
+            protocol_treasury_account: "near".parse().unwrap(),
             online_min_threshold: Ratio::new(9, 10),
             online_max_threshold: Ratio::new(99, 100),
             num_seconds_per_year: 1000,
         };
         let validator_block_chunk_stats = HashMap::from([
             (
-                "test1".parse::<AccountId>().unwrap(),
+                "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 945, expected: 1000 },
                     chunk_stats: ValidatorStats { produced: 945, expected: 1000 },
                 },
             ),
             (
-                "test2".parse::<AccountId>().unwrap(),
+                "test2".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 999, expected: 1000 },
                     chunk_stats: ValidatorStats { produced: 999, expected: 1000 },
                 },
             ),
             (
-                "test3".parse::<AccountId>().unwrap(),
+                "test3".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 850, expected: 1000 },
                     chunk_stats: ValidatorStats { produced: 850, expected: 1000 },
@@ -248,9 +246,9 @@ mod tests {
             ),
         ]);
         let validator_stake = HashMap::from([
-            ("test1".parse::<AccountId>().unwrap(), 500_000),
-            ("test2".parse::<AccountId>().unwrap(), 500_000),
-            ("test3".parse::<AccountId>().unwrap(), 500_000),
+            ("test1".parse().unwrap(), 500_000),
+            ("test2".parse().unwrap(), 500_000),
+            ("test3".parse().unwrap(), 500_000),
         ]);
         let total_supply = 1_000_000_000;
         let result = reward_calculator.calculate_reward(
@@ -266,10 +264,10 @@ mod tests {
         assert_eq!(
             result.0,
             HashMap::from([
-                ("near".parse::<AccountId>().unwrap(), 0),
-                ("test1".parse::<AccountId>().unwrap(), 1_666_666u128),
-                ("test2".parse::<AccountId>().unwrap(), 3_333_333u128),
-                ("test3".parse::<AccountId>().unwrap(), 0u128)
+                ("near".parse().unwrap(), 0),
+                ("test1".parse().unwrap(), 1_666_666u128),
+                ("test2".parse().unwrap(), 3_333_333u128),
+                ("test3".parse().unwrap(), 0u128)
             ])
         );
         assert_eq!(result.1, 4_999_999u128);
@@ -284,14 +282,14 @@ mod tests {
             num_blocks_per_year: 1000,
             epoch_length,
             protocol_reward_rate: Ratio::new(0, 10),
-            protocol_treasury_account: "near".parse::<AccountId>().unwrap(),
+            protocol_treasury_account: "near".parse().unwrap(),
             online_min_threshold: Ratio::new(9, 10),
             online_max_threshold: Ratio::new(99, 100),
             num_seconds_per_year: 1000,
         };
         let validator_block_chunk_stats = HashMap::from([
             (
-                "test1".parse::<AccountId>().unwrap(),
+                "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 945, expected: 1000 },
                     chunk_stats: ValidatorStats { produced: 945, expected: 1000 },
@@ -299,7 +297,7 @@ mod tests {
             ),
             // chunk only producer
             (
-                "test2".parse::<AccountId>().unwrap(),
+                "test2".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
                     chunk_stats: ValidatorStats { produced: 999, expected: 1000 },
@@ -307,7 +305,7 @@ mod tests {
             ),
             // block only producer (not implemented right now, just for testing)
             (
-                "test3".parse::<AccountId>().unwrap(),
+                "test3".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 945, expected: 1000 },
                     chunk_stats: ValidatorStats { produced: 0, expected: 0 },
@@ -316,7 +314,7 @@ mod tests {
             // a validator that expected blocks and chunks are both 0 (this could occur with very
             // small probability for validators with little stakes)
             (
-                "test4".parse::<AccountId>().unwrap(),
+                "test4".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
                     chunk_stats: ValidatorStats { produced: 0, expected: 0 },
@@ -324,10 +322,10 @@ mod tests {
             ),
         ]);
         let validator_stake = HashMap::from([
-            ("test1".parse::<AccountId>().unwrap(), 500_000),
-            ("test2".parse::<AccountId>().unwrap(), 500_000),
-            ("test3".parse::<AccountId>().unwrap(), 500_000),
-            ("test4".parse::<AccountId>().unwrap(), 500_000),
+            ("test1".parse().unwrap(), 500_000),
+            ("test2".parse().unwrap(), 500_000),
+            ("test3".parse().unwrap(), 500_000),
+            ("test4".parse().unwrap(), 500_000),
         ]);
         let total_supply = 1_000_000_000;
         let result = reward_calculator.calculate_reward(
@@ -344,11 +342,11 @@ mod tests {
             assert_eq!(
                 result.0,
                 HashMap::from([
-                    ("near".parse::<AccountId>().unwrap(), 0),
-                    ("test1".parse::<AccountId>().unwrap(), 1_250_000u128),
-                    ("test2".parse::<AccountId>().unwrap(), 2_500_000u128),
-                    ("test3".parse::<AccountId>().unwrap(), 1_250_000u128),
-                    ("test4".parse::<AccountId>().unwrap(), 0u128)
+                    ("near".parse().unwrap(), 0),
+                    ("test1".parse().unwrap(), 1_250_000u128),
+                    ("test2".parse().unwrap(), 2_500_000u128),
+                    ("test3".parse().unwrap(), 1_250_000u128),
+                    ("test4".parse().unwrap(), 0u128)
                 ])
             );
             assert_eq!(result.1, 5_000_000u128);
@@ -366,20 +364,19 @@ mod tests {
             // half a day
             epoch_length,
             protocol_reward_rate: Ratio::new(1, 10),
-            protocol_treasury_account: "near".parse::<AccountId>().unwrap(),
+            protocol_treasury_account: "near".parse().unwrap(),
             online_min_threshold: Ratio::new(9, 10),
             online_max_threshold: Ratio::new(1, 1),
             num_seconds_per_year: 60 * 60 * 24 * 365,
         };
         let validator_block_chunk_stats = HashMap::from([(
-            "test".parse::<AccountId>().unwrap(),
+            "test".parse().unwrap(),
             BlockChunkValidatorStats {
                 block_stats: ValidatorStats { produced: 43200, expected: 43200 },
                 chunk_stats: ValidatorStats { produced: 345600, expected: 345600 },
             },
         )]);
-        let validator_stake =
-            HashMap::from([("test".parse::<AccountId>().unwrap(), 500_000 * 10_u128.pow(24))]);
+        let validator_stake = HashMap::from([("test".parse().unwrap(), 500_000 * 10_u128.pow(24))]);
         // some hypothetical large total supply (100b)
         let total_supply = 100_000_000_000 * 10_u128.pow(24);
         reward_calculator.calculate_reward(

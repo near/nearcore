@@ -1656,7 +1656,7 @@ mod tests {
                 &limit_config,
                 &[
                     Action::DeleteAccount(DeleteAccountAction {
-                        beneficiary_id: "bob".parse::<AccountId>().unwrap()
+                        beneficiary_id: "bob".parse().unwrap()
                     }),
                     Action::CreateAccount(CreateAccountAction {}),
                 ],
@@ -1677,7 +1677,7 @@ mod tests {
                 &[
                     Action::CreateAccount(CreateAccountAction {}),
                     Action::DeleteAccount(DeleteAccountAction {
-                        beneficiary_id: "bob".parse::<AccountId>().unwrap()
+                        beneficiary_id: "bob".parse().unwrap()
                     }),
                 ],
                 PROTOCOL_VERSION,
@@ -1831,8 +1831,8 @@ mod tests {
     fn test_delegate_action_must_be_only_one() {
         let signed_delegate_action = SignedDelegateAction {
             delegate_action: DelegateAction {
-                sender_id: "bob.test.near".parse::<AccountId>().unwrap(),
-                receiver_id: "token.test.near".parse::<AccountId>().unwrap(),
+                sender_id: "bob.test.near".parse().unwrap(),
+                receiver_id: "token.test.near".parse().unwrap(),
                 actions: vec![NonDelegateAction::try_from(Action::CreateAccount(
                     CreateAccountAction {},
                 ))

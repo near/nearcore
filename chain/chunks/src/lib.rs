@@ -2074,7 +2074,7 @@ mod test {
         let store = create_test_store();
         let epoch_manager = setup_epoch_manager_with_block_and_chunk_producers(
             store.clone(),
-            vec!["test".parse::<AccountId>().unwrap()],
+            vec!["test".parse().unwrap()],
             vec![],
             1,
             2,
@@ -2086,7 +2086,7 @@ mod test {
         let clock = FakeClock::default();
         let mut shards_manager = ShardsManager::new(
             clock.clock(),
-            Some("test".parse::<AccountId>().unwrap()),
+            Some("test".parse().unwrap()),
             epoch_manager,
             shard_tracker,
             network_adapter.as_sender(),

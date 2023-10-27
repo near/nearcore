@@ -325,10 +325,8 @@ mod test {
         protocol_version: ProtocolVersion,
         test_resharding: bool,
     ) -> (Store, Genesis, TestEnv, NearConfig) {
-        let mut genesis = Genesis::test(
-            vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-            1,
-        );
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.num_block_producer_seats = 2;
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
@@ -355,12 +353,12 @@ mod test {
             Config::default(),
             genesis.clone(),
             KeyFile {
-                account_id: "test".parse::<AccountId>().unwrap(),
+                account_id: "test".parse().unwrap(),
                 public_key: PublicKey::empty(KeyType::ED25519),
                 secret_key: SecretKey::from_random(KeyType::ED25519),
             },
             Some(Arc::new(InMemoryValidatorSigner::from_random(
-                "test".parse::<AccountId>().unwrap(),
+                "test".parse().unwrap(),
                 KeyType::ED25519,
             ))),
         )
@@ -397,14 +395,10 @@ mod test {
         let epoch_length = 4;
         let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed(
-            "test1".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "test1",
-        );
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,
-            "test1".parse::<AccountId>().unwrap(),
+            "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
             signer.public_key.clone(),
@@ -423,10 +417,7 @@ mod test {
             .unwrap();
         assert_eq!(
             block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
-            HashSet::from_iter(vec![
-                "test0".parse::<AccountId>().unwrap(),
-                "test1".parse::<AccountId>().unwrap()
-            ])
+            HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
@@ -457,15 +448,12 @@ mod test {
         let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
 
-        let signer0 = InMemorySigner::from_seed(
-            "test0".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "test0",
-        );
+        let signer0 =
+            InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         let tx00 = SignedTransaction::from_actions(
             1,
-            "test0".parse::<AccountId>().unwrap(),
-            "test0".parse::<AccountId>().unwrap(),
+            "test0".parse().unwrap(),
+            "test0".parse().unwrap(),
             &signer0,
             vec![Action::DeployContract(DeployContractAction {
                 code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
@@ -474,7 +462,7 @@ mod test {
         );
         let tx01 = SignedTransaction::stake(
             1,
-            "test0".parse::<AccountId>().unwrap(),
+            "test0".parse().unwrap(),
             &signer0,
             TESTING_INIT_STAKE,
             signer0.public_key.clone(),
@@ -483,14 +471,11 @@ mod test {
         assert_eq!(env.clients[0].process_tx(tx00, false, false), ProcessTxResponse::ValidTx);
         assert_eq!(env.clients[0].process_tx(tx01, false, false), ProcessTxResponse::ValidTx);
 
-        let signer1 = InMemorySigner::from_seed(
-            "test1".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "test1",
-        );
+        let signer1 =
+            InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx1 = SignedTransaction::stake(
             1,
-            "test1".parse::<AccountId>().unwrap(),
+            "test1".parse().unwrap(),
             &signer1,
             TESTING_INIT_STAKE,
             signer1.public_key.clone(),
@@ -509,10 +494,7 @@ mod test {
             .unwrap();
         assert_eq!(
             block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
-            HashSet::from_iter(vec![
-                "test0".parse::<AccountId>().unwrap(),
-                "test1".parse::<AccountId>().unwrap()
-            ]),
+            HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()]),
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
@@ -521,7 +503,7 @@ mod test {
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime =
             NightshadeRuntime::test(Path::new("."), store, &genesis.config, epoch_manager.clone());
-        let select_account_ids = vec!["test0".parse::<AccountId>().unwrap()];
+        let select_account_ids = vec!["test0".parse().unwrap()];
         let new_near_config = state_dump(
             epoch_manager.as_ref(),
             runtime,
@@ -553,14 +535,10 @@ mod test {
         let epoch_length = 4;
         let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed(
-            "test1".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "test1",
-        );
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,
-            "test1".parse::<AccountId>().unwrap(),
+            "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
             signer.public_key.clone(),
@@ -579,10 +557,7 @@ mod test {
             .unwrap();
         assert_eq!(
             block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
-            HashSet::from_iter(vec![
-                "test0".parse::<AccountId>().unwrap(),
-                "test1".parse::<AccountId>().unwrap()
-            ])
+            HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
@@ -611,14 +586,10 @@ mod test {
         let epoch_length = 4;
         let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed(
-            "test1".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "test1",
-        );
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,
-            "test1".parse::<AccountId>().unwrap(),
+            "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
             signer.public_key.clone(),
@@ -657,7 +628,7 @@ mod test {
                 .into_iter()
                 .map(|r| r.account_id)
                 .collect::<Vec<_>>(),
-            vec!["test0".parse::<AccountId>().unwrap()]
+            vec!["test0".parse().unwrap()]
         );
         validate_genesis(&new_genesis).unwrap();
     }
@@ -712,10 +683,8 @@ mod test {
     #[should_panic(expected = "MissingTrieValue")]
     fn test_dump_state_not_track_shard() {
         let epoch_length = 4;
-        let mut genesis = Genesis::test(
-            vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-            1,
-        );
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.num_block_producer_seats = 2;
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
@@ -747,15 +716,11 @@ mod test {
             .runtimes(vec![runtime1, runtime2.clone()])
             .build();
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed(
-            "test1".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "test1",
-        );
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::send_money(
             1,
-            "test1".parse::<AccountId>().unwrap(),
-            "test0".parse::<AccountId>().unwrap(),
+            "test1".parse().unwrap(),
+            "test0".parse().unwrap(),
             &signer,
             1,
             genesis_hash,
@@ -776,12 +741,12 @@ mod test {
             Config::default(),
             genesis,
             KeyFile {
-                account_id: "test".parse::<AccountId>().unwrap(),
+                account_id: "test".parse().unwrap(),
                 public_key: PublicKey::empty(KeyType::ED25519),
                 secret_key: SecretKey::from_random(KeyType::ED25519),
             },
             Some(Arc::new(InMemoryValidatorSigner::from_random(
-                "test".parse::<AccountId>().unwrap(),
+                "test".parse().unwrap(),
                 KeyType::ED25519,
             ))),
         )
@@ -806,10 +771,8 @@ mod test {
     #[test]
     fn test_dump_state_with_delayed_receipt() {
         let epoch_length = 4;
-        let mut genesis = Genesis::test(
-            vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-            1,
-        );
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.num_block_producer_seats = 2;
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
@@ -831,14 +794,10 @@ mod test {
             .runtimes(vec![nightshade_runtime])
             .build();
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed(
-            "test1".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "test1",
-        );
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,
-            "test1".parse::<AccountId>().unwrap(),
+            "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
             signer.public_key.clone(),
@@ -852,12 +811,12 @@ mod test {
             Config::default(),
             genesis.clone(),
             KeyFile {
-                account_id: "test".parse::<AccountId>().unwrap(),
+                account_id: "test".parse().unwrap(),
                 public_key: PublicKey::empty(KeyType::ED25519),
                 secret_key: SecretKey::from_random(KeyType::ED25519),
             },
             Some(Arc::new(InMemoryValidatorSigner::from_random(
-                "test".parse::<AccountId>().unwrap(),
+                "test".parse().unwrap(),
                 KeyType::ED25519,
             ))),
         )
@@ -871,10 +830,7 @@ mod test {
             .unwrap();
         assert_eq!(
             block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
-            HashSet::from_iter(vec![
-                "test0".parse::<AccountId>().unwrap(),
-                "test1".parse::<AccountId>().unwrap()
-            ])
+            HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
@@ -905,14 +861,10 @@ mod test {
         let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
 
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed(
-            "test1".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "test1",
-        );
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,
-            "test1".parse::<AccountId>().unwrap(),
+            "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
             signer.public_key.clone(),
@@ -931,16 +883,11 @@ mod test {
             .unwrap();
         assert_eq!(
             block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
-            HashSet::from_iter(vec![
-                "test0".parse::<AccountId>().unwrap(),
-                "test1".parse::<AccountId>().unwrap()
-            ]),
+            HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()]),
         );
 
-        let whitelist_validators = vec![
-            "test1".parse::<AccountId>().unwrap(),
-            "non_validator_account".parse::<AccountId>().unwrap(),
-        ];
+        let whitelist_validators =
+            vec!["test1".parse().unwrap(), "non_validator_account".parse().unwrap()];
 
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<CryptoHash> =
@@ -967,7 +914,7 @@ mod test {
                 .iter()
                 .map(|x| x.account_id.clone())
                 .collect::<Vec<AccountId>>(),
-            vec!["test1".parse::<AccountId>().unwrap()]
+            vec!["test1".parse().unwrap()]
         );
 
         let mut stake = HashMap::<AccountId, Balance>::new();
@@ -977,10 +924,7 @@ mod test {
             }
         });
 
-        assert_eq!(
-            stake.get(&"test0".parse::<AccountId>().unwrap()).unwrap_or(&(0 as Balance)),
-            &(0 as Balance)
-        );
+        assert_eq!(stake.get("test0").unwrap_or(&(0 as Balance)), &(0 as Balance));
 
         validate_genesis(&new_genesis).unwrap();
     }

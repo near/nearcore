@@ -18,7 +18,6 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time;
 use tracing_subscriber::Layer;
-use near_primitives::types::AccountId;
 
 mod replay;
 
@@ -166,7 +165,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         nearcore::init_configs(
             &state_dump_path,
             None,
-            Some("test.near".parse::<AccountId>().unwrap()),
+            Some("test.near".parse().unwrap()),
             Some("alice.near"),
             1,
             true,

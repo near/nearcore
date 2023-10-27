@@ -782,14 +782,14 @@ pub mod epoch_info {
                 epoch_height: 10,
                 validators: vec![
                     ValidatorStakeV1 {
-                        account_id: "test".parse::<AccountId>().unwrap(),
+                        account_id: "test".parse().unwrap(),
                         public_key: "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
                             .parse()
                             .unwrap(),
                         stake: 0,
                     },
                     ValidatorStakeV1 {
-                        account_id: "validator".parse::<AccountId>().unwrap(),
+                        account_id: "validator".parse().unwrap(),
                         public_key: "ed25519:9E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
                             .parse()
                             .unwrap(),

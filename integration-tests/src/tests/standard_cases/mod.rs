@@ -667,8 +667,7 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
 
 pub fn test_swap_key(node: impl Node) {
     let account_id = &node.account_id().unwrap();
-    let signer2 =
-        InMemorySigner::from_random("test".parse::<AccountId>().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
     let node_user = node.user();
     let root = node_user.get_state_root();
     let money_used = TESTING_INIT_BALANCE / 2;
@@ -704,8 +703,7 @@ pub fn test_swap_key(node: impl Node) {
 
 pub fn test_add_key(node: impl Node) {
     let account_id = &node.account_id().unwrap();
-    let signer2 =
-        InMemorySigner::from_random("test".parse::<AccountId>().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
     let node_user = node.user();
 
     add_access_key(&node, node_user.as_ref(), &AccessKey::full_access(), &signer2);
@@ -743,8 +741,7 @@ pub fn test_add_existing_key(node: impl Node) {
 
 pub fn test_delete_key(node: impl Node) {
     let account_id = &node.account_id().unwrap();
-    let signer2 =
-        InMemorySigner::from_random("test".parse::<AccountId>().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
     let node_user = node.user();
     add_access_key(&node, node_user.as_ref(), &AccessKey::full_access(), &signer2);
 
@@ -765,8 +762,7 @@ pub fn test_delete_key(node: impl Node) {
 
 pub fn test_delete_key_not_owned(node: impl Node) {
     let account_id = &node.account_id().unwrap();
-    let signer2 =
-        InMemorySigner::from_random("test".parse::<AccountId>().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
     let node_user = node.user();
 
     assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_ok());
@@ -860,8 +856,7 @@ pub fn test_add_access_key_function_call(node: impl Node) {
             method_names: vec![],
         }),
     };
-    let signer2 =
-        InMemorySigner::from_random("test".parse::<AccountId>().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
     let result = add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
 
     assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_ok());
@@ -881,8 +876,7 @@ pub fn test_delete_access_key(node: impl Node) {
             method_names: vec![],
         }),
     };
-    let signer2 =
-        InMemorySigner::from_random("test".parse::<AccountId>().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
 
     assert!(node_user.get_access_key(account_id, &node.signer().public_key()).is_ok());
@@ -911,8 +905,7 @@ pub fn test_add_access_key_with_allowance(node: impl Node) {
         }),
     };
     let node_user = node.user();
-    let signer2 =
-        InMemorySigner::from_random("test".parse::<AccountId>().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
     let account = node_user.view_account(account_id).unwrap();
     let initial_balance = account.amount;
     let fee_helper = fee_helper(&node);
@@ -938,8 +931,7 @@ pub fn test_delete_access_key_with_allowance(node: impl Node) {
         }),
     };
     let node_user = node.user();
-    let signer2 =
-        InMemorySigner::from_random("test".parse::<AccountId>().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
     let account = node_user.view_account(account_id).unwrap();
     let initial_balance = account.amount;
     let fee_helper = fee_helper(&node);
@@ -976,10 +968,7 @@ pub fn test_access_key_smart_contract(node: impl Node) {
     };
     let mut node_user = node.user();
     let account_id = &node.account_id().unwrap();
-    let signer2 = Arc::new(InMemorySigner::from_random(
-        "test".parse::<AccountId>().unwrap(),
-        KeyType::ED25519,
-    ));
+    let signer2 = Arc::new(InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519));
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
     node_user.set_signer(signer2.clone());
 
@@ -1031,8 +1020,7 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
     };
     let mut node_user = node.user();
     let account_id = &node.account_id().unwrap();
-    let signer2 =
-        InMemorySigner::from_random("test".parse::<AccountId>().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
     node_user.set_signer(Arc::new(signer2));
 
@@ -1060,8 +1048,7 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
     };
     let mut node_user = node.user();
     let account_id = &node.account_id().unwrap();
-    let signer2 =
-        InMemorySigner::from_random("test".parse::<AccountId>().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
     node_user.set_signer(Arc::new(signer2));
 
@@ -1097,8 +1084,7 @@ pub fn test_access_key_reject_non_function_call(node: impl Node) {
         }),
     };
     let mut node_user = node.user();
-    let signer2 =
-        InMemorySigner::from_random("test".parse::<AccountId>().unwrap(), KeyType::ED25519);
+    let signer2 = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
     node_user.set_signer(Arc::new(signer2));
 

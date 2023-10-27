@@ -76,7 +76,7 @@ fn test_block_with_challenges() {
 /// Check that attempt to process block on top of incorrect state root leads to InvalidChunkState error.
 #[test]
 fn test_invalid_chunk_state() {
-    let genesis = Genesis::test(vec!["test0".parse::<AccountId>().unwrap()], 1);
+    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let mut env = TestEnv::builder(ChainGenesis::test())
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -219,10 +219,7 @@ fn test_verify_chunk_invalid_proofs_challenge() {
     let shard_id = chunk.shard_id();
     let challenge_result =
         challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
-    assert_eq!(
-        challenge_result.unwrap(),
-        (*block.hash(), vec!["test0".parse::<AccountId>().unwrap()])
-    );
+    assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".parse().unwrap()]));
 }
 
 #[test]
@@ -237,10 +234,7 @@ fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
     let shard_id = chunk.shard_id();
     let challenge_result =
         challenge(env, shard_id as usize, MaybeEncodedShardChunk::Decoded(chunk), &block);
-    assert_eq!(
-        challenge_result.unwrap(),
-        (*block.hash(), vec!["test0".parse::<AccountId>().unwrap()])
-    );
+    assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".parse().unwrap()]));
 }
 
 #[test]
@@ -262,24 +256,23 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
     env.produce_block(0, 1);
 
     let genesis_hash = *env.clients[0].chain.genesis().hash();
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
 
     let (chunk, _merkle_paths, _receipts, block) = create_chunk_with_transactions(
         &mut env.clients[0],
         vec![
             SignedTransaction::send_money(
                 1,
-                "test0".parse::<AccountId>().unwrap(),
-                "test1".parse::<AccountId>().unwrap(),
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
                 &signer,
                 1000,
                 genesis_hash,
             ),
             SignedTransaction::send_money(
                 2,
-                "test0".parse::<AccountId>().unwrap(),
-                "test1".parse::<AccountId>().unwrap(),
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
                 &signer,
                 1000,
                 genesis_hash,
@@ -299,24 +292,23 @@ fn test_verify_chunk_proofs_challenge_transaction_order() {
     env.produce_block(0, 1);
 
     let genesis_hash = *env.clients[0].chain.genesis().hash();
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
 
     let (chunk, _merkle_paths, _receipts, block) = create_chunk_with_transactions(
         &mut env.clients[0],
         vec![
             SignedTransaction::send_money(
                 2,
-                "test0".parse::<AccountId>().unwrap(),
-                "test1".parse::<AccountId>().unwrap(),
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
                 &signer,
                 1000,
                 genesis_hash,
             ),
             SignedTransaction::send_money(
                 1,
-                "test0".parse::<AccountId>().unwrap(),
-                "test1".parse::<AccountId>().unwrap(),
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
                 &signer,
                 1000,
                 genesis_hash,
@@ -327,10 +319,7 @@ fn test_verify_chunk_proofs_challenge_transaction_order() {
     let shard_id = chunk.shard_id();
     let challenge_result =
         challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
-    assert_eq!(
-        challenge_result.unwrap(),
-        (*block.hash(), vec!["test0".parse::<AccountId>().unwrap()])
-    );
+    assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".parse().unwrap()]));
 }
 
 fn challenge(
@@ -359,16 +348,12 @@ fn challenge(
 
 #[test]
 fn test_verify_chunk_invalid_state_challenge() {
-    let genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(ChainGenesis::test())
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let validator_signer = create_test_signer("test0");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     env.produce_block(0, 1);
@@ -376,8 +361,8 @@ fn test_verify_chunk_invalid_state_challenge() {
         env.clients[0].process_tx(
             SignedTransaction::send_money(
                 1,
-                "test0".parse::<AccountId>().unwrap(),
-                "test1".parse::<AccountId>().unwrap(),
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
                 &signer,
                 1000,
                 genesis_hash,
@@ -513,7 +498,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     //         &challenge,
     //     )
     //     .unwrap(),
-    //     (*block.hash(), vec!["test0".parse::<AccountId>().unwrap()])
+    //     (*block.hash(), vec!["test0".parse().unwrap()])
     // );
 
     // Process the block with invalid chunk and make sure it's marked as invalid at the end.
@@ -631,11 +616,7 @@ fn test_block_challenge() {
 fn test_fishermen_challenge() {
     init_test_logger();
     let mut genesis = Genesis::test(
-        vec![
-            "test0".parse::<AccountId>().unwrap(),
-            "test1".parse::<AccountId>().unwrap(),
-            "test2".parse::<AccountId>().unwrap(),
-        ],
+        vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()],
         1,
     );
     genesis.config.epoch_length = 5;
@@ -644,12 +625,11 @@ fn test_fishermen_challenge() {
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
-    let signer =
-        InMemorySigner::from_seed("test1".parse::<AccountId>().unwrap(), KeyType::ED25519, "test1");
+    let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     let stake_transaction = SignedTransaction::stake(
         1,
-        "test1".parse::<AccountId>().unwrap(),
+        "test1".parse().unwrap(),
         &signer,
         FISHERMEN_THRESHOLD,
         signer.public_key(),
@@ -696,10 +676,7 @@ fn test_fishermen_challenge() {
 #[ignore]
 fn test_challenge_in_different_epoch() {
     init_test_logger();
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        2,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     genesis.config.epoch_length = 3;
     //    genesis.config.validator_kickout_threshold = 10;
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());

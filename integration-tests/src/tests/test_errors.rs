@@ -12,7 +12,6 @@ use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, SignedTransaction, TransferAction,
 };
-use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::load_test_config;
@@ -40,7 +39,7 @@ fn test_check_tx_error_log() {
     let tx = SignedTransaction::from_actions(
         1,
         bob_account(),
-        "test.near".parse::<AccountId>().unwrap(),
+        "test.near".parse().unwrap(),
         &*signer,
         vec![
             Action::CreateAccount(CreateAccountAction {}),
@@ -80,7 +79,7 @@ fn test_deliver_tx_error_log() {
     let tx = SignedTransaction::from_actions(
         1,
         alice_account(),
-        "test.near".parse::<AccountId>().unwrap(),
+        "test.near".parse().unwrap(),
         &*signer,
         vec![
             Action::CreateAccount(CreateAccountAction {}),

@@ -10,7 +10,7 @@ unit testing in Rust.
 To create a new crypto hash:
 
 ```rust
-"ADns6sqVyFLRZbSMCGdzUiUPaDDtjTmKCWzR8HxWsfDU".parse::<AccountId>().unwrap();
+"ADns6sqVyFLRZbSMCGdzUiUPaDDtjTmKCWzR8HxWsfDU".parse().unwrap();
 ```
 
 ### Account
@@ -18,7 +18,7 @@ To create a new crypto hash:
 Also, prefer doing parse + unwrap:
 
 ```rust
-let alice: AccountId = "alice.near".parse::<AccountId>().unwrap();
+let alice: AccountId = "alice.near".parse().unwrap();
 ```
 
 ### Signatures

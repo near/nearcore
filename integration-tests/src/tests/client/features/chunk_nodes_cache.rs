@@ -12,7 +12,7 @@ use near_primitives::test_utils::encode;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, FunctionCallAction, SignedTransaction,
 };
-use near_primitives::types::{AccountId, BlockHeightDelta, Gas, TrieNodesCount};
+use near_primitives::types::{BlockHeightDelta, Gas, TrieNodesCount};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
@@ -34,8 +34,8 @@ fn process_transaction(
     let gas = 20_000_000_000_000;
     let tx = SignedTransaction::from_actions(
         next_height,
-        "test0".parse::<AccountId>().unwrap(),
-        "test0".parse::<AccountId>().unwrap(),
+        "test0".parse().unwrap(),
+        "test0".parse().unwrap(),
         signer,
         vec![
             Action::FunctionCall(Box::new(FunctionCallAction {
@@ -83,10 +83,7 @@ fn process_transaction(
 /// cache. 4nd run should give the same results, because caching must not affect different chunks.
 #[test]
 fn compare_node_counts() {
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 10;
     let num_blocks = 5;
 
@@ -104,14 +101,13 @@ fn compare_node_counts() {
 
     deploy_test_contract(
         &mut env,
-        "test0".parse::<AccountId>().unwrap(),
+        "test0".parse().unwrap(),
         near_test_contracts::backwards_compatible_rs_contract(),
         num_blocks,
         1,
     );
 
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let tx_node_counts: Vec<TrieNodesCount> = (0..4)
         .map(|i| {
             let touching_trie_node_cost: Gas = 16_101_955_926;

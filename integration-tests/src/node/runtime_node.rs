@@ -53,10 +53,8 @@ impl RuntimeNode {
     }
 
     pub fn free(account_id: &AccountId) -> Self {
-        let mut genesis = Genesis::test(
-            vec![alice_account(), bob_account(), "carol.near".parse::<AccountId>().unwrap()],
-            3,
-        );
+        let mut genesis =
+            Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 3);
         add_test_contract(&mut genesis, &bob_account());
         Self::new_from_genesis_and_config(account_id, genesis, RuntimeConfig::free())
     }

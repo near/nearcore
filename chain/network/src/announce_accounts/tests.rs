@@ -14,7 +14,7 @@ fn announcement_same_epoch() {
     let announcements_cache = AnnounceAccountCache::new(store);
 
     let announce0 = AnnounceAccount {
-        account_id: "near0".parse::<AccountId>().unwrap(),
+        account_id: "near0".parse().unwrap(),
         peer_id: peer_id0.clone(),
         epoch_id: epoch_id0.clone(),
         signature: Signature::default(),
@@ -22,7 +22,7 @@ fn announcement_same_epoch() {
 
     // Same as announce1 but with different peer id
     let announce1 = AnnounceAccount {
-        account_id: "near0".parse::<AccountId>().unwrap(),
+        account_id: "near0".parse().unwrap(),
         peer_id: peer_id1,
         epoch_id: epoch_id0,
         signature: Signature::default(),
@@ -55,7 +55,7 @@ fn dont_load_on_build() {
     let announcements_cache = AnnounceAccountCache::new(store.clone());
 
     let announce0 = AnnounceAccount {
-        account_id: "near0".parse::<AccountId>().unwrap(),
+        account_id: "near0".parse().unwrap(),
         peer_id: peer_id0,
         epoch_id: epoch_id0,
         signature: Signature::default(),
@@ -63,7 +63,7 @@ fn dont_load_on_build() {
 
     // Same as announce1 but with different peer id
     let announce1 = AnnounceAccount {
-        account_id: "near1".parse::<AccountId>().unwrap(),
+        account_id: "near1".parse().unwrap(),
         peer_id: peer_id1,
         epoch_id: epoch_id1,
         signature: Signature::default(),
@@ -90,7 +90,7 @@ fn load_from_disk() {
     let announcements_cache1 = AnnounceAccountCache::new(store);
 
     let announce0 = AnnounceAccount {
-        account_id: "near0".parse::<AccountId>().unwrap(),
+        account_id: "near0".parse().unwrap(),
         peer_id: peer_id0.clone(),
         epoch_id: epoch_id0,
         signature: Signature::default(),

@@ -26,7 +26,7 @@ use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, BlockReference, EpochId};
+use near_primitives::types::{BlockId, BlockReference, EpochId};
 use near_primitives::utils::to_timestamp;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
@@ -37,16 +37,12 @@ use num_rational::Ratio;
 fn query_client() {
     init_test_logger();
     run_actix(async {
-        let actor_handles = setup_no_network(
-            vec!["test".parse::<AccountId>().unwrap()],
-            "other".parse::<AccountId>().unwrap(),
-            true,
-            true,
-        );
+        let actor_handles =
+            setup_no_network(vec!["test".parse().unwrap()], "other".parse().unwrap(), true, true);
         let actor = actor_handles.view_client_actor.send(
             Query::new(
                 BlockReference::latest(),
-                QueryRequest::ViewAccount { account_id: "test".parse::<AccountId>().unwrap() },
+                QueryRequest::ViewAccount { account_id: "test".parse().unwrap() },
             )
             .with_span_context(),
         );
@@ -68,12 +64,8 @@ fn query_client() {
 fn query_status_not_crash() {
     init_test_logger();
     run_actix(async {
-        let actor_handles = setup_no_network(
-            vec!["test".parse::<AccountId>().unwrap()],
-            "other".parse::<AccountId>().unwrap(),
-            true,
-            false,
-        );
+        let actor_handles =
+            setup_no_network(vec!["test".parse().unwrap()], "other".parse().unwrap(), true, false);
         let signer = create_test_signer("test");
         let actor = actor_handles
             .view_client_actor
@@ -147,17 +139,9 @@ fn query_status_not_crash() {
 fn test_execution_outcome_for_chunk() {
     init_test_logger();
     run_actix(async {
-        let actor_handles = setup_no_network(
-            vec!["test".parse::<AccountId>().unwrap()],
-            "test".parse::<AccountId>().unwrap(),
-            true,
-            false,
-        );
-        let signer = InMemorySigner::from_seed(
-            "test".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "test",
-        );
+        let actor_handles =
+            setup_no_network(vec!["test".parse().unwrap()], "test".parse().unwrap(), true, false);
+        let signer = InMemorySigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
 
         actix::spawn(async move {
             let block_hash = actor_handles
@@ -171,8 +155,8 @@ fn test_execution_outcome_for_chunk() {
 
             let transaction = SignedTransaction::send_money(
                 1,
-                "test".parse::<AccountId>().unwrap(),
-                "near".parse::<AccountId>().unwrap(),
+                "test".parse().unwrap(),
+                "near".parse().unwrap(),
                 &signer,
                 10,
                 block_hash,
@@ -194,7 +178,7 @@ fn test_execution_outcome_for_chunk() {
                 .send(
                     TxStatus {
                         tx_hash,
-                        signer_account_id: "test".parse::<AccountId>().unwrap(),
+                        signer_account_id: "test".parse().unwrap(),
                         fetch_receipt: false,
                     }
                     .with_span_context(),
@@ -225,12 +209,12 @@ fn test_execution_outcome_for_chunk() {
 #[test]
 fn test_state_request() {
     run_actix(async {
-        let vs = ValidatorSchedule::new()
-            .block_producers_per_epoch(vec![vec!["test".parse::<AccountId>().unwrap()]]);
+        let vs =
+            ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
         let view_client = setup_only_view(
             vs,
             10000000,
-            "test".parse::<AccountId>().unwrap(),
+            "test".parse().unwrap(),
             true,
             200,
             400,
@@ -290,8 +274,8 @@ fn test_garbage_collection() {
         let epoch_length = 5;
         let target_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1);
         let vs = ValidatorSchedule::new().num_shards(2).block_producers_per_epoch(vec![vec![
-            "test1".parse::<AccountId>().unwrap(),
-            "test2".parse::<AccountId>().unwrap(),
+            "test1".parse().unwrap(),
+            "test2".parse().unwrap(),
         ]]);
 
         setup_mock_all_validators(
@@ -329,9 +313,7 @@ fn test_garbage_collection() {
                                                     prev_height,
                                                 )),
                                                 QueryRequest::ViewAccount {
-                                                    account_id: "test1"
-                                                        .parse::<AccountId>()
-                                                        .unwrap(),
+                                                    account_id: "test1".parse().unwrap(),
                                                 },
                                             )
                                             .with_span_context(),
@@ -354,7 +336,7 @@ fn test_garbage_collection() {
                                         Query::new(
                                             BlockReference::BlockId(BlockId::Height(1)),
                                             QueryRequest::ViewAccount {
-                                                account_id: "test1".parse::<AccountId>().unwrap(),
+                                                account_id: "test1".parse().unwrap(),
                                             },
                                         )
                                         .with_span_context(),
@@ -379,7 +361,7 @@ fn test_garbage_collection() {
                                         Query::new(
                                             BlockReference::BlockId(BlockId::Height(1)),
                                             QueryRequest::ViewAccount {
-                                                account_id: "test1".parse::<AccountId>().unwrap(),
+                                                account_id: "test1".parse().unwrap(),
                                             },
                                         )
                                         .with_span_context(),

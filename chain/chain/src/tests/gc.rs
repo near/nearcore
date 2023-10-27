@@ -11,7 +11,7 @@ use near_primitives::block::Block;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
-use near_primitives::types::{AccountId, NumBlocks, NumShards, StateRoot};
+use near_primitives::types::{NumBlocks, NumShards, StateRoot};
 use near_store::test_utils::{create_test_store, gen_changes};
 use near_store::{ShardTries, Trie, WrappedTrieChanges};
 use rand::Rng;
@@ -27,7 +27,7 @@ fn get_chain_with_epoch_length_and_num_shards(
     let store = create_test_store();
     let chain_genesis = ChainGenesis::test();
     let vs = ValidatorSchedule::new()
-        .block_producers_per_epoch(vec![vec!["test1".parse::<AccountId>().unwrap()]])
+        .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]])
         .num_shards(num_shards);
     let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());

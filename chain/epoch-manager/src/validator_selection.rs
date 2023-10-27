@@ -513,11 +513,11 @@ mod tests {
         let kickout = epoch_info.validator_kickout();
         assert_eq!(kickout.len(), 2);
         assert_eq!(
-            kickout.get(&"test1".parse::<AccountId>().unwrap()).unwrap(),
+            kickout.get("test1").unwrap(),
             &ValidatorKickoutReason::NotEnoughStake { stake: test1_stake, threshold: 2011 },
         );
         assert_eq!(
-            kickout.get(&"test2".parse::<AccountId>().unwrap()).unwrap(),
+            kickout.get("test2").unwrap(),
             &ValidatorKickoutReason::NotEnoughStake { stake: 2002, threshold: 2011 },
         );
     }
@@ -726,7 +726,7 @@ mod tests {
 
         // stake below validator threshold, but above fishermen threshold become fishermen
         let fishermen: Vec<_> = epoch_info.fishermen_iter().map(|v| v.take_account_id()).collect();
-        assert_eq!(fishermen, vec!["test4".parse::<AccountId>().unwrap()]);
+        assert_eq!(fishermen, vec!["test4".parse().unwrap()]);
 
         // too low stakes are kicked out
         let kickout = epoch_info.validator_kickout();
@@ -736,11 +736,11 @@ mod tests {
         #[cfg(not(feature = "protocol_feature_fix_staking_threshold"))]
         let expected_threshold = 300;
         assert_eq!(
-            kickout.get(&"test5".parse::<AccountId>().unwrap()).unwrap(),
+            kickout.get("test5").unwrap(),
             &ValidatorKickoutReason::NotEnoughStake { stake: 100, threshold: expected_threshold },
         );
         assert_eq!(
-            kickout.get(&"test6".parse::<AccountId>().unwrap()).unwrap(),
+            kickout.get("test6").unwrap(),
             &ValidatorKickoutReason::NotEnoughStake { stake: 50, threshold: expected_threshold },
         );
 
@@ -806,7 +806,7 @@ mod tests {
         );
         let mut kick_out = HashMap::new();
         // test1 is kicked out
-        kick_out.insert("test1".parse::<AccountId>().unwrap(), ValidatorKickoutReason::Unstaked);
+        kick_out.insert("test1".parse().unwrap(), ValidatorKickoutReason::Unstaked);
         let epoch_info = proposals_to_epoch_info(
             &epoch_config,
             [0; 32],
@@ -821,7 +821,7 @@ mod tests {
         .unwrap();
 
         // test1 is not selected
-        assert_eq!(epoch_info.get_validator_id(&"test1".parse::<AccountId>().unwrap()), None);
+        assert_eq!(epoch_info.get_validator_id(&"test1".parse().unwrap()), None);
     }
 
     #[test]

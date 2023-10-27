@@ -601,7 +601,7 @@ mod test {
                 max_inflation_rate: nearcore::config::MAX_INFLATION_RATE,
                 total_supply: get_initial_supply(&records_in),
                 num_blocks_per_year: nearcore::config::NUM_BLOCKS_PER_YEAR,
-                protocol_treasury_account: "treasury.near".parse::<AccountId>().unwrap(),
+                protocol_treasury_account: "treasury.near".parse().unwrap(),
                 fishermen_threshold: nearcore::config::FISHERMEN_THRESHOLD,
                 shard_layout: shards,
                 min_gas_price: nearcore::config::MIN_GAS_PRICE,

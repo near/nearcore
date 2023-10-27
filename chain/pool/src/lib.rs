@@ -322,7 +322,7 @@ mod tests {
                 SignedTransaction::send_money(
                     i,
                     signer_id.clone(),
-                    "bob.near".parse::<AccountId>().unwrap(),
+                    "bob.near".parse().unwrap(),
                     &*signer,
                     i as Balance,
                     CryptoHash::default(),
@@ -438,7 +438,7 @@ mod tests {
                 SignedTransaction::send_money(
                     i,
                     signer_id,
-                    "bob.near".parse::<AccountId>().unwrap(),
+                    "bob.near".parse().unwrap(),
                     &*signer,
                     i as Balance,
                     CryptoHash::default(),
@@ -533,7 +533,7 @@ mod tests {
                 SignedTransaction::send_money(
                     i,
                     signer_id,
-                    "bob.near".parse::<AccountId>().unwrap(),
+                    "bob.near".parse().unwrap(),
                     &*signer,
                     i as Balance,
                     CryptoHash::default(),
