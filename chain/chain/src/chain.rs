@@ -3922,7 +3922,6 @@ impl Chain {
             runtime.clone(),
             epoch_manager,
             None, // ??
-            true,
         )?;
         // let maybe_job = self.get_apply_chunk_job(
         //     me,
