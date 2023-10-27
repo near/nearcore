@@ -37,7 +37,6 @@ use near_primitives::utils::{
     create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
-use near_primitives_core::account::id::AccountIdRef;
 use near_primitives_core::config::ActionCosts;
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
@@ -308,7 +307,7 @@ impl Runtime {
         result.compute_usage = exec_fees;
         let account_id = &receipt.receiver_id;
         let is_the_only_action = actions.len() == 1;
-        let is_refund = AccountIdRef::is_system(&receipt.predecessor_id);
+        let is_refund = receipt.predecessor_id.is_system();
         // Account validation
         if let Err(e) = check_account_existence(
             action,
@@ -576,7 +575,7 @@ impl Runtime {
             }
         }
 
-        let gas_deficit_amount = if AccountIdRef::is_system(&receipt.predecessor_id) {
+        let gas_deficit_amount = if receipt.predecessor_id.is_system() {
             // We will set gas_burnt for refund receipts to be 0 when we calculate tx_burnt_amount
             // Here we don't set result.gas_burnt to be zero if CountRefundReceiptsInGasLimit is
             // enabled because we want it to be counted in gas limit calculation later
@@ -626,8 +625,7 @@ impl Runtime {
         };
 
         // If the receipt is a refund, then we consider it free without burnt gas.
-        let gas_burnt: Gas =
-            if AccountIdRef::is_system(&receipt.predecessor_id) { 0 } else { result.gas_burnt };
+        let gas_burnt: Gas = if receipt.predecessor_id.is_system() { 0 } else { result.gas_burnt };
         // `gas_deficit_amount` is strictly less than `gas_price * gas_burnt`.
         let mut tx_burnt_amount =
             safe_gas_to_balance(apply_state.gas_price, gas_burnt)? - gas_deficit_amount;
