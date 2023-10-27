@@ -9,6 +9,7 @@ use crate::test_utils::{
     record_with_block_info, reward, setup_default_epoch_manager, setup_epoch_manager, stake,
     DEFAULT_TOTAL_SUPPLY,
 };
+use near_primitives::account::id::AccountIdRef;
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
@@ -18,7 +19,6 @@ use near_primitives::version::ProtocolFeature::SimpleNightshade;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
-use near_primitives::account::id::AccountIdRef;
 
 impl EpochManager {
     /// Returns number of produced and expected blocks by given validator.
@@ -916,9 +916,7 @@ fn test_reward_multiple_shards() {
                 let expected_chunk_producer = epoch_manager
                     .get_chunk_producer_info(&epoch_id, height, shard_index as u64)
                     .unwrap();
-                if expected_chunk_producer.account_id() == "test1"
-                    && epoch_id == init_epoch_id
-                {
+                if expected_chunk_producer.account_id() == "test1" && epoch_id == init_epoch_id {
                     expected_chunks += 1;
                     false
                 } else {
@@ -1628,8 +1626,14 @@ fn test_fishermen_unstake() {
         ],
     );
     let kickout = epoch_info.validator_kickout();
-    assert_eq!(kickout.get(AccountIdRef::new_or_panic("test2")).unwrap(), &ValidatorKickoutReason::Unstaked);
-    matches!(kickout.get(AccountIdRef::new_or_panic("test3")), Some(ValidatorKickoutReason::NotEnoughStake { .. }));
+    assert_eq!(
+        kickout.get(AccountIdRef::new_or_panic("test2")).unwrap(),
+        &ValidatorKickoutReason::Unstaked
+    );
+    matches!(
+        kickout.get(AccountIdRef::new_or_panic("test3")),
+        Some(ValidatorKickoutReason::NotEnoughStake { .. })
+    );
 }
 
 #[test]
