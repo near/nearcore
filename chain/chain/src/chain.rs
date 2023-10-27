@@ -3908,7 +3908,7 @@ impl Chain {
         let maybe_job = self.get_apply_chunk_job_new_chunk(
             block,
             &prev_block,
-            None,
+            None, // sorry, not produced yet
             &block.chunks()[shard_id],
             prev_block.chunks()[shard_id].height_included(),
             shard_uid,
