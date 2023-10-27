@@ -1,3 +1,4 @@
+use actix_rt::System;
 use itertools::{multizip, Itertools};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_store::config::StateSnapshotType;
@@ -63,6 +64,9 @@ pub struct TestEnvBuilder {
 impl TestEnvBuilder {
     /// Constructs a new builder.
     pub(crate) fn new(chain_genesis: ChainGenesis) -> Self {
+        if let None = System::try_current() {
+            let _ = System::new();
+        }
         let clients = Self::make_accounts(1);
         let validators = clients.clone();
         let seeds: HashMap<AccountId, RngSeed> = HashMap::with_capacity(1);
