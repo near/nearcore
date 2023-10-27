@@ -79,7 +79,7 @@ use near_primitives::views::{
     LightClientBlockView, SignedTransactionView,
 };
 use near_store::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
-use near_store::get_genesis_state_roots;
+use near_store::{get_genesis_state_roots, TrieChanges, WrappedTrieChanges};
 use near_store::{DBCol, ShardTries};
 use once_cell::sync::OnceCell;
 use rand::seq::SliceRandom;
@@ -5637,19 +5637,33 @@ impl<'a> ChainUpdate<'a> {
             shard_uids.remove(&shard_uid);
         }
         let prev_hash = block.header().prev_hash();
-        let prev_prev_hash =
-            self.chain_store_update.get_block_header(prev_hash)?.prev_hash().clone();
+        let prev_block = self.chain_store_update.get_block(prev_hash)?;
+        let prev_prev_hash = prev_block.header().prev_hash().clone();
         if prev_prev_hash == CryptoHash::default() {
             for shard_uid in shard_uids.into_iter() {
-                let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-                let store_update = flat_storage_manager.save_flat_state_changes(
-                    *block.hash(),
-                    *block.header().prev_hash(),
-                    block.header().height(),
+                let root = prev_block.chunks()[shard_uid.shard_id as usize].prev_state_root();
+                let result = ApplyChunkResult::DifferentHeight(DifferentHeightResult {
                     shard_uid,
-                    &[],
-                )?;
-                self.chain_store_update.merge(store_update);
+                    apply_result: ApplyTransactionResult {
+                        trie_changes: WrappedTrieChanges::new(
+                            self.runtime_adapter.get_tries(),
+                            shard_uid,
+                            TrieChanges::empty(root),
+                            vec![],
+                            *block.hash(),
+                        ),
+                        new_root: root,
+                        outcomes: vec![],
+                        outgoing_receipts: vec![],
+                        validator_proposals: vec![],
+                        total_gas_burnt: 0,
+                        total_balance_burnt: 0,
+                        proof: None,
+                        processed_delayed_receipts: vec![],
+                    },
+                    apply_split_result_or_state_changes: None,
+                });
+                self.process_apply_chunk_result(block, result)?;
             }
         }
         Ok(())
