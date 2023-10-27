@@ -1328,6 +1328,7 @@ mod test {
 
     use near_primitives::trie_key::TrieKey;
     use primitive_types::U256;
+    use near_primitives::account::id::AccountIdRef;
 
     fn stake(
         nonce: Nonce,
@@ -2095,13 +2096,13 @@ mod test {
                 let bp = em.get_block_producer_info(&epoch_id, height).unwrap();
                 let cp = em.get_chunk_producer_info(&epoch_id, height, 0).unwrap();
 
-                if bp.account_id().as_ref() == "test1" {
+                if bp.account_id().as_str() == "test1" {
                     expected_blocks[0] += 1;
                 } else {
                     expected_blocks[1] += 1;
                 }
 
-                if cp.account_id().as_ref() == "test1" {
+                if cp.account_id().as_str() == "test1" {
                     expected_chunks[0] += 1;
                 } else {
                     expected_chunks[1] += 1;
@@ -2486,7 +2487,7 @@ mod test {
                 .into_iter()
                 .map(|fishermen| fishermen.take_account_id())
                 .collect::<Vec<_>>(),
-            vec!["test1".parse().unwrap(), "test2".parse().unwrap()]
+            vec![AccountIdRef::new("test1").unwrap(), AccountIdRef::new("test2").unwrap()]
         );
         let staking_transaction = stake(2, &signers[0], &block_producers[0], TESTING_INIT_STAKE);
         let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 0);
@@ -2553,7 +2554,7 @@ mod test {
                 .into_iter()
                 .map(|fishermen| fishermen.take_account_id())
                 .collect::<Vec<_>>(),
-            vec!["test1".parse().unwrap()]
+            vec![AccountIdRef::new("test1").unwrap()]
         );
         let staking_transaction = stake(2, &signers[0], &block_producers[0], 0);
         env.step_default(vec![staking_transaction]);
