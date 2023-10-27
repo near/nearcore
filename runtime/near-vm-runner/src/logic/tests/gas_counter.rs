@@ -7,7 +7,6 @@ use crate::logic::{HostError, VMLogicError};
 use expect_test::expect;
 use near_primitives_core::config::{ActionCosts, ExtCosts};
 use near_primitives_core::runtime::fees::Fee;
-use near_primitives_core::types::AccountId;
 
 #[test]
 fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
@@ -248,7 +247,7 @@ fn check_action_gas_exceeds_limit(
     logic_builder.config.limit_config.max_gas_burnt = gas_limit;
     logic_builder.fees_config.action_fees[cost] = fee;
     logic_builder.context.prepaid_gas = gas_attached;
-    logic_builder.context.output_data_receivers = vec!["alice.test".parse::<AccountId>().unwrap()];
+    logic_builder.context.output_data_receivers = vec!["alice.test".parse().unwrap()];
     let mut logic = logic_builder.build();
 
     let result = exercise_action(&mut logic);
@@ -300,7 +299,7 @@ fn check_action_gas_exceeds_attached(
     logic_builder.config.limit_config.max_gas_burnt = gas_limit;
     logic_builder.fees_config.action_fees[cost] = fee;
     logic_builder.context.prepaid_gas = gas_attached;
-    logic_builder.context.output_data_receivers = vec!["alice.test".parse::<AccountId>().unwrap()];
+    logic_builder.context.output_data_receivers = vec!["alice.test".parse().unwrap()];
     let mut logic = logic_builder.build();
 
     let result = exercise_action(&mut logic);

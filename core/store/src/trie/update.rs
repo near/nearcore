@@ -170,14 +170,14 @@ impl crate::TrieAccess for TrieUpdate {
 #[cfg(test)]
 mod tests {
     use crate::test_utils::{create_tries, create_tries_complex};
-    use near_primitives::types::AccountId;
+
     use super::*;
     use crate::ShardUId;
     const SHARD_VERSION: u32 = 1;
     const COMPLEX_SHARD_UID: ShardUId = ShardUId { version: SHARD_VERSION, shard_id: 0 };
 
     fn test_key(key: Vec<u8>) -> TrieKey {
-        TrieKey::ContractData { account_id: "alice".parse::<AccountId>().unwrap(), key }
+        TrieKey::ContractData { account_id: "alice".parse().unwrap(), key }
     }
 
     #[test]

@@ -837,15 +837,14 @@ mod tests {
     use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::transaction::{Action, TransferAction};
     use near_primitives::views::RuntimeConfigView;
-    use near_primitives::types::AccountId;
 
     #[test]
     fn test_convert_block_changes_to_transactions() {
         run_actix(async {
             let runtime_config: RuntimeConfigView = RuntimeConfig::test().into();
             let actor_handles = setup_no_network(
-                vec!["test".parse::<AccountId>().unwrap()],
-                "other".parse::<AccountId>().unwrap(),
+                vec!["test".parse().unwrap()],
+                "other".parse().unwrap(),
                 true,
                 false,
             );
@@ -857,7 +856,7 @@ mod tests {
                 near_primitives::views::StateChangeWithCauseView {
                     cause: near_primitives::views::StateChangeCauseView::ValidatorAccountsUpdate,
                     value: near_primitives::views::StateChangeValueView::AccountUpdate {
-                        account_id: "nfvalidator1.near".parse::<AccountId>().unwrap(),
+                        account_id: "nfvalidator1.near".parse().unwrap(),
                         account: near_primitives::views::AccountView {
                             amount: 5000000000000000000,
                             code_hash: near_primitives::hash::CryptoHash::default(),
@@ -872,7 +871,7 @@ mod tests {
                         receipt_hash: nfvalidator1_receipt_processing_hash,
                     },
                     value: near_primitives::views::StateChangeValueView::AccountUpdate {
-                        account_id: "nfvalidator1.near".parse::<AccountId>().unwrap(),
+                        account_id: "nfvalidator1.near".parse().unwrap(),
                         account: near_primitives::views::AccountView {
                             amount: 4000000000000000000,
                             code_hash: near_primitives::hash::CryptoHash::default(),
@@ -885,7 +884,7 @@ mod tests {
                 near_primitives::views::StateChangeWithCauseView {
                     cause: near_primitives::views::StateChangeCauseView::ValidatorAccountsUpdate,
                     value: near_primitives::views::StateChangeValueView::AccountUpdate {
-                        account_id: "nfvalidator2.near".parse::<AccountId>().unwrap(),
+                        account_id: "nfvalidator2.near".parse().unwrap(),
                         account: near_primitives::views::AccountView {
                             amount: 7000000000000000000,
                             code_hash: near_primitives::hash::CryptoHash::default(),
@@ -900,7 +899,7 @@ mod tests {
                         receipt_hash: nfvalidator2_action_receipt_gas_reward_hash,
                     },
                     value: near_primitives::views::StateChangeValueView::AccountUpdate {
-                        account_id: "nfvalidator2.near".parse::<AccountId>().unwrap(),
+                        account_id: "nfvalidator2.near".parse().unwrap(),
                         account: near_primitives::views::AccountView {
                             amount: 8000000000000000000,
                             code_hash: near_primitives::hash::CryptoHash::default(),
@@ -913,7 +912,7 @@ mod tests {
             ];
             let mut accounts_previous_state = std::collections::HashMap::new();
             accounts_previous_state.insert(
-                "nfvalidator1.near".parse::<AccountId>().unwrap(),
+                "nfvalidator1.near".parse().unwrap(),
                 near_primitives::views::AccountView {
                     amount: 4000000000000000000,
                     code_hash: near_primitives::hash::CryptoHash::default(),
@@ -923,7 +922,7 @@ mod tests {
                 },
             );
             accounts_previous_state.insert(
-                "nfvalidator2.near".parse::<AccountId>().unwrap(),
+                "nfvalidator2.near".parse().unwrap(),
                 near_primitives::views::AccountView {
                     amount: 6000000000000000000,
                     code_hash: near_primitives::hash::CryptoHash::default(),
@@ -976,7 +975,7 @@ mod tests {
         let create_account_actions =
             vec![near_primitives::transaction::CreateAccountAction {}.into()];
         let delete_account_actions = vec![near_primitives::transaction::DeleteAccountAction {
-            beneficiary_id: "beneficiary.near".parse::<AccountId>().unwrap(),
+            beneficiary_id: "beneficiary.near".parse().unwrap(),
         }
         .into()];
         let add_key_actions = vec![near_primitives::transaction::AddKeyAction {
@@ -1056,8 +1055,8 @@ mod tests {
 
         for actions in non_sir_compatible_actions.clone() {
             let near_actions = NearActions {
-                sender_account_id: "sender.near".parse::<AccountId>().unwrap(),
-                receiver_account_id: "receiver.near".parse::<AccountId>().unwrap(),
+                sender_account_id: "sender.near".parse().unwrap(),
+                receiver_account_id: "receiver.near".parse().unwrap(),
                 actions,
             };
             println!("NEAR Actions: {:#?}", near_actions);
@@ -1077,8 +1076,8 @@ mod tests {
         let sir_compatible_actions = [non_sir_compatible_actions, vec![stake_actions]].concat();
         for actions in sir_compatible_actions {
             let near_actions = NearActions {
-                sender_account_id: "sender-is-receiver.near".parse::<AccountId>().unwrap(),
-                receiver_account_id: "sender-is-receiver.near".parse::<AccountId>().unwrap(),
+                sender_account_id: "sender-is-receiver.near".parse().unwrap(),
+                receiver_account_id: "sender-is-receiver.near".parse().unwrap(),
                 actions,
             };
             println!("NEAR Actions: {:#?}", near_actions);
@@ -1102,12 +1101,12 @@ mod tests {
         let sk = SecretKey::from_seed(KeyType::ED25519, "");
 
         let original_near_actions = NearActions {
-            sender_account_id: "proxy.near".parse::<AccountId>().unwrap(),
-            receiver_account_id: "account.near".parse::<AccountId>().unwrap(),
+            sender_account_id: "proxy.near".parse().unwrap(),
+            receiver_account_id: "account.near".parse().unwrap(),
             actions: vec![Action::Delegate(Box::new(SignedDelegateAction {
                 delegate_action: DelegateAction {
-                    sender_id: "account.near".parse::<AccountId>().unwrap(),
-                    receiver_id: "receiver.near".parse::<AccountId>().unwrap(),
+                    sender_id: "account.near".parse().unwrap(),
+                    receiver_id: "receiver.near".parse().unwrap(),
                     actions: vec![Action::Transfer(TransferAction { deposit: 1 })
                         .try_into()
                         .unwrap()],

@@ -1110,11 +1110,7 @@ mod tests {
             .runtimes(runtimes)
             .build();
 
-        let signer = InMemorySigner::from_seed(
-            "test0".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "test0",
-        );
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         assert_eq!(env.send_money(0), near_client::ProcessTxResponse::ValidTx);
 
         // It takes 2 blocks to record a transaction on chain and apply the receipts.

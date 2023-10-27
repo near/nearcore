@@ -6,7 +6,6 @@ use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::test_utils::encode;
 use near_primitives::transaction::{Action, ExecutionMetadata, FunctionCallAction, Transaction};
-use near_primitives::types::AccountId;
 use near_primitives::version::ProtocolFeature;
 use near_primitives_core::config::ExtCosts;
 use near_primitives_core::hash::CryptoHash;
@@ -23,10 +22,7 @@ fn test_flat_storage_upgrade() {
     // the release branch where the protocol upgrade date is set.
     std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
 
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 12;
     let new_protocol_version = ProtocolFeature::FlatStorageReads.protocol_version();
     let old_protocol_version = new_protocol_version - 1;
@@ -50,19 +46,18 @@ fn test_flat_storage_upgrade() {
     // Deploy contract to state.
     deploy_test_contract_with_protocol_version(
         &mut env,
-        "test0".parse::<AccountId>().unwrap(),
+        "test0".parse().unwrap(),
         near_test_contracts::backwards_compatible_rs_contract(),
         blocks_to_process_txn,
         1,
         old_protocol_version,
     );
 
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let gas = 20_000_000_000_000;
     let tx = Transaction {
-        signer_id: "test0".parse::<AccountId>().unwrap(),
-        receiver_id: "test0".parse::<AccountId>().unwrap(),
+        signer_id: "test0".parse().unwrap(),
+        receiver_id: "test0".parse().unwrap(),
         public_key: signer.public_key(),
         actions: vec![],
         nonce: 0,

@@ -15,23 +15,19 @@ use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 fn test_setup() -> (TestEnv, InMemorySigner) {
     let epoch_length = 5;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(ChainGenesis::test())
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     assert_eq!(
         send_tx(
             &mut env,
             1,
-            "test0".parse::<AccountId>().unwrap(),
-            "test0".parse::<AccountId>().unwrap(),
+            "test0".parse().unwrap(),
+            "test0".parse().unwrap(),
             &signer,
             vec![Action::DeployContract(DeployContractAction {
                 code: near_test_contracts::rs_contract().to_vec(),
@@ -45,8 +41,8 @@ fn test_setup() -> (TestEnv, InMemorySigner) {
         send_tx(
             &mut env,
             2,
-            "test0".parse::<AccountId>().unwrap(),
-            "test0".parse::<AccountId>().unwrap(),
+            "test0".parse().unwrap(),
+            "test0".parse().unwrap(),
             &signer,
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "write_random_value".to_string(),
@@ -85,15 +81,15 @@ fn send_tx(
 fn test_patch_state() {
     let (mut env, _signer) = test_setup();
 
-    let state_item = env.query_state("test0".parse::<AccountId>().unwrap()).swap_remove(0);
+    let state_item = env.query_state("test0".parse().unwrap()).swap_remove(0);
     env.clients[0].chain.patch_state(SandboxStatePatch::new(vec![StateRecord::Data {
-        account_id: "test0".parse::<AccountId>().unwrap(),
+        account_id: "test0".parse().unwrap(),
         data_key: state_item.key,
         value: b"world".to_vec().into(),
     }]));
 
     do_blocks(&mut env, 9, 20);
-    let state = env.query_state("test0".parse::<AccountId>().unwrap());
+    let state = env.query_state("test0".parse().unwrap());
     assert_eq!(state.len(), 1);
     assert_eq!(state[0].value.as_slice(), b"world");
 }
@@ -101,14 +97,14 @@ fn test_patch_state() {
 #[test]
 fn test_patch_account() {
     let (mut env, _signer) = test_setup();
-    let mut test1: Account = env.query_account("test1".parse::<AccountId>().unwrap()).into();
+    let mut test1: Account = env.query_account("test1".parse().unwrap()).into();
     test1.set_amount(10);
 
     env.clients[0].chain.patch_state(SandboxStatePatch::new(vec![StateRecord::Account {
-        account_id: "test1".parse::<AccountId>().unwrap(),
+        account_id: "test1".parse().unwrap(),
         account: test1,
     }]));
     do_blocks(&mut env, 9, 20);
-    let test1_after = env.query_account("test1".parse::<AccountId>().unwrap());
+    let test1_after = env.query_account("test1".parse().unwrap());
     assert_eq!(test1_after.amount, 10);
 }

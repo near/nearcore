@@ -52,8 +52,7 @@ impl Drop for CryptoHashTimer {
 
 #[test]
 fn test_crypto_hash_timer() {
-    let crypto_hash: CryptoHash =
-        "s3N6V7CNAN2Eg6vfivMVHR4hbMZeh72fTmYbrC6dXBT".parse().unwrap();
+    let crypto_hash: CryptoHash = "s3N6V7CNAN2Eg6vfivMVHR4hbMZeh72fTmYbrC6dXBT".parse().unwrap();
     // Timer should be missing.
     assert_eq!(CryptoHashTimer::get_timer_value(crypto_hash), None);
     let mock_clock_guard = near_primitives::static_clock::MockClockGuard::default();

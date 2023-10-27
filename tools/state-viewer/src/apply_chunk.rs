@@ -483,7 +483,6 @@ mod test {
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout;
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::AccountId;
     use near_primitives::utils::get_num_seats_per_shard;
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
@@ -513,10 +512,10 @@ mod test {
     fn test_apply_chunk() {
         let genesis = Genesis::test_sharded(
             vec![
-                "test0".parse::<AccountId>().unwrap(),
-                "test1".parse::<AccountId>().unwrap(),
-                "test2".parse::<AccountId>().unwrap(),
-                "test3".parse::<AccountId>().unwrap(),
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
+                "test2".parse().unwrap(),
+                "test3".parse().unwrap(),
             ],
             1,
             get_num_seats_per_shard(4, 1),
@@ -598,10 +597,10 @@ mod test {
     fn test_apply_tx_apply_receipt() {
         let genesis = Genesis::test_sharded(
             vec![
-                "test0".parse::<AccountId>().unwrap(),
-                "test1".parse::<AccountId>().unwrap(),
-                "test2".parse::<AccountId>().unwrap(),
-                "test3".parse::<AccountId>().unwrap(),
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
+                "test2".parse().unwrap(),
+                "test3".parse().unwrap(),
             ],
             1,
             get_num_seats_per_shard(4, 1),

@@ -144,7 +144,7 @@ pub struct GenesisConfig {
     /// Expected number of blocks per year
     pub num_blocks_per_year: NumBlocks,
     /// Protocol treasury account
-    #[default("near".parse::<AccountId>().unwrap())]
+    #[default("near".parse().unwrap())]
     pub protocol_treasury_account: AccountId,
     /// Fishermen stake threshold.
     #[serde(with = "dec_format")]

@@ -49,10 +49,7 @@ fn check_tx_processing(
 #[test]
 fn test_transaction_hash_collision() {
     let epoch_length = 5;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(ChainGenesis::test())
         .real_epoch_managers(&genesis.config)
@@ -60,23 +57,21 @@ fn test_transaction_hash_collision() {
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
-    let signer0 =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
-    let signer1 =
-        InMemorySigner::from_seed("test1".parse::<AccountId>().unwrap(), KeyType::ED25519, "test1");
+    let signer0 = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer1 = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let send_money_tx = SignedTransaction::send_money(
         1,
-        "test1".parse::<AccountId>().unwrap(),
-        "test0".parse::<AccountId>().unwrap(),
+        "test1".parse().unwrap(),
+        "test0".parse().unwrap(),
         &signer1,
         100,
         *genesis_block.hash(),
     );
     let delete_account_tx = SignedTransaction::delete_account(
         2,
-        "test1".parse::<AccountId>().unwrap(),
-        "test1".parse::<AccountId>().unwrap(),
-        "test0".parse::<AccountId>().unwrap(),
+        "test1".parse().unwrap(),
+        "test1".parse().unwrap(),
+        "test0".parse().unwrap(),
         &signer1,
         *genesis_block.hash(),
     );
@@ -96,8 +91,8 @@ fn test_transaction_hash_collision() {
 
     let create_account_tx = SignedTransaction::create_account(
         1,
-        "test0".parse::<AccountId>().unwrap(),
-        "test1".parse::<AccountId>().unwrap(),
+        "test0".parse().unwrap(),
+        "test1".parse().unwrap(),
         NEAR_BASE,
         signer1.public_key(),
         &signer0,
@@ -125,10 +120,7 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
     protocol_version: ProtocolVersion,
 ) -> ProcessTxResponse {
     let epoch_length = 100;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = protocol_version;
     let mut env = TestEnv::builder(ChainGenesis::test())
@@ -137,8 +129,7 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
-    let signer1 =
-        InMemorySigner::from_seed("test1".parse::<AccountId>().unwrap(), KeyType::ED25519, "test1");
+    let signer1 = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
 
     let public_key = &signer1.public_key;
     let raw_public_key = public_key.unwrap_as_ed25519().0.to_vec();
@@ -152,7 +143,7 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
     // Send money to implicit account, invoking its creation.
     let send_money_tx = SignedTransaction::send_money(
         1,
-        "test1".parse::<AccountId>().unwrap(),
+        "test1".parse().unwrap(),
         implicit_account_id.clone(),
         &signer1,
         deposit_for_account_creation,
@@ -167,7 +158,7 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
         (height - 1) * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER,
         implicit_account_id.clone(),
         implicit_account_id.clone(),
-        "test0".parse::<AccountId>().unwrap(),
+        "test0".parse().unwrap(),
         &implicit_account_signer,
         *block.hash(),
     );
@@ -177,7 +168,7 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
     // Send money to implicit account again, invoking its second creation.
     let send_money_again_tx = SignedTransaction::send_money(
         2,
-        "test1".parse::<AccountId>().unwrap(),
+        "test1".parse().unwrap(),
         implicit_account_id.clone(),
         &signer1,
         deposit_for_account_creation,
@@ -190,7 +181,7 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
     let send_money_from_implicit_account_tx = SignedTransaction::send_money(
         1,
         implicit_account_id.clone(),
-        "test0".parse::<AccountId>().unwrap(),
+        "test0".parse().unwrap(),
         &implicit_account_signer,
         100,
         *block.hash(),
@@ -201,7 +192,7 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
     let send_money_from_implicit_account_tx = SignedTransaction::send_money(
         (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER,
         implicit_account_id,
-        "test0".parse::<AccountId>().unwrap(),
+        "test0".parse().unwrap(),
         &implicit_account_signer,
         100,
         *block.hash(),
@@ -236,22 +227,18 @@ fn test_transaction_hash_collision_for_implicit_account_ok() {
 #[test]
 fn test_chunk_transaction_validity() {
     let epoch_length = 5;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(ChainGenesis::test())
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let tx = SignedTransaction::send_money(
         1,
-        "test1".parse::<AccountId>().unwrap(),
-        "test0".parse::<AccountId>().unwrap(),
+        "test1".parse().unwrap(),
+        "test0".parse().unwrap(),
         &signer,
         100,
         *genesis_block.hash(),
@@ -277,23 +264,19 @@ fn test_chunk_transaction_validity() {
 #[test]
 fn test_transaction_nonce_too_large() {
     let epoch_length = 5;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(ChainGenesis::test())
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let large_nonce = AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER + 1;
     let tx = SignedTransaction::send_money(
         large_nonce,
-        "test1".parse::<AccountId>().unwrap(),
-        "test0".parse::<AccountId>().unwrap(),
+        "test1".parse().unwrap(),
+        "test0".parse().unwrap(),
         &signer,
         100,
         *genesis_block.hash(),

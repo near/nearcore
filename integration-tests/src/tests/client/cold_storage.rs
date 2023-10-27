@@ -76,10 +76,7 @@ fn test_storage_after_commit_of_cold_update() {
     let epoch_length = 5;
     let max_height = epoch_length * 4;
 
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
 
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
@@ -100,16 +97,12 @@ fn test_storage_after_commit_of_cold_update() {
     let state_changes_reads = test_get_store_reads(DBCol::StateChanges);
 
     for h in 1..max_height {
-        let signer = InMemorySigner::from_seed(
-            "test0".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "test0",
-        );
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         if h == 1 {
             let tx = SignedTransaction::from_actions(
                 h,
-                "test0".parse::<AccountId>().unwrap(),
-                "test0".parse::<AccountId>().unwrap(),
+                "test0".parse().unwrap(),
+                "test0".parse().unwrap(),
                 &signer,
                 vec![Action::DeployContract(DeployContractAction {
                     code: near_test_contracts::rs_contract().to_vec(),
@@ -125,8 +118,8 @@ fn test_storage_after_commit_of_cold_update() {
             for i in 0..5 {
                 let tx = SignedTransaction::from_actions(
                     h * 10 + i,
-                    "test0".parse::<AccountId>().unwrap(),
-                    "test0".parse::<AccountId>().unwrap(),
+                    "test0".parse().unwrap(),
+                    "test0".parse().unwrap(),
                     &signer,
                     vec![Action::FunctionCall(Box::new(FunctionCallAction {
                         method_name: "write_random_value".to_string(),
@@ -141,8 +134,8 @@ fn test_storage_after_commit_of_cold_update() {
             for i in 0..5 {
                 let tx = SignedTransaction::send_money(
                     h * 10 + i,
-                    "test0".parse::<AccountId>().unwrap(),
-                    "test1".parse::<AccountId>().unwrap(),
+                    "test0".parse().unwrap(),
+                    "test1".parse().unwrap(),
                     &signer,
                     1,
                     last_hash,
@@ -233,10 +226,7 @@ fn test_cold_db_head_update() {
     let epoch_length = 5;
     let max_height = epoch_length * 10;
 
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
 
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
@@ -281,10 +271,7 @@ fn test_cold_db_copy_with_height_skips() {
 
     let skips = HashSet::from([1, 4, 5, 7, 11, 14, 16, 19]);
 
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
 
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
@@ -302,11 +289,7 @@ fn test_cold_db_copy_with_height_skips() {
         .unwrap();
 
     for h in 1..max_height {
-        let signer = InMemorySigner::from_seed(
-            "test0".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "test0",
-        );
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         // It is still painful to filter out transactions in last two blocks.
         // So, as block 19 is skipped, blocks 17 and 18 shouldn't contain any transactions.
         // So, we shouldn't send any transactions between block 17 and the previous block.
@@ -316,8 +299,8 @@ fn test_cold_db_copy_with_height_skips() {
             for i in 0..5 {
                 let tx = SignedTransaction::send_money(
                     h * 10 + i,
-                    "test0".parse::<AccountId>().unwrap(),
-                    "test1".parse::<AccountId>().unwrap(),
+                    "test0".parse().unwrap(),
+                    "test1".parse().unwrap(),
                     &signer,
                     1,
                     last_hash,
@@ -406,10 +389,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
     let epoch_length = 5;
     let max_height = epoch_length * 4;
 
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
 
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
@@ -424,16 +404,12 @@ fn test_initial_copy_to_cold(batch_size: usize) {
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
     for h in 1..max_height {
-        let signer = InMemorySigner::from_seed(
-            "test0".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "test0",
-        );
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         for i in 0..5 {
             let tx = SignedTransaction::send_money(
                 h * 10 + i,
-                "test0".parse::<AccountId>().unwrap(),
-                "test1".parse::<AccountId>().unwrap(),
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
                 &signer,
                 1,
                 last_hash,
@@ -509,10 +485,7 @@ fn test_cold_loop_on_gc_boundary() {
 
     let epoch_length = 5;
 
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
 
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
@@ -534,16 +507,12 @@ fn test_cold_loop_on_gc_boundary() {
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
     for h in 1..height_delta {
-        let signer = InMemorySigner::from_seed(
-            "test0".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "test0",
-        );
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         for i in 0..5 {
             let tx = SignedTransaction::send_money(
                 h * 10 + i,
-                "test0".parse::<AccountId>().unwrap(),
-                "test1".parse::<AccountId>().unwrap(),
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
                 &signer,
                 1,
                 last_hash,
@@ -564,16 +533,12 @@ fn test_cold_loop_on_gc_boundary() {
     update_cold_head(&*store.cold_db().unwrap(), &hot_store, &(height_delta - 1)).unwrap();
 
     for h in height_delta..height_delta * 2 {
-        let signer = InMemorySigner::from_seed(
-            "test0".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "test0",
-        );
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         for i in 0..5 {
             let tx = SignedTransaction::send_money(
                 h * 10 + i,
-                "test0".parse::<AccountId>().unwrap(),
-                "test1".parse::<AccountId>().unwrap(),
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
                 &signer,
                 1,
                 last_hash,

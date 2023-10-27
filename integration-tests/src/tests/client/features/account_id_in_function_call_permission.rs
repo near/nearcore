@@ -8,7 +8,6 @@ use near_primitives::errors::{ActionsValidationError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{Action, AddKeyAction, Transaction};
-use near_primitives::types::AccountId;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
@@ -27,10 +26,8 @@ fn test_account_id_in_function_call_permission_upgrade() {
     // Prepare TestEnv with a contract at the old protocol version.
     let mut env = {
         let epoch_length = 5;
-        let mut genesis = Genesis::test(
-            vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-            1,
-        );
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
@@ -43,11 +40,10 @@ fn test_account_id_in_function_call_permission_upgrade() {
             .build()
     };
 
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let tx = Transaction {
-        signer_id: "test0".parse::<AccountId>().unwrap(),
-        receiver_id: "test0".parse::<AccountId>().unwrap(),
+        signer_id: "test0".parse().unwrap(),
+        receiver_id: "test0".parse().unwrap(),
         public_key: signer.public_key(),
         actions: vec![Action::AddKey(Box::new(AddKeyAction {
             public_key: signer.public_key(),
@@ -97,10 +93,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
 #[test]
 fn test_very_long_account_id() {
     let mut env = {
-        let genesis = Genesis::test(
-            vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-            1,
-        );
+        let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         let chain_genesis = ChainGenesis::new(&genesis);
         TestEnv::builder(chain_genesis)
             .real_epoch_managers(&genesis.config)
@@ -112,11 +105,10 @@ fn test_very_long_account_id() {
     };
 
     let tip = env.clients[0].chain.head().unwrap();
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let tx = Transaction {
-        signer_id: "test0".parse::<AccountId>().unwrap(),
-        receiver_id: "test0".parse::<AccountId>().unwrap(),
+        signer_id: "test0".parse().unwrap(),
+        receiver_id: "test0".parse().unwrap(),
         public_key: signer.public_key(),
         actions: vec![Action::AddKey(Box::new(AddKeyAction {
             public_key: signer.public_key(),

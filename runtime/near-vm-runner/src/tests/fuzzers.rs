@@ -8,7 +8,6 @@ use crate::VMKind;
 use arbitrary::Arbitrary;
 use bolero::check;
 use core::fmt;
-use near_primitives::types::AccountId;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
@@ -40,10 +39,10 @@ pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
 
 pub fn create_context(input: Vec<u8>) -> VMContext {
     VMContext {
-        current_account_id: "alice".parse::<AccountId>().unwrap(),
-        signer_account_id: "bob".parse::<AccountId>().unwrap(),
+        current_account_id: "alice".parse().unwrap(),
+        signer_account_id: "bob".parse().unwrap(),
         signer_account_pk: vec![0, 1, 2, 3, 4],
-        predecessor_account_id: "carol".parse::<AccountId>().unwrap(),
+        predecessor_account_id: "carol".parse().unwrap(),
         input,
         block_height: 10,
         block_timestamp: 42,

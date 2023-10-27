@@ -995,24 +995,24 @@ mod tests {
 
     #[test]
     fn test_create_account_valid_top_level_long() {
-        let account_id = "bob_near_long_name".parse::<AccountId>().unwrap();
-        let predecessor_id = "alice.near".parse::<AccountId>().unwrap();
+        let account_id = "bob_near_long_name".parse().unwrap();
+        let predecessor_id = "alice.near".parse().unwrap();
         let action_result = test_action_create_account(account_id, predecessor_id, 11);
         assert!(action_result.result.is_ok());
     }
 
     #[test]
     fn test_create_account_valid_top_level_by_registrar() {
-        let account_id = "bob".parse::<AccountId>().unwrap();
-        let predecessor_id = "registrar".parse::<AccountId>().unwrap();
+        let account_id = "bob".parse().unwrap();
+        let predecessor_id = "registrar".parse().unwrap();
         let action_result = test_action_create_account(account_id, predecessor_id, 11);
         assert!(action_result.result.is_ok());
     }
 
     #[test]
     fn test_create_account_valid_sub_account() {
-        let account_id = "alice.near".parse::<AccountId>().unwrap();
-        let predecessor_id = "near".parse::<AccountId>().unwrap();
+        let account_id = "alice.near".parse().unwrap();
+        let predecessor_id = "near".parse().unwrap();
         let action_result = test_action_create_account(account_id, predecessor_id, 11);
         assert!(action_result.result.is_ok());
     }
@@ -1047,7 +1047,7 @@ mod tests {
                 index: None,
                 kind: ActionErrorKind::CreateAccountOnlyByRegistrar {
                     account_id: account_id,
-                    registrar_account_id: "registrar".parse::<AccountId>().unwrap(),
+                    registrar_account_id: "registrar".parse().unwrap(),
                     predecessor_id: predecessor_id,
                 },
             })
@@ -1056,8 +1056,8 @@ mod tests {
 
     #[test]
     fn test_create_account_valid_short_top_level_len_allowed() {
-        let account_id = "bob".parse::<AccountId>().unwrap();
-        let predecessor_id = "near".parse::<AccountId>().unwrap();
+        let account_id = "bob".parse().unwrap();
+        let predecessor_id = "near".parse().unwrap();
         let action_result = test_action_create_account(account_id, predecessor_id, 0);
         assert!(action_result.result.is_ok());
     }
@@ -1071,7 +1071,7 @@ mod tests {
         let mut account = Some(Account::new(100, 0, *code_hash, storage_usage));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
-        let receipt = Receipt::new_balance_refund(&"alice.near".parse::<AccountId>().unwrap(), 0);
+        let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), 0);
         let res = action_delete_account(
             state_update,
             &mut account,
@@ -1079,7 +1079,7 @@ mod tests {
             &receipt,
             &mut action_result,
             account_id,
-            &DeleteAccountAction { beneficiary_id: "bob".parse::<AccountId>().unwrap() },
+            &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
             ProtocolFeature::DeleteActionRestriction.protocol_version(),
         );
         assert!(res.is_ok());
@@ -1092,7 +1092,7 @@ mod tests {
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let action_result = test_delete_large_account(
-            &"alice".parse::<AccountId>().unwrap(),
+            &"alice".parse().unwrap(),
             &CryptoHash::default(),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
             &mut state_update,
@@ -1102,7 +1102,7 @@ mod tests {
             Err(ActionError {
                 index: None,
                 kind: ActionErrorKind::DeleteAccountWithLargeState {
-                    account_id: "alice".parse::<AccountId>().unwrap()
+                    account_id: "alice".parse().unwrap()
                 }
             })
         )
@@ -1136,7 +1136,7 @@ mod tests {
             Err(ActionError {
                 index: None,
                 kind: ActionErrorKind::DeleteAccountWithLargeState {
-                    account_id: "alice".parse::<AccountId>().unwrap()
+                    account_id: "alice".parse().unwrap()
                 }
             })
         );
@@ -1145,8 +1145,8 @@ mod tests {
     fn create_delegate_action_receipt() -> (ActionReceipt, SignedDelegateAction) {
         let signed_delegate_action = SignedDelegateAction {
             delegate_action: DelegateAction {
-                sender_id: "bob.test.near".parse::<AccountId>().unwrap(),
-                receiver_id: "token.test.near".parse::<AccountId>().unwrap(),
+                sender_id: "bob.test.near".parse().unwrap(),
+                receiver_id: "token.test.near".parse().unwrap(),
                 actions: vec![
                     non_delegate_action(
                         Action::FunctionCall(
@@ -1167,7 +1167,7 @@ mod tests {
         };
 
         let action_receipt = ActionReceipt {
-            signer_id: "alice.test.near".parse::<AccountId>().unwrap(),
+            signer_id: "alice.test.near".parse().unwrap(),
             signer_public_key: PublicKey::empty(near_crypto::KeyType::ED25519),
             gas_price: 1,
             output_data_receivers: Vec::new(),
@@ -1277,8 +1277,7 @@ mod tests {
         let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
 
         // Corrupt receiver_id. Signature verifycation must fail.
-        signed_delegate_action.delegate_action.receiver_id =
-            "www.test.near".parse::<AccountId>().unwrap();
+        signed_delegate_action.delegate_action.receiver_id = "www.test.near".parse().unwrap();
 
         apply_delegate_action(
             &mut state_update,
@@ -1336,7 +1335,7 @@ mod tests {
             &mut state_update,
             &apply_state,
             &action_receipt,
-            &"www.test.near".parse::<AccountId>().unwrap(),
+            &"www.test.near".parse().unwrap(),
             &signed_delegate_action,
             &mut result,
         )
@@ -1346,7 +1345,7 @@ mod tests {
             result.result,
             Err(ActionErrorKind::DelegateActionSenderDoesNotMatchTxReceiver {
                 sender_id: sender_id.clone(),
-                receiver_id: "www.test.near".parse::<AccountId>().unwrap(),
+                receiver_id: "www.test.near".parse().unwrap(),
             }
             .into())
         );

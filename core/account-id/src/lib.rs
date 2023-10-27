@@ -28,7 +28,7 @@
 //! ```
 //! use near_account_id::AccountId;
 //!
-//! let alice: AccountId = "alice.near".parse::<AccountId>().unwrap();
+//! let alice: AccountId = "alice.near".parse().unwrap();
 //!
 //! assert!("ƒelicia.near".parse::<AccountId>().is_err()); // (ƒ is not f)
 //! ```
@@ -57,7 +57,7 @@ pub use errors::{ParseAccountError, ParseErrorKind};
 /// ```
 /// use near_account_id::AccountId;
 ///
-/// let alice: AccountId = "alice.near".parse::<AccountId>().unwrap();
+/// let alice: AccountId = "alice.near".parse().unwrap();
 ///
 /// assert!("ƒelicia.near".parse::<AccountId>().is_err()); // (ƒ is not f)
 /// ```
@@ -77,7 +77,7 @@ impl AccountId {
     /// ```
     /// use near_account_id::AccountId;
     ///
-    /// let carol: AccountId = "carol.near".parse::<AccountId>().unwrap();
+    /// let carol: AccountId = "carol.near".parse().unwrap();
     /// assert_eq!("carol.near", carol.as_str());
     /// ```
     pub fn as_str(&self) -> &str {
@@ -93,11 +93,11 @@ impl AccountId {
     /// ```
     /// use near_account_id::AccountId;
     ///
-    /// let near_tla: AccountId = "near".parse::<AccountId>().unwrap();
+    /// let near_tla: AccountId = "near".parse().unwrap();
     /// assert!(near_tla.is_top_level());
     ///
     /// // "alice.near" is a sub account of "near" account
-    /// let alice: AccountId = "alice.near".parse::<AccountId>().unwrap();
+    /// let alice: AccountId = "alice.near".parse().unwrap();
     /// assert!(!alice.is_top_level());
     /// ```
     pub fn is_top_level(&self) -> bool {
@@ -113,13 +113,13 @@ impl AccountId {
     /// ```
     /// use near_account_id::AccountId;
     ///
-    /// let near_tla: AccountId = "near".parse::<AccountId>().unwrap();
+    /// let near_tla: AccountId = "near".parse().unwrap();
     /// assert!(near_tla.is_top_level());
     ///
-    /// let alice: AccountId = "alice.near".parse::<AccountId>().unwrap();
+    /// let alice: AccountId = "alice.near".parse().unwrap();
     /// assert!(alice.is_sub_account_of(&near_tla));
     ///
-    /// let alice_app: AccountId = "app.alice.near".parse::<AccountId>().unwrap();
+    /// let alice_app: AccountId = "app.alice.near".parse().unwrap();
     ///
     /// // While app.alice.near is a sub account of alice.near,
     /// // app.alice.near is not a sub account of near
@@ -141,7 +141,7 @@ impl AccountId {
     /// ```
     /// use near_account_id::AccountId;
     ///
-    /// let alice: AccountId = "alice.near".parse::<AccountId>().unwrap();
+    /// let alice: AccountId = "alice.near".parse().unwrap();
     /// assert!(!alice.is_implicit());
     ///
     /// let rando = "98793cd91a3f870fb126f66285808c7e094afcfc4eda8a970f6648cdf0dbd6de"
@@ -162,10 +162,10 @@ impl AccountId {
     /// ```
     /// use near_account_id::AccountId;
     ///
-    /// let alice: AccountId = "alice.near".parse::<AccountId>().unwrap();
+    /// let alice: AccountId = "alice.near".parse().unwrap();
     /// assert!(!alice.is_system());
     ///
-    /// let system: AccountId = "system".parse::<AccountId>().unwrap();
+    /// let system: AccountId = "system".parse().unwrap();
     /// assert!(system.is_system());
     /// ```
     pub fn is_system(&self) -> bool {

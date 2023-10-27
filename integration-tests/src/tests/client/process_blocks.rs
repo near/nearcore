@@ -202,10 +202,7 @@ pub(crate) fn prepare_env_with_congestion(
 ) -> (TestEnv, Vec<CryptoHash>) {
     init_test_logger();
     let epoch_length = 100;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.protocol_version = protocol_version;
     genesis.config.epoch_length = epoch_length;
     genesis.config.gas_limit = 10_000_000_000_000;
@@ -218,14 +215,13 @@ pub(crate) fn prepare_env_with_congestion(
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
 
     // Deploy contract to test0.
     let tx = SignedTransaction::from_actions(
         1,
-        "test0".parse::<AccountId>().unwrap(),
-        "test0".parse::<AccountId>().unwrap(),
+        "test0".parse().unwrap(),
+        "test0".parse().unwrap(),
         &signer,
         vec![Action::DeployContract(DeployContractAction {
             code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
@@ -255,8 +251,8 @@ pub(crate) fn prepare_env_with_congestion(
 
         let signed_transaction = SignedTransaction::from_actions(
             i + 10,
-            "test0".parse::<AccountId>().unwrap(),
-            "test0".parse::<AccountId>().unwrap(),
+            "test0".parse().unwrap(),
+            "test0".parse().unwrap(),
             &signer,
             vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "call_promise".to_string(),
@@ -283,8 +279,8 @@ fn produce_two_blocks() {
     run_actix(async {
         let count = Arc::new(AtomicUsize::new(0));
         setup_mock(
-            vec!["test".parse::<AccountId>().unwrap()],
-            "test".parse::<AccountId>().unwrap(),
+            vec!["test".parse().unwrap()],
+            "test".parse().unwrap(),
             true,
             false,
             Box::new(move |msg, _ctx, _| {
@@ -310,8 +306,8 @@ fn produce_blocks_with_tx() {
     init_test_logger();
     run_actix(async {
         let actor_handles = setup_mock(
-            vec!["test".parse::<AccountId>().unwrap()],
-            "test".parse::<AccountId>().unwrap(),
+            vec!["test".parse().unwrap()],
+            "test".parse().unwrap(),
             true,
             false,
             Box::new(move |msg, _ctx, _| {
@@ -383,12 +379,8 @@ fn receive_network_block() {
         // it. The second header announce will happen with the endorsement a little later.
         let first_header_announce = Arc::new(RwLock::new(true));
         let actor_handles = setup_mock(
-            vec![
-                "test2".parse::<AccountId>().unwrap(),
-                "test1".parse::<AccountId>().unwrap(),
-                "test3".parse::<AccountId>().unwrap(),
-            ],
-            "test2".parse::<AccountId>().unwrap(),
+            vec!["test2".parse().unwrap(), "test1".parse().unwrap(), "test3".parse().unwrap()],
+            "test2".parse().unwrap(),
             true,
             false,
             Box::new(move |msg, _ctx, _| {
@@ -458,7 +450,7 @@ fn produce_block_with_approvals() {
     run_actix(async {
         let actor_handles = setup_mock(
             validators.clone(),
-            "test1".parse::<AccountId>().unwrap(),
+            "test1".parse().unwrap(),
             true,
             false,
             Box::new(move |msg, _ctx, _| {
@@ -559,10 +551,10 @@ fn produce_block_with_approvals() {
 fn produce_block_with_approvals_arrived_early() {
     init_test_logger();
     let vs = ValidatorSchedule::new().num_shards(4).block_producers_per_epoch(vec![vec![
-        "test1".parse::<AccountId>().unwrap(),
-        "test2".parse::<AccountId>().unwrap(),
-        "test3".parse::<AccountId>().unwrap(),
-        "test4".parse::<AccountId>().unwrap(),
+        "test1".parse().unwrap(),
+        "test2".parse().unwrap(),
+        "test3".parse().unwrap(),
+        "test4".parse().unwrap(),
     ]]);
     let archive = vec![false; vs.all_block_producers().count()];
     let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
@@ -612,7 +604,7 @@ fn produce_block_with_approvals_arrived_early() {
                             (NetworkResponses::NoResponse.into(), true)
                         }
                         NetworkRequests::Approval { approval_message } => {
-                            if approval_message.target.as_str() == "test1"
+                            if approval_message.target.as_ref() == "test1"
                                 && approval_message.approval.target_height == 4
                             {
                                 approval_counter += 1;
@@ -647,8 +639,8 @@ fn invalid_blocks_common(is_requested: bool) {
     run_actix(async move {
         let mut ban_counter = 0;
         let actor_handles = setup_mock(
-            vec!["test".parse::<AccountId>().unwrap()],
-            "other".parse::<AccountId>().unwrap(),
+            vec!["test".parse().unwrap()],
+            "other".parse().unwrap(),
             true,
             false,
             Box::new(move |msg, _ctx, _client_actor| {
@@ -840,10 +832,10 @@ enum InvalidBlockMode {
 fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
     init_test_logger();
     let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![vec![
-        "test1".parse::<AccountId>().unwrap(),
-        "test2".parse::<AccountId>().unwrap(),
-        "test3".parse::<AccountId>().unwrap(),
-        "test4".parse::<AccountId>().unwrap(),
+        "test1".parse().unwrap(),
+        "test2".parse().unwrap(),
+        "test3".parse().unwrap(),
+        "test4".parse().unwrap(),
     ]]);
     let validators = vs.all_block_producers().cloned().collect::<Vec<_>>();
     let key_pairs =
@@ -897,7 +889,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                         // produce an invalid block whose invalidity cannot be verified by just
                                         // having its header.
                                         let proposals = vec![ValidatorStake::new(
-                                            "test1".parse::<AccountId>().unwrap(),
+                                            "test1".parse().unwrap(),
                                             PublicKey::empty(KeyType::ED25519),
                                             0,
                                         )];
@@ -1008,8 +1000,8 @@ fn skip_block_production() {
     init_test_logger();
     run_actix(async {
         setup_mock(
-            vec!["test1".parse::<AccountId>().unwrap(), "test2".parse::<AccountId>().unwrap()],
-            "test2".parse::<AccountId>().unwrap(),
+            vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
+            "test2".parse().unwrap(),
             true,
             false,
             Box::new(move |msg, _ctx, _client_actor| {
@@ -1036,8 +1028,8 @@ fn client_sync_headers() {
         let peer_info1 = PeerInfo::random();
         let peer_info2 = peer_info1.clone();
         let actor_handles = setup_mock(
-            vec!["test".parse::<AccountId>().unwrap()],
-            "other".parse::<AccountId>().unwrap(),
+            vec!["test".parse().unwrap()],
+            "other".parse().unwrap(),
             false,
             false,
             Box::new(move |msg, _ctx, _client_actor| match msg.as_network_requests_ref() {
@@ -1098,22 +1090,21 @@ fn client_sync_headers() {
 #[test]
 fn test_process_invalid_tx() {
     init_test_logger();
-    let mut genesis = Genesis::test(vec!["test0".parse::<AccountId>().unwrap()], 1);
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     genesis.config.transaction_validity_period = 10;
     let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
-    let signer =
-        InMemorySigner::from_seed("test1".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test0");
     let tx = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
         Transaction {
-            signer_id: "test".parse::<AccountId>().unwrap(),
+            signer_id: "test".parse().unwrap(),
             public_key: signer.public_key(),
             nonce: 0,
-            receiver_id: "test".parse::<AccountId>().unwrap(),
+            receiver_id: "test".parse().unwrap(),
             block_hash: *env.clients[0].chain.genesis().hash(),
             actions: vec![],
         },
@@ -1128,10 +1119,10 @@ fn test_process_invalid_tx() {
     let tx2 = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
         Transaction {
-            signer_id: "test".parse::<AccountId>().unwrap(),
+            signer_id: "test".parse().unwrap(),
             public_key: signer.public_key(),
             nonce: 0,
-            receiver_id: "test".parse::<AccountId>().unwrap(),
+            receiver_id: "test".parse().unwrap(),
             block_hash: hash(&[1]),
             actions: vec![],
         },
@@ -1150,12 +1141,12 @@ fn test_time_attack() {
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
     let chain_genesis = ChainGenesis::test();
-    let vs = ValidatorSchedule::new()
-        .block_producers_per_epoch(vec![vec!["test1".parse::<AccountId>().unwrap()]]);
+    let vs =
+        ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
     let mut client = setup_client_with_synchronous_shards_manager(
         store,
         vs,
-        Some("test1".parse::<AccountId>().unwrap()),
+        Some("test1".parse().unwrap()),
         false,
         network_adapter.into(),
         client_adapter.as_sender(),
@@ -1186,12 +1177,12 @@ fn test_invalid_approvals() {
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
     let chain_genesis = ChainGenesis::test();
-    let vs = ValidatorSchedule::new()
-        .block_producers_per_epoch(vec![vec!["test1".parse::<AccountId>().unwrap()]]);
+    let vs =
+        ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
     let mut client = setup_client_with_synchronous_shards_manager(
         store,
         vs,
-        Some("test1".parse::<AccountId>().unwrap()),
+        Some("test1".parse().unwrap()),
         false,
         network_adapter.into(),
         client_adapter.as_sender(),
@@ -1234,12 +1225,12 @@ fn test_invalid_gas_price() {
     let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.min_gas_price = 100;
-    let vs = ValidatorSchedule::new()
-        .block_producers_per_epoch(vec![vec!["test1".parse::<AccountId>().unwrap()]]);
+    let vs =
+        ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
     let mut client = setup_client_with_synchronous_shards_manager(
         store,
         vs,
-        Some("test1".parse::<AccountId>().unwrap()),
+        Some("test1".parse().unwrap()),
         false,
         network_adapter.into(),
         client_adapter.as_sender(),
@@ -1378,8 +1369,7 @@ fn test_bad_orphan() {
 fn test_bad_chunk_mask() {
     init_test_logger();
     let chain_genesis = ChainGenesis::test();
-    let validators =
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()];
+    let validators = vec!["test0".parse().unwrap(), "test1".parse().unwrap()];
     let mut clients: Vec<Client> = validators
         .iter()
         .map(|account_id| {
@@ -1470,10 +1460,7 @@ fn test_minimum_gas_price() {
 }
 
 fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
@@ -1540,10 +1527,7 @@ fn test_gc_long_epoch() {
 fn test_archival_save_trie_changes() {
     let epoch_length = 10;
 
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
@@ -1613,10 +1597,7 @@ fn test_archival_gc_common(
     max_cold_head_height: BlockHeight,
     legacy: bool,
 ) {
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
@@ -1772,10 +1753,7 @@ fn test_gc_chunk_tail() {
 #[test]
 fn test_gc_execution_outcome() {
     let epoch_length = 5;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
@@ -1784,12 +1762,11 @@ fn test_gc_execution_outcome() {
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_hash = *env.clients[0].chain.genesis().hash();
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let tx = SignedTransaction::send_money(
         1,
-        "test0".parse::<AccountId>().unwrap(),
-        "test1".parse::<AccountId>().unwrap(),
+        "test0".parse().unwrap(),
+        "test1".parse().unwrap(),
         &signer,
         100,
         genesis_hash,
@@ -1812,10 +1789,7 @@ fn test_gc_execution_outcome() {
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_gc_after_state_sync() {
     let epoch_length = 1024;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
@@ -1852,7 +1826,7 @@ fn test_process_block_after_state_sync() {
     let epoch_length = 1024;
     // test with shard_version > 0
     let mut genesis = Genesis::test_sharded_new_version(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
+        vec!["test0".parse().unwrap(), "test1".parse().unwrap()],
         1,
         vec![1],
     );
@@ -1902,10 +1876,7 @@ fn test_process_block_after_state_sync() {
 #[test]
 fn test_gc_fork_tail() {
     let epoch_length = 101;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
@@ -1976,10 +1947,7 @@ fn test_tx_forwarding_no_double_forwarding() {
 #[test]
 fn test_tx_forward_around_epoch_boundary() {
     let epoch_length = 4;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.num_block_producer_seats = 2;
     genesis.config.num_block_producer_seats_per_shard = vec![2];
     genesis.config.epoch_length = epoch_length;
@@ -1993,11 +1961,10 @@ fn test_tx_forward_around_epoch_boundary() {
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_hash = *env.clients[0].chain.genesis().hash();
-    let signer =
-        InMemorySigner::from_seed("test1".parse::<AccountId>().unwrap(), KeyType::ED25519, "test1");
+    let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let tx = SignedTransaction::stake(
         1,
-        "test1".parse::<AccountId>().unwrap(),
+        "test1".parse().unwrap(),
         &signer,
         TESTING_INIT_STAKE,
         signer.public_key.clone(),
@@ -2016,8 +1983,8 @@ fn test_tx_forward_around_epoch_boundary() {
     }
     let tx = SignedTransaction::send_money(
         1,
-        "test1".parse::<AccountId>().unwrap(),
-        "test0".parse::<AccountId>().unwrap(),
+        "test1".parse().unwrap(),
+        "test0".parse().unwrap(),
         &signer,
         1,
         genesis_hash,
@@ -2035,20 +2002,14 @@ fn test_tx_forward_around_epoch_boundary() {
     }
     assert_eq!(
         accounts_to_forward,
-        HashSet::from_iter(vec![
-            "test0".parse::<AccountId>().unwrap(),
-            "test1".parse::<AccountId>().unwrap()
-        ])
+        HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
     );
 }
 
 /// Blocks that have already been gc'ed should not be accepted again.
 #[test]
 fn test_not_resync_old_blocks() {
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 5;
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
@@ -2074,10 +2035,7 @@ fn test_not_resync_old_blocks() {
 
 #[test]
 fn test_gc_tail_update() {
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 2;
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
@@ -2123,10 +2081,7 @@ fn test_gc_tail_update() {
 #[test]
 fn test_gas_price_change() {
     init_test_logger();
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let target_num_tokens_left = NEAR_BASE / 10 + 1;
     let transaction_costs = RuntimeConfig::test().fees;
 
@@ -2149,12 +2104,11 @@ fn test_gas_price_change() {
 
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
-    let signer =
-        InMemorySigner::from_seed("test1".parse::<AccountId>().unwrap(), KeyType::ED25519, "test1");
+    let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let tx = SignedTransaction::send_money(
         1,
-        "test1".parse::<AccountId>().unwrap(),
-        "test0".parse::<AccountId>().unwrap(),
+        "test1".parse().unwrap(),
+        "test0".parse().unwrap(),
         &signer,
         TESTING_INIT_BALANCE
             - target_num_tokens_left
@@ -2165,8 +2119,8 @@ fn test_gas_price_change() {
     env.produce_block(0, 1);
     let tx = SignedTransaction::send_money(
         2,
-        "test1".parse::<AccountId>().unwrap(),
-        "test0".parse::<AccountId>().unwrap(),
+        "test1".parse().unwrap(),
+        "test0".parse().unwrap(),
         &signer,
         1,
         genesis_hash,
@@ -2179,10 +2133,7 @@ fn test_gas_price_change() {
 
 #[test]
 fn test_gas_price_overflow() {
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let min_gas_price = 1000000;
     let max_gas_price = 10_u128.pow(20);
     let gas_limit = 450000000000;
@@ -2201,13 +2152,12 @@ fn test_gas_price_overflow() {
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
-    let signer =
-        InMemorySigner::from_seed("test1".parse::<AccountId>().unwrap(), KeyType::ED25519, "test1");
+    let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     for i in 1..100 {
         let tx = SignedTransaction::send_money(
             i,
-            "test1".parse::<AccountId>().unwrap(),
-            "test0".parse::<AccountId>().unwrap(),
+            "test1".parse().unwrap(),
+            "test0".parse().unwrap(),
             &signer,
             1,
             genesis_hash,
@@ -2232,10 +2182,7 @@ fn test_invalid_block_root() {
 
 #[test]
 fn test_incorrect_validator_key_produce_block() {
-    let genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        2,
-    );
+    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     let chain_genesis = ChainGenesis::new(&genesis);
 
     let mut env = TestEnv::builder(chain_genesis)
@@ -2322,21 +2269,20 @@ fn test_block_merkle_proof_same_hash() {
 
 #[test]
 fn test_data_reset_before_state_sync() {
-    let mut genesis = Genesis::test(vec!["test0".parse::<AccountId>().unwrap()], 1);
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let epoch_length = 5;
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(ChainGenesis::test())
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
     let tx = SignedTransaction::create_account(
         1,
-        "test0".parse::<AccountId>().unwrap(),
-        "test_account".parse::<AccountId>().unwrap(),
+        "test0".parse().unwrap(),
+        "test_account".parse().unwrap(),
         NEAR_BASE,
         signer.public_key(),
         &signer,
@@ -2359,7 +2305,7 @@ fn test_data_reset_before_state_sync() {
             &head.prev_block_hash,
             &head.last_block_hash,
             head_block.header().epoch_id(),
-            &QueryRequest::ViewAccount { account_id: "test_account".parse::<AccountId>().unwrap() },
+            &QueryRequest::ViewAccount { account_id: "test_account".parse().unwrap() },
         )
         .unwrap();
     assert_matches!(response.kind, QueryResponseKind::ViewAccount(_));
@@ -2373,7 +2319,7 @@ fn test_data_reset_before_state_sync() {
         &head.prev_block_hash,
         &head.last_block_hash,
         head_block.header().epoch_id(),
-        &QueryRequest::ViewAccount { account_id: "test_account".parse::<AccountId>().unwrap() },
+        &QueryRequest::ViewAccount { account_id: "test_account".parse().unwrap() },
     );
     // TODO(#3742): ViewClient still has data in cache by current design.
     assert!(response.is_ok());
@@ -2382,10 +2328,7 @@ fn test_data_reset_before_state_sync() {
 #[test]
 fn test_sync_hash_validity() {
     let epoch_length = 5;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
@@ -2433,10 +2376,7 @@ fn test_validate_chunk_extra() {
     let mut capture = near_o11y::testonly::TracingCapture::enable();
 
     let epoch_length = 5;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(ChainGenesis::test())
         .real_epoch_managers(&genesis.config)
@@ -2445,12 +2385,11 @@ fn test_validate_chunk_extra() {
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_height = genesis_block.header().height();
 
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let tx = SignedTransaction::from_actions(
         1,
-        "test0".parse::<AccountId>().unwrap(),
-        "test0".parse::<AccountId>().unwrap(),
+        "test0".parse().unwrap(),
+        "test0".parse().unwrap(),
         &signer,
         vec![Action::DeployContract(DeployContractAction {
             code: near_test_contracts::rs_contract().to_vec(),
@@ -2468,8 +2407,8 @@ fn test_validate_chunk_extra() {
     // in blocks of different heights, the state transitions are different.
     let function_call_tx = SignedTransaction::from_actions(
         2,
-        "test0".parse::<AccountId>().unwrap(),
-        "test0".parse::<AccountId>().unwrap(),
+        "test0".parse().unwrap(),
+        "test0".parse().unwrap(),
         &signer,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "write_block_height".to_string(),
@@ -2572,10 +2511,7 @@ fn test_validate_chunk_extra() {
 fn test_gas_price_change_no_chunk() {
     let epoch_length = 5;
     let min_gas_price = 5000;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let genesis_protocol_version = PROTOCOL_VERSION - 1;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = genesis_protocol_version;
@@ -2605,10 +2541,7 @@ fn test_catchup_gas_price_change() {
     init_test_logger();
     let epoch_length = 5;
     let min_gas_price = 10000;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = 1000000000000;
@@ -2630,13 +2563,12 @@ fn test_catchup_gas_price_change() {
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         env.process_block(1, block, Provenance::NONE);
     }
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     for i in 0..3 {
         let tx = SignedTransaction::send_money(
             i + 1,
-            "test0".parse::<AccountId>().unwrap(),
-            "test1".parse::<AccountId>().unwrap(),
+            "test0".parse().unwrap(),
+            "test1".parse().unwrap(),
             &signer,
             1,
             *genesis_block.hash(),
@@ -2715,10 +2647,7 @@ fn test_block_execution_outcomes() {
 
     let epoch_length = 5;
     let min_gas_price = 10000;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = 1000000000000;
@@ -2728,15 +2657,14 @@ fn test_block_execution_outcomes() {
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let mut tx_hashes = vec![];
     for i in 0..3 {
         // send transaction to the same account to generate local receipts
         let tx = SignedTransaction::send_money(
             i + 1,
-            "test0".parse::<AccountId>().unwrap(),
-            "test0".parse::<AccountId>().unwrap(),
+            "test0".parse().unwrap(),
+            "test0".parse().unwrap(),
             &signer,
             1,
             *genesis_block.hash(),
@@ -2806,7 +2734,7 @@ fn test_refund_receipts_processing() {
     let epoch_length = 5;
     let min_gas_price = 10000;
     let mut genesis = Genesis::test_sharded_new_version(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
+        vec!["test0".parse().unwrap(), "test1".parse().unwrap()],
         1,
         vec![1],
     );
@@ -2821,16 +2749,15 @@ fn test_refund_receipts_processing() {
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let mut tx_hashes = vec![];
     // Send transactions to a non-existing account to generate refunds.
     for i in 0..3 {
         // Send transaction from the same account to generate local receipts.
         let tx = SignedTransaction::send_money(
             i + 1,
-            "test0".parse::<AccountId>().unwrap(),
-            "random_account".parse::<AccountId>().unwrap(),
+            "test0".parse().unwrap(),
+            "random_account".parse().unwrap(),
             &signer,
             1,
             *genesis_block.hash(),
@@ -2885,8 +2812,7 @@ fn test_delayed_receipt_count_limit() {
 
     let epoch_length = 5;
     let min_gas_price = 10000;
-    let mut genesis =
-        Genesis::test_sharded_new_version(vec!["test0".parse::<AccountId>().unwrap()], 1, vec![1]);
+    let mut genesis = Genesis::test_sharded_new_version(vec!["test0".parse().unwrap()], 1, vec![1]);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
     // Set gas limit to be small enough to produce some delayed receipts, but large enough for
@@ -2902,15 +2828,14 @@ fn test_delayed_receipt_count_limit() {
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     // Send enough transactions to saturate delayed receipts capacity.
     let total_tx_count = 200usize;
     for i in 0..total_tx_count {
         let tx = SignedTransaction::from_actions(
             (i + 1) as u64,
-            "test0".parse::<AccountId>().unwrap(),
-            "test0".parse::<AccountId>().unwrap(),
+            "test0".parse().unwrap(),
+            "test0".parse().unwrap(),
             &signer,
             vec![Action::DeployContract(DeployContractAction { code: vec![92; 10000] })],
             *genesis_block.hash(),
@@ -2956,10 +2881,8 @@ fn test_execution_metadata() {
 
     let mut env = {
         let epoch_length = 5;
-        let mut genesis = Genesis::test(
-            vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-            1,
-        );
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
         let chain_genesis = ChainGenesis::new(&genesis);
         let mut env = TestEnv::builder(chain_genesis)
@@ -2967,18 +2890,12 @@ fn test_execution_metadata() {
             .nightshade_runtimes(&genesis)
             .build();
 
-        deploy_test_contract(
-            &mut env,
-            "test0".parse::<AccountId>().unwrap(),
-            &wasm_code,
-            epoch_length,
-            1,
-        );
+        deploy_test_contract(&mut env, "test0".parse().unwrap(), &wasm_code, epoch_length, 1);
         env
     };
 
     // Call the contract and get the execution outcome.
-    let execution_outcome = env.call_main(&"test0".parse::<AccountId>().unwrap());
+    let execution_outcome = env.call_main(&"test0".parse().unwrap());
 
     // Now, let's assert that we get the cost breakdown we expect.
     let config = RuntimeConfigStore::test().get_config(PROTOCOL_VERSION).clone();
@@ -3043,10 +2960,7 @@ fn test_execution_metadata() {
 fn test_epoch_protocol_version_change() {
     init_test_logger();
     let epoch_length = 5;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        2,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = PROTOCOL_VERSION - 1;
     let chain_genesis = ChainGenesis::new(&genesis);
@@ -3064,7 +2978,7 @@ fn test_epoch_protocol_version_change() {
             .unwrap();
         let chunk_producer =
             env.clients[0].epoch_manager.get_chunk_producer(&epoch_id, i, 0).unwrap();
-        let index = if chunk_producer.as_str() == "test0" { 0 } else { 1 };
+        let index = if chunk_producer.as_ref() == "test0" { 0 } else { 1 };
         let (encoded_chunk, merkle_paths, receipts) =
             create_chunk_on_height(&mut env.clients[index], i);
 
@@ -3086,7 +3000,7 @@ fn test_epoch_protocol_version_change() {
             .get_epoch_id_from_prev_block(&head.last_block_hash)
             .unwrap();
         let block_producer = env.clients[0].epoch_manager.get_block_producer(&epoch_id, i).unwrap();
-        let index = if block_producer.as_str() == "test0" { 0 } else { 1 };
+        let index = if block_producer.as_ref() == "test0" { 0 } else { 1 };
         let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
         // upgrade to new protocol version but in the second epoch one node vote for the old version.
         if i != 10 {
@@ -3106,10 +3020,7 @@ fn test_epoch_protocol_version_change() {
 
 #[test]
 fn test_discard_non_finalizable_block() {
-    let genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)
@@ -3170,10 +3081,7 @@ fn test_discard_non_finalizable_block() {
 #[test]
 fn test_query_final_state() {
     let epoch_length = 10;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
 
     let chain_genesis = ChainGenesis::new(&genesis);
@@ -3183,12 +3091,11 @@ fn test_query_final_state() {
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let tx = SignedTransaction::send_money(
         1,
-        "test0".parse::<AccountId>().unwrap(),
-        "test1".parse::<AccountId>().unwrap(),
+        "test0".parse().unwrap(),
+        "test1".parse().unwrap(),
         &signer,
         100,
         *genesis_block.hash(),
@@ -3240,21 +3147,15 @@ fn test_query_final_state() {
     assert_eq!(env.clients[0].chain.head().unwrap().height, 5);
 
     let runtime = env.clients[0].runtime_adapter.clone();
-    let account_state1 = query_final_state(
-        &mut env.clients[0].chain,
-        runtime.clone(),
-        "test0".parse::<AccountId>().unwrap(),
-    );
+    let account_state1 =
+        query_final_state(&mut env.clients[0].chain, runtime.clone(), "test0".parse().unwrap());
 
     env.process_block(0, fork2_block, Provenance::NONE);
     assert_eq!(env.clients[0].chain.head().unwrap().height, 6);
 
     let runtime = env.clients[0].runtime_adapter.clone();
-    let account_state2 = query_final_state(
-        &mut env.clients[0].chain,
-        runtime.clone(),
-        "test0".parse::<AccountId>().unwrap(),
-    );
+    let account_state2 =
+        query_final_state(&mut env.clients[0].chain, runtime.clone(), "test0".parse().unwrap());
 
     assert_eq!(account_state1, account_state2);
     assert!(account_state1.amount < TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
@@ -3364,10 +3265,7 @@ fn test_fork_execution_outcome() {
 
 fn prepare_env_with_transaction() -> (TestEnv, CryptoHash) {
     let epoch_length = 5;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(ChainGenesis::test())
         .real_epoch_managers(&genesis.config)
@@ -3375,12 +3273,11 @@ fn prepare_env_with_transaction() -> (TestEnv, CryptoHash) {
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let tx = SignedTransaction::send_money(
         1,
-        "test0".parse::<AccountId>().unwrap(),
-        "test1".parse::<AccountId>().unwrap(),
+        "test0".parse().unwrap(),
+        "test1".parse().unwrap(),
         &signer,
         100,
         *genesis_block.hash(),
@@ -3393,10 +3290,7 @@ fn prepare_env_with_transaction() -> (TestEnv, CryptoHash) {
 #[test]
 fn test_not_broadcast_block_on_accept() {
     let epoch_length = 5;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let mut env = TestEnv::builder(ChainGenesis::test())
@@ -3419,10 +3313,7 @@ fn test_not_broadcast_block_on_accept() {
 fn test_header_version_downgrade() {
     init_test_logger();
 
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = 5;
     let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
@@ -3471,10 +3362,7 @@ fn test_header_version_downgrade() {
 )]
 fn test_node_shutdown_with_old_protocol_version() {
     let epoch_length = 5;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(ChainGenesis::test())
         .real_epoch_managers(&genesis.config)
@@ -3607,10 +3495,7 @@ fn test_congestion_receipt_execution() {
 fn test_validator_stake_host_function() {
     init_test_logger();
     let epoch_length = 5;
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(ChainGenesis::test())
         .real_epoch_managers(&genesis.config)
@@ -3619,17 +3504,16 @@ fn test_validator_stake_host_function() {
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let block_height = deploy_test_contract(
         &mut env,
-        "test0".parse::<AccountId>().unwrap(),
+        "test0".parse().unwrap(),
         near_test_contracts::rs_contract(),
         epoch_length,
         1,
     );
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let signed_transaction = SignedTransaction::from_actions(
         10,
-        "test0".parse::<AccountId>().unwrap(),
-        "test0".parse::<AccountId>().unwrap(),
+        "test0".parse().unwrap(),
+        "test0".parse().unwrap(),
         &signer,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_validator_stake".to_string(),
@@ -3653,7 +3537,7 @@ fn test_validator_stake_host_function() {
 /// does not need to catch up.
 fn test_catchup_no_sharding_change() {
     init_integration_logger();
-    let mut genesis = Genesis::test(vec!["test0".parse::<AccountId>().unwrap()], 1);
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     genesis.config.epoch_length = 5;
     let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
@@ -3714,10 +3598,8 @@ mod contract_precompilation_tests {
     fn test_sync_and_call_cached_contract() {
         init_integration_logger();
         let num_clients = 2;
-        let mut genesis = Genesis::test(
-            vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-            1,
-        );
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
 
         let mut env = TestEnv::builder(ChainGenesis::test())
@@ -3734,7 +3616,7 @@ mod contract_precompilation_tests {
         let wasm_code = near_test_contracts::rs_contract().to_vec();
         let height = deploy_test_contract(
             &mut env,
-            "test0".parse::<AccountId>().unwrap(),
+            "test0".parse().unwrap(),
             &wasm_code,
             EPOCH_LENGTH + 1,
             start_height,
@@ -3799,7 +3681,7 @@ mod contract_precompilation_tests {
             .call_function(
                 state_update,
                 view_state,
-                &"test0".parse::<AccountId>().unwrap(),
+                &"test0".parse().unwrap(),
                 "log_something",
                 &[],
                 &mut logs,
@@ -3812,10 +3694,8 @@ mod contract_precompilation_tests {
     #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
     fn test_two_deployments() {
         let num_clients = 2;
-        let mut genesis = Genesis::test(
-            vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-            1,
-        );
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
 
         let mut env = TestEnv::builder(ChainGenesis::test())
@@ -3832,7 +3712,7 @@ mod contract_precompilation_tests {
         let tiny_wasm_code = near_test_contracts::trivial_contract().to_vec();
         height = deploy_test_contract(
             &mut env,
-            "test0".parse::<AccountId>().unwrap(),
+            "test0".parse().unwrap(),
             &tiny_wasm_code,
             EPOCH_LENGTH,
             height,
@@ -3845,7 +3725,7 @@ mod contract_precompilation_tests {
         let wasm_code = near_test_contracts::rs_contract().to_vec();
         height = deploy_test_contract(
             &mut env,
-            "test0".parse::<AccountId>().unwrap(),
+            "test0".parse().unwrap(),
             &wasm_code,
             EPOCH_LENGTH + 1,
             height,
@@ -3891,11 +3771,7 @@ mod contract_precompilation_tests {
         init_test_logger();
         let num_clients = 3;
         let mut genesis = Genesis::test(
-            vec![
-                "test0".parse::<AccountId>().unwrap(),
-                "test1".parse::<AccountId>().unwrap(),
-                "test2".parse::<AccountId>().unwrap(),
-            ],
+            vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()],
             1,
         );
         genesis.config.epoch_length = EPOCH_LENGTH;
@@ -3914,7 +3790,7 @@ mod contract_precompilation_tests {
         let wasm_code = near_test_contracts::rs_contract().to_vec();
         height = deploy_test_contract(
             &mut env,
-            "test2".parse::<AccountId>().unwrap(),
+            "test2".parse().unwrap(),
             &wasm_code,
             EPOCH_LENGTH,
             height,
@@ -3922,16 +3798,12 @@ mod contract_precompilation_tests {
 
         // Delete account on which test contract is stored.
         let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
-        let signer = InMemorySigner::from_seed(
-            "test2".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "test2",
-        );
+        let signer = InMemorySigner::from_seed("test2".parse().unwrap(), KeyType::ED25519, "test2");
         let delete_account_tx = SignedTransaction::delete_account(
             2,
-            "test2".parse::<AccountId>().unwrap(),
-            "test2".parse::<AccountId>().unwrap(),
-            "test0".parse::<AccountId>().unwrap(),
+            "test2".parse().unwrap(),
+            "test2".parse().unwrap(),
+            "test0".parse().unwrap(),
             &signer,
             *block.hash(),
         );

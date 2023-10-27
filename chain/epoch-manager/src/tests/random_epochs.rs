@@ -52,9 +52,9 @@ fn do_random_test<RngImpl: Rng>(
     let stake_amount = 1_000;
 
     let validators = vec![
-        ("test1".parse::<AccountId>().unwrap(), stake_amount),
-        ("test2".parse::<AccountId>().unwrap(), stake_amount),
-        ("test3".parse::<AccountId>().unwrap(), stake_amount),
+        ("test1".parse().unwrap(), stake_amount),
+        ("test2".parse().unwrap(), stake_amount),
+        ("test3".parse().unwrap(), stake_amount),
     ];
     let mut epoch_manager = setup_default_epoch_manager(validators, epoch_length, 1, 3, 0, 90, 60);
     let h = hash_range(num_heights as usize);

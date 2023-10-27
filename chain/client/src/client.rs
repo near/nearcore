@@ -1077,9 +1077,9 @@ impl Client {
             txs.push(SignedTransaction::new(
                 near_crypto::Signature::empty(near_crypto::KeyType::ED25519),
                 near_primitives::transaction::Transaction::new(
-                    "test".parse::<AccountId>().unwrap(),
+                    "test".parse().unwrap(),
                     near_crypto::PublicKey::empty(near_crypto::KeyType::SECP256K1),
-                    "other".parse::<AccountId>().unwrap(),
+                    "other".parse().unwrap(),
                     3,
                     prev_block_hash,
                 ),

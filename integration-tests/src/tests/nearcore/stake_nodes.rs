@@ -162,11 +162,11 @@ fn test_stake_nodes() {
                         if validators
                             == vec![
                                 ValidatorInfo {
-                                    account_id: "near.0".parse::<AccountId>().unwrap(),
+                                    account_id: "near.0".parse().unwrap(),
                                     is_slashed: false,
                                 },
                                 ValidatorInfo {
-                                    account_id: "near.1".parse::<AccountId>().unwrap(),
+                                    account_id: "near.1".parse().unwrap(),
                                     is_slashed: false,
                                 },
                             ]
@@ -433,11 +433,11 @@ fn test_validator_join() {
                     let actor = actor.then(move |res| {
                         let expected = vec![
                             ValidatorInfo {
-                                account_id: "near.0".parse::<AccountId>().unwrap(),
+                                account_id: "near.0".parse().unwrap(),
                                 is_slashed: false,
                             },
                             ValidatorInfo {
-                                account_id: "near.2".parse::<AccountId>().unwrap(),
+                                account_id: "near.2".parse().unwrap(),
                                 is_slashed: false,
                             },
                         ];

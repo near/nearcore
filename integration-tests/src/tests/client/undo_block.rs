@@ -3,7 +3,6 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::types::AccountId;
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_undo_block::undo_block;
@@ -29,10 +28,7 @@ fn test_undo_block(epoch_length: u64, stop_height: u64) {
 
     let save_trie_changes = true;
 
-    let mut genesis = Genesis::test(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
 
     let store = create_test_store();

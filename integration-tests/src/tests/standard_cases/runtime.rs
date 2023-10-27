@@ -14,10 +14,8 @@ fn create_free_runtime_node() -> RuntimeNode {
 }
 
 fn create_runtime_with_expensive_storage() -> RuntimeNode {
-    let mut genesis = Genesis::test(
-        vec![alice_account(), bob_account(), "carol.near".parse::<AccountId>().unwrap()],
-        1,
-    );
+    let mut genesis =
+        Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 1);
     add_test_contract(&mut genesis, &bob_account());
     // Set expensive state requirements and add alice more money.
     let mut runtime_config = RuntimeConfig::test();

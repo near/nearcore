@@ -19,7 +19,7 @@ use near_primitives::num_rational::{Ratio, Rational32};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeightDelta, EpochId};
+use near_primitives::types::{BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use nearcore::config::{GenesisExt, TESTING_INIT_STAKE};
@@ -52,7 +52,7 @@ fn add_blocks(
             *blocks[(((prev.header().height()) / epoch_length) * epoch_length) as usize].hash(),
         );
         let next_bp_hash = CryptoHash::hash_borsh_iter([ValidatorStake::new(
-            "other".parse::<AccountId>().unwrap(),
+            "other".parse().unwrap(),
             signer.public_key(),
             TESTING_INIT_STAKE,
         )]);
@@ -102,7 +102,7 @@ fn add_blocks(
 }
 
 fn setup_configs() -> (Genesis, Block, NearConfig, NearConfig) {
-    let mut genesis = Genesis::test(vec!["other".parse::<AccountId>().unwrap()], 1);
+    let mut genesis = Genesis::test(vec!["other".parse().unwrap()], 1);
     genesis.config.epoch_length = 5;
     // Avoid InvalidGasPrice error. Blocks must contain accurate `total_supply` value.
     // Accounting for the inflation in tests is hard.
@@ -239,7 +239,7 @@ fn sync_state_stake_change() {
     heavy_test(|| {
         init_integration_logger();
 
-        let mut genesis = Genesis::test(vec!["test1".parse::<AccountId>().unwrap()], 1);
+        let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
         let epoch_length = 20;
         genesis.config.epoch_length = epoch_length;
         genesis.config.block_producer_kickout_threshold = 80;
@@ -266,13 +266,13 @@ fn sync_state_stake_change() {
 
             let genesis_hash = *genesis_block(&genesis).hash();
             let signer = Arc::new(InMemorySigner::from_seed(
-                "test1".parse::<AccountId>().unwrap(),
+                "test1".parse().unwrap(),
                 KeyType::ED25519,
                 "test1",
             ));
             let unstake_transaction = SignedTransaction::stake(
                 1,
-                "test1".parse::<AccountId>().unwrap(),
+                "test1".parse().unwrap(),
                 &*signer,
                 TESTING_INIT_STAKE / 2,
                 near1.validator_signer.as_ref().unwrap().public_key(),

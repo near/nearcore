@@ -3,7 +3,6 @@ use crate::logic::mocks::mock_memory::MockedMemory;
 use crate::logic::types::PromiseResult;
 use crate::logic::{Config, MemSlice, VMContext, VMLogic};
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
-use near_primitives_core::types::AccountId;
 
 pub(super) struct VMLogicBuilder {
     pub ext: MockedExternal,
@@ -66,10 +65,10 @@ impl VMLogicBuilder {
 
 fn get_context() -> VMContext {
     VMContext {
-        current_account_id: "alice.near".parse::<AccountId>().unwrap(),
-        signer_account_id: "bob.near".parse::<AccountId>().unwrap(),
+        current_account_id: "alice.near".parse().unwrap(),
+        signer_account_id: "bob.near".parse().unwrap(),
         signer_account_pk: vec![0, 1, 2, 3, 4],
-        predecessor_account_id: "carol.near".parse::<AccountId>().unwrap(),
+        predecessor_account_id: "carol.near".parse().unwrap(),
         input: vec![0, 1, 2, 3, 4],
         block_height: 10,
         block_timestamp: 42,

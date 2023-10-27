@@ -3370,7 +3370,7 @@ mod tests {
     use near_primitives::hash::hash;
     use near_primitives::test_utils::create_test_signer;
     use near_primitives::test_utils::TestBlockBuilder;
-    use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
+    use near_primitives::types::{BlockHeight, EpochId, NumBlocks};
     use near_primitives::utils::index_to_bytes;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::create_test_store;
@@ -3390,7 +3390,7 @@ mod tests {
         let store = create_test_store();
         let chain_genesis = ChainGenesis::test();
         let vs = ValidatorSchedule::new()
-            .block_producers_per_epoch(vec![vec!["test1".parse::<AccountId>().unwrap()]]);
+            .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
         let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
         let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
         let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());

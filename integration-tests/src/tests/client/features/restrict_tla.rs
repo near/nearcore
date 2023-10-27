@@ -12,7 +12,7 @@ use nearcore::test_utils::TestEnvNightshadeSetupExt;
 #[test]
 fn test_create_top_level_accounts() {
     let epoch_length: BlockHeight = 5;
-    let account: AccountId = "test0".parse::<AccountId>().unwrap();
+    let account: AccountId = "test0".parse().unwrap();
     let mut genesis = Genesis::test(vec![account.clone()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = PROTOCOL_VERSION;
@@ -50,7 +50,7 @@ fn test_create_top_level_accounts() {
                     index: Some(0),
                     kind: ActionErrorKind::CreateAccountOnlyByRegistrar {
                         account_id: new_account_id,
-                        registrar_account_id: "registrar".parse::<AccountId>().unwrap(),
+                        registrar_account_id: "registrar".parse().unwrap(),
                         predecessor_id: account.clone()
                     }
                 }

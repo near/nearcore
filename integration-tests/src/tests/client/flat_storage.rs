@@ -125,26 +125,22 @@ fn wait_for_flat_storage_creation(
 #[test]
 fn test_flat_storage_creation_sanity() {
     init_test_logger();
-    let genesis = Genesis::test(vec!["test0".parse::<AccountId>().unwrap()], 1);
+    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let shard_uid = genesis.config.shard_layout.get_shard_uids()[0];
     let store = create_test_store();
 
     // Process some blocks with flat storage. Then remove flat storage data from disk.
     {
         let mut env = setup_env(&genesis, store.clone());
-        let signer = InMemorySigner::from_seed(
-            "test0".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "test0",
-        );
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         for height in 1..START_HEIGHT {
             env.produce_block(0, height);
 
             let tx = SignedTransaction::send_money(
                 height,
-                "test0".parse::<AccountId>().unwrap(),
-                "test0".parse::<AccountId>().unwrap(),
+                "test0".parse().unwrap(),
+                "test0".parse().unwrap(),
                 &signer,
                 1,
                 genesis_hash,
@@ -247,30 +243,23 @@ fn test_flat_storage_creation_sanity() {
 fn test_flat_storage_creation_two_shards() {
     init_test_logger();
     let num_shards = 2;
-    let genesis = Genesis::test_sharded_new_version(
-        vec!["test0".parse::<AccountId>().unwrap()],
-        1,
-        vec![1; num_shards],
-    );
+    let genesis =
+        Genesis::test_sharded_new_version(vec!["test0".parse().unwrap()], 1, vec![1; num_shards]);
     let shard_uids = genesis.config.shard_layout.get_shard_uids();
     let store = create_test_store();
 
     // Process some blocks with flat storages for two shards. Then remove flat storage data from disk for shard 0.
     {
         let mut env = setup_env(&genesis, store.clone());
-        let signer = InMemorySigner::from_seed(
-            "test0".parse::<AccountId>().unwrap(),
-            KeyType::ED25519,
-            "test0",
-        );
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         for height in 1..START_HEIGHT {
             env.produce_block(0, height);
 
             let tx = SignedTransaction::send_money(
                 height,
-                "test0".parse::<AccountId>().unwrap(),
-                "test0".parse::<AccountId>().unwrap(),
+                "test0".parse().unwrap(),
+                "test0".parse().unwrap(),
                 &signer,
                 1,
                 genesis_hash,
@@ -413,7 +402,7 @@ fn test_flat_storage_creation_start_from_state_part() {
 #[test]
 fn test_catchup_succeeds_even_if_no_new_blocks() {
     init_test_logger();
-    let genesis = Genesis::test(vec!["test0".parse::<AccountId>().unwrap()], 1);
+    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let store = create_test_store();
     let shard_uid = ShardLayout::v0_single_shard().get_shard_uids()[0];
 
@@ -448,14 +437,11 @@ fn test_catchup_succeeds_even_if_no_new_blocks() {
 fn test_flat_storage_iter() {
     init_test_logger();
     let num_shards = 3;
-    let shard_layout = ShardLayout::v1(
-        vec!["test0".parse::<AccountId>().unwrap(), "test1".parse::<AccountId>().unwrap()],
-        None,
-        0,
-    );
+    let shard_layout =
+        ShardLayout::v1(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], None, 0);
 
     let genesis = Genesis::test_with_seeds(
-        vec!["test0".parse::<AccountId>().unwrap()],
+        vec!["test0".parse().unwrap()],
         1,
         vec![1; num_shards],
         shard_layout.clone(),
@@ -478,7 +464,7 @@ fn test_flat_storage_iter() {
                 assert_eq!(2, items.len());
                 // Two entries - one for 'near' system account, the other for the contract.
                 assert_eq!(
-                    TrieKey::Account { account_id: "near".parse::<AccountId>().unwrap() }.to_vec(),
+                    TrieKey::Account { account_id: "near".parse().unwrap() }.to_vec(),
                     items[0].as_ref().unwrap().0.to_vec()
                 );
             }
@@ -486,7 +472,7 @@ fn test_flat_storage_iter() {
                 // Two entries - one for account, the other for contract.
                 assert_eq!(2, items.len());
                 assert_eq!(
-                    TrieKey::Account { account_id: "test0".parse::<AccountId>().unwrap() }.to_vec(),
+                    TrieKey::Account { account_id: "test0".parse().unwrap() }.to_vec(),
                     items[0].as_ref().unwrap().0.to_vec()
                 );
             }
@@ -508,14 +494,13 @@ fn test_flat_storage_iter() {
 /// state of the previous flat head inaccessible.
 fn test_not_supported_block() {
     init_test_logger();
-    let genesis = Genesis::test(vec!["test0".parse::<AccountId>().unwrap()], 1);
+    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let shard_layout = ShardLayout::v0_single_shard();
     let shard_uid = shard_layout.get_shard_uids()[0];
     let store = create_test_store();
 
     let mut env = setup_env(&genesis, store);
-    let signer =
-        InMemorySigner::from_seed("test0".parse::<AccountId>().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
 
     // Produce blocks up to `START_HEIGHT`.
@@ -523,8 +508,8 @@ fn test_not_supported_block() {
         env.produce_block(0, height);
         let tx = SignedTransaction::send_money(
             height,
-            "test0".parse::<AccountId>().unwrap(),
-            "test0".parse::<AccountId>().unwrap(),
+            "test0".parse().unwrap(),
+            "test0".parse().unwrap(),
             &signer,
             1,
             genesis_hash,
@@ -534,10 +519,9 @@ fn test_not_supported_block() {
 
     let flat_head_height = START_HEIGHT - 4;
     // Trie key which must exist in the storage.
-    let trie_key_bytes = near_primitives::trie_key::TrieKey::Account {
-        account_id: "test0".parse::<AccountId>().unwrap(),
-    }
-    .to_vec();
+    let trie_key_bytes =
+        near_primitives::trie_key::TrieKey::Account { account_id: "test0".parse().unwrap() }
+            .to_vec();
     // Create trie, which includes creating chunk view, and get `ValueRef`s
     // for post state roots for blocks `START_HEIGHT - 3` and `START_HEIGHT - 2`.
     // After creating the first trie, produce block `START_HEIGHT` which moves flat storage
