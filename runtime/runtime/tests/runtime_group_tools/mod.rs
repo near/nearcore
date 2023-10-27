@@ -10,6 +10,7 @@ use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{AccountId, AccountInfo, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives_core::account::id::AccountIdRef;
 use near_primitives_core::config::ActionCosts;
 use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::create_tries;
@@ -322,7 +323,7 @@ impl RuntimeGroup {
         self.executed_receipts
             .lock()
             .unwrap()
-            .get(executing_runtime)
+            .get(AccountIdRef::new_or_panic(executing_runtime))
             .expect("Runtime not found")
             .iter()
             .find_map(|r| if &r.get_hash() == hash { Some(r.clone()) } else { None })
@@ -396,8 +397,8 @@ macro_rules! assert_receipts {
     $($action_name:ident, $action_pat:pat, $action_assert:block ),+
      => [ $($produced_receipt:ident),*] ) => {
         let r = $group.get_receipt($to, $receipt);
-        assert_eq!(r.predecessor_id.as_ref(), $from);
-        assert_eq!(r.receiver_id.as_ref(), $to);
+        assert_eq!(r.predecessor_id, $from);
+        assert_eq!(r.receiver_id, $to);
         match &r.receipt {
             $receipt_pat => {
                 $receipt_assert
