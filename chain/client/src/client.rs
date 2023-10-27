@@ -786,9 +786,10 @@ impl Client {
         let chunk_proposer =
             self.epoch_manager.get_chunk_producer(epoch_id, next_height, shard_id).unwrap();
         if validator_signer.validator_id() != &chunk_proposer {
-            debug!(target: "client", me = ?validator_signer.validator_id(), ?chunk_proposer, next_height, shard_id, "Not producing chunk - not block producer for next block.");
+            debug!(target: "client", me = ?validator_signer.validator_id(), ?chunk_proposer, next_height, shard_id, "Not producing chunk - not chunk producer for next chunk.");
             return Ok(None);
         }
+        tracing::debug!(target: "client", me = ?validator_signer.validator_id(), ?chunk_proposer, next_height, shard_id, "Yay, producng chunk");
 
         if self.epoch_manager.is_next_block_epoch_start(&prev_block_hash)? {
             let prev_prev_hash = *self.chain.get_block_header(&prev_block_hash)?.prev_hash();
@@ -1549,25 +1550,25 @@ impl Client {
             }
         }
 
-        tracing::info!(target: "client", "on_block_accepted_with_optional_chunk_produce before produce_chunks");
+        tracing::info!(target: "client", "before produce_chunks");
         if let Some(validator_signer) = self.validator_signer.clone() {
             let validator_id = validator_signer.validator_id().clone();
-            tracing::info!(target: "client", ?validator_id, "on_block_accepted_with_optional_chunk_produce before produce_chunks has validator_id");
+            tracing::info!(target: "client", validator_id = ?validator_id, "before produce_chunks has validator_id");
 
             if !self.reconcile_transaction_pool(validator_id.clone(), status, &block) {
-                tracing::info!(target: "client", ?validator_id, "on_block_accepted_with_optional_chunk_produce failed to reconcile transaction pool");
+                tracing::info!(target: "client", validator_id = ?validator_id, "failed to reconcile transaction pool");
                 return;
             }
-            tracing::info!(target: "client", ?validator_id, "on_block_accepted_with_optional_chunk_produce reconciled transaction pool");
+            tracing::info!(target: "client", validator_id = ?validator_id, "reconciled transaction pool");
 
             if provenance != Provenance::SYNC
                 && !self.sync_status.is_syncing()
                 && !skip_produce_chunk
             {
-                tracing::info!(target: "client", ?validator_id, "on_block_accepted_with_optional_chunk_produce producing chunks yay!");
+                tracing::info!(target: "client", validator_id = ?validator_id, "producing chunks yay!");
                 self.produce_chunks(&block, validator_id);
             } else {
-                tracing::info!(target: "client", ?validator_id, "on_block_accepted_with_optional_chunk_produce not producing chunks, sad");
+                tracing::info!(target: "client", validator_id = ?validator_id, "not producing chunks, sad");
             }
         }
 
@@ -1645,27 +1646,30 @@ impl Client {
 
     // Produce new chunks
     fn produce_chunks(&mut self, block: &Block, validator_id: AccountId) {
-        let _span = tracing::debug_span!(target: "client", "produce_chunks", ?validator_id, block_height = block.header().height()).entered();
+        let _span = tracing::debug_span!(target: "client", "produce_chunks", validator_id = ?validator_id, block_height = block.header().height()).entered();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
-        for shard_id in 0..self.epoch_manager.num_shards(&epoch_id).unwrap() {
+        for shard_id in 0..self.epoch_manager.num_shards(&epoch_id).unwrap() as ShardId {
             let next_height = block.header().height() + 1;
             let epoch_manager = self.epoch_manager.as_ref();
             let chunk_proposer =
                 epoch_manager.get_chunk_producer(&epoch_id, next_height, shard_id).unwrap();
+            tracing::debug!(target: "client", ?shard_id, next_height, chunk_proposer = ?chunk_proposer, validator_id = ?validator_id);
             if &chunk_proposer != &validator_id {
+                tracing::debug!(target: "client", "not me");
                 continue;
             }
 
-            let _span = tracing::debug_span!(
-                target: "client", "on_block_accepted", prev_block_hash = ?*block.hash(), ?shard_id)
-            .entered();
+            tracing::debug!(target: "client", "me, yay");
+
+            let _span = tracing::debug_span!( target: "client", "produce_chunks_1", prev_block_hash = ?*block.hash(), ?shard_id) .entered();
             let _timer = metrics::PRODUCE_AND_DISTRIBUTE_CHUNK_TIME
                 .with_label_values(&[&shard_id.to_string()])
                 .start_timer();
             let last_header = Chain::get_prev_chunk_header(epoch_manager, block, shard_id).unwrap();
             match self.produce_chunk(*block.hash(), &epoch_id, last_header, next_height, shard_id) {
                 Ok(Some((encoded_chunk, merkle_paths, receipts))) => {
+                    tracing::debug!(target: "client", "Ok Some");
                     self.persist_and_distribute_encoded_chunk(
                         encoded_chunk,
                         merkle_paths,
@@ -1673,6 +1677,7 @@ impl Client {
                         validator_id.clone(),
                     )
                     .expect("Failed to process produced chunk");
+                    tracing::debug!(target: "client", "Persisted");
                 }
                 Ok(None) => {}
                 Err(err) => {
@@ -1995,7 +2000,7 @@ impl Client {
     ) -> ProcessTxResponse {
         unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded, check_only), {
             let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
-            warn!(target: "client", ?me, ?tx, "Dropping tx");
+            warn!(target: "client", me = ?me, ?tx, "Dropping tx");
             ProcessTxResponse::NoResponse
         })
     }
@@ -2149,7 +2154,7 @@ impl Client {
             Ok(ProcessTxResponse::DoesNotTrackShard)
         } else if is_forwarded {
             // Received forwarded transaction but we are not tracking the shard
-            debug!(target: "client", ?me, shard_id, "Received forwarded transaction but no tracking shard");
+            debug!(target: "client", me = ?me, shard_id, "Received forwarded transaction but no tracking shard");
             Ok(ProcessTxResponse::NoResponse)
         } else {
             // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
@@ -2218,7 +2223,7 @@ impl Client {
                 });
 
             // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
-            debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&shards_to_split, false), "Catchup");
+            debug!(target: "catchup", me = ?me, ?sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&shards_to_split, false), "Catchup");
             let use_colour = matches!(self.config.log_summary_style, LogSummaryStyle::Colored);
 
             let tracking_shards: Vec<u64> =

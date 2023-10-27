@@ -1575,6 +1575,7 @@ impl ClientActor {
 
         let currently_syncing = self.client.sync_status.is_syncing();
         let sync = unwrap_and_report!(self.syncing_info());
+        tracing::debug!(target: "client", ?currently_syncing, ?sync);
 
         match sync {
             SyncRequirement::AlreadyCaughtUp { .. }
@@ -1594,10 +1595,7 @@ impl ClientActor {
             SyncRequirement::SyncNeeded { highest_height, .. } => {
                 let mut notify_start_sync = false;
                 if !currently_syncing {
-                    info!(
-                        target: "client",
-                        "enabling sync: {}", &sync,
-                    );
+                    info!(target: "client", ?sync, "enabling sync");
                 }
                 // Run each step of syncing separately.
                 unwrap_and_report!(self.client.header_sync.run(
@@ -1625,6 +1623,7 @@ impl ClientActor {
                     }
                     _ => false,
                 };
+                tracing::debug!(target: "client", sync_status = ?self.client.sync_status, "sync_state");
                 if sync_state {
                     match self.client.sync_status {
                         SyncStatus::StateSync(_) => (),
