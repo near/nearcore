@@ -329,7 +329,7 @@ impl std::fmt::Debug for TrieNode {
 
 pub struct Trie {
     storage: Rc<dyn TrieStorage>,
-    root: StateRoot,
+    pub root: StateRoot,
     /// If present, flat storage is used to look up keys (if asked for).
     /// Otherwise, we would crawl through the trie.
     flat_storage_chunk_view: Option<FlatStorageChunkView>,

@@ -1183,13 +1183,15 @@ impl Runtime {
             num_transactions = transactions.len())
         .entered();
 
+        let root = trie.root.clone();
         let mut prefetcher = TriePrefetcher::new_if_enabled(&trie);
         let mut state_update = TrieUpdate::new(trie);
         let account =
             get_account(&state_update, &AccountId::from_str("test0").unwrap()).unwrap().unwrap();
         println!(
-            "AT {}: test0 {} {}",
+            "VALCHECK: AT {} {}: test0 {} {}",
             apply_state.block_height,
+            root,
             account.amount(),
             account.locked()
         );
