@@ -3304,7 +3304,7 @@ fn test_fork_execution_outcome() {
     }
     assert_eq!(receipt_execution_outcomes.len(), 2);
     let canonical_chain_outcome = env.clients[0].chain.get_execution_outcome(&receipt_id).unwrap();
-    assert_eq!(canonical_chain_outcome.block_hash, *block2.hash());
+    assert_eq!(canonical_chain_outcome.block_hash, *b4.hash());
 
     // make sure gc works properly
     for i in next_height..40 {
