@@ -5825,7 +5825,7 @@ impl<'a> ChainUpdate<'a> {
                     (block_hash.clone(), block_hash, block.clone())
                 } else {
                     (
-                        block_hash,
+                        block_hash.clone(),
                         &new_block_hash,
                         self.chain_store_update.get_block(&new_block_hash)?,
                     )
@@ -5893,7 +5893,7 @@ impl<'a> ChainUpdate<'a> {
                     (block_hash.clone(), block_hash, block.clone())
                 } else {
                     (
-                        block_hash,
+                        block_hash.clone(),
                         &new_block_hash,
                         self.chain_store_update.get_block(&new_block_hash)?,
                     )
