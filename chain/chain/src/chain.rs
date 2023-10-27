@@ -4482,8 +4482,12 @@ impl Chain {
         let block_timestamp = block.header().raw_timestamp();
         let next_gas_price = prev_block.header().next_gas_price();
         let random_seed = *block.header().random_value();
-        let height = chunk_header.height_included();
-        let prev_block_hash = *chunk_header.prev_block_hash();
+        let (height, prev_block_hash) =
+            if ProtocolFeature::DelayChunkExecution.protocol_version() == 200 {
+                (block.header().height(), *block.header().prev_hash())
+            } else {
+                (chunk_header.height_included(), *chunk_header.prev_block_hash())
+            };
         // genesis
         if prev_block_hash == CryptoHash::default() {
             return Ok(None);
