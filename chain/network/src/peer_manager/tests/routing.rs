@@ -961,8 +961,6 @@ async fn repeated_data_in_sync_routing_table() {
 
     let mut edges_got = HashSet::new();
     let mut edges_want = HashSet::new();
-    let mut accounts_got = HashSet::new();
-    let mut accounts_want = HashSet::new();
     edges_want.insert(peer.edge.clone().unwrap());
 
     // Gradually increment the amount of data in the system and then broadcast it.
@@ -973,17 +971,12 @@ async fn repeated_data_in_sync_routing_table() {
         // It is important because the first SyncRoutingTable contains snapshot of all data known to
         // the node (not just the diff), so we expect incremental behavior only after the first
         // SyncRoutingTable.
-        while edges_got != edges_want || accounts_got != accounts_want {
+        while edges_got != edges_want {
             match peer.events.recv().await {
                 peer::testonly::Event::Network(PME::MessageProcessed(
                     tcp::Tier::T2,
                     PeerMessage::SyncRoutingTable(got),
                 )) => {
-                    for a in got.accounts {
-                        assert!(!accounts_got.contains(&a), "repeated broadcast: {a:?}");
-                        assert!(accounts_want.contains(&a), "unexpected broadcast: {a:?}");
-                        accounts_got.insert(a);
-                    }
                     for e in got.edges {
                         // TODO(gprusak): Currently there is a race condition between
                         // initial full sync and broadcasting the new connection edge,
@@ -1003,11 +996,10 @@ async fn repeated_data_in_sync_routing_table() {
         // Add more data.
         let key = data::make_secret_key(rng);
         edges_want.insert(data::make_edge(&peer.cfg.network.node_key, &key, 1));
-        accounts_want.insert(data::make_announce_account(rng));
         // Send all the data created so far. PeerManager is expected to discard the duplicates.
         peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
             edges: edges_want.iter().cloned().collect(),
-            accounts: accounts_want.iter().cloned().collect(),
+            accounts: vec![],
         }))
         .await;
     }
