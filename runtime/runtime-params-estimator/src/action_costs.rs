@@ -761,7 +761,7 @@ pub(crate) fn empty_delegate_action(
     use near_primitives::signable_message::{SignableMessage, SignableMessageType};
     use near_primitives::test_utils::create_user_test_signer;
 
-    let signer = create_user_test_signer(sender_id.as_str());
+    let signer = create_user_test_signer(&sender_id);
     let delegate_action = DelegateAction {
         sender_id,
         receiver_id,

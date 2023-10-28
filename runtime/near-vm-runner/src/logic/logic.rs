@@ -510,7 +510,7 @@ impl<'a> VMLogic<'a> {
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            self.context.current_account_id.as_bytes(),
+            self.context.signer_account_id.as_bytes(),
         )
     }
 
