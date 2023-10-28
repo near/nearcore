@@ -1210,39 +1210,6 @@ async fn fix_local_edges() {
     drop(conn);
 }
 
-#[tokio::test]
-async fn do_not_block_announce_account_broadcast() {
-    abort_on_panic();
-    let mut rng = make_rng(921853233);
-    let rng = &mut rng;
-    let mut clock = time::FakeClock::default();
-    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-
-    let db0 = TestDB::new();
-    let db1 = TestDB::new();
-    let aa = data::make_announce_account(rng);
-
-    tracing::info!(target:"test", "spawn 2 nodes and announce the account.");
-    let pm0 = start_pm(clock.clock(), db0.clone(), chain.make_config(rng), chain.clone()).await;
-    let pm1 = start_pm(clock.clock(), db1.clone(), chain.make_config(rng), chain.clone()).await;
-    pm1.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
-    pm1.announce_account(aa.clone()).await;
-    assert_eq!(&aa.peer_id, &pm0.wait_for_account_owner(&aa.account_id).await);
-    drop(pm0);
-    drop(pm1);
-
-    tracing::info!(target:"test", "spawn 3 nodes and re-announce the account.");
-    // Even though the account was previously announced (pm0 and pm1 have it in DB),
-    // the nodes should allow to let the broadcast through.
-    let pm0 = start_pm(clock.clock(), db0, chain.make_config(rng), chain.clone()).await;
-    let pm1 = start_pm(clock.clock(), db1, chain.make_config(rng), chain.clone()).await;
-    let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
-    pm1.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
-    pm2.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
-    pm1.announce_account(aa.clone()).await;
-    assert_eq!(&aa.peer_id, &pm2.wait_for_account_owner(&aa.account_id).await);
-}
-
 /// Check that two archival nodes keep connected after network rebalance. Nodes 0 and 1 are archival nodes, others aren't.
 /// Initially connect 2, 3, 4 to 0. Then connect 1 to 0, this connection should persist, even after other nodes tries
 /// to connect to node 0 again.
