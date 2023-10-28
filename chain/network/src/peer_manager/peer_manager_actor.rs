@@ -25,7 +25,7 @@ use near_async::time;
 use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
     RecentOutboundConnectionsView,
@@ -103,7 +103,6 @@ pub enum Event {
     PeerManagerStarted,
     ServerStarted,
     RoutedMessageDropped,
-    AccountsAdded(Vec<AnnounceAccount>),
     EdgesAdded(Vec<Edge>),
     Ping(Ping),
     Pong(Pong),
@@ -699,18 +698,6 @@ impl PeerManagerActor {
                     })
                 })
                 .collect(),
-            /*self
-            .state
-            .account_announcements
-            .get_announcements()
-            .into_iter()
-            .map(|announce_account| KnownProducer {
-                account_id: announce_account.account_id,
-                peer_id: announce_account.peer_id.clone(),
-                addr: None,
-                next_hops: self.state.graph.routing_table.view_route(&announce_account.peer_id),
-            })
-            .collect(),*/
             tier1_accounts_keys: accounts_data.keys.iter().cloned().collect(),
             tier1_accounts_data: accounts_data.data.values().cloned().collect(),
         }

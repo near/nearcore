@@ -5,9 +5,9 @@ use crate::types::{NetworkInfo, ReasonForBan};
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::types::{AccountId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 
 /// A strongly typed asynchronous API for the Client logic.
@@ -57,11 +57,6 @@ pub trait Client: Send + Sync + 'static {
     async fn challenge(&self, challenge: Challenge);
 
     async fn network_info(&self, info: NetworkInfo);
-
-    async fn announce_account(
-        &self,
-        accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
-    ) -> Result<Vec<AnnounceAccount>, ReasonForBan>;
 }
 
 /// Implementation of Client which doesn't do anything and never returns errors.
@@ -122,11 +117,4 @@ impl Client for Noop {
     async fn challenge(&self, _challenge: Challenge) {}
 
     async fn network_info(&self, _info: NetworkInfo) {}
-
-    async fn announce_account(
-        &self,
-        _accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
-    ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
-        Ok(vec![])
-    }
 }
