@@ -299,7 +299,7 @@ fn meta_tx_fn_call_access_key() {
     let sender = bob_account();
     let relayer = alice_account();
     let receiver = carol_account();
-    let signer = create_user_test_signer(sender.as_ref());
+    let signer = create_user_test_signer(&sender);
     let public_key = signer.public_key();
 
     let node = setup_with_access_key(
@@ -359,7 +359,7 @@ fn meta_tx_fn_call_access_key_insufficient_allowance() {
 
     // 1 yocto near, that's less than 1 gas unit
     let initial_allowance = 1;
-    let signer = create_user_test_signer(sender.as_ref());
+    let signer = create_user_test_signer(&sender);
 
     let node = setup_with_access_key(
         &relayer,
@@ -392,7 +392,7 @@ fn meta_tx_fn_call_access_wrong_method() {
     let sender = bob_account();
     let relayer = alice_account();
     let receiver = carol_account();
-    let signer = create_user_test_signer(sender.as_ref());
+    let signer = create_user_test_signer(&sender);
 
     let access_key_method_name = "log_something_else";
     let node = setup_with_access_key(
@@ -448,7 +448,7 @@ fn meta_tx_stake() {
     let fee_helper = fee_helper(&node);
 
     let tx_cost = fee_helper.stake_cost();
-    let public_key = create_user_test_signer(sender.as_ref()).public_key;
+    let public_key = create_user_test_signer(&sender).public_key;
     let actions = vec![Action::Stake(Box::new(StakeAction { public_key, stake: 0 }))];
     check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver);
 }

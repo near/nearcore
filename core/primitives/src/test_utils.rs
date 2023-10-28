@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
+use near_primitives_core::account::id::AccountIdRef;
 use near_primitives_core::types::ProtocolVersion;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
@@ -553,12 +554,12 @@ pub fn create_test_signer(account_name: &str) -> InMemoryValidatorSigner {
 /// This also works for predefined implicit accounts, where the signer will use the implicit key.
 ///
 /// Should be used only in tests.
-pub fn create_user_test_signer(account_name: &str) -> InMemorySigner {
-    let account_id = account_name.parse().unwrap();
+pub fn create_user_test_signer(account_name: &AccountIdRef) -> InMemorySigner {
+    let account_id: AccountId = account_name.to_owned();
     if account_id == implicit_test_account() {
         InMemorySigner::from_secret_key(account_id, implicit_test_account_secret())
     } else {
-        InMemorySigner::from_seed(account_id, KeyType::ED25519, account_name)
+        InMemorySigner::from_seed(account_id, KeyType::ED25519, account_name.as_str())
     }
 }
 
