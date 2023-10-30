@@ -1589,7 +1589,6 @@ impl ClientActor {
                 if currently_syncing {
                     info!(target: "client", "disabling sync: {}", &sync);
                     self.client.sync_status = SyncStatus::NoSync;
-
                     // Initial transition out of "syncing" state.
                     // Announce this client's account id if their epoch is coming up.
                     let head = unwrap_and_report!(self.client.chain.head());
@@ -1641,7 +1640,14 @@ impl ClientActor {
                                     .reset_data_pre_state_sync(sync_hash));
                             }
                             let s = StateSyncStatus { sync_hash, sync_status: HashMap::default() };
-                            self.client.sync_status = SyncStatus::StateSync(s);
+                            {
+                                let _span = tracing::debug_span!(target: "sync", "set_state_sync")
+                                    .entered();
+                                {
+                                    let _span = tracing::debug_span!(target: "sync", "set_sync", sync_type = "State").entered();
+                                    self.client.sync_status = SyncStatus::StateSync(s);
+                                }
+                            }
                             // This is the first time we run state sync.
                             notify_start_sync = true;
                         }
@@ -1755,11 +1761,18 @@ impl ClientActor {
                             self.client
                                 .process_block_processing_artifact(block_processing_artifacts);
 
-                            self.client.sync_status = SyncStatus::BodySync {
-                                start_height: 0,
-                                current_height: 0,
-                                highest_height: 0,
-                            };
+                            {
+                                let _span =
+                                    tracing::debug_span!(target: "sync", "set_body_sync").entered();
+                                {
+                                    let _span = tracing::debug_span!(target: "sync", "set_sync", sync_type = "Body").entered();
+                                    self.client.sync_status = SyncStatus::BodySync {
+                                        start_height: 0,
+                                        current_height: 0,
+                                        highest_height: 0,
+                                    };
+                                }
+                            }
                         }
                     }
                 }
