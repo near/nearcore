@@ -85,6 +85,8 @@ mod old_validator_selection {
     use near_primitives::types::{
         AccountId, Balance, NumSeats, ValidatorId, ValidatorKickoutReason,
     };
+    #[cfg(feature = "protocol_feature_chunk_validation")]
+    use near_primitives::validator_mandates::ValidatorMandates;
     use near_primitives::version::ProtocolVersion;
     use rand::{RngCore, SeedableRng};
     use rand_hc::Hc128Rng;
@@ -248,6 +250,10 @@ mod old_validator_selection {
             .map(|(index, s)| (s.account_id().clone(), index as ValidatorId))
             .collect::<HashMap<_, _>>();
 
+        // Old validator selection is not aware of chunk validator mandates.
+        #[cfg(feature = "protocol_feature_chunk_validation")]
+        let validator_mandates: ValidatorMandates = Default::default();
+
         Ok(EpochInfo::new(
             prev_epoch_info.epoch_height() + 1,
             final_proposals,
@@ -264,6 +270,8 @@ mod old_validator_selection {
             threshold,
             next_version,
             rng_seed,
+            #[cfg(feature = "protocol_feature_chunk_validation")]
+            validator_mandates,
         ))
     }
 

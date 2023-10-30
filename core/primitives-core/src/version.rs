@@ -128,6 +128,10 @@ pub enum ProtocolFeature {
     PostStateRoot,
     /// Increases the number of chunk producers.
     TestnetFewerBlockProducers,
+    /// Enables chunk validation which is introduced with stateless validation.
+    /// NEP: https://github.com/near/NEPs/pull/509
+    #[cfg(feature = "protocol_feature_chunk_validation")]
+    ChunkValidation,
 }
 
 impl ProtocolFeature {
@@ -183,6 +187,8 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
             ProtocolFeature::SimpleNightshadeV2 => 135,
             ProtocolFeature::PostStateRoot => 136,
+            #[cfg(feature = "protocol_feature_chunk_validation")]
+            ProtocolFeature::ChunkValidation => 137,
         }
     }
 }
@@ -190,7 +196,7 @@ impl ProtocolFeature {
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 65;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 64;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
