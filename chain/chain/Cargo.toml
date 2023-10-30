@@ -63,9 +63,9 @@ protocol_feature_chunk_validation = [
 
 nightly = [
   "nightly_protocol",
+  "protocol_feature_chunk_validation",
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
   "protocol_feature_simple_nightshade_v2",
-  "protocol_feature_chunk_validation",
   "near-chain-configs/nightly",
   "near-client-primitives/nightly",
   "near-epoch-manager/nightly",

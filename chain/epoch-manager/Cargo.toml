@@ -38,8 +38,8 @@ protocol_feature_chunk_validation = [
 ]
 nightly = [
   "nightly_protocol",
-  "protocol_feature_fix_staking_threshold",
   "protocol_feature_chunk_validation",
+  "protocol_feature_fix_staking_threshold",
   "near-chain-configs/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
