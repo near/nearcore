@@ -31,11 +31,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04-8core
+          - name: Linux
+            os: ubuntu-22.04-16core
             flags: ""
-          - os: ubuntu-22.04-8core
+          - name: Linux Nightly
+            os: ubuntu-22.04-16core
             flags: "--features nightly,test_features"
-          - os: macos-latest-xlarge
+          - name: MacOS
+            os: macos-latest-xlarge
             # FIXME: some of these tests don't work very well on MacOS at the moment. Should fix
             # them at earliest convenience :)
             flags: "--exclude integration-tests --exclude node-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse"
