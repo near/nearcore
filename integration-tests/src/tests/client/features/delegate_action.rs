@@ -9,7 +9,9 @@ use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{KeyType, PublicKey, Signer};
-use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission, id::AccountType};
+use near_primitives::account::{
+    id::AccountType, AccessKey, AccessKeyPermission, FunctionCallPermission,
+};
 use near_primitives::config::ActionCosts;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, InvalidAccessKeyError, InvalidTxError,

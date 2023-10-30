@@ -97,9 +97,14 @@ pub fn total_send_fees(
             Transfer(_) => {
                 // Account for implicit account creation
                 let receiver_account_type = receiver_id.get_account_type();
-                let is_receiver_implicit =
-                    config.wasm_config.implicit_account_creation && receiver_account_type.is_implicit();
-                transfer_send_fee(fees, sender_is_receiver, is_receiver_implicit, receiver_account_type)
+                let is_receiver_implicit = config.wasm_config.implicit_account_creation
+                    && receiver_account_type.is_implicit();
+                transfer_send_fee(
+                    fees,
+                    sender_is_receiver,
+                    is_receiver_implicit,
+                    receiver_account_type,
+                )
             }
             Stake(_) => fees.fee(ActionCosts::stake).send_fee(sender_is_receiver),
             AddKey(add_key_action) => match &add_key_action.access_key.permission {

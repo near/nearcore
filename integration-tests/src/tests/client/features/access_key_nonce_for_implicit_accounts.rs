@@ -206,7 +206,10 @@ fn test_transaction_hash_collision_for_implicit_account_fail() {
     let implicit_account_id = derive_account_id_from_public_key(&secret_key.public_key());
     let implicit_account_signer = InMemorySigner::from_secret_key(implicit_account_id, secret_key);
     assert_matches!(
-        get_status_of_tx_hash_collision_for_implicit_account(protocol_version, implicit_account_signer),
+        get_status_of_tx_hash_collision_for_implicit_account(
+            protocol_version,
+            implicit_account_signer
+        ),
         ProcessTxResponse::InvalidTx(InvalidTxError::InvalidNonce { .. })
     );
 }
@@ -214,12 +217,16 @@ fn test_transaction_hash_collision_for_implicit_account_fail() {
 /// Test that duplicate transactions from NEAR-implicit accounts are not rejected until protocol upgrade.
 #[test]
 fn test_transaction_hash_collision_for_implicit_account_ok() {
-    let protocol_version = ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
+    let protocol_version =
+        ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
     let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
     let implicit_account_id = derive_account_id_from_public_key(&secret_key.public_key());
     let implicit_account_signer = InMemorySigner::from_secret_key(implicit_account_id, secret_key);
     assert_matches!(
-        get_status_of_tx_hash_collision_for_implicit_account(protocol_version, implicit_account_signer),
+        get_status_of_tx_hash_collision_for_implicit_account(
+            protocol_version,
+            implicit_account_signer
+        ),
         ProcessTxResponse::ValidTx
     );
 }

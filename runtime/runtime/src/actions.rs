@@ -446,7 +446,11 @@ pub(crate) fn action_implicit_account_creation_transfer(
             let mut access_key = AccessKey::full_access();
             // Set default nonce for newly created access key to avoid transaction hash collision.
             // See <https://github.com/near/nearcore/issues/3779>.
-            if checked_feature!("stable", AccessKeyNonceForImplicitAccounts, current_protocol_version) {
+            if checked_feature!(
+                "stable",
+                AccessKeyNonceForImplicitAccounts,
+                current_protocol_version
+            ) {
                 access_key.nonce = (block_height - 1)
                     * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
             }
@@ -467,7 +471,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
             ));
 
             set_access_key(state_update, account_id.clone(), public_key, &access_key);
-        },
+        }
         AccountType::EthImplicitAccount => panic!("must be implicit"),
         AccountType::NamedAccount => panic!("must be implicit"),
     }
@@ -890,7 +894,9 @@ pub(crate) fn check_account_existence(
                 .into());
             } else {
                 // TODO: this should be `config.implicit_account_creation`.
-                if config.wasm_config.implicit_account_creation && account_id.get_account_type().is_implicit() {
+                if config.wasm_config.implicit_account_creation
+                    && account_id.get_account_type().is_implicit()
+                {
                     // If the account doesn't exist and it's implicit, then you
                     // should only be able to create it using single transfer action.
                     // Because you should not be able to add another access key to the account in

@@ -473,9 +473,7 @@ where
 /// If the key type is ED25519, returns hex-encoded copy of the key.
 pub fn derive_account_id_from_public_key(public_key: &PublicKey) -> AccountId {
     match public_key.key_type() {
-        KeyType::ED25519 => {
-            hex::encode(public_key.key_data()).parse().unwrap()
-        },
+        KeyType::ED25519 => hex::encode(public_key.key_data()).parse().unwrap(),
         _ => unimplemented!(),
     }
 }
@@ -487,7 +485,8 @@ mod tests {
     #[test]
     fn test_derive_account_id_from_ed25519_public_key() {
         let public_key = PublicKey::from_seed(KeyType::ED25519, "test");
-        let expected: AccountId = "bb4dc639b212e075a751685b26bdcea5920a504181ff2910e8549742127092a0".parse().unwrap();
+        let expected: AccountId =
+            "bb4dc639b212e075a751685b26bdcea5920a504181ff2910e8549742127092a0".parse().unwrap();
         assert_eq!(derive_account_id_from_public_key(&public_key), expected);
     }
 

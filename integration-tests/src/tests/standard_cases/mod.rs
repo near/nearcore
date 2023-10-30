@@ -6,7 +6,9 @@ mod runtime;
 use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_jsonrpc_primitives::errors::ServerError;
-use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission, id::AccountType};
+use near_primitives::account::{
+    id::AccountType, AccessKey, AccessKeyPermission, FunctionCallPermission,
+};
 use near_primitives::config::{ActionCosts, ExtCosts};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, FunctionCallError, InvalidAccessKeyError, InvalidTxError,
@@ -366,7 +368,7 @@ pub fn transfer_tokens_implicit_account(node: impl Node, public_key: PublicKey) 
     match receiver_id.get_account_type() {
         AccountType::NearImplicitAccount => {
             assert_eq!(view_access_key.unwrap(), AccessKey::full_access().into());
-        },
+        }
         AccountType::EthImplicitAccount => std::panic!("must be implicit"),
         AccountType::NamedAccount => std::panic!("must be implicit"),
     }
@@ -411,15 +413,16 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
         .unwrap();
 
     let cost = match receiver_id.get_account_type() {
-        AccountType::NearImplicitAccount =>
+        AccountType::NearImplicitAccount => {
             fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
-            + fee_helper.gas_to_balance(
-                fee_helper.cfg().fee(ActionCosts::create_account).send_fee(false)
-                + fee_helper
-                    .cfg()
-                    .fee(near_primitives::config::ActionCosts::add_full_access_key)
-                    .send_fee(false),
-            ),
+                + fee_helper.gas_to_balance(
+                    fee_helper.cfg().fee(ActionCosts::create_account).send_fee(false)
+                        + fee_helper
+                            .cfg()
+                            .fee(near_primitives::config::ActionCosts::add_full_access_key)
+                            .send_fee(false),
+                )
+        }
         AccountType::EthImplicitAccount => std::panic!("must be implicit"),
         AccountType::NamedAccount => std::panic!("must be implicit"),
     };

@@ -68,7 +68,9 @@ pub fn map_records<P: AsRef<Path>>(
                 records_seq.serialize_element(&r).unwrap();
             }
             StateRecord::PostponedReceipt(receipt) => {
-                if receipt.predecessor_id.get_account_type().is_implicit() || receipt.receiver_id.get_account_type().is_implicit() {
+                if receipt.predecessor_id.get_account_type().is_implicit()
+                    || receipt.receiver_id.get_account_type().is_implicit()
+                {
                     receipt.predecessor_id =
                         crate::key_mapping::map_account(&receipt.predecessor_id, secret.as_ref());
                     receipt.receiver_id =
@@ -83,7 +85,9 @@ pub fn map_records<P: AsRef<Path>>(
                 records_seq.serialize_element(&r).unwrap();
             }
             StateRecord::DelayedReceipt(receipt) => {
-                if receipt.predecessor_id.get_account_type().is_implicit() || receipt.receiver_id.get_account_type().is_implicit() {
+                if receipt.predecessor_id.get_account_type().is_implicit()
+                    || receipt.receiver_id.get_account_type().is_implicit()
+                {
                     receipt.predecessor_id =
                         crate::key_mapping::map_account(&receipt.predecessor_id, secret.as_ref());
                     receipt.receiver_id =

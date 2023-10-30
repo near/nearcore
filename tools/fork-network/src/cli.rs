@@ -527,7 +527,8 @@ impl ForkNetworkCommand {
                         }
                     }
                     StateRecord::PostponedReceipt(receipt) => {
-                        if receipt.predecessor_id.get_account_type().is_implicit() || receipt.receiver_id.get_account_type().is_implicit()
+                        if receipt.predecessor_id.get_account_type().is_implicit()
+                            || receipt.receiver_id.get_account_type().is_implicit()
                         {
                             let new_receipt = Receipt {
                                 predecessor_id: map_account(&receipt.predecessor_id, None),
@@ -549,7 +550,8 @@ impl ForkNetworkCommand {
                         }
                     }
                     StateRecord::DelayedReceipt(receipt) => {
-                        if receipt.predecessor_id.get_account_type().is_implicit() || receipt.receiver_id.get_account_type().is_implicit()
+                        if receipt.predecessor_id.get_account_type().is_implicit()
+                            || receipt.receiver_id.get_account_type().is_implicit()
                         {
                             let new_receipt = Receipt {
                                 predecessor_id: map_account(&receipt.predecessor_id, None),
