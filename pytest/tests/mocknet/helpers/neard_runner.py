@@ -828,6 +828,9 @@ class NeardRunner:
         # something so lightweight
         main_loop = threading.Thread(target=self.main_loop)
         main_loop.start()
+        # this will listen only on the loopback interface and won't be accessible
+        # over the internet. If connecting to another machine, we can SSH and then make
+        # the request locally
         s = RpcServer(('localhost', port), self)
         s.serve_forever()
 
