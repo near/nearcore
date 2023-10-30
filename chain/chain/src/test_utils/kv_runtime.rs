@@ -6,7 +6,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
-use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_part::PartId;
 use num_rational::Ratio;
 
@@ -42,11 +41,13 @@ use near_primitives::views::{
     QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
 };
 use near_store::{
-    set_genesis_hash, set_genesis_state_roots, DBCol, PartialStorage, ShardTries, Store,
-    StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
+    set_genesis_hash, set_genesis_state_roots, DBCol, ShardTries, Store, StoreUpdate, Trie,
+    TrieChanges, WrappedTrieChanges,
 };
 
-use crate::types::{ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter};
+use crate::types::{
+    ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter, RuntimeStorageConfig,
+};
 use crate::BlockHeader;
 
 use near_primitives::epoch_manager::ShardConfig;
@@ -1014,10 +1015,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(res)
     }
 
-    fn apply_transactions_with_optional_storage_proof(
+    fn apply_transactions(
         &self,
         shard_id: ShardId,
-        state_root: &StateRoot,
+        storage_config: RuntimeStorageConfig,
         _height: BlockHeight,
         _block_timestamp: u64,
         _prev_block_hash: &CryptoHash,
@@ -1029,16 +1030,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_limit: Gas,
         _challenges: &ChallengesResult,
         _random_seed: CryptoHash,
-        generate_storage_proof: bool,
         _is_new_chunk: bool,
         _is_first_block_with_chunk_of_version: bool,
-        _state_patch: SandboxStatePatch,
-        _use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
-        assert!(!generate_storage_proof);
+        assert!(!storage_config.record_storage);
         let mut tx_results = vec![];
 
-        let mut state = self.state.read().unwrap().get(state_root).cloned().unwrap();
+        let mut state =
+            self.state.read().unwrap().get(&storage_config.state_root).cloned().unwrap();
 
         let mut balance_transfers = vec![];
 
@@ -1183,28 +1182,6 @@ impl RuntimeAdapter for KeyValueRuntime {
             proof: None,
             processed_delayed_receipts: vec![],
         })
-    }
-
-    fn check_state_transition(
-        &self,
-        _partial_storage: PartialStorage,
-        _shard_id: ShardId,
-        _state_root: &StateRoot,
-        _height: BlockHeight,
-        _block_timestamp: u64,
-        _prev_block_hash: &CryptoHash,
-        _block_hash: &CryptoHash,
-        _receipts: &[Receipt],
-        _transactions: &[SignedTransaction],
-        _last_validator_proposals: ValidatorStakeIter,
-        _gas_price: Balance,
-        _gas_limit: Gas,
-        _challenges: &ChallengesResult,
-        _random_value: CryptoHash,
-        _is_new_chunk: bool,
-        _is_first_block_with_chunk_of_version: bool,
-    ) -> Result<ApplyTransactionResult, Error> {
-        unimplemented!();
     }
 
     fn query(
