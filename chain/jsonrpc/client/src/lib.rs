@@ -184,8 +184,6 @@ jsonrpc_client!(pub struct JsonRpcClient {
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_genesis_config(&self) -> RpcRequest<serde_json::Value>;
     #[allow(non_snake_case)]
-    pub fn EXPERIMENTAL_broadcast_tx_sync(&self, tx: String) -> RpcRequest<serde_json::Value>;
-    #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_tx_status(&self, tx: String) -> RpcRequest<RpcTransactionResponse>;
     pub fn health(&self) -> RpcRequest<()>;
     pub fn chunk(&self, id: ChunkId) -> RpcRequest<ChunkView>;
