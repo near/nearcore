@@ -28,3 +28,23 @@ once_cell.workspace = true
 reqwest.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+[features]
+nightly = [
+  "nightly_protocol",
+  "near-client/nightly",
+  "near-jsonrpc/nightly",
+  "near-o11y/nightly",
+  "near-primitives-core/nightly",
+  "near-primitives/nightly",
+  "near-store/nightly",
+  "nearcore/nightly",
+]
+nightly_protocol = [
+  "near-client/nightly_protocol",
+  "near-jsonrpc/nightly_protocol",
+  "near-o11y/nightly_protocol",
+  "near-primitives-core/nightly_protocol",
+  "near-primitives/nightly_protocol",
+  "near-store/nightly_protocol",
+  "nearcore/nightly_protocol",
+]
