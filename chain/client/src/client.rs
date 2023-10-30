@@ -1068,14 +1068,20 @@ impl Client {
         self.verify_and_rebroadcast_block(&block, was_requested, &peer_id)?;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
+        tracing::debug!(target: "chain", ?provenance);
         let res = self.start_process_block(block, provenance, apply_chunks_done_callback);
+        tracing::debug!(target: "chain", ?res);
         match &res {
             Err(near_chain::Error::Orphan) => {
+                tracing::debug!(target: "chain", "orphan");
                 if !self.chain.is_orphan(&prev_hash) {
+                    tracing::debug!(target: "chain", "not orphan");
                     self.request_block(prev_hash, peer_id)
                 }
             }
-            _ => {}
+            _ => {
+                tracing::debug!(target: "chain", "some other error");
+            }
         }
         res
     }
@@ -2424,8 +2430,11 @@ impl Client {
 /* implements functions used to communicate with network */
 impl Client {
     pub fn request_block(&self, hash: CryptoHash, peer_id: PeerId) {
+        let _span =
+            tracing::debug_span!(target: "client", "request_block", ?hash, ?peer_id).entered();
         match self.chain.block_exists(&hash) {
             Ok(false) => {
+                tracing::debug!(target: "client", "sent");
                 self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::BlockRequest { hash, peer_id },
                 ));
@@ -2440,6 +2449,8 @@ impl Client {
     }
 
     pub fn ban_peer(&self, peer_id: PeerId, ban_reason: ReasonForBan) {
+        let _span =
+            tracing::debug_span!(target: "client", "ban_peer", ?ban_reason, ?peer_id).entered();
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::BanPeer { peer_id, ban_reason },
         ));
