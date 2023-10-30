@@ -1255,6 +1255,7 @@ impl ClientActor {
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
         if let Some(block) = self.client.produce_block(next_height)? {
+            tracing::debug!(target: "client", "did");
             // If we produced the block, send it out before we apply the block.
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Block { block: block.clone() },
@@ -1267,8 +1268,10 @@ impl ClientActor {
                 self.get_apply_chunks_done_callback(),
             );
             if let Err(e) = &res {
+                tracing::debug!(target: "client", "can't start_process_block");
                 match e {
                     near_chain::Error::ChunksMissing(_) => {
+                        tracing::debug!(target: "client", "chunks missing");
                         // missing chunks were already handled in Client::process_block, we don't need to
                         // do anything here
                         return Ok(());
@@ -1364,7 +1367,7 @@ impl ClientActor {
     }
 
     fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
-        info!(target: "client", "Received {} block headers from {}", headers.len(), peer_id);
+        let _span = tracing::debug_span!(target: "client", "receive_headers", num_headers = headers.len(), ?peer_id).entered();
         if headers.is_empty() {
             return true;
         }
@@ -1386,6 +1389,7 @@ impl ClientActor {
     /// Check whether need to (continue) sync.
     /// Also return higher height with known peers at that height.
     fn syncing_info(&self) -> Result<SyncRequirement, near_chain::Error> {
+        let _span = tracing::debug_span!(target: "client", "syncing_info").entered();
         if self.adv.disable_header_sync() {
             return Ok(SyncRequirement::AdvHeaderSyncDisabled);
         }
@@ -1451,6 +1455,7 @@ impl ClientActor {
 
     /// Starts syncing and then switches to either syncing or regular mode.
     fn start_sync(&mut self, ctx: &mut Context<ClientActor>) {
+        let _span = tracing::debug_span!(target: "client", "start_sync").entered();
         // Wait for connections reach at least minimum peers unless skipping sync.
         if self.network_info.num_connected_peers < self.client.config.min_num_peers
             && !self.client.config.skip_sync_wait

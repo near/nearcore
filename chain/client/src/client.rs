@@ -1003,6 +1003,7 @@ impl Client {
         // Log the errors here. Note that the real error handling logic is already
         // done within process_block_impl, this is just for logging.
         if let Err(err) = res {
+            tracing::debug!(target: "client", ?err);
             if err.is_bad_data() {
                 warn!(target: "client", ?err, "Receive bad block");
             } else if err.is_error() {
@@ -1012,9 +1013,9 @@ impl Client {
                 if self.sync_status.is_syncing() {
                     // While syncing, we may receive blocks that are older or from next epochs.
                     // This leads to Old Block or EpochOutOfBounds errors.
-                    debug!(target: "client", ?err, "Error on receival of block");
+                    debug!(target: "client", ?err, sync_status = ?self.sync_status, "Error on receival of block. is syncing");
                 } else {
-                    error!(target: "client", ?err, "Error on receival of block");
+                    error!(target: "client", ?err, "Error on receival of block. Not syncing");
                 }
             } else {
                 debug!(target: "client", ?err, "Process block: refused by chain");
@@ -1717,6 +1718,7 @@ impl Client {
         blocks_missing_chunks: Vec<BlockMissingChunks>,
         orphans_missing_chunks: Vec<OrphanMissingChunks>,
     ) {
+        let _span = tracing::debug_span!(target: "client", "request_missing_chunks", ?blocks_missing_chunks, ?orphans_missing_chunks).entered();
         let now = StaticClock::utc();
         for BlockMissingChunks { prev_hash, missing_chunks } in blocks_missing_chunks {
             for chunk in &missing_chunks {
@@ -1787,6 +1789,7 @@ impl Client {
         check_validator: bool,
         error: near_chain::Error,
     ) {
+        let _span = tracing::debug_span!(target: "client", "handle_process_approval_error", ?error, ?approval_type, ?approval).entered();
         let is_validator =
             |epoch_id, block_hash, account_id, epoch_manager: &dyn EpochManagerAdapter| {
                 match epoch_manager.get_validator_by_account_id(epoch_id, block_hash, account_id) {
@@ -1831,6 +1834,7 @@ impl Client {
     /// * `approval_type`  - whether the approval was just produced by us (in which case skip validation,
     ///                      only check whether we are the next block producer and store in Doomslug)
     pub fn collect_block_approval(&mut self, approval: &Approval, approval_type: ApprovalType) {
+        let _span = tracing::debug_span!(target: "client", "collect_block_approval", ?approval_type, ?approval).entered();
         let Approval { inner, account_id, target_height, signature } = approval;
 
         let parent_hash = match inner {
