@@ -12,17 +12,17 @@ jobs:
   backward_compat:
     name: "Backward Compatibility"
     runs-on: ubuntu-latest
-
+    defaults:
+      run:
+        working-directory: ./pytest
     steps:
       - uses: actions/checkout@v4
-      - name: run tests/sanity/backward_compatible.py
-        run: |
-          cd pytest
-          pip3 install --user -r requirements.txt
-          pwd
-          ls ..
-          python3 tests/sanity/backward_compatible.py
-          ls ../target/debug
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.x
+          cache: pip
+      - run: pip3 install --user -r requirements.txt
+      - run: python3 tests/sanity/backward_compatible.py
 
   cargo_nextest:
     name: "Cargo Nextest"
@@ -63,14 +63,17 @@ jobs:
   db_migration:
     name: "Database Migration"
     runs-on: ubuntu-latest
-
+    defaults:
+      run:
+        working-directory: ./pytest
     steps:
       - uses: actions/checkout@v4
-      - name: run tests/sanity/db_migration.py
-        run: |
-          cd pytest
-          pip3 install --user -r requirements.txt
-          python3 tests/sanity/db_migration.py
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.x
+          cache: pip
+      - run: pip3 install --user -r requirements.txt
+      - run: python3 tests/sanity/db_migration.py
 
   protobuf_backward_compat:
     name: "Protobuf Backward Compatibility"
@@ -78,8 +81,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: bufbuild/buf-setup-action@v1
-      - uses: bufbuild/buf-breaking-action@v1
+      - uses: bufbuild/buf-setup-action@1158f4fa81bc02e1ff62abcca6d516c9e24c77da
+      - uses: bufbuild/buf-breaking-action@a074e988ee34efcd4927079e79c611f428354c01
         with:
           against: "https://github.com/near/nearcore.git#ref=${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}"
 
@@ -92,6 +95,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.x
+          cache: pip
+      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
+        with:
+          prefix-key: "0" # change this to invalidate CI cache
+          save-if: "false" # use the cache from nextest, but don’t double-save
       - run: cargo build -p neard --bin neard --features nightly
       - name: run spin_up_cluster.py
         # Note: We're not running spin_up_cluster.py for non-nightly
@@ -127,11 +138,14 @@ jobs:
   upgradability:
     name: "Upgradability"
     runs-on: ubuntu-latest
-
+    defaults:
+      run:
+        working-directory: ./pytest
     steps:
       - uses: actions/checkout@v4
-      - name: check tests/sanity/upgradable.py
-        run: |
-          cd pytest
-          pip3 install --user -r requirements.txt
-          python3 tests/sanity/upgradable.py
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.x
+          cache: pip
+      - run: pip3 install --user -r requirements.txt
+      - run: python3 tests/sanity/upgradable.py
