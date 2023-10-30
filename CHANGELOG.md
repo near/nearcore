@@ -1,10 +1,10 @@
 # Changelog
 
-## [unreleased]
+## 1.36.0
 
 ### Protocol Changes
-* The support for fixed shards in shard layout was removed. [#9219](https://github.com/near/nearcore/pull/9219)
 
+* The support for fixed shards in shard layout was removed. [#9219](https://github.com/near/nearcore/pull/9219)
 
 ### Non-protocol Changes
 
