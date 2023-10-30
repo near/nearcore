@@ -21,6 +21,10 @@ jobs:
         with:
           python-version: 3.x
           cache: pip
+      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
+        with:
+          prefix-key: "0" # change this to invalidate CI cache
+          save-if: "false" # use the cache from nextest, but don’t double-save
       - run: pip3 install --user -r requirements.txt
       - run: python3 tests/sanity/backward_compatible.py
 
@@ -75,6 +79,10 @@ jobs:
         with:
           python-version: 3.x
           cache: pip
+      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
+        with:
+          prefix-key: "0" # change this to invalidate CI cache
+          save-if: "false" # use the cache from nextest, but don’t double-save
       - run: pip3 install --user -r requirements.txt
       - run: python3 tests/sanity/db_migration.py
 
@@ -150,5 +158,9 @@ jobs:
         with:
           python-version: 3.x
           cache: pip
+      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
+        with:
+          prefix-key: "0" # change this to invalidate CI cache
+          save-if: "false" # use the cache from nextest, but don’t double-save
       - run: pip3 install --user -r requirements.txt
       - run: python3 tests/sanity/upgradable.py
