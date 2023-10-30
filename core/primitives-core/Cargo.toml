@@ -36,6 +36,7 @@ protocol_feature_fix_staking_threshold = []
 protocol_feature_fix_contract_loading_cost = []
 protocol_feature_reject_blocks_with_outdated_protocol_version = []
 protocol_feature_simple_nightshade_v2 = []
+protocol_feature_chunk_validation = []
 
 nightly = [
   "nightly_protocol",
@@ -43,6 +44,7 @@ nightly = [
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
   "protocol_feature_simple_nightshade_v2",
+  "protocol_feature_chunk_validation",
 ]
 
 nightly_protocol = [

@@ -523,6 +523,8 @@ impl EpochManagerAdapter for MockEpochManager {
             1,
             1,
             RngSeed::default(),
+            #[cfg(feature = "protocol_feature_chunk_validation")]
+            Default::default(),
         )))
     }
 

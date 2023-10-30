@@ -641,6 +641,8 @@ pub mod epoch_info {
             seat_price: Balance,
             protocol_version: ProtocolVersion,
             rng_seed: RngSeed,
+            #[cfg(feature = "protocol_feature_chunk_validation")]
+            validator_mandates: ValidatorMandates,
         ) -> Self {
             if checked_feature!("stable", AliasValidatorSelectionAlgorithm, protocol_version) {
                 let stake_weights = |ids: &[ValidatorId]| -> WeightedIndex {
@@ -654,6 +656,28 @@ pub mod epoch_info {
                 let block_producers_sampler = stake_weights(&block_producers_settlement);
                 let chunk_producers_sampler =
                     chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
+                #[cfg(feature = "protocol_feature_chunk_validation")]
+                return Self::V4(EpochInfoV4 {
+                    epoch_height,
+                    validators,
+                    fishermen,
+                    validator_to_index,
+                    block_producers_settlement,
+                    chunk_producers_settlement,
+                    hidden_validators_settlement,
+                    stake_change,
+                    validator_reward,
+                    validator_kickout,
+                    fishermen_to_index,
+                    minted_amount,
+                    seat_price,
+                    protocol_version,
+                    rng_seed,
+                    block_producers_sampler,
+                    chunk_producers_sampler,
+                    validator_mandates,
+                });
+                #[cfg(not(feature = "protocol_feature_chunk_validation"))]
                 Self::V3(EpochInfoV3 {
                     epoch_height,
                     validators,
