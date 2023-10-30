@@ -16,7 +16,7 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{AccountId, Balance, TrieNodesCount};
-use near_primitives::utils::derive_account_id_from_public_key;
+use near_primitives::utils::derive_near_implicit_account_id;
 use near_primitives::views::{
     AccessKeyView, AccountView, ExecutionMetadataView, FinalExecutionOutcomeView,
     FinalExecutionStatus,
@@ -336,7 +336,7 @@ pub fn transfer_tokens_implicit_account(node: impl Node, public_key: PublicKey) 
     let root = node_user.get_state_root();
     let tokens_used = 10u128.pow(25);
     let fee_helper = fee_helper(&node);
-    let receiver_id = derive_account_id_from_public_key(&public_key);
+    let receiver_id = derive_near_implicit_account_id(&public_key);
 
     let transfer_cost = match receiver_id.get_account_type() {
         AccountType::NearImplicitAccount => fee_helper.create_account_transfer_full_key_cost(),
@@ -401,7 +401,7 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
     let root = node_user.get_state_root();
     let tokens_used = 10u128.pow(25);
     let fee_helper = fee_helper(&node);
-    let receiver_id = derive_account_id_from_public_key(&public_key);
+    let receiver_id = derive_near_implicit_account_id(&public_key);
 
     let transaction_result = node_user
         .create_account(

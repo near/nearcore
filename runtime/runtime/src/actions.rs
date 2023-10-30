@@ -455,9 +455,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
             }
 
-            // Invariant: The account_id is hex like (implicit account id).
-            // It holds because in the only calling site, we've checked the permissions before.
-            // unwrap: Can only fail if `account_id` is not NEAR-implicit.
+            // unwrap: here it's safe because the `account_id` has already been determined to be implicit by `get_account_type`
             let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
 
             *account = Some(Account::new(
@@ -472,8 +470,9 @@ pub(crate) fn action_implicit_account_creation_transfer(
 
             set_access_key(state_update, account_id.clone(), public_key, &access_key);
         }
-        AccountType::EthImplicitAccount => panic!("must be implicit"),
-        AccountType::NamedAccount => panic!("must be implicit"),
+        // Invariant: The `account_id` is implicit.
+        // It holds because in the only calling site, we've checked the permissions before.
+        AccountType::EthImplicitAccount | AccountType::NamedAccount => panic!("must be implicit"),
     }
 }
 
