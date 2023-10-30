@@ -857,32 +857,37 @@ impl StateSync {
         chain: &Chain,
         now: DateTime<Utc>,
     ) -> Result<(bool, bool), near_chain::Error> {
-        let mut download_timeout = false;
-        let mut run_shard_state_download = false;
+        let download = &mut shard_sync_download.downloads[0];
         // StateDownloadHeader is the first step. We want to fetch the basic information about the state (its size, hash etc).
-        if shard_sync_download.downloads[0].done {
+        if download.done {
             let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
             let state_num_parts = shard_state_header.num_state_parts();
             // If the header was downloaded successfully - move to phase 2 (downloading parts).
             // Create the vector with entry for each part.
             *shard_sync_download =
                 ShardSyncDownload::new_download_state_parts(now, state_num_parts);
-            run_shard_state_download = true;
+            Ok((false, true))
         } else {
-            let prev = shard_sync_download.downloads[0].prev_update_time;
-            let error = shard_sync_download.downloads[0].error;
-            download_timeout = now - prev > self.timeout;
+            let download_timeout = now - download.prev_update_time > self.timeout;
+            if download_timeout {
+                tracing::debug!(target: "sync", last_target = ?download.last_target, start_time = ?download.start_time, prev_update_time = ?download.prev_update_time, state_requests_count = download.state_requests_count, "header request timed out");
+                metrics::STATE_SYNC_HEADER_TIMEOUT
+                    .with_label_values(&[&shard_id.to_string()])
+                    .inc();
+            }
+            if download.error {
+                tracing::debug!(target: "sync", last_target = ?download.last_target, start_time = ?download.start_time, prev_update_time = ?download.prev_update_time, state_requests_count = download.state_requests_count, "header request error");
+                metrics::STATE_SYNC_HEADER_ERROR.with_label_values(&[&shard_id.to_string()]).inc();
+            }
             // Retry in case of timeout or failure.
-            if download_timeout || error {
-                shard_sync_download.downloads[0].run_me.store(true, Ordering::SeqCst);
-                shard_sync_download.downloads[0].error = false;
-                shard_sync_download.downloads[0].prev_update_time = now;
+            if download_timeout || download.error {
+                download.run_me.store(true, Ordering::SeqCst);
+                download.error = false;
+                download.prev_update_time = now;
             }
-            if shard_sync_download.downloads[0].run_me.load(Ordering::SeqCst) {
-                run_shard_state_download = true;
-            }
+            let run_me = download.run_me.load(Ordering::SeqCst);
+            Ok((download_timeout, run_me))
         }
-        Ok((download_timeout, run_shard_state_download))
     }
 
     /// Checks if the parts are downloaded.
