@@ -163,10 +163,11 @@ impl ShardTracker {
                     .cares_about_shard_next_epoch_from_prev_block(parent_hash, account_id, shard_id)
                     .unwrap_or(false)
             };
-            if !is_me {
-                return account_cares_about_shard;
-            } else if account_cares_about_shard {
+            if account_cares_about_shard {
                 return true;
+            }
+            if !is_me {
+                return false;
             }
         }
         match self.tracked_config {
