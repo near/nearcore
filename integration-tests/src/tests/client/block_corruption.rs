@@ -1,4 +1,3 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::{Block, ChainGenesis, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -20,7 +19,7 @@ fn create_tx_load(height: BlockHeight, last_block: &Block) -> Vec<SignedTransact
         "test1".parse().unwrap(),
         &signer,
         10,
-        last_block.hash().clone(),
+        *last_block.hash(),
     );
     vec![tx]
 }
