@@ -25,11 +25,12 @@ jobs:
         with:
           prefix-key: "0" # change this to invalidate CI cache
           save-if: "false" # use the cache from nextest, but don’t double-save
+          # TODO: the python script should use the quick-release cargo profile, but currently does not
       - run: pip3 install --user -r requirements.txt
       - run: python3 tests/sanity/backward_compatible.py
 
   cargo_nextest:
-    name: "Cargo Nextest"
+    name: "Cargo Nextest (${{matrix.name}})"
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -124,7 +125,7 @@ jobs:
           python3 -m pip install --progress-bar off --user -r requirements.txt
           python3 tests/sanity/spin_up_cluster.py
 
-      - run: cargo build -p neard --bin neard
+      - run: cargo build --profile quick-release -p neard --bin neard
       - run: python3 scripts/state/update_res.py check
 
       - run: python3 scripts/check_nightly.py
@@ -133,9 +134,12 @@ jobs:
 
       - run: python3 scripts/fix_nightly_feature_flags.py
 
+      # TODO: this should probably be a separate job
       - run: ./scripts/formatting --check
 
+      # TODO: this should probably be a separate job
       - name: check rpc_errors_schema.json
+        # TODO: the command ran and suggested are different. why? unify.
         run: |
           rm -f target/rpc_errors_schema.json
           cargo check -p near-jsonrpc --features dump_errors_schema
