@@ -123,7 +123,12 @@ impl TestEnv {
 
         let mut keep_going = true;
         while keep_going {
-            for network_adapter in network_adapters.iter() {
+            // for network_adapter in network_adapters.iter() {
+            for i in 0..network_adapters.len() {
+                let network_adapter = network_adapters.get(i).unwrap();
+                let _span =
+                    tracing::debug_span!(target: "test", "process_partial_encoded_chunks", client=i).entered();
+
                 keep_going = false;
                 // process partial encoded chunks
                 while let Some(request) = network_adapter.pop() {
