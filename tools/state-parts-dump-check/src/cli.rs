@@ -133,9 +133,9 @@ impl SingleCheckCommand {
 }
 
 impl LoopCheckCommand {
-    // Connect to an RPC server to request latest epoch information. 
+    // Connect to an RPC server to request latest epoch information.
     // Whenever an epoch is complete, use the location specified by root_dir/s3_bucket&s3_location/gcs_bucket to download parts and validate them.
-    // Metrics will be emitted for epoch_height and dumped/valid/invalid/total state parts of the shard. 
+    // Metrics will be emitted for epoch_height and dumped/valid/invalid/total state parts of the shard.
     fn run(
         &self,
         chain_id: String,
