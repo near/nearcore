@@ -208,31 +208,53 @@ impl StorageUsageConfig {
 /// We can assume that no overflow will happen here.
 pub fn transfer_exec_fee(
     cfg: &RuntimeFeesConfig,
-    is_receiver_implicit: bool,
+    implicit_account_creation_allowed: bool,
     receiver_account_type: AccountType,
 ) -> Gas {
-    let mut result = cfg.fee(ActionCosts::transfer).exec_fee();
-    if is_receiver_implicit {
-        result += cfg.fee(ActionCosts::create_account).exec_fee();
-        if receiver_account_type == AccountType::NearImplicitAccount {
-            result += cfg.fee(ActionCosts::add_full_access_key).exec_fee();
+    let implicit_account_creation =
+        implicit_account_creation_allowed && receiver_account_type.is_implicit();
+    if !implicit_account_creation {
+        // No account will be created, just a regular transfer.
+        cfg.fee(ActionCosts::transfer).exec_fee()
+    } else {
+        match receiver_account_type {
+            // Extra fees for the CreateAccount and AddFullAccessKey.
+            AccountType::NearImplicitAccount => {
+                cfg.fee(ActionCosts::transfer).exec_fee()
+                    + cfg.fee(ActionCosts::create_account).exec_fee()
+                    + cfg.fee(ActionCosts::add_full_access_key).exec_fee()
+            }
+            // These arms are impossible, as we checked for `is_implicit` above.
+            AccountType::EthImplicitAccount | AccountType::NamedAccount => {
+                panic!("must be near-implicit")
+            }
         }
     }
-    result
 }
 
 pub fn transfer_send_fee(
     cfg: &RuntimeFeesConfig,
     sender_is_receiver: bool,
-    is_receiver_implicit: bool,
+    implicit_account_creation_allowed: bool,
     receiver_account_type: AccountType,
 ) -> Gas {
-    let mut result = cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
-    if is_receiver_implicit {
-        result += cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver);
-        if receiver_account_type == AccountType::NearImplicitAccount {
-            result += cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver);
+    let implicit_account_creation =
+        implicit_account_creation_allowed && receiver_account_type.is_implicit();
+    if !implicit_account_creation {
+        // No account will be created, just a regular transfer.
+        cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver)
+    } else {
+        match receiver_account_type {
+            // Extra fees for the CreateAccount and AddFullAccessKey.
+            AccountType::NearImplicitAccount => {
+                cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver)
+                    + cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
+                    + cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
+            }
+            // These arms are impossible, as we checked for `is_implicit` above.
+            AccountType::EthImplicitAccount | AccountType::NamedAccount => {
+                panic!("must be near-implicit")
+            }
         }
     }
-    result
 }

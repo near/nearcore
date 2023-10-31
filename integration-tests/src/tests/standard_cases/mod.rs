@@ -336,12 +336,12 @@ pub fn transfer_tokens_implicit_account(node: impl Node, public_key: PublicKey) 
     let root = node_user.get_state_root();
     let tokens_used = 10u128.pow(25);
     let fee_helper = fee_helper(&node);
-    let receiver_id = derive_near_implicit_account_id(&public_key);
+    let receiver_id = derive_near_implicit_account_id(public_key.unwrap_as_ed25519());
 
     let transfer_cost = match receiver_id.get_account_type() {
         AccountType::NearImplicitAccount => fee_helper.create_account_transfer_full_key_cost(),
-        AccountType::EthImplicitAccount => std::panic!("must be implicit"),
-        AccountType::NamedAccount => std::panic!("must be implicit"),
+        AccountType::EthImplicitAccount => std::panic!("must be near-implicit"),
+        AccountType::NamedAccount => std::panic!("must be near-implicit"),
     };
 
     let transaction_result =
@@ -369,8 +369,8 @@ pub fn transfer_tokens_implicit_account(node: impl Node, public_key: PublicKey) 
         AccountType::NearImplicitAccount => {
             assert_eq!(view_access_key.unwrap(), AccessKey::full_access().into());
         }
-        AccountType::EthImplicitAccount => std::panic!("must be implicit"),
-        AccountType::NamedAccount => std::panic!("must be implicit"),
+        AccountType::EthImplicitAccount => std::panic!("must be near-implicit"),
+        AccountType::NamedAccount => std::panic!("must be near-implicit"),
     }
 
     let transaction_result =
@@ -401,7 +401,7 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
     let root = node_user.get_state_root();
     let tokens_used = 10u128.pow(25);
     let fee_helper = fee_helper(&node);
-    let receiver_id = derive_near_implicit_account_id(&public_key);
+    let receiver_id = derive_near_implicit_account_id(public_key.unwrap_as_ed25519());
 
     let transaction_result = node_user
         .create_account(
@@ -414,17 +414,18 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
 
     let cost = match receiver_id.get_account_type() {
         AccountType::NearImplicitAccount => {
-            fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
-                + fee_helper.gas_to_balance(
-                    fee_helper.cfg().fee(ActionCosts::create_account).send_fee(false)
-                        + fee_helper
-                            .cfg()
-                            .fee(near_primitives::config::ActionCosts::add_full_access_key)
-                            .send_fee(false),
-                )
+            let fail_cost =
+                fee_helper.create_account_transfer_full_key_cost_fail_on_create_account();
+            let create_account_fee =
+                fee_helper.cfg().fee(ActionCosts::create_account).send_fee(false);
+            let add_access_key_fee = fee_helper
+                .cfg()
+                .fee(near_primitives::config::ActionCosts::add_full_access_key)
+                .send_fee(false);
+            fail_cost + fee_helper.gas_to_balance(create_account_fee + add_access_key_fee)
         }
-        AccountType::EthImplicitAccount => std::panic!("must be implicit"),
-        AccountType::NamedAccount => std::panic!("must be implicit"),
+        AccountType::EthImplicitAccount => std::panic!("must be near-implicit"),
+        AccountType::NamedAccount => std::panic!("must be near-implicit"),
     };
 
     assert_eq!(

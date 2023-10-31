@@ -64,10 +64,14 @@ pub use errors::{ParseAccountError, ParseErrorKind};
 #[derive(Eq, Ord, Hash, Clone, Debug, PartialEq, PartialOrd)]
 pub struct AccountId(Box<str>);
 
+/// Enum representing possible types of accounts.
 #[derive(PartialEq)]
 pub enum AccountType {
+    /// Any valid account, that is neither NEAR-implicit nor ETH-implicit.
     NamedAccount,
+    /// An account with 64 characters long hexadecimal address.
     NearImplicitAccount,
+    /// An account which address starts with '0x', followed by 40 hex characters.
     EthImplicitAccount,
 }
 
@@ -75,7 +79,7 @@ impl AccountType {
     pub fn is_implicit(&self) -> bool {
         match &self {
             Self::NearImplicitAccount => true,
-            // TODO change to true later, see https://github.com/near/nearcore/issues/10018
+            // TODO(eth-implicit) change to true later, see https://github.com/near/nearcore/issues/10018
             Self::EthImplicitAccount => false,
             Self::NamedAccount => false,
         }
@@ -150,7 +154,7 @@ impl AccountId {
             .map_or(false, |s| !s.contains('.'))
     }
 
-    /// Returns `true` if the `AccountId` is a 40 characters long hexadecimal prefixed with '0x'.
+    /// Returns `true` if the `AccountId` is '0x' followed by 40 hex characters (42 characters in total).
     ///
     /// See [Implicit-Accounts](https://docs.near.org/docs/concepts/account#implicit-accounts).
     ///
@@ -475,7 +479,9 @@ mod tests {
         "10-4.8-2",
         "b-o_w_e-n",
         "no_lols",
+        // NEAR-implicit account
         "0123456789012345678901234567890123456789012345678901234567890123",
+        // ETH-implicit account
         "0xb794f5ea0ba39494ce839613fffba74279579268",
         // Valid, but can't be created
         "near.a",
@@ -592,7 +598,9 @@ mod tests {
             "alex-skidanov",
             "b-o_w_e-n",
             "no_lols",
+            // ETH-implicit account
             "0xb794f5ea0ba39494ce839613fffba74279579268",
+            // NEAR-implicit account
             "0123456789012345678901234567890123456789012345678901234567890123",
         ];
         for account_id in ok_top_level_account_ids {
@@ -719,6 +727,7 @@ mod tests {
             ),
             (
                 "b794f5ea0ba39494ce839613fffba74279579268",
+                // ETH-implicit account
                 "0xb794f5ea0ba39494ce839613fffba74279579268",
             ),
             ("aa", "ъ@aa"),
@@ -764,6 +773,7 @@ mod tests {
             "fffff_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             "oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo",
             "00000000000000000000000000000000000000000000000000000000000000",
+            "0xb794f5ea0ba39494ce839613fffba74279579268",
         ];
         for invalid_account_id in invalid_near_implicit_account_ids {
             assert!(
@@ -805,6 +815,7 @@ mod tests {
             "0xfffff_ffffffffffffffffffffffffffffffffff",
             "0xoooooooooooooooooooooooooooooooooooooooo",
             "0x00000000000000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000000000000000000000",
         ];
         for invalid_account_id in invalid_eth_implicit_account_ids {
             assert!(

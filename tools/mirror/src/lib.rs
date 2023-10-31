@@ -1008,7 +1008,7 @@ impl<T: ChainAccess> TxMirror<T> {
                             {
                                 let public_key =
                                     PublicKey::from_near_implicit_account(&target_account)
-                                        .expect("must be implicit");
+                                        .expect("must be near-implicit");
                                 nonce_updates.insert((target_account, public_key));
                             }
                         }

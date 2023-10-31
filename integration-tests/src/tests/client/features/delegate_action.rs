@@ -860,8 +860,8 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
 
     let tx_cost = match new_account.get_account_type() {
         AccountType::NearImplicitAccount => fee_helper.create_account_transfer_full_key_cost(),
-        AccountType::EthImplicitAccount => panic!("must be implicit"),
-        AccountType::NamedAccount => panic!("must be implicit"),
+        AccountType::EthImplicitAccount => panic!("must be near-implicit"),
+        AccountType::NamedAccount => panic!("must be near-implicit"),
     };
     check_meta_tx_no_fn_call(
         &node,

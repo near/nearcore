@@ -203,7 +203,8 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
 fn test_transaction_hash_collision_for_implicit_account_fail() {
     let protocol_version = ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version();
     let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
-    let implicit_account_id = derive_near_implicit_account_id(&secret_key.public_key());
+    let implicit_account_id =
+        derive_near_implicit_account_id(secret_key.public_key().unwrap_as_ed25519());
     let implicit_account_signer = InMemorySigner::from_secret_key(implicit_account_id, secret_key);
     assert_matches!(
         get_status_of_tx_hash_collision_for_implicit_account(
@@ -220,7 +221,8 @@ fn test_transaction_hash_collision_for_implicit_account_ok() {
     let protocol_version =
         ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
     let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
-    let implicit_account_id = derive_near_implicit_account_id(&secret_key.public_key());
+    let implicit_account_id =
+        derive_near_implicit_account_id(secret_key.public_key().unwrap_as_ed25519());
     let implicit_account_signer = InMemorySigner::from_secret_key(implicit_account_id, secret_key);
     assert_matches!(
         get_status_of_tx_hash_collision_for_implicit_account(

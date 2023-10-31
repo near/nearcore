@@ -17,7 +17,7 @@ use crate::version::{
     CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION,
 };
 
-use near_crypto::{KeyType, PublicKey};
+use near_crypto::ED25519PublicKey;
 use near_primitives_core::account::id::AccountId;
 
 use std::mem::size_of;
@@ -471,23 +471,22 @@ where
 
 /// Derives `AccountId` from `PublicKey``.
 /// If the key type is ED25519, returns hex-encoded copy of the key.
-pub fn derive_near_implicit_account_id(public_key: &PublicKey) -> AccountId {
-    match public_key.key_type() {
-        KeyType::ED25519 => hex::encode(public_key.key_data()).parse().unwrap(),
-        _ => unimplemented!(),
-    }
+pub fn derive_near_implicit_account_id(public_key: &ED25519PublicKey) -> AccountId {
+    hex::encode(public_key).parse().unwrap()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use near_crypto::{KeyType, PublicKey};
 
     #[test]
     fn test_derive_account_id_from_ed25519_public_key() {
         let public_key = PublicKey::from_seed(KeyType::ED25519, "test");
         let expected: AccountId =
             "bb4dc639b212e075a751685b26bdcea5920a504181ff2910e8549742127092a0".parse().unwrap();
-        assert_eq!(derive_near_implicit_account_id(&public_key), expected);
+        let account_id = derive_near_implicit_account_id(public_key.unwrap_as_ed25519());
+        assert_eq!(account_id, expected);
     }
 
     #[test]

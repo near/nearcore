@@ -429,6 +429,7 @@ pub(crate) fn action_create_account(
     ));
 }
 
+/// Can only be used for NEAR-implicit accounts.
 pub(crate) fn action_implicit_account_creation_transfer(
     state_update: &mut TrieUpdate,
     fee_config: &RuntimeFeesConfig,
@@ -472,7 +473,9 @@ pub(crate) fn action_implicit_account_creation_transfer(
         }
         // Invariant: The `account_id` is implicit.
         // It holds because in the only calling site, we've checked the permissions before.
-        AccountType::EthImplicitAccount | AccountType::NamedAccount => panic!("must be implicit"),
+        AccountType::EthImplicitAccount | AccountType::NamedAccount => {
+            panic!("must be near-implicit")
+        }
     }
 }
 
