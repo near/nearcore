@@ -24,21 +24,28 @@ const MAX_RETRIES: u32 = 3;
 pub struct StatePartsDumpCheckCommand {
     #[clap(long)]
     chain_id: String,
+    // the root dir to use when retrieving state parts from local storage
     #[clap(long, value_parser)]
     root_dir: Option<PathBuf>,
+    // the s3 bucket to use when retrieving state parts from S3
     #[clap(long)]
     s3_bucket: Option<String>,
+    // the s3 region to use when retrieving state parts from S3
     #[clap(long)]
     s3_region: Option<String>,
+    // the gcs bucket to use when retrieving state parts from GCP
     #[clap(long)]
     gcs_bucket: Option<String>,
+    // this can be either loop-check or single-check
     #[clap(subcommand)]
     subcmd: StatePartsDumpCheckSubCommand,
 }
 
 #[derive(clap::Subcommand)]
 pub enum StatePartsDumpCheckSubCommand {
+    /// Download and validate the state parts given the epoch_id, epoch_height, state_root and shard_id
     SingleCheck(SingleCheckCommand),
+    /// Runs an infinite loop to download and validate state parts of all 4 shards for each epoch when it becomes available
     LoopCheck(LoopCheckCommand),
 }
 
@@ -47,6 +54,7 @@ pub struct LoopCheckCommand {
     /// Listen address for prometheus metrics.
     #[clap(long, default_value = "0.0.0.0:9090")]
     prometheus_addr: String,
+    // address of RPC server to retrieve latest block, epoch information
     #[clap(long)]
     rpc_server_addr: Option<String>,
 }
@@ -61,12 +69,6 @@ pub struct SingleCheckCommand {
     state_root: StateRoot,
     #[clap(long)]
     shard_id: ShardId,
-}
-
-#[derive(Clone)]
-pub enum StatePartsDumpCheckStatus {
-    Done { epoch_height: u64 },
-    WaitingForParts { epoch_height: u64 },
 }
 
 impl StatePartsDumpCheckCommand {
@@ -102,7 +104,7 @@ impl StatePartsDumpCheckSubCommand {
 }
 
 impl SingleCheckCommand {
-    pub fn run(
+    fn run(
         &self,
         chain_id: String,
         root_dir: Option<PathBuf>,
@@ -131,6 +133,9 @@ impl SingleCheckCommand {
 }
 
 impl LoopCheckCommand {
+    // Connect to an RPC server to request latest epoch information. 
+    // Whenever an epoch is complete, use the location specified by root_dir/s3_bucket&s3_location/gcs_bucket to download parts and validate them.
+    // Metrics will be emitted for epoch_height and dumped/valid/invalid/total state parts of the shard. 
     fn run(
         &self,
         chain_id: String,
@@ -180,13 +185,22 @@ impl LoopCheckCommand {
 }
 
 #[derive(Clone)]
-pub struct DumpCheckIterInfo {
-    pub prev_epoch_id: EpochId,
-    pub prev_epoch_height: u64,
-    pub prev_epoch_state_roots: Vec<CryptoHash>,
+// whether the check for the specified epoch's state part dump is finished or waiting
+enum StatePartsDumpCheckStatus {
+    // download and validation for dumped parts of the epoch is done
+    Done { epoch_height: u64 },
+    // not all required parts are dumped for the epoch
+    WaitingForParts { epoch_height: u64 },
 }
 
-pub fn create_external_connection(
+#[derive(Clone)]
+struct DumpCheckIterInfo {
+    prev_epoch_id: EpochId,
+    prev_epoch_height: u64,
+    prev_epoch_state_roots: Vec<CryptoHash>,
+}
+
+fn create_external_connection(
     root_dir: Option<PathBuf>,
     bucket: Option<String>,
     region: Option<String>,
@@ -231,6 +245,7 @@ fn validate_state_part(state_root: &StateRoot, part_id: PartId, part: &[u8]) -> 
     }
 }
 
+// run an infinite loop to download and validate state parts for all shards whenever new epoch becomes available
 fn run_loop_all_shards(
     chain_id: String,
     root_dir: Option<PathBuf>,
@@ -408,6 +423,7 @@ async fn run_single_check_with_3_retries(
     res
 }
 
+// download and validate state parts for a single epoch and shard
 async fn run_single_check(
     chain_id: String,
     epoch_id: EpochId,
@@ -614,6 +630,7 @@ async fn process_part(
     Ok(())
 }
 
+// get epoch information of the latest epoch that's complete
 async fn get_processing_epoch_information(
     rpc_client: &JsonRpcClient,
 ) -> anyhow::Result<DumpCheckIterInfo> {
