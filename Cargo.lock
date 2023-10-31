@@ -3340,8 +3340,9 @@ dependencies = [
 
 [[package]]
 name = "near-account-id"
-version = "0.17.0"
-source = "git+https://github.com/near/near-account-id-rs?branch=main#dc69707ee47adbeb5f9319328aa21b723ae0f4cf"
+version = "1.0.0-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e328ed1bf9045c46595cc88274a46a6412e3a070c2ad3c146e2f94ed150a7c2"
 dependencies = [
  "borsh 1.0.0",
  "serde",
