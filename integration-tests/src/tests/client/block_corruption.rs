@@ -26,7 +26,7 @@ fn create_tx_load(height: BlockHeight, last_block: &Block) -> Vec<SignedTransact
 }
 
 /// Producing block with all `shard_id`s equal to 100.
-/// Expecting it too fail processing.
+/// Expecting it to fail processing.
 #[test]
 fn change_shard_id_to_invalid() {
     init_test_logger();
@@ -51,7 +51,7 @@ fn change_shard_id_to_invalid() {
     env.process_block(0, block.clone(), Provenance::PRODUCED);
     last_block = block;
 
-    // Produce block for coruption
+    // Produce block for corruption
 
     let txs = create_tx_load(2, &last_block);
     for tx in txs {
