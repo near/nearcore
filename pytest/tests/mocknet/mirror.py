@@ -290,11 +290,12 @@ def status_cmd(args, traffic_generator, nodes):
 
 
 def reset_cmd(args, traffic_generator, nodes):
-    print(
-        'this will reset all nodes\' home dirs to their initial states right after test initialization finished. continue? [yes/no]'
-    )
-    if sys.stdin.readline().strip() != 'yes':
-        sys.exit()
+    if not args.yes:
+        print(
+            'this will reset all nodes\' home dirs to their initial states right after test initialization finished. continue? [yes/no]'
+        )
+        if sys.stdin.readline().strip() != 'yes':
+            sys.exit()
     all_nodes = nodes + [traffic_generator]
     pmap(neard_runner_reset, all_nodes)
     logger.info(
@@ -505,6 +506,7 @@ if __name__ == '__main__':
     the test can be reset from the start without having to do that again. This command resets all nodes'
     data dirs to what was saved then, so that start-traffic will start the test all over again.
     ''')
+    reset_parser.add_argument('--yes', action='store_true')
     reset_parser.set_defaults(func=reset_cmd)
 
     args = parser.parse_args()

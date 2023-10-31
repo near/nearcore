@@ -425,6 +425,7 @@ class NeardRunner:
     def do_reset(self):
         with self.lock:
             state = self.get_state()
+            logging.info(f"do_reset {state}")
             if state == TestState.RUNNING:
                 self.kill_neard()
                 self.set_state(TestState.RESETTING)
@@ -796,6 +797,7 @@ class NeardRunner:
 
     def reset_near_home(self):
         try:
+            logging.info("removing the old directory")
             shutil.rmtree(self.target_near_home_path('data'))
         except FileNotFoundError:
             pass
@@ -855,10 +857,13 @@ def main():
     # only let one instance of this code run at a time
     _fd = get_lock(args.home)
 
+    logging.info("creating neard runner")
     runner = NeardRunner(args)
 
+    logging.info("downloading binaries")
     runner.download_binaries()
 
+    logging.info("serve")
     runner.serve(args.port)
 
 
