@@ -1299,9 +1299,6 @@ fn test_shard_layout_upgrade_incoming_receipts_impl_v1() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V1, 42);
 }
 
-// TODO(resharding) Add another test like this but drop more chunks and at
-// random. The _missing_chunks tests below test only the case when all chunks
-// are missing in block but can likely be adjusted for this case.
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_42() {
@@ -1391,19 +1388,54 @@ fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v1() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V1, 0.9, 42);
 }
 
+// V2, low missing prob
+
 #[test]
-fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2() {
+fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_42() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 42);
 }
 
 #[test]
-fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 42);
+fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_43() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 43);
 }
 
 #[test]
-fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2() {
+fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_44() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 44);
+}
+
+// V2, mid missing prob
+
+#[test]
+fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_42() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 42);
+}
+#[test]
+fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_43() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 43);
+}
+
+#[test]
+fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_44() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 44);
+}
+
+// V2, high missing prob
+
+#[test]
+fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_42() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 42);
+}
+
+#[test]
+fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_43() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 43);
+}
+
+#[test]
+fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_44() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 44);
 }
 
 // TODO(resharding) add a test with missing blocks
