@@ -656,47 +656,58 @@ pub mod epoch_info {
                 let block_producers_sampler = stake_weights(&block_producers_settlement);
                 let chunk_producers_sampler =
                     chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
-                #[cfg(feature = "protocol_feature_chunk_validation")]
-                return Self::V4(EpochInfoV4 {
-                    epoch_height,
-                    validators,
-                    fishermen,
-                    validator_to_index,
-                    block_producers_settlement,
-                    chunk_producers_settlement,
-                    hidden_validators_settlement,
-                    stake_change,
-                    validator_reward,
-                    validator_kickout,
-                    fishermen_to_index,
-                    minted_amount,
-                    seat_price,
-                    protocol_version,
-                    rng_seed,
-                    block_producers_sampler,
-                    chunk_producers_sampler,
-                    validator_mandates,
-                });
-                #[cfg(not(feature = "protocol_feature_chunk_validation"))]
-                Self::V3(EpochInfoV3 {
-                    epoch_height,
-                    validators,
-                    fishermen,
-                    validator_to_index,
-                    block_producers_settlement,
-                    chunk_producers_settlement,
-                    hidden_validators_settlement,
-                    stake_change,
-                    validator_reward,
-                    validator_kickout,
-                    fishermen_to_index,
-                    minted_amount,
-                    seat_price,
-                    protocol_version,
-                    rng_seed,
-                    block_producers_sampler,
-                    chunk_producers_sampler,
-                })
+                if checked_feature!(
+                    "protocol_feature_chunk_validation",
+                    ChunkValidation,
+                    protocol_version
+                ) {
+                    // This block is entered only if feature `protocol_feature_chunk_validation` is
+                    // enabled. In that case `validator_mandates` is a parameter of the function and
+                    // the variable shadowing below is not included. Still, the following
+                    // declaration of `validator_mandates` is needed to satisfy the compiler.
+                    #[cfg(not(feature = "protocol_feature_chunk_validation"))]
+                    let validator_mandates = Default::default();
+                    Self::V4(EpochInfoV4 {
+                        epoch_height,
+                        validators,
+                        fishermen,
+                        validator_to_index,
+                        block_producers_settlement,
+                        chunk_producers_settlement,
+                        hidden_validators_settlement,
+                        stake_change,
+                        validator_reward,
+                        validator_kickout,
+                        fishermen_to_index,
+                        minted_amount,
+                        seat_price,
+                        protocol_version,
+                        rng_seed,
+                        block_producers_sampler,
+                        chunk_producers_sampler,
+                        validator_mandates,
+                    })
+                } else {
+                    Self::V3(EpochInfoV3 {
+                        epoch_height,
+                        validators,
+                        fishermen,
+                        validator_to_index,
+                        block_producers_settlement,
+                        chunk_producers_settlement,
+                        hidden_validators_settlement,
+                        stake_change,
+                        validator_reward,
+                        validator_kickout,
+                        fishermen_to_index,
+                        minted_amount,
+                        seat_price,
+                        protocol_version,
+                        rng_seed,
+                        block_producers_sampler,
+                        chunk_producers_sampler,
+                    })
+                }
             } else {
                 Self::V2(EpochInfoV2 {
                     epoch_height,
