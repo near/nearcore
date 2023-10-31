@@ -627,8 +627,16 @@ impl Client {
         }
 
         let new_chunks = self.get_chunk_headers_ready_for_inclusion(&epoch_id, &prev_hash);
-        debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}, {} new chunks: {:?}", validator_signer.validator_id(),
-               next_height, prev.height(), format_hash(head.last_block_hash), new_chunks.len(), new_chunks.keys().sorted());
+        debug!(
+            target: "client",
+            validator=?validator_signer.validator_id(),
+            next_height=next_height,
+            prev_height=prev.height(),
+            prev_hash=format_hash(head.last_block_hash),
+            new_chunks_count=new_chunks.len(),
+            new_chunks=?new_chunks.keys().sorted().collect_vec(),
+            "Producing block",
+        );
 
         // If we are producing empty blocks and there are no transactions.
         if !self.config.produce_empty_blocks && new_chunks.is_empty() {

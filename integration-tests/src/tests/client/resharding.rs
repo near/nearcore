@@ -1390,16 +1390,19 @@ fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v1() {
 
 // V2, low missing prob
 
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_42() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 42);
 }
 
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_43() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 43);
 }
 
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_44() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 44);
@@ -1407,15 +1410,19 @@ fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_44() {
 
 // V2, mid missing prob
 
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_42() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 42);
 }
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_43() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 43);
 }
 
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_44() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 44);
@@ -1423,16 +1430,19 @@ fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_44() {
 
 // V2, high missing prob
 
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_42() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 42);
 }
 
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_43() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 43);
 }
 
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_44() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 44);
