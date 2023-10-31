@@ -5,6 +5,7 @@ mod cold_storage;
 #[cfg(feature = "new_epoch_sync")]
 mod epoch_sync;
 mod features;
+mod field_changes;
 mod flat_storage;
 mod process_blocks;
 mod resharding;
