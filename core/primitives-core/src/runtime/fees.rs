@@ -211,24 +211,19 @@ pub fn transfer_exec_fee(
     implicit_account_creation_allowed: bool,
     receiver_account_type: AccountType,
 ) -> Gas {
-    let implicit_account_creation =
-        implicit_account_creation_allowed && receiver_account_type.is_implicit();
-    if !implicit_account_creation {
+    let transfer_fee = cfg.fee(ActionCosts::transfer).exec_fee();
+    let create_account_fee = cfg.fee(ActionCosts::create_account).exec_fee();
+    let add_access_key_fee = cfg.fee(ActionCosts::add_full_access_key).exec_fee();
+
+    match (implicit_account_creation_allowed, receiver_account_type) {
+        // Regular transfer to a named account.
+        (_, AccountType::NamedAccount) => transfer_fee,
         // No account will be created, just a regular transfer.
-        cfg.fee(ActionCosts::transfer).exec_fee()
-    } else {
-        match receiver_account_type {
-            // Extra fees for the CreateAccount and AddFullAccessKey.
-            AccountType::NearImplicitAccount => {
-                cfg.fee(ActionCosts::transfer).exec_fee()
-                    + cfg.fee(ActionCosts::create_account).exec_fee()
-                    + cfg.fee(ActionCosts::add_full_access_key).exec_fee()
-            }
-            // These arms are impossible, as we checked for `is_implicit` above.
-            AccountType::EthImplicitAccount | AccountType::NamedAccount => {
-                panic!("must be near-implicit")
-            }
-        }
+        (false, _) => transfer_fee,
+        // Currently, no account is created on transfer to ETH-implicit account, just a regular transfer.
+        (true, AccountType::EthImplicitAccount) => transfer_fee,
+        // Extra fees for the CreateAccount and AddFullAccessKey.
+        (true, AccountType::NearImplicitAccount) => transfer_fee + create_account_fee + add_access_key_fee,
     }
 }
 
@@ -238,23 +233,18 @@ pub fn transfer_send_fee(
     implicit_account_creation_allowed: bool,
     receiver_account_type: AccountType,
 ) -> Gas {
-    let implicit_account_creation =
-        implicit_account_creation_allowed && receiver_account_type.is_implicit();
-    if !implicit_account_creation {
+    let transfer_fee = cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
+    let create_account_fee = cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver);
+    let add_access_key_fee = cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver);
+    
+    match (implicit_account_creation_allowed, receiver_account_type) {
+        // Regular transfer to a named account.
+        (_, AccountType::NamedAccount) => transfer_fee,
         // No account will be created, just a regular transfer.
-        cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver)
-    } else {
-        match receiver_account_type {
-            // Extra fees for the CreateAccount and AddFullAccessKey.
-            AccountType::NearImplicitAccount => {
-                cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver)
-                    + cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
-                    + cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
-            }
-            // These arms are impossible, as we checked for `is_implicit` above.
-            AccountType::EthImplicitAccount | AccountType::NamedAccount => {
-                panic!("must be near-implicit")
-            }
-        }
+        (false, _) => transfer_fee,
+        // Currently, no account is created on transfer to ETH-implicit account, just a regular transfer.
+        (true, AccountType::EthImplicitAccount) => transfer_fee,
+        // Extra fees for the CreateAccount and AddFullAccessKey.
+        (true, AccountType::NearImplicitAccount) => transfer_fee + create_account_fee + add_access_key_fee,
     }
 }
