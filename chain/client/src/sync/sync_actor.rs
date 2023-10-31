@@ -45,6 +45,10 @@ impl SyncActor {
             ClientSyncMessage::StartSync(SyncShardInfo { sync_hash, shard_uid }) => {
                 assert_eq!(shard_uid, self.shard_uid, "Message is not for this shard SyncActor");
                 // Start syncing the shard.
+                if self.sync_hash == sync_hash {
+                    debug!(target: "sync", shard_id = ?self.shard_uid.shard_id, "Sync already running.");
+                    return;
+                }
                 info!(target: "sync", shard_id = ?self.shard_uid.shard_id, "Startgin sync on shard");
                 // TODO: Add logic to commence state sync.
                 self.sync_hash = sync_hash;
