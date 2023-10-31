@@ -11,7 +11,7 @@ on:
 jobs:
   backward_compat:
     name: "Backward Compatibility"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04-16core
     defaults:
       run:
         working-directory: ./pytest
@@ -70,7 +70,7 @@ jobs:
 
   db_migration:
     name: "Database Migration"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04-16core
     defaults:
       run:
         working-directory: ./pytest
@@ -152,7 +152,7 @@ jobs:
 
   upgradability:
     name: "Upgradability"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04-16core
     defaults:
       run:
         working-directory: ./pytest
