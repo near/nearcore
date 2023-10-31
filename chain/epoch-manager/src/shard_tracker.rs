@@ -126,10 +126,16 @@ impl ShardTracker {
                 .epoch_manager
                 .cares_about_shard_from_prev_block(parent_hash, account_id, shard_id)
                 .unwrap_or(false);
-            if !is_me {
-                return account_cares_about_shard;
-            } else if account_cares_about_shard {
+            if account_cares_about_shard {
+                // An account has to track this shard because of its validation duties.
                 return true;
+            }
+            if !is_me {
+                // We don't know how another node is configured.
+                // It may track all shards, it may track no additional shards.
+                return false;
+            } else {
+                // We have access to the node config. Use the config to find a definite answer.
             }
         }
         match self.tracked_config {
@@ -164,10 +170,15 @@ impl ShardTracker {
                     .unwrap_or(false)
             };
             if account_cares_about_shard {
+                // An account has to track this shard because of its validation duties.
                 return true;
             }
             if !is_me {
+                // We don't know how another node is configured.
+                // It may track all shards, it may track no additional shards.
                 return false;
+            } else {
+                // We have access to the node config. Use the config to find a definite answer.
             }
         }
         match self.tracked_config {

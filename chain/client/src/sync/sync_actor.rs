@@ -49,7 +49,7 @@ impl SyncActor {
                     debug!(target: "sync", shard_id = ?self.shard_uid.shard_id, "Sync already running.");
                     return;
                 }
-                info!(target: "sync", shard_id = ?self.shard_uid.shard_id, "Startgin sync on shard");
+                info!(target: "sync", shard_id = ?self.shard_uid.shard_id, "Starting sync on shard");
                 // TODO: Add logic to commence state sync.
                 self.sync_hash = sync_hash;
             }
