@@ -5,7 +5,7 @@ use near_client_primitives::debug::{
 #[cfg(feature = "debug_types")]
 use near_primitives::views::{
     CatchupStatusView, ChainProcessingInfo, NetworkGraphView, NetworkRoutesView, PeerStoreView,
-    RecentOutboundConnectionsView, RequestedStatePartsView, SyncStatusView,
+    RecentOutboundConnectionsView, RequestedStatePartsView, SnapshotHostsView, SyncStatusView,
 };
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -33,6 +33,7 @@ pub enum DebugStatusResponse {
     NetworkGraph(NetworkGraphView),
     RecentOutboundConnections(RecentOutboundConnectionsView),
     Routes(NetworkRoutesView),
+    SnapshotHosts(SnapshotHostsView),
 }
 
 #[cfg(feature = "debug_types")]

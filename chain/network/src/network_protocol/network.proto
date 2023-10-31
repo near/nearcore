@@ -429,6 +429,19 @@ message StateResponse {
   StateResponseInfo state_response_info = 1;
 }
 
+message SnapshotHostInfo {
+  PublicKey peer_id = 1; 
+  CryptoHash sync_hash = 2;
+  uint64 epoch_height = 3;
+  repeated uint64 shards = 4;
+  Signature signature = 5;
+}
+
+message SyncSnapshotHosts {
+  // Information about peers in the network hosting state snapshots
+  repeated SnapshotHostInfo hosts = 1;
+}
+
 // PeerMessage is a wrapper of all message types exchanged between NEAR nodes.
 // The wire format of a single message M consists of len(M)+4 bytes:
 // <len(M)> : 4 bytes : little endian uint32
@@ -484,5 +497,6 @@ message PeerMessage {
     StateRequestHeader state_request_header = 29;
     StateRequestPart state_request_part = 30;
     StateResponse state_response = 31;
+    SyncSnapshotHosts sync_snapshot_hosts = 32;
   }
 }

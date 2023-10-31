@@ -3,7 +3,7 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
     PeerInfo, PeerMessage, RoutedMessageBody, SignedAccountData, SignedOwnedAccount,
-    SyncAccountsData,
+    SnapshotHostInfo, SyncAccountsData, SyncSnapshotHosts,
 };
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
@@ -104,6 +104,8 @@ pub(crate) struct Connection {
 
     /// Demultiplexer for the calls to send_accounts_data().
     pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
+    /// Demultiplexer for the calls to send_snapshot_hosts().
+    pub send_snapshot_hosts_demux: demux::Demux<Vec<Arc<SnapshotHostInfo>>, ()>,
 }
 
 impl fmt::Debug for Connection {
@@ -177,6 +179,48 @@ impl Connection {
             if res.is_err() {
                 tracing::info!(
                     "peer {} disconnected, while sending SyncAccountsData",
+                    this.peer_info.id
+                );
+            }
+        }
+    }
+
+    pub fn send_snapshot_hosts(
+        self: &Arc<Self>,
+        data: Vec<Arc<SnapshotHostInfo>>,
+    ) -> impl Future<Output = ()> {
+        let this = self.clone();
+        async move {
+            let res = this
+                .send_snapshot_hosts_demux
+                .call(data, {
+                    let this = this.clone();
+                    |ds: Vec<Vec<Arc<SnapshotHostInfo>>>| async move {
+                        let res = ds.iter().map(|_| ()).collect();
+                        let mut sum = HashMap::<_, Arc<SnapshotHostInfo>>::new();
+                        for d in ds.into_iter().flatten() {
+                            match sum.entry(d.peer_id.clone()) {
+                                Entry::Occupied(mut x) => {
+                                    if x.get().epoch_height < d.epoch_height {
+                                        x.insert(d);
+                                    }
+                                }
+                                Entry::Vacant(x) => {
+                                    x.insert(d);
+                                }
+                            }
+                        }
+                        let msg = Arc::new(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts {
+                            hosts: sum.into_values().collect(),
+                        }));
+                        this.send_message(msg);
+                        res
+                    }
+                })
+                .await;
+            if res.is_err() {
+                tracing::info!(
+                    "peer {} disconnected, while sending SyncSnapshotHosts",
                     this.peer_info.id
                 );
             }

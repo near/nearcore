@@ -1,6 +1,7 @@
 use crate::client;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
+use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::{
     Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
 };
@@ -15,7 +16,7 @@ use crate::tcp;
 use crate::types::{
     ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
-    SetChainInfo,
+    SetChainInfo, SnapshotHostInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
@@ -25,10 +26,12 @@ use near_async::time;
 use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
+use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::types::EpochHeight;
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
-    RecentOutboundConnectionsView,
+    RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
 };
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
@@ -239,6 +242,7 @@ impl PeerManagerActor {
             let arbiter = arbiter.clone();
             let state = state.clone();
             let clock = clock.clone();
+            let peer_id = my_peer_id.clone();
             async move {
                 // Start server if address provided.
                 if let Some(server_addr) = &state.config.node_addr {
@@ -783,6 +787,22 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
+            NetworkRequests::SnapshotHostInfo { sync_hash, epoch_height, shards } => {
+                // Sign the information about the locally created snapshot using the keys in the
+                // network config before broadcasting it
+                let snapshot_host_info = SnapshotHostInfo::new(
+                    self.state.config.node_id(),
+                    sync_hash,
+                    epoch_height,
+                    shards,
+                    &self.state.config.node_key,
+                );
+
+                self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncSnapshotHosts(
+                    SyncSnapshotHosts { hosts: vec![snapshot_host_info.into()] },
+                )));
+                NetworkResponses::NoResponse
+            }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
                 self.state.disconnect_and_ban(&self.clock, &peer_id, ban_reason);
                 NetworkResponses::NoResponse
@@ -1072,6 +1092,20 @@ impl actix::Handler<GetDebugStatus> for PeerManagerActor {
                 })
             }
             GetDebugStatus::Routes => DebugStatus::Routes(self.state.graph_v2.get_debug_view()),
+            GetDebugStatus::SnapshotHosts => DebugStatus::SnapshotHosts(SnapshotHostsView {
+                hosts: self
+                    .state
+                    .snapshot_hosts
+                    .get_hosts()
+                    .iter()
+                    .map(|h| SnapshotHostInfoView {
+                        peer_id: h.peer_id.clone(),
+                        sync_hash: h.sync_hash,
+                        epoch_height: h.epoch_height,
+                        shards: h.shards.clone(),
+                    })
+                    .collect::<Vec<_>>(),
+            }),
         }
     }
 }

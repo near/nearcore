@@ -149,6 +149,8 @@ pub struct NetworkConfig {
     pub archive: bool,
     /// Maximal rate at which SyncAccountsData can be broadcasted.
     pub accounts_data_broadcast_rate_limit: rate::Limit,
+    /// Maximal rate at which SyncSnapshotHosts can be broadcasted.
+    pub snapshot_hosts_broadcast_rate_limit: rate::Limit,
     /// Maximal rate at which RoutingTable can be recomputed.
     pub routing_table_update_rate_limit: rate::Limit,
     /// Config of the TIER1 network.
@@ -318,6 +320,7 @@ impl NetworkConfig {
             outbound_disabled: false,
             archive,
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 0.1, burst: 1 },
+            snapshot_hosts_broadcast_rate_limit: rate::Limit { qps: 0.1, burst: 1 },
             routing_table_update_rate_limit: rate::Limit { qps: 1., burst: 1 },
             tier1: Some(Tier1 {
                 connect_interval: cfg.experimental.tier1_connect_interval.try_into()?,
@@ -386,6 +389,7 @@ impl NetworkConfig {
             inbound_disabled: false,
             archive: false,
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
+            snapshot_hosts_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
             routing_table_update_rate_limit: rate::Limit { qps: 10., burst: 1 },
             tier1: Some(Tier1 {
                 // Interval is very large, so that it doesn't happen spontaneously in tests.
