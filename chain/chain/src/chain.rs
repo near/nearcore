@@ -1251,13 +1251,19 @@ impl Chain {
                 // We must verify that content matches and signature is empty.
                 // TODO: this code will not work when genesis block has different number of chunks as the current block
                 // https://github.com/near/nearcore/issues/4908
-                let genesis_chunk = &genesis_block.chunks()[shard_id];
+                let chunks = genesis_block.chunks();
+                let genesis_chunk = chunks.get(shard_id);
+                let genesis_chunk = genesis_chunk.ok_or(Error::InvalidChunk)?;
+
                 if genesis_chunk.chunk_hash() != chunk_header.chunk_hash()
                     || genesis_chunk.signature() != chunk_header.signature()
                 {
                     return Err(Error::InvalidChunk);
                 }
             } else if chunk_header.height_created() == block.header().height() {
+                if chunk_header.shard_id() != shard_id as ShardId {
+                    return Err(Error::InvalidShardId(chunk_header.shard_id()));
+                }
                 if !epoch_manager.verify_chunk_header_signature(
                     &chunk_header.clone(),
                     block.header().epoch_id(),
@@ -1265,9 +1271,6 @@ impl Chain {
                 )? {
                     byzantine_assert!(false);
                     return Err(Error::InvalidChunk);
-                }
-                if chunk_header.shard_id() != shard_id as ShardId {
-                    return Err(Error::InvalidShardId(chunk_header.shard_id()));
                 }
             }
         }
