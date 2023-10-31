@@ -562,6 +562,7 @@ impl StateSync {
         let possible_targets = self.possible_targets(shard_id, highest_height_peers)?;
 
         if possible_targets.is_empty() {
+            tracing::debug!(target: "sync", "Can't request a state header: No possible targets");
             // In most cases it means that all the targets are currently busy (that we have a pending request with them).
             return Ok(());
         }
@@ -602,6 +603,7 @@ impl StateSync {
         new_shard_sync_download: &mut ShardSyncDownload,
     ) {
         let peer_id = possible_targets.choose(&mut thread_rng()).cloned().unwrap();
+        tracing::debug!(target: "sync", ?peer_id, shard_id, ?sync_hash, ?possible_targets, "request_shard_header");
         assert!(new_shard_sync_download.downloads[0].run_me.load(Ordering::SeqCst));
         new_shard_sync_download.downloads[0].run_me.store(false, Ordering::SeqCst);
         new_shard_sync_download.downloads[0].state_requests_count += 1;

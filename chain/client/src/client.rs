@@ -2727,15 +2727,16 @@ impl Client {
     /// check_And_update_doomslug_tip, but that would require a bigger refactor.
     pub(crate) fn send_network_chain_info(&mut self) -> Result<(), Error> {
         let tip = self.chain.head()?;
-        // convert config tracked shards
-        // runtime will track all shards if config tracked shards is not empty
-        // https://github.com/near/nearcore/issues/4930
-        let tracked_shards = if self.config.tracked_shards.is_empty() {
-            vec![]
-        } else {
-            let num_shards = self.epoch_manager.num_shards(&tip.epoch_id)?;
-            (0..num_shards).collect()
-        };
+
+        // TODO: How expensive is it to recompute the set of tracked shards?
+        let num_shards = self.epoch_manager.num_shards(&tip.epoch_id)?;
+        let mut tracked_shards = vec![];
+        let me = self.validator_signer.as_ref().map(|x| x.validator_id());
+        for shard_id in 0..num_shards {
+            if self.shard_tracker.care_about_shard(me, &tip.last_block_hash, shard_id, true) {
+                tracked_shards.push(shard_id);
+            }
+        }
         let tier1_accounts = self.get_tier1_accounts(&tip)?;
         let block = self.chain.get_block(&tip.last_block_hash)?;
         self.network_adapter.send(SetChainInfo(ChainInfo {
