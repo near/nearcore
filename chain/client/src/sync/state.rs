@@ -502,48 +502,27 @@ impl StateSync {
         }
     }
 
-    /// Find possible targets to download state from.
-    /// Candidates are peers at highest height.
-    /// Only select candidates that we have no pending request currently ongoing.
-    fn possible_targets(
-        &mut self,
-        shard_id: ShardId,
-        highest_height_peers: &[HighestHeightPeerInfo],
-    ) -> Result<Vec<PeerId>, near_chain::Error> {
-        let peers = highest_height_peers
-            .iter()
-            .filter_map(|peer| {
-                // Select peers that are high enough (if they are syncing themselves, they might not have the data that we want)
-                //  and that are tracking the shard.
-                // TODO: possible optimization - simply select peers that have height greater than the epoch start that we're asking for.
-                if peer.tracked_shards.contains(&shard_id) {
-                    Some(peer.peer_info.id.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        Ok(self.select_peers(peers, shard_id)?)
-    }
-
     /// Avoids peers that already have outstanding requests for parts.
     fn select_peers(
         &mut self,
-        peers: Vec<PeerId>,
+        highest_height_peers: &[HighestHeightPeerInfo],
         shard_id: ShardId,
     ) -> Result<Vec<PeerId>, near_chain::Error> {
+        let peers :Vec<PeerId> = highest_height_peers.iter().map(|peer|peer.peer_info.id.clone()).collect();
         let res = match &mut self.inner {
             StateSyncInner::Peers { last_part_id_requested, .. } => {
                 last_part_id_requested.retain(|_, request| !request.expired());
                 peers
                     .into_iter()
-                    .filter(|candidate| {
+                    .filter(|peer| {
                         // If we still have a pending request from this node - don't add another one.
-                        !last_part_id_requested.contains_key(&(candidate.clone(), shard_id))
+                        !last_part_id_requested.contains_key(&(peer.clone(), shard_id))
                     })
                     .collect::<Vec<_>>()
             }
-            StateSyncInner::PartsFromExternal { .. } => peers,
+            StateSyncInner::PartsFromExternal { .. } => {
+                peers
+            },
         };
         Ok(res)
     }
@@ -559,7 +538,7 @@ impl StateSync {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         state_parts_arbiter_handle: &ArbiterHandle,
     ) -> Result<(), near_chain::Error> {
-        let possible_targets = self.possible_targets(shard_id, highest_height_peers)?;
+        let possible_targets = self.select_peers(highest_height_peers, shard_id)?;
 
         if possible_targets.is_empty() {
             tracing::debug!(target: "sync", "Can't request a state header: No possible targets");
