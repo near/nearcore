@@ -387,7 +387,7 @@ fn test_tx_invalid_tx_error() {
                             let bytes = borsh::to_vec(&transaction_copy).unwrap();
                             spawn_interruptible(
                                 client
-                                    .broadcast_tx_commit(to_base64(&bytes))
+                                    .EXPERIMENTAL_broadcast_tx_sync(to_base64(&bytes))
                                     .map_err(move |err| {
                                         let error_json = serde_json::to_value(err).unwrap();
 

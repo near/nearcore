@@ -418,6 +418,115 @@ fn test_tx_not_enough_balance_must_return_error() {
 
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
+fn test_send_tx_sync_returns_transaction_hash() {
+    init_integration_logger();
+
+    let cluster = NodeCluster::default()
+        .set_num_shards(1)
+        .set_num_nodes(2)
+        .set_num_validator_seats(1)
+        .set_num_lightclients(0)
+        .set_epoch_length(10)
+        .set_genesis_height(0);
+
+    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
+        let view_client = clients[0].1.clone();
+
+        let genesis_hash = *genesis_block(&genesis).hash();
+        let signer =
+            InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
+        let transaction = SignedTransaction::send_money(
+            1,
+            "near.0".parse().unwrap(),
+            "near.0".parse().unwrap(),
+            &signer,
+            10000,
+            genesis_hash,
+        );
+
+        let client = new_client(&format!("http://{}", rpc_addrs[0]));
+        let tx_hash = transaction.get_hash();
+        let bytes = borsh::to_vec(&transaction).unwrap();
+
+        spawn_interruptible(async move {
+            loop {
+                let res = view_client.send(GetBlock::latest().with_span_context()).await;
+                if let Ok(Ok(block)) = res {
+                    if block.header.height > 10 {
+                        let response =
+                            client.EXPERIMENTAL_broadcast_tx_sync(to_base64(&bytes)).await.unwrap();
+                        assert_eq!(response["transaction_hash"], tx_hash.to_string());
+                        System::current().stop();
+                        break;
+                    }
+                }
+                sleep(std::time::Duration::from_millis(500)).await;
+            }
+        });
+    });
+}
+
+#[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
+fn test_send_tx_sync_to_lightclient_must_be_routed() {
+    init_integration_logger();
+
+    let cluster = NodeCluster::default()
+        .set_num_shards(1)
+        .set_num_validator_seats(1)
+        .set_num_lightclients(1)
+        .set_epoch_length(10)
+        .set_genesis_height(0);
+
+    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
+        let view_client = clients[0].1.clone();
+
+        let genesis_hash = *genesis_block(&genesis).hash();
+        let signer =
+            InMemorySigner::from_seed("near.1".parse().unwrap(), KeyType::ED25519, "near.1");
+        let transaction = SignedTransaction::send_money(
+            1,
+            "near.1".parse().unwrap(),
+            "near.1".parse().unwrap(),
+            &signer,
+            10000,
+            genesis_hash,
+        );
+
+        let client = new_client(&format!("http://{}", rpc_addrs[1]));
+        let tx_hash = transaction.get_hash();
+        let bytes = borsh::to_vec(&transaction).unwrap();
+
+        spawn_interruptible(async move {
+            loop {
+                let res = view_client.send(GetBlock::latest().with_span_context()).await;
+                if let Ok(Ok(block)) = res {
+                    if block.header.height > 10 {
+                        let _ = client
+                            .EXPERIMENTAL_broadcast_tx_sync(to_base64(&bytes))
+                            .map_err(|err| {
+                                assert_eq!(
+                                    err.data.unwrap(),
+                                    serde_json::json!(format!(
+                                        "Transaction with hash {} was routed",
+                                        tx_hash
+                                    ))
+                                );
+                                System::current().stop();
+                            })
+                            .map_ok(|_| panic!("Transaction must not succeed"))
+                            .await;
+                        break;
+                    }
+                }
+                sleep(std::time::Duration::from_millis(500)).await;
+            }
+        });
+    });
+}
+
+#[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_check_unknown_tx_must_return_error() {
     init_integration_logger();
 

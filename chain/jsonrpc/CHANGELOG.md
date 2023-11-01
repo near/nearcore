@@ -10,7 +10,6 @@
 ### Breaking changes
 
 * Removed `EXPERIMENTAL_check_tx` method. Use `tx` method instead
-* Removed `EXPERIMENTAL_broadcast_tx_sync` method. Use `send_tx` method instead
 * `EXPERIMENTAL_tx_status`, `tx` methods now wait for recently sent tx (~3-6 seconds) and then show it. Previously, `UnknownTransaction` was immediately returned
 * `EXPERIMENTAL_tx_status`, `tx` methods wait 10 seconds and then return `TimeoutError` for never existed transactions. Previously, `UnknownTransaction` was immediately returned
 
