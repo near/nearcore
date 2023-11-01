@@ -240,7 +240,7 @@ impl ShardLayout {
 pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardId {
     match shard_layout {
         ShardLayout::V0(ShardLayoutV0 { num_shards, .. }) => {
-            let hash = CryptoHash::hash_bytes(account_id.as_ref().as_bytes());
+            let hash = CryptoHash::hash_bytes(account_id.as_bytes());
             let (bytes, _) = stdx::split_array::<32, 8, 24>(hash.as_bytes());
             u64::from_le_bytes(*bytes) % num_shards
         }

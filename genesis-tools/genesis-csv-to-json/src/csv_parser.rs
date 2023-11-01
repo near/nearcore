@@ -249,7 +249,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
             predecessor_id: row.account_id.clone(),
             receiver_id: row.account_id.clone(),
             // `receipt_id` can be anything as long as it is unique.
-            receipt_id: hash(row.account_id.as_ref().as_bytes()),
+            receipt_id: hash(row.account_id.as_bytes()),
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: row.account_id.clone(),
                 // `signer_public_key` can be anything because the key checks are not applied when
