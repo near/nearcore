@@ -604,7 +604,7 @@ fn produce_block_with_approvals_arrived_early() {
                             (NetworkResponses::NoResponse.into(), true)
                         }
                         NetworkRequests::Approval { approval_message } => {
-                            if approval_message.target.as_ref() == "test1"
+                            if approval_message.target == "test1"
                                 && approval_message.approval.target_height == 4
                             {
                                 approval_counter += 1;
@@ -2978,7 +2978,7 @@ fn test_epoch_protocol_version_change() {
             .unwrap();
         let chunk_producer =
             env.clients[0].epoch_manager.get_chunk_producer(&epoch_id, i, 0).unwrap();
-        let index = if chunk_producer.as_ref() == "test0" { 0 } else { 1 };
+        let index = if chunk_producer == "test0" { 0 } else { 1 };
         let (encoded_chunk, merkle_paths, receipts) =
             create_chunk_on_height(&mut env.clients[index], i);
 
@@ -3000,7 +3000,7 @@ fn test_epoch_protocol_version_change() {
             .get_epoch_id_from_prev_block(&head.last_block_hash)
             .unwrap();
         let block_producer = env.clients[0].epoch_manager.get_block_producer(&epoch_id, i).unwrap();
-        let index = if block_producer.as_ref() == "test0" { 0 } else { 1 };
+        let index = if block_producer == "test0" { 0 } else { 1 };
         let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
         // upgrade to new protocol version but in the second epoch one node vote for the old version.
         if i != 10 {

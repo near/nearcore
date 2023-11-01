@@ -2935,7 +2935,7 @@ mod tests {
         let config_store = RuntimeConfigStore::new(None);
         let config = config_store.get_config(PROTOCOL_VERSION);
         let view = RuntimeConfigView::from(RuntimeConfig::clone(config));
-        insta::assert_json_snapshot!(&view);
+        insta::assert_json_snapshot!(&view, { ".wasm_config.vm_kind" => "<REDACTED>"});
     }
 
     /// `ExecutionMetadataView` with profile V1 displayed on the RPC should not change.

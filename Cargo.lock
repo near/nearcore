@@ -2755,13 +2755,15 @@ dependencies = [
 
 [[package]]
 name = "insta"
-version = "1.26.0"
+version = "1.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6f0f08b46e4379744de2ab67aa8f7de3ffd1da3e275adc41fcc82053ede46ff"
+checksum = "5d64600be34b2fcfc267740a243fa7744441bb4947a619ac4e5bb6507f35fbfc"
 dependencies = [
  "console",
  "lazy_static",
  "linked-hash-map",
+ "pest",
+ "pest_derive",
  "serde",
  "similar",
  "yaml-rust",
@@ -3340,23 +3342,12 @@ dependencies = [
 
 [[package]]
 name = "near-account-id"
-version = "0.0.0"
+version = "1.0.0-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e328ed1bf9045c46595cc88274a46a6412e3a070c2ad3c146e2f94ed150a7c2"
 dependencies = [
- "arbitrary",
- "bolero",
  "borsh 1.0.0",
  "serde",
- "serde_json",
-]
-
-[[package]]
-name = "near-account-id-fuzz"
-version = "0.0.0"
-dependencies = [
- "borsh 1.0.0",
- "libfuzzer-sys",
- "near-account-id",
- "serde_json",
 ]
 
 [[package]]
@@ -4226,6 +4217,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-state-parts-dump-check"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "actix-web",
+ "anyhow",
+ "borsh 1.0.0",
+ "clap 4.2.4",
+ "cloud-storage",
+ "near-client",
+ "near-jsonrpc",
+ "near-o11y",
+ "near-primitives",
+ "near-primitives-core",
+ "near-store",
+ "nearcore",
+ "once_cell",
+ "reqwest",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "near-stdx"
 version = "0.0.0"
 
@@ -4644,6 +4658,7 @@ dependencies = [
  "near-ping",
  "near-primitives",
  "near-state-parts",
+ "near-state-parts-dump-check",
  "near-store",
  "near-undo-block",
  "nearcore",
@@ -5130,6 +5145,50 @@ name = "percent-encoding"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "478c572c3d73181ff3c2539045f6eb99e5491218eae919370993b890cdbdd98e"
+
+[[package]]
+name = "pest"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dbc7bc69c062e492337d74d59b120c274fd3d261b6bf6d3207d499b4b379c41a"
+dependencies = [
+ "thiserror",
+ "ucd-trie",
+]
+
+[[package]]
+name = "pest_derive"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60b75706b9642ebcb34dab3bc7750f811609a0eb1dd8b88c2d15bf628c1c65b2"
+dependencies = [
+ "pest",
+ "pest_generator",
+]
+
+[[package]]
+name = "pest_generator"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4f9272122f5979a6511a749af9db9bfc810393f63119970d7085fed1c4ea0db"
+dependencies = [
+ "pest",
+ "pest_meta",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.103",
+]
+
+[[package]]
+name = "pest_meta"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c8717927f9b79515e565a64fe46c38b8cd0427e64c40680b14a7365ab09ac8d"
+dependencies = [
+ "once_cell",
+ "pest",
+ "sha1",
+]
 
 [[package]]
 name = "petgraph"
@@ -7338,6 +7397,12 @@ name = "typenum"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dcf81ac59edc17cc8697ff311e8f5ef2d99fcbd9817b34cec66f90b6c3dfd987"
+
+[[package]]
+name = "ucd-trie"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed646292ffc8188ef8ea4d1e0e0150fb15a5c2e12ad9b8fc191ae7a8a7f3c4b9"
 
 [[package]]
 name = "uint"

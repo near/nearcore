@@ -7,7 +7,7 @@ use crate::genesis_validate::validate_genesis;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_config_utils::ValidationError;
-use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
+use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::StateRoot;
@@ -213,18 +213,6 @@ impl From<&GenesisConfig> for EpochConfig {
             },
             validator_max_kickout_stake_perc: config.max_kickout_stake_perc,
         }
-    }
-}
-
-impl From<&GenesisConfig> for AllEpochConfig {
-    fn from(genesis_config: &GenesisConfig) -> Self {
-        let initial_epoch_config = EpochConfig::from(genesis_config);
-        let epoch_config = Self::new(
-            genesis_config.use_production_config(),
-            initial_epoch_config,
-            &genesis_config.chain_id,
-        );
-        epoch_config
     }
 }
 

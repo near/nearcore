@@ -379,6 +379,7 @@ impl Ord for OrderedValidatorStake {
 mod tests {
     use super::*;
     use near_crypto::{KeyType, PublicKey};
+    use near_primitives::account::id::AccountIdRef;
     use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochInfoV3};
     use near_primitives::epoch_manager::ValidatorSelectionConfig;
     use near_primitives::shard_layout::ShardLayout;
@@ -513,11 +514,11 @@ mod tests {
         let kickout = epoch_info.validator_kickout();
         assert_eq!(kickout.len(), 2);
         assert_eq!(
-            kickout.get("test1").unwrap(),
+            kickout.get(AccountIdRef::new_or_panic("test1")).unwrap(),
             &ValidatorKickoutReason::NotEnoughStake { stake: test1_stake, threshold: 2011 },
         );
         assert_eq!(
-            kickout.get("test2").unwrap(),
+            kickout.get(AccountIdRef::new_or_panic("test2")).unwrap(),
             &ValidatorKickoutReason::NotEnoughStake { stake: 2002, threshold: 2011 },
         );
     }
@@ -726,7 +727,7 @@ mod tests {
 
         // stake below validator threshold, but above fishermen threshold become fishermen
         let fishermen: Vec<_> = epoch_info.fishermen_iter().map(|v| v.take_account_id()).collect();
-        assert_eq!(fishermen, vec!["test4".parse().unwrap()]);
+        assert_eq!(fishermen, vec!["test4"]);
 
         // too low stakes are kicked out
         let kickout = epoch_info.validator_kickout();
@@ -736,11 +737,11 @@ mod tests {
         #[cfg(not(feature = "protocol_feature_fix_staking_threshold"))]
         let expected_threshold = 300;
         assert_eq!(
-            kickout.get("test5").unwrap(),
+            kickout.get(AccountIdRef::new_or_panic("test5")).unwrap(),
             &ValidatorKickoutReason::NotEnoughStake { stake: 100, threshold: expected_threshold },
         );
         assert_eq!(
-            kickout.get("test6").unwrap(),
+            kickout.get(AccountIdRef::new_or_panic("test6")).unwrap(),
             &ValidatorKickoutReason::NotEnoughStake { stake: 50, threshold: expected_threshold },
         );
 

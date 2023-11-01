@@ -194,9 +194,7 @@ impl Test {
                         partial_encoded_chunk: _,
                     } => {
                         partial_chunk_msgs += 1;
-                        if self.drop_to_4_from.contains(&from_whom.as_str())
-                            && to_whom.as_ref() == "test4"
-                        {
+                        if self.drop_to_4_from.contains(&from_whom.as_str()) && to_whom == "test4" {
                             println!(
                                 "Dropping Partial Encoded Chunk Message from {from_whom} to test4"
                             );
@@ -208,9 +206,7 @@ impl Test {
                             println!("Dropping Partial Encoded Chunk Forward Message");
                             return (NetworkResponses::NoResponse.into(), false);
                         }
-                        if self.drop_to_4_from.contains(&from_whom.as_str())
-                            && to_whom.as_ref() == "test4"
-                        {
+                        if self.drop_to_4_from.contains(&from_whom.as_str()) && to_whom == "test4" {
                             println!(
                             "Dropping Partial Encoded Chunk Forward Message from {from_whom} to test4"
                         );
@@ -224,15 +220,13 @@ impl Test {
                         target: AccountIdOrPeerTrackingShard { account_id: Some(to_whom), .. },
                         ..
                     } => {
-                        if self.drop_to_4_from.contains(&to_whom.as_str())
-                            && from_whom.as_ref() == "test4"
-                        {
+                        if self.drop_to_4_from.contains(&to_whom.as_str()) && from_whom == "test4" {
                             info!("Dropping Partial Encoded Chunk Request from test4 to {to_whom}");
                             return (NetworkResponses::NoResponse.into(), false);
                         }
                         if !self.drop_to_4_from.is_empty()
-                            && from_whom.as_ref() == "test4"
-                            && to_whom.as_ref() == "test2"
+                            && from_whom == "test4"
+                            && to_whom == "test2"
                         {
                             info!("Observed Partial Encoded Chunk Request from test4 to test2");
                         }

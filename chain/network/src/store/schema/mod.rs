@@ -20,7 +20,7 @@ pub struct AccountIdFormat;
 impl Format for AccountIdFormat {
     type T = AccountId;
     fn encode<W: io::Write>(a: &AccountId, w: &mut W) -> io::Result<()> {
-        w.write_all(a.as_ref().as_bytes())
+        w.write_all(a.as_bytes())
     }
     fn decode(a: &[u8]) -> Result<AccountId, Error> {
         std::str::from_utf8(a).map_err(invalid_data)?.parse().map_err(invalid_data)

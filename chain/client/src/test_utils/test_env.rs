@@ -123,7 +123,12 @@ impl TestEnv {
 
         let mut keep_going = true;
         while keep_going {
-            for network_adapter in network_adapters.iter() {
+            // for network_adapter in network_adapters.iter() {
+            for i in 0..network_adapters.len() {
+                let network_adapter = network_adapters.get(i).unwrap();
+                let _span =
+                    tracing::debug_span!(target: "test", "process_partial_encoded_chunks", client=i).entered();
+
                 keep_going = false;
                 // process partial encoded chunks
                 while let Some(request) = network_adapter.pop() {
@@ -430,8 +435,10 @@ impl TestEnv {
         relayer: AccountId,
         receiver_id: AccountId,
     ) -> SignedTransaction {
-        let inner_signer = InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, &sender);
-        let relayer_signer = InMemorySigner::from_seed(relayer.clone(), KeyType::ED25519, &relayer);
+        let inner_signer =
+            InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, sender.as_str());
+        let relayer_signer =
+            InMemorySigner::from_seed(relayer.clone(), KeyType::ED25519, relayer.as_str());
         let tip = self.clients[0].chain.head().unwrap();
         let user_nonce = tip.height + 1;
         let relayer_nonce = tip.height + 1;
