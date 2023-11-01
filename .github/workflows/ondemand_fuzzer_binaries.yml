@@ -51,8 +51,9 @@ jobs:
           sudo mkswap $SWAP_FILE
           sudo swapon $SWAP_FILE
 
-      - name: Install cargo fuzz subcommand crate
-        run: cargo install cargo-fuzz
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: cargo-bolero
 
       - run: rustup target add --toolchain nightly wasm32-unknown-unknown
 
@@ -69,16 +70,20 @@ jobs:
         with:
           ref: ${{ github.event.inputs.branch_ref }}
 
-      - run: pip install -r scripts/build_fuzzers_requirements.txt
-
       - name: Build Release branch fuzz targets
         if: ${{ github.event.action == 'released'}}
-        run: python3 scripts/build_fuzzers.py release
+        run: echo "branch_type=release" >> "$GITHUB_ENV"
 
       - name: Build RC branch fuzz targets
         if: ${{ github.event.action == 'prereleased'}}
-        run: python3 scripts/build_fuzzers.py rc
+        run: echo "branch_type=rc" >> "$GITHUB_ENV"
 
       - name: Build fuzz targets from ${{ github.event.inputs.branch_ref }}" branch
         if: ${{ github.event_name == 'workflow_dispatch'}}
-        run: python3 scripts/build_fuzzers.py ${{ github.event.inputs.branch_type }}
+        run: echo "branch_type=${{ github.event.inputs.branch_type }}" >> "$GITHUB_ENV"
+
+      - name: "Compile fuzzers and upload to GCS"
+      - run: |
+          NAME="nearcore-$branch_type-$(env TZ=Etc/UTC  date +"%Y%m%d%H%M%S")"
+          cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
+          gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://fuzzer_targets/$branch_type/$NAME.tar.gz"

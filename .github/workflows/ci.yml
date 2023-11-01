@@ -130,7 +130,6 @@ jobs:
 
       - run: python3 scripts/check_nightly.py
       - run: python3 scripts/check_pytests.py
-      - run: python3 scripts/check_fuzzing.py
 
       - run: python3 scripts/fix_nightly_feature_flags.py
 
