@@ -1039,14 +1039,14 @@ pub mod epoch_sync {
     use crate::types::validator_stake::ValidatorStake;
     use borsh::{BorshDeserialize, BorshSerialize};
 
-    #[derive(BorshSerialize, BorshDeserialize)]
+    #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug)]
     pub struct BlockHeaderPair {
         pub header: BlockHeader,
         pub last_finalised_header: BlockHeader,
     }
 
     /// Struct to keep all the info that is transferred for one epoch during Epoch Sync.
-    #[derive(BorshSerialize, BorshDeserialize)]
+    #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug)]
     pub struct EpochSyncInfo {
         /// None is only used for corner case of the first epoch
         pub first: BlockHeaderPair,
