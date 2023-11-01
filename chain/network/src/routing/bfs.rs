@@ -134,10 +134,10 @@ impl Graph {
     /// Compute for every node `u` on the graph (other than `source`) which are the neighbors of
     /// `sources` which belong to the shortest path from `source` to `u`. Nodes that are
     /// not connected to `source` will not appear in the result.
-    pub fn calculate_distance(
+    pub fn calculate_next_hops_and_distance(
         &self,
         unreliable_peers: &HashSet<PeerId>,
-    ) -> HashMap<PeerId, Vec<PeerId>> {
+    ) -> (HashMap<PeerId, Vec<PeerId>>, HashMap<PeerId, u32>) {
         // TODO add removal of unreachable nodes
 
         let unreliable_peers: HashSet<_> =
@@ -189,8 +189,13 @@ impl Graph {
     ///   - routes - for node given node at index `i`, give list of connected peers, which
     ///     are on the optimal path
     ///   - distances - not really needed: TODO remove this argument
-    fn compute_result(&self, routes: &[u128], distance: &[i32]) -> HashMap<PeerId, Vec<PeerId>> {
+    fn compute_result(
+        &self,
+        routes: &[u128],
+        distance: &[i32],
+    ) -> (HashMap<PeerId, Vec<PeerId>>, HashMap<PeerId, u32>) {
         let mut res = HashMap::with_capacity(routes.len());
+        let mut distances = HashMap::with_capacity(routes.len());
 
         let neighbors = &self.adjacency[self.source_id as usize];
         let mut unreachable_nodes = 0;
@@ -217,11 +222,22 @@ impl Graph {
                 .map(|(_, &neighbor)| self.id2p[neighbor as usize].clone())
                 .collect();
             res.insert(self.id2p[key].clone(), peer_set);
+            distances.insert(self.id2p[key].clone(), distance[key] as u32);
         }
         if unreachable_nodes > 1000 {
             warn!("We store more than 1000 unreachable nodes: {}", unreachable_nodes);
         }
-        res
+
+        (res, distances)
+    }
+
+    #[cfg(test)]
+    pub fn calculate_distance(
+        &self,
+        unreliable_peers: &HashSet<PeerId>,
+    ) -> HashMap<PeerId, Vec<PeerId>> {
+        let (next_hops, _) = self.calculate_next_hops_and_distance(&unreliable_peers);
+        next_hops
     }
 }
 

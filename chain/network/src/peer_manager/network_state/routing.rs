@@ -144,6 +144,32 @@ impl NetworkState {
             .unwrap_or(Ok(()))
     }
 
+    fn record_routing_protocol_metrics(&self, target: &PeerId) {
+        let v1_dist = self.graph.routing_table.get_distance(target);
+        let v2_dist = self.graph_v2.routing_table.get_distance(target);
+
+        match (v1_dist, v2_dist) {
+            (None, None) => {
+                metrics::NETWORK_ROUTED_MSG_DISTANCES.with_label_values(&["v1, v2 NONE"]).inc();
+            }
+            (Some(_), None) => {
+                metrics::NETWORK_ROUTED_MSG_DISTANCES.with_label_values(&["v2 NONE"]).inc();
+            }
+            (None, Some(_)) => {
+                metrics::NETWORK_ROUTED_MSG_DISTANCES.with_label_values(&["v1 NONE"]).inc();
+            }
+            (Some(v1), Some(v2)) => {
+                if v1 == v2 {
+                    metrics::NETWORK_ROUTED_MSG_DISTANCES.with_label_values(&["v1 == v2"]).inc();
+                } else if v1 < v2 {
+                    metrics::NETWORK_ROUTED_MSG_DISTANCES.with_label_values(&["v1 < v2"]).inc();
+                } else {
+                    metrics::NETWORK_ROUTED_MSG_DISTANCES.with_label_values(&["v1 > v2"]).inc();
+                }
+            }
+        }
+    }
+
     pub(crate) fn tier2_find_route(
         &self,
         clock: &time::Clock,
@@ -151,6 +177,8 @@ impl NetworkState {
     ) -> Result<PeerId, FindRouteError> {
         match target {
             PeerIdOrHash::PeerId(peer_id) => {
+                self.record_routing_protocol_metrics(peer_id);
+
                 match self.graph.routing_table.find_next_hop_for_target(peer_id) {
                     Ok(peer_id) => Ok(peer_id),
                     Err(_) => self.graph_v2.routing_table.find_next_hop_for_target(peer_id),

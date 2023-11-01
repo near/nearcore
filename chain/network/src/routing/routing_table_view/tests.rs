@@ -20,7 +20,7 @@ fn find_route() {
 
     // Check that RoutingTableView always selects a valid next hop.
     let rtv = RoutingTableView::new();
-    rtv.update(next_hops.clone());
+    rtv.update(next_hops.clone(), Default::default());
     for _ in 0..1000 {
         let p = peers.choose(rng).unwrap();
         let got = rtv.find_next_hop_for_target(&p).unwrap();
