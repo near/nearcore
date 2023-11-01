@@ -26,7 +26,7 @@ pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Write;
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::str;
 use std::sync::Arc;
@@ -364,30 +364,21 @@ pub trait TrieAccess {
     fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError>;
 }
 
-/// Stores reference count addition for some key-value pair in DB.
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
-pub struct TrieRefcountAddition {
+/// Stores reference count change for some key-value pair in DB.
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct TrieRefcountChange {
     /// Hash of trie_node_or_value and part of the DB key.
     /// Used for uniting with shard id to get actual DB key.
     trie_node_or_value_hash: CryptoHash,
     /// DB value. Can be either serialized RawTrieNodeWithSize or value corresponding to
     /// some TrieKey.
     trie_node_or_value: Vec<u8>,
-    /// Reference count difference which will be added to the total refcount.
+    /// Reference count difference which will be added to the total refcount if it corresponds to
+    /// insertion and subtracted from it in the case of deletion.
     rc: std::num::NonZeroU32,
 }
 
-/// Stores reference count subtraction for some key in DB.
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
-pub struct TrieRefcountSubtraction {
-    /// Hash of trie_node_or_value and part of the DB key.
-    /// Used for uniting with shard id to get actual DB key.
-    trie_node_or_value_hash: CryptoHash,
-    /// Reference count difference which will be subtracted to the total refcount.
-    rc: std::num::NonZeroU32,
-}
-
-impl TrieRefcountAddition {
+impl TrieRefcountChange {
     pub fn hash(&self) -> &CryptoHash {
         &self.trie_node_or_value_hash
     }
@@ -395,61 +386,14 @@ impl TrieRefcountAddition {
     pub fn payload(&self) -> &[u8] {
         self.trie_node_or_value.as_slice()
     }
-
-    pub fn revert(&self) -> TrieRefcountSubtraction {
-        TrieRefcountSubtraction {
-            trie_node_or_value_hash: self.trie_node_or_value_hash,
-            rc: self.rc,
-        }
-    }
 }
 
-/// Helps produce a list of additions and subtractions to the trie,
-/// especially in the case where deletions don't carry the full value.
-pub struct TrieRefcountDeltaMap {
-    map: HashMap<CryptoHash, (Option<Vec<u8>>, i32)>,
-}
-
-impl TrieRefcountDeltaMap {
-    pub fn new() -> Self {
-        Self { map: HashMap::new() }
-    }
-
-    pub fn add(&mut self, hash: CryptoHash, data: Vec<u8>, refcount: u32) {
-        let (old_value, old_rc) = self.map.entry(hash).or_insert((None, 0));
-        *old_value = Some(data);
-        *old_rc += refcount as i32;
-    }
-
-    pub fn subtract(&mut self, hash: CryptoHash, refcount: u32) {
-        let (_, old_rc) = self.map.entry(hash).or_insert((None, 0));
-        *old_rc -= refcount as i32;
-    }
-
-    pub fn into_changes(self) -> (Vec<TrieRefcountAddition>, Vec<TrieRefcountSubtraction>) {
-        let mut insertions = Vec::new();
-        let mut deletions = Vec::new();
-        for (hash, (value, rc)) in self.map.into_iter() {
-            if rc > 0 {
-                insertions.push(TrieRefcountAddition {
-                    trie_node_or_value_hash: hash,
-                    trie_node_or_value: value.expect("value must be present"),
-                    rc: std::num::NonZeroU32::new(rc as u32).unwrap(),
-                });
-            } else if rc < 0 {
-                deletions.push(TrieRefcountSubtraction {
-                    trie_node_or_value_hash: hash,
-                    rc: std::num::NonZeroU32::new((-rc) as u32).unwrap(),
-                });
-            }
-        }
-        // Sort so that trie changes have unique representation.
-        insertions.sort();
-        deletions.sort();
-        (insertions, deletions)
+impl Hash for TrieRefcountChange {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(&self.trie_node_or_value_hash.0);
+        state.write_u32(self.rc.into());
     }
 }
-
 ///
 /// TrieChanges stores delta for refcount.
 /// Multiple versions of the state work the following way:
@@ -477,8 +421,8 @@ impl TrieRefcountDeltaMap {
 pub struct TrieChanges {
     pub old_root: StateRoot,
     pub new_root: StateRoot,
-    insertions: Vec<TrieRefcountAddition>,
-    deletions: Vec<TrieRefcountSubtraction>,
+    insertions: Vec<TrieRefcountChange>,
+    deletions: Vec<TrieRefcountChange>,
 }
 
 impl TrieChanges {
@@ -486,7 +430,7 @@ impl TrieChanges {
         TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
     }
 
-    pub fn insertions(&self) -> &[TrieRefcountAddition] {
+    pub fn insertions(&self) -> &[TrieRefcountChange] {
         self.insertions.as_slice()
     }
 }
@@ -654,8 +598,12 @@ impl Trie {
     ) -> Result<(), StorageError> {
         match value {
             ValueHandle::HashAndSize(value) => {
-                self.internal_retrieve_trie_node(&value.hash, true)?;
-                memory.refcount_changes.subtract(value.hash, 1);
+                let bytes = self.internal_retrieve_trie_node(&value.hash, true)?;
+                memory
+                    .refcount_changes
+                    .entry(value.hash)
+                    .or_insert_with(|| (bytes.to_vec(), 0))
+                    .1 -= 1;
             }
             ValueHandle::InMemory(_) => {
                 // do nothing
@@ -993,9 +941,9 @@ impl Trie {
     ) -> Result<StorageHandle, StorageError> {
         match self.retrieve_raw_node(hash, true)? {
             None => Ok(memory.store(TrieNodeWithSize::empty())),
-            Some((_, node)) => {
+            Some((bytes, node)) => {
                 let result = memory.store(TrieNodeWithSize::from_raw(node));
-                memory.refcount_changes.subtract(*hash, 1);
+                memory.refcount_changes.entry(*hash).or_insert_with(|| (bytes.to_vec(), 0)).1 -= 1;
                 Ok(result)
             }
         }
@@ -1263,6 +1211,32 @@ impl Trie {
             Some(FlatStateValue::Inlined(value)) => Ok(Some(value)),
             None => Ok(None),
         }
+    }
+
+    pub(crate) fn convert_to_insertions_and_deletions(
+        changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
+    ) -> (Vec<TrieRefcountChange>, Vec<TrieRefcountChange>) {
+        let mut deletions = Vec::new();
+        let mut insertions = Vec::new();
+        for (trie_node_or_value_hash, (trie_node_or_value, rc)) in changes.into_iter() {
+            if rc > 0 {
+                insertions.push(TrieRefcountChange {
+                    trie_node_or_value_hash,
+                    trie_node_or_value,
+                    rc: std::num::NonZeroU32::new(rc as u32).unwrap(),
+                });
+            } else if rc < 0 {
+                deletions.push(TrieRefcountChange {
+                    trie_node_or_value_hash,
+                    trie_node_or_value,
+                    rc: std::num::NonZeroU32::new((-rc) as u32).unwrap(),
+                });
+            }
+        }
+        // Sort so that trie changes have unique representation
+        insertions.sort();
+        deletions.sort();
+        (insertions, deletions)
     }
 
     pub fn update<I>(&self, changes: I) -> Result<TrieChanges, StorageError>
