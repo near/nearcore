@@ -3,7 +3,7 @@ use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{anyhow, bail, Context};
 use near_chain_configs::{
     get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
-    LogSummaryStyle, MutableConfigValue, StateSyncConfig,
+    LogSummaryStyle, MutableConfigValue, StateSplitConfig, StateSyncConfig,
 };
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -346,6 +346,7 @@ pub struct Config {
     /// chunks and underutilizing the capacity of the network.
     #[serde(default = "default_transaction_pool_size_limit")]
     pub transaction_pool_size_limit: Option<u64>,
+    pub state_split_config: StateSplitConfig,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -386,6 +387,7 @@ impl Default for Config {
             state_sync_enabled: None,
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
             enable_multiline_logging: None,
+            state_split_config: StateSplitConfig::default(),
         }
     }
 }
@@ -683,6 +685,7 @@ impl NearConfig {
                 state_snapshot_every_n_blocks: None,
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
                 enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),
+                state_split_config: config.state_split_config,
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -1071,6 +1074,11 @@ pub fn init_configs(
         _ => {
             // Create new configuration, key files and genesis for one validator.
             config.network.skip_sync_wait = true;
+
+            // Make sure node tracks all shards, see
+            // https://github.com/near/nearcore/issues/7388
+            config.tracked_shards = vec![0];
+
             if fast {
                 config.consensus.min_block_production_delay =
                     Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);

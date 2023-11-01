@@ -1,15 +1,9 @@
 use near_o11y::metrics::{
-    exponential_buckets, try_create_histogram, try_create_histogram_vec,
+    exponential_buckets, processing_time_buckets, try_create_histogram, try_create_histogram_vec,
     try_create_histogram_with_buckets, try_create_int_counter, try_create_int_gauge,
     try_create_int_gauge_vec, Histogram, HistogramVec, IntCounter, IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
-
-fn processing_time_buckets() -> Vec<f64> {
-    let mut buckets = vec![0.01, 0.025, 0.05, 0.1, 0.25, 0.5];
-    buckets.extend_from_slice(&exponential_buckets(1.0, 1.3, 12).unwrap());
-    buckets
-}
 
 pub static BLOCK_PROCESSING_ATTEMPTS_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
@@ -28,15 +22,6 @@ pub static BLOCK_PROCESSING_TIME: Lazy<Histogram> = Lazy::new(|| {
         "Time taken to process blocks successfully, from when a block is ready to be processed till when the processing is finished. Measures only the time taken by the successful attempts of block processing", 
         processing_time_buckets()
     ).unwrap()
-});
-pub static APPLYING_CHUNKS_TIME: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_applying_chunks_time",
-        "Time taken to apply chunks per shard",
-        &["shard_id"],
-        Some(processing_time_buckets()),
-    )
-    .unwrap()
 });
 pub static BLOCK_PREPROCESSING_TIME: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram("near_block_preprocessing_time", "Time taken to preprocess blocks, only include the time when the preprocessing is successful")
@@ -207,6 +192,36 @@ pub(crate) static RESHARDING_BATCH_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
         "near_resharding_batch_size",
         "The size of batches committed to the db.",
         &["shard_uid"],
+    )
+    .unwrap()
+});
+
+pub static RESHARDING_BATCH_PREPARE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_resharding_batch_prepare_time",
+        "Time needed to prepare a batch in resharding.",
+        &["shard_uid"],
+        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+pub static RESHARDING_BATCH_APPLY_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_resharding_batch_apply_time",
+        "Time needed to apply a batch in resharding.",
+        &["shard_uid"],
+        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+pub static RESHARDING_BATCH_COMMIT_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_resharding_batch_commit_time",
+        "Time needed to commit a batch in resharding.",
+        &["shard_uid"],
+        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
     )
     .unwrap()
 });

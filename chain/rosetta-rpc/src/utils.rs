@@ -163,6 +163,11 @@ impl From<u128> for SignedDiff<u128> {
     }
 }
 
+impl From<i64> for SignedDiff<u128> {
+    fn from(value: i64) -> Self {
+        Self { is_positive: value >= 0, absolute_difference: value.unsigned_abs() as u128 }
+    }
+}
 impl<T> SignedDiff<T>
 where
     T: Copy + PartialEq + std::ops::Sub<Output = T> + std::cmp::Ord,

@@ -4,9 +4,9 @@ use actix_rt::ArbiterHandle;
 use near_chain::{Block, ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManager;
 use near_o11y::metrics::{
-    exponential_buckets, linear_buckets, try_create_histogram_vec, try_create_int_counter_vec,
-    try_create_int_gauge, try_create_int_gauge_vec, HistogramVec, IntCounterVec, IntGauge,
-    IntGaugeVec,
+    exponential_buckets, linear_buckets, processing_time_buckets, try_create_histogram_vec,
+    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec, HistogramVec,
+    IntCounterVec, IntGauge, IntGaugeVec,
 };
 
 use near_primitives::{shard_layout::ShardLayout, state_record::StateRecord, trie_key};
@@ -14,6 +14,16 @@ use near_store::{ShardUId, Store, Trie, TrieDBStorage};
 use once_cell::sync::Lazy;
 
 use crate::NearConfig;
+
+pub static APPLYING_CHUNKS_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_applying_chunks_time",
+        "Time taken to apply chunks per shard",
+        &["shard_id"],
+        Some(processing_time_buckets()),
+    )
+    .unwrap()
+});
 
 pub(crate) static APPLY_CHUNK_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(

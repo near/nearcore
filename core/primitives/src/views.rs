@@ -1672,22 +1672,27 @@ pub struct TxStatusView {
     serde::Deserialize,
     Clone,
     Debug,
+    Default,
     Eq,
     PartialEq,
+    Ord,
+    PartialOrd,
 )]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TxExecutionStatus {
     /// Transaction is waiting to be included into the block
     None,
     /// Transaction is included into the block. The block may be not finalised yet
-    Inclusion,
+    Included,
     /// Transaction is included into finalised block
-    InclusionFinal,
+    IncludedFinal,
     /// Transaction is included into finalised block +
     /// All the transaction receipts finished their execution.
     /// The corresponding blocks for each receipt may be not finalised yet
     Executed,
     /// Transaction is included into finalised block +
     /// Execution of transaction receipts is finalised
+    #[default]
     Final,
 }
 
@@ -2930,7 +2935,7 @@ mod tests {
         let config_store = RuntimeConfigStore::new(None);
         let config = config_store.get_config(PROTOCOL_VERSION);
         let view = RuntimeConfigView::from(RuntimeConfig::clone(config));
-        insta::assert_json_snapshot!(&view);
+        insta::assert_json_snapshot!(&view, { ".wasm_config.vm_kind" => "<REDACTED>"});
     }
 
     /// `ExecutionMetadataView` with profile V1 displayed on the RPC should not change.

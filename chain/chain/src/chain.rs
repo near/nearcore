@@ -8,12 +8,12 @@ use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
 use crate::state_request_tracker::StateRequestTracker;
-use crate::state_snapshot_actor::MakeSnapshotCallback;
+use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplySplitStateResultOrStateChanges,
     ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader, BlockStatus, ChainConfig,
-    ChainGenesis, Provenance, RuntimeAdapter,
+    ChainGenesis, Provenance, RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -26,6 +26,7 @@ use chrono::Duration;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use itertools::Itertools;
 use lru::LruCache;
+use near_chain_configs::StateSplitConfig;
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::types::BlockHeaderInfo;
@@ -77,6 +78,7 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
+use near_store::config::StateSnapshotType;
 use near_store::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::get_genesis_state_roots;
 use near_store::{DBCol, ShardTries};
@@ -476,17 +478,20 @@ pub struct Chain {
     pub(crate) requested_state_parts: StateRequestTracker,
 
     /// Lets trigger new state snapshots.
-    state_snapshot_helper: Option<StateSnapshotHelper>,
+    state_snapshot_helper: StateSnapshotHelper,
+
+    pub(crate) state_split_config: near_chain_configs::StateSplitConfig,
 }
 
 /// Lets trigger new state snapshots.
+#[derive(Default)]
 struct StateSnapshotHelper {
     /// A callback to initiate state snapshot.
-    make_snapshot_callback: MakeSnapshotCallback,
+    snapshot_callbacks: Option<SnapshotCallbacks>,
 
-    /// Test-only. Artificially triggers state snapshots every N blocks.
-    /// The value is (countdown, N).
-    test_snapshot_countdown_and_frequency: Option<(u64, u64)>,
+    /// Count of blocks since the last snapshot.
+    /// Useful for keeping track of count if StateSnapshotType is EveryEpochAndNBlocks
+    blocks_since_last_snapshot: u64,
 }
 
 impl Drop for Chain {
@@ -578,7 +583,8 @@ impl Chain {
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
-            state_snapshot_helper: None,
+            state_snapshot_helper: Default::default(),
+            state_split_config: StateSplitConfig::default(),
         })
     }
 
@@ -589,7 +595,7 @@ impl Chain {
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_config: ChainConfig,
-        make_snapshot_callback: Option<MakeSnapshotCallback>,
+        snapshot_callbacks: Option<SnapshotCallbacks>,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
@@ -743,12 +749,11 @@ impl Chain {
             last_time_head_updated: StaticClock::instant(),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
-            state_snapshot_helper: make_snapshot_callback.map(|callback| StateSnapshotHelper {
-                make_snapshot_callback: callback,
-                test_snapshot_countdown_and_frequency: chain_config
-                    .state_snapshot_every_n_blocks
-                    .map(|n| (0, n)),
-            }),
+            state_snapshot_helper: StateSnapshotHelper {
+                snapshot_callbacks,
+                blocks_since_last_snapshot: 0,
+            },
+            state_split_config: chain_config.state_split_config,
         })
     }
 
@@ -883,7 +888,7 @@ impl Chain {
 
         self.runtime_adapter.apply_transactions(
             shard_id,
-            &prev_state_root,
+            RuntimeStorageConfig::new(prev_state_root, true),
             block_height,
             block_timestamp,
             prev_block_hash,
@@ -897,8 +902,6 @@ impl Chain {
             random_seed,
             true,
             is_first_block_with_chunk_of_version,
-            Default::default(),
-            true,
         )
     }
 
@@ -1248,13 +1251,19 @@ impl Chain {
                 // We must verify that content matches and signature is empty.
                 // TODO: this code will not work when genesis block has different number of chunks as the current block
                 // https://github.com/near/nearcore/issues/4908
-                let genesis_chunk = &genesis_block.chunks()[shard_id];
+                let chunks = genesis_block.chunks();
+                let genesis_chunk = chunks.get(shard_id);
+                let genesis_chunk = genesis_chunk.ok_or(Error::InvalidChunk)?;
+
                 if genesis_chunk.chunk_hash() != chunk_header.chunk_hash()
                     || genesis_chunk.signature() != chunk_header.signature()
                 {
                     return Err(Error::InvalidChunk);
                 }
             } else if chunk_header.height_created() == block.header().height() {
+                if chunk_header.shard_id() != shard_id as ShardId {
+                    return Err(Error::InvalidShardId(chunk_header.shard_id()));
+                }
                 if !epoch_manager.verify_chunk_header_signature(
                     &chunk_header.clone(),
                     block.header().epoch_id(),
@@ -1262,9 +1271,6 @@ impl Chain {
                 )? {
                     byzantine_assert!(false);
                     return Err(Error::InvalidChunk);
-                }
-                if chunk_header.shard_id() != shard_id as ShardId {
-                    return Err(Error::InvalidShardId(chunk_header.shard_id()));
                 }
             }
         }
@@ -2256,9 +2262,8 @@ impl Chain {
         };
         let (apply_chunk_work, block_preprocess_info) = preprocess_res;
 
-        let need_state_snapshot = block_preprocess_info.need_state_snapshot
-            | self.need_test_state_snapshot(block_preprocess_info.need_state_snapshot);
-        if let Err(err) = self.maybe_start_state_snapshot(need_state_snapshot) {
+        // 2) Start creating snapshot if needed.
+        if let Err(err) = self.process_snapshot() {
             tracing::error!(target: "state_snapshot", ?err, "Failed to make a state snapshot");
         }
 
@@ -2268,7 +2273,7 @@ impl Chain {
         let apply_chunks_done_marker = block_preprocess_info.apply_chunks_done.clone();
         self.blocks_in_processing.add(block, block_preprocess_info)?;
 
-        // 2) schedule apply chunks, which will be executed in the rayon thread pool.
+        // 3) schedule apply chunks, which will be executed in the rayon thread pool.
         self.schedule_apply_chunks(
             block_hash,
             block_height,
@@ -2460,7 +2465,7 @@ impl Chain {
 
     /// Preprocess a block before applying chunks, verify that we have the necessary information
     /// to process the block an the block is valid.
-    //  Note that this function does NOT introduce any changes to chain state.
+    /// Note that this function does NOT introduce any changes to chain state.
     pub(crate) fn preprocess_block(
         &self,
         me: &Option<AccountId>,
@@ -2542,7 +2547,7 @@ impl Chain {
             return Err(Error::InvalidBlockHeight(prev_height));
         }
 
-        let (is_caught_up, state_sync_info, need_state_snapshot) =
+        let (is_caught_up, state_sync_info) =
             self.get_catchup_and_state_sync_infos(header, prev_hash, prev_prev_hash, me, block)?;
 
         self.check_if_challenged_block_on_chain(header)?;
@@ -2631,7 +2636,6 @@ impl Chain {
                 provenance: provenance.clone(),
                 apply_chunks_done: Arc::new(OnceCell::new()),
                 block_start_processing_time: block_received_time,
-                need_state_snapshot,
             },
         ))
     }
@@ -2643,7 +2647,7 @@ impl Chain {
         prev_prev_hash: CryptoHash,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
-    ) -> Result<(bool, Option<StateSyncInfo>, bool), Error> {
+    ) -> Result<(bool, Option<StateSyncInfo>), Error> {
         if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
             debug!(target: "chain", block_hash=?header.hash(), "block is the first block of an epoch");
             if !self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
@@ -2657,11 +2661,9 @@ impl Chain {
             // shards that we will care about in the next epoch. If there is no state to be downloaded,
             // we consider that we are caught up, otherwise not
             let state_sync_info = self.get_state_sync_info(me, block)?;
-            let is_genesis = prev_prev_hash == CryptoHash::default();
-            let need_state_snapshot = !is_genesis;
-            Ok((state_sync_info.is_none(), state_sync_info, need_state_snapshot))
+            Ok((state_sync_info.is_none(), state_sync_info))
         } else {
-            Ok((self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None, false))
+            Ok((self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None))
         }
     }
 
@@ -4115,9 +4117,16 @@ impl Chain {
                 shard_id)
             .entered();
             let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
+            let storage_config = RuntimeStorageConfig {
+                state_root: *chunk_inner.prev_state_root(),
+                use_flat_storage: true,
+                source: crate::types::StorageDataSource::Db,
+                state_patch,
+                record_storage: false,
+            };
             match runtime.apply_transactions(
                 shard_id,
-                chunk_inner.prev_state_root(),
+                storage_config,
                 height,
                 block_timestamp,
                 &prev_block_hash,
@@ -4131,8 +4140,6 @@ impl Chain {
                 random_seed,
                 true,
                 is_first_block_with_chunk_of_version,
-                state_patch,
-                true,
             ) {
                 Ok(apply_result) => {
                     let apply_split_result_or_state_changes = if will_shard_layout_change {
@@ -4197,9 +4204,16 @@ impl Chain {
                 "existing_chunk",
                 shard_id)
             .entered();
+            let storage_config = RuntimeStorageConfig {
+                state_root: *new_extra.state_root(),
+                use_flat_storage: true,
+                source: crate::types::StorageDataSource::Db,
+                state_patch,
+                record_storage: false,
+            };
             match runtime.apply_transactions(
                 shard_id,
-                new_extra.state_root(),
+                storage_config,
                 height,
                 block_timestamp,
                 &prev_block_hash,
@@ -4213,8 +4227,6 @@ impl Chain {
                 random_seed,
                 false,
                 false,
-                state_patch,
-                true,
             ) {
                 Ok(apply_result) => {
                     let apply_split_result_or_state_changes = if will_shard_layout_change {
@@ -4273,42 +4285,69 @@ impl Chain {
         })))
     }
 
-    /// Checks if the time has come to make a state snapshot for testing purposes.
-    /// If a state snapshot was requested for another reason, then resets the countdown.
-    fn need_test_state_snapshot(&mut self, need_state_snapshot: bool) -> bool {
-        let mut res = false;
-        if let Some(helper) = &mut self.state_snapshot_helper {
-            if let Some((countdown, frequency)) = helper.test_snapshot_countdown_and_frequency {
-                helper.test_snapshot_countdown_and_frequency = if need_state_snapshot {
-                    Some((frequency, frequency))
-                } else if countdown == 0 {
-                    res = true;
-                    Some((frequency, frequency))
-                } else {
-                    Some((countdown - 1, frequency))
-                };
-            }
+    /// Function to create a new snapshot if needed
+    fn process_snapshot(&mut self) -> Result<(), Error> {
+        let (make_snapshot, delete_snapshot) = self.should_make_or_delete_snapshot()?;
+        if !make_snapshot && !delete_snapshot {
+            return Ok(());
         }
-        res
-    }
-
-    /// Makes a state snapshot.
-    /// If there was already a state snapshot, deletes that first.
-    fn maybe_start_state_snapshot(&self, need_state_snapshot: bool) -> Result<(), Error> {
-        if need_state_snapshot {
-            if let Some(helper) = &self.state_snapshot_helper {
+        if let Some(snapshot_callbacks) = &self.state_snapshot_helper.snapshot_callbacks {
+            if make_snapshot {
                 let head = self.head()?;
-                let epoch_id = self.epoch_manager.get_epoch_id(&head.prev_block_hash)?;
-                let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+                let shard_uids = self
+                    .epoch_manager
+                    .get_shard_layout_from_prev_block(&head.prev_block_hash)?
+                    .get_shard_uids();
                 let last_block = self.get_block(&head.last_block_hash)?;
-                (helper.make_snapshot_callback)(
-                    head.prev_block_hash,
-                    shard_layout.get_shard_uids(),
-                    last_block,
-                )
+                let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
+                make_snapshot_callback(head.prev_block_hash, shard_uids, last_block);
+            } else if delete_snapshot {
+                let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
+                delete_snapshot_callback();
             }
         }
         Ok(())
+    }
+
+    /// Function to check whether we need to create a new snapshot while processing the current block
+    /// Note that this functions is called as a part of block preprocesing, so the head is not updated to current block
+    fn should_make_or_delete_snapshot(&mut self) -> Result<(bool, bool), Error> {
+        self.state_snapshot_helper.blocks_since_last_snapshot += 1;
+
+        // head value is that of the previous block, i.e. curr_block.prev_hash
+        let head = self.head()?;
+        if head.prev_block_hash == CryptoHash::default() {
+            // genesis block, do not snapshot
+            return Ok((false, false));
+        }
+
+        let is_epoch_boundary =
+            self.epoch_manager.is_next_block_epoch_start(&head.last_block_hash)?;
+        let will_shard_layout_change =
+            self.epoch_manager.will_shard_layout_change(&head.last_block_hash)?;
+        let tries = self.runtime_adapter.get_tries();
+        let snapshot_config = tries.state_snapshot_config();
+        let make_snapshot = match snapshot_config.state_snapshot_type {
+            // For every epoch, we snapshot if the next block would be in a different epoch
+            StateSnapshotType::EveryEpoch => is_epoch_boundary,
+            // For resharding only, we snapshot if next block would be in a different shard layout
+            StateSnapshotType::ForReshardingOnly => is_epoch_boundary && will_shard_layout_change,
+            // For every N blocks, we snapshot if next block would be in a different epoch
+            // OR if we have reached N blocks since the last snapshot
+            StateSnapshotType::EveryEpochAndNBlocks(n) => {
+                is_epoch_boundary || self.state_snapshot_helper.blocks_since_last_snapshot >= n
+            }
+        };
+
+        // We need to delete the existing snapshot at the epoch boundary if we are not making a new snapshot
+        // This is useful for the next epoch after resharding where make_snapshot is false but it's an epoch boundary
+        let delete_snapshot = !make_snapshot && is_epoch_boundary;
+
+        if make_snapshot {
+            self.state_snapshot_helper.blocks_since_last_snapshot = 0;
+        }
+
+        Ok((make_snapshot, delete_snapshot))
     }
 
     /// Returns a description of state parts cached for the given shard of the given epoch.
@@ -5730,7 +5769,7 @@ impl<'a> ChainUpdate<'a> {
 
         let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
-            &chunk_header.prev_state_root(),
+            RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
             chunk_header.height_included(),
             block_header.raw_timestamp(),
             &chunk_header.prev_block_hash(),
@@ -5744,8 +5783,6 @@ impl<'a> ChainUpdate<'a> {
             *block_header.random_value(),
             true,
             is_first_block_with_chunk_of_version,
-            Default::default(),
-            true,
         )?;
 
         let (outcome_root, outcome_proofs) =
@@ -5825,7 +5862,7 @@ impl<'a> ChainUpdate<'a> {
 
         let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
-            chunk_extra.state_root(),
+            RuntimeStorageConfig::new(*chunk_extra.state_root(), true),
             block_header.height(),
             block_header.raw_timestamp(),
             prev_block_header.hash(),
@@ -5839,8 +5876,6 @@ impl<'a> ChainUpdate<'a> {
             *block_header.random_value(),
             false,
             false,
-            Default::default(),
-            true,
         )?;
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         let store_update = flat_storage_manager.save_flat_state_changes(

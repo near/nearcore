@@ -4,12 +4,16 @@
 use crate::adapter::ProcessTxResponse;
 use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
+use crate::sync::adapter::SyncShardInfo;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
 use crate::sync::header::HeaderSync;
 use crate::sync::state::{StateSync, StateSyncResult};
+use crate::SyncAdapter;
+use crate::SyncMessage;
 use crate::{metrics, SyncStatus};
 use actix_rt::ArbiterHandle;
+use itertools::Itertools;
 use lru::LruCache;
 use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::VerifyBlockHashAndSignatureResult;
@@ -19,7 +23,7 @@ use near_chain::chain::{
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::resharding::StateSplitRequest;
-use near_chain::state_snapshot_actor::MakeSnapshotCallback;
+use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::ApplyTransactionResult;
 use near_chain::types::RuntimeAdapter;
@@ -46,6 +50,7 @@ use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
 use near_o11y::log_assert;
+use near_o11y::WithSpanContextExt;
 use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
@@ -82,6 +87,7 @@ use near_store::ShardUId;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::sync::RwLock;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, trace, warn};
 
@@ -118,6 +124,7 @@ pub struct Client {
 
     pub config: ClientConfig,
     pub sync_status: SyncStatus,
+    pub state_sync_adapter: Arc<RwLock<SyncAdapter>>,
     pub chain: Chain,
     pub doomslug: Doomslug,
     pub epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -208,13 +215,14 @@ impl Client {
         chain_genesis: ChainGenesis,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
+        state_sync_adapter: Arc<RwLock<SyncAdapter>>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: PeerManagerAdapter,
         shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         enable_doomslug: bool,
         rng_seed: RngSeed,
-        make_state_snapshot_callback: Option<MakeSnapshotCallback>,
+        snapshot_callbacks: Option<SnapshotCallbacks>,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -224,7 +232,7 @@ impl Client {
         let chain_config = ChainConfig {
             save_trie_changes: config.save_trie_changes,
             background_migration_threads: config.client_background_migration_threads,
-            state_snapshot_every_n_blocks: config.state_snapshot_every_n_blocks,
+            state_split_config: config.state_split_config,
         };
         let chain = Chain::new(
             epoch_manager.clone(),
@@ -233,7 +241,7 @@ impl Client {
             &chain_genesis,
             doomslug_threshold_mode,
             chain_config.clone(),
-            make_state_snapshot_callback,
+            snapshot_callbacks,
         )?;
         // Create flat storage or initiate migration to flat storage.
         let flat_storage_creator = FlatStorageCreator::new(
@@ -274,6 +282,21 @@ impl Client {
             config.archive,
             config.state_sync_enabled,
         );
+        // Start one actor per shard.
+        if config.state_sync_enabled {
+            let epoch_id = chain.store().head().expect("Cannot get chain head.").epoch_id;
+            let shard_layout =
+                epoch_manager.get_shard_layout(&epoch_id).expect("Cannot get shard layout.");
+            match state_sync_adapter.write() {
+                Ok(mut state_sync_adapter) => {
+                    for shard_uid in shard_layout.get_shard_uids() {
+                        state_sync_adapter.start(shard_uid);
+                    }
+                }
+                Err(_) => panic!("Cannot acquire write lock on sync adapter. Lock poisoned."),
+            }
+        }
+
         let state_sync = StateSync::new(
             network_adapter.clone(),
             config.state_sync_timeout,
@@ -307,6 +330,7 @@ impl Client {
             accrued_fastforward_delta: 0,
             config,
             sync_status,
+            state_sync_adapter,
             chain,
             doomslug,
             epoch_manager,
@@ -603,8 +627,16 @@ impl Client {
         }
 
         let new_chunks = self.get_chunk_headers_ready_for_inclusion(&epoch_id, &prev_hash);
-        debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}, {} new chunks", validator_signer.validator_id(),
-               next_height, prev.height(), format_hash(head.last_block_hash), new_chunks.len());
+        debug!(
+            target: "client",
+            validator=?validator_signer.validator_id(),
+            next_height=next_height,
+            prev_height=prev.height(),
+            prev_hash=format_hash(head.last_block_hash),
+            new_chunks_count=new_chunks.len(),
+            new_chunks=?new_chunks.keys().sorted().collect_vec(),
+            "Producing block",
+        );
 
         // If we are producing empty blocks and there are no transactions.
         if !self.config.produce_empty_blocks && new_chunks.is_empty() {
@@ -2358,6 +2390,7 @@ impl Client {
         apply_chunks_done_callback: DoneApplyChunkCallback,
         state_parts_arbiter_handle: &ArbiterHandle,
     ) -> Result<(), Error> {
+        let mut notify_state_sync = false;
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos()? {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
@@ -2373,6 +2406,7 @@ impl Client {
             // entry contains the same data?
             let (state_sync, shards_to_split, blocks_catch_up_state) =
                 self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
+                    notify_state_sync = true;
                     (
                         StateSync::new(
                             network_adapter,
@@ -2382,13 +2416,36 @@ impl Client {
                             true,
                         ),
                         shards_to_split,
-                        BlocksCatchUpState::new(sync_hash, epoch_id),
+                        BlocksCatchUpState::new(sync_hash, epoch_id.clone()),
                     )
                 });
 
             // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
             debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&shards_to_split, false), "Catchup");
             let use_colour = matches!(self.config.log_summary_style, LogSummaryStyle::Colored);
+
+            let tracking_shards: Vec<u64> =
+                state_sync_info.shards.iter().map(|tuple| tuple.0).collect();
+            // Notify each shard to sync.
+            if notify_state_sync {
+                let shard_layout = self
+                    .epoch_manager
+                    .get_shard_layout(&epoch_id)
+                    .expect("Cannot get shard layout");
+                for &shard_id in &tracking_shards {
+                    let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+                    match self.state_sync_adapter.clone().read() {
+                        Ok(sync_adapter) => sync_adapter.send(
+                            shard_uid,
+                            (SyncMessage::StartSync(SyncShardInfo { shard_uid, sync_hash }))
+                                .with_span_context(),
+                        ),
+                        Err(_) => {
+                            error!(target:"catchup", "State sync adapter lock is poisoned.")
+                        }
+                    }
+                }
+            }
 
             // Initialize the new shard sync to contain the shards to split at
             // first. It will get updated with the shard sync download status
@@ -2401,7 +2458,7 @@ impl Client {
                 &mut self.chain,
                 self.epoch_manager.as_ref(),
                 highest_height_peers,
-                state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
+                tracking_shards,
                 state_parts_task_scheduler,
                 state_split_scheduler,
                 state_parts_arbiter_handle,
@@ -2709,5 +2766,17 @@ impl Client {
             });
         }
         Ok(ret)
+    }
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        // State sync is tied to the client logic. When the client goes out of scope or it is restarted,
+        // the running sync actors should also stop.
+        self.state_sync_adapter
+            .to_owned()
+            .write()
+            .expect("Cannot acquire write lock on sync adapter. Lock poisoned.")
+            .stop_all();
     }
 }

@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use core::ops::Range;
 use itertools::Itertools;
-use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain::{ChainStore, ChainStoreAccess, Error};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::id::AccountId;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
@@ -53,7 +53,7 @@ pub(crate) fn print_epoch_info(
 
     for (epoch_id, epoch_info) in &epoch_infos {
         println!("-------------------------");
-        println!("EpochId: {:?}, EpochHeight: {}", epoch_id, epoch_info.epoch_height());
+        println!("EpochId: {}", epoch_id.0);
         if kickouts_summary {
             display_kickouts(epoch_info);
         } else {
@@ -65,14 +65,14 @@ pub(crate) fn print_epoch_info(
                 chain_store,
                 epoch_manager,
             ) {
-                println!("Can't display Epoch Info: {:?}", err);
+                println!("Can't display Epoch Info: {err:?}");
                 continue;
             }
             println!("---");
             if let Err(err) =
                 display_block_and_chunk_producers(epoch_id, epoch_info, chain_store, epoch_manager)
             {
-                println!("Can't display Epoch Info: {:?}", err);
+                println!("Can't display Epoch Info: {err:?}");
                 continue;
             }
         }
@@ -86,24 +86,21 @@ fn display_block_and_chunk_producers(
     epoch_info: &EpochInfo,
     chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
-) -> Result<(), anyhow::Error> {
+) -> anyhow::Result<()> {
     let block_height_range: Range<BlockHeight> =
-        get_block_height_range(epoch_info, chain_store, epoch_manager)?;
+        get_block_height_range(epoch_id, chain_store, epoch_manager)?;
     let num_shards = epoch_manager.num_shards(epoch_id).unwrap();
     for block_height in block_height_range {
         let bp = epoch_info.sample_block_producer(block_height);
         let bp = epoch_info.get_validator(bp).account_id().clone();
-        let cps: Vec<AccountId> = (0..num_shards)
+        let cps: Vec<String> = (0..num_shards)
             .map(|shard_id| {
                 let cp = epoch_info.sample_chunk_producer(block_height, shard_id);
                 let cp = epoch_info.get_validator(cp).account_id().clone();
-                cp
+                cp.as_str().to_string()
             })
             .collect();
-        println!(
-            "Block height: {}. Block Producer: {}. Chunk Producers: {:?}",
-            block_height, bp, cps
-        );
+        println!("{block_height}: BP=\"{bp}\" CP={cps:?}");
     }
     Ok(())
 }
@@ -111,33 +108,52 @@ fn display_block_and_chunk_producers(
 // Iterate over each epoch starting from the head. Find the requested epoch and its previous epoch
 // and use that to determine the block range corresponding to the epoch.
 fn get_block_height_range(
-    epoch_info: &EpochInfo,
+    epoch_id: &EpochId,
     chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
-) -> Result<Range<BlockHeight>, anyhow::Error> {
+) -> anyhow::Result<Range<BlockHeight>> {
     let head = chain_store.head()?;
     let mut cur_block_info = epoch_manager.get_block_info(&head.last_block_hash)?;
     loop {
-        let cur_epoch_info = epoch_manager.get_epoch_info(cur_block_info.epoch_id())?;
-        let cur_epoch_height = cur_epoch_info.epoch_height();
-        assert!(
-            cur_epoch_height >= epoch_info.epoch_height(),
-            "cur_block_info: {:#?}, epoch_info.epoch_height: {}",
-            cur_block_info,
-            epoch_info.epoch_height()
-        );
-        let epoch_first_block_info =
-            epoch_manager.get_block_info(cur_block_info.epoch_first_block())?;
-        let prev_epoch_last_block_info =
-            epoch_manager.get_block_info(epoch_first_block_info.prev_hash())?;
-        let cur_epoch_start_height = epoch_manager.get_epoch_start_height(cur_block_info.hash())?;
-        let cur_epoch_id = cur_block_info.epoch_id();
-        let next_epoch_start_height =
-            cur_epoch_start_height + epoch_manager.get_epoch_config(cur_epoch_id)?.epoch_length;
-        if cur_epoch_height == epoch_info.epoch_height() {
-            return Ok(cur_epoch_start_height..next_epoch_start_height);
+        if cur_block_info.epoch_id() == epoch_id {
+            // Found the requested epoch.
+            let epoch_start_height = epoch_manager.get_epoch_start_height(cur_block_info.hash())?;
+            if &head.epoch_id == epoch_id {
+                // This is the current epoch and we can't know when exactly it will end.
+                // Estimate that the epoch should end at this height.
+                let next_epoch_start_height =
+                    epoch_start_height + epoch_manager.get_epoch_config(epoch_id)?.epoch_length;
+                return Ok(
+                    epoch_start_height..std::cmp::max(head.height + 1, next_epoch_start_height)
+                );
+            }
+            // Head is in a different epoch, therefore the requested epoch must be complete.
+            // Iterate over block heights to find the first block in a different epoch.
+            for height in epoch_start_height..=head.height {
+                match chain_store.get_block_hash_by_height(height) {
+                    Ok(hash) => {
+                        let header = chain_store.get_block_header(&hash)?;
+                        if header.epoch_id() != epoch_id {
+                            return Ok(epoch_start_height..height);
+                        }
+                    }
+                    Err(Error::DBNotFoundErr(_)) => {
+                        // Block is missing, skip.
+                        continue;
+                    }
+                    Err(err) => {
+                        panic!("Failed to get block hash at height {height}: {err:?}");
+                    }
+                };
+            }
+            return Ok(epoch_start_height..head.height + 1);
+        } else {
+            // Go to the previous epoch.
+            let first_block_info =
+                epoch_manager.get_block_info(cur_block_info.epoch_first_block())?;
+            let prev_block_info = epoch_manager.get_block_info(first_block_info.prev_hash())?;
+            cur_block_info = prev_block_info;
         }
-        cur_block_info = prev_epoch_last_block_info;
     }
 }
 
@@ -211,7 +227,7 @@ fn display_kickouts(epoch_info: &EpochInfo) {
     for (account_id, kickout_reason) in
         epoch_info.validator_kickout().iter().sorted_by_key(|&(account_id, _)| account_id)
     {
-        println!("{:?}: {:?}", account_id, kickout_reason);
+        println!("{account_id:?}: {kickout_reason:?}");
     }
 }
 
@@ -222,11 +238,15 @@ fn display_epoch_info(
     head_epoch_height: &EpochHeight,
     chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
-) -> Result<(), anyhow::Error> {
+) -> anyhow::Result<()> {
     if epoch_info.epoch_height() >= *head_epoch_height {
         println!("Epoch information for this epoch is not yet available, skipping.");
         return Ok(());
     }
+    println!("Epoch Height: {}", epoch_info.epoch_height());
+    println!("Protocol Version: {}", epoch_info.protocol_version());
+    let block_height_range = get_block_height_range(epoch_id, chain_store, epoch_manager)?;
+    println!("Epoch Height Range: [{}..{})", block_height_range.start, block_height_range.end);
     if let Some(account_id) = validator_account_id.clone() {
         display_validator_info(epoch_id, epoch_info, account_id, chain_store, epoch_manager)?;
     }
@@ -239,18 +259,18 @@ fn display_validator_info(
     account_id: AccountId,
     chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
-) -> Result<(), anyhow::Error> {
+) -> anyhow::Result<()> {
     if let Some(kickout) = epoch_info.validator_kickout().get(&account_id) {
-        println!("Validator {} kickout: {:#?}", account_id, kickout);
+        println!("Validator {account_id} kickout: {kickout:#?}");
     }
     if let Some(validator_id) = epoch_info.get_validator_id(&account_id) {
         let block_height_range: Range<BlockHeight> =
-            get_block_height_range(epoch_info, chain_store, epoch_manager)?;
+            get_block_height_range(epoch_id, chain_store, epoch_manager)?;
         let bp_for_blocks: Vec<BlockHeight> = block_height_range
             .clone()
             .filter(|&block_height| epoch_info.sample_block_producer(block_height) == *validator_id)
             .collect();
-        println!("Block producer for {} blocks: {:?}", bp_for_blocks.len(), bp_for_blocks);
+        println!("Block producer for {} blocks: {bp_for_blocks:?}", bp_for_blocks.len());
 
         let shard_ids = 0..epoch_manager.num_shards(epoch_id).unwrap();
         let cp_for_chunks: Vec<(BlockHeight, ShardId)> = block_height_range
@@ -264,7 +284,7 @@ fn display_validator_info(
                     .collect::<Vec<(BlockHeight, ShardId)>>()
             })
             .collect();
-        println!("Chunk producer for {} chunks: {:?}", cp_for_chunks.len(), cp_for_chunks);
+        println!("Chunk producer for {} chunks: {cp_for_chunks:?}", cp_for_chunks.len());
         let mut missing_chunks = vec![];
         for (block_height, shard_id) in cp_for_chunks {
             if let Ok(block_hash) = chain_store.get_block_hash_by_height(block_height) {
@@ -276,13 +296,9 @@ fn display_validator_info(
                 missing_chunks.push((block_height, shard_id));
             }
         }
-        println!("Missing {} chunks: {:?}", missing_chunks.len(), missing_chunks);
+        println!("Missing {} chunks: {missing_chunks:?}", missing_chunks.len());
     } else {
-        println!(
-            "Validator {} didn't validate in epoch #{}",
-            account_id,
-            epoch_info.epoch_height()
-        );
+        println!("Validator {account_id} didn't validate in epoch #{}", epoch_info.epoch_height());
     }
     Ok(())
 }

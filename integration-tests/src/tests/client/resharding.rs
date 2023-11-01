@@ -10,7 +10,7 @@ use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, Tip};
-use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
+use near_primitives::epoch_manager::{AllEpochConfig, AllEpochConfigTestOverrides, EpochConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid};
@@ -25,6 +25,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryRequest};
 use near_primitives_core::num_rational::Rational32;
 use near_store::test_utils::{gen_account, gen_unique_accounts};
+use near_store::trie::SnapshotError;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
@@ -176,6 +177,7 @@ impl TestReshardingEnv {
         gas_limit: Option<u64>,
         genesis_protocol_version: ProtocolVersion,
         rng_seed: u64,
+        state_snapshot_enabled: bool,
     ) -> Self {
         let mut rng = SeedableRng::seed_from_u64(rng_seed);
         let validators: Vec<AccountId> =
@@ -190,12 +192,27 @@ impl TestReshardingEnv {
             genesis_protocol_version,
         );
         let chain_genesis = ChainGenesis::new(&genesis);
-        let env = TestEnv::builder(chain_genesis)
+        let builder = if state_snapshot_enabled {
+            TestEnv::builder(chain_genesis).use_state_snapshots()
+        } else {
+            TestEnv::builder(chain_genesis)
+        };
+        // Set the kickout thresholds to zero. In some tests we have chunk
+        // producers missing chunks but we don't want any of the clients to get
+        // kicked.
+        // One of the reasons for not kicking is that the current test infra
+        // doesn't support requesting chunks and non-validators wouldn't be able
+        // to obtain the chunks at all.
+        // Same needs to be set in the genesis.
+        let epoch_config_test_overrides = Some(AllEpochConfigTestOverrides {
+            block_producer_kickout_threshold: Some(0),
+            chunk_producer_kickout_threshold: Some(0),
+        });
+        let env = builder
             .clients_count(num_clients)
             .validator_seats(num_validators)
-            .use_state_snapshots()
             .real_stores()
-            .real_epoch_managers(&genesis.config)
+            .real_epoch_managers_with_test_overrides(&genesis.config, epoch_config_test_overrides)
             .nightshade_runtimes(&genesis)
             .track_all_shards()
             .build();
@@ -221,18 +238,6 @@ impl TestReshardingEnv {
     fn set_tx_at_height(&mut self, height: u64, txs: Vec<SignedTransaction>) {
         debug!(target: "test", "setting txs at height {} txs: {:?}", height, txs.iter().map(|x|x.get_hash()).collect::<Vec<_>>());
         self.txs_by_height.insert(height, txs);
-    }
-
-    /// produces and processes the next block
-    /// also checks that all accounts in initial_accounts are intact
-    ///
-    /// please also see the step_impl for changing the protocol version
-    fn step(&mut self, drop_chunk_condition: &DropChunkCondition) {
-        self.step_impl(
-            &drop_chunk_condition,
-            SIMPLE_NIGHTSHADE_PROTOCOL_VERSION,
-            &ReshardingType::V1,
-        );
     }
 
     /// produces and processes the next block also checks that all accounts in
@@ -394,7 +399,8 @@ impl TestReshardingEnv {
     ///    - all blocks after the block at `height` in the current canonical chain do not have
     ///      new chunks for the corresponding shards
     fn check_next_block_with_new_chunk(&mut self, height: BlockHeight) {
-        let block = self.env.clients[0].chain.get_block_by_height(height).unwrap();
+        let client = &self.env.clients[0];
+        let block = client.chain.get_block_by_height(height).unwrap();
         let block_hash = block.hash();
         let num_shards = block.chunks().len();
         for shard_id in 0..num_shards {
@@ -402,14 +408,14 @@ impl TestReshardingEnv {
             // if `get_next_block_hash_with_new_chunk` returns None, that would be the lastest block
             // on chain, otherwise, that would be the block before the `block_hash` that the function
             // call returns
-            let mut last_block_hash_with_empty_chunk = match self.env.clients[0]
+            let next_block_hash_with_new_chunk = client
                 .chain
                 .get_next_block_hash_with_new_chunk(block_hash, shard_id as ShardId)
-                .unwrap()
-            {
+                .unwrap();
+
+            let mut last_block_hash_with_empty_chunk = match next_block_hash_with_new_chunk {
                 Some((new_block_hash, target_shard_id)) => {
-                    let new_block =
-                        self.env.clients[0].chain.get_block(&new_block_hash).unwrap().clone();
+                    let new_block = client.chain.get_block(&new_block_hash).unwrap().clone();
                     let chunks = new_block.chunks();
                     // check that the target chunk in the new block is new
                     assert_eq!(
@@ -421,26 +427,35 @@ impl TestReshardingEnv {
                     }
                     *new_block.header().prev_hash()
                 }
-                None => self.env.clients[0].chain.head().unwrap().last_block_hash,
+                None => client.chain.head().unwrap().last_block_hash,
             };
-            // check that the target chunks in all prev blocks are not new
+
+            // Check that the target chunks are not new for all blocks between
+            // last_block_hash_with_empty_chunk (inclusive) and
+            // block_hash (exclusive).
             while &last_block_hash_with_empty_chunk != block_hash {
-                let last_block = self.env.clients[0]
-                    .chain
-                    .get_block(&last_block_hash_with_empty_chunk)
-                    .unwrap()
-                    .clone();
+                let last_block_hash = last_block_hash_with_empty_chunk;
+                let last_block = client.chain.get_block(&last_block_hash).unwrap().clone();
                 let chunks = last_block.chunks();
-                if chunks.len() == num_shards {
-                    assert_ne!(
-                        chunks.get(shard_id).unwrap().height_included(),
-                        last_block.header().height()
-                    );
+
+                let target_shard_ids = if chunks.len() == num_shards {
+                    // same shard layout between block and last_block
+                    vec![shard_id as ShardId]
                 } else {
-                    for chunk in chunks.iter() {
-                        assert_ne!(chunk.height_included(), last_block.header().height());
-                    }
+                    // different shard layout between block and last_block
+                    let shard_layout = client
+                        .epoch_manager
+                        .get_shard_layout_from_prev_block(&last_block_hash)
+                        .unwrap();
+
+                    shard_layout.get_split_shard_ids(shard_id as ShardId).unwrap()
+                };
+
+                for target_shard_id in target_shard_ids {
+                    let chunk = chunks.get(target_shard_id as usize).unwrap();
+                    assert_ne!(chunk.height_included(), last_block.header().height());
                 }
+
                 last_block_hash_with_empty_chunk = *last_block.header().prev_hash();
             }
         }
@@ -600,6 +615,57 @@ impl TestReshardingEnv {
             }
         }
     }
+
+    // function to check whether the state snapshot exists or not and whether it exists at the correct
+    // hash for both cases when state snapshot is enabled and disabled
+    fn check_snapshot(&mut self, state_snapshot_enabled: bool) {
+        let env = &mut self.env;
+        let head = env.clients[0].chain.head().unwrap();
+        let block_header = env.clients[0].chain.get_block_header(&head.prev_block_hash).unwrap();
+        let snapshot = env.clients[0]
+            .chain
+            .runtime_adapter
+            .get_tries()
+            .get_state_snapshot(&block_header.prev_hash());
+
+        // There are two main cases we would like to check, when state_snapshot is enabled and disabled
+        // 1. with state snapshot enabled, we expect to create a new snapshot with every epoch boundry
+        // 2. with state snapshot disabled, we should ONLY be creating the snapshot at the first epoch boundry
+        //    i.e. when resharding happens, and subsequently, at the next epoch boundry, the state snapshot
+        //    must be deleted.
+        if head.height <= self.epoch_length {
+            // No snapshot for height less than epoch length, i.e. first epoch
+            assert!(snapshot
+                .is_err_and(|e| e == SnapshotError::SnapshotNotFound(*block_header.prev_hash())));
+        } else if head.height == self.epoch_length + 1 {
+            // At the epoch boundary, right before resharding, snapshot should exist
+            assert!(snapshot.is_ok());
+        } else if head.height <= 2 * self.epoch_length {
+            // All blocks in the epoch while resharding is going on, snapshot should exist but we should get
+            // IncorrectSnapshotRequested as snapshot exists at hash as of the last block of the previous epoch
+            let snapshot_block_header =
+                env.clients[0].chain.get_block_header_by_height(self.epoch_length).unwrap();
+            assert!(snapshot.is_err_and(|e| e
+                == SnapshotError::IncorrectSnapshotRequested(
+                    *block_header.prev_hash(),
+                    *snapshot_block_header.prev_hash(),
+                )));
+        } else if (head.height - 1) % self.epoch_length == 0 {
+            // At other epoch boundries, snapshot should exist only if state_snapshot_enabled is true
+            assert_eq!(state_snapshot_enabled, snapshot.is_ok());
+        } else {
+            // And for the rest of the height which are not at the epoch boundary, snapshot should
+            // 1. Either not exist if state_snapshot_enabled is false OR
+            // 2. snapshot should exist (but with hash as of last block of prev epoch) if state_snapshot is enabled
+            assert!(snapshot.is_err_and(|err| {
+                match err {
+                    SnapshotError::SnapshotNotFound(_) => !state_snapshot_enabled,
+                    SnapshotError::IncorrectSnapshotRequested(_, _) => state_snapshot_enabled,
+                    _ => false,
+                }
+            }));
+        }
+    }
 }
 
 // Returns the block producer for the next block after the current head.
@@ -723,7 +789,9 @@ fn setup_genesis(
     genesis_protocol_version: ProtocolVersion,
 ) -> Genesis {
     let mut genesis = Genesis::test(initial_accounts, num_validators);
-    // No kickout, since we are going to test missing chunks
+    // No kickout, since we are going to test missing chunks.
+    // Same needs to be set in the AllEpochConfigTestOverrides.
+    genesis.config.block_producer_kickout_threshold = 0;
     genesis.config.chunk_producer_kickout_threshold = 0;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = genesis_protocol_version;
@@ -800,7 +868,11 @@ fn generate_create_accounts_txs(
     .collect()
 }
 
-fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_seed: u64) {
+fn test_shard_layout_upgrade_simple_impl(
+    resharding_type: ReshardingType,
+    rng_seed: u64,
+    state_snapshot_enabled: bool,
+) {
     init_test_logger();
     tracing::info!(target: "test", "test_shard_layout_upgrade_simple_impl starting");
 
@@ -809,8 +881,16 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_se
 
     // setup
     let epoch_length = 5;
-    let mut test_env =
-        TestReshardingEnv::new(epoch_length, 2, 2, 100, None, genesis_protocol_version, rng_seed);
+    let mut test_env = TestReshardingEnv::new(
+        epoch_length,
+        2,
+        2,
+        100,
+        None,
+        genesis_protocol_version,
+        rng_seed,
+        state_snapshot_enabled,
+    );
     test_env.set_init_tx(vec![]);
 
     let mut nonce = 100;
@@ -839,6 +919,7 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_se
     for _ in 1..4 * epoch_length {
         test_env.step_impl(&drop_chunk_condition, target_protocol_version, &resharding_type);
         test_env.check_receipt_id_to_shard_id();
+        test_env.check_snapshot(state_snapshot_enabled);
     }
 
     test_env.check_tx_outcomes(false);
@@ -850,25 +931,30 @@ fn test_shard_layout_upgrade_simple_impl(resharding_type: ReshardingType, rng_se
 
 #[test]
 fn test_shard_layout_upgrade_simple_v1() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V1, 42);
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V1, 42, false);
+}
+
+#[test]
+fn test_shard_layout_upgrade_simple_v1_with_snapshot_enabled() {
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V1, 42, true);
 }
 
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_42() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 42);
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 42, false);
 }
 
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_43() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 43);
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 43, false);
 }
 
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_44() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44);
+    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44, false);
 }
 
 const GAS_1: u64 = 300_000_000_000_000;
@@ -887,6 +973,7 @@ fn create_test_env_for_cross_contract_test(
         Some(100_000_000_000_000),
         genesis_protocol_version,
         rng_seed,
+        false,
     )
 }
 
@@ -1212,9 +1299,6 @@ fn test_shard_layout_upgrade_incoming_receipts_impl_v1() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V1, 42);
 }
 
-// TODO(resharding) Add another test like this but drop more chunks and at
-// random. The _missing_chunks tests below test only the case when all chunks
-// are missing in block but can likely be adjusted for this case.
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_42() {
@@ -1236,11 +1320,15 @@ fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_44() {
 // Test cross contract calls
 // This test case tests when there are missing chunks in the produced blocks
 // This is to test that all the chunk management logic in sharding split is correct
-fn test_shard_layout_upgrade_missing_chunks(p_missing: f64, rng_seed: u64) {
+fn test_shard_layout_upgrade_missing_chunks(
+    resharding_type: ReshardingType,
+    p_missing: f64,
+    rng_seed: u64,
+) {
     init_test_logger();
 
-    let resharding_type = ReshardingType::V1;
     let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
+    let target_protocol_version = get_target_protocol_version(&resharding_type);
     let epoch_length = 10;
 
     let mut test_env =
@@ -1253,12 +1341,12 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64, rng_seed: u64) {
     // make sure initial txs (deploy smart contracts) are processed succesfully
     let drop_chunk_condition = DropChunkCondition::new();
     for _ in 1..3 {
-        test_env.step(&drop_chunk_condition);
+        test_env.step_impl(&drop_chunk_condition, target_protocol_version, &resharding_type);
     }
 
     let drop_chunk_condition = DropChunkCondition::with_probability(p_missing);
     for _ in 3..3 * epoch_length {
-        test_env.step(&drop_chunk_condition);
+        test_env.step_impl(&drop_chunk_condition, target_protocol_version, &resharding_type);
         let last_height = test_env.env.clients[0].chain.head().unwrap().height;
         for height in last_height - 3..=last_height {
             test_env.check_next_block_with_new_chunk(height);
@@ -1269,7 +1357,7 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64, rng_seed: u64) {
     // make sure all included transactions finished processing
     let drop_chunk_condition = DropChunkCondition::new();
     for _ in 3 * epoch_length..5 * epoch_length {
-        test_env.step(&drop_chunk_condition);
+        test_env.step_impl(&drop_chunk_condition, target_protocol_version, &resharding_type);
         let last_height = test_env.env.clients[0].chain.head().unwrap().height;
         for height in last_height - 3..=last_height {
             test_env.check_next_block_with_new_chunk(height);
@@ -1286,18 +1374,78 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64, rng_seed: u64) {
 }
 
 #[test]
-fn test_shard_layout_upgrade_missing_chunks_low_missing_prob() {
-    test_shard_layout_upgrade_missing_chunks(0.1, 42);
+fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v1() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V1, 0.1, 42);
 }
 
 #[test]
-fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob() {
-    test_shard_layout_upgrade_missing_chunks(0.5, 42);
+fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v1() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V1, 0.5, 42);
 }
 
 #[test]
-fn test_shard_layout_upgrade_missing_chunks_high_missing_prob() {
-    test_shard_layout_upgrade_missing_chunks(0.9, 42);
+fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v1() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V1, 0.9, 42);
+}
+
+// V2, low missing prob
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_42() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 42);
+}
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_43() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 43);
+}
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_44() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 44);
+}
+
+// V2, mid missing prob
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_42() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 42);
+}
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_43() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 43);
+}
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_44() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 44);
+}
+
+// V2, high missing prob
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_42() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 42);
+}
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_43() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 43);
+}
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_44() {
+    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 44);
 }
 
 // TODO(resharding) add a test with missing blocks

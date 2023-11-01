@@ -71,7 +71,9 @@ trie nodes using the `get_key_from_shard_id_and_hash` method.
 
 ### ShardTries
 
-Contains stores and caches and allows to get `Trie` object for any shard.
+This is the main struct that is used to access all Tries. There's usually only a single instance of this and it contains stores and caches. We use this to gain access to the `Trie` for a single shard by calling the `get_trie_for_shard` or equivalent methods.
+
+Each shard within `ShardTries` has their own `cache` and `view_cache`. The `cache` stores the most frequently accessed nodes and is usually used during block production. The `view_cache` is used to serve user request to get data, which usually come in via network. It is a good idea to have an independent cache for this as we can have patterns in accessing user data independent of block production.
 
 ## Primitives
 

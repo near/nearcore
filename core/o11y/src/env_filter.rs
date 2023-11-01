@@ -75,3 +75,15 @@ impl<'a> EnvFilterBuilder<'a> {
         Ok(env_filter)
     }
 }
+
+pub fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, BuildEnvFilterError> {
+    let env_filter = EnvFilterBuilder::from_env().verbose(verbose).finish()?;
+    // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
+    // This is hidden by default so we enable it for sandbox node.
+    let env_filter = if cfg!(feature = "sandbox") {
+        env_filter.add_directive("sandbox=debug".parse().unwrap())
+    } else {
+        env_filter
+    };
+    Ok(env_filter)
+}

@@ -15,7 +15,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
-use near_primitives::state::ValueRef;
+use near_primitives::state::{FlatStateValue, ValueRef};
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
 use near_primitives::trie_key::TrieKey;
@@ -26,7 +26,7 @@ pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Write;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::rc::Rc;
 use std::str;
 use std::sync::Arc;
@@ -76,6 +76,7 @@ pub struct TrieCosts {
 }
 
 /// Whether a key lookup will be performed through flat storage or through iterating the trie
+#[derive(PartialEq, Eq)]
 pub enum KeyLookupMode {
     FlatStorage,
     Trie,
@@ -344,15 +345,12 @@ pub struct Trie {
     /// state proof so that the same access pattern can be replayed using only
     /// the captured result.
     recorder: Option<RefCell<TrieRecorder>>,
-    /// This can only be true if the storage is based on a recorded partial
-    /// trie, i.e. replaying lookups on a state proof, where flat storage may
-    /// not be available so we always have to go through the trie. If this
-    /// flag is true, trie node lookups will not go through the accounting
-    /// cache, i.e. the access is free from the trie's perspective, just like
-    /// flat storage. (Note that dereferencing ValueRef still has the same cost
-    /// no matter what.) This allows us to accurately calculate storage gas
-    /// costs even with only a state proof.
-    skip_accounting_cache_for_trie_nodes: bool,
+    /// If true, access to trie nodes (not values) charges gas and affects the
+    /// accounting cache. If false, access to trie nodes will not charge gas or
+    /// affect the accounting cache. Value accesses always charge gas no matter
+    /// what, and lookups done via get_ref with `KeyLookupMode::Trie` will
+    /// also charge gas no matter what.
+    charge_gas_for_trie_node_access: bool,
 }
 
 /// Trait for reading data from a trie.
@@ -366,21 +364,30 @@ pub trait TrieAccess {
     fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError>;
 }
 
-/// Stores reference count change for some key-value pair in DB.
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct TrieRefcountChange {
+/// Stores reference count addition for some key-value pair in DB.
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
+pub struct TrieRefcountAddition {
     /// Hash of trie_node_or_value and part of the DB key.
     /// Used for uniting with shard id to get actual DB key.
     trie_node_or_value_hash: CryptoHash,
     /// DB value. Can be either serialized RawTrieNodeWithSize or value corresponding to
     /// some TrieKey.
     trie_node_or_value: Vec<u8>,
-    /// Reference count difference which will be added to the total refcount if it corresponds to
-    /// insertion and subtracted from it in the case of deletion.
+    /// Reference count difference which will be added to the total refcount.
     rc: std::num::NonZeroU32,
 }
 
-impl TrieRefcountChange {
+/// Stores reference count subtraction for some key in DB.
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
+pub struct TrieRefcountSubtraction {
+    /// Hash of trie_node_or_value and part of the DB key.
+    /// Used for uniting with shard id to get actual DB key.
+    trie_node_or_value_hash: CryptoHash,
+    /// Reference count difference which will be subtracted to the total refcount.
+    rc: std::num::NonZeroU32,
+}
+
+impl TrieRefcountAddition {
     pub fn hash(&self) -> &CryptoHash {
         &self.trie_node_or_value_hash
     }
@@ -388,14 +395,61 @@ impl TrieRefcountChange {
     pub fn payload(&self) -> &[u8] {
         self.trie_node_or_value.as_slice()
     }
-}
 
-impl Hash for TrieRefcountChange {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(&self.trie_node_or_value_hash.0);
-        state.write_u32(self.rc.into());
+    pub fn revert(&self) -> TrieRefcountSubtraction {
+        TrieRefcountSubtraction {
+            trie_node_or_value_hash: self.trie_node_or_value_hash,
+            rc: self.rc,
+        }
     }
 }
+
+/// Helps produce a list of additions and subtractions to the trie,
+/// especially in the case where deletions don't carry the full value.
+pub struct TrieRefcountDeltaMap {
+    map: HashMap<CryptoHash, (Option<Vec<u8>>, i32)>,
+}
+
+impl TrieRefcountDeltaMap {
+    pub fn new() -> Self {
+        Self { map: HashMap::new() }
+    }
+
+    pub fn add(&mut self, hash: CryptoHash, data: Vec<u8>, refcount: u32) {
+        let (old_value, old_rc) = self.map.entry(hash).or_insert((None, 0));
+        *old_value = Some(data);
+        *old_rc += refcount as i32;
+    }
+
+    pub fn subtract(&mut self, hash: CryptoHash, refcount: u32) {
+        let (_, old_rc) = self.map.entry(hash).or_insert((None, 0));
+        *old_rc -= refcount as i32;
+    }
+
+    pub fn into_changes(self) -> (Vec<TrieRefcountAddition>, Vec<TrieRefcountSubtraction>) {
+        let mut insertions = Vec::new();
+        let mut deletions = Vec::new();
+        for (hash, (value, rc)) in self.map.into_iter() {
+            if rc > 0 {
+                insertions.push(TrieRefcountAddition {
+                    trie_node_or_value_hash: hash,
+                    trie_node_or_value: value.expect("value must be present"),
+                    rc: std::num::NonZeroU32::new(rc as u32).unwrap(),
+                });
+            } else if rc < 0 {
+                deletions.push(TrieRefcountSubtraction {
+                    trie_node_or_value_hash: hash,
+                    rc: std::num::NonZeroU32::new((-rc) as u32).unwrap(),
+                });
+            }
+        }
+        // Sort so that trie changes have unique representation.
+        insertions.sort();
+        deletions.sort();
+        (insertions, deletions)
+    }
+}
+
 ///
 /// TrieChanges stores delta for refcount.
 /// Multiple versions of the state work the following way:
@@ -423,8 +477,8 @@ impl Hash for TrieRefcountChange {
 pub struct TrieChanges {
     pub old_root: StateRoot,
     pub new_root: StateRoot,
-    insertions: Vec<TrieRefcountChange>,
-    deletions: Vec<TrieRefcountChange>,
+    insertions: Vec<TrieRefcountAddition>,
+    deletions: Vec<TrieRefcountSubtraction>,
 }
 
 impl TrieChanges {
@@ -432,7 +486,7 @@ impl TrieChanges {
         TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
     }
 
-    pub fn insertions(&self) -> &[TrieRefcountChange] {
+    pub fn insertions(&self) -> &[TrieRefcountAddition] {
         self.insertions.as_slice()
     }
 }
@@ -473,10 +527,10 @@ impl Trie {
         Trie {
             storage,
             root,
+            charge_gas_for_trie_node_access: flat_storage_chunk_view.is_none(),
             flat_storage_chunk_view,
             accounting_cache,
             recorder: None,
-            skip_accounting_cache_for_trie_nodes: false,
         }
     }
 
@@ -511,7 +565,7 @@ impl Trie {
         let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
         let storage = Rc::new(TrieMemoryPartialStorage::new(recorded_storage));
         let mut trie = Self::new(storage, root, None);
-        trie.skip_accounting_cache_for_trie_nodes = flat_storage_used;
+        trie.charge_gas_for_trie_node_access = !flat_storage_used;
         trie
     }
 
@@ -600,12 +654,8 @@ impl Trie {
     ) -> Result<(), StorageError> {
         match value {
             ValueHandle::HashAndSize(value) => {
-                let bytes = self.internal_retrieve_trie_node(&value.hash, true)?;
-                memory
-                    .refcount_changes
-                    .entry(value.hash)
-                    .or_insert_with(|| (bytes.to_vec(), 0))
-                    .1 -= 1;
+                self.internal_retrieve_trie_node(&value.hash, true)?;
+                memory.refcount_changes.subtract(value.hash, 1);
             }
             ValueHandle::InMemory(_) => {
                 // do nothing
@@ -943,9 +993,9 @@ impl Trie {
     ) -> Result<StorageHandle, StorageError> {
         match self.retrieve_raw_node(hash, true)? {
             None => Ok(memory.store(TrieNodeWithSize::empty())),
-            Some((bytes, node)) => {
+            Some((_, node)) => {
                 let result = memory.store(TrieNodeWithSize::from_raw(node));
-                memory.refcount_changes.entry(*hash).or_insert_with(|| (bytes.to_vec(), 0)).1 -= 1;
+                memory.refcount_changes.subtract(*hash, 1);
                 Ok(result)
             }
         }
@@ -976,14 +1026,76 @@ impl Trie {
         }
     }
 
-    fn lookup(
+    /// Retrieves the value (inlined or reference) for the given key, from flat storage.
+    /// In general, flat storage may inline a value if the value is short, but otherwise
+    /// it would defer the storage of the value to the trie. This method will return
+    /// whatever the flat storage has.
+    ///
+    /// If an inlined value is returned, this method will charge the corresponding gas
+    /// as if the value were accessed from the trie storage. It will also insert the
+    /// value into the accounting cache, as well as recording the access to the value
+    /// if recording is enabled. In other words, if an inlined value is returned the
+    /// behavior is equivalent to if the trie were used to access the value reference
+    /// and then the reference were used to look up the full value.
+    ///
+    /// If `ref_only` is true, even if the flat storage gives us the inlined value, we
+    /// would still convert it to a reference. This is useful if making an access for
+    /// the value (thereby charging gas for it) is not desired.
+    fn lookup_from_flat_storage(
+        &self,
+        key: &[u8],
+        ref_only: bool,
+    ) -> Result<Option<FlatStateValue>, StorageError> {
+        let flat_storage_chunk_view = self.flat_storage_chunk_view.as_ref().unwrap();
+        let mut value = flat_storage_chunk_view.get_value(key)?;
+        if ref_only {
+            value = value.map(|value| FlatStateValue::Ref(value.to_value_ref()));
+        }
+        if self.recorder.is_some() {
+            // If recording, we need to look up in the trie as well to record the trie nodes,
+            // as they are needed to prove the value. Also, it's important that this lookup
+            // is done even if the key was not found, because intermediate trie nodes may be
+            // needed to prove the non-existence of the key.
+            let value_ref_from_trie =
+                self.lookup_from_state_column(NibbleSlice::new(key), false)?;
+            match &value {
+                Some(FlatStateValue::Inlined(value)) => {
+                    assert!(value_ref_from_trie.is_some());
+                    let value_from_trie =
+                        self.retrieve_value(&value_ref_from_trie.unwrap().hash)?;
+                    assert_eq!(&value_from_trie, value);
+                }
+                Some(FlatStateValue::Ref(value_ref)) => {
+                    assert_eq!(value_ref_from_trie.as_ref(), Some(value_ref));
+                }
+                None => {
+                    assert!(value_ref_from_trie.is_none());
+                }
+            }
+        } else {
+            if let Some(FlatStateValue::Inlined(value)) = &value {
+                self.accounting_cache
+                    .borrow_mut()
+                    .retroactively_account(hash(value), value.clone().into());
+            }
+        }
+        Ok(value)
+    }
+
+    /// Looks up the given key by walking the trie nodes stored in the
+    /// `DBCol::State` column in the database (but still going through
+    /// applicable caches).
+    ///
+    /// The `charge_gas_for_trie_node_access` parameter controls whether the
+    /// lookup incurs any gas.
+    fn lookup_from_state_column(
         &self,
         mut key: NibbleSlice<'_>,
-        use_accounting_cache: bool,
+        charge_gas_for_trie_node_access: bool,
     ) -> Result<Option<ValueRef>, StorageError> {
         let mut hash = self.root;
         loop {
-            let node = match self.retrieve_raw_node(&hash, use_accounting_cache)? {
+            let node = match self.retrieve_raw_node(&hash, charge_gas_for_trie_node_access)? {
                 None => return Ok(None),
                 Some((_bytes, node)) => node.node,
             };
@@ -1118,64 +1230,39 @@ impl Trie {
         mode: KeyLookupMode,
     ) -> Result<Option<ValueRef>, StorageError> {
         let use_flat_storage =
-            matches!(mode, KeyLookupMode::FlatStorage) && self.flat_storage_chunk_view.is_some();
-
+            mode == KeyLookupMode::FlatStorage && self.flat_storage_chunk_view.is_some();
+        let charge_gas_for_trie_node_access =
+            mode == KeyLookupMode::Trie || self.charge_gas_for_trie_node_access;
         if use_flat_storage {
-            let value_from_flat_storage = self
-                .flat_storage_chunk_view
-                .as_ref()
-                .unwrap()
-                .get_value(&key)?
-                .map(|value| value.to_value_ref());
-            if self.recorder.is_some() {
-                // If recording, we need to look up in the trie as well to record the trie nodes,
-                // as they are needed to prove the value. Also, it's important that this lookup
-                // is done even if the key was not found, because intermediate trie nodes may be
-                // needed to prove the non-existence of the key.
-                let key_nibbles = NibbleSlice::new(key);
-                let value_from_trie = self.lookup(key_nibbles, false)?;
-                assert_eq!(&value_from_flat_storage, &value_from_trie);
-            }
-            Ok(value_from_flat_storage)
+            Ok(self.lookup_from_flat_storage(key, true)?.map(|value| value.to_value_ref()))
         } else {
-            let key_nibbles = NibbleSlice::new(key);
-            self.lookup(key_nibbles, !self.skip_accounting_cache_for_trie_nodes)
+            self.lookup_from_state_column(NibbleSlice::new(key), charge_gas_for_trie_node_access)
         }
     }
 
+    /// Retrieves a value, which may or may not be the complete value, for the given key.
+    /// If the full value could be obtained cheaply it is returned; otherwise only the reference
+    /// is returned.
+    fn get_flat_value(&self, key: &[u8]) -> Result<Option<FlatStateValue>, StorageError> {
+        if self.flat_storage_chunk_view.is_some() {
+            self.lookup_from_flat_storage(key, false)
+        } else {
+            Ok(self
+                .lookup_from_state_column(
+                    NibbleSlice::new(key),
+                    self.charge_gas_for_trie_node_access,
+                )?
+                .map(|value| FlatStateValue::Ref(value)))
+        }
+    }
+
+    /// Retrieves the full value for the given key.
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
-        match self.get_ref(key, KeyLookupMode::FlatStorage)? {
-            Some(ValueRef { hash, .. }) => {
-                self.internal_retrieve_trie_node(&hash, true).map(|bytes| Some(bytes.to_vec()))
-            }
+        match self.get_flat_value(key)? {
+            Some(FlatStateValue::Ref(value_ref)) => self.retrieve_value(&value_ref.hash).map(Some),
+            Some(FlatStateValue::Inlined(value)) => Ok(Some(value)),
             None => Ok(None),
         }
-    }
-
-    pub(crate) fn convert_to_insertions_and_deletions(
-        changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
-    ) -> (Vec<TrieRefcountChange>, Vec<TrieRefcountChange>) {
-        let mut deletions = Vec::new();
-        let mut insertions = Vec::new();
-        for (trie_node_or_value_hash, (trie_node_or_value, rc)) in changes.into_iter() {
-            if rc > 0 {
-                insertions.push(TrieRefcountChange {
-                    trie_node_or_value_hash,
-                    trie_node_or_value,
-                    rc: std::num::NonZeroU32::new(rc as u32).unwrap(),
-                });
-            } else if rc < 0 {
-                deletions.push(TrieRefcountChange {
-                    trie_node_or_value_hash,
-                    trie_node_or_value,
-                    rc: std::num::NonZeroU32::new((-rc) as u32).unwrap(),
-                });
-            }
-        }
-        // Sort so that trie changes have unique representation
-        insertions.sort();
-        deletions.sort();
-        (insertions, deletions)
     }
 
     pub fn update<I>(&self, changes: I) -> Result<TrieChanges, StorageError>
