@@ -130,13 +130,13 @@ fn check_meta_tx_execution(
     let relayer_before = node_user.view_balance(&relayer).unwrap();
     let receiver_before = node_user.view_balance(&receiver).unwrap_or(0);
     let relayer_nonce_before = node_user
-        .get_access_key(&relayer, &PublicKey::from_seed(KeyType::ED25519, &relayer))
+        .get_access_key(&relayer, &PublicKey::from_seed(KeyType::ED25519, relayer.as_ref()))
         .unwrap()
         .nonce;
     let user_pubk = if sender.is_implicit() {
         PublicKey::from_implicit_account(&sender).unwrap()
     } else {
-        PublicKey::from_seed(KeyType::ED25519, &sender)
+        PublicKey::from_seed(KeyType::ED25519, sender.as_ref())
     };
     let user_nonce_before = node_user.get_access_key(&sender, &user_pubk).unwrap().nonce;
 
@@ -148,13 +148,13 @@ fn check_meta_tx_execution(
 
     // both nonces should be increased by 1
     let relayer_nonce = node_user
-        .get_access_key(&relayer, &PublicKey::from_seed(KeyType::ED25519, &relayer))
+        .get_access_key(&relayer, &PublicKey::from_seed(KeyType::ED25519, relayer.as_ref()))
         .unwrap()
         .nonce;
     assert_eq!(relayer_nonce, relayer_nonce_before + 1);
     // user key must be checked for existence (to test DeleteKey action)
     if let Ok(user_nonce) = node_user
-        .get_access_key(&sender, &PublicKey::from_seed(KeyType::ED25519, &sender))
+        .get_access_key(&sender, &PublicKey::from_seed(KeyType::ED25519, sender.as_ref()))
         .map(|key| key.nonce)
     {
         assert_eq!(user_nonce, user_nonce_before + 1);
@@ -493,7 +493,7 @@ fn meta_tx_delete_key() {
     let fee_helper = fee_helper(&node);
 
     let tx_cost = fee_helper.delete_key_cost();
-    let public_key = PublicKey::from_seed(KeyType::ED25519, &receiver);
+    let public_key = PublicKey::from_seed(KeyType::ED25519, receiver.as_ref());
     let actions =
         vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key: public_key.clone() }))];
     check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver.clone());
@@ -518,7 +518,7 @@ fn meta_tx_delete_account() {
         .create_account(
             relayer.clone(),
             sender.clone(),
-            PublicKey::from_seed(KeyType::ED25519, &sender),
+            PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
             balance,
         )
         .expect("account setup failed")
@@ -577,13 +577,13 @@ fn meta_tx_ft_transfer() {
         .assert_success();
 
     // register sender & receiver FT accounts
-    let actions = vec![ft_register_action(&sender), ft_register_action(&receiver)];
+    let actions = vec![ft_register_action(sender.as_ref()), ft_register_action(&receiver)];
     node.user()
         .sign_and_commit_actions(relayer.clone(), ft_contract.clone(), actions)
         .expect("registering FT accounts")
         .assert_success();
     // initialize sender balance
-    let actions = vec![ft_transfer_action(&sender, 10_000).0];
+    let actions = vec![ft_transfer_action(sender.as_ref(), 10_000).0];
     node.user()
         .sign_and_commit_actions(relayer.clone(), ft_contract.clone(), actions)
         .expect("initializing sender balance failed")
@@ -591,7 +591,7 @@ fn meta_tx_ft_transfer() {
 
     // START OF META TRANSACTION
     // 1% fee to the relayer
-    let (action0, bytes0) = ft_transfer_action(&relayer, 10);
+    let (action0, bytes0) = ft_transfer_action(relayer.as_ref(), 10);
     // the actual transfer
     let (action1, bytes1) = ft_transfer_action(receiver, 1000);
     let actions = vec![action0, action1];
@@ -612,19 +612,19 @@ fn meta_tx_ft_transfer() {
     assert_eq!(2, fn_call_logs.len(), "expected 2 JSON events but found {fn_call_logs:?}");
     assert_eq!(
         fn_call_logs[0],
-        ft_transfer_event(&sender, &relayer, 10),
+        ft_transfer_event(sender.as_ref(), relayer.as_ref(), 10),
         "relayer event looks wrong"
     );
     assert_eq!(
         fn_call_logs[1],
-        ft_transfer_event(&sender, &receiver, 1000),
+        ft_transfer_event(sender.as_str(), &receiver, 1000),
         "receiver event looks wrong"
     );
 
     // Also check FT balances
     assert_ft_balance(&node, &ft_contract, &receiver, 1000);
-    assert_ft_balance(&node, &ft_contract, &sender, 10_000 - 1000 - 10);
-    assert_ft_balance(&node, &ft_contract, &relayer, 1_000_000 - 10_000 + 10);
+    assert_ft_balance(&node, &ft_contract, sender.as_ref(), 10_000 - 1000 - 10);
+    assert_ft_balance(&node, &ft_contract, relayer.as_ref(), 1_000_000 - 10_000 + 10);
 }
 
 /// Call the function "log_something" in the test contract.
@@ -758,7 +758,7 @@ fn meta_tx_create_named_account() {
     let fee_helper = fee_helper(&node);
     let amount = NEAR_BASE;
 
-    let public_key = PublicKey::from_seed(KeyType::ED25519, &new_account);
+    let public_key = PublicKey::from_seed(KeyType::ED25519, new_account.as_ref());
 
     // That's the minimum to create a (useful) account.
     let actions = vec![

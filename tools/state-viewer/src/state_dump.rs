@@ -150,7 +150,7 @@ pub fn state_dump_redis(
             if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
                 if let StateRecord::Account { account_id, account } = &sr {
                     println!("Account: {}", account_id);
-                    let redis_key = account_id.as_ref().as_bytes();
+                    let redis_key = account_id.as_bytes();
                     redis_connection.zadd(
                         [b"account:", redis_key].concat(),
                         block_hash.as_ref(),
@@ -166,8 +166,7 @@ pub fn state_dump_redis(
 
                 if let StateRecord::Data { account_id, data_key, value } = &sr {
                     println!("Data: {}", account_id);
-                    let redis_key =
-                        [account_id.as_ref().as_bytes(), b":", data_key.as_ref()].concat();
+                    let redis_key = [account_id.as_bytes(), b":", data_key.as_ref()].concat();
                     redis_connection.zadd(
                         [b"data:", redis_key.as_slice()].concat(),
                         block_hash.as_ref(),
@@ -183,7 +182,7 @@ pub fn state_dump_redis(
 
                 if let StateRecord::Contract { account_id, code } = &sr {
                     println!("Contract: {}", account_id);
-                    let redis_key = [b"code:", account_id.as_ref().as_bytes()].concat();
+                    let redis_key = [b"code:", account_id.as_bytes()].concat();
                     redis_connection.zadd(redis_key.clone(), block_hash.as_ref(), block_height)?;
                     let value_vec: &[u8] = code.as_ref();
                     redis_connection.set(
@@ -320,6 +319,7 @@ mod test {
     use crate::state_dump::state_dump;
     use near_primitives::hash::CryptoHash;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
+    use near_primitives_core::account::id::AccountIdRef;
 
     fn setup(
         epoch_length: NumBlocks,
@@ -629,7 +629,7 @@ mod test {
                 .into_iter()
                 .map(|r| r.account_id)
                 .collect::<Vec<_>>(),
-            vec!["test0".parse().unwrap()]
+            vec!["test0"]
         );
         validate_genesis(&new_genesis).unwrap();
     }
@@ -915,7 +915,7 @@ mod test {
                 .iter()
                 .map(|x| x.account_id.clone())
                 .collect::<Vec<AccountId>>(),
-            vec!["test1".parse().unwrap()]
+            vec!["test1"]
         );
 
         let mut stake = HashMap::<AccountId, Balance>::new();
@@ -925,7 +925,10 @@ mod test {
             }
         });
 
-        assert_eq!(stake.get("test0").unwrap_or(&(0 as Balance)), &(0 as Balance));
+        assert_eq!(
+            stake.get(AccountIdRef::new_or_panic("test0")).unwrap_or(&(0 as Balance)),
+            &(0 as Balance)
+        );
 
         validate_genesis(&new_genesis).unwrap();
     }

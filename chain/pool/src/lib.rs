@@ -74,7 +74,7 @@ impl TransactionPool {
     fn key(&self, account_id: &AccountId, public_key: &PublicKey) -> PoolKey {
         let mut v = borsh::to_vec(&public_key).unwrap();
         v.extend_from_slice(&self.key_seed);
-        v.extend_from_slice(account_id.as_ref().as_bytes());
+        v.extend_from_slice(account_id.as_bytes());
         hash(&v)
     }
 

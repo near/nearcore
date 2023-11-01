@@ -3342,23 +3342,12 @@ dependencies = [
 
 [[package]]
 name = "near-account-id"
-version = "0.0.0"
+version = "1.0.0-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e328ed1bf9045c46595cc88274a46a6412e3a070c2ad3c146e2f94ed150a7c2"
 dependencies = [
- "arbitrary",
- "bolero",
  "borsh 1.0.0",
  "serde",
- "serde_json",
-]
-
-[[package]]
-name = "near-account-id-fuzz"
-version = "0.0.0"
-dependencies = [
- "borsh 1.0.0",
- "libfuzzer-sys",
- "near-account-id",
- "serde_json",
 ]
 
 [[package]]

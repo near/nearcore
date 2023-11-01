@@ -61,10 +61,7 @@ fn test_get_validator_info_rpc() {
                         let res = client.validators(None).await.unwrap();
 
                         assert_eq!(res.current_validators.len(), 1);
-                        assert!(res
-                            .current_validators
-                            .iter()
-                            .any(|r| r.account_id.as_ref() == "near.0"));
+                        assert!(res.current_validators.iter().any(|r| r.account_id == "near.0"));
                         System::current().stop();
                     }
                 });
