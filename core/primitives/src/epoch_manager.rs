@@ -73,6 +73,14 @@ impl ShardConfig {
     }
 }
 
+/// Testing overrides to apply to the EpochConfig returned by the `for_protocol_version`.
+/// All fields should be optional and the default should be a no-op.
+#[derive(Clone, Default)]
+pub struct AllEpochConfigTestOverrides {
+    pub block_producer_kickout_threshold: Option<u8>,
+    pub chunk_producer_kickout_threshold: Option<u8>,
+}
+
 /// AllEpochConfig manages protocol configs that might be changing throughout epochs (hence EpochConfig).
 /// The main function in AllEpochConfig is ::for_protocol_version which takes a protocol version
 /// and returns the EpochConfig that should be used for this protocol version.
@@ -85,6 +93,9 @@ pub struct AllEpochConfig {
     genesis_epoch_config: EpochConfig,
     /// Chain Id. Some parameters are specific to certain chains.
     chain_id: String,
+
+    /// Testing overrides to apply to the EpochConfig returned by the `for_protocol_version`.
+    test_overrides: AllEpochConfigTestOverrides,
 }
 
 impl AllEpochConfig {
@@ -93,7 +104,26 @@ impl AllEpochConfig {
         genesis_epoch_config: EpochConfig,
         chain_id: &str,
     ) -> Self {
-        Self { use_production_config, genesis_epoch_config, chain_id: chain_id.to_string() }
+        Self {
+            use_production_config,
+            genesis_epoch_config,
+            chain_id: chain_id.to_string(),
+            test_overrides: AllEpochConfigTestOverrides::default(),
+        }
+    }
+
+    pub fn new_with_test_overrides(
+        use_production_config: bool,
+        genesis_epoch_config: EpochConfig,
+        chain_id: &str,
+        test_overrides: Option<AllEpochConfigTestOverrides>,
+    ) -> Self {
+        Self {
+            use_production_config,
+            genesis_epoch_config,
+            chain_id: chain_id.to_string(),
+            test_overrides: test_overrides.unwrap_or_default(),
+        }
     }
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
@@ -107,6 +137,8 @@ impl AllEpochConfig {
         Self::config_chunk_only_producers(&mut config, &self.chain_id, protocol_version);
 
         Self::config_max_kickout_stake(&mut config, protocol_version);
+
+        Self::config_test_overrides(&mut config, &self.test_overrides);
 
         config
     }
@@ -168,6 +200,23 @@ impl AllEpochConfig {
     fn config_max_kickout_stake(config: &mut EpochConfig, protocol_version: u32) {
         if checked_feature!("stable", MaxKickoutStake, protocol_version) {
             config.validator_max_kickout_stake_perc = 30;
+        }
+    }
+
+    fn config_test_overrides(
+        config: &mut EpochConfig,
+        test_overrides: &AllEpochConfigTestOverrides,
+    ) {
+        if let Some(block_producer_kickout_threshold) =
+            test_overrides.block_producer_kickout_threshold
+        {
+            config.block_producer_kickout_threshold = block_producer_kickout_threshold;
+        }
+
+        if let Some(chunk_producer_kickout_threshold) =
+            test_overrides.chunk_producer_kickout_threshold
+        {
+            config.chunk_producer_kickout_threshold = chunk_producer_kickout_threshold;
         }
     }
 }
