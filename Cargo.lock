@@ -4216,6 +4216,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-state-parts-dump-check"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "actix-web",
+ "anyhow",
+ "borsh 1.0.0",
+ "clap 4.2.4",
+ "cloud-storage",
+ "near-client",
+ "near-jsonrpc",
+ "near-o11y",
+ "near-primitives",
+ "near-primitives-core",
+ "near-store",
+ "nearcore",
+ "once_cell",
+ "reqwest",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "near-stdx"
 version = "0.0.0"
 
@@ -4634,6 +4657,7 @@ dependencies = [
  "near-ping",
  "near-primitives",
  "near-state-parts",
+ "near-state-parts-dump-check",
  "near-store",
  "near-undo-block",
  "nearcore",

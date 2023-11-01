@@ -486,6 +486,15 @@ impl StateRootNode {
 #[as_ref(forward)]
 pub struct EpochId(pub CryptoHash);
 
+impl std::str::FromStr for EpochId {
+    type Err = Box<dyn std::error::Error + Send + Sync>;
+
+    /// Decodes base58-encoded string into a 32-byte crypto hash.
+    fn from_str(epoch_id_str: &str) -> Result<Self, Self::Err> {
+        Ok(EpochId(CryptoHash::from_str(epoch_id_str)?))
+    }
+}
+
 /// Stores validator and its stake for two consecutive epochs.
 /// It is necessary because the blocks on the epoch boundary need to contain approvals from both
 /// epochs.
