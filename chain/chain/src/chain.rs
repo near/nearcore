@@ -477,21 +477,10 @@ pub struct Chain {
     /// to create the parts. This information is used for debugging
     pub(crate) requested_state_parts: StateRequestTracker,
 
-    /// Lets trigger new state snapshots.
-    state_snapshot_helper: StateSnapshotHelper,
-
-    pub(crate) state_split_config: near_chain_configs::StateSplitConfig,
-}
-
-/// Lets trigger new state snapshots.
-#[derive(Default)]
-struct StateSnapshotHelper {
     /// A callback to initiate state snapshot.
     snapshot_callbacks: Option<SnapshotCallbacks>,
 
-    /// Count of blocks since the last snapshot.
-    /// Useful for keeping track of count if StateSnapshotType is EveryEpochAndNBlocks
-    blocks_since_last_snapshot: u64,
+    pub(crate) state_split_config: near_chain_configs::StateSplitConfig,
 }
 
 impl Drop for Chain {
@@ -583,7 +572,7 @@ impl Chain {
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
-            state_snapshot_helper: Default::default(),
+            snapshot_callbacks: None,
             state_split_config: StateSplitConfig::default(),
         })
     }
@@ -749,10 +738,7 @@ impl Chain {
             last_time_head_updated: StaticClock::instant(),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
-            state_snapshot_helper: StateSnapshotHelper {
-                snapshot_callbacks,
-                blocks_since_last_snapshot: 0,
-            },
+            snapshot_callbacks,
             state_split_config: chain_config.state_split_config,
         })
     }
@@ -4288,7 +4274,7 @@ impl Chain {
         if !make_snapshot && !delete_snapshot {
             return Ok(());
         }
-        if let Some(snapshot_callbacks) = &self.state_snapshot_helper.snapshot_callbacks {
+        if let Some(snapshot_callbacks) = &self.snapshot_callbacks {
             if make_snapshot {
                 let head = self.head()?;
                 let shard_uids = self
@@ -4309,8 +4295,6 @@ impl Chain {
     /// Function to check whether we need to create a new snapshot while processing the current block
     /// Note that this functions is called as a part of block preprocesing, so the head is not updated to current block
     fn should_make_or_delete_snapshot(&mut self) -> Result<(bool, bool), Error> {
-        self.state_snapshot_helper.blocks_since_last_snapshot += 1;
-
         // head value is that of the previous block, i.e. curr_block.prev_hash
         let head = self.head()?;
         if head.prev_block_hash == CryptoHash::default() {
@@ -4329,20 +4313,11 @@ impl Chain {
             StateSnapshotType::EveryEpoch => is_epoch_boundary,
             // For resharding only, we snapshot if next block would be in a different shard layout
             StateSnapshotType::ForReshardingOnly => is_epoch_boundary && will_shard_layout_change,
-            // For every N blocks, we snapshot if next block would be in a different epoch
-            // OR if we have reached N blocks since the last snapshot
-            StateSnapshotType::EveryEpochAndNBlocks(n) => {
-                is_epoch_boundary || self.state_snapshot_helper.blocks_since_last_snapshot >= n
-            }
         };
 
         // We need to delete the existing snapshot at the epoch boundary if we are not making a new snapshot
         // This is useful for the next epoch after resharding where make_snapshot is false but it's an epoch boundary
         let delete_snapshot = !make_snapshot && is_epoch_boundary;
-
-        if make_snapshot {
-            self.state_snapshot_helper.blocks_since_last_snapshot = 0;
-        }
 
         Ok((make_snapshot, delete_snapshot))
     }

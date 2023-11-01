@@ -93,9 +93,6 @@ impl NightshadeRuntime {
         if config.config.store.state_snapshot_enabled {
             state_snapshot_type = StateSnapshotType::EveryEpoch;
         }
-        if let Some(n) = config.client_config.state_snapshot_every_n_blocks {
-            state_snapshot_type = StateSnapshotType::EveryEpochAndNBlocks(n);
-        }
         // TODO (#9989): directly use the new state snapshot config once the migration is done.
         let compaction_enabled = config.config.store.state_snapshot_compaction_enabled
             || config.config.store.state_snapshot_config.compaction_enabled;
