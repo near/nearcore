@@ -1,8 +1,11 @@
 use crate::metadata::DbKind;
-use crate::{DBCol, Store, StoreUpdate};
+use crate::trie::{TrieRefcountAddition, TrieRefcountSubtraction};
+use crate::{DBCol, Store, StoreUpdate, TrieChanges};
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
+use near_primitives::types::StateRoot;
 use near_primitives::utils::get_outcome_id_block_hash;
 use std::collections::HashMap;
 use tracing::info;
@@ -225,6 +228,61 @@ pub fn migrate_37_to_38(store: &Store) -> anyhow::Result<()> {
         let new_value =
             crate::flat::FlatStateDeltaMetadata { block, prev_block_with_changes: None };
         update.set(DBCol::FlatStateDeltaMetadata, &key, &borsh::to_vec(&new_value)?);
+    }
+    update.commit()?;
+    Ok(())
+}
+
+// Migrates the database from version 38 to 39.
+//
+// Rewrites TrieChanges to use TrieRefcountAddition and TrieRefcountSubtraction.
+// TrieRefcountSubtraction no longer stores the value behind the refcount,
+// because subtracting the refcount does not require specifying the value.
+pub fn migrate_38_to_39(store: &Store) -> anyhow::Result<()> {
+    #[derive(borsh::BorshDeserialize)]
+    struct LegacyTrieRefcountChange {
+        trie_node_or_value_hash: CryptoHash,
+        trie_node_or_value: Vec<u8>,
+        rc: std::num::NonZeroU32,
+    }
+
+    #[derive(borsh::BorshDeserialize)]
+    struct LegacyTrieChanges {
+        old_root: StateRoot,
+        new_root: StateRoot,
+        insertions: Vec<LegacyTrieRefcountChange>,
+        deletions: Vec<LegacyTrieRefcountChange>,
+    }
+
+    let mut update = store.store_update();
+    update.delete_all(DBCol::TrieChanges);
+    for result in store.iter(DBCol::TrieChanges) {
+        let (key, old_value) = result?;
+        let LegacyTrieChanges { old_root, new_root, insertions, deletions } =
+            borsh::from_slice(&old_value)?;
+        let new_value = TrieChanges {
+            old_root,
+            new_root,
+            insertions: insertions
+                .into_iter()
+                .map(
+                    |LegacyTrieRefcountChange {
+                         trie_node_or_value_hash,
+                         trie_node_or_value,
+                         rc,
+                     }| {
+                        TrieRefcountAddition { trie_node_or_value_hash, trie_node_or_value, rc }
+                    },
+                )
+                .collect(),
+            deletions: deletions
+                .into_iter()
+                .map(|LegacyTrieRefcountChange { trie_node_or_value_hash, rc, .. }| {
+                    TrieRefcountSubtraction { trie_node_or_value_hash, rc }
+                })
+                .collect(),
+        };
+        update.set(DBCol::TrieChanges, &key, &borsh::to_vec(&new_value)?);
     }
     update.commit()?;
     Ok(())

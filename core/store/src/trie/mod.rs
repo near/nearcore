@@ -369,12 +369,12 @@ pub trait TrieAccess {
 pub struct TrieRefcountAddition {
     /// Hash of trie_node_or_value and part of the DB key.
     /// Used for uniting with shard id to get actual DB key.
-    trie_node_or_value_hash: CryptoHash,
+    pub(crate) trie_node_or_value_hash: CryptoHash,
     /// DB value. Can be either serialized RawTrieNodeWithSize or value corresponding to
     /// some TrieKey.
-    trie_node_or_value: Vec<u8>,
+    pub(crate) trie_node_or_value: Vec<u8>,
     /// Reference count difference which will be added to the total refcount.
-    rc: std::num::NonZeroU32,
+    pub(crate) rc: std::num::NonZeroU32,
 }
 
 /// Stores reference count subtraction for some key in DB.
@@ -382,9 +382,9 @@ pub struct TrieRefcountAddition {
 pub struct TrieRefcountSubtraction {
     /// Hash of trie_node_or_value and part of the DB key.
     /// Used for uniting with shard id to get actual DB key.
-    trie_node_or_value_hash: CryptoHash,
+    pub(crate) trie_node_or_value_hash: CryptoHash,
     /// Reference count difference which will be subtracted to the total refcount.
-    rc: std::num::NonZeroU32,
+    pub(crate) rc: std::num::NonZeroU32,
 }
 
 impl TrieRefcountAddition {
@@ -477,8 +477,8 @@ impl TrieRefcountDeltaMap {
 pub struct TrieChanges {
     pub old_root: StateRoot,
     pub new_root: StateRoot,
-    insertions: Vec<TrieRefcountAddition>,
-    deletions: Vec<TrieRefcountSubtraction>,
+    pub(crate) insertions: Vec<TrieRefcountAddition>,
+    pub(crate) deletions: Vec<TrieRefcountSubtraction>,
 }
 
 impl TrieChanges {
