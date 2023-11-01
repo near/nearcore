@@ -150,13 +150,13 @@ impl NetworkState {
 
         match (v1_dist, v2_dist) {
             (None, None) => {
-                metrics::NETWORK_ROUTED_MSG_DISTANCES.with_label_values(&["v1, v2 NONE"]).inc();
+                metrics::NETWORK_ROUTED_MSG_DISTANCES.with_label_values(&["NONE"]).inc();
             }
-            (Some(_), None) => {
-                metrics::NETWORK_ROUTED_MSG_DISTANCES.with_label_values(&["v2 NONE"]).inc();
+            (Some(_v1), None) => {
+                metrics::NETWORK_ROUTED_MSG_DISTANCES.with_label_values(&["v1 ONLY"]).inc();
             }
-            (None, Some(_)) => {
-                metrics::NETWORK_ROUTED_MSG_DISTANCES.with_label_values(&["v1 NONE"]).inc();
+            (None, Some(_v2)) => {
+                metrics::NETWORK_ROUTED_MSG_DISTANCES.with_label_values(&["v2 ONLY"]).inc();
             }
             (Some(v1), Some(v2)) => {
                 if v1 == v2 {
