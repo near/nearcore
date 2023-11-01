@@ -432,8 +432,9 @@ message StateResponse {
 message SnapshotHostInfo {
   PublicKey peer_id = 1; 
   CryptoHash sync_hash = 2;
-  repeated uint64 shards = 3;
-  Signature signature = 4;
+  uint64 epoch_height = 3;
+  repeated uint64 shards = 4;
+  Signature signature = 5;
 }
 
 message SyncSnapshotHosts {

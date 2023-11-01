@@ -178,6 +178,7 @@ impl From<&SnapshotHostInfo> for proto::SnapshotHostInfo {
         Self {
             peer_id: MF::some((&x.peer_id).into()),
             sync_hash: MF::some((&x.sync_hash).into()),
+            epoch_height: x.epoch_height,
             shards: x.shards.clone(),
             signature: MF::some((&x.signature).into()),
             ..Default::default()
@@ -191,6 +192,7 @@ impl TryFrom<&proto::SnapshotHostInfo> for SnapshotHostInfo {
         Ok(Self {
             peer_id: try_from_required(&x.peer_id).map_err(Self::Error::PeerId)?,
             sync_hash: try_from_required(&x.sync_hash).map_err(Self::Error::SyncHash)?,
+            epoch_height: x.epoch_height,
             shards: x.shards.clone(),
             signature: try_from_required(&x.signature).map_err(Self::Error::Signature)?,
         })
