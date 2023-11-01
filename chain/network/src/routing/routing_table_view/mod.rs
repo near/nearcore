@@ -17,6 +17,11 @@ struct Inner {
     /// this will be the set of first nodes on all such paths.
     next_hops: Arc<routing::NextHopTable>,
 
+    /// Contains the shortest path length for each routable peer in the network.
+    /// Used only to collect metrics measuring routing performance.
+    /// TODO(saketh): Remove this when we deprecate the V1 routing protocol.
+    distance: Arc<routing::DistanceTable>,
+
     /// Counter of number of calls to find_route_by_peer_id.
     find_route_calls: u64,
     /// Last time the given peer was selected by find_route_by_peer_id.
@@ -36,6 +41,15 @@ impl Inner {
         self.find_route_calls += 1;
         Ok(next_hop.clone())
     }
+
+    fn update(
+        &mut self,
+        next_hops: Arc<routing::NextHopTable>,
+        distance: Arc<routing::DistanceTable>,
+    ) {
+        self.next_hops = next_hops;
+        self.distance = distance
+    }
 }
 
 #[derive(Debug)]
@@ -48,13 +62,18 @@ impl RoutingTableView {
     pub fn new() -> Self {
         Self(Mutex::new(Inner {
             next_hops: Default::default(),
+            distance: Default::default(),
             find_route_calls: 0,
             last_routed: LruCache::new(LAST_ROUTED_CACHE_SIZE),
         }))
     }
 
-    pub(crate) fn update(&self, next_hops: Arc<routing::NextHopTable>) {
-        self.0.lock().next_hops = next_hops;
+    pub(crate) fn update(
+        &self,
+        next_hops: Arc<routing::NextHopTable>,
+        distance: Arc<routing::DistanceTable>,
+    ) {
+        self.0.lock().update(next_hops, distance)
     }
 
     pub(crate) fn reachable_peers(&self) -> usize {
@@ -71,6 +90,10 @@ impl RoutingTableView {
         target: &PeerId,
     ) -> Result<PeerId, FindRouteError> {
         self.0.lock().find_next_hop(target)
+    }
+
+    pub(crate) fn get_distance(&self, peer_id: &PeerId) -> Option<u32> {
+        self.0.lock().distance.get(peer_id).copied()
     }
 
     pub(crate) fn view_route(&self, peer_id: &PeerId) -> Option<Vec<PeerId>> {

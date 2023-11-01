@@ -153,39 +153,39 @@ impl TrieKey {
         match self {
             TrieKey::Account { account_id } => {
                 buf.push(col::ACCOUNT);
-                buf.extend(account_id.as_ref().as_bytes());
+                buf.extend(account_id.as_bytes());
             }
             TrieKey::ContractCode { account_id } => {
                 buf.push(col::CONTRACT_CODE);
-                buf.extend(account_id.as_ref().as_bytes());
+                buf.extend(account_id.as_bytes());
             }
             TrieKey::AccessKey { account_id, public_key } => {
                 buf.push(col::ACCESS_KEY);
-                buf.extend(account_id.as_ref().as_bytes());
+                buf.extend(account_id.as_bytes());
                 buf.push(col::ACCESS_KEY);
                 buf.extend(borsh::to_vec(&public_key).unwrap());
             }
             TrieKey::ReceivedData { receiver_id, data_id } => {
                 buf.push(col::RECEIVED_DATA);
-                buf.extend(receiver_id.as_ref().as_bytes());
+                buf.extend(receiver_id.as_bytes());
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(data_id.as_ref());
             }
             TrieKey::PostponedReceiptId { receiver_id, data_id } => {
                 buf.push(col::POSTPONED_RECEIPT_ID);
-                buf.extend(receiver_id.as_ref().as_bytes());
+                buf.extend(receiver_id.as_bytes());
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(data_id.as_ref());
             }
             TrieKey::PendingDataCount { receiver_id, receipt_id } => {
                 buf.push(col::PENDING_DATA_COUNT);
-                buf.extend(receiver_id.as_ref().as_bytes());
+                buf.extend(receiver_id.as_bytes());
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(receipt_id.as_ref());
             }
             TrieKey::PostponedReceipt { receiver_id, receipt_id } => {
                 buf.push(col::POSTPONED_RECEIPT);
-                buf.extend(receiver_id.as_ref().as_bytes());
+                buf.extend(receiver_id.as_bytes());
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(receipt_id.as_ref());
             }
@@ -198,7 +198,7 @@ impl TrieKey {
             }
             TrieKey::ContractData { account_id, key } => {
                 buf.push(col::CONTRACT_DATA);
-                buf.extend(account_id.as_ref().as_bytes());
+                buf.extend(account_id.as_bytes());
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(key);
             }

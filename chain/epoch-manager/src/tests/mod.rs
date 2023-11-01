@@ -9,6 +9,7 @@ use crate::test_utils::{
     record_with_block_info, reward, setup_default_epoch_manager, setup_epoch_manager, stake,
     DEFAULT_TOTAL_SUPPLY,
 };
+use near_primitives::account::id::AccountIdRef;
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
@@ -167,7 +168,7 @@ fn test_validator_change_of_stake() {
         ],
     );
     matches!(
-        epoch_info.validator_kickout().get("test1"),
+        epoch_info.validator_kickout().get(AccountIdRef::new_or_panic("test1")),
         Some(ValidatorKickoutReason::NotEnoughStake { stake: 10, .. })
     );
 }
@@ -211,7 +212,7 @@ fn test_fork_finalization() {
             let block_producer_id = EpochManager::block_producer_from_info(&epoch_info, height);
             let block_producer = epoch_info.get_validator(block_producer_id);
             let account_id = block_producer.account_id();
-            if validator_accounts.iter().any(|v| *v == account_id.as_ref()) {
+            if validator_accounts.iter().any(|v| *v == account_id) {
                 record_block(epoch_manager, prev_block, *curr_block, height, vec![]);
                 prev_block = *curr_block;
                 branch_blocks.push(*curr_block);
@@ -332,10 +333,10 @@ fn test_validator_kickout() {
         let height = i as u64;
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block).unwrap();
         let block_producer = epoch_manager.get_block_producer_info(&epoch_id, height).unwrap();
-        if block_producer.account_id().as_ref() == "test2" && epoch_id == init_epoch_id {
+        if block_producer.account_id() == "test2" && epoch_id == init_epoch_id {
             // test2 skips its blocks in the first epoch
             test2_expected_blocks += 1;
-        } else if block_producer.account_id().as_ref() == "test1" && epoch_id != init_epoch_id {
+        } else if block_producer.account_id() == "test1" && epoch_id != init_epoch_id {
             // test1 skips its blocks in subsequent epochs
             ()
         } else {
@@ -733,8 +734,8 @@ fn test_validator_reward_one_validator() {
         PROTOCOL_VERSION,
         epoch_length * NUM_NS_IN_SECOND,
     );
-    let test2_reward = *validator_reward.get("test2").unwrap();
-    let protocol_reward = *validator_reward.get("near").unwrap();
+    let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
+    let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("near")).unwrap();
 
     let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
     check_validators(&epoch_info, &[("test2", stake_amount + test2_reward)]);
@@ -831,10 +832,10 @@ fn test_validator_reward_weight_by_stake() {
         PROTOCOL_VERSION,
         epoch_length * NUM_NS_IN_SECOND,
     );
-    let test1_reward = *validator_reward.get("test1").unwrap();
-    let test2_reward = *validator_reward.get("test2").unwrap();
+    let test1_reward = *validator_reward.get(AccountIdRef::new_or_panic("test1")).unwrap();
+    let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
     assert_eq!(test1_reward, test2_reward * 2);
-    let protocol_reward = *validator_reward.get("near").unwrap();
+    let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("near")).unwrap();
 
     let epoch_info = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
     check_validators(
@@ -915,9 +916,7 @@ fn test_reward_multiple_shards() {
                 let expected_chunk_producer = epoch_manager
                     .get_chunk_producer_info(&epoch_id, height, shard_index as u64)
                     .unwrap();
-                if expected_chunk_producer.account_id().as_ref() == "test1"
-                    && epoch_id == init_epoch_id
-                {
+                if expected_chunk_producer.account_id() == "test1" && epoch_id == init_epoch_id {
                     expected_chunks += 1;
                     false
                 } else {
@@ -949,8 +948,8 @@ fn test_reward_multiple_shards() {
         PROTOCOL_VERSION,
         epoch_length * NUM_NS_IN_SECOND,
     );
-    let test2_reward = *validator_reward.get("test2").unwrap();
-    let protocol_reward = *validator_reward.get("near").unwrap();
+    let test2_reward = *validator_reward.get(AccountIdRef::new_or_panic("test2")).unwrap();
+    let protocol_reward = *validator_reward.get(AccountIdRef::new_or_panic("near")).unwrap();
     let epoch_infos: Vec<_> =
         h.iter().filter_map(|x| epoch_manager.get_epoch_info(&EpochId(*x)).ok()).collect();
     let epoch_info = &epoch_infos[1];
@@ -1371,7 +1370,7 @@ fn count_missing_blocks(
     let mut result = ValidatorStats { produced: 0, expected: 0 };
     for h in height_range {
         let block_producer = epoch_manager.get_block_producer_info(epoch_id, h).unwrap();
-        if validator == block_producer.account_id().as_ref() {
+        if validator == block_producer.account_id() {
             if produced_heights.contains(&h) {
                 result.produced += 1;
             }
@@ -1627,8 +1626,14 @@ fn test_fishermen_unstake() {
         ],
     );
     let kickout = epoch_info.validator_kickout();
-    assert_eq!(kickout.get("test2").unwrap(), &ValidatorKickoutReason::Unstaked);
-    matches!(kickout.get("test3"), Some(ValidatorKickoutReason::NotEnoughStake { .. }));
+    assert_eq!(
+        kickout.get(AccountIdRef::new_or_panic("test2")).unwrap(),
+        &ValidatorKickoutReason::Unstaked
+    );
+    matches!(
+        kickout.get(AccountIdRef::new_or_panic("test3")),
+        Some(ValidatorKickoutReason::NotEnoughStake { .. })
+    );
 }
 
 #[test]
@@ -1711,7 +1716,7 @@ fn test_kickout_set() {
     let epoch_info1 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
     assert_eq!(
         epoch_info1.validators_iter().map(|r| r.account_id().clone()).collect::<Vec<_>>(),
-        vec!["test1".parse().unwrap()]
+        vec!["test1"]
     );
     assert_eq!(
         epoch_info1.stake_change().clone(),
@@ -1798,15 +1803,15 @@ fn test_unstake_slash() {
     let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap();
     let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap();
     assert_eq!(
-        epoch_info1.validator_kickout().get("test1"),
+        epoch_info1.validator_kickout().get(AccountIdRef::new_or_panic("test1")),
         Some(&ValidatorKickoutReason::Unstaked)
     );
     assert_eq!(
-        epoch_info2.validator_kickout().get("test1"),
+        epoch_info2.validator_kickout().get(AccountIdRef::new_or_panic("test1")),
         Some(&ValidatorKickoutReason::Slashed)
     );
     assert_eq!(
-        epoch_info3.validator_kickout().get("test1"),
+        epoch_info3.validator_kickout().get(AccountIdRef::new_or_panic("test1")),
         Some(&ValidatorKickoutReason::Slashed)
     );
     assert!(epoch_info4.validator_kickout().is_empty());
@@ -1848,15 +1853,15 @@ fn test_no_unstake_slash() {
     let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap();
     let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap();
     assert_eq!(
-        epoch_info1.validator_kickout().get("test1"),
+        epoch_info1.validator_kickout().get(AccountIdRef::new_or_panic("test1")),
         Some(&ValidatorKickoutReason::Slashed)
     );
     assert_eq!(
-        epoch_info2.validator_kickout().get("test1"),
+        epoch_info2.validator_kickout().get(AccountIdRef::new_or_panic("test1")),
         Some(&ValidatorKickoutReason::Slashed)
     );
     assert_eq!(
-        epoch_info3.validator_kickout().get("test1"),
+        epoch_info3.validator_kickout().get(AccountIdRef::new_or_panic("test1")),
         Some(&ValidatorKickoutReason::Slashed)
     );
     assert!(epoch_info4.validator_kickout().is_empty());
@@ -1900,16 +1905,16 @@ fn test_slash_non_validator() {
     let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap(); // Slashed
     let epoch_info5 = epoch_manager.get_epoch_info(&EpochId(h[5])).unwrap(); // Ok
     assert_eq!(
-        epoch_info1.validator_kickout().get("test1"),
+        epoch_info1.validator_kickout().get(AccountIdRef::new_or_panic("test1")),
         Some(&ValidatorKickoutReason::Unstaked)
     );
     assert!(epoch_info2.validator_kickout().is_empty());
     assert_eq!(
-        epoch_info3.validator_kickout().get("test1"),
+        epoch_info3.validator_kickout().get(AccountIdRef::new_or_panic("test1")),
         Some(&ValidatorKickoutReason::Slashed)
     );
     assert_eq!(
-        epoch_info4.validator_kickout().get("test1"),
+        epoch_info4.validator_kickout().get(AccountIdRef::new_or_panic("test1")),
         Some(&ValidatorKickoutReason::Slashed)
     );
     assert!(epoch_info5.validator_kickout().is_empty());
@@ -1952,9 +1957,9 @@ fn test_slash_restake() {
         vec![stake("test1".parse().unwrap(), stake_amount)],
     );
     let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap();
-    assert!(epoch_info2.stake_change().get("test1").is_none());
+    assert!(epoch_info2.stake_change().get(AccountIdRef::new_or_panic("test1")).is_none());
     let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap();
-    assert!(epoch_info4.stake_change().get("test1").is_some());
+    assert!(epoch_info4.stake_change().get(AccountIdRef::new_or_panic("test1")).is_some());
 }
 
 #[test]
@@ -1979,7 +1984,7 @@ fn test_all_kickout_edge_case() {
         let block_producer = epoch_info.validator_account_id(block_producer);
         if height < EPOCH_LENGTH {
             // kickout test2 during first epoch
-            if block_producer.as_ref() == "test1" || block_producer.as_ref() == "test3" {
+            if block_producer == "test1" || block_producer == "test3" {
                 record_block(&mut epoch_manager, prev_block, *curr_block, height, Vec::new());
                 prev_block = *curr_block;
             }
@@ -2018,7 +2023,7 @@ fn check_validators(epoch_info: &EpochInfo, expected_validators: &[(&str, u128)]
     for (v, (account_id, stake)) in
         epoch_info.validators_iter().zip(expected_validators.into_iter())
     {
-        assert_eq!(v.account_id().as_ref(), *account_id);
+        assert_eq!(v.account_id(), *account_id);
         assert_eq!(v.stake(), *stake);
     }
 }
@@ -2026,7 +2031,7 @@ fn check_validators(epoch_info: &EpochInfo, expected_validators: &[(&str, u128)]
 fn check_fishermen(epoch_info: &EpochInfo, expected_fishermen: &[(&str, u128)]) {
     for (v, (account_id, stake)) in epoch_info.fishermen_iter().zip(expected_fishermen.into_iter())
     {
-        assert_eq!(v.account_id().as_ref(), *account_id);
+        assert_eq!(v.account_id(), *account_id);
         assert_eq!(v.stake(), *stake);
     }
 }

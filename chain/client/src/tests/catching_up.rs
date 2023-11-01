@@ -17,6 +17,7 @@ use near_network::types::{AccountIdOrPeerTrackingShard, PeerInfo};
 use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
 use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
+use near_primitives::account::id::AccountIdRef;
 use near_primitives::hash::{hash as hash_func, CryptoHash};
 use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
@@ -689,8 +690,8 @@ fn test_chunk_grieving() {
         let archive = vec![false; vs.all_block_producers().count()];
         let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
 
-        let malicious_node = "test3.6".parse().unwrap();
-        let victim_node = "test3.5".parse().unwrap();
+        let malicious_node = AccountIdRef::new_or_panic("test3.6");
+        let victim_node = AccountIdRef::new_or_panic("test3.5");
         let phase = Arc::new(RwLock::new(ChunkGrievingPhases::FirstAttack));
         let grieving_chunk_hash = Arc::new(RwLock::new(ChunkHash::default()));
         let unaccepted_block_hash = Arc::new(RwLock::new(CryptoHash::default()));
