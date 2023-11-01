@@ -297,7 +297,10 @@ impl ShardTries {
         let _span =
             tracing::info_span!(target: "state_snapshot", "delete_all_state_snapshots").entered();
         let path = home_dir.join(hot_store_path).join(state_snapshot_subdir);
-        std::fs::remove_dir_all(&path)
+        if path.exists() {
+            std::fs::remove_dir_all(&path)?
+        }
+        Ok(())
     }
 
     pub fn get_state_snapshot_base_dir(
