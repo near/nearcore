@@ -49,7 +49,7 @@ jobs:
       - uses: actions/checkout@master
 
       - name: "Compile fuzzers and upload to GCS"
-      - run: |
+        run: |
           NAME="nearcore-${{ github.ref_name }}-$(env TZ=Etc/UTC  date +"%Y%m%d%H%M%S")"
           cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
           gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://fuzzer_targets/${{ github.ref_name }}/$NAME.tar.gz"
