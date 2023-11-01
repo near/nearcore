@@ -1,6 +1,6 @@
 use crate::columns::DBKeyType;
 use crate::db::{ColdDB, COLD_HEAD_KEY, HEAD_KEY};
-use crate::trie::TrieRefcountAddition;
+use crate::trie::TrieRefcountChange;
 use crate::{metrics, DBCol, DBTransaction, Database, Store, TrieChanges};
 
 use borsh::BorshDeserialize;
@@ -475,11 +475,7 @@ impl StoreWithCache<'_> {
         option_to_not_found(self.get_ser(column, key), format_args!("{:?}: {:?}", column, key))
     }
 
-    pub fn insert_state_to_cache_from_op(
-        &mut self,
-        op: &TrieRefcountAddition,
-        shard_uid_key: &[u8],
-    ) {
+    pub fn insert_state_to_cache_from_op(&mut self, op: &TrieRefcountChange, shard_uid_key: &[u8]) {
         debug_assert_eq!(
             DBCol::State.key_type(),
             &[DBKeyType::ShardUId, DBKeyType::TrieNodeOrValueHash]
