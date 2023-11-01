@@ -508,7 +508,8 @@ impl StateSync {
         highest_height_peers: &[HighestHeightPeerInfo],
         shard_id: ShardId,
     ) -> Result<Vec<PeerId>, near_chain::Error> {
-        let peers :Vec<PeerId> = highest_height_peers.iter().map(|peer|peer.peer_info.id.clone()).collect();
+        let peers: Vec<PeerId> =
+            highest_height_peers.iter().map(|peer| peer.peer_info.id.clone()).collect();
         let res = match &mut self.inner {
             StateSyncInner::Peers { last_part_id_requested, .. } => {
                 last_part_id_requested.retain(|_, request| !request.expired());
@@ -520,9 +521,7 @@ impl StateSync {
                     })
                     .collect::<Vec<_>>()
             }
-            StateSyncInner::PartsFromExternal { .. } => {
-                peers
-            },
+            StateSyncInner::PartsFromExternal { .. } => peers,
         };
         Ok(res)
     }
