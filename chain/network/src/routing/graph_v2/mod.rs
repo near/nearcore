@@ -723,7 +723,7 @@ impl GraphV2 {
                 let (next_hops, to_broadcast) =
                     inner.compute_routes(&clock, &this.unreliable_peers.load());
 
-                this.routing_table.update(next_hops.into());
+                this.routing_table.update(next_hops.into(), Arc::new(inner.my_distances.clone()));
 
                 inner.log_state();
 
