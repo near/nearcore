@@ -41,7 +41,7 @@ fn receipt_cost(
     Ok(match &receipt.receipt {
         ReceiptEnum::Action(action_receipt) => {
             let mut total_cost = total_deposit(&action_receipt.actions)?;
-            if !AccountId::is_system(&receipt.predecessor_id) {
+            if !receipt.predecessor_id.is_system() {
                 let mut total_gas = safe_add_gas(
                     config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
                     total_prepaid_exec_fees(config, &action_receipt.actions, &receipt.receiver_id)?,

@@ -10,7 +10,9 @@ use near_jsonrpc_primitives::types::transactions::{
 };
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, ShardId};
+use near_primitives::types::{
+    BlockId, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
+};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, GasPriceView, StatusResponse,
@@ -219,6 +221,15 @@ impl JsonRpcClient {
 
     pub fn tx(&self, request: RpcTransactionStatusRequest) -> RpcRequest<RpcTransactionResponse> {
         call_method(&self.client, &self.server_addr, "tx", request)
+    }
+
+    pub fn validators_by_epoch_id(&self, epoch_id: EpochId) -> RpcRequest<EpochValidatorInfo> {
+        call_method(
+            &self.client,
+            &self.server_addr,
+            "validators",
+            EpochReference::EpochId(epoch_id),
+        )
     }
 
     #[allow(non_snake_case)]

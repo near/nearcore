@@ -24,7 +24,7 @@ use near_jsonrpc_tests::{self as test_utils, test_with_client};
 fn test_block_by_id_height() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let block = client.block_by_id(BlockId::Height(0)).await.unwrap();
-        assert_eq!(block.author, "test1".parse().unwrap());
+        assert_eq!(block.author, "test1");
         assert_eq!(block.header.height, 0);
         assert_eq!(block.header.epoch_id.0.as_ref(), &[0; 32]);
         assert_eq!(block.header.hash.0.as_ref().len(), 32);
@@ -69,7 +69,7 @@ fn test_block_query() {
         for block in
             &[block_response1, block_response2, block_response3, block_response4, block_response5]
         {
-            assert_eq!(block.author, "test1".parse().unwrap());
+            assert_eq!(block.author, "test1");
             assert_eq!(block.header.height, 0);
             assert_eq!(block.header.epoch_id.as_ref(), &[0; 32]);
             assert_eq!(block.header.hash.as_ref().len(), 32);
@@ -89,7 +89,7 @@ fn test_block_query() {
 fn test_chunk_by_hash() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let chunk = client.chunk(ChunkId::BlockShardId(BlockId::Height(0), 0u64)).await.unwrap();
-        assert_eq!(chunk.author, "test1".parse().unwrap());
+        assert_eq!(chunk.author, "test1");
         assert_eq!(chunk.header.balance_burnt, 0);
         assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
         assert_eq!(chunk.header.encoded_length, 8);
@@ -454,7 +454,7 @@ fn test_validators_ordered() {
             .unwrap();
         assert_eq!(
             validators.into_iter().map(|v| v.take_account_id()).collect::<Vec<_>>(),
-            vec!["test1".parse().unwrap()]
+            vec!["test1"]
         )
     });
 }
@@ -560,7 +560,7 @@ fn test_get_chunk_with_object_in_params() {
         )
         .await
         .unwrap();
-        assert_eq!(chunk.author, "test1".parse().unwrap());
+        assert_eq!(chunk.author, "test1");
         assert_eq!(chunk.header.balance_burnt, 0);
         assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
         assert_eq!(chunk.header.encoded_length, 8);
