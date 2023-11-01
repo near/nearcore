@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# test various ways of submitting transactions (broadcast_tx_async, broadcast_tx_commit)
+# test various ways of submitting transactions (broadcast_tx_async, broadcast_tx_sync, broadcast_tx_commit)
 
 import sys, time, base58, base64
 import pathlib
@@ -26,20 +26,22 @@ logger.info(f"BALANCES BEFORE {old_balances}")
 
 hash1 = nodes[0].get_latest_block().hash_bytes
 
-tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1, hash1)
-res = nodes[0].send_tx_and_wait(tx, timeout=20)
-if 'error' in res:
-    assert False, res
-time.sleep(1)
-
-tx = sign_payment_tx(nodes[0].signer_key, 'test1', 101, 2, hash1)
-res = nodes[0].json_rpc('broadcast_tx_async',
-                        [base64.b64encode(tx).decode('utf8')])
-assert 'error' not in res, res
-time.sleep(5)
-tx_query_res = nodes[0].json_rpc('tx', [res['result'], 'test0'])
-assert 'error' not in tx_query_res, tx_query_res
-time.sleep(1)
+for i in range(3):
+    tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100 + i, i + 1, hash1)
+    if i == 0:
+        res = nodes[0].send_tx_and_wait(tx, timeout=20)
+        if 'error' in res:
+            assert False, res
+    else:
+        method_name = 'broadcast_tx_async' if i == 1 else 'EXPERIMENTAL_broadcast_tx_sync'
+        res = nodes[0].json_rpc(method_name,
+                                [base64.b64encode(tx).decode('utf8')])
+        assert 'error' not in res, res
+        time.sleep(5)
+        tx_hash = res['result'] if i == 1 else res['result']['transaction_hash']
+        tx_query_res = nodes[0].json_rpc('tx', [tx_hash, 'test0'])
+        assert 'error' not in tx_query_res, tx_query_res
+    time.sleep(1)
 
 new_balances = [
     int(nodes[0].get_account("test%s" % x)['result']['amount']) for x in [0, 1]

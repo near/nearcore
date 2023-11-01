@@ -4,7 +4,6 @@
 """
 from argparse import ArgumentParser, BooleanOptionalAction
 import pathlib
-import json
 import random
 from rc import pmap, run
 import requests
@@ -329,25 +328,14 @@ def stop_traffic_cmd(args, traffic_generator, nodes):
 
 
 def neard_runner_jsonrpc(node, method, params=[]):
-    body = {
-        'method': method,
-        'params': params,
-        'id': 'dontcare',
-        'jsonrpc': '2.0'
-    }
-    body = json.dumps(body)
-    # '"'"' will be interpreted as ending the first quote and then concatenating it with "'",
-    # followed by a new quote started with ' and the rest of the string, to get any single quotes
-    # in method or params into the command correctly
-    body = body.replace("'", "'\"'\"'")
-    r = run_cmd(node, f'curl localhost:3000 -d \'{body}\'')
-    response = json.loads(r.stdout)
-    if 'error' in response:
-        # TODO: errors should be handled better here in general but just exit for now
-        sys.exit(
-            f'bad response trying to send {method} JSON RPC to neard runner on {node.instance_name}:\n{response}'
+    j = {'method': method, 'params': params, 'id': 'dontcare', 'jsonrpc': '2.0'}
+    r = requests.post(f'http://{node.machine.ip}:3000', json=j, timeout=30)
+    if r.status_code != 200:
+        logger.warning(
+            f'bad response {r.status_code} trying to send {method} JSON RPC to neard runner on {node.instance_name}:\n{r.content}'
         )
-    return response['result']
+    r.raise_for_status()
+    return r.json()['result']
 
 
 def neard_runner_start(node):
