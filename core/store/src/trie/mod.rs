@@ -1,3 +1,7 @@
+use self::accounting_cache::TrieAccountingCache;
+use self::mem::updating::{UpdatedMemTrieNode, UpdatedMemTrieNodeId};
+use self::trie_recording::TrieRecorder;
+use self::trie_storage::TrieMemoryPartialStorage;
 use crate::flat::{FlatStateChanges, FlatStorageChunkView};
 pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::{
@@ -12,6 +16,7 @@ pub use crate::trie::state_snapshot::{SnapshotError, StateSnapshot, StateSnapsho
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
+pub use from_flat::construct_trie_from_flat;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
@@ -20,7 +25,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
 use near_primitives::trie_key::TrieKey;
 pub use near_primitives::types::TrieNodesCount;
-use near_primitives::types::{AccountId, StateRoot, StateRootNode};
+use near_primitives::types::{AccountId, BlockHeight, StateRoot, StateRootNode};
 use near_vm_runner::ContractCode;
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
@@ -49,11 +54,6 @@ mod trie_storage;
 #[cfg(test)]
 mod trie_tests;
 pub mod update;
-
-use self::accounting_cache::TrieAccountingCache;
-use self::trie_recording::TrieRecorder;
-use self::trie_storage::TrieMemoryPartialStorage;
-pub use from_flat::construct_trie_from_flat;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -482,6 +482,13 @@ impl TrieRefcountDeltaMap {
     }
 }
 
+#[derive(Default, Clone, PartialEq, Eq, Debug)]
+pub struct MemTrieChanges {
+    node_ids_with_hashes: Vec<(UpdatedMemTrieNodeId, CryptoHash)>,
+    updated_nodes: Vec<Option<UpdatedMemTrieNode>>,
+    block_height: BlockHeight,
+}
+
 ///
 /// TrieChanges stores delta for refcount.
 /// Multiple versions of the state work the following way:
@@ -511,15 +518,28 @@ pub struct TrieChanges {
     pub new_root: StateRoot,
     insertions: Vec<TrieRefcountAddition>,
     deletions: Vec<TrieRefcountSubtraction>,
+    // If Some, in-memory changes are applied as well.
+    #[borsh(skip)]
+    pub mem_trie_changes: Option<MemTrieChanges>,
 }
 
 impl TrieChanges {
     pub fn empty(old_root: StateRoot) -> Self {
-        TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
+        TrieChanges {
+            old_root,
+            new_root: old_root,
+            insertions: vec![],
+            deletions: vec![],
+            mem_trie_changes: Default::default(),
+        }
     }
 
     pub fn insertions(&self) -> &[TrieRefcountAddition] {
         self.insertions.as_slice()
+    }
+
+    pub fn deletions(&self) -> &[TrieRefcountSubtraction] {
+        self.deletions.as_slice()
     }
 }
 
@@ -1840,6 +1860,7 @@ mod borsh_compatibility_test {
                     hash(b"e"),
                     std::num::NonZeroU32::new(2).unwrap(),
                 )],
+                mem_trie_changes: None,
             }
         );
     }

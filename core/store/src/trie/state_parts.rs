@@ -480,6 +480,7 @@ impl Trie {
                 new_root: *state_root,
                 insertions,
                 deletions,
+                mem_trie_changes: None,
             },
             flat_state_delta,
             contract_codes,
@@ -647,6 +648,7 @@ mod tests {
                 new_root: *state_root,
                 insertions,
                 deletions: vec![],
+                mem_trie_changes: None,
             })
         }
 
@@ -901,7 +903,13 @@ mod tests {
             }
         }
         let (insertions, deletions) = map.into_changes();
-        TrieChanges { old_root: Default::default(), new_root, insertions, deletions }
+        TrieChanges {
+            old_root: Default::default(),
+            new_root,
+            insertions,
+            deletions,
+            mem_trie_changes: None,
+        }
     }
 
     #[test]
