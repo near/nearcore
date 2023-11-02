@@ -36,6 +36,8 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use super::TrieRefcountDeltaMap;
+
 /// Trie key in nibbles corresponding to the right boundary for the last state part.
 /// Guaranteed to be bigger than any existing trie key.
 const LAST_STATE_PART_BOUNDARY: &[u8; 1] = &[16];
@@ -457,12 +459,12 @@ impl Trie {
         let path_end = trie.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
         let mut iterator = trie.iter()?;
         let trie_traversal_items = iterator.visit_nodes_interval(&path_begin, &path_end)?;
-        let mut map = HashMap::new();
+        let mut refcount_changes = TrieRefcountDeltaMap::new();
         let mut flat_state_delta = FlatStateChanges::default();
         let mut contract_codes = Vec::new();
         for TrieTraversalItem { hash, key } in trie_traversal_items {
             let value = trie.retrieve_value(&hash)?;
-            map.entry(hash).or_insert_with(|| (value.to_vec(), 0)).1 += 1;
+            refcount_changes.add(hash, value.to_vec(), 1);
             if let Some(trie_key) = key {
                 let flat_state_value = FlatStateValue::on_disk(&value);
                 flat_state_delta.insert(trie_key.clone(), Some(flat_state_value));
@@ -471,7 +473,7 @@ impl Trie {
                 }
             }
         }
-        let (insertions, deletions) = Trie::convert_to_insertions_and_deletions(map);
+        let (insertions, deletions) = refcount_changes.into_changes();
         Ok(ApplyStatePartResult {
             trie_changes: TrieChanges {
                 old_root: Trie::EMPTY_ROOT,
@@ -506,6 +508,8 @@ impl Trie {
 mod tests {
     use assert_matches::assert_matches;
     use std::collections::{HashMap, HashSet};
+    use std::fmt::Debug;
+    use std::hash::Hash;
     use std::sync::Arc;
 
     use rand::prelude::ThreadRng;
@@ -518,7 +522,9 @@ mod tests {
         create_tries, create_tries_with_flat_storage, gen_changes, test_populate_trie,
     };
     use crate::trie::iterator::CrumbStatus;
-    use crate::trie::{TrieRefcountChange, ValueHandle};
+    use crate::trie::{
+        TrieRefcountAddition, TrieRefcountDeltaMap, TrieRefcountSubtraction, ValueHandle,
+    };
 
     use super::*;
     use crate::{DBCol, MissingTrieValueContext, TrieCachingStorage};
@@ -629,7 +635,7 @@ mod tests {
             })?;
             let mut insertions = insertions
                 .into_iter()
-                .map(|(k, (v, rc))| TrieRefcountChange {
+                .map(|(k, (v, rc))| TrieRefcountAddition {
                     trie_node_or_value_hash: k,
                     trie_node_or_value: v,
                     rc: std::num::NonZeroU32::new(rc).unwrap(),
@@ -881,23 +887,20 @@ mod tests {
             return TrieChanges::empty(Trie::EMPTY_ROOT);
         }
         let new_root = changes[0].new_root;
-        let mut map = HashMap::new();
+        let mut map = TrieRefcountDeltaMap::new();
         for changes_set in changes {
             assert!(changes_set.deletions.is_empty(), "state parts only have insertions");
-            for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
+            for TrieRefcountAddition { trie_node_or_value_hash, trie_node_or_value, rc } in
                 changes_set.insertions
             {
-                map.entry(trie_node_or_value_hash).or_insert_with(|| (trie_node_or_value, 0)).1 +=
-                    rc.get() as i32;
+                map.add(trie_node_or_value_hash, trie_node_or_value, rc.get());
             }
-            for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
-                changes_set.deletions
+            for TrieRefcountSubtraction { trie_node_or_value_hash, rc, .. } in changes_set.deletions
             {
-                map.entry(trie_node_or_value_hash).or_insert_with(|| (trie_node_or_value, 0)).1 -=
-                    rc.get() as i32;
+                map.subtract(trie_node_or_value_hash, rc.get());
             }
         }
-        let (insertions, deletions) = Trie::convert_to_insertions_and_deletions(map);
+        let (insertions, deletions) = map.into_changes();
         TrieChanges { old_root: Default::default(), new_root, insertions, deletions }
     }
 
@@ -971,10 +974,7 @@ mod tests {
         }
     }
 
-    fn format_simple_trie_refcount_diff(
-        left: &[TrieRefcountChange],
-        right: &[TrieRefcountChange],
-    ) -> String {
+    fn format_simple_trie_refcount_diff<T: Hash + Debug + Eq>(left: &[T], right: &[T]) -> String {
         let left_set: HashSet<_> = HashSet::from_iter(left.iter());
         let right_set: HashSet<_> = HashSet::from_iter(right.iter());
         format!(
