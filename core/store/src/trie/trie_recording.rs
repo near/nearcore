@@ -75,7 +75,7 @@ mod trie_recording_tests {
             let trie = tries.get_trie_for_shard(shard_uid, state_root);
             trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
             for key in &keys_to_test_with {
-                assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
+                assert_eq!(trie.get(key, None).unwrap(), data_in_trie.get(key).cloned());
             }
             let baseline_trie_nodes_count = trie.get_trie_nodes_count();
             println!("Baseline trie nodes count: {:?}", baseline_trie_nodes_count);
@@ -85,7 +85,7 @@ mod trie_recording_tests {
             let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads();
             trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
             for key in &keys_to_test_with {
-                assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
+                assert_eq!(trie.get(key, None).unwrap(), data_in_trie.get(key).cloned());
             }
             assert_eq!(trie.get_trie_nodes_count(), baseline_trie_nodes_count);
 
@@ -100,7 +100,7 @@ mod trie_recording_tests {
             let trie = Trie::from_recorded_storage(partial_storage, state_root, false);
             trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
             for key in &keys_to_test_with {
-                assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
+                assert_eq!(trie.get(key, None).unwrap(), data_in_trie.get(key).cloned());
             }
             assert_eq!(trie.get_trie_nodes_count(), baseline_trie_nodes_count);
         }
@@ -193,7 +193,7 @@ mod trie_recording_tests {
             );
             trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
             for key in &keys_to_test_with {
-                assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
+                assert_eq!(trie.get(key, None).unwrap(), data_in_trie.get(key).cloned());
             }
             let baseline_trie_nodes_count = trie.get_trie_nodes_count();
             println!("Baseline trie nodes count: {:?}", baseline_trie_nodes_count);
@@ -210,7 +210,7 @@ mod trie_recording_tests {
                 .recording_reads();
             trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
             for key in &keys_to_test_with {
-                assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
+                assert_eq!(trie.get(key, None).unwrap(), data_in_trie.get(key).cloned());
             }
             assert_eq!(trie.get_trie_nodes_count(), baseline_trie_nodes_count);
 
@@ -225,7 +225,7 @@ mod trie_recording_tests {
             let trie = Trie::from_recorded_storage(partial_storage, state_root, true);
             trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
             for key in &keys_to_test_with {
-                assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
+                assert_eq!(trie.get(key, None).unwrap(), data_in_trie.get(key).cloned());
             }
             assert_eq!(trie.get_trie_nodes_count(), baseline_trie_nodes_count);
         }

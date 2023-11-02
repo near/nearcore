@@ -389,7 +389,7 @@ mod tests {
         // Read all prefetched values to ensure everything gets removed from the staging area.
         for trie_key in &prefetch_keys {
             let storage_key = trie_key.to_vec();
-            let _value = trie.get(&storage_key).unwrap();
+            let _value = trie.get(&storage_key, None).unwrap();
         }
         assert_eq!(
             prefetch_api.num_prefetched_and_staged(),

@@ -2753,11 +2753,11 @@ mod test {
         let trie_key = TrieKey::Account { account_id: validators[1].clone() };
         let key = trie_key.to_vec();
 
-        let state_value = state.get(&key).unwrap().unwrap();
+        let state_value = state.get(&key, None).unwrap().unwrap();
         let account = Account::try_from_slice(&state_value).unwrap();
         assert_eq!(account.amount(), TESTING_INIT_BALANCE - TESTING_INIT_STAKE + 10);
 
-        let view_state_value = view_state.get(&key).unwrap().unwrap();
+        let view_state_value = view_state.get(&key, None).unwrap().unwrap();
         assert_eq!(state_value, view_state_value);
     }
 

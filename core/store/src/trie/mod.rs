@@ -1014,7 +1014,7 @@ impl Trie {
                 Some(FlatStateValue::Inlined(value)) => {
                     assert!(value_ref_from_trie.is_some());
                     let value_from_trie =
-                        self.retrieve_value(&value_ref_from_trie.unwrap().hash)?;
+                        self.retrieve_value(&value_ref_from_trie.unwrap().hash, None)?;
                     assert_eq!(&value_from_trie, value);
                 }
                 Some(FlatStateValue::Ref(value_ref)) => {
