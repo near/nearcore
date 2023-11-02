@@ -136,6 +136,13 @@ the existing super owners will discuss and approve the addition.  These
 discussions take place on zulip so if you are interested in becoming a
 code reviewer, please reach out to us there.
 
+The person who clicks the "Merge when ready" button is the one who
+guarantees that no unreviewed code was added between the approving review
+and the commit that is being landed. They must be especially careful of
+commits that might have happened before the review, but not have been
+reviewed (eg. because the review was already in progress), as they will
+show above the review line on the GitHub UI.
+
 ## Release Schedule
 
 Once your change ends up in master, it will be released with the rest of the
