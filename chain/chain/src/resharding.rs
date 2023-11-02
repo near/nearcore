@@ -396,7 +396,6 @@ impl Chain {
         }
         chain_store_update.commit()?;
 
-        tracing::info!(?shard_uid, ?child_shard_uids, "boom");
         RESHARDING_STATUS
             .with_label_values(&[&shard_uid.to_string()])
             .set(ReshardingStatus::Finished.into());
