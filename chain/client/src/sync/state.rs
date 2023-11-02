@@ -269,9 +269,9 @@ impl StateSync {
         let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let prev_epoch_id = chain.get_block_header(&prev_hash)?.epoch_id().clone();
         let epoch_id = chain.get_block_header(&sync_hash)?.epoch_id().clone();
-        if epoch_manager.get_shard_layout(&prev_epoch_id)?
-            != epoch_manager.get_shard_layout(&epoch_id)?
-        {
+        let prev_shard_layout = epoch_manager.get_shard_layout(&prev_epoch_id)?;
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+        if prev_shard_layout != shard_layout {
             // This error message is used in tests to ensure node exists for the
             // correct reason. When changing it please also update the tests.
             panic!("cannot sync to the first epoch after sharding upgrade. Please wait for the next epoch or find peers that are more up to date");
@@ -279,6 +279,8 @@ impl StateSync {
         let split_states = epoch_manager.will_shard_layout_change(&prev_hash)?;
 
         for shard_id in tracking_shards {
+            let version = prev_shard_layout.version();
+            let shard_uid = ShardUId { version, shard_id: shard_id as u32 };
             let mut download_timeout = false;
             let mut run_shard_state_download = false;
             let shard_sync_download = sync_status.entry(shard_id).or_insert_with(|| {
@@ -341,7 +343,7 @@ impl StateSync {
                 ShardSyncStatus::StateSplitApplying => {
                     debug_assert!(split_states);
                     shard_sync_done = self.sync_shards_state_split_applying_status(
-                        shard_id,
+                        shard_uid,
                         shard_sync_download,
                         sync_hash,
                         chain,
@@ -1048,15 +1050,19 @@ impl StateSync {
     /// Returns whether the State Sync for the given shard is complete.
     fn sync_shards_state_split_applying_status(
         &mut self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         shard_sync_download: &mut ShardSyncDownload,
         sync_hash: CryptoHash,
         chain: &mut Chain,
     ) -> Result<bool, near_chain::Error> {
-        let result = self.split_state_roots.remove(&shard_id);
+        let result = self.split_state_roots.remove(&shard_uid.shard_id());
         let mut shard_sync_done = false;
         if let Some(state_roots) = result {
-            chain.build_state_for_split_shards_postprocessing(&sync_hash, state_roots?)?;
+            chain.build_state_for_split_shards_postprocessing(
+                shard_uid,
+                &sync_hash,
+                state_roots?,
+            )?;
             *shard_sync_download =
                 ShardSyncDownload { downloads: vec![], status: ShardSyncStatus::StateSyncDone };
             shard_sync_done = true;
