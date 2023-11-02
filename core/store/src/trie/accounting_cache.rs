@@ -124,7 +124,7 @@ impl TrieAccountingCache {
                     if let Some(metrics) = &self.metrics {
                         metrics.contract_cache_hits.inc();
                     }
-                    return Ok(node.clone());
+                    return Ok(node);
                 } else {
                     self.db_read_nodes += 1;
                     if let Some(metrics) = &self.metrics {

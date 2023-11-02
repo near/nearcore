@@ -6,7 +6,7 @@ use near_primitives::challenge::PartialState;
 use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::{TrieNodesCount, AccountId};
+use near_primitives::types::{AccountId, TrieNodesCount};
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::cell::RefCell;
@@ -35,7 +35,11 @@ impl IncompletePartialStorage {
 }
 
 impl TrieStorage for IncompletePartialStorage {
-    fn retrieve_raw_bytes(&self, hash: &CryptoHash, _: Option<AccountId>) -> Result<Arc<[u8]>, StorageError> {
+    fn retrieve_raw_bytes(
+        &self,
+        hash: &CryptoHash,
+        _: Option<AccountId>,
+    ) -> Result<Arc<[u8]>, StorageError> {
         let result = self
             .recorded_storage
             .get(hash)
@@ -115,8 +119,9 @@ fn test_reads_with_incomplete_storage() {
         {
             let (key, _) = trie_changes.choose(&mut rng).unwrap();
             println!("Testing lookup {:?}", key);
-            let lookup_test =
-                |trie: Trie| -> Result<_, StorageError> { trie.get(key, None).map(move |v| (trie, v)) };
+            let lookup_test = |trie: Trie| -> Result<_, StorageError> {
+                trie.get(key, None).map(move |v| (trie, v))
+            };
             test_incomplete_storage(get_trie(), lookup_test);
         }
         {
@@ -252,16 +257,25 @@ mod trie_storage_tests {
         let shard_uid = ShardUId::single_shard();
         let store = create_store_with_values(&values, shard_uid);
         let trie_cache = TrieCache::new(&TrieConfig::default(), shard_uid, false);
-        let trie_caching_storage =
-            TrieCachingStorage::new(store, trie_cache.clone(), HashMap::new(), shard_uid, false, None);
+        let trie_caching_storage = TrieCachingStorage::new(
+            store,
+            trie_cache.clone(),
+            HashMap::new(),
+            shard_uid,
+            false,
+            None,
+        );
         let mut accounting_cache = TrieAccountingCache::new(None, HashMap::new());
         let key = hash(&value);
         assert_eq!(trie_cache.get(&key), None);
 
         for _ in 0..2 {
             let count_before = accounting_cache.get_trie_nodes_count();
-            let result =
-                accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage, None);
+            let result = accounting_cache.retrieve_raw_bytes_with_accounting(
+                &key,
+                &trie_caching_storage,
+                None,
+            );
             let count_delta =
                 accounting_cache.get_trie_nodes_count().checked_sub(&count_before).unwrap();
             assert_eq!(result.unwrap().as_ref(), value);
@@ -299,13 +313,20 @@ mod trie_storage_tests {
         let shard_uid = ShardUId::single_shard();
         let store = create_store_with_values(&values, shard_uid);
         let trie_cache = TrieCache::new(&TrieConfig::default(), shard_uid, false);
-        let trie_caching_storage =
-            TrieCachingStorage::new(store, trie_cache.clone(), HashMap::new(), shard_uid, false, None);
+        let trie_caching_storage = TrieCachingStorage::new(
+            store,
+            trie_cache.clone(),
+            HashMap::new(),
+            shard_uid,
+            false,
+            None,
+        );
         let mut accounting_cache = TrieAccountingCache::new(None, HashMap::new());
         let key = hash(&value);
 
         accounting_cache.set_enabled(true);
-        let _ = accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage, None);
+        let _ =
+            accounting_cache.retrieve_raw_bytes_with_accounting(&key, &trie_caching_storage, None);
 
         let count_before: TrieNodesCount = accounting_cache.get_trie_nodes_count();
         let result =
@@ -325,8 +346,14 @@ mod trie_storage_tests {
         let shard_uid = ShardUId::single_shard();
         let store = create_store_with_values(&values, shard_uid);
         let trie_cache = TrieCache::new(&TrieConfig::default(), shard_uid, false);
-        let trie_caching_storage =
-            TrieCachingStorage::new(store, trie_cache.clone(), HashMap::new(), shard_uid, false, None);
+        let trie_caching_storage = TrieCachingStorage::new(
+            store,
+            trie_cache.clone(),
+            HashMap::new(),
+            shard_uid,
+            false,
+            None,
+        );
         let mut accounting_cache = TrieAccountingCache::new(None, HashMap::new());
         let value = &values[0];
         let key = hash(&value);
@@ -384,8 +411,14 @@ mod trie_storage_tests {
         let mut trie_config = TrieConfig::default();
         trie_config.shard_cache_config.per_shard_max_bytes.insert(shard_uid, shard_cache_size);
         let trie_cache = TrieCache::new(&trie_config, shard_uid, false);
-        let trie_caching_storage =
-            TrieCachingStorage::new(store, trie_cache.clone(), HashMap::new(), shard_uid, false, None);
+        let trie_caching_storage = TrieCachingStorage::new(
+            store,
+            trie_cache.clone(),
+            HashMap::new(),
+            shard_uid,
+            false,
+            None,
+        );
         let mut accounting_cache = TrieAccountingCache::new(None, HashMap::new());
 
         let value = &values[0];
@@ -398,8 +431,11 @@ mod trie_storage_tests {
 
         accounting_cache.set_enabled(true);
         for value in values[1..].iter() {
-            let result = accounting_cache
-                .retrieve_raw_bytes_with_accounting(&hash(value), &trie_caching_storage, None);
+            let result = accounting_cache.retrieve_raw_bytes_with_accounting(
+                &hash(value),
+                &trie_caching_storage,
+                None,
+            );
             assert_eq!(result.unwrap().as_ref(), value);
         }
 

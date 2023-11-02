@@ -1213,9 +1213,15 @@ impl Trie {
     }
 
     /// Retrieves the full value for the given key.
-    pub fn get(&self, key: &[u8], account_id: Option<AccountId>) -> Result<Option<Vec<u8>>, StorageError> {
+    pub fn get(
+        &self,
+        key: &[u8],
+        account_id: Option<AccountId>,
+    ) -> Result<Option<Vec<u8>>, StorageError> {
         match self.get_flat_value(key)? {
-            Some(FlatStateValue::Ref(value_ref)) => self.retrieve_value(&value_ref.hash, account_id).map(Some),
+            Some(FlatStateValue::Ref(value_ref)) => {
+                self.retrieve_value(&value_ref.hash, account_id).map(Some)
+            }
             Some(FlatStateValue::Inlined(value)) => Ok(Some(value)),
             None => Ok(None),
         }
