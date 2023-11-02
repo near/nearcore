@@ -5941,9 +5941,9 @@ impl<'a> ChainUpdate<'a> {
 
         let mut add_header = |block_hash: &CryptoHash| -> Result<(), Error> {
             let (header, last_finalised_header) = self.get_header_pair(block_hash)?;
-            headers.insert(header.hash().clone(), header);
-            headers.insert(last_finalised_header.hash().clone(), last_finalised_header);
-            headers_to_save.insert(block_hash.clone());
+            headers.insert(*header.hash(), header);
+            headers.insert(*last_finalised_header.hash(), last_finalised_header);
+            headers_to_save.insert(*block_hash);
             Ok(())
         };
 
