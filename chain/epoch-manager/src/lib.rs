@@ -1869,11 +1869,11 @@ impl EpochManager {
                 first_epoch_block_height
             );
 
-            result.push(current_block_info.hash().clone());
+            result.push(*current_block_info.hash());
             current_block_info = (*self.get_block_info(current_block_info.prev_hash())?).clone();
         }
         // First block of an epoch is not covered by the while loop.
-        result.push(current_block_info.hash().clone());
+        result.push(*current_block_info.hash());
 
         Ok(result)
     }
