@@ -1,4 +1,5 @@
 mod benchmarks;
+mod block_corruption;
 mod challenges;
 mod chunks_management;
 mod cold_storage;

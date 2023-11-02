@@ -128,6 +128,10 @@ pub enum ProtocolFeature {
     PostStateRoot,
     /// Increases the number of chunk producers.
     TestnetFewerBlockProducers,
+    /// Enables chunk validation which is introduced with stateless validation.
+    /// NEP: https://github.com/near/NEPs/pull/509
+    #[cfg(feature = "protocol_feature_chunk_validation")]
+    ChunkValidation,
 }
 
 impl ProtocolFeature {
@@ -171,7 +175,7 @@ impl ProtocolFeature {
             ProtocolFeature::ComputeCosts | ProtocolFeature::FlatStorageReads => 61,
             ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
             ProtocolFeature::BlockHeaderV4 => 63,
-            ProtocolFeature::RestrictTla => 64,
+            ProtocolFeature::RestrictTla | ProtocolFeature::TestnetFewerBlockProducers => 64,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -183,7 +187,8 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
             ProtocolFeature::SimpleNightshadeV2 => 135,
             ProtocolFeature::PostStateRoot => 136,
-            ProtocolFeature::TestnetFewerBlockProducers => 140,
+            #[cfg(feature = "protocol_feature_chunk_validation")]
+            ProtocolFeature::ChunkValidation => 137,
         }
     }
 }

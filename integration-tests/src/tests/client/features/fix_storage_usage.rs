@@ -69,7 +69,7 @@ fn test_fix_storage_usage_migration() {
     process_blocks_with_storage_usage_fix(
         near_primitives::chains::MAINNET.to_string(),
         |account_id: AccountId, block_height: u64, storage_usage: u64| {
-            if account_id.as_ref() == "near" && block_height >= 11 {
+            if account_id == "near" && block_height >= 11 {
                 assert_eq!(storage_usage, 4378);
             } else {
                 assert_eq!(storage_usage, 182);

@@ -130,20 +130,28 @@ expensive --timeout=700 near-chain near_chain tests::gc::test_gc_star_large --fe
 
 expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full
 expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_timeout_too_short
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_timeout_too_short --features nightly
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_others
-expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_others --features nightly
 expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_cop
 expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_cop --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_timeout_too_short
+expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_timeout_too_short --features nightly
 expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_timeout_too_short_cop
 expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_timeout_too_short_cop --features nightly
+expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_others
+expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_others --features nightly
 expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_others_cop
 expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_others_cop --features nightly
 expensive integration-tests integration_tests tests::client::process_blocks::test_gc_after_state_sync
 expensive integration-tests integration_tests tests::client::process_blocks::test_gc_after_state_sync --features nightly
 expensive integration-tests integration_tests tests::client::process_blocks::test_process_block_after_state_sync
 expensive integration-tests integration_tests tests::client::process_blocks::test_process_block_after_state_sync --features nightly
+expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_empty_state
+expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_empty_state --features nightly
+expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_dump
+expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_dump --features nightly
+expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_nodes
+expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_nodes --features nightly
+expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_nodes_multishard
+expensive integration-tests integration_tests tests::client::sync_state_nodes::sync_state_nodes_multishard --features nightly
 
 # other tests
 expensive --timeout=300 near-chain near_chain store::tests::test_clear_old_data_too_many_heights
@@ -161,14 +169,6 @@ expensive integration-tests integration_tests tests::nearcore::sync_nodes::sync_
 expensive integration-tests integration_tests tests::nearcore::sync_nodes::sync_nodes --features nightly
 expensive integration-tests integration_tests tests::nearcore::sync_nodes::sync_state_stake_change
 expensive integration-tests integration_tests tests::nearcore::sync_nodes::sync_state_stake_change --features nightly
-expensive integration-tests integration_tests tests::nearcore::sync_state_nodes::sync_empty_state
-expensive integration-tests integration_tests tests::nearcore::sync_state_nodes::sync_empty_state --features nightly
-expensive integration-tests integration_tests tests::nearcore::sync_state_nodes::sync_state_nodes
-expensive integration-tests integration_tests tests::nearcore::sync_state_nodes::sync_state_nodes --features nightly
-expensive integration-tests integration_tests tests::nearcore::sync_state_nodes::sync_state_nodes_multishard
-expensive integration-tests integration_tests tests::nearcore::sync_state_nodes::sync_state_nodes_multishard --features nightly
-expensive integration-tests integration_tests tests::nearcore::sync_state_nodes::sync_state_dump
-expensive integration-tests integration_tests tests::nearcore::sync_state_nodes::sync_state_dump --features nightly
 
 expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_block_unknown_block_error
 expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_block_unknown_block_error --features nightly

@@ -32,8 +32,6 @@ members = [
     "chain/rosetta-rpc",
     "chain/telemetry",
     "core/async",
-    "core/account-id",
-    "core/account-id/fuzz",
     "core/chain-configs",
     "core/crypto",
     "core/dyn-configs",
@@ -77,6 +75,7 @@ members = [
     "tools/rpctypegen/macro",
     "tools/speedy_sync",
     "tools/state-parts",
+    "tools/state-parts-dump-check",
     "tools/state-viewer",
     "tools/storage-usage-delta-calculator",
     "tools/themis",
@@ -109,8 +108,7 @@ bencher = "0.1.5"
 bitflags = "1.2"
 blake2 = "0.9.1"
 bn = { package = "zeropool-bn", version = "0.5.11" }
-# TODO: revert to upstream bolero once https://github.com/camshaft/bolero/pull/186 lands and gets released
-bolero = { version = "0.9.0", git = "https://github.com/camshaft/bolero", rev = "7d955a67fbd06f61ffaf28178e976280c33c045a", features = ["arbitrary"] }
+bolero = { version = "0.10.0", features = ["arbitrary"] }
 borsh = { version = "1.0.0", features = ["derive", "rc"] }
 bs58 = "0.4"
 bytes = "1"
@@ -159,7 +157,7 @@ hyper-tls = "0.5.0"
 im = "15"
 indexmap = "1.6"
 indicatif = { version = "0.15.0", features = ["with_rayon"] }
-insta = { version = "1.26.0", features = ["json", "yaml"] }
+insta = { version = "1.34.0", features = ["json", "yaml", "redactions"] }
 integration-tests = { path = "integration-tests" }
 itertools = "0.10.0"
 itoa = "1.0"
@@ -174,7 +172,7 @@ lru = "0.7.2"
 memmap2 = "0.5"
 memoffset = "0.8"
 more-asserts = "0.2"
-near-account-id = { path = "core/account-id", features = ["internal_unstable"] }
+near-account-id = { version = "1.0.0-alpha.1", features = ["internal_unstable", "serde", "borsh"] }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
 near-database-tool = { path = "tools/database" }
@@ -220,6 +218,7 @@ near-rpc-error-core = { path = "tools/rpctypegen/core" }
 near-rpc-error-macro = { path = "tools/rpctypegen/macro" }
 near-stable-hasher = { path = "utils/near-stable-hasher" }
 near-state-parts = { path = "tools/state-parts" }
+near-state-parts-dump-check = { path = "tools/state-parts-dump-check" }
 near-state-viewer = { path = "tools/state-viewer", package = "state-viewer" }
 near-store = { path = "core/store" }
 near-telemetry = { path = "chain/telemetry" }
@@ -397,6 +396,12 @@ inherits = "release"
 lto = false
 codegen-units = 16
 
+# Used for fuzzing, LTO is ill-supported as of 2023-09 and so should not be enabled.
+[profile.fuzz]
+inherits = "dev"
+opt-level = 3
+incremental = false
+codegen-units = 1
 
 # Compile some dependencies with optimizations to speed up tests.
 [profile.dev.package.hex]

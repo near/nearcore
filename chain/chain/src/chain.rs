@@ -13,7 +13,7 @@ use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplySplitStateResultOrStateChanges,
     ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader, BlockStatus, ChainConfig,
-    ChainGenesis, Provenance, RuntimeAdapter,
+    ChainGenesis, Provenance, RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -477,21 +477,10 @@ pub struct Chain {
     /// to create the parts. This information is used for debugging
     pub(crate) requested_state_parts: StateRequestTracker,
 
-    /// Lets trigger new state snapshots.
-    state_snapshot_helper: StateSnapshotHelper,
-
-    pub(crate) state_split_config: near_chain_configs::StateSplitConfig,
-}
-
-/// Lets trigger new state snapshots.
-#[derive(Default)]
-struct StateSnapshotHelper {
     /// A callback to initiate state snapshot.
     snapshot_callbacks: Option<SnapshotCallbacks>,
 
-    /// Count of blocks since the last snapshot.
-    /// Useful for keeping track of count if StateSnapshotType is EveryEpochAndNBlocks
-    blocks_since_last_snapshot: u64,
+    pub(crate) state_split_config: near_chain_configs::StateSplitConfig,
 }
 
 impl Drop for Chain {
@@ -583,7 +572,7 @@ impl Chain {
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
-            state_snapshot_helper: Default::default(),
+            snapshot_callbacks: None,
             state_split_config: StateSplitConfig::default(),
         })
     }
@@ -749,10 +738,7 @@ impl Chain {
             last_time_head_updated: StaticClock::instant(),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
-            state_snapshot_helper: StateSnapshotHelper {
-                snapshot_callbacks,
-                blocks_since_last_snapshot: 0,
-            },
+            snapshot_callbacks,
             state_split_config: chain_config.state_split_config,
         })
     }
@@ -888,7 +874,7 @@ impl Chain {
 
         self.runtime_adapter.apply_transactions(
             shard_id,
-            &prev_state_root,
+            RuntimeStorageConfig::new(prev_state_root, true),
             block_height,
             block_timestamp,
             prev_block_hash,
@@ -902,8 +888,6 @@ impl Chain {
             random_seed,
             true,
             is_first_block_with_chunk_of_version,
-            Default::default(),
-            true,
         )
     }
 
@@ -1253,13 +1237,19 @@ impl Chain {
                 // We must verify that content matches and signature is empty.
                 // TODO: this code will not work when genesis block has different number of chunks as the current block
                 // https://github.com/near/nearcore/issues/4908
-                let genesis_chunk = &genesis_block.chunks()[shard_id];
+                let chunks = genesis_block.chunks();
+                let genesis_chunk = chunks.get(shard_id);
+                let genesis_chunk = genesis_chunk.ok_or(Error::InvalidChunk)?;
+
                 if genesis_chunk.chunk_hash() != chunk_header.chunk_hash()
                     || genesis_chunk.signature() != chunk_header.signature()
                 {
                     return Err(Error::InvalidChunk);
                 }
             } else if chunk_header.height_created() == block.header().height() {
+                if chunk_header.shard_id() != shard_id as ShardId {
+                    return Err(Error::InvalidShardId(chunk_header.shard_id()));
+                }
                 if !epoch_manager.verify_chunk_header_signature(
                     &chunk_header.clone(),
                     block.header().epoch_id(),
@@ -1267,9 +1257,6 @@ impl Chain {
                 )? {
                     byzantine_assert!(false);
                     return Err(Error::InvalidChunk);
-                }
-                if chunk_header.shard_id() != shard_id as ShardId {
-                    return Err(Error::InvalidShardId(chunk_header.shard_id()));
                 }
             }
         }
@@ -1974,6 +1961,16 @@ impl Chain {
                     .add_validator_proposals(BlockHeaderInfo::new(header, last_finalized_height))?;
                 chain_update.chain_store_update.merge(epoch_manager_update);
                 chain_update.commit()?;
+
+                #[cfg(feature = "new_epoch_sync")]
+                {
+                    // At this point BlockInfo for this header should be in DB and in `epoch_manager`s cache.
+                    let block_info = self.epoch_manager.get_block_info(header.hash())?;
+
+                    let mut chain_update = self.chain_update();
+                    chain_update.save_epoch_sync_info(header.epoch_id(), header, &block_info)?;
+                    chain_update.commit()?;
+                }
             }
         }
 
@@ -4116,9 +4113,16 @@ impl Chain {
                 shard_id)
             .entered();
             let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
+            let storage_config = RuntimeStorageConfig {
+                state_root: *chunk_inner.prev_state_root(),
+                use_flat_storage: true,
+                source: crate::types::StorageDataSource::Db,
+                state_patch,
+                record_storage: false,
+            };
             match runtime.apply_transactions(
                 shard_id,
-                chunk_inner.prev_state_root(),
+                storage_config,
                 height,
                 block_timestamp,
                 &prev_block_hash,
@@ -4132,8 +4136,6 @@ impl Chain {
                 random_seed,
                 true,
                 is_first_block_with_chunk_of_version,
-                state_patch,
-                true,
             ) {
                 Ok(apply_result) => {
                     let apply_split_result_or_state_changes = if will_shard_layout_change {
@@ -4198,9 +4200,16 @@ impl Chain {
                 "existing_chunk",
                 shard_id)
             .entered();
+            let storage_config = RuntimeStorageConfig {
+                state_root: *new_extra.state_root(),
+                use_flat_storage: true,
+                source: crate::types::StorageDataSource::Db,
+                state_patch,
+                record_storage: false,
+            };
             match runtime.apply_transactions(
                 shard_id,
-                new_extra.state_root(),
+                storage_config,
                 height,
                 block_timestamp,
                 &prev_block_hash,
@@ -4214,8 +4223,6 @@ impl Chain {
                 random_seed,
                 false,
                 false,
-                state_patch,
-                true,
             ) {
                 Ok(apply_result) => {
                     let apply_split_result_or_state_changes = if will_shard_layout_change {
@@ -4280,7 +4287,7 @@ impl Chain {
         if !make_snapshot && !delete_snapshot {
             return Ok(());
         }
-        if let Some(snapshot_callbacks) = &self.state_snapshot_helper.snapshot_callbacks {
+        if let Some(snapshot_callbacks) = &self.snapshot_callbacks {
             if make_snapshot {
                 let head = self.head()?;
                 let shard_uids = self
@@ -4301,8 +4308,6 @@ impl Chain {
     /// Function to check whether we need to create a new snapshot while processing the current block
     /// Note that this functions is called as a part of block preprocesing, so the head is not updated to current block
     fn should_make_or_delete_snapshot(&mut self) -> Result<(bool, bool), Error> {
-        self.state_snapshot_helper.blocks_since_last_snapshot += 1;
-
         // head value is that of the previous block, i.e. curr_block.prev_hash
         let head = self.head()?;
         if head.prev_block_hash == CryptoHash::default() {
@@ -4321,20 +4326,11 @@ impl Chain {
             StateSnapshotType::EveryEpoch => is_epoch_boundary,
             // For resharding only, we snapshot if next block would be in a different shard layout
             StateSnapshotType::ForReshardingOnly => is_epoch_boundary && will_shard_layout_change,
-            // For every N blocks, we snapshot if next block would be in a different epoch
-            // OR if we have reached N blocks since the last snapshot
-            StateSnapshotType::EveryEpochAndNBlocks(n) => {
-                is_epoch_boundary || self.state_snapshot_helper.blocks_since_last_snapshot >= n
-            }
         };
 
         // We need to delete the existing snapshot at the epoch boundary if we are not making a new snapshot
         // This is useful for the next epoch after resharding where make_snapshot is false but it's an epoch boundary
         let delete_snapshot = !make_snapshot && is_epoch_boundary;
-
-        if make_snapshot {
-            self.state_snapshot_helper.blocks_since_last_snapshot = 0;
-        }
 
         Ok((make_snapshot, delete_snapshot))
     }
@@ -5758,7 +5754,7 @@ impl<'a> ChainUpdate<'a> {
 
         let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
-            &chunk_header.prev_state_root(),
+            RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
             chunk_header.height_included(),
             block_header.raw_timestamp(),
             &chunk_header.prev_block_hash(),
@@ -5772,8 +5768,6 @@ impl<'a> ChainUpdate<'a> {
             *block_header.random_value(),
             true,
             is_first_block_with_chunk_of_version,
-            Default::default(),
-            true,
         )?;
 
         let (outcome_root, outcome_proofs) =
@@ -5853,7 +5847,7 @@ impl<'a> ChainUpdate<'a> {
 
         let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
-            chunk_extra.state_root(),
+            RuntimeStorageConfig::new(*chunk_extra.state_root(), true),
             block_header.height(),
             block_header.raw_timestamp(),
             prev_block_header.hash(),
@@ -5867,8 +5861,6 @@ impl<'a> ChainUpdate<'a> {
             *block_header.random_value(),
             false,
             false,
-            Default::default(),
-            true,
         )?;
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         let store_update = flat_storage_manager.save_flat_state_changes(

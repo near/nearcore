@@ -346,9 +346,6 @@ impl JsonRpcHandler {
             "client_config" => {
                 process_method_call(request, |_params: ()| self.client_config()).await
             }
-            "EXPERIMENTAL_broadcast_tx_sync" => {
-                process_method_call(request, |params| self.send_tx_sync(params)).await
-            }
             "EXPERIMENTAL_changes" => {
                 process_method_call(request, |params| self.changes_in_block_by_type(params)).await
             }
@@ -628,32 +625,6 @@ impl JsonRpcHandler {
         }
 
         Ok(response)
-    }
-
-    async fn send_tx_sync(
-        &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse,
-        near_jsonrpc_primitives::types::transactions::RpcTransactionError,
-    > {
-        match self.send_tx_internal(request_data.clone().signed_transaction, false).await? {
-            ProcessTxResponse::ValidTx => {
-                Ok(near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse {
-                    transaction_hash: request_data.signed_transaction.get_hash(),
-                })
-            }
-            ProcessTxResponse::RequestRouted => {
-                Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::RequestRouted {
-                    transaction_hash: request_data.signed_transaction.get_hash(),
-                })
-            }
-            network_client_responses=> Err(
-                near_jsonrpc_primitives::types::transactions::RpcTransactionError::from_network_client_responses(
-                    network_client_responses
-                )
-            )
-        }
     }
 
     async fn send_tx(

@@ -245,7 +245,8 @@ impl TransactionConfig {
                 }
             };
 
-            let signer = scope.function_call_signer(u, &signer_account, &receiver_account.id)?;
+            let signer =
+                scope.function_call_signer(u, &signer_account, receiver_account.id.as_str())?;
 
             let mut receiver_functions = vec![];
             if let Some(contract_id) = receiver_account.deployed_contract {
