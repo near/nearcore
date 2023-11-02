@@ -141,7 +141,7 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="malicious-producers-in-phase-2-of-sharding"><a class="header" href="#malicious-producers-in-phase-2-of-sharding">Malicious producers in phase 2 of sharding.</a></h1>
-<p>In this document, we'll compare the impact of the hypothethical malicious producer on the NEAR system (both in the current setup and how it will work when phase2 is implemented).</p>
+<p>In this document, we'll compare the impact of the hypothetical malicious producer on the NEAR system (both in the current setup and how it will work when phase2 is implemented).</p>
 <h2 id="current-state-phase-1"><a class="header" href="#current-state-phase-1">Current state (Phase 1)</a></h2>
 <p>Let's assume that a malicious chunk producer <code>C1</code> has produced a bad chunk 
 and sent it to the block producer at this height <code>B1</code>. </p>
@@ -163,7 +163,7 @@ a few (they cannot track all - as today - as they would have to run super
 powerful machines with &gt; 100 cores).</p>
 <p>So in the similar scenario as above - <code>C1</code> creates a malicious chunks, and 
 sends it to <code>B1</code>, which includes it in the block.</p>
-<p>And here's where the complexity starts - as most of the valiators will NOT 
+<p>And here's where the complexity starts - as most of the validators will NOT 
 track the shard which <code>C1</code> was producing - so they will still sign the block.</p>
 <p>The validators that do track that shard will of course (assuming that they are non-malicious) refuse the sign. But overall, they will be a small majority - so the block is going to get enough signatures and be added to the chain.</p>
 <h3 id="challenges-slashing-and-rollbacks"><a class="header" href="#challenges-slashing-and-rollbacks">Challenges, Slashing and Rollbacks</a></h3>
@@ -181,14 +181,14 @@ submit such challenge to the next block producer, which can easily verify it
 and it to the next block.</p>
 <p>Then the validators do the verification themselves, and if successful, they 
 sign the block.</p>
-<p>When such block is succesfully signed, the protocol automatically slashes 
+<p>When such block is successfully signed, the protocol automatically slashes 
 malicious nodes (more details below) and initiates the rollback to bring the 
 state back to the state before the bad chunk (so in our case, back to the block 
 produced by <code>B0</code>).</p>
 <h4 id="slashing"><a class="header" href="#slashing">Slashing</a></h4>
 <p>Slashing is the process of taking away the part of the stake from validators
 that are considered malicious.</p>
-<p>In the example above, we'll definately need to slash the <code>C1</code> - and potentially also any validators that were tracking that shard and did sign the bad block.</p>
+<p>In the example above, we'll definitely need to slash the <code>C1</code> - and potentially also any validators that were tracking that shard and did sign the bad block.</p>
 <p>Things that we'll have to figure out in the future:</p>
 <ul>
 <li>how much do we slash? all of the stake? some part?</li>
@@ -198,7 +198,7 @@ that are considered malicious.</p>
 <p>// TODO: add</p>
 <h2 id="problems-with-the-current-phase-2-design"><a class="header" href="#problems-with-the-current-phase-2-design">Problems with the current Phase 2 design</a></h2>
 <h3 id="is-slashing-painful-enough"><a class="header" href="#is-slashing-painful-enough">Is slashing painful enough?</a></h3>
-<p>In the example above, we'd succesfully slash the <code>C1</code> producer - but was it<br />
+<p>In the example above, we'd successfully slash the <code>C1</code> producer - but was it<br />
 enough?</p>
 <p>Currently (with 4 shards) you need around 20k NEAR to become a chunk producer. 
 If we increase the number of shards to 100, it would drop the minimum stake to 

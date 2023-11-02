@@ -219,7 +219,7 @@ have to be specified in proto file.</p>
 store on disk - but we might move to proto with this in the future). Look for
 BorshSerialize/BorshDeserialize</p>
 <h2 id="questions"><a class="header" href="#questions">Questions</a></h2>
-<h3 id="why-dont-you-use-json-for-everything-"><a class="header" href="#why-dont-you-use-json-for-everything-">Why don’t you use JSON for everything ?</a></h3>
+<h3 id="why-dont-you-use-json-for-everything"><a class="header" href="#why-dont-you-use-json-for-everything">Why don’t you use JSON for everything?</a></h3>
 <p>While this is a tempting option, JSON has a few drawbacks:</p>
 <ul>
 <li>size (json is self-describing, so all the field names etc are included every time)</li>
@@ -258,7 +258,7 @@ a bitmap to indicate which elements are set resulting in a different layout.</p>
 </span></code></pre></pre>
 <p>Here, we have children at index 0 and 2 which has a bitmap of <code>101</code></p>
 <p>Custom encoder:</p>
-<pre><code>// Number of children detetermined by the bitmask
+<pre><code>// Number of children determined by the bitmask
 [16 bits bitmask][32 bytes child][32 bytes child]
 [5][0x11][0x12]
 // Total size: 2 + 32 + 32 = 68 bytes

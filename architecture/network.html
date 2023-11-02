@@ -211,7 +211,7 @@ consequently other peers.</li>
 <p>First, the <code>PeerManagerActor</code> actor gets started. <code>PeerManagerActor</code> opens the
 TCP server, which listens to incoming connections. It starts the
 <code>RoutingTableActor</code>, which then starts the <code>EdgeValidatorActor</code>. When
-a incoming connection gets accepted, it starts a new <code>PeerActor</code>
+an incoming connection gets accepted, it starts a new <code>PeerActor</code>
 on its own thread.</p>
 <h1 id="4-networkconfig"><a class="header" href="#4-networkconfig">4. NetworkConfig</a></h1>
 <p><code>near-network</code> reads configuration from <code>NetworkConfig</code>, which is a part of <code>client config</code>.</p>
@@ -220,7 +220,7 @@ on its own thread.</p>
 <li><code>boot_nodes</code> - list of nodes to connect to on start.</li>
 <li><code>addr</code> - listening address.</li>
 <li><code>max_num_peers</code> - by default we connect up to 40 peers, current implementation
-supports upto 128.</li>
+supports up to 128.</li>
 </ul>
 <h1 id="5-connecting-to-other-peers"><a class="header" href="#5-connecting-to-other-peers">5. Connecting to other peers.</a></h1>
 <p>Each peer maintains a list of known peers. They are stored in the database. If
@@ -468,8 +468,8 @@ the shortest path to <code>B</code>.</li>
 <li>Removes unreachable edges from memory and stores them to disk.</li>
 <li>The distance is calculated as the minimum number of nodes on the path from
 given node <code>A</code>, to each other node on the network. That is, <code>A</code> has a distance
-of <code>0</code> to itself. It's neighbors will have a distance of <code>1</code>. The neighbors of
-theirs neighbors will have a distance of <code>2</code>, etc.</li>
+of <code>0</code> to itself. Its neighbors will have a distance of <code>1</code>. The neighbors of
+their neighbors will have a distance of <code>2</code>, etc.</li>
 </ul>
 <h2 id="91-step-1"><a class="header" href="#91-step-1">9.1 Step 1</a></h2>
 <p><code>PeerManagerActor</code> runs a <code>update_routing_table_trigger</code> every

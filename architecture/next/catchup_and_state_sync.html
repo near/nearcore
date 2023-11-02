@@ -154,7 +154,7 @@
 <ul>
 <li>catchups are high priority (the validator MUST catchup within 1 epoch - otherwise it will not be able to produce blocks for the new shards in the next epoch - and therefore it will not earn rewards).</li>
 <li>a lot more catchups in progress (with lots of shards basically every validator would have to catchup at least one shard at each epoch boundary) - this leads to a lot more potential traffic on the network</li>
-<li>malicious attacks &amp; incentives - the state data can be large and can cause a lot of network traffic. At the same time it is quite critical (see point above), so we'll have to make sure that the nodes are incetivised to provide the state parts upon request.</li>
+<li>malicious attacks &amp; incentives - the state data can be large and can cause a lot of network traffic. At the same time it is quite critical (see point above), so we'll have to make sure that the nodes are incentivised to provide the state parts upon request.</li>
 <li>only a subset of peers will be available to request the state sync from (as not everyone from our peers will be tracking the shard that we're interested in).</li>
 </ul>
 <h2 id="things-that-were-actively-analysing"><a class="header" href="#things-that-were-actively-analysing">Things that we're actively analysing</a></h2>
@@ -168,7 +168,7 @@
 <li>allowing user to provide a bitmask of parts that are required (therefore allowing the server to return only the ones that it already cached).</li>
 </ul>
 <h3 id="better-performance-on-the-requestor-side"><a class="header" href="#better-performance-on-the-requestor-side">Better performance on the requestor side</a></h3>
-<p>Currently the parts are applied only once all them are downloaded - instead we should try to apply them in parallel - after each part is received.</p>
+<p>Currently the parts are applied only once all of them are downloaded - instead we should try to apply them in parallel - after each part is received.</p>
 <p>When we receive a part, we should announce this information to our peers - so that they know that they can request it from us if they need it.</p>
 <h2 id="ideas---not-actively-working-on-them-yet"><a class="header" href="#ideas---not-actively-working-on-them-yet">Ideas - not actively working on them yet</a></h2>
 <h3 id="better-networking-aka-tier-3"><a class="header" href="#better-networking-aka-tier-3">Better networking (a.k.a Tier 3)</a></h3>

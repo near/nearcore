@@ -413,10 +413,10 @@ expensive --timeout=1800 near-client near_client tests::catching_up::test_catchu
 </code></pre>
 <p>For more details regarding nightly tests see <code>nightly/README.md</code>.</p>
 <p>Note that what counts as a slow test isn’t exactly defined as of now.
-If it takes just a couple seconds than it’s probably fine.  Anything
+If it takes just a couple seconds then it’s probably fine.  Anything
 slower should probably be classified as an expensive test.  In
 particular, if libtest complains the test takes more than 60 seconds
-than it definitely is and expensive test.</p>
+then it definitely is and expensive test.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="how-neard-works"><a class="header" href="#how-neard-works">How neard works</a></h1>
 <p>This chapter describes how neard works with a focus on implementation details
 and practical scenarios. To get a better understanding of how the protocol
@@ -501,7 +501,7 @@ height. In other words, if the newly processed block is of higher height than
 the current head of the node, the head is updated.</li>
 <li>The node checks whether any blocks in the <code>OrphanPool</code> are ready to be
 processed in a BFS order and processes all of them until none can be
-processed any more. Note that a block is put into the <code>OrphanPool</code> if and
+processed anymore. Note that a block is put into the <code>OrphanPool</code> if and
 only if its previous block is not accepted.</li>
 <li>Upon acceptance of a block, the node would check whether it needs to run
 garbage collection. If it needs to, it would garbage collect two blocks worth
@@ -1011,7 +1011,7 @@ is produced.</p>
 <p>What happens afterwards will be covered in future episodes/articles.</p>
 <h2 id="additional-notes"><a class="header" href="#additional-notes">Additional notes:</a></h2>
 <h3 id="transaction-being-added-multiple-times"><a class="header" href="#transaction-being-added-multiple-times">Transaction being added multiple times</a></h3>
-<p>But such a approach means, that we’re forwarding the same transaction to multiple
+<p>But such an approach means, that we’re forwarding the same transaction to multiple
 validators (currently 4) - so can it be added multiple times?</p>
 <p>No. Remember that a transaction has a concrete hash which is used as a global
 identifier. If the validator sees that the transaction is present in the chain,
@@ -1129,7 +1129,7 @@ chunk a little bit earlier - without having to wait for all the other shards.</p
 <!-- TODO: add future link to article about chunk fragments etc. -->
 <div style="break-before: page; page-break-before: always;"></div><h1 id="cross-shard-transactions---deep-dive"><a class="header" href="#cross-shard-transactions---deep-dive">Cross shard transactions - deep dive</a></h1>
 <p>In this article, we'll look deeper into how cross-shard transactions are working
-on the simple example of user <code>shard0</code> transfering money to user <code>shard1</code>.</p>
+on the simple example of user <code>shard0</code> transferring money to user <code>shard1</code>.</p>
 <p>These users are on separate shards (<code>shard0</code> is on shard 0 and <code>shard1</code> is on
 shard 1).</p>
 <p>Imagine, we run the following command in the command line:</p>
@@ -1167,7 +1167,7 @@ parts:</p>
 <li>the message signature matches (that is - that this message was actually signed
 by this key)</li>
 <li>that this key is authorized to act on behalf of that account (so it is a full
-access key to this account - or a valid fuction key).</li>
+access key to this account - or a valid function key).</li>
 </ul>
 <p>The last point above means, that we MUST execute this (Transaction to Receipt)
 transition within the shard that the <code>signer</code> belongs to (as other shards don't
@@ -1237,7 +1237,7 @@ B, we'll see the transaction:</p>
 )
 </code></pre>
 <p><strong>Side note:</strong> When we're converting the transaction into a receipt, we also use
-this moment to deduct prepaid gas fees and transfered tokens from the 'signer'
+this moment to deduct prepaid gas fees and transferred tokens from the 'signer'
 account. The details on how much gas is charged can be found at https://nomicon.io/RuntimeSpec/Fees/.</p>
 <h2 id="step-2---cross-shard-receipt"><a class="header" href="#step-2---cross-shard-receipt">Step 2 - cross shard receipt</a></h2>
 <p>After transaction was changed into a receipt, this receipt must now be sent to
@@ -1394,7 +1394,7 @@ As you can see in this example, the receipt was created within shard 1.</p>
 <p><img src="https://user-images.githubusercontent.com/91919554/200617392-00b9fa0c-2f15-40ad-9802-137ca9a5a15d.png" alt="image" /></p>
 <p>But wait - NEAR was saying that transfers are happening with 2 blocks - but here
 I see that it took 3 blocks. What's wrong?</p>
-<p>The image above is a simplification, and reality is a little bit tricker -
+<p>The image above is a simplification, and reality is a little bit trickier -
 especially as receipts in a given chunks are actually receipts received as a
 result from running a PREVIOUS chunk from this shard.</p>
 <p>We'll explain it more in the next section.</p>
@@ -1406,7 +1406,7 @@ from the previous block.</p>
 <p><img src="https://user-images.githubusercontent.com/91919554/200621066-a5d06f2d-ff43-44ce-a52b-47dc44d6f8ab.png" alt="image" /></p>
 <p>In this example, the black boxes are representing the 'processing' of the chunk,
 and red arrows are cross-shard communication.</p>
-<p>So when we process Shard 0 from block 1676, we read the transation, and output
+<p>So when we process Shard 0 from block 1676, we read the transaction, and output
 the receipt - which later becomes the input for shard 1 in block 1677.</p>
 <p>But you might still be wondering - so why didn't we add the Receipt (transfer)
 to the list of receipts of shard0 1676?</p>
@@ -1420,7 +1420,7 @@ result (receipt) into next block's chunk.</p>
 <!-- TODO: maybe add the link to that article here? -->
 <p>In a future article, we'll discuss how the actual cross-shard communication
 works (red arrows) in the picture, and how we could guarantee that a given shard
-really gets all the red arrows, before is starts processing.</p>
+really gets all the red arrows, before it starts processing.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="gas"><a class="header" href="#gas">Gas</a></h1>
 <p>This page describes the technical details around gas during the lifecycle of a
 <em>transaction</em>(*) while giving an intuition for why things are the way they are
@@ -1683,7 +1683,7 @@ as body is sent to <code>FT</code>. There, the <code>ft_transfer</code> call fin
 concept, implemented off-chain. Think of it as a server that accepts a
 <code>SignedDelegateAction</code>, does some checks on them and eventually forwards it
 inside a transaction to the blockchain network.</p>
-<p>A relayer may chose to offer their service for free but that's not going to be
+<p>A relayer may choose to offer their service for free but that's not going to be
 financially viable long-term. But they could easily have the user pay using
 other means, outside of Near blockchain. And with some tricks, it can even be
 paid using fungible tokens on Near.</p>
@@ -1722,7 +1722,7 @@ would require two separate meta transactions to do that. Due to timing problems,
 this again requires some level of trust between the relayer and Alice.</p>
 <p>A potential solution could involve linear dependencies between the action
 receipts spawned from a single meta transaction. Only if the first succeeds,
-will the second start executing,and so on. But this quickly gets too complicated
+will the second start executing, and so on. But this quickly gets too complicated
 for the MVP and is therefore left open for future improvements.</p>
 <h2 id="constraints-on-the-actions-inside-a-meta-transaction"><a class="header" href="#constraints-on-the-actions-inside-a-meta-transaction">Constraints on the actions inside a meta transaction</a></h2>
 <p>A transaction is only allowed to contain one single delegate action. Nested
@@ -1933,7 +1933,7 @@ have to be specified in proto file.</p>
 store on disk - but we might move to proto with this in the future). Look for
 BorshSerialize/BorshDeserialize</p>
 <h2 id="questions"><a class="header" href="#questions">Questions</a></h2>
-<h3 id="why-dont-you-use-json-for-everything-"><a class="header" href="#why-dont-you-use-json-for-everything-">Why don’t you use JSON for everything ?</a></h3>
+<h3 id="why-dont-you-use-json-for-everything"><a class="header" href="#why-dont-you-use-json-for-everything">Why don’t you use JSON for everything?</a></h3>
 <p>While this is a tempting option, JSON has a few drawbacks:</p>
 <ul>
 <li>size (json is self-describing, so all the field names etc are included every time)</li>
@@ -1972,7 +1972,7 @@ a bitmap to indicate which elements are set resulting in a different layout.</p>
 </span></code></pre></pre>
 <p>Here, we have children at index 0 and 2 which has a bitmap of <code>101</code></p>
 <p>Custom encoder:</p>
-<pre><code>// Number of children detetermined by the bitmask
+<pre><code>// Number of children determined by the bitmask
 [16 bits bitmask][32 bytes child][32 bytes child]
 [5][0x11][0x12]
 // Total size: 2 + 32 + 32 = 68 bytes
@@ -2220,7 +2220,7 @@ be needed in next epoch (X+2).</p>
 <p>Then, we receipt arrives, we add it as the 'DELAYED_RECEIPT + last_index' key (and increment last_index by 1).</p>
 <p>That's why we cannot move it column 'in trie parts' (like we did for others), but we do it by 'iterating' over this queue.</p>
 <h2 id="what-should-we-improve-to-achieve-stressless-resharding"><a class="header" href="#what-should-we-improve-to-achieve-stressless-resharding">What should we improve to achieve 'stressless' resharding?</a></h2>
-<p>Currently trie is split sequencially (shard by shard), and also sequancially within a shard - by iterating over all the elements. </p>
+<p>Currently trie is split sequentially (shard by shard), and also sequentially within a shard - by iterating over all the elements. </p>
 <p>This process must finish within a single epoch - which is might be challenging (especially for larger archival nodes).</p>
 <h3 id="each-shard-should-be-handled-independently"><a class="header" href="#each-shard-should-be-handled-independently">Each shard should be handled independently</a></h3>
 <p>This is a low-hanging fruit - but each shard's splitting should be done in a separate thread.</p>
@@ -2255,7 +2255,7 @@ be needed in next epoch (X+2).</p>
 <ul>
 <li>catchups are high priority (the validator MUST catchup within 1 epoch - otherwise it will not be able to produce blocks for the new shards in the next epoch - and therefore it will not earn rewards).</li>
 <li>a lot more catchups in progress (with lots of shards basically every validator would have to catchup at least one shard at each epoch boundary) - this leads to a lot more potential traffic on the network</li>
-<li>malicious attacks &amp; incentives - the state data can be large and can cause a lot of network traffic. At the same time it is quite critical (see point above), so we'll have to make sure that the nodes are incetivised to provide the state parts upon request.</li>
+<li>malicious attacks &amp; incentives - the state data can be large and can cause a lot of network traffic. At the same time it is quite critical (see point above), so we'll have to make sure that the nodes are incentivised to provide the state parts upon request.</li>
 <li>only a subset of peers will be available to request the state sync from (as not everyone from our peers will be tracking the shard that we're interested in).</li>
 </ul>
 <h2 id="things-that-were-actively-analysing"><a class="header" href="#things-that-were-actively-analysing">Things that we're actively analysing</a></h2>
@@ -2269,7 +2269,7 @@ be needed in next epoch (X+2).</p>
 <li>allowing user to provide a bitmask of parts that are required (therefore allowing the server to return only the ones that it already cached).</li>
 </ul>
 <h3 id="better-performance-on-the-requestor-side"><a class="header" href="#better-performance-on-the-requestor-side">Better performance on the requestor side</a></h3>
-<p>Currently the parts are applied only once all them are downloaded - instead we should try to apply them in parallel - after each part is received.</p>
+<p>Currently the parts are applied only once all of them are downloaded - instead we should try to apply them in parallel - after each part is received.</p>
 <p>When we receive a part, we should announce this information to our peers - so that they know that they can request it from us if they need it.</p>
 <h2 id="ideas---not-actively-working-on-them-yet"><a class="header" href="#ideas---not-actively-working-on-them-yet">Ideas - not actively working on them yet</a></h2>
 <h3 id="better-networking-aka-tier-3"><a class="header" href="#better-networking-aka-tier-3">Better networking (a.k.a Tier 3)</a></h3>
@@ -2282,7 +2282,7 @@ be needed in next epoch (X+2).</p>
 <p>In case of catchup, the requesting node might have tracked that shard in the past. So we could consider just sending a delta of the state rather than the whole state.</p>
 <p>While this helps with the amount of data being sent - it might require the receiver to do a lot more work (as the data that it is about to send cannot be easily cached).</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="malicious-producers-in-phase-2-of-sharding"><a class="header" href="#malicious-producers-in-phase-2-of-sharding">Malicious producers in phase 2 of sharding.</a></h1>
-<p>In this document, we'll compare the impact of the hypothethical malicious producer on the NEAR system (both in the current setup and how it will work when phase2 is implemented).</p>
+<p>In this document, we'll compare the impact of the hypothetical malicious producer on the NEAR system (both in the current setup and how it will work when phase2 is implemented).</p>
 <h2 id="current-state-phase-1"><a class="header" href="#current-state-phase-1">Current state (Phase 1)</a></h2>
 <p>Let's assume that a malicious chunk producer <code>C1</code> has produced a bad chunk 
 and sent it to the block producer at this height <code>B1</code>. </p>
@@ -2304,7 +2304,7 @@ a few (they cannot track all - as today - as they would have to run super
 powerful machines with &gt; 100 cores).</p>
 <p>So in the similar scenario as above - <code>C1</code> creates a malicious chunks, and 
 sends it to <code>B1</code>, which includes it in the block.</p>
-<p>And here's where the complexity starts - as most of the valiators will NOT 
+<p>And here's where the complexity starts - as most of the validators will NOT 
 track the shard which <code>C1</code> was producing - so they will still sign the block.</p>
 <p>The validators that do track that shard will of course (assuming that they are non-malicious) refuse the sign. But overall, they will be a small majority - so the block is going to get enough signatures and be added to the chain.</p>
 <h3 id="challenges-slashing-and-rollbacks"><a class="header" href="#challenges-slashing-and-rollbacks">Challenges, Slashing and Rollbacks</a></h3>
@@ -2322,14 +2322,14 @@ submit such challenge to the next block producer, which can easily verify it
 and it to the next block.</p>
 <p>Then the validators do the verification themselves, and if successful, they 
 sign the block.</p>
-<p>When such block is succesfully signed, the protocol automatically slashes 
+<p>When such block is successfully signed, the protocol automatically slashes 
 malicious nodes (more details below) and initiates the rollback to bring the 
 state back to the state before the bad chunk (so in our case, back to the block 
 produced by <code>B0</code>).</p>
 <h4 id="slashing"><a class="header" href="#slashing">Slashing</a></h4>
 <p>Slashing is the process of taking away the part of the stake from validators
 that are considered malicious.</p>
-<p>In the example above, we'll definately need to slash the <code>C1</code> - and potentially also any validators that were tracking that shard and did sign the bad block.</p>
+<p>In the example above, we'll definitely need to slash the <code>C1</code> - and potentially also any validators that were tracking that shard and did sign the bad block.</p>
 <p>Things that we'll have to figure out in the future:</p>
 <ul>
 <li>how much do we slash? all of the stake? some part?</li>
@@ -2339,7 +2339,7 @@ that are considered malicious.</p>
 <p>// TODO: add</p>
 <h2 id="problems-with-the-current-phase-2-design"><a class="header" href="#problems-with-the-current-phase-2-design">Problems with the current Phase 2 design</a></h2>
 <h3 id="is-slashing-painful-enough"><a class="header" href="#is-slashing-painful-enough">Is slashing painful enough?</a></h3>
-<p>In the example above, we'd succesfully slash the <code>C1</code> producer - but was it<br />
+<p>In the example above, we'd successfully slash the <code>C1</code> producer - but was it<br />
 enough?</p>
 <p>Currently (with 4 shards) you need around 20k NEAR to become a chunk producer. 
 If we increase the number of shards to 100, it would drop the minimum stake to 
@@ -2487,7 +2487,7 @@ updated using a custom merge operation <code>merge_refcounted_records</code>.</p
 <ul>
 <li><code>BlockHash: [u8; 32]</code> is the block hash for this change</li>
 <li><code>Column: u8</code> is defined near the top of <code>core/primitives/src/trie_key.rs</code></li>
-<li><code>AdditionalInfo</code> depends on <code>Column</code> and is can be found in the code for the <code>TrieKey</code> struct, same file as <code>Column</code></li>
+<li><code>AdditionalInfo</code> depends on <code>Column</code> and it can be found in the code for the <code>TrieKey</code> struct, same file as <code>Column</code></li>
 </ul>
 </li>
 </ul>
@@ -2745,7 +2745,7 @@ consequently other peers.</li>
 <p>First, the <code>PeerManagerActor</code> actor gets started. <code>PeerManagerActor</code> opens the
 TCP server, which listens to incoming connections. It starts the
 <code>RoutingTableActor</code>, which then starts the <code>EdgeValidatorActor</code>. When
-a incoming connection gets accepted, it starts a new <code>PeerActor</code>
+an incoming connection gets accepted, it starts a new <code>PeerActor</code>
 on its own thread.</p>
 <h1 id="4-networkconfig"><a class="header" href="#4-networkconfig">4. NetworkConfig</a></h1>
 <p><code>near-network</code> reads configuration from <code>NetworkConfig</code>, which is a part of <code>client config</code>.</p>
@@ -2754,7 +2754,7 @@ on its own thread.</p>
 <li><code>boot_nodes</code> - list of nodes to connect to on start.</li>
 <li><code>addr</code> - listening address.</li>
 <li><code>max_num_peers</code> - by default we connect up to 40 peers, current implementation
-supports upto 128.</li>
+supports up to 128.</li>
 </ul>
 <h1 id="5-connecting-to-other-peers"><a class="header" href="#5-connecting-to-other-peers">5. Connecting to other peers.</a></h1>
 <p>Each peer maintains a list of known peers. They are stored in the database. If
@@ -3002,8 +3002,8 @@ the shortest path to <code>B</code>.</li>
 <li>Removes unreachable edges from memory and stores them to disk.</li>
 <li>The distance is calculated as the minimum number of nodes on the path from
 given node <code>A</code>, to each other node on the network. That is, <code>A</code> has a distance
-of <code>0</code> to itself. It's neighbors will have a distance of <code>1</code>. The neighbors of
-theirs neighbors will have a distance of <code>2</code>, etc.</li>
+of <code>0</code> to itself. Its neighbors will have a distance of <code>1</code>. The neighbors of
+their neighbors will have a distance of <code>2</code>, etc.</li>
 </ul>
 <h2 id="91-step-1"><a class="header" href="#91-step-1">9.1 Step 1</a></h2>
 <p><code>PeerManagerActor</code> runs a <code>update_routing_table_trigger</code> every
@@ -3155,7 +3155,7 @@ idle. Why is that? Well, the hardware must be prepared to execute chunks that
 are always full. But that is rarely the case, as the gas price increases
 exponentially when chunks are full, which would cause traffic to go back
 eventually.</p>
-<p>Futhermore, the hardware has to be ready for transactions of all types,
+<p>Furthermore, the hardware has to be ready for transactions of all types,
 including transactions chosen by a malicious actor selecting only the most
 complex transactions. Those transactions can also be unbalanced in what
 bottlenecks they hit. For example, a chunk can be filled with transactions that
@@ -3528,7 +3528,7 @@ protocol are correct. Correct in this context means, a chunk filled with 1 Pgas
 per 1 Tgas of execution, we spend no more than 1ms wall-clock time. </p>
 <p>For now, nearcore timing is the only one that matters. Things will become more
 complicated once there are multiple client implementations. But knowing that
-nearcore can serve requests fast enough prooves that it is possible to be at
+nearcore can serve requests fast enough proves that it is possible to be at
 least as fast. However, we should be careful to not couple costs too tightly
 with the specific implementation of nearcore to allow for innovation in new
 clients.</p>
@@ -5817,7 +5817,7 @@ protocol version will be upgraded in the first block of epoch X+2. </p>
 typically happens a week later and the protocol version upgrade happens 1-2 epochs after the voting. This 
 gives the node maintainers enough time to upgrade their neard nodes. The node maintainers can upgrade
 their nodes at any time between the release and the voting but it is recommended to upgrade soon after the
-release. This is to accomodate for any database migrations or miscellaneous delays. </p>
+release. This is to accommodate for any database migrations or miscellaneous delays. </p>
 <p>Starting a neard node with protocol version voting in the future in a network that is already operating 
 at that protocol version is supported as well. This is useful in the scenario where there is a mainnet 
 security release where mainnet has not yet voted or upgraded to the new version. That same binary with
