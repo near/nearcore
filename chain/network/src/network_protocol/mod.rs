@@ -5,7 +5,7 @@ mod borsh_conv;
 mod edge;
 mod peer;
 mod proto_conv;
-mod state_sync;
+pub mod state_sync;
 pub use edge::*;
 pub use peer::*;
 pub use state_sync::*;

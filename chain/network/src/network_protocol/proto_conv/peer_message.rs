@@ -209,14 +209,20 @@ pub enum ParseSyncSnapshotHostsError {
 
 impl From<&SyncSnapshotHosts> for proto::SyncSnapshotHosts {
     fn from(x: &SyncSnapshotHosts) -> Self {
-        Self { hosts: x.hosts.iter().map(Into::into).collect(), ..Default::default() }
+        Self { hosts: x.hosts.iter().map(|d| d.as_ref().into()).collect(), ..Default::default() }
     }
 }
 
 impl TryFrom<&proto::SyncSnapshotHosts> for SyncSnapshotHosts {
     type Error = ParseSyncSnapshotHostsError;
     fn try_from(x: &proto::SyncSnapshotHosts) -> Result<Self, Self::Error> {
-        Ok(Self { hosts: try_from_slice(&x.hosts).map_err(Self::Error::Hosts)? })
+        Ok(Self {
+            hosts: try_from_slice(&x.hosts)
+                .map_err(Self::Error::Hosts)?
+                .into_iter()
+                .map(Arc::new)
+                .collect(),
+        })
     }
 }
 

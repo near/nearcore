@@ -1,3 +1,4 @@
+use crate::network_protocol::Arc;
 use near_crypto::SecretKey;
 use near_crypto::Signature;
 use near_primitives::hash::CryptoHash;
@@ -63,5 +64,5 @@ impl SnapshotHostInfo {
 // SyncAccountsData either so it's worth revisiting.
 #[derive(Clone, Debug, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct SyncSnapshotHosts {
-    pub hosts: Vec<SnapshotHostInfo>,
+    pub hosts: Vec<Arc<SnapshotHostInfo>>,
 }

@@ -1,8 +1,9 @@
 //! Cache of SnapshotHostInfos.
 //!
 //! Each node in the network which is willing to generate and serve state snapshots
-//! publishes a SnapshotHostInfo once per epoch. The info is flooded to nodes in the
-//! network and stored in this cache.
+//! publishes a SnapshotHostInfo once per epoch. The info is flooded to all nodes in
+//! the network and stored locally in this cache.
+
 use crate::concurrency;
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::network_protocol::SnapshotHostInfo;
@@ -46,9 +47,9 @@ impl Inner {
     }
 }
 
-pub(crate) struct SnapshotHosts(ArcMutex<Inner>);
+pub(crate) struct SnapshotHostsCache(ArcMutex<Inner>);
 
-impl SnapshotHosts {
+impl SnapshotHostsCache {
     pub fn new() -> Self {
         Self(ArcMutex::new(Inner { hosts: im::HashMap::new() }))
     }
