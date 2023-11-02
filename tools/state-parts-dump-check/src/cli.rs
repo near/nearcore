@@ -8,7 +8,7 @@ use near_client::sync::external::{
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
-use near_primitives::types::{BlockId, BlockReference, EpochId, Finality, ShardId, StateRoot};
+use near_primitives::types::{BlockId, BlockReference, EpochId, EpochReference, Finality, ShardId, StateRoot};
 use near_primitives::views::BlockView;
 use near_store::Trie;
 use nearcore::state_sync::extract_part_id_from_part_file_name;
@@ -639,7 +639,7 @@ async fn get_processing_epoch_information(
     let latest_epoch_id = latest_block_response.header.epoch_id;
     let latest_epoch_response =
         rpc_client
-            .validators_by_epoch_id(EpochId(latest_epoch_id))
+            .validators(Some(EpochReference::EpochId(EpochId(latest_epoch_id))))
             .await
             .or_else(|_| Err(anyhow!("validators_by_epoch_id for latest_epoch_id failed")))?;
     let latest_epoch_height = latest_epoch_response.epoch_height;
@@ -664,7 +664,7 @@ async fn get_previous_epoch_last_block_response(
     current_epoch_id: CryptoHash,
 ) -> anyhow::Result<BlockView> {
     let current_epoch_response = rpc_client
-        .validators_by_epoch_id(EpochId(current_epoch_id))
+        .validators(Some(EpochReference::EpochId(EpochId(current_epoch_id))))
         .await
         .or_else(|_| Err(anyhow!("validators_by_epoch_id for current_epoch_id failed")))?;
     let current_epoch_first_block_height = current_epoch_response.epoch_start_height;

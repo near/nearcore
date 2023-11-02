@@ -11,13 +11,15 @@ use super::{Params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcValidatorRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        let epoch_reference = Params::new(value)
+        if let Ok(epoch_reference) = Params::new(value.clone())
             .try_singleton(|block_id| match block_id {
                 Some(id) => Ok(EpochReference::BlockId(id)),
                 None => Ok(EpochReference::Latest),
-            })
-            .unwrap_or_parse()?;
-        Ok(Self { epoch_reference })
+            }).unwrap_or_parse() {
+                Ok(Self {epoch_reference})
+        } else {
+            Params::parse(value).map(|epoch_reference| Self { epoch_reference })
+        }
     }
 }
 
@@ -48,4 +50,42 @@ impl RpcFrom<GetValidatorInfoError> for RpcValidatorError {
             }
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::api::RpcRequest;
+    use near_jsonrpc_primitives::types::validator::RpcValidatorRequest;
+    use near_primitives::hash::CryptoHash;
+
+    #[test]
+    fn test_serialize_validators_params_as_vec() {
+        let block_hash = CryptoHash::new().to_string();
+        let params = serde_json::json!([block_hash]);
+        assert!(RpcValidatorRequest::parse(params).is_ok());
+    }
+
+    #[test]
+    fn test_serialize_validators_params_as_object_input_block_hash() {
+        let block_hash = CryptoHash::new().to_string();
+        let params = serde_json::json!({"block_id": block_hash});
+        assert!(RpcValidatorRequest::parse(params).is_ok());
+    }
+
+    #[test]
+    fn test_serialize_validators_params_as_object_input_block_height() {
+        let block_height: u64 = 12345;
+        let params = serde_json::json!({"block_id": block_height});
+        println!("result is: {:?}", RpcValidatorRequest::parse(params.clone()));
+        assert!(RpcValidatorRequest::parse(params).is_ok());
+    }
+
+    #[test]
+    fn test_serialize_validators_params_as_object_input_epoch_id() {
+        let epoch_id = CryptoHash::new().to_string();
+        let params = serde_json::json!({"epoch_id": epoch_id});
+        println!("result is: {:?}", RpcValidatorRequest::parse(params.clone()));
+        assert!(RpcValidatorRequest::parse(params).is_ok());
+    }
+
 }
