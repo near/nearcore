@@ -6,6 +6,7 @@ use crate::network_protocol::{
     DistanceVector, Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError,
     PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse,
     RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
+    SyncSnapshotHosts,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -785,6 +786,8 @@ impl PeerActor {
                             }
                             // Sync the RoutingTable.
                             act.sync_routing_table();
+                            // Sync snapshot hosts
+                            act.sync_snapshot_hosts();
                         }
 
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
@@ -815,6 +818,12 @@ impl PeerActor {
             known_edges,
             known_accounts,
         )));
+    }
+
+    // Send all known snapshot hosts.
+    fn sync_snapshot_hosts(&self) {
+        let hosts = self.network_state.snapshot_hosts.get_hosts();
+        self.send_message_or_log(&PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts }));
     }
 
     fn handle_msg_connecting(&mut self, ctx: &mut actix::Context<Self>, msg: PeerMessage) {

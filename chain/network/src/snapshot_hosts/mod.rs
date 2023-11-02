@@ -1,8 +1,7 @@
 //! Cache of SnapshotHostInfos.
 //!
 //! Each node in the network which is willing to generate and serve state snapshots
-//! publishes a SnapshotHostInfo once per epoch. The info is flooded to all nodes in
-//! the network and stored locally in this cache.
+//! publishes a SnapshotHostInfo once per epoch. The info is flooded to all nodes in the network and stored locally in this cache.
 
 use crate::concurrency;
 use crate::concurrency::arc_mutex::ArcMutex;
@@ -109,5 +108,9 @@ impl SnapshotHostsCache {
         });
         // Return the inserted data.
         (inserted, err)
+    }
+
+    pub fn get_hosts(&self) -> Vec<Arc<SnapshotHostInfo>> {
+        self.0.load().hosts.values().cloned().collect()
     }
 }
