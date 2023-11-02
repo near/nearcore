@@ -1961,6 +1961,16 @@ impl Chain {
                     .add_validator_proposals(BlockHeaderInfo::new(header, last_finalized_height))?;
                 chain_update.chain_store_update.merge(epoch_manager_update);
                 chain_update.commit()?;
+
+                #[cfg(feature = "new_epoch_sync")]
+                {
+                    // At this point BlockInfo for this header should be in DB and in `epoch_manager`s cache.
+                    let block_info = self.epoch_manager.get_block_info(header.hash())?;
+
+                    let mut chain_update = self.chain_update();
+                    chain_update.save_epoch_sync_info(header.epoch_id(), header, &block_info)?;
+                    chain_update.commit()?;
+                }
             }
         }
 
