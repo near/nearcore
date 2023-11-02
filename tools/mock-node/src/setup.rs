@@ -302,7 +302,6 @@ mod tests {
     // The localnet needs to have state snapshots enabled. It copies state from
     // one instance to another by using the state sync mechanism, which relies
     // on the flat storage snapshots.
-    #[cfg_attr(not(feature = "mock_node"), ignore)]
     #[test]
     fn test_mock_node_basic() {
         init_integration_logger();
