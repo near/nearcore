@@ -1,10 +1,9 @@
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
-use crate::network_protocol::state_sync::SyncSnapshotHosts;
 use crate::network_protocol::{
     PeerInfo, PeerMessage, RoutedMessageBody, SignedAccountData, SignedOwnedAccount,
-    SnapshotHostInfo, SyncAccountsData,
+    SnapshotHostInfo, SyncAccountsData, SyncSnapshotHosts,
 };
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;

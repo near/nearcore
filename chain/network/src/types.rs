@@ -6,7 +6,7 @@ pub use crate::network_protocol::{
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
     Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, StateResponseInfo,
+    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, SnapshotHostInfo, StateResponseInfo,
     StateResponseInfoV1, StateResponseInfoV2,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
@@ -232,6 +232,8 @@ pub enum NetworkRequests {
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
     /// Announce account
     AnnounceAccount(AnnounceAccount),
+    /// Broadcast information about a hosted snapshot.
+    SnapshotHostInfo(Arc<SnapshotHostInfo>),
 
     /// Request chunk parts and/or receipts
     PartialEncodedChunkRequest {

@@ -1,6 +1,7 @@
 use crate::client;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
+use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::{
     Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
 };
@@ -782,6 +783,12 @@ impl PeerManagerActor {
                 } else {
                     NetworkResponses::RouteNotFound
                 }
+            }
+            NetworkRequests::SnapshotHostInfo(snapshot_host_info) => {
+                self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncSnapshotHosts(
+                    SyncSnapshotHosts { hosts: vec![snapshot_host_info] },
+                )));
+                NetworkResponses::NoResponse
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
                 self.state.disconnect_and_ban(&self.clock, &peer_id, ban_reason);

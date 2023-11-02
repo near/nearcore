@@ -5,7 +5,7 @@ mod borsh_conv;
 mod edge;
 mod peer;
 mod proto_conv;
-pub mod state_sync;
+mod state_sync;
 pub use edge::*;
 pub use peer::*;
 pub use state_sync::*;
@@ -24,7 +24,6 @@ pub use _proto::network as proto;
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
-use crate::network_protocol::state_sync::SyncSnapshotHosts;
 use borsh::BorshDeserialize as _;
 use near_async::time;
 use near_crypto::PublicKey;
