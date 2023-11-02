@@ -1860,6 +1860,7 @@ mod borsh_compatibility_test {
                     hash(b"e"),
                     std::num::NonZeroU32::new(2).unwrap(),
                 )],
+                mem_trie_changes: None,
             }
         );
     }
