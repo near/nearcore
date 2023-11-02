@@ -83,4 +83,5 @@ nightly_protocol = [
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
 ]
+mock_node = []
 sandbox = ["near-primitives/sandbox"]

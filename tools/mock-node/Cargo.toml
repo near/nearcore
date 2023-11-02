@@ -1,0 +1,53 @@
+[package]
+name = "mock-node"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+actix-rt.workspace = true
+actix.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+futures.workspace = true
+pin-project.workspace = true
+rand.workspace = true
+rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+near-actix-test-utils.workspace = true
+near-async.workspace = true
+near-chain.workspace = true
+near-chain-configs.workspace = true
+near-client.workspace = true
+near-crypto.workspace = true
+near-chunks.workspace = true
+near-epoch-manager.workspace = true
+near-jsonrpc.workspace = true
+near-jsonrpc-client.workspace = true
+near-network.workspace = true
+near-store.workspace = true
+near-o11y.workspace = true
+near-telemetry.workspace = true
+near-performance-metrics.workspace = true
+near-primitives.workspace = true
+nearcore.workspace = true
+
+[[bin]]
+name = "mock-node"
+# To make mock node work, we must disable some checks in chain, which is controlled by this feature.
+# We don't make it a default feature, because we don't want it to be enabled unconditionally when you do, for example
+# `cargo test --workspace`
+required-features = ["mock_node"]
+
+[features]
+test_features = ["nearcore/test_features"]
+mock_node = ["near-chain/mock_node", "near-epoch-manager/mock_node"]
