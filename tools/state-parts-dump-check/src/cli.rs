@@ -644,7 +644,7 @@ async fn get_processing_epoch_information(
         rpc_client
             .validators_by_epoch_id(EpochId(latest_epoch_id))
             .await
-            .or_else(|_| Err(anyhow!("validators_by_epoch_id for prev_epoch_id failed")))?;
+            .or_else(|_| Err(anyhow!("validators_by_epoch_id for latest_epoch_id failed")))?;
     let latest_epoch_height = latest_epoch_response.epoch_height;
     let prev_epoch_last_block_response =
         get_previous_epoch_last_block_response(rpc_client, latest_epoch_id).await?;
