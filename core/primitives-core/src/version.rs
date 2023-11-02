@@ -175,7 +175,7 @@ impl ProtocolFeature {
             ProtocolFeature::ComputeCosts | ProtocolFeature::FlatStorageReads => 61,
             ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
             ProtocolFeature::BlockHeaderV4 => 63,
-            ProtocolFeature::RestrictTla => 64,
+            ProtocolFeature::RestrictTla | ProtocolFeature::TestnetFewerBlockProducers => 64,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -189,7 +189,6 @@ impl ProtocolFeature {
             ProtocolFeature::PostStateRoot => 136,
             #[cfg(feature = "protocol_feature_chunk_validation")]
             ProtocolFeature::ChunkValidation => 137,
-            ProtocolFeature::TestnetFewerBlockProducers => 140,
         }
     }
 }

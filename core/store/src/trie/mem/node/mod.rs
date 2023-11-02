@@ -29,7 +29,11 @@ pub struct MemTrieNodeId {
 
 impl MemTrieNodeId {
     pub fn new(arena: &mut Arena, input: InputMemTrieNode) -> Self {
-        Self::new_impl(arena, input)
+        Self::new_impl(arena, input, None)
+    }
+
+    pub fn new_with_hash(arena: &mut Arena, input: InputMemTrieNode, hash: CryptoHash) -> Self {
+        Self::new_impl(arena, input, Some(hash))
     }
 
     pub fn as_ptr<'a>(&self, arena: &'a ArenaMemory) -> MemTrieNodePtr<'a> {
