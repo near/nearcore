@@ -16,7 +16,7 @@ use crate::tcp;
 use crate::types::{
     ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
-    SetChainInfo,
+    SetChainInfo, SnapshotHostInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
@@ -26,7 +26,9 @@ use near_async::time;
 use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
+use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::types::EpochHeight;
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
     RecentOutboundConnectionsView,
@@ -240,6 +242,7 @@ impl PeerManagerActor {
             let arbiter = arbiter.clone();
             let state = state.clone();
             let clock = clock.clone();
+            let peer_id = my_peer_id.clone();
             async move {
                 // Start server if address provided.
                 if let Some(server_addr) = &state.config.node_addr {
@@ -325,6 +328,35 @@ impl PeerManagerActor {
 
                                 state.config.event_sink.push(Event::ReconnectLoopSpawned(peer_info));
                             }
+                        }
+                    }
+                });
+
+                // Testing purposes only! Periodically publish some dummy SnapshotHostInfo.
+                arbiter.spawn({
+                    let state = state.clone();
+
+                    let mut interval = time::Interval::new(clock.now(), time::Duration::seconds(30));
+
+                    let mut epoch_height: EpochHeight = 9876543210;
+
+                    async move {
+                        loop {
+                            interval.tick(&clock).await;
+
+                            let hash = CryptoHash::hash_bytes(&[(epoch_height % 12345) as u8]);
+
+                            epoch_height += 1;
+
+                            let data = SnapshotHostInfo::new(
+                                peer_id.clone(),
+                                hash,
+                                epoch_height,
+                                vec![23, epoch_height % 10],
+                                &state.config.node_key,
+                            );
+
+                            state.add_snapshot_hosts(vec![data.into()]).await;
                         }
                     }
                 });
