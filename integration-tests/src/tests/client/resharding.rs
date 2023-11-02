@@ -20,7 +20,6 @@ use near_primitives::transaction::{
 use near_primitives::types::{BlockHeight, NumShards, ProtocolVersion, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolFeature;
-#[cfg(not(feature = "protocol_feature_simple_nightshade_v2"))]
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryRequest};
 use near_primitives_core::num_rational::Rational32;
@@ -1403,7 +1402,7 @@ fn test_shard_layout_upgrade_missing_chunks(
     test_missing_chunks(&mut test_env, p_missing, target_protocol_version, epoch_length)
 }
 
-// Use resharding setup to run protocol for couple epoch with given probability
+// Use resharding setup to run protocol for couple epochs with given probability
 // of missing chunk. In particular, checks that all txs generated in env have
 // final outcome in the end.
 // TODO: remove logical dependency on resharding.
