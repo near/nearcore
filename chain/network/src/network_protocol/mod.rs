@@ -8,6 +8,7 @@ mod proto_conv;
 mod state_sync;
 pub use edge::*;
 pub use peer::*;
+pub use state_sync::*;
 
 #[cfg(test)]
 pub(crate) mod testonly;
