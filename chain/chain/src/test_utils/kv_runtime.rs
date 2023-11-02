@@ -945,6 +945,14 @@ impl EpochManagerAdapter for MockEpochManager {
         let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
         Ok(shard_layout != next_shard_layout)
     }
+
+    #[cfg(feature = "new_epoch_sync")]
+    fn get_all_epoch_hashes(
+        &self,
+        _last_block_info: &BlockInfo,
+    ) -> Result<Vec<CryptoHash>, EpochError> {
+        Ok(vec![])
+    }
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
