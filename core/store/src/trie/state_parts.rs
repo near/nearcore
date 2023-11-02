@@ -895,7 +895,8 @@ mod tests {
             {
                 map.add(trie_node_or_value_hash, trie_node_or_value, rc.get());
             }
-            for TrieRefcountSubtraction { trie_node_or_value_hash, rc } in changes_set.deletions {
+            for TrieRefcountSubtraction { trie_node_or_value_hash, rc, .. } in changes_set.deletions
+            {
                 map.subtract(trie_node_or_value_hash, rc.get());
             }
         }

@@ -383,8 +383,36 @@ pub struct TrieRefcountSubtraction {
     /// Hash of trie_node_or_value and part of the DB key.
     /// Used for uniting with shard id to get actual DB key.
     trie_node_or_value_hash: CryptoHash,
+    /// Obsolete field but which we cannot remove because this data is persisted
+    /// to the database.
+    _ignored: IgnoredVecU8,
     /// Reference count difference which will be subtracted to the total refcount.
     rc: std::num::NonZeroU32,
+}
+
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug)]
+struct IgnoredVecU8 {
+    _ignored: Vec<u8>,
+}
+
+impl PartialEq for IgnoredVecU8 {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+impl Eq for IgnoredVecU8 {}
+impl Hash for IgnoredVecU8 {
+    fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {}
+}
+impl PartialOrd for IgnoredVecU8 {
+    fn partial_cmp(&self, _other: &Self) -> Option<std::cmp::Ordering> {
+        Some(std::cmp::Ordering::Equal)
+    }
+}
+impl Ord for IgnoredVecU8 {
+    fn cmp(&self, _other: &Self) -> std::cmp::Ordering {
+        std::cmp::Ordering::Equal
+    }
 }
 
 impl TrieRefcountAddition {
@@ -397,10 +425,13 @@ impl TrieRefcountAddition {
     }
 
     pub fn revert(&self) -> TrieRefcountSubtraction {
-        TrieRefcountSubtraction {
-            trie_node_or_value_hash: self.trie_node_or_value_hash,
-            rc: self.rc,
-        }
+        TrieRefcountSubtraction::new(self.trie_node_or_value_hash, self.rc)
+    }
+}
+
+impl TrieRefcountSubtraction {
+    pub fn new(trie_node_or_value_hash: CryptoHash, rc: std::num::NonZeroU32) -> Self {
+        Self { trie_node_or_value_hash, _ignored: Default::default(), rc }
     }
 }
 
@@ -437,10 +468,10 @@ impl TrieRefcountDeltaMap {
                     rc: std::num::NonZeroU32::new(rc as u32).unwrap(),
                 });
             } else if rc < 0 {
-                deletions.push(TrieRefcountSubtraction {
-                    trie_node_or_value_hash: hash,
-                    rc: std::num::NonZeroU32::new((-rc) as u32).unwrap(),
-                });
+                deletions.push(TrieRefcountSubtraction::new(
+                    hash,
+                    std::num::NonZeroU32::new((-rc) as u32).unwrap(),
+                ));
             }
         }
         // Sort so that trie changes have unique representation.
@@ -1748,5 +1779,67 @@ mod tests {
         let tries2 = ShardTries::test(store2, 1);
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard(), root);
         assert_eq!(trie2.get(b"doge").unwrap().unwrap(), b"coin");
+    }
+}
+
+#[cfg(test)]
+mod borsh_compatibility_test {
+    use borsh::{BorshDeserialize, BorshSerialize};
+    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::types::StateRoot;
+
+    use crate::trie::{TrieRefcountAddition, TrieRefcountSubtraction};
+    use crate::TrieChanges;
+
+    #[test]
+    fn test_trie_changes_compatibility() {
+        #[derive(BorshSerialize)]
+        struct LegacyTrieRefcountChange {
+            trie_node_or_value_hash: CryptoHash,
+            trie_node_or_value: Vec<u8>,
+            rc: std::num::NonZeroU32,
+        }
+
+        #[derive(BorshSerialize)]
+        struct LegacyTrieChanges {
+            old_root: StateRoot,
+            new_root: StateRoot,
+            insertions: Vec<LegacyTrieRefcountChange>,
+            deletions: Vec<LegacyTrieRefcountChange>,
+        }
+
+        let changes = LegacyTrieChanges {
+            old_root: hash(b"a"),
+            new_root: hash(b"b"),
+            insertions: vec![LegacyTrieRefcountChange {
+                trie_node_or_value_hash: hash(b"c"),
+                trie_node_or_value: b"d".to_vec(),
+                rc: std::num::NonZeroU32::new(1).unwrap(),
+            }],
+            deletions: vec![LegacyTrieRefcountChange {
+                trie_node_or_value_hash: hash(b"e"),
+                trie_node_or_value: b"f".to_vec(),
+                rc: std::num::NonZeroU32::new(2).unwrap(),
+            }],
+        };
+
+        let serialized = borsh::to_vec(&changes).unwrap();
+        let deserialized = TrieChanges::try_from_slice(&serialized).unwrap();
+        assert_eq!(
+            deserialized,
+            TrieChanges {
+                old_root: hash(b"a"),
+                new_root: hash(b"b"),
+                insertions: vec![TrieRefcountAddition {
+                    trie_node_or_value_hash: hash(b"c"),
+                    trie_node_or_value: b"d".to_vec(),
+                    rc: std::num::NonZeroU32::new(1).unwrap(),
+                }],
+                deletions: vec![TrieRefcountSubtraction::new(
+                    hash(b"e"),
+                    std::num::NonZeroU32::new(2).unwrap(),
+                )],
+            }
+        );
     }
 }
