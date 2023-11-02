@@ -22,7 +22,6 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config::RuntimeConfig;
-use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
@@ -315,13 +314,17 @@ impl TestEnv {
     }
 
     pub fn query_account(&mut self, account_id: AccountId) -> AccountView {
-        let head = self.clients[0].chain.head().unwrap();
-        let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap();
-        let last_chunk_header = &last_block.chunks()[0];
-        let response = self.clients[0]
+        let client = &self.clients[0];
+        let head = client.chain.head().unwrap();
+        let last_block = client.chain.get_block(&head.last_block_hash).unwrap();
+        let shard_id =
+            client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
+        let shard_uid = client.epoch_manager.shard_id_to_uid(shard_id, &head.epoch_id).unwrap();
+        let last_chunk_header = &last_block.chunks()[shard_id as usize];
+        let response = client
             .runtime_adapter
             .query(
-                ShardUId::single_shard(),
+                shard_uid,
                 &last_chunk_header.prev_state_root(),
                 last_block.header().height(),
                 last_block.header().raw_timestamp(),
@@ -338,13 +341,17 @@ impl TestEnv {
     }
 
     pub fn query_state(&mut self, account_id: AccountId) -> Vec<StateItem> {
-        let head = self.clients[0].chain.head().unwrap();
-        let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap();
-        let last_chunk_header = &last_block.chunks()[0];
-        let response = self.clients[0]
+        let client = &self.clients[0];
+        let head = client.chain.head().unwrap();
+        let last_block = client.chain.get_block(&head.last_block_hash).unwrap();
+        let shard_id =
+            client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
+        let shard_uid = client.epoch_manager.shard_id_to_uid(shard_id, &head.epoch_id).unwrap();
+        let last_chunk_header = &last_block.chunks()[shard_id as usize];
+        let response = client
             .runtime_adapter
             .query(
-                ShardUId::single_shard(),
+                shard_uid,
                 &last_chunk_header.prev_state_root(),
                 last_block.header().height(),
                 last_block.header().raw_timestamp(),

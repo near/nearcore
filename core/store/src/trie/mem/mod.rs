@@ -13,7 +13,7 @@ mod construction;
 mod flexible_data;
 pub mod loading;
 pub mod lookup;
-mod metrics;
+pub mod metrics;
 pub mod node;
 pub mod updating;
 
@@ -86,7 +86,7 @@ impl MemTries {
             self.roots.entry(state_root).or_default().push(mem_root);
         }
         MEM_TRIE_NUM_ROOTS
-            .with_label_values(&[&self.shard_uid.shard_id.to_string()])
+            .with_label_values(&[&self.shard_uid.to_string()])
             .set(self.roots.len() as i64);
     }
 
@@ -131,7 +131,7 @@ impl MemTries {
             debug_assert!(false, "Deleting non-existent root: {}", state_root);
         }
         MEM_TRIE_NUM_ROOTS
-            .with_label_values(&[&self.shard_uid.shard_id.to_string()])
+            .with_label_values(&[&self.shard_uid.to_string()])
             .set(self.roots.len() as i64);
     }
 
