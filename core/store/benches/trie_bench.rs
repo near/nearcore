@@ -35,7 +35,7 @@ fn trie_lookup(bench: &mut Bencher) {
     bench.iter(|| {
         for _ in 0..1 {
             for key in changed_keys.iter() {
-                trie.get(key).unwrap();
+                trie.get(key, None).unwrap();
             }
         }
     });
