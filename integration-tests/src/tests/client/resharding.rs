@@ -1495,8 +1495,6 @@ fn test_latest_protocol_missing_chunks_low_missing_prob() {
     test_latest_protocol_missing_chunks(0.1, 25);
 }
 
-// Test cross contract calls
-// This test case tests postponed receipts and delayed receipts
 #[test]
 fn test_latest_protocol_missing_chunks_mid_missing_prob() {
     test_latest_protocol_missing_chunks(0.5, 26);
