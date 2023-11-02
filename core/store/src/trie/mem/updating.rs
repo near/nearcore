@@ -364,6 +364,13 @@ impl<'a> MemTrieUpdate<'a> {
         }
     }
 
+    /// Deletes a key from the trie.
+    ///
+    /// This will go down from the root of the trie to supposed location of the
+    /// key, deleting it if found. It will also keep the trie structure
+    /// consistent by changing the types of any nodes along the way.
+    ///
+    /// Deleting a non-existent key is allowed, and is a no-op.
     pub fn delete(&mut self, key: &[u8]) {
         let mut node_id = 0; // root
         let mut partial = NibbleSlice::new(key);
@@ -466,7 +473,13 @@ impl<'a> MemTrieUpdate<'a> {
         self.squash_nodes(path);
     }
 
-    /// Squashes intermediate nodes that are now unnecessary, e.g. if a branch has only one child.
+    /// As we delete a key, it may be necessary to change the types of the nodes
+    /// along the path from the root to the key, in order to keep the trie
+    /// structure unique. For example, if a branch node has only one child and
+    /// no value, it must be converted to an extension node. If that extension
+    /// node also has a parent that is an extension node, they must be combined
+    /// into a single extension node. This function takes care of all these
+    /// cases.
     fn squash_nodes(&mut self, path: Vec<UpdatedMemTrieNodeId>) {
         // Correctness can be shown by induction on path prefix.
         for node_id in path.into_iter().rev() {
@@ -596,6 +609,11 @@ impl<'a> MemTrieUpdate<'a> {
         }
     }
 
+    /// To construct the new trie nodes, we need to create the new nodes in an
+    /// order such that children are created before their parents - essentially
+    /// a topological sort. We do this via a post-order traversal of the
+    /// updated nodes. After this function, `ordered_nodes` contains the IDs of
+    /// the updated nodes in the order they should be created.
     fn post_order_traverse_updated_nodes(
         node_id: UpdatedMemTrieNodeId,
         updated_nodes: &Vec<Option<UpdatedMemTrieNode>>,
@@ -1194,6 +1212,8 @@ mod tests {
             ",
         ));
 
+        // Check a corner case that deleting a non-existent key from
+        // an empty trie does not panic.
         tries.check_consistency_across_all_changes_and_apply(parse_changes(
             "
                 08 = delete  # non-existent key when whole trie is empty
