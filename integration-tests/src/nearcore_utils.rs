@@ -32,15 +32,21 @@ pub fn add_blocks(
         block_merkle_tree.insert(*block.hash());
     }
     for _ in 0..num {
-        let epoch_id = match prev.header().height() + 1 {
-            height if height <= epoch_length => EpochId::default(),
-            height => {
-                EpochId(*blocks[(((height - 1) / epoch_length - 1) * epoch_length) as usize].hash())
-            }
+        let prev_height = prev.header().height();
+        let prev_epoch_height = prev_height / epoch_length;
+        let prev_epoch_last_block_height = prev_epoch_height * epoch_length;
+
+        let height = prev_height + 1;
+        let epoch_id = if height <= epoch_length {
+            EpochId::default()
+        } else {
+            let prev_prev_epoch_height = prev_epoch_height - 1;
+            let prev_prev_epoch_last_block_height = prev_prev_epoch_height * epoch_length;
+            EpochId(*blocks[prev_prev_epoch_last_block_height as usize].hash())
         };
-        let next_epoch_id = EpochId(
-            *blocks[(((prev.header().height()) / epoch_length) * epoch_length) as usize].hash(),
-        );
+
+        let next_epoch_id = EpochId(*blocks[prev_epoch_last_block_height as usize].hash());
+
         let next_bp_hash = CryptoHash::hash_borsh_iter([ValidatorStake::new(
             "other".parse().unwrap(),
             signer.public_key(),
