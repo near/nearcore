@@ -21,6 +21,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_parts::cli::StatePartsCommand;
+use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use near_store::Mode;
@@ -133,7 +134,15 @@ impl NeardCmd {
                 cmd.run(&home_dir)?;
             }
             NeardSubCommand::ForkNetwork(cmd) => {
-                cmd.run(&home_dir, genesis_validation)?;
+                cmd.run(
+                    &home_dir,
+                    genesis_validation,
+                    neard_cmd.opts.verbose_target(),
+                    &neard_cmd.opts.o11y,
+                )?;
+            }
+            NeardSubCommand::StatePartsDumpCheck(cmd) => {
+                cmd.run()?;
             }
         };
         Ok(())
@@ -260,6 +269,9 @@ pub(super) enum NeardSubCommand {
 
     /// Resets the network into a forked network at the given block height and state.
     ForkNetwork(ForkNetworkCommand),
+
+    /// Check completeness of dumped state parts of an epoch
+    StatePartsDumpCheck(StatePartsDumpCheckCommand),
 }
 
 #[derive(clap::Parser)]

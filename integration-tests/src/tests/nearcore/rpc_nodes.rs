@@ -10,6 +10,7 @@ use near_actix_test_utils::spawn_interruptible;
 use near_client::{GetBlock, GetExecutionOutcome, GetValidatorInfo};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
+use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
 use near_network::test_utils::WaitOrTimeoutActor;
 use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
@@ -22,7 +23,9 @@ use near_primitives::types::{
     BlockId, BlockReference, EpochId, EpochReference, Finality, TransactionOrReceiptId,
 };
 use near_primitives::version::ProtocolVersion;
-use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView, RuntimeConfigView};
+use near_primitives::views::{
+    ExecutionOutcomeView, ExecutionStatusView, RuntimeConfigView, TxExecutionStatus,
+};
 use std::time::Duration;
 
 #[test]
@@ -58,10 +61,7 @@ fn test_get_validator_info_rpc() {
                         let res = client.validators(None).await.unwrap();
 
                         assert_eq!(res.current_validators.len(), 1);
-                        assert!(res
-                            .current_validators
-                            .iter()
-                            .any(|r| r.account_id.as_ref() == "near.0"));
+                        assert!(res.current_validators.iter().any(|r| r.account_id == "near.0"));
                         System::current().stop();
                     }
                 });
@@ -415,115 +415,6 @@ fn test_tx_not_enough_balance_must_return_error() {
 
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_send_tx_sync_returns_transaction_hash() {
-    init_integration_logger();
-
-    let cluster = NodeCluster::default()
-        .set_num_shards(1)
-        .set_num_nodes(2)
-        .set_num_validator_seats(1)
-        .set_num_lightclients(0)
-        .set_epoch_length(10)
-        .set_genesis_height(0);
-
-    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
-        let view_client = clients[0].1.clone();
-
-        let genesis_hash = *genesis_block(&genesis).hash();
-        let signer =
-            InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
-        let transaction = SignedTransaction::send_money(
-            1,
-            "near.0".parse().unwrap(),
-            "near.0".parse().unwrap(),
-            &signer,
-            10000,
-            genesis_hash,
-        );
-
-        let client = new_client(&format!("http://{}", rpc_addrs[0]));
-        let tx_hash = transaction.get_hash();
-        let bytes = borsh::to_vec(&transaction).unwrap();
-
-        spawn_interruptible(async move {
-            loop {
-                let res = view_client.send(GetBlock::latest().with_span_context()).await;
-                if let Ok(Ok(block)) = res {
-                    if block.header.height > 10 {
-                        let response =
-                            client.EXPERIMENTAL_broadcast_tx_sync(to_base64(&bytes)).await.unwrap();
-                        assert_eq!(response["transaction_hash"], tx_hash.to_string());
-                        System::current().stop();
-                        break;
-                    }
-                }
-                sleep(std::time::Duration::from_millis(500)).await;
-            }
-        });
-    });
-}
-
-#[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_send_tx_sync_to_lightclient_must_be_routed() {
-    init_integration_logger();
-
-    let cluster = NodeCluster::default()
-        .set_num_shards(1)
-        .set_num_validator_seats(1)
-        .set_num_lightclients(1)
-        .set_epoch_length(10)
-        .set_genesis_height(0);
-
-    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
-        let view_client = clients[0].1.clone();
-
-        let genesis_hash = *genesis_block(&genesis).hash();
-        let signer =
-            InMemorySigner::from_seed("near.1".parse().unwrap(), KeyType::ED25519, "near.1");
-        let transaction = SignedTransaction::send_money(
-            1,
-            "near.1".parse().unwrap(),
-            "near.1".parse().unwrap(),
-            &signer,
-            10000,
-            genesis_hash,
-        );
-
-        let client = new_client(&format!("http://{}", rpc_addrs[1]));
-        let tx_hash = transaction.get_hash();
-        let bytes = borsh::to_vec(&transaction).unwrap();
-
-        spawn_interruptible(async move {
-            loop {
-                let res = view_client.send(GetBlock::latest().with_span_context()).await;
-                if let Ok(Ok(block)) = res {
-                    if block.header.height > 10 {
-                        let _ = client
-                            .EXPERIMENTAL_broadcast_tx_sync(to_base64(&bytes))
-                            .map_err(|err| {
-                                assert_eq!(
-                                    err.data.unwrap(),
-                                    serde_json::json!(format!(
-                                        "Transaction with hash {} was routed",
-                                        tx_hash
-                                    ))
-                                );
-                                System::current().stop();
-                            })
-                            .map_ok(|_| panic!("Transaction must not succeed"))
-                            .await;
-                        break;
-                    }
-                }
-                sleep(std::time::Duration::from_millis(500)).await;
-            }
-        });
-    });
-}
-
-#[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_check_unknown_tx_must_return_error() {
     init_integration_logger();
 
@@ -615,8 +506,12 @@ fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
                 let res = view_client.send(GetBlock::latest().with_span_context()).await;
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
+                        let request = RpcTransactionStatusRequest {
+                            transaction_info: TransactionInfo::from_signed_tx(transaction),
+                            wait_until: TxExecutionStatus::None,
+                        };
                         let _ = client
-                            .tx(transaction.get_hash().to_string(), "near.1".parse().unwrap())
+                            .tx(request)
                             .map_err(|err| {
                                 assert_eq!(
                                     err.data.unwrap(),

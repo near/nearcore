@@ -8,19 +8,20 @@ use crate::adapter::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
     BlockResponse, SetNetworkInfo, StateRequestHeader, StateRequestPart,
 };
-use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
+use crate::{start_view_client, Client, ClientActor, SyncAdapter, SyncStatus, ViewClientActor};
 use actix::{Actor, Addr, AsyncContext, Context};
+use actix_rt::System;
 use chrono::DateTime;
 use chrono::Utc;
 use futures::{future, FutureExt};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{CanSend, IntoSender, LateBoundSender, Sender};
 use near_async::time;
-use near_chain::state_snapshot_actor::MakeSnapshotCallback;
+use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
-use near_chain_configs::ClientConfig;
+use near_chain_configs::{ClientConfig, StateSplitConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::start_shards_manager;
@@ -113,7 +114,7 @@ pub fn setup(
         ChainConfig {
             save_trie_changes: true,
             background_migration_threads: 1,
-            state_snapshot_every_n_blocks: None,
+            state_split_config: StateSplitConfig::default(),
         },
         None,
     )
@@ -155,13 +156,16 @@ pub fn setup(
         store,
         config.chunk_request_retry_period,
     );
-    let shards_manager_adapter = Arc::new(shards_manager_addr);
+    let shards_manager_adapter = Arc::new(shards_manager_addr.with_auto_span_context());
 
+    let state_sync_adapter =
+        Arc::new(RwLock::new(SyncAdapter::new(Sender::noop(), Sender::noop())));
     let client = Client::new(
         config.clone(),
         chain_genesis,
         epoch_manager,
         shard_tracker,
+        state_sync_adapter,
         runtime,
         network_adapter.clone(),
         shards_manager_adapter.as_sender(),
@@ -235,7 +239,7 @@ pub fn setup_only_view(
         ChainConfig {
             save_trie_changes: true,
             background_migration_threads: 1,
-            state_snapshot_every_n_blocks: None,
+            state_split_config: StateSplitConfig::default(),
         },
         None,
     )
@@ -913,7 +917,7 @@ pub fn setup_client_with_runtime(
     rng_seed: RngSeed,
     archive: bool,
     save_trie_changes: bool,
-    make_state_snapshot_callback: Option<MakeSnapshotCallback>,
+    snapshot_callbacks: Option<SnapshotCallbacks>,
 ) -> Client {
     let validator_signer =
         account_id.map(|x| Arc::new(create_test_signer(x.as_str())) as Arc<dyn ValidatorSigner>);
@@ -928,18 +932,21 @@ pub fn setup_client_with_runtime(
         true,
     );
     config.epoch_length = chain_genesis.epoch_length;
+    let state_sync_adapter =
+        Arc::new(RwLock::new(SyncAdapter::new(Sender::noop(), Sender::noop())));
     let mut client = Client::new(
         config,
         chain_genesis,
         epoch_manager,
         shard_tracker,
+        state_sync_adapter,
         runtime,
         network_adapter,
-        shards_manager_adapter.client,
+        shards_manager_adapter.client.into(),
         validator_signer,
         enable_doomslug,
         rng_seed,
-        make_state_snapshot_callback,
+        snapshot_callbacks,
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;
@@ -1003,7 +1010,7 @@ pub fn setup_synchronous_shards_manager(
         ChainConfig {
             save_trie_changes: true,
             background_migration_threads: 1,
-            state_snapshot_every_n_blocks: None,
+            state_split_config: StateSplitConfig::default(),
         }, // irrelevant
         None,
     )
@@ -1036,6 +1043,9 @@ pub fn setup_client_with_synchronous_shards_manager(
     archive: bool,
     save_trie_changes: bool,
 ) -> Client {
+    if let None = System::try_current() {
+        let _ = System::new();
+    }
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
     let epoch_manager =
         MockEpochManager::new_with_validators(store.clone(), vs, chain_genesis.epoch_length);

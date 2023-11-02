@@ -1,5 +1,5 @@
 use crate::flat::{store_helper, FlatStorageError, FlatStorageManager};
-use crate::{ShardTries, Store, Trie, TrieConfig, TrieDBStorage, TrieStorage};
+use crate::{ShardTries, StateSnapshotConfig, Store, Trie, TrieConfig, TrieDBStorage, TrieStorage};
 use near_primitives::{shard_layout::ShardUId, state::FlatStateValue};
 use std::time::Instant;
 
@@ -33,6 +33,7 @@ pub fn construct_trie_from_flat(store: Store, write_store: Store, shard_uid: Sha
         TrieConfig::default(),
         &[shard_uid],
         FlatStorageManager::new(write_store),
+        StateSnapshotConfig::default(),
     );
     let mut trie_root = Trie::EMPTY_ROOT;
 

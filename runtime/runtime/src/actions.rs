@@ -784,7 +784,7 @@ fn validate_delegate_action_key(
                 )
                 .into());
             }
-            if delegate_action.receiver_id.as_ref() != function_call_permission.receiver_id {
+            if delegate_action.receiver_id != function_call_permission.receiver_id {
                 result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
                     InvalidAccessKeyError::ReceiverMismatch {
                         tx_receiver: delegate_action.receiver_id.clone(),

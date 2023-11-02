@@ -1,3 +1,4 @@
+use crate::config::StateSnapshotType;
 use crate::db::STATE_SNAPSHOT_KEY;
 use crate::flat::{FlatStorageManager, FlatStorageStatus};
 use crate::Mode;
@@ -16,8 +17,6 @@ use std::sync::TryLockError;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SnapshotError {
-    // Snapshot is disabled.
-    SnapshotConfigDisabled,
     // The requested hash and the snapshot hash don't match.
     IncorrectSnapshotRequested(CryptoHash, CryptoHash),
     // Snapshot doesn't exist at all.
@@ -32,9 +31,6 @@ pub enum SnapshotError {
 impl std::fmt::Display for SnapshotError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SnapshotError::SnapshotConfigDisabled => {
-                write!(f, "State snapshots are disabled in the config")
-            }
             SnapshotError::IncorrectSnapshotRequested(requested, available) => write!(
                 f,
                 "Wrong snapshot hash. Requested: {:?}, Available: {:?}",
@@ -128,16 +124,15 @@ impl StateSnapshot {
 }
 
 /// Information needed to make a state snapshot.
-#[derive(Debug, PartialEq, Eq)]
-pub enum StateSnapshotConfig {
-    /// Don't make any state snapshots.
-    Disabled,
-    Enabled {
-        home_dir: PathBuf,
-        hot_store_path: PathBuf,
-        state_snapshot_subdir: PathBuf,
-        compaction_enabled: bool,
-    },
+/// Note that it's possible to override the `enabled` config and force create snapshot for resharding.
+#[derive(Default)]
+pub struct StateSnapshotConfig {
+    /// It's possible to override the `enabled` config and force create snapshot for resharding.
+    pub state_snapshot_type: StateSnapshotType,
+    pub home_dir: PathBuf,
+    pub hot_store_path: PathBuf,
+    pub state_snapshot_subdir: PathBuf,
+    pub compaction_enabled: bool,
 }
 
 impl ShardTries {
@@ -145,9 +140,6 @@ impl ShardTries {
         &self,
         block_hash: &CryptoHash,
     ) -> Result<(Store, FlatStorageManager), SnapshotError> {
-        if *self.state_snapshot_config() == StateSnapshotConfig::Disabled {
-            return Err(SnapshotError::SnapshotConfigDisabled);
-        }
         // Taking this lock can last up to 10 seconds, if the snapshot happens to be re-created.
         let guard = self.state_snapshot().try_read()?;
         let data = guard.as_ref().ok_or(SnapshotError::SnapshotNotFound(*block_hash))?;
@@ -161,139 +153,85 @@ impl ShardTries {
     }
 
     /// Makes a snapshot of the current state of the DB.
-    /// If a snapshot was previously available, it gets deleted.
-    pub fn make_state_snapshot(
+    pub fn create_state_snapshot(
         &self,
-        prev_block_hash: &CryptoHash,
+        prev_block_hash: CryptoHash,
         shard_uids: &[ShardUId],
         block: &Block,
     ) -> Result<(), anyhow::Error> {
         metrics::HAS_STATE_SNAPSHOT.set(0);
         // The function returns an `anyhow::Error`, because no special handling of errors is done yet. The errors are logged and ignored.
         let _span =
-            tracing::info_span!(target: "state_snapshot", "make_state_snapshot", ?prev_block_hash)
+            tracing::info_span!(target: "state_snapshot", "create_state_snapshot", ?prev_block_hash)
                 .entered();
-        tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_state_snapshot");
-        match &self.state_snapshot_config() {
-            StateSnapshotConfig::Disabled => {
-                tracing::info!(target: "state_snapshot", "State Snapshots are disabled");
-                Ok(())
+        let _timer = metrics::CREATE_STATE_SNAPSHOT_ELAPSED.start_timer();
+
+        // `write()` lock is held for the whole duration of this function.
+        let mut state_snapshot_lock = self.state_snapshot().write().unwrap();
+        let db_snapshot_hash = self.get_state_snapshot_hash();
+        if let Some(state_snapshot) = &*state_snapshot_lock {
+            // only return Ok() when the hash stored in STATE_SNAPSHOT_KEY and in state_snapshot_lock and prev_block_hash are the same
+            if db_snapshot_hash.is_ok_and(|hash| hash == prev_block_hash)
+                && state_snapshot.prev_block_hash == prev_block_hash
+            {
+                tracing::warn!(target: "state_snapshot", ?prev_block_hash, "Requested a state snapshot but that is already available");
+                return Ok(());
             }
-            StateSnapshotConfig::Enabled {
+            tracing::error!(target: "state_snapshot", ?prev_block_hash, ?state_snapshot.prev_block_hash, "Requested a state snapshot but that is already available with a different hash");
+        }
+
+        let StateSnapshotConfig { home_dir, hot_store_path, state_snapshot_subdir, .. } =
+            self.state_snapshot_config();
+        let storage = checkpoint_hot_storage_and_cleanup_columns(
+            &self.get_store(),
+            &Self::get_state_snapshot_base_dir(
+                &prev_block_hash,
                 home_dir,
                 hot_store_path,
                 state_snapshot_subdir,
-                compaction_enabled: _,
-            } => {
-                let _timer = metrics::MAKE_STATE_SNAPSHOT_ELAPSED.start_timer();
-                // `write()` lock is held for the whole duration of this function.
-                // Accessing the snapshot in other parts of the system will fail.
-                let mut state_snapshot_lock = self.state_snapshot().write().map_err(|_| {
-                    anyhow::Error::msg("error accessing write lock of state_snapshot")
-                })?;
-                let db_snapshot_hash = self.get_state_snapshot_hash();
+            ),
+            // TODO: Cleanup Changes and DeltaMetadata to avoid extra memory usage.
+            // Can't be cleaned up now because these columns are needed to `update_flat_head()`.
+            Some(vec![
+                // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
+                DBCol::DbVersion,
+                DBCol::BlockMisc,
+                // Flat storage columns.
+                DBCol::FlatState,
+                DBCol::FlatStateChanges,
+                DBCol::FlatStateDeltaMetadata,
+                DBCol::FlatStorageStatus,
+            ]),
+        )?;
+        let store = storage.get_hot_store();
+        // It is fine to create a separate FlatStorageManager, because
+        // it is used only for reading flat storage in the snapshot a
+        // doesn't introduce memory overhead.
+        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        *state_snapshot_lock = Some(StateSnapshot::new(
+            store,
+            prev_block_hash,
+            flat_storage_manager,
+            shard_uids,
+            Some(block),
+        ));
 
-                if let Some(state_snapshot) = &*state_snapshot_lock {
-                    // only return Ok() when the hash stored in STATE_SNAPSHOT_KEY and in state_snapshot_lock and prev_block_hash are the same
-                    if db_snapshot_hash.is_ok()
-                        && db_snapshot_hash.unwrap() == *prev_block_hash
-                        && state_snapshot.prev_block_hash == *prev_block_hash
-                    {
-                        tracing::warn!(target: "state_snapshot", ?prev_block_hash, "Requested a state snapshot but that is already available");
-                        return Ok(());
-                    } else {
-                        // Drop Store before deleting the underlying data.
-                        *state_snapshot_lock = None;
-
-                        // This will delete all existing snapshots from file system. If failed, will retry until success
-                        let mut delete_state_snapshots_from_file_system = false;
-                        let mut file_system_delete_retries = 0;
-                        while !delete_state_snapshots_from_file_system
-                            && file_system_delete_retries < 3
-                        {
-                            delete_state_snapshots_from_file_system = self
-                                .delete_all_state_snapshots(
-                                    home_dir,
-                                    hot_store_path,
-                                    state_snapshot_subdir,
-                                );
-                            file_system_delete_retries += 1;
-                        }
-
-                        // this will delete the STATE_SNAPSHOT_KEY-value pair from db. If failed, will retry until success
-                        let mut delete_state_snapshot_from_db = false;
-                        let mut db_delete_retries = 0;
-                        while !delete_state_snapshot_from_db && db_delete_retries < 3 {
-                            delete_state_snapshot_from_db = match self.set_state_snapshot_hash(None)
-                            {
-                                Ok(_) => true,
-                                Err(err) => {
-                                    // This will be retried.
-                                    tracing::debug!(target: "state_snapshot", ?err, "Failed to delete the old state snapshot for BlockMisc::STATE_SNAPSHOT_KEY in rocksdb");
-                                    false
-                                }
-                            };
-                            db_delete_retries += 1;
-                        }
-
-                        metrics::HAS_STATE_SNAPSHOT.set(0);
-                    }
+        // this will set the new hash for state snapshot in rocksdb. will retry until success.
+        let mut set_state_snapshot_in_db = false;
+        while !set_state_snapshot_in_db {
+            set_state_snapshot_in_db = match self.set_state_snapshot_hash(Some(prev_block_hash)) {
+                Ok(_) => true,
+                Err(err) => {
+                    // This will be retried.
+                    tracing::debug!(target: "state_snapshot", ?err, "Failed to set the new state snapshot for BlockMisc::STATE_SNAPSHOT_KEY in rocksdb");
+                    false
                 }
-
-                let storage = checkpoint_hot_storage_and_cleanup_columns(
-                    &self.get_store(),
-                    &Self::get_state_snapshot_base_dir(
-                        prev_block_hash,
-                        home_dir,
-                        hot_store_path,
-                        state_snapshot_subdir,
-                    ),
-                    // TODO: Cleanup Changes and DeltaMetadata to avoid extra memory usage.
-                    // Can't be cleaned up now because these columns are needed to `update_flat_head()`.
-                    Some(vec![
-                        // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
-                        DBCol::DbVersion,
-                        DBCol::BlockMisc,
-                        // Flat storage columns.
-                        DBCol::FlatState,
-                        DBCol::FlatStateChanges,
-                        DBCol::FlatStateDeltaMetadata,
-                        DBCol::FlatStorageStatus,
-                    ]),
-                )?;
-                let store = storage.get_hot_store();
-                // It is fine to create a separate FlatStorageManager, because
-                // it is used only for reading flat storage in the snapshot a
-                // doesn't introduce memory overhead.
-                let flat_storage_manager = FlatStorageManager::new(store.clone());
-                *state_snapshot_lock = Some(StateSnapshot::new(
-                    store,
-                    *prev_block_hash,
-                    flat_storage_manager,
-                    shard_uids,
-                    Some(block),
-                ));
-
-                // this will set the new hash for state snapshot in rocksdb. will retry until success.
-                let mut set_state_snapshot_in_db = false;
-                while !set_state_snapshot_in_db {
-                    set_state_snapshot_in_db = match self
-                        .set_state_snapshot_hash(Some(*prev_block_hash))
-                    {
-                        Ok(_) => true,
-                        Err(err) => {
-                            // This will be retried.
-                            tracing::debug!(target: "state_snapshot", ?err, "Failed to set the new state snapshot for BlockMisc::STATE_SNAPSHOT_KEY in rocksdb");
-                            false
-                        }
-                    }
-                }
-
-                metrics::HAS_STATE_SNAPSHOT.set(1);
-                tracing::info!(target: "state_snapshot", ?prev_block_hash, "Made a checkpoint");
-                Ok(())
             }
         }
+
+        metrics::HAS_STATE_SNAPSHOT.set(1);
+        tracing::info!(target: "state_snapshot", ?prev_block_hash, "Made a checkpoint");
+        Ok(())
     }
 
     /// Runs compaction on the snapshot.
@@ -301,17 +239,52 @@ impl ShardTries {
         let _span =
             tracing::info_span!(target: "state_snapshot", "compact_state_snapshot").entered();
         // It's fine if the access to state snapshot blocks.
-        let state_snapshot_lock = self
-            .state_snapshot()
-            .read()
-            .map_err(|_| anyhow::Error::msg("error accessing read lock of state_snapshot"))?;
+        let state_snapshot_lock = self.state_snapshot().read().unwrap();
         if let Some(state_snapshot) = &*state_snapshot_lock {
             let _timer = metrics::COMPACT_STATE_SNAPSHOT_ELAPSED.start_timer();
-            Ok(state_snapshot.store.compact()?)
+            state_snapshot.store.compact()?;
         } else {
-            tracing::warn!(target: "state_snapshot", "Requested compaction but no state snapshot is available.");
-            Ok(())
+            tracing::error!(target: "state_snapshot", "Requested compaction but no state snapshot is available.");
+        };
+        Ok(())
+    }
+
+    /// Deletes all snapshots and unsets the STATE_SNAPSHOT_KEY.
+    pub fn delete_state_snapshot(&self) {
+        let _span =
+            tracing::info_span!(target: "state_snapshot", "delete_state_snapshot").entered();
+        let _timer = metrics::DELETE_STATE_SNAPSHOT_ELAPSED.start_timer();
+
+        // get snapshot_hash after acquiring write lock
+        let mut state_snapshot_lock = self.state_snapshot().write().unwrap();
+        if state_snapshot_lock.is_some() {
+            // Drop Store before deleting the underlying data.
+            *state_snapshot_lock = None;
         }
+        let StateSnapshotConfig { home_dir, hot_store_path, state_snapshot_subdir, .. } =
+            self.state_snapshot_config();
+
+        // This will delete all existing snapshots from file system. Will retry 3 times
+        for _ in 0..3 {
+            match self.delete_all_state_snapshots(home_dir, hot_store_path, state_snapshot_subdir) {
+                Ok(_) => break,
+                Err(err) => {
+                    tracing::error!(target: "state_snapshot", ?err, "Failed to delete the old state snapshot from file system or from rocksdb")
+                }
+            }
+        }
+
+        // this will delete the STATE_SNAPSHOT_KEY-value pair from db. Will retry 3 times
+        for _ in 0..3 {
+            match self.set_state_snapshot_hash(None) {
+                Ok(_) => break,
+                Err(err) => {
+                    tracing::error!(target: "state_snapshot", ?err, "Failed to delete the old state snapshot for BlockMisc::STATE_SNAPSHOT_KEY in rocksdb")
+                }
+            }
+        }
+
+        metrics::HAS_STATE_SNAPSHOT.set(0);
     }
 
     /// Deletes all existing state snapshots in the parent directory
@@ -320,21 +293,14 @@ impl ShardTries {
         home_dir: &Path,
         hot_store_path: &Path,
         state_snapshot_subdir: &Path,
-    ) -> bool {
-        let _timer = metrics::DELETE_STATE_SNAPSHOT_ELAPSED.start_timer();
+    ) -> Result<(), io::Error> {
         let _span =
-            tracing::info_span!(target: "state_snapshot", "delete_state_snapshot").entered();
+            tracing::info_span!(target: "state_snapshot", "delete_all_state_snapshots").entered();
         let path = home_dir.join(hot_store_path).join(state_snapshot_subdir);
-        match std::fs::remove_dir_all(&path) {
-            Ok(_) => {
-                tracing::info!(target: "state_snapshot", ?path, "Deleted all state snapshots");
-                true
-            }
-            Err(err) => {
-                tracing::warn!(target: "state_snapshot", ?err, ?path, "Failed to delete all state snapshots");
-                false
-            }
+        if path.exists() {
+            std::fs::remove_dir_all(&path)?
         }
+        Ok(())
     }
 
     pub fn get_state_snapshot_base_dir(
@@ -365,7 +331,7 @@ impl ShardTries {
             None => store_update.delete(DBCol::BlockMisc, key),
             Some(value) => store_update.set_ser(DBCol::BlockMisc, key, &value)?,
         }
-        store_update.commit().map_err(|err| err.into())
+        store_update.commit().into()
     }
 
     /// Read RocksDB for the latest available snapshot hash, if available, open base_path+snapshot_hash for the state snapshot
@@ -377,53 +343,36 @@ impl ShardTries {
         let _span =
             tracing::info_span!(target: "state_snapshot", "maybe_open_state_snapshot").entered();
         metrics::HAS_STATE_SNAPSHOT.set(0);
-        match &self.state_snapshot_config() {
-            StateSnapshotConfig::Disabled => {
-                tracing::debug!(target: "state_snapshot", "Disabled");
-                return Ok(());
-            }
-            StateSnapshotConfig::Enabled {
-                home_dir,
-                hot_store_path,
-                state_snapshot_subdir,
-                compaction_enabled: _,
-            } => {
-                // directly return error if no snapshot is found
-                let snapshot_hash: CryptoHash = self.get_state_snapshot_hash()?;
+        let StateSnapshotConfig { home_dir, hot_store_path, state_snapshot_subdir, .. } =
+            self.state_snapshot_config();
 
-                let snapshot_path = Self::get_state_snapshot_base_dir(
-                    &snapshot_hash,
-                    &home_dir,
-                    &hot_store_path,
-                    &state_snapshot_subdir,
-                );
-                let parent_path = snapshot_path
-                    .parent()
-                    .ok_or(anyhow::anyhow!("{snapshot_path:?} needs to have a parent dir"))?;
-                tracing::debug!(target: "state_snapshot", ?snapshot_path, ?parent_path);
+        // directly return error if no snapshot is found
+        let snapshot_hash = self.get_state_snapshot_hash()?;
 
-                let store_config = StoreConfig::default();
+        let snapshot_path = Self::get_state_snapshot_base_dir(
+            &snapshot_hash,
+            &home_dir,
+            &hot_store_path,
+            &state_snapshot_subdir,
+        );
+        let parent_path = snapshot_path
+            .parent()
+            .ok_or(anyhow::anyhow!("{snapshot_path:?} needs to have a parent dir"))?;
+        tracing::debug!(target: "state_snapshot", ?snapshot_path, ?parent_path);
 
-                let opener = NodeStorage::opener(&snapshot_path, false, &store_config, None);
-                let storage = opener.open_in_mode(Mode::ReadOnly)?;
-                let store = storage.get_hot_store();
-                let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let store_config = StoreConfig::default();
 
-                let shard_uids = get_shard_uids_fn(snapshot_hash)?;
-                let mut guard = self.state_snapshot().write().map_err(|_| {
-                    anyhow::Error::msg("error accessing write lock of state_snapshot")
-                })?;
-                *guard = Some(StateSnapshot::new(
-                    store,
-                    snapshot_hash,
-                    flat_storage_manager,
-                    &shard_uids,
-                    None,
-                ));
-                metrics::HAS_STATE_SNAPSHOT.set(1);
-                tracing::info!(target: "runtime", ?snapshot_hash, ?snapshot_path, "Detected and opened a state snapshot.");
-                Ok(())
-            }
-        }
+        let opener = NodeStorage::opener(&snapshot_path, false, &store_config, None);
+        let storage = opener.open_in_mode(Mode::ReadOnly)?;
+        let store = storage.get_hot_store();
+        let flat_storage_manager = FlatStorageManager::new(store.clone());
+
+        let shard_uids = get_shard_uids_fn(snapshot_hash)?;
+        let mut guard = self.state_snapshot().write().unwrap();
+        *guard =
+            Some(StateSnapshot::new(store, snapshot_hash, flat_storage_manager, &shard_uids, None));
+        metrics::HAS_STATE_SNAPSHOT.set(1);
+        tracing::info!(target: "runtime", ?snapshot_hash, ?snapshot_path, "Detected and opened a state snapshot.");
+        Ok(())
     }
 }

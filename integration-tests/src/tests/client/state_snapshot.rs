@@ -8,6 +8,7 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::SignedTransaction;
+use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
 use near_store::{
     config::TrieCacheConfig, test_utils::create_test_store, Mode, ShardTries, StateSnapshotConfig,
@@ -47,13 +48,14 @@ impl StateSnaptshotTestEnv {
         };
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         let shard_uids = [ShardUId::single_shard()];
-        let state_snapshot_config = StateSnapshotConfig::Enabled {
+        let state_snapshot_config = StateSnapshotConfig {
+            state_snapshot_type: StateSnapshotType::EveryEpoch,
             home_dir: home_dir.clone(),
             hot_store_path: hot_store_path.clone(),
             state_snapshot_subdir: state_snapshot_subdir.clone(),
             compaction_enabled: true,
         };
-        let shard_tries = ShardTries::new_with_state_snapshot(
+        let shard_tries = ShardTries::new(
             store.clone(),
             trie_config,
             &shard_uids,
@@ -131,8 +133,9 @@ fn verify_make_snapshot(
     block_hash: CryptoHash,
     block: &Block,
 ) -> Result<(), anyhow::Error> {
-    state_snapshot_test_env.shard_tries.make_state_snapshot(
-        &block_hash,
+    state_snapshot_test_env.shard_tries.delete_state_snapshot();
+    state_snapshot_test_env.shard_tries.create_state_snapshot(
+        block_hash,
         &vec![ShardUId::single_shard()],
         block,
     )?;
@@ -191,10 +194,10 @@ fn test_make_state_snapshot() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let mut env = TestEnv::builder(ChainGenesis::test())
         .clients_count(1)
+        .use_state_snapshots()
         .real_stores()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
-        .use_state_snapshots()
         .build();
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -241,7 +244,8 @@ fn test_make_state_snapshot() {
         )
     );
 
-    // check that if the snapshot is deleted from file system while there's entry in DBCol::STATE_SNAPSHOT_KEY and write lock is nonempty, making a snpashot of the same hash will not write to the file system
+    // check that if the snapshot is deleted from file system while there's entry in DBCol::STATE_SNAPSHOT_KEY
+    // recreating the snapshot will succeed
     let snapshot_hash = head.last_block_hash;
     let snapshot_path = ShardTries::get_state_snapshot_base_dir(
         &snapshot_hash,
@@ -250,14 +254,11 @@ fn test_make_state_snapshot() {
         &state_snapshot_test_env.state_snapshot_subdir,
     );
     delete_content_at_path(snapshot_path.to_str().unwrap()).unwrap();
-    assert_ne!(
+    assert_eq!(
         format!("{:?}", Ok::<(), anyhow::Error>(())),
         format!(
             "{:?}",
             verify_make_snapshot(&state_snapshot_test_env, head.last_block_hash, &head_block)
         )
     );
-    if let Ok(entries) = std::fs::read_dir(snapshot_path) {
-        assert_eq!(entries.count(), 0);
-    }
 }

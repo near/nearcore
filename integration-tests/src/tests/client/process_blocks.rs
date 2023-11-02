@@ -604,7 +604,7 @@ fn produce_block_with_approvals_arrived_early() {
                             (NetworkResponses::NoResponse.into(), true)
                         }
                         NetworkRequests::Approval { approval_message } => {
-                            if approval_message.target.as_ref() == "test1"
+                            if approval_message.target == "test1"
                                 && approval_message.approval.target_height == 4
                             {
                                 approval_counter += 1;
@@ -1836,10 +1836,10 @@ fn test_process_block_after_state_sync() {
 
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(1)
+        .use_state_snapshots()
         .real_stores()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
-        .use_state_snapshots()
         .build();
 
     let sync_height = epoch_length * 4 + 1;
@@ -2549,10 +2549,10 @@ fn test_catchup_gas_price_change() {
 
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(2)
+        .use_state_snapshots()
         .real_stores()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
-        .use_state_snapshots()
         .build();
 
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -2978,7 +2978,7 @@ fn test_epoch_protocol_version_change() {
             .unwrap();
         let chunk_producer =
             env.clients[0].epoch_manager.get_chunk_producer(&epoch_id, i, 0).unwrap();
-        let index = if chunk_producer.as_ref() == "test0" { 0 } else { 1 };
+        let index = if chunk_producer == "test0" { 0 } else { 1 };
         let (encoded_chunk, merkle_paths, receipts) =
             create_chunk_on_height(&mut env.clients[index], i);
 
@@ -3000,7 +3000,7 @@ fn test_epoch_protocol_version_change() {
             .get_epoch_id_from_prev_block(&head.last_block_hash)
             .unwrap();
         let block_producer = env.clients[0].epoch_manager.get_block_producer(&epoch_id, i).unwrap();
-        let index = if block_producer.as_ref() == "test0" { 0 } else { 1 };
+        let index = if block_producer == "test0" { 0 } else { 1 };
         let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
         // upgrade to new protocol version but in the second epoch one node vote for the old version.
         if i != 10 {
@@ -3604,10 +3604,10 @@ mod contract_precompilation_tests {
 
         let mut env = TestEnv::builder(ChainGenesis::test())
             .clients_count(num_clients)
+            .use_state_snapshots()
             .real_stores()
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
-            .use_state_snapshots()
             .build();
 
         let start_height = 1;
@@ -3700,10 +3700,10 @@ mod contract_precompilation_tests {
 
         let mut env = TestEnv::builder(ChainGenesis::test())
             .clients_count(num_clients)
+            .use_state_snapshots()
             .real_stores()
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
-            .use_state_snapshots()
             .build();
 
         let mut height = 1;
@@ -3778,10 +3778,10 @@ mod contract_precompilation_tests {
 
         let mut env = TestEnv::builder(ChainGenesis::test())
             .clients_count(num_clients)
+            .use_state_snapshots()
             .real_stores()
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
-            .use_state_snapshots()
             .build();
 
         let mut height = 1;

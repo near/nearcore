@@ -238,7 +238,7 @@ pub fn verify_and_charge_transaction(
                 )
                 .into());
             }
-            if transaction.receiver_id.as_ref() != function_call_permission.receiver_id {
+            if transaction.receiver_id != function_call_permission.receiver_id {
                 return Err(InvalidTxError::InvalidAccessKeyError(
                     InvalidAccessKeyError::ReceiverMismatch {
                         tx_receiver: transaction.receiver_id.clone(),
@@ -517,7 +517,7 @@ fn validate_add_key_action(
 ///
 /// Checks that the `beneficiary_id` is a valid account ID.
 fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsValidationError> {
-    if AccountId::validate(&action.beneficiary_id).is_err() {
+    if AccountId::validate(action.beneficiary_id.as_str()).is_err() {
         return Err(ActionsValidationError::InvalidAccountId {
             account_id: action.beneficiary_id.to_string(),
         });

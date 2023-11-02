@@ -1,9 +1,13 @@
+use crate::models::Currency;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RosettaRpcConfig {
     pub addr: String,
     pub cors_allowed_origins: Vec<String>,
     #[serde(default)]
     pub limits: RosettaRpcLimitsConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub currencies: Option<Vec<Currency>>,
 }
 
 impl Default for RosettaRpcConfig {
@@ -12,6 +16,7 @@ impl Default for RosettaRpcConfig {
             addr: "0.0.0.0:3040".to_owned(),
             cors_allowed_origins: vec!["*".to_owned()],
             limits: RosettaRpcLimitsConfig::default(),
+            currencies: None,
         }
     }
 }

@@ -13,9 +13,10 @@ use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
+use crate::sync::adapter::{SyncMessage, SyncShardInfo};
 use crate::sync::state::{StateSync, StateSyncResult};
 use crate::sync_jobs_actor::{create_sync_job_scheduler, SyncJobsActor};
-use crate::{metrics, StatusResponse};
+use crate::{metrics, StatusResponse, SyncAdapter};
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
 use actix_rt::ArbiterHandle;
 use chrono::{DateTime, Utc};
@@ -24,7 +25,7 @@ use near_chain::chain::{
     ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest, BlockCatchUpResponse,
 };
 use near_chain::resharding::{StateSplitRequest, StateSplitResponse};
-use near_chain::state_snapshot_actor::MakeSnapshotCallback;
+use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
 #[cfg(feature = "test_features")]
@@ -57,7 +58,7 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::static_clock::StaticClock;
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -65,12 +66,13 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
+use near_store::ShardUId;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
@@ -1589,6 +1591,7 @@ impl ClientActor {
             }
 
             SyncRequirement::SyncNeeded { highest_height, .. } => {
+                let mut notify_start_sync = false;
                 if !currently_syncing {
                     info!(
                         target: "client",
@@ -1622,26 +1625,42 @@ impl ClientActor {
                     _ => false,
                 };
                 if sync_state {
-                    let (sync_hash, mut new_shard_sync, just_enter_state_sync) =
-                        match &self.client.sync_status {
-                            SyncStatus::StateSync(StateSyncStatus {
-                                sync_hash,
-                                sync_status: shard_sync,
-                            }) => (*sync_hash, shard_sync.clone(), false),
-                            _ => {
-                                let sync_hash = unwrap_and_report!(self.find_sync_hash());
-                                (sync_hash, HashMap::default(), true)
+                    match self.client.sync_status {
+                        SyncStatus::StateSync(_) => (),
+                        _ => {
+                            let sync_hash = unwrap_and_report!(self.find_sync_hash());
+                            if !self.client.config.archive {
+                                unwrap_and_report!(self
+                                    .client
+                                    .chain
+                                    .reset_data_pre_state_sync(sync_hash));
                             }
-                        };
+                            let s = StateSyncStatus { sync_hash, sync_status: HashMap::default() };
+                            self.client.sync_status = SyncStatus::StateSync(s);
+                            // This is the first time we run state sync.
+                            notify_start_sync = true;
+                        }
+                    };
+                    let state_sync_status = match &mut self.client.sync_status {
+                        SyncStatus::StateSync(s) => s,
+                        _ => unreachable!(),
+                    };
 
                     let me =
                         self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-                    let block_header =
-                        unwrap_and_report!(self.client.chain.get_block_header(&sync_hash));
+                    let block_header = unwrap_and_report!(self
+                        .client
+                        .chain
+                        .get_block_header(&state_sync_status.sync_hash));
                     let prev_hash = *block_header.prev_hash();
-                    let epoch_id =
-                        self.client.chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
-                    let shards_to_sync =
+                    let epoch_id = self
+                        .client
+                        .chain
+                        .get_block_header(&state_sync_status.sync_hash)
+                        .unwrap()
+                        .epoch_id()
+                        .clone();
+                    let shards_to_sync: Vec<ShardId> =
                         (0..self.client.epoch_manager.num_shards(&epoch_id).unwrap())
                             .filter(|x| {
                                 cares_about_shard_this_or_next_epoch(
@@ -1654,16 +1673,40 @@ impl ClientActor {
                             })
                             .collect();
 
-                    if !self.client.config.archive && just_enter_state_sync {
-                        unwrap_and_report!(self.client.chain.reset_data_pre_state_sync(sync_hash));
-                    }
-
                     let use_colour =
                         matches!(self.client.config.log_summary_style, LogSummaryStyle::Colored);
+
+                    // Notify each shard to sync.
+                    if notify_start_sync {
+                        let sync_hash = state_sync_status.sync_hash;
+                        let shard_layout = self
+                            .client
+                            .epoch_manager
+                            .get_shard_layout(&epoch_id)
+                            .expect("Cannot get shard layout");
+                        for &shard_id in &shards_to_sync {
+                            let shard_uid =
+                                ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+                            match self.client.state_sync_adapter.clone().read() {
+                                Ok(sync_adapter) => sync_adapter.send(
+                                    shard_uid,
+                                    (SyncMessage::StartSync(SyncShardInfo {
+                                        shard_uid,
+                                        sync_hash,
+                                    }))
+                                    .with_span_context(),
+                                ),
+                                Err(_) => {
+                                    error!(target:"client", "State sync adapter lock is poisoned.")
+                                }
+                            }
+                        }
+                    }
+
                     match unwrap_and_report!(self.client.state_sync.run(
                         &me,
-                        sync_hash,
-                        &mut new_shard_sync,
+                        state_sync_status.sync_hash,
+                        &mut state_sync_status.sync_status,
                         &mut self.client.chain,
                         self.client.epoch_manager.as_ref(),
                         &self.network_info.highest_height_peers,
@@ -1674,26 +1717,20 @@ impl ClientActor {
                         use_colour,
                         self.client.runtime_adapter.clone(),
                     )) {
-                        StateSyncResult::Unchanged => (),
-                        StateSyncResult::Changed(fetch_block) => {
-                            self.client.sync_status = SyncStatus::StateSync(StateSyncStatus {
-                                sync_hash,
-                                sync_status: new_shard_sync,
-                            });
-                            if fetch_block {
-                                if let Some(peer_info) =
-                                    self.network_info.highest_height_peers.choose(&mut thread_rng())
-                                {
-                                    let id = peer_info.peer_info.id.clone();
+                        StateSyncResult::InProgress => (),
+                        StateSyncResult::RequestBlock => {
+                            if let Some(peer_info) =
+                                self.network_info.highest_height_peers.choose(&mut thread_rng())
+                            {
+                                let id = peer_info.peer_info.id.clone();
 
-                                    if let Ok(header) =
-                                        self.client.chain.get_block_header(&sync_hash)
+                                if let Ok(header) =
+                                    self.client.chain.get_block_header(&state_sync_status.sync_hash)
+                                {
+                                    for hash in
+                                        vec![*header.prev_hash(), *header.hash()].into_iter()
                                     {
-                                        for hash in
-                                            vec![*header.prev_hash(), *header.hash()].into_iter()
-                                        {
-                                            self.client.request_block(hash, id.clone());
-                                        }
+                                        self.client.request_block(hash, id.clone());
                                     }
                                 }
                             }
@@ -1705,7 +1742,7 @@ impl ClientActor {
 
                             unwrap_and_report!(self.client.chain.reset_heads_post_state_sync(
                                 &me,
-                                sync_hash,
+                                state_sync_status.sync_hash,
                                 &mut block_processing_artifacts,
                                 self.get_apply_chunks_done_callback(),
                             ));
@@ -1853,6 +1890,18 @@ impl Handler<WithSpanContext<GetClientConfig>> for ClientActor {
     }
 }
 
+impl Handler<WithSpanContext<SyncMessage>> for ClientActor {
+    type Result = ();
+
+    #[perf]
+    fn handle(&mut self, msg: WithSpanContext<SyncMessage>, _: &mut Context<Self>) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
+        // TODO
+        // process messages from SyncActors
+    }
+}
+
 /// Returns random seed sampled from the current thread
 pub fn random_seed_from_thread() -> RngSeed {
     let mut rng_seed: RngSeed = [0; 32];
@@ -1868,11 +1917,12 @@ pub fn start_client(
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
     node_id: PeerId,
+    state_sync_adapter: Arc<RwLock<SyncAdapter>>,
     network_adapter: PeerManagerAdapter,
     shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-    make_state_snapshot_callback: Option<MakeSnapshotCallback>,
+    snapshot_callbacks: Option<SnapshotCallbacks>,
     sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
     config_updater: Option<ConfigUpdater>,
@@ -1886,13 +1936,14 @@ pub fn start_client(
         chain_genesis,
         epoch_manager,
         shard_tracker,
+        state_sync_adapter,
         runtime,
         network_adapter.clone(),
         shards_manager_adapter,
         validator_signer.clone(),
         true,
         random_seed_from_thread(),
-        make_state_snapshot_callback,
+        snapshot_callbacks,
     )
     .unwrap();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {

@@ -7,6 +7,8 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, ProtocolVersion, ValidatorId, ValidatorKickoutReason,
 };
+#[cfg(feature = "protocol_feature_chunk_validation")]
+use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
 use num_rational::Ratio;
 use std::cmp::{self, Ordering};
 use std::collections::hash_map;
@@ -96,6 +98,7 @@ pub fn proposals_to_epoch_info(
     }
 
     let num_chunk_producers = chunk_producers.len();
+    // Constructing `all_validators` such that a validators position corresponds to its `ValidatorId`.
     let mut all_validators: Vec<ValidatorStake> = Vec::with_capacity(num_chunk_producers);
     let mut validator_to_index = HashMap::new();
     let mut block_producers_settlement = Vec::with_capacity(block_producers.len());
@@ -170,6 +173,18 @@ pub fn proposals_to_epoch_info(
             .collect()
     };
 
+    #[cfg(feature = "protocol_feature_chunk_validation")]
+    let validator_mandates = {
+        // TODO(#10014) determine required stake per mandate instead of reusing seat price.
+        // TODO(#10014) determine `min_mandates_per_shard`
+        let min_mandates_per_shard = 0;
+        let validator_mandates_config =
+            ValidatorMandatesConfig::new(threshold, min_mandates_per_shard, num_shards as usize);
+        // We can use `all_validators` to construct mandates Since a validator's position in
+        // `all_validators` corresponds to its `ValidatorId`
+        ValidatorMandates::new(validator_mandates_config, &all_validators)
+    };
+
     let fishermen_to_index = fishermen
         .iter()
         .enumerate()
@@ -192,6 +207,8 @@ pub fn proposals_to_epoch_info(
         threshold,
         next_version,
         rng_seed,
+        #[cfg(feature = "protocol_feature_chunk_validation")]
+        validator_mandates,
     ))
 }
 
@@ -362,6 +379,7 @@ impl Ord for OrderedValidatorStake {
 mod tests {
     use super::*;
     use near_crypto::{KeyType, PublicKey};
+    use near_primitives::account::id::AccountIdRef;
     use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochInfoV3};
     use near_primitives::epoch_manager::ValidatorSelectionConfig;
     use near_primitives::shard_layout::ShardLayout;
@@ -496,11 +514,11 @@ mod tests {
         let kickout = epoch_info.validator_kickout();
         assert_eq!(kickout.len(), 2);
         assert_eq!(
-            kickout.get("test1").unwrap(),
+            kickout.get(AccountIdRef::new_or_panic("test1")).unwrap(),
             &ValidatorKickoutReason::NotEnoughStake { stake: test1_stake, threshold: 2011 },
         );
         assert_eq!(
-            kickout.get("test2").unwrap(),
+            kickout.get(AccountIdRef::new_or_panic("test2")).unwrap(),
             &ValidatorKickoutReason::NotEnoughStake { stake: 2002, threshold: 2011 },
         );
     }
@@ -619,6 +637,52 @@ mod tests {
         }
     }
 
+    /// This test only verifies that chunk validator mandates are correctly wired up with
+    /// `EpochInfo`. The internals of mandate assignment are tested in the module containing
+    /// [`ValidatorMandates`].
+    #[cfg(feature = "protocol_feature_chunk_validation")]
+    #[test]
+    fn test_chunk_validators_sampling() {
+        let num_shards = 4;
+        let epoch_config = create_epoch_config(
+            num_shards,
+            2 * num_shards,
+            0,
+            ValidatorSelectionConfig {
+                num_chunk_only_producer_seats: 0,
+                minimum_validators_per_shard: 1,
+                minimum_stake_ratio: Ratio::new(160, 1_000_000),
+            },
+        );
+        let prev_epoch_height = 7;
+        let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &["test1", "test2"], &[]);
+        let proposals =
+            create_proposals(&[("test1", 15), ("test2", 9), ("test3", 5), ("test4", 3)]);
+
+        let epoch_info = proposals_to_epoch_info(
+            &epoch_config,
+            [0; 32],
+            &prev_epoch_info,
+            proposals,
+            Default::default(),
+            Default::default(),
+            0,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+        )
+        .unwrap();
+
+        // Given `epoch_info` and `proposals` above, the sample at a given height is deterministic.
+        let height = 42;
+        let expected_assignments: Vec<HashMap<ValidatorId, u16>> = vec![
+            HashMap::from([(0, 1), (1, 5), (2, 1), (3, 1)]),
+            HashMap::from([(0, 6), (1, 1), (2, 1)]),
+            HashMap::from([(0, 5), (1, 2), (2, 1)]),
+            HashMap::from([(0, 3), (1, 1), (2, 2), (3, 2)]),
+        ];
+        assert_eq!(epoch_info.sample_chunk_validators(height), expected_assignments);
+    }
+
     #[test]
     fn test_validator_assignment_ratio_condition() {
         // There are more seats than proposals, however the
@@ -663,7 +727,7 @@ mod tests {
 
         // stake below validator threshold, but above fishermen threshold become fishermen
         let fishermen: Vec<_> = epoch_info.fishermen_iter().map(|v| v.take_account_id()).collect();
-        assert_eq!(fishermen, vec!["test4".parse().unwrap()]);
+        assert_eq!(fishermen, vec!["test4"]);
 
         // too low stakes are kicked out
         let kickout = epoch_info.validator_kickout();
@@ -673,11 +737,11 @@ mod tests {
         #[cfg(not(feature = "protocol_feature_fix_staking_threshold"))]
         let expected_threshold = 300;
         assert_eq!(
-            kickout.get("test5").unwrap(),
+            kickout.get(AccountIdRef::new_or_panic("test5")).unwrap(),
             &ValidatorKickoutReason::NotEnoughStake { stake: 100, threshold: expected_threshold },
         );
         assert_eq!(
-            kickout.get("test6").unwrap(),
+            kickout.get(AccountIdRef::new_or_panic("test6")).unwrap(),
             &ValidatorKickoutReason::NotEnoughStake { stake: 50, threshold: expected_threshold },
         );
 

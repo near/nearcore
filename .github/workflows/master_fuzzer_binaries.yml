@@ -35,8 +35,9 @@ jobs:
           sudo mkswap $SWAP_FILE
           sudo swapon $SWAP_FILE
 
-      - name: Install cargo fuzz subcommand crate
-        run: cargo install cargo-fuzz
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: cargo-bolero
 
       - run: rustup target add --toolchain nightly wasm32-unknown-unknown
 
@@ -47,6 +48,8 @@ jobs:
 
       - uses: actions/checkout@master
 
-      - run: pip install -r scripts/build_fuzzers_requirements.txt
-
-      - run: python3 scripts/build_fuzzers.py ${{ github.ref_name }}
+      - name: "Compile fuzzers and upload to GCS"
+        run: |
+          NAME="nearcore-${{ github.ref_name }}-$(env TZ=Etc/UTC  date +"%Y%m%d%H%M%S")"
+          cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
+          gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://fuzzer_targets/${{ github.ref_name }}/$NAME.tar.gz"

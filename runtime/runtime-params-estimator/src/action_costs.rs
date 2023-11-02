@@ -254,7 +254,7 @@ impl ActionEstimation {
         let signer_id = tb.account_by_requirement(self.signer, None);
         let predecessor_id = tb.account_by_requirement(self.predecessor, Some(&signer_id));
         let receiver_id = tb.account_by_requirement(self.receiver, Some(&signer_id));
-        let signer_public_key = PublicKey::from_seed(KeyType::ED25519, &signer_id);
+        let signer_public_key = PublicKey::from_seed(KeyType::ED25519, signer_id.as_str());
 
         let action_receipt = ActionReceipt {
             signer_id,

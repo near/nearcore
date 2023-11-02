@@ -44,7 +44,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
 pub static INITIAL_TESTNET_CONFIG: &str = include_config!("parameters_testnet.yaml");
 
 /// Stores runtime config for each protocol version where it was updated.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RuntimeConfigStore {
     /// Maps protocol version to the config.
     store: BTreeMap<ProtocolVersion, Arc<RuntimeConfig>>,
@@ -326,7 +326,7 @@ mod tests {
             let snapshot_name = format!("{version}.json");
             let config_view = RuntimeConfigView::from(store.get_config(*version).as_ref().clone());
             any_failure |= std::panic::catch_unwind(|| {
-                insta::assert_json_snapshot!(snapshot_name, config_view);
+                insta::assert_json_snapshot!(snapshot_name, config_view, { ".wasm_config.vm_kind" => "<REDACTED>"});
             })
             .is_err();
         }
@@ -360,7 +360,7 @@ mod tests {
             let snapshot_name = format!("testnet_{version}.json");
             let config_view = RuntimeConfigView::from(store.get_config(*version).as_ref().clone());
             any_failure |= std::panic::catch_unwind(|| {
-                insta::assert_json_snapshot!(snapshot_name, config_view);
+                insta::assert_json_snapshot!(snapshot_name, config_view, { ".wasm_config.vm_kind" => "<REDACTED>"});
             })
             .is_err();
         }
