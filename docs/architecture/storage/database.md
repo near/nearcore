@@ -18,7 +18,7 @@ We store the database in RocksDB. This document is an attempt to give hints abou
 - In this family, each key is of the form `BlockHash | Column | AdditionalInfo` where:
   + `BlockHash: [u8; 32]` is the block hash for this change
   + `Column: u8` is defined near the top of `core/primitives/src/trie_key.rs`
-  + `AdditionalInfo` depends on `Column` and is can be found in the code for the `TrieKey` struct, same file as `Column`
+  + `AdditionalInfo` depends on `Column` and it can be found in the code for the `TrieKey` struct, same file as `Column`
 
 ### Contract Deployments
 

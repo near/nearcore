@@ -56,7 +56,7 @@ are always full. But that is rarely the case, as the gas price increases
 exponentially when chunks are full, which would cause traffic to go back
 eventually.
 
-Futhermore, the hardware has to be ready for transactions of all types,
+Furthermore, the hardware has to be ready for transactions of all types,
 including transactions chosen by a malicious actor selecting only the most
 complex transactions. Those transactions can also be unbalanced in what
 bottlenecks they hit. For example, a chunk can be filled with transactions that
