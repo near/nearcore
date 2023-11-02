@@ -17,6 +17,7 @@ use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::routing::edge::verify_nonce;
 use crate::routing::NetworkTopologyChange;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
+use crate::snapshot_hosts::SnapshotHostInfoError;
 use crate::stats::metrics;
 use crate::tcp;
 use crate::types::{
@@ -1256,6 +1257,26 @@ impl PeerActor {
                             AccountDataError::InvalidSignature => ReasonForBan::InvalidSignature,
                             AccountDataError::DataTooLarge => ReasonForBan::Abusive,
                             AccountDataError::SingleAccountMultipleData => ReasonForBan::Abusive,
+                        }));
+                    }
+                    message_processed_event();
+                }));
+            }
+            PeerMessage::SyncSnapshotHosts(msg) => {
+                metrics::SYNC_SNAPSHOT_HOSTS.with_label_values(&["received"]).inc();
+                // Early exit, if there is no data in the message.
+                if msg.hosts.is_empty() {
+                    message_processed_event();
+                    return;
+                }
+                let network_state = self.network_state.clone();
+                ctx.spawn(wrap_future(async move {
+                    if let Some(err) = network_state.add_snapshot_hosts(msg.hosts).await {
+                        conn.stop(Some(match err {
+                            SnapshotHostInfoError::InvalidSignature => {
+                                ReasonForBan::InvalidSignature
+                            }
+                            SnapshotHostInfoError::DuplicatePeerId => ReasonForBan::Abusive,
                         }));
                     }
                     message_processed_event();
