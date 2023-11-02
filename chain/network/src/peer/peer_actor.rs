@@ -400,6 +400,9 @@ impl PeerActor {
                     metrics::bool_to_str(d.requesting_full_sync),
                 ])
                 .inc(),
+            PeerMessage::SyncSnapshotHosts(_) => {
+                metrics::SYNC_SNAPSHOT_HOSTS.with_label_values(&["sent"]).inc()
+            }
             _ => (),
         };
 
