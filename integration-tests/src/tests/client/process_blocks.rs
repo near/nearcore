@@ -3079,13 +3079,13 @@ fn test_fork_execution_outcome() {
     let validator_signer = create_test_signer("test0");
     let next_height = last_height + 1;
     let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], next_height);
-    let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
-    let mut block2 = env.clients[0].produce_block(next_height + 1).unwrap().unwrap();
+    let mut block1 = env.clients[0].produce_block(last_height + 1).unwrap().unwrap();
+    let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();
 
     // Process two blocks on two different forks that contain the same chunk.
-    for (i, block) in vec![&mut block2, &mut block1].into_iter().enumerate() {
+    for block in vec![&mut block2, &mut block1].into_iter() {
         let mut chunk_header = encoded_chunk.cloned_header();
-        *chunk_header.height_included_mut() = next_height - i as BlockHeight + 1;
+        *chunk_header.height_included_mut() = block.header().height();
         let chunk_headers = vec![chunk_header];
         block.set_chunks(chunk_headers.clone());
         block.mut_header().get_mut().inner_rest.chunk_headers_root =
@@ -3101,6 +3101,13 @@ fn test_fork_execution_outcome() {
         env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
     }
 
+    let b3 =
+        env.clients[0].produce_block_on(last_height + 3, block1.hash().clone()).unwrap().unwrap();
+    let b4 =
+        env.clients[0].produce_block_on(last_height + 4, block2.hash().clone()).unwrap().unwrap();
+    env.clients[0].process_block_test(b3.clone().into(), Provenance::NONE).unwrap();
+    env.clients[0].process_block_test(b4.clone().into(), Provenance::NONE).unwrap();
+
     let transaction_execution_outcome =
         env.clients[0].chain.mut_store().get_outcomes_by_id(&tx_hash).unwrap();
     assert_eq!(transaction_execution_outcome.len(), 1);
@@ -3112,7 +3119,8 @@ fn test_fork_execution_outcome() {
     assert_eq!(canonical_chain_outcome.block_hash, *block2.hash());
 
     // make sure gc works properly
-    for i in 5..32 {
+    let epoch_length = env.clients[0].config.epoch_length;
+    for i in last_height + 5..last_height + 5 + epoch_length * 6 {
         env.produce_block(0, i);
     }
     let transaction_execution_outcome =
