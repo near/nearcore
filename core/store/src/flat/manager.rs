@@ -1,6 +1,7 @@
 use crate::flat::{
     store_helper, BlockInfo, FlatStorageReadyStatus, FlatStorageStatus, POISONED_LOCK_ERR,
 };
+use itertools::Itertools;
 use near_primitives::block::Block;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
@@ -64,7 +65,7 @@ impl FlatStorageManager {
         );
     }
 
-    /// Creates flat storage instance for shard `shard_id`. The function also checks that
+    /// Creates flat storage instance for shard `shard_uid`. The function also checks that
     /// the shard's flat storage state hasn't been set before, otherwise it panics.
     /// TODO (#7327): this behavior may change when we implement support for state sync
     /// and resharding.
@@ -191,6 +192,7 @@ impl FlatStorageManager {
     ) -> Option<FlatStorageChunkView> {
         let flat_storage = {
             let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+            tracing::info!(target: "store", flat_storages=?flat_storages.keys().collect_vec(), "flat storages");
             // It is possible that flat storage state does not exist yet because it is being created in
             // background.
             match flat_storages.get(&shard_uid) {

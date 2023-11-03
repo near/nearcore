@@ -51,6 +51,8 @@ impl NeardCmd {
     pub(super) fn parse_and_run() -> anyhow::Result<()> {
         let neard_cmd: Self = clap::Parser::parse();
 
+        println!("env filter {:?}", make_env_filter(neard_cmd.opts.verbose_target())?);
+
         // Enable logging of the current thread.
         let _subscriber_guard = default_subscriber(
             make_env_filter(neard_cmd.opts.verbose_target())?,
@@ -62,7 +64,7 @@ impl NeardCmd {
             target: "neard",
             version = crate::NEARD_VERSION,
             build = crate::NEARD_BUILD,
-            latest_protocol = near_primitives::version::PROTOCOL_VERSION
+            latest_protocol = near_primitives::version::PROTOCOL_VERSION,
         );
 
         #[cfg(feature = "test_features")]

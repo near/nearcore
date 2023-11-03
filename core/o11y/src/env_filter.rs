@@ -12,7 +12,8 @@ const DEFAULT_RUST_LOG: &str = "tokio_reactor=info,\
      db=info,\
      delay_detector=info,\
      near-performance-metrics=info,\
-     warn";
+     state_viewer=info,\
+     warn"; // why is the default warn??
 
 #[non_exhaustive]
 #[derive(thiserror::Error, Debug)]
