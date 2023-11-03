@@ -178,6 +178,7 @@ pub fn load_trie_from_flat_state_and_delta(
 
 #[cfg(test)]
 mod tests {
+    use super::load_trie_from_flat_state_and_delta;
     use crate::flat::test_utils::MockChain;
     use crate::flat::{store_helper, BlockInfo, FlatStorageReadyStatus, FlatStorageStatus};
     use crate::test_utils::{
@@ -195,9 +196,6 @@ mod tests {
     use near_primitives::types::StateChangeCause;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
-    use std::collections::HashSet;
-
-    use super::load_trie_from_flat_state_and_delta;
 
     fn check(keys: Vec<Vec<u8>>) {
         let shard_tries = TestTriesBuilder::new().with_flat_storage().build();
@@ -242,32 +240,8 @@ mod tests {
         // Check access to each key to make sure the in-memory trie is consistent with
         // real trie. Check non-existent keys too.
         for key in keys.iter().chain([b"not in trie".to_vec()].iter()) {
-            let mut value_access_reported = None;
-            let mut node_hashes_reported = HashSet::new();
-            let actual_value = memtrie_lookup(root, key, |is_value, hash, serialized| {
-                assert_eq!(
-                    serialized,
-                    trie.internal_retrieve_trie_node(&hash, false).unwrap().to_vec(),
-                );
-                if is_value {
-                    assert!(value_access_reported.is_none(), "Value reported twice");
-                    value_access_reported = Some(serialized);
-                } else {
-                    assert!(!node_hashes_reported.contains(&hash), "Node reported twice");
-                    node_hashes_reported.insert(hash);
-                }
-            });
-            match &actual_value {
-                Some(FlatStateValue::Inlined(value)) => {
-                    assert_eq!(
-                        value_access_reported.as_ref(),
-                        Some(value),
-                        "Value accessed but not reported"
-                    );
-                }
-                _ => assert_eq!(value_access_reported, None, "Value not accessed but reported"),
-            }
-
+            let mut nodes_accessed = Vec::new();
+            let actual_value = memtrie_lookup(root, key, Some(&mut nodes_accessed));
             let expected_value = trie.get_flat_value(key).unwrap();
             assert_eq!(actual_value, expected_value, "{:?}", NibbleSlice::new(key));
 
@@ -277,9 +251,16 @@ mod tests {
             temp_trie.get_ref(key, crate::KeyLookupMode::Trie).unwrap();
             assert_eq!(
                 temp_trie.get_trie_nodes_count().db_reads,
-                node_hashes_reported.len() as u64,
-                "Reported node count does not equal number of trie nodes along the way"
+                nodes_accessed.len() as u64,
+                "Number of accessed nodes does not equal number of trie nodes along the way"
             );
+
+            // Check that the accessed nodes are consistent with those from disk.
+            for (node_hash, serialized_node) in nodes_accessed {
+                let expected_serialized_node =
+                    trie.internal_retrieve_trie_node(&node_hash, false).unwrap().to_vec();
+                assert_eq!(expected_serialized_node, serialized_node);
+            }
         }
     }
 
@@ -490,43 +471,23 @@ mod tests {
             load_trie_from_flat_state_and_delta(&store, shard_uid, 10 * 1024 * 1024).unwrap();
 
         assert_eq!(
-            memtrie_lookup(
-                mem_tries.get_root(&state_root_0).unwrap(),
-                &test_key.to_vec(),
-                |_, _, _| {}
-            ),
+            memtrie_lookup(mem_tries.get_root(&state_root_0).unwrap(), &test_key.to_vec(), None),
             Some(FlatStateValue::inlined(&test_val0))
         );
         assert_eq!(
-            memtrie_lookup(
-                mem_tries.get_root(&state_root_1).unwrap(),
-                &test_key.to_vec(),
-                |_, _, _| {}
-            ),
+            memtrie_lookup(mem_tries.get_root(&state_root_1).unwrap(), &test_key.to_vec(), None),
             Some(FlatStateValue::inlined(&test_val1))
         );
         assert_eq!(
-            memtrie_lookup(
-                mem_tries.get_root(&state_root_2).unwrap(),
-                &test_key.to_vec(),
-                |_, _, _| {}
-            ),
+            memtrie_lookup(mem_tries.get_root(&state_root_2).unwrap(), &test_key.to_vec(), None),
             Some(FlatStateValue::inlined(&test_val2))
         );
         assert_eq!(
-            memtrie_lookup(
-                mem_tries.get_root(&state_root_3).unwrap(),
-                &test_key.to_vec(),
-                |_, _, _| {}
-            ),
+            memtrie_lookup(mem_tries.get_root(&state_root_3).unwrap(), &test_key.to_vec(), None),
             Some(FlatStateValue::inlined(&test_val3))
         );
         assert_eq!(
-            memtrie_lookup(
-                mem_tries.get_root(&state_root_4).unwrap(),
-                &test_key.to_vec(),
-                |_, _, _| {}
-            ),
+            memtrie_lookup(mem_tries.get_root(&state_root_4).unwrap(), &test_key.to_vec(), None),
             Some(FlatStateValue::inlined(&test_val4))
         );
     }
