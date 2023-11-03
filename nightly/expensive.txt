@@ -25,8 +25,6 @@ expensive --timeout=1800 near-client near_client tests::catching_up::test_all_ch
 expensive --timeout=1800 near-client near_client tests::catching_up::test_all_chunks_accepted_1000_rare_epoch_changing --features nightly
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_hold
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_hold --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::test_chunk_grieving
-expensive --timeout=1800 near-client near_client tests::catching_up::test_chunk_grieving --features nightly
 
 expensive integration-tests integration_tests tests::test_catchup::test_catchup
 expensive integration-tests integration_tests tests::test_catchup::test_catchup --features nightly

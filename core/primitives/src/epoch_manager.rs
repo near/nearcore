@@ -1232,22 +1232,23 @@ pub enum SlashState {
 #[cfg(feature = "new_epoch_sync")]
 pub mod epoch_sync {
     use crate::block_header::BlockHeader;
-    use crate::types::validator_stake::ValidatorStake;
+    use crate::epoch_manager::epoch_info::EpochInfo;
     use borsh::{BorshDeserialize, BorshSerialize};
-
-    #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug)]
-    pub struct BlockHeaderPair {
-        pub header: BlockHeader,
-        pub last_finalised_header: BlockHeader,
-    }
+    use near_primitives_core::hash::CryptoHash;
+    use std::collections::{HashMap, HashSet};
 
     /// Struct to keep all the info that is transferred for one epoch during Epoch Sync.
     #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug)]
     pub struct EpochSyncInfo {
-        /// None is only used for corner case of the first epoch
-        pub first: BlockHeaderPair,
-        pub last: BlockHeaderPair,
-        pub prev_last: BlockHeaderPair,
-        pub block_producers: Vec<ValidatorStake>,
+        /// All block hashes of this epoch. In order of production.
+        pub all_block_hashes: Vec<CryptoHash>,
+        /// All headers relevant to epoch sync.
+        /// Contains epoch headers that need to be saved + supporting headers needed for validation.
+        pub headers: HashMap<CryptoHash, BlockHeader>,
+        /// Hashes of headers that need to be validated and saved.
+        pub headers_to_save: HashSet<CryptoHash>,
+        pub epoch_info: EpochInfo,
+        pub next_epoch_info: EpochInfo,
+        pub next_next_epoch_info: EpochInfo,
     }
 }

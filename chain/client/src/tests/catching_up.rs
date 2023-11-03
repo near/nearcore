@@ -13,11 +13,10 @@ use near_actix_test_utils::run_actix;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
 use near_crypto::{InMemorySigner, KeyType};
-use near_network::types::{AccountIdOrPeerTrackingShard, PeerInfo};
+use near_network::types::PeerInfo;
 use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
 use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
-use near_primitives::account::id::AccountIdRef;
 use near_primitives::hash::{hash as hash_func, CryptoHash};
 use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
@@ -670,155 +669,6 @@ fn test_catchup_sanity_blocks_produced() {
         *connectors.write().unwrap() = conn;
 
         near_network::test_utils::wait_or_panic(60000);
-    });
-}
-
-enum ChunkGrievingPhases {
-    FirstAttack,
-    SecondAttack,
-}
-
-// TODO(#3180): seals are disabled in single shard setting
-#[test]
-#[ignore]
-fn test_chunk_grieving() {
-    init_integration_logger();
-    run_actix(async move {
-        let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
-
-        let (vs, key_pairs) = get_validators_and_key_pairs();
-        let archive = vec![false; vs.all_block_producers().count()];
-        let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
-
-        let malicious_node = AccountIdRef::new_or_panic("test3.6");
-        let victim_node = AccountIdRef::new_or_panic("test3.5");
-        let phase = Arc::new(RwLock::new(ChunkGrievingPhases::FirstAttack));
-        let grieving_chunk_hash = Arc::new(RwLock::new(ChunkHash::default()));
-        let unaccepted_block_hash = Arc::new(RwLock::new(CryptoHash::default()));
-
-        let block_prod_time: u64 = 3500;
-        let (_, conn, _) = setup_mock_all_validators(
-            vs,
-            key_pairs,
-            true,
-            block_prod_time,
-            false,
-            false,
-            5,
-            true,
-            archive,
-            epoch_sync_enabled,
-            false,
-            Box::new(move |_, sender_account_id: AccountId, msg: &PeerManagerMessageRequest| {
-                let msg = msg.as_network_requests_ref();
-                let mut grieving_chunk_hash = grieving_chunk_hash.write().unwrap();
-                let mut unaccepted_block_hash = unaccepted_block_hash.write().unwrap();
-                let mut phase = phase.write().unwrap();
-                match *phase {
-                    ChunkGrievingPhases::FirstAttack => {
-                        if let NetworkRequests::PartialEncodedChunkMessage {
-                            partial_encoded_chunk,
-                            account_id,
-                        } = msg
-                        {
-                            let height = partial_encoded_chunk.header.height_created();
-                            let shard_id = partial_encoded_chunk.header.shard_id();
-                            if height == 12 && shard_id == 0 {
-                                // "test3.6" is the chunk producer on height 12, shard_id 0
-                                assert_eq!(sender_account_id, malicious_node);
-                                println!(
-                                    "ACCOUNT {:?} PARTS {:?} CHUNK {:?}",
-                                    account_id,
-                                    partial_encoded_chunk.parts.len(),
-                                    partial_encoded_chunk
-                                );
-                                if account_id == &victim_node {
-                                    // "test3.5" is a block producer of block on height 12, sending to it
-                                    *grieving_chunk_hash =
-                                        partial_encoded_chunk.header.chunk_hash();
-                                } else {
-                                    return (NetworkResponses::NoResponse.into(), false);
-                                }
-                            }
-                        }
-                        if let NetworkRequests::Block { block } = msg {
-                            if block.header().height() == 12 {
-                                println!("BLOCK {:?}", block);
-                                *unaccepted_block_hash = *block.header().hash();
-                                assert_eq!(4, block.header().chunks_included());
-                                *phase = ChunkGrievingPhases::SecondAttack;
-                            }
-                        }
-                    }
-                    ChunkGrievingPhases::SecondAttack => {
-                        if let NetworkRequests::PartialEncodedChunkRequest {
-                            request,
-                            target:
-                                AccountIdOrPeerTrackingShard { account_id: Some(account_id), .. },
-                            ..
-                        } = msg
-                        {
-                            if request.chunk_hash == *grieving_chunk_hash {
-                                if account_id == &malicious_node {
-                                    // holding grieving_chunk_hash by malicious node
-                                    return (NetworkResponses::NoResponse.into(), false);
-                                }
-                            }
-                        } else if let NetworkRequests::PartialEncodedChunkRequest { .. } = msg {
-                            // this test was written before the feature that allows
-                            // sending requests directly to the peer. The test likely never
-                            // triggers this path, but if this assert triggers, the above
-                            // `if let` needs to be extended to block messages sent to the
-                            // malicious node directly via the peer id
-                            assert!(false);
-                        }
-                        if let NetworkRequests::PartialEncodedChunkResponse {
-                            route_back: _,
-                            response,
-                        } = msg
-                        {
-                            if response.chunk_hash == *grieving_chunk_hash {
-                                // Only victim_node knows some parts of grieving_chunk_hash
-                                // It's not enough to restore the chunk completely
-                                assert_eq!(sender_account_id, victim_node);
-                            }
-                        }
-                        if let NetworkRequests::PartialEncodedChunkMessage {
-                            partial_encoded_chunk,
-                            account_id,
-                        } = msg
-                        {
-                            let height = partial_encoded_chunk.header.height_created();
-                            let shard_id = partial_encoded_chunk.header.shard_id();
-                            if height == 42 && shard_id == 2 {
-                                // "test3.6" is the chunk producer on height 42, shard_id 2
-                                assert_eq!(sender_account_id, malicious_node);
-                                println!(
-                                    "ACCOUNT {:?} PARTS {:?} CHUNK {:?}",
-                                    account_id,
-                                    partial_encoded_chunk.parts.len(),
-                                    partial_encoded_chunk
-                                );
-                            }
-                        }
-                        if let NetworkRequests::Block { block } = msg {
-                            if block.header().height() == 42 {
-                                println!("BLOCK {:?}", block,);
-                                // This is the main assert of the test
-                                // Chunk from malicious node shouldn't be accepted at all
-                                assert_eq!(3, block.header().chunks_included());
-                                System::current().stop();
-                            }
-                        }
-                    }
-                };
-                (NetworkResponses::NoResponse.into(), true)
-            }),
-        );
-        *connectors.write().unwrap() = conn;
-        let max_wait_ms = 240000;
-
-        near_network::test_utils::wait_or_panic(max_wait_ms);
     });
 }
 

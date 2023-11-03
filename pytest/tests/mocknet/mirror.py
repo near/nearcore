@@ -3,6 +3,7 @@
 
 """
 from argparse import ArgumentParser, BooleanOptionalAction
+import cmd_utils
 import pathlib
 import json
 import random
@@ -40,28 +41,6 @@ def get_nodes(args):
     if traffic_generator is None:
         sys.exit(f'no traffic generator instance found')
     return traffic_generator, nodes
-
-
-def run_cmd(node, cmd):
-    r = node.machine.run(cmd)
-    if r.exitcode != 0:
-        sys.exit(
-            f'failed running {cmd} on {node.instance_name}:\nstdout: {r.stdout}\nstderr: {r.stderr}'
-        )
-    return r
-
-
-LOG_DIR = '/home/ubuntu/logs'
-STATUS_DIR = '/home/ubuntu/logs/status'
-
-
-def run_in_background(node, cmd, log_filename, env=''):
-    setup_cmd = f'truncate --size 0 {STATUS_DIR}/{log_filename} '
-    setup_cmd += f'&& for i in {{8..0}}; do if [ -f {LOG_DIR}/{log_filename}.$i ]; then mv {LOG_DIR}/{log_filename}.$i {LOG_DIR}/{log_filename}.$((i+1)); fi done'
-    run_cmd(
-        node,
-        f'( {setup_cmd} && {env} nohup {cmd} > {LOG_DIR}/{log_filename}.0 2>&1; nohup echo "$?" ) > {STATUS_DIR}/{log_filename} 2>&1 &'
-    )
 
 
 def wait_node_up(node):
@@ -104,7 +83,7 @@ def prompt_setup_flags(args):
 
 
 def start_neard_runner(node):
-    run_in_background(node, f'/home/ubuntu/neard-runner/venv/bin/python /home/ubuntu/neard-runner/neard_runner.py ' \
+    cmd_utils.run_in_background(node, f'/home/ubuntu/neard-runner/venv/bin/python /home/ubuntu/neard-runner/neard_runner.py ' \
         '--home /home/ubuntu/neard-runner --neard-home /home/ubuntu/.near ' \
         '--neard-logs /home/ubuntu/neard-logs --port 3000', 'neard-runner.txt')
 
@@ -120,16 +99,19 @@ def upload_neard_runner(node):
 
 def init_neard_runner(node, config, remove_home_dir=False):
     stop_neard_runner(node)
-    rm_cmd = 'rm -rf /home/ubuntu/neard-runner && ' if remove_home_dir else ''
-    run_cmd(
-        node,
-        f'{rm_cmd}mkdir -p {LOG_DIR} && mkdir -p {STATUS_DIR} && mkdir -p /home/ubuntu/neard-runner'
-    )
+    cmd_utils.init_node(node)
+    if remove_home_dir:
+        cmd_utils.run_cmd(
+            node,
+            'rm -rf /home/ubuntu/neard-runner && mkdir -p /home/ubuntu/neard-runner'
+        )
+    else:
+        cmd_utils.run_cmd(node, 'mkdir -p /home/ubuntu/neard-runner')
     upload_neard_runner(node)
     mocknet.upload_json(node, '/home/ubuntu/neard-runner/config.json', config)
     cmd = 'cd /home/ubuntu/neard-runner && python3 -m virtualenv venv -p $(which python3)' \
     ' && ./venv/bin/pip install -r requirements.txt'
-    run_cmd(node, cmd)
+    cmd_utils.run_cmd(node, cmd)
     start_neard_runner(node)
 
 
