@@ -111,6 +111,20 @@ fn is_breaking_block_change(original: &Block, corrupt: &Block) -> bool {
         && original != corrupt
 }
 
+/// Each block contains one 'send' transaction.
+/// First three blocks are produced without changes.
+/// For the fourth block we are calculating two versions – correct and corrupt.
+/// Corrupt block is produced by
+/// - serializing correct block
+/// - flipping one bit
+/// - deserializing resulting string
+/// - resigning the resulting block
+///  If the corrupt block can be parsed, we are trying to process it and expecting it to fail.
+///  If it successfully fails, we are processing the correct block and expecting it to be ok.
+///
+/// Returns `Ok(processing_error)` if corrupt block was parsed and its processing failed.
+/// Returns `Ok(reason)` if corrupt block wasn't parsed or had changes that are not breaking by design.
+/// Returns `Err(reason)` if corrupt block was processed or correct block wasn't processed afterwards.
 fn check_process_flipped_block_fails_on_bit(
     corrupted_bit_idx: usize,
 ) -> Result<anyhow::Error, anyhow::Error> {
@@ -204,17 +218,33 @@ fn check_process_flipped_block_fails_on_bit(
     return Ok(anyhow::anyhow!("Corrupt block didn't parse"));
 }
 
+/// Produce a block. Flip a bit in it.
+/// Check that corrupt block cannot be processed. Check that correct block can be processed after.
+/// Do it for every bit in the block independently.
+///
+/// Checks are performed for all bits even if some of them fail.
+/// Results are accumulated in `errs` and `oks` vectors, that are printed at the end of the test.
+/// Test fails if `errs` is not empty,
+/// which means that for some bit either corrupt block was processed, or correct block was not.
+///
+/// `oks` are printed to check the sanity of the test.
+/// This vector should include various validation errors that correspond to data changed with a bit flip.
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn check_process_flipped_block_fails() {
     init_test_logger();
     let mut corrupted_bit_idx = 0;
+    // List of reasons `check_process_flipped_block_fails_on_bit` returned `Err`.
+    // Should be empty.
     let mut errs = vec![];
+    // List of reasons `check_process_flipped_block_fails_on_bit` returned `Ok`.
+    // Should contain various validation errors.
     let mut oks = vec![];
     loop {
         let res = check_process_flipped_block_fails_on_bit(corrupted_bit_idx);
         if let Ok(res) = &res {
             if res.to_string() == "End" {
+                // `corrupted_bit_idx` is out of bounds for correct block length. Should stop iteration.
                 break;
             }
         }
