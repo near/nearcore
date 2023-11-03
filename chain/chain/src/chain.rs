@@ -1800,18 +1800,6 @@ impl Chain {
         receipt_proofs.shuffle(&mut rng);
     }
 
-    #[cfg(test)]
-    pub(crate) fn mark_block_as_challenged(
-        &mut self,
-        block_hash: &CryptoHash,
-        challenger_hash: &CryptoHash,
-    ) -> Result<(), Error> {
-        let mut chain_update = self.chain_update();
-        chain_update.mark_block_as_challenged(block_hash, Some(challenger_hash))?;
-        chain_update.commit()?;
-        Ok(())
-    }
-
     /// Start processing a received or produced block. This function will process block asynchronously.
     /// It preprocesses the block by verifying that the block is valid and ready to process, then
     /// schedules the work of applying chunks in rayon thread pool. The function will return before

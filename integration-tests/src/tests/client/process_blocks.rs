@@ -17,14 +17,12 @@ use near_chain::{
 };
 use near_chain_configs::{Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
-use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{
     create_chunk_on_height, setup_client_with_synchronous_shards_manager, setup_mock,
     setup_mock_all_validators, TestEnv,
 };
 use near_client::{
-    BlockApproval, BlockResponse, Client, GetBlock, GetBlockWithMerkleTree, ProcessTxRequest,
-    ProcessTxResponse, SetNetworkInfo,
+    BlockApproval, BlockResponse, Client, GetBlockWithMerkleTree, ProcessTxResponse, SetNetworkInfo,
 };
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
@@ -36,7 +34,7 @@ use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses};
 use near_network::types::{PeerInfo, ReasonForBan};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
-use near_primitives::block::{Approval, ApprovalInner};
+use near_primitives::block::Approval;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::TxExecutionError;
@@ -47,10 +45,7 @@ use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
-use near_primitives::sharding::{
-    EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderInner,
-    ShardChunkHeaderV3,
-};
+use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3};
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::test_utils::create_test_signer;
@@ -294,78 +289,6 @@ fn produce_two_blocks() {
             }),
         );
         near_network::test_utils::wait_or_panic(5000);
-    });
-}
-
-/// Runs block producing client and sends it a transaction.
-#[test]
-// TODO: figure out how to re-enable it correctly
-#[ignore]
-fn produce_blocks_with_tx() {
-    let mut encoded_chunks: Vec<EncodedShardChunk> = vec![];
-    init_test_logger();
-    run_actix(async {
-        let actor_handles = setup_mock(
-            vec!["test".parse().unwrap()],
-            "test".parse().unwrap(),
-            true,
-            false,
-            Box::new(move |msg, _ctx, _| {
-                if let NetworkRequests::PartialEncodedChunkMessage {
-                    account_id: _,
-                    partial_encoded_chunk,
-                } = msg.as_network_requests_ref()
-                {
-                    let header = partial_encoded_chunk.header.clone();
-                    let height = header.height_created() as usize;
-                    assert!(encoded_chunks.len() + 2 >= height);
-
-                    // the following two lines must match data_parts and total_parts in KeyValueRuntimeAdapter
-                    let data_parts = 12 + 2 * (((height - 1) as usize) % 4);
-                    let total_parts = 1 + data_parts * (1 + ((height - 1) as usize) % 3);
-                    if encoded_chunks.len() + 2 == height {
-                        encoded_chunks.push(EncodedShardChunk::from_header(
-                            header,
-                            total_parts,
-                            PROTOCOL_VERSION,
-                        ));
-                    }
-                    for part in partial_encoded_chunk.parts.iter() {
-                        encoded_chunks[height - 2].content_mut().parts[part.part_ord as usize] =
-                            Some(part.part.clone());
-                    }
-
-                    let parity_parts = total_parts - data_parts;
-                    let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
-
-                    if let ChunkStatus::Complete(_) = ShardsManager::check_chunk_complete(
-                        &mut encoded_chunks[height - 2],
-                        &mut rs,
-                    ) {
-                        let chunk = encoded_chunks[height - 2].decode_chunk(data_parts).unwrap();
-                        if !chunk.transactions().is_empty() {
-                            System::current().stop();
-                        }
-                    }
-                }
-                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
-            }),
-        );
-        near_network::test_utils::wait_or_panic(5000);
-        let actor = actor_handles.view_client_actor.send(GetBlock::latest().with_span_context());
-        let actor = actor.then(move |res| {
-            let block_hash = res.unwrap().unwrap().header.hash;
-            actor_handles.client_actor.do_send(
-                ProcessTxRequest {
-                    transaction: SignedTransaction::empty(block_hash),
-                    is_forwarded: false,
-                    check_only: false,
-                }
-                .with_span_context(),
-            );
-            future::ready(())
-        });
-        actix::spawn(actor);
     });
 }
 
@@ -1166,47 +1089,6 @@ fn test_time_attack() {
 
     let b2 = client.produce_block(2).unwrap().unwrap();
     let _ = client.process_block_test(b2.into(), Provenance::PRODUCED).unwrap();
-}
-
-// TODO: use real runtime for this test
-#[test]
-#[ignore]
-fn test_invalid_approvals() {
-    init_test_logger();
-    let store = create_test_store();
-    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-    let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
-    let chain_genesis = ChainGenesis::test();
-    let vs =
-        ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
-    let mut client = setup_client_with_synchronous_shards_manager(
-        store,
-        vs,
-        Some("test1".parse().unwrap()),
-        false,
-        network_adapter.into(),
-        client_adapter.as_sender(),
-        chain_genesis,
-        TEST_SEED,
-        false,
-        true,
-    );
-    let signer = Arc::new(create_test_signer("test1"));
-    let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
-    b1.mut_header().get_mut().inner_rest.approvals = (0..100)
-        .map(|i| {
-            let account_id = AccountId::try_from(format!("test{}", i)).unwrap();
-            Some(Box::new(
-                create_test_signer(account_id.as_str())
-                    .sign_approval(&ApprovalInner::Endorsement(*genesis.hash()), 1),
-            ))
-        })
-        .collect();
-    b1.mut_header().resign(&*signer);
-
-    let result = client.process_block_test(b1.into(), Provenance::NONE);
-    assert_matches!(result.unwrap_err(), Error::InvalidApprovals);
 }
 
 #[test]
@@ -2502,38 +2384,6 @@ fn test_validate_chunk_extra() {
         &chunks.get(&0).cloned().unwrap().0,
     )
     .is_ok());
-}
-
-/// Change protocol version back and forth and make sure that we do not produce invalid blocks
-/// TODO (#3759): re-enable the test when we have the ability to mutate `PROTOCOL_VERSION`
-#[test]
-#[ignore]
-fn test_gas_price_change_no_chunk() {
-    let epoch_length = 5;
-    let min_gas_price = 5000;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let genesis_protocol_version = PROTOCOL_VERSION - 1;
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = genesis_protocol_version;
-    genesis.config.min_gas_price = min_gas_price;
-    let chain_genesis = ChainGenesis::new(&genesis);
-    let mut env = TestEnv::builder(chain_genesis)
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
-    let validator_signer = create_test_signer("test0");
-    for i in 1..=20 {
-        let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
-        if i <= 5 || (i > 10 && i <= 15) {
-            block.mut_header().get_mut().inner_rest.latest_protocol_version =
-                genesis_protocol_version;
-            block.mut_header().resign(&validator_signer);
-        }
-        env.process_block(0, block, Provenance::NONE);
-    }
-    env.clients[0].produce_block(21).unwrap().unwrap();
-    let block = env.clients[0].produce_block(22).unwrap().unwrap();
-    let _ = env.clients[0].process_block_test(block.into(), Provenance::NONE).unwrap();
 }
 
 #[test]
