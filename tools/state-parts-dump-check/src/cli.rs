@@ -362,6 +362,7 @@ fn run_loop_all_shards(
 }
 
 fn reset_num_parts_metrics(chain_id: &str, shard_id: ShardId) -> () {
+    tracing::info!("Resetting num of parts metrics to 0 for shard_id {}", shard_id);
     crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_TOTAL
         .with_label_values(&[&shard_id.to_string(), chain_id])
         .set(0);
