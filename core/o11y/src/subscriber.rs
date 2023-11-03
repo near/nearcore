@@ -243,7 +243,6 @@ pub async fn default_subscriber_with_opentelemetry(
     node_public_key: PublicKey,
     account_id: Option<AccountId>,
 ) -> DefaultSubscriberGuard<impl tracing::Subscriber + Send + Sync> {
-    println!("env filter {env_filter:#?}");
     let color_output = use_color_output(options);
 
     // Do not lock the `stderr` here to allow for things like `dbg!()` work during development.

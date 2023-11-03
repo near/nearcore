@@ -104,8 +104,6 @@ impl StateViewerSubCommand {
         mode: Mode,
         temperature: Temperature,
     ) {
-        let _span = tracing::debug_span!(target: "state_viewer", "aaa", value=4).entered();
-
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
@@ -629,7 +627,6 @@ pub struct StateStatsCmd {}
 
 impl StateStatsCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        tracing::info!(target: "state_viewer", "hello world!");
         print_state_stats(home_dir, store, near_config);
     }
 }

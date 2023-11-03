@@ -192,7 +192,6 @@ impl FlatStorageManager {
     ) -> Option<FlatStorageChunkView> {
         let flat_storage = {
             let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
-            tracing::info!(target: "store", flat_storages=?flat_storages.keys().collect_vec(), "flat storages");
             // It is possible that flat storage state does not exist yet because it is being created in
             // background.
             match flat_storages.get(&shard_uid) {
