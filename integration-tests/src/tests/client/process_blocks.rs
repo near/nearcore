@@ -2370,7 +2370,10 @@ fn test_validate_chunk_extra() {
     let accepted_blocks = env.clients[0].finish_block_in_processing(block2.hash());
     assert_eq!(accepted_blocks.len(), 1);
 
-    // About to produce a block on top of block1. Validate that this chunk is legit.
+    // Produce a block on top of block1.
+    // Validate that result of chunk execution in `block1` is legit.
+    let b = env.clients[0].produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
+    env.clients[0].process_block_test(b.into(), Provenance::PRODUCED).unwrap();
     let chunks = env.clients[0]
         .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash());
     let chunk_extra =
@@ -3062,6 +3065,9 @@ fn test_fork_receipt_ids() {
     assert_ne!(receipt_id0, receipt_id1);
 }
 
+// Check that in if receipt is executed twice in different forks, two execution
+// outcomes are recorded, canonical chain outcome is correct and GC cleanups
+// all outcomes.
 #[test]
 fn test_fork_execution_outcome() {
     init_test_logger();
@@ -3118,7 +3124,7 @@ fn test_fork_execution_outcome() {
     let canonical_chain_outcome = env.clients[0].chain.get_execution_outcome(&receipt_id).unwrap();
     assert_eq!(canonical_chain_outcome.block_hash, *block2.hash());
 
-    // make sure gc works properly
+    // Make sure that GC cleanups execution outcomes.
     let epoch_length = env.clients[0].config.epoch_length;
     for i in last_height + 5..last_height + 5 + epoch_length * 6 {
         env.produce_block(0, i);
