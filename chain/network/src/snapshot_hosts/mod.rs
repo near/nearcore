@@ -11,6 +11,9 @@ use rayon::iter::ParallelBridge;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(thiserror::Error, Debug, PartialEq, Eq)]
 pub(crate) enum SnapshotHostInfoError {
     #[error("found an invalid signature")]
