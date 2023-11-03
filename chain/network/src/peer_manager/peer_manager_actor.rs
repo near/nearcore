@@ -31,7 +31,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::EpochHeight;
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
-    RecentOutboundConnectionsView,
+    RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
 };
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
@@ -1111,6 +1111,20 @@ impl actix::Handler<GetDebugStatus> for PeerManagerActor {
                 })
             }
             GetDebugStatus::Routes => DebugStatus::Routes(self.state.graph_v2.get_debug_view()),
+            GetDebugStatus::SnapshotHosts => DebugStatus::SnapshotHosts(SnapshotHostsView {
+                hosts: self
+                    .state
+                    .snapshot_hosts
+                    .get_hosts()
+                    .iter()
+                    .map(|h| SnapshotHostInfoView {
+                        peer_id: h.peer_id.clone(),
+                        sync_hash: h.sync_hash,
+                        epoch_height: h.epoch_height,
+                        shards: h.shards.clone(),
+                    })
+                    .collect::<Vec<_>>(),
+            }),
         }
     }
 }
