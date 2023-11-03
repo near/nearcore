@@ -74,8 +74,14 @@ impl BlockSync {
             Some(height) => height,
             None => head.height,
         };
-        *sync_status =
-            SyncStatus::BodySync { start_height, current_height: head.height, highest_height };
+
+        let _span = tracing::debug_span!(target: "sync", "set_block_sync").entered();
+        {
+            let _span =
+                tracing::debug_span!(target: "sync", "set_sync", sync = "BlockSync").entered();
+            *sync_status =
+                SyncStatus::BodySync { start_height, current_height: head.height, highest_height };
+        }
         Ok(false)
     }
 

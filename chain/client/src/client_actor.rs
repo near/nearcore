@@ -1588,11 +1588,17 @@ impl ClientActor {
             | SyncRequirement::AdvHeaderSyncDisabled => {
                 if currently_syncing {
                     info!(target: "client", "disabling sync: {}", &sync);
-                    self.client.sync_status = SyncStatus::NoSync;
-                    // Initial transition out of "syncing" state.
-                    // Announce this client's account id if their epoch is coming up.
-                    let head = unwrap_and_report!(self.client.chain.head());
-                    self.check_send_announce_account(head.prev_block_hash);
+                    {
+                        let _span = tracing::debug_span!(target: "sync", "set_no_sync").entered();
+                        {
+                            let _span = tracing::debug_span!(target: "sync", "set_sync", sync_type = "None").entered();
+                            self.client.sync_status = SyncStatus::NoSync;
+                            // Initial transition out of "syncing" state.
+                            // Announce this client's account id if their epoch is coming up.
+                            let head = unwrap_and_report!(self.client.chain.head());
+                            self.check_send_announce_account(head.prev_block_hash);
+                        }
+                    }
                 }
             }
 
@@ -1644,7 +1650,7 @@ impl ClientActor {
                                 let _span = tracing::debug_span!(target: "sync", "set_state_sync")
                                     .entered();
                                 {
-                                    let _span = tracing::debug_span!(target: "sync", "set_sync", sync_type = "State").entered();
+                                    let _span = tracing::debug_span!(target: "sync", "set_sync", sync = "StateSync").entered();
                                     self.client.sync_status = SyncStatus::StateSync(s);
                                 }
                             }
@@ -1762,10 +1768,10 @@ impl ClientActor {
                                 .process_block_processing_artifact(block_processing_artifacts);
 
                             {
-                                let _span =
-                                    tracing::debug_span!(target: "sync", "set_body_sync").entered();
+                                let _span = tracing::debug_span!(target: "sync", "set_block_sync")
+                                    .entered();
                                 {
-                                    let _span = tracing::debug_span!(target: "sync", "set_sync", sync_type = "Body").entered();
+                                    let _span = tracing::debug_span!(target: "sync", "set_sync", sync = "BlockSync").entered();
                                     self.client.sync_status = SyncStatus::BodySync {
                                         start_height: 0,
                                         current_height: 0,

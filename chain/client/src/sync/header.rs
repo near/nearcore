@@ -89,11 +89,17 @@ impl HeaderSync {
                 Some(height) => height,
                 None => chain.head()?.height,
             };
-            *sync_status = SyncStatus::HeaderSync {
-                start_height,
-                current_height: header_head.height,
-                highest_height,
-            };
+
+            let _span = tracing::debug_span!(target: "sync", "set_header_sync").entered();
+            {
+                let _span =
+                    tracing::debug_span!(target: "sync", "set_sync", sync = "HeaderSync").entered();
+                *sync_status = SyncStatus::HeaderSync {
+                    start_height,
+                    current_height: header_head.height,
+                    highest_height,
+                };
+            }
             self.syncing_peer = None;
             if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {
                 if peer.highest_block_height > header_head.height {
