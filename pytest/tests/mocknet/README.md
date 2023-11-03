@@ -9,3 +9,6 @@ Mirror transactions from a given network into a custom mocktest network and add 
 - See metrics on grafana mocknet https://grafana.near.org/d/jHbiNgSnz/mocknet?orgId=1&refresh=30s&var-chain_id=All&var-node_id=.*unique_id.*&var-account_id=All replacing the "unique_id" with the value from earlier
 
 If there's ever a problem with the neard runners on each node, for example if you get a connection error running the `status` command, run the `restart-neard-runner` command to restart them, which should be safe to do.
+
+To run a locust load test on the mocknet network, run `python3 tests/mocknet/locust.py init --instance-names {}`, where
+the instance names are VMs that have been prepared for this purpose, and then run `python3 tests/mocknet/locust.py run --master {master_instance_name} --workers {worker_instance_name0,worker_instance_name1,etc...} --funding-key {key.json} --node-ip-port {mocknet_node_ip}:3030`, where `mocknet_node_ip` is an IP address of a node that's been setup by the mirror.py script, and `key.json` is an account key that contains lots of NEAR for this load test. TODO: add extra accounts for load testing purposes during the mocknet setup step

@@ -1,3 +1,5 @@
+use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
+use super::TrieRefcountSubtraction;
 use crate::flat::{FlatStorageManager, FlatStorageStatus};
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
@@ -5,20 +7,16 @@ use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountAddition, POISONED_LOCK_ERR};
 use crate::{metrics, DBCol, PrefetchApi};
 use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
-
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{self, ShardUId, ShardVersion};
+use near_primitives::shard_layout::{self, ShardUId};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
+    RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
-
-use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
-use super::TrieRefcountSubtraction;
 
 struct ShardTriesInner {
     store: Store,
@@ -63,29 +61,6 @@ impl ShardTries {
             state_snapshot: Arc::new(RwLock::new(None)),
             state_snapshot_config,
         }))
-    }
-
-    /// Create `ShardTries` with a fixed number of shards with shard version 0.
-    ///
-    /// If your test cares about the shard version, use `test_shard_version` instead.
-    pub fn test(store: Store, num_shards: NumShards) -> Self {
-        let shard_version = 0;
-        Self::test_shard_version(store, shard_version, num_shards)
-    }
-
-    pub fn test_shard_version(store: Store, version: ShardVersion, num_shards: NumShards) -> Self {
-        assert_ne!(0, num_shards);
-        let shard_uids: Vec<ShardUId> =
-            (0..num_shards as u32).map(|shard_id| ShardUId { shard_id, version }).collect();
-        let trie_config = TrieConfig::default();
-
-        ShardTries::new(
-            store.clone(),
-            trie_config,
-            &shard_uids,
-            FlatStorageManager::new(store),
-            StateSnapshotConfig::default(),
-        )
     }
 
     /// Create caches for all shards according to the trie config.
@@ -241,7 +216,7 @@ impl ShardTries {
         store_update: &mut StoreUpdate,
     ) {
         let mut ops = Vec::new();
-        for TrieRefcountSubtraction { trie_node_or_value_hash, rc } in deletions.iter() {
+        for TrieRefcountSubtraction { trie_node_or_value_hash, rc, .. } in deletions.iter() {
             let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
                 shard_uid,
                 trie_node_or_value_hash,

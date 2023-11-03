@@ -238,7 +238,7 @@ pub fn verify_and_charge_transaction(
                 )
                 .into());
             }
-            if transaction.receiver_id.as_ref() != function_call_permission.receiver_id {
+            if transaction.receiver_id != function_call_permission.receiver_id {
                 return Err(InvalidTxError::InvalidAccessKeyError(
                     InvalidAccessKeyError::ReceiverMismatch {
                         tx_receiver: transaction.receiver_id.clone(),
@@ -517,7 +517,7 @@ fn validate_add_key_action(
 ///
 /// Checks that the `beneficiary_id` is a valid account ID.
 fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsValidationError> {
-    if AccountId::validate(&action.beneficiary_id).is_err() {
+    if AccountId::validate(action.beneficiary_id.as_str()).is_err() {
         return Err(ActionsValidationError::InvalidAccountId {
             account_id: action.beneficiary_id.to_string(),
         });
@@ -549,7 +549,7 @@ mod tests {
     };
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
-    use near_store::test_utils::create_tries;
+    use near_store::test_utils::TestTriesBuilder;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
     use crate::near_primitives::shard_layout::ShardUId;
@@ -591,7 +591,7 @@ mod tests {
         // account has data
         accounts: Vec<(AccountId, Balance, Balance, Vec<AccessKey>, bool, bool)>,
     ) -> (Arc<InMemorySigner>, TrieUpdate, Balance) {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let root = MerkleHash::default();
 
         let account_id = alice_account();

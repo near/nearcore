@@ -197,7 +197,6 @@ impl Chain {
         let prev_block_header = self.get_block_header(prev_hash)?;
         let prev_prev_hash = prev_block_header.prev_hash();
         let state_root = *self.get_chunk_extra(&prev_hash, &shard_uid)?.state_root();
-        let child_shard_uids = next_epoch_shard_layout.get_split_shard_uids(shard_id);
 
         state_split_scheduler(StateSplitRequest {
             tries: Arc::new(self.runtime_adapter.get_tries()),
@@ -211,11 +210,9 @@ impl Chain {
             config: self.state_split_config,
         });
 
-        for shard_uid in child_shard_uids.unwrap_or_default() {
-            RESHARDING_STATUS
-                .with_label_values(&[&shard_uid.to_string()])
-                .set(ReshardingStatus::Scheduled.into());
-        }
+        RESHARDING_STATUS
+            .with_label_values(&[&shard_uid.to_string()])
+            .set(ReshardingStatus::Scheduled.into());
         Ok(())
     }
 
@@ -268,11 +265,9 @@ impl Chain {
         let mut state_roots: HashMap<_, _> =
             new_shards.iter().map(|shard_uid| (*shard_uid, Trie::EMPTY_ROOT)).collect();
 
-        for shard_uid in &new_shards {
-            RESHARDING_STATUS
-                .with_label_values(&[&shard_uid.to_string()])
-                .set(ReshardingStatus::BuildingState.into());
-        }
+        RESHARDING_STATUS
+            .with_label_values(&[&shard_uid.to_string()])
+            .set(ReshardingStatus::BuildingState.into());
 
         // Build the required iterator from flat storage and delta changes. Note that we are
         // working with iterators as we don't want to have all the state in memory at once.
@@ -382,6 +377,7 @@ impl Chain {
 
     pub fn build_state_for_split_shards_postprocessing(
         &mut self,
+        shard_uid: ShardUId,
         sync_hash: &CryptoHash,
         state_roots: HashMap<ShardUId, StateRoot>,
     ) -> Result<(), Error> {
@@ -400,11 +396,9 @@ impl Chain {
         }
         chain_store_update.commit()?;
 
-        for shard_uid in child_shard_uids {
-            RESHARDING_STATUS
-                .with_label_values(&[&shard_uid.to_string()])
-                .set(ReshardingStatus::Finished.into());
-        }
+        RESHARDING_STATUS
+            .with_label_values(&[&shard_uid.to_string()])
+            .set(ReshardingStatus::Finished.into());
 
         Ok(())
     }

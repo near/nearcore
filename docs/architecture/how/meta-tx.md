@@ -58,7 +58,7 @@ concept, implemented off-chain. Think of it as a server that accepts a
 `SignedDelegateAction`, does some checks on them and eventually forwards it
 inside a transaction to the blockchain network.
 
-A relayer may chose to offer their service for free but that's not going to be
+A relayer may choose to offer their service for free but that's not going to be
 financially viable long-term. But they could easily have the user pay using
 other means, outside of Near blockchain. And with some tricks, it can even be
 paid using fungible tokens on Near.
@@ -106,7 +106,7 @@ this again requires some level of trust between the relayer and Alice.
 
 A potential solution could involve linear dependencies between the action
 receipts spawned from a single meta transaction. Only if the first succeeds,
-will the second start executing,and so on. But this quickly gets too complicated
+will the second start executing, and so on. But this quickly gets too complicated
 for the MVP and is therefore left open for future improvements.
 
 ## Constraints on the actions inside a meta transaction

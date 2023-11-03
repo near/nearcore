@@ -102,7 +102,7 @@ BorshSerialize/BorshDeserialize
 
 ## Questions
 
-### Why don’t you use JSON for everything ?
+### Why don’t you use JSON for everything?
 
 While this is a tempting option, JSON has a few drawbacks:
 
@@ -153,7 +153,7 @@ Here, we have children at index 0 and 2 which has a bitmap of `101`
 Custom encoder:
 
 ```
-// Number of children detetermined by the bitmask
+// Number of children determined by the bitmask
 [16 bits bitmask][32 bytes child][32 bytes child]
 [5][0x11][0x12]
 // Total size: 2 + 32 + 32 = 68 bytes

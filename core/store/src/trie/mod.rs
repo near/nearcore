@@ -1,3 +1,7 @@
+use self::accounting_cache::TrieAccountingCache;
+use self::mem::updating::{UpdatedMemTrieNode, UpdatedMemTrieNodeId};
+use self::trie_recording::TrieRecorder;
+use self::trie_storage::TrieMemoryPartialStorage;
 use crate::flat::{FlatStateChanges, FlatStorageChunkView};
 pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::{
@@ -12,6 +16,7 @@ pub use crate::trie::state_snapshot::{SnapshotError, StateSnapshot, StateSnapsho
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
+pub use from_flat::construct_trie_from_flat;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
@@ -20,7 +25,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
 use near_primitives::trie_key::TrieKey;
 pub use near_primitives::types::TrieNodesCount;
-use near_primitives::types::{AccountId, StateRoot, StateRootNode};
+use near_primitives::types::{AccountId, BlockHeight, StateRoot, StateRootNode};
 use near_vm_runner::ContractCode;
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
@@ -49,11 +54,6 @@ mod trie_storage;
 #[cfg(test)]
 mod trie_tests;
 pub mod update;
-
-use self::accounting_cache::TrieAccountingCache;
-use self::trie_recording::TrieRecorder;
-use self::trie_storage::TrieMemoryPartialStorage;
-pub use from_flat::construct_trie_from_flat;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -383,8 +383,37 @@ pub struct TrieRefcountSubtraction {
     /// Hash of trie_node_or_value and part of the DB key.
     /// Used for uniting with shard id to get actual DB key.
     trie_node_or_value_hash: CryptoHash,
+    /// Obsolete field but which we cannot remove because this data is persisted
+    /// to the database.
+    _ignored: IgnoredVecU8,
     /// Reference count difference which will be subtracted to the total refcount.
     rc: std::num::NonZeroU32,
+}
+
+/// Struct that is borsh compatible with Vec<u8> but which is logically the unit type.
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug)]
+struct IgnoredVecU8 {
+    _ignored: Vec<u8>,
+}
+
+impl PartialEq for IgnoredVecU8 {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+impl Eq for IgnoredVecU8 {}
+impl Hash for IgnoredVecU8 {
+    fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {}
+}
+impl PartialOrd for IgnoredVecU8 {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for IgnoredVecU8 {
+    fn cmp(&self, _other: &Self) -> std::cmp::Ordering {
+        std::cmp::Ordering::Equal
+    }
 }
 
 impl TrieRefcountAddition {
@@ -397,10 +426,13 @@ impl TrieRefcountAddition {
     }
 
     pub fn revert(&self) -> TrieRefcountSubtraction {
-        TrieRefcountSubtraction {
-            trie_node_or_value_hash: self.trie_node_or_value_hash,
-            rc: self.rc,
-        }
+        TrieRefcountSubtraction::new(self.trie_node_or_value_hash, self.rc)
+    }
+}
+
+impl TrieRefcountSubtraction {
+    pub fn new(trie_node_or_value_hash: CryptoHash, rc: std::num::NonZeroU32) -> Self {
+        Self { trie_node_or_value_hash, _ignored: Default::default(), rc }
     }
 }
 
@@ -437,10 +469,10 @@ impl TrieRefcountDeltaMap {
                     rc: std::num::NonZeroU32::new(rc as u32).unwrap(),
                 });
             } else if rc < 0 {
-                deletions.push(TrieRefcountSubtraction {
-                    trie_node_or_value_hash: hash,
-                    rc: std::num::NonZeroU32::new((-rc) as u32).unwrap(),
-                });
+                deletions.push(TrieRefcountSubtraction::new(
+                    hash,
+                    std::num::NonZeroU32::new((-rc) as u32).unwrap(),
+                ));
             }
         }
         // Sort so that trie changes have unique representation.
@@ -448,6 +480,13 @@ impl TrieRefcountDeltaMap {
         deletions.sort();
         (insertions, deletions)
     }
+}
+
+#[derive(Default, Clone, PartialEq, Eq, Debug)]
+pub struct MemTrieChanges {
+    node_ids_with_hashes: Vec<(UpdatedMemTrieNodeId, CryptoHash)>,
+    updated_nodes: Vec<Option<UpdatedMemTrieNode>>,
+    block_height: BlockHeight,
 }
 
 ///
@@ -479,15 +518,28 @@ pub struct TrieChanges {
     pub new_root: StateRoot,
     insertions: Vec<TrieRefcountAddition>,
     deletions: Vec<TrieRefcountSubtraction>,
+    // If Some, in-memory changes are applied as well.
+    #[borsh(skip)]
+    pub mem_trie_changes: Option<MemTrieChanges>,
 }
 
 impl TrieChanges {
     pub fn empty(old_root: StateRoot) -> Self {
-        TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
+        TrieChanges {
+            old_root,
+            new_root: old_root,
+            insertions: vec![],
+            deletions: vec![],
+            mem_trie_changes: Default::default(),
+        }
     }
 
     pub fn insertions(&self) -> &[TrieRefcountAddition] {
         self.insertions.as_slice()
+    }
+
+    pub fn deletions(&self) -> &[TrieRefcountSubtraction] {
+        self.deletions.as_slice()
     }
 }
 
@@ -1349,8 +1401,7 @@ mod tests {
     use rand::Rng;
 
     use crate::test_utils::{
-        create_test_store, create_tries, create_tries_complex, gen_changes, simplify_changes,
-        test_populate_trie,
+        create_test_store, gen_changes, simplify_changes, test_populate_trie, TestTriesBuilder,
     };
     use crate::{DBCol, MissingTrieValueContext};
 
@@ -1382,7 +1433,7 @@ mod tests {
     #[test]
     fn test_basic_trie() {
         // test trie version > 0
-        let tries = create_tries_complex(SHARD_VERSION, 2);
+        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
         let shard_uid = ShardUId { version: SHARD_VERSION, shard_id: 0 };
         let trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
         assert_eq!(trie.get(&[122]), Ok(None));
@@ -1402,7 +1453,7 @@ mod tests {
 
     #[test]
     fn test_trie_iter() {
-        let tries = create_tries_complex(SHARD_VERSION, 2);
+        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
         let shard_uid = ShardUId { version: SHARD_VERSION, shard_id: 0 };
         let pairs = vec![
             (b"a".to_vec(), Some(b"111".to_vec())),
@@ -1436,7 +1487,7 @@ mod tests {
 
     #[test]
     fn test_trie_leaf_into_branch() {
-        let tries = create_tries_complex(SHARD_VERSION, 2);
+        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
         let shard_uid = ShardUId { version: SHARD_VERSION, shard_id: 0 };
         let changes = vec![
             (b"dog".to_vec(), Some(b"puppy".to_vec())),
@@ -1448,7 +1499,7 @@ mod tests {
 
     #[test]
     fn test_trie_same_node() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let changes = vec![
             (b"dogaa".to_vec(), Some(b"puppy".to_vec())),
             (b"dogbb".to_vec(), Some(b"puppy".to_vec())),
@@ -1461,7 +1512,7 @@ mod tests {
 
     #[test]
     fn test_trie_iter_seek_stop_at_extension() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let changes = vec![
             (vec![0, 116, 101, 115, 116], Some(vec![0])),
             (vec![2, 116, 101, 115, 116], Some(vec![0])),
@@ -1505,7 +1556,7 @@ mod tests {
 
     #[test]
     fn test_trie_remove_non_existent_key() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let initial = vec![
             (vec![99, 44, 100, 58, 58, 49], Some(vec![1])),
             (vec![99, 44, 100, 58, 58, 50], Some(vec![1])),
@@ -1531,7 +1582,7 @@ mod tests {
             (vec![2, 2, 3], Some(vec![1])),
             (vec![3, 2, 3], Some(vec![1])),
         ];
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), initial);
         tries.get_trie_for_shard(ShardUId::single_shard(), root).iter().unwrap().for_each(
             |result| {
@@ -1552,7 +1603,7 @@ mod tests {
     fn test_trie_unique() {
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
-            let tries = create_tries();
+            let tries = TestTriesBuilder::new().build();
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), Trie::EMPTY_ROOT);
             let trie_changes = gen_changes(&mut rng, 20);
             let simplified_changes = simplify_changes(&trie_changes);
@@ -1574,7 +1625,7 @@ mod tests {
     fn test_iterator_seek_prefix() {
         let mut rng = rand::thread_rng();
         for _test_run in 0..10 {
-            let tries = create_tries();
+            let tries = TestTriesBuilder::new().build();
             let trie_changes = gen_changes(&mut rng, 500);
             let state_root = test_populate_trie(
                 &tries,
@@ -1611,7 +1662,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _test_run in 0..10 {
             let num_iterations = rng.gen_range(1..20);
-            let tries = create_tries();
+            let tries = TestTriesBuilder::new().build();
             let store = tries.get_store();
             let mut state_root = Trie::EMPTY_ROOT;
             for _ in 0..num_iterations {
@@ -1645,7 +1696,7 @@ mod tests {
     #[test]
     fn test_trie_restart() {
         let store = create_test_store();
-        let tries = ShardTries::test(store.clone(), 1);
+        let tries = TestTriesBuilder::new().with_store(store.clone()).build();
         let empty_root = Trie::EMPTY_ROOT;
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
@@ -1657,7 +1708,7 @@ mod tests {
         ];
         let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
 
-        let tries2 = ShardTries::test(store, 1);
+        let tries2 = TestTriesBuilder::new().with_store(store).build();
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard(), root);
         assert_eq!(trie2.get(b"doge"), Ok(Some(b"coin".to_vec())));
     }
@@ -1665,8 +1716,7 @@ mod tests {
     // TODO: somehow also test that we don't record unnecessary nodes
     #[test]
     fn test_trie_recording_reads() {
-        let store = create_test_store();
-        let tries = ShardTries::test(store, 1);
+        let tries = TestTriesBuilder::new().build();
         let empty_root = Trie::EMPTY_ROOT;
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
@@ -1698,8 +1748,7 @@ mod tests {
 
     #[test]
     fn test_trie_recording_reads_update() {
-        let store = create_test_store();
-        let tries = ShardTries::test(store, 1);
+        let tries = TestTriesBuilder::new().build();
         let empty_root = Trie::EMPTY_ROOT;
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
@@ -1734,7 +1783,7 @@ mod tests {
     #[test]
     fn test_dump_load_trie() {
         let store = create_test_store();
-        let tries = ShardTries::test(store.clone(), 1);
+        let tries = TestTriesBuilder::new().with_store(store.clone()).build();
         let empty_root = Trie::EMPTY_ROOT;
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
@@ -1745,8 +1794,71 @@ mod tests {
         store.save_state_to_file(&dir.path().join("test.bin")).unwrap();
         let store2 = create_test_store();
         store2.load_state_from_file(&dir.path().join("test.bin")).unwrap();
-        let tries2 = ShardTries::test(store2, 1);
+        let tries2 = TestTriesBuilder::new().with_store(store2).build();
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard(), root);
         assert_eq!(trie2.get(b"doge").unwrap().unwrap(), b"coin");
+    }
+}
+
+#[cfg(test)]
+mod borsh_compatibility_test {
+    use borsh::{BorshDeserialize, BorshSerialize};
+    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::types::StateRoot;
+
+    use crate::trie::{TrieRefcountAddition, TrieRefcountSubtraction};
+    use crate::TrieChanges;
+
+    #[test]
+    fn test_trie_changes_compatibility() {
+        #[derive(BorshSerialize)]
+        struct LegacyTrieRefcountChange {
+            trie_node_or_value_hash: CryptoHash,
+            trie_node_or_value: Vec<u8>,
+            rc: std::num::NonZeroU32,
+        }
+
+        #[derive(BorshSerialize)]
+        struct LegacyTrieChanges {
+            old_root: StateRoot,
+            new_root: StateRoot,
+            insertions: Vec<LegacyTrieRefcountChange>,
+            deletions: Vec<LegacyTrieRefcountChange>,
+        }
+
+        let changes = LegacyTrieChanges {
+            old_root: hash(b"a"),
+            new_root: hash(b"b"),
+            insertions: vec![LegacyTrieRefcountChange {
+                trie_node_or_value_hash: hash(b"c"),
+                trie_node_or_value: b"d".to_vec(),
+                rc: std::num::NonZeroU32::new(1).unwrap(),
+            }],
+            deletions: vec![LegacyTrieRefcountChange {
+                trie_node_or_value_hash: hash(b"e"),
+                trie_node_or_value: b"f".to_vec(),
+                rc: std::num::NonZeroU32::new(2).unwrap(),
+            }],
+        };
+
+        let serialized = borsh::to_vec(&changes).unwrap();
+        let deserialized = TrieChanges::try_from_slice(&serialized).unwrap();
+        assert_eq!(
+            deserialized,
+            TrieChanges {
+                old_root: hash(b"a"),
+                new_root: hash(b"b"),
+                insertions: vec![TrieRefcountAddition {
+                    trie_node_or_value_hash: hash(b"c"),
+                    trie_node_or_value: b"d".to_vec(),
+                    rc: std::num::NonZeroU32::new(1).unwrap(),
+                }],
+                deletions: vec![TrieRefcountSubtraction::new(
+                    hash(b"e"),
+                    std::num::NonZeroU32::new(2).unwrap(),
+                )],
+                mem_trie_changes: None,
+            }
+        );
     }
 }

@@ -307,7 +307,7 @@ impl Runtime {
         result.compute_usage = exec_fees;
         let account_id = &receipt.receiver_id;
         let is_the_only_action = actions.len() == 1;
-        let is_refund = AccountId::is_system(&receipt.predecessor_id);
+        let is_refund = receipt.predecessor_id.is_system();
         // Account validation
         if let Err(e) = check_account_existence(
             action,
@@ -575,7 +575,7 @@ impl Runtime {
             }
         }
 
-        let gas_deficit_amount = if AccountId::is_system(&receipt.predecessor_id) {
+        let gas_deficit_amount = if receipt.predecessor_id.is_system() {
             // We will set gas_burnt for refund receipts to be 0 when we calculate tx_burnt_amount
             // Here we don't set result.gas_burnt to be zero if CountRefundReceiptsInGasLimit is
             // enabled because we want it to be counted in gas limit calculation later
@@ -625,8 +625,7 @@ impl Runtime {
         };
 
         // If the receipt is a refund, then we consider it free without burnt gas.
-        let gas_burnt: Gas =
-            if AccountId::is_system(&receipt.predecessor_id) { 0 } else { result.gas_burnt };
+        let gas_burnt: Gas = if receipt.predecessor_id.is_system() { 0 } else { result.gas_burnt };
         // `gas_deficit_amount` is strictly less than `gas_price * gas_burnt`.
         let mut tx_burnt_amount =
             safe_gas_to_balance(apply_state.gas_price, gas_burnt)? - gas_deficit_amount;
@@ -1530,7 +1529,7 @@ mod tests {
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_primitives_core::config::{ExtCosts, ParameterCost};
-    use near_store::test_utils::create_tries;
+    use near_store::test_utils::TestTriesBuilder;
     use near_store::{set_access_key, ShardTries, StoreCompiledContractCache};
     use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -1564,7 +1563,7 @@ mod tests {
 
     #[test]
     fn test_get_and_set_accounts() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), MerkleHash::default());
         let test_account = account_new(to_yocto(10), hash(&[]));
@@ -1576,7 +1575,7 @@ mod tests {
 
     #[test]
     fn test_get_account_from_trie() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let root = MerkleHash::default();
         let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
         let test_account = account_new(to_yocto(10), hash(&[]));
@@ -1602,7 +1601,7 @@ mod tests {
         gas_limit: Gas,
     ) -> (Runtime, ShardTries, CryptoHash, ApplyState, Arc<InMemorySigner>, impl EpochInfoProvider)
     {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let root = MerkleHash::default();
         let runtime = Runtime::new();
         let account_id = alice_account();

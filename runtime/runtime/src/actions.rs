@@ -784,7 +784,7 @@ fn validate_delegate_action_key(
                 )
                 .into());
             }
-            if delegate_action.receiver_id.as_ref() != function_call_permission.receiver_id {
+            if delegate_action.receiver_id != function_call_permission.receiver_id {
                 result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
                     InvalidAccessKeyError::ReceiverMismatch {
                         tx_receiver: delegate_action.receiver_id.clone(),
@@ -961,7 +961,7 @@ mod tests {
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{EpochId, StateChangeCause};
     use near_store::set_account;
-    use near_store::test_utils::create_tries;
+    use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
 
     fn test_action_create_account(
@@ -1088,7 +1088,7 @@ mod tests {
 
     #[test]
     fn test_delete_account_too_large() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let action_result = test_delete_large_account(
@@ -1109,7 +1109,7 @@ mod tests {
     }
 
     fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let account_id = "alice".parse::<AccountId>().unwrap();
@@ -1203,7 +1203,7 @@ mod tests {
         public_key: &PublicKey,
         access_key: &AccessKey,
     ) -> TrieUpdate {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let account = Account::new(100, 0, CryptoHash::default(), 100);

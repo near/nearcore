@@ -7,6 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_primitives::state_part::PartId;
+use near_store::test_utils::TestTriesBuilder;
 use num_rational::Ratio;
 
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
@@ -334,7 +335,10 @@ impl KeyValueRuntime {
         let num_shards = epoch_manager.num_shards(&EpochId::default()).unwrap();
         let epoch_length =
             epoch_manager.get_epoch_config(&EpochId::default()).unwrap().epoch_length;
-        let tries = ShardTries::test(store.clone(), num_shards);
+        let tries = TestTriesBuilder::new()
+            .with_store(store.clone())
+            .with_shard_layout(0, num_shards)
+            .build();
         let mut initial_amounts = HashMap::new();
         for (i, validator_stake) in epoch_manager
             .validators_by_valset
@@ -524,6 +528,8 @@ impl EpochManagerAdapter for MockEpochManager {
             1,
             1,
             RngSeed::default(),
+            #[cfg(feature = "protocol_feature_chunk_validation")]
+            Default::default(),
         )))
     }
 
@@ -942,6 +948,14 @@ impl EpochManagerAdapter for MockEpochManager {
         let shard_layout = self.get_shard_layout(&epoch_id)?;
         let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
         Ok(shard_layout != next_shard_layout)
+    }
+
+    #[cfg(feature = "new_epoch_sync")]
+    fn get_all_epoch_hashes(
+        &self,
+        _last_block_info: &BlockInfo,
+    ) -> Result<Vec<CryptoHash>, EpochError> {
+        Ok(vec![])
     }
 }
 

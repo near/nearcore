@@ -134,9 +134,6 @@ pub enum StateSnapshotType {
     /// State snapshots involve filesystem operations and costly IO operations.
     #[default]
     ForReshardingOnly,
-    /// Testing only. Makes a state snapshot after every epoch, but also every N blocks.
-    /// The first snapshot is done after processng the first block.
-    EveryEpochAndNBlocks(u64),
     /// This is the "enabled" option where we create a snapshot at the beginning of every epoch.
     /// Needed if a node wants to be able to respond to state part requests.
     EveryEpoch,

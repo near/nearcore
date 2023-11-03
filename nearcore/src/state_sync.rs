@@ -138,7 +138,7 @@ impl StateSyncDumpHandle {
     }
 }
 
-fn extract_part_id_from_part_file_name(file_name: &String) -> u64 {
+pub fn extract_part_id_from_part_file_name(file_name: &String) -> u64 {
     assert!(is_part_filename(file_name));
     return get_part_id_from_filename(file_name).unwrap();
 }
