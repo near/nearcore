@@ -125,6 +125,9 @@ pub struct DumpConfig {
     /// Feel free to set to `None`, defaults are sensible.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iteration_delay: Option<Duration>,
+    /// Location of a json file with credentials allowing write access to the bucket.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credentials_file: Option<PathBuf>,
 }
 
 /// Configures how to fetch state parts during state sync.
@@ -156,6 +159,24 @@ impl SyncConfig {
     /// Checks whether the object equals its default value.
     fn is_default(&self) -> bool {
         matches!(self, Self::Peers)
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
+pub struct StateSplitConfig {
+    /// The soft limit on the size of a single batch. The batch size can be
+    /// decreased if resharding is consuming too many resources and interfering
+    /// with regular node operation.
+    pub batch_size: bytesize::ByteSize,
+    /// The delay between writing batches to the db. The batch delay can be
+    /// increased if resharding is consuming too many resources and interfering
+    /// with regular node operation.
+    pub batch_delay: Duration,
+}
+
+impl Default for StateSplitConfig {
+    fn default() -> Self {
+        Self { batch_size: bytesize::ByteSize::mb(30), batch_delay: Duration::from_millis(100) }
     }
 }
 
@@ -262,13 +283,13 @@ pub struct ClientConfig {
     pub state_sync_enabled: bool,
     /// Options for syncing state.
     pub state_sync: StateSyncConfig,
-    /// Testing only. Makes a state snapshot after every epoch, but also every N blocks. The first snapshot is done after processng the first block.
-    pub state_snapshot_every_n_blocks: Option<u64>,
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
     pub transaction_pool_size_limit: Option<u64>,
     // Allows more detailed logging, for example a list of orphaned blocks.
     pub enable_multiline_logging: bool,
+    // Configuration for resharding.
+    pub state_split_config: StateSplitConfig,
 }
 
 impl ClientConfig {
@@ -341,9 +362,9 @@ impl ClientConfig {
             flat_storage_creation_period: Duration::from_secs(1),
             state_sync_enabled,
             state_sync: StateSyncConfig::default(),
-            state_snapshot_every_n_blocks: None,
             transaction_pool_size_limit: None,
             enable_multiline_logging: false,
+            state_split_config: StateSplitConfig::default(),
         }
     }
 }

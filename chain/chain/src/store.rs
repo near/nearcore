@@ -11,6 +11,8 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 use near_primitives::checked_feature;
+#[cfg(feature = "new_epoch_sync")]
+use near_primitives::epoch_manager::epoch_sync::EpochSyncInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
@@ -21,9 +23,9 @@ use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
     StateSyncInfo,
 };
-use near_primitives::syncing::{
-    get_num_state_parts, ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey,
-    StatePartKey, StateSyncDumpProgress,
+use near_primitives::state_sync::{
+    ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
+    StateSyncDumpProgress,
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
@@ -201,22 +203,31 @@ pub trait ChainStoreAccess {
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<Arc<Vec<Receipt>>, Error>;
+
     fn get_incoming_receipts(
         &self,
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<Arc<Vec<ReceiptProof>>, Error>;
+
     /// Collect incoming receipts for shard `shard_id` from
     /// the block at height `last_chunk_height_included` (non-inclusive) to the block `block_hash` (inclusive)
     /// This is because the chunks for the shard are empty for the blocks in between,
     /// so the receipts from these blocks are propagated
     fn get_incoming_receipts_for_shard(
         &self,
-        shard_id: ShardId,
+        epoch_manager: &dyn EpochManagerAdapter,
+        mut shard_id: ShardId,
         mut block_hash: CryptoHash,
         last_chunk_height_included: BlockHeight,
     ) -> Result<Vec<ReceiptProofResponse>, Error> {
+        let _span =
+            tracing::debug_span!(target: "chain", "get_incoming_receipts_for_shard", ?shard_id, ?block_hash, last_chunk_height_included).entered();
+
         let mut ret = vec![];
+
+        let target_shard_id = shard_id;
+        let target_shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash)?;
 
         loop {
             let header = self.get_block_header(&block_hash)?;
@@ -229,19 +240,64 @@ pub trait ChainStoreAccess {
                 break;
             }
 
-            let prev_hash = *header.prev_hash();
+            let prev_hash = header.prev_hash();
+            let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash)?;
+            let prev_shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_hash)?;
 
-            if let Ok(receipt_proofs) = self.get_incoming_receipts(&block_hash, shard_id) {
-                ret.push(ReceiptProofResponse(block_hash, receipt_proofs));
-            } else {
-                ret.push(ReceiptProofResponse(block_hash, Arc::new(vec![])));
+            if shard_layout != prev_shard_layout {
+                let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
+                tracing::debug!(
+                    target: "chain",
+                    version = shard_layout.version(),
+                    prev_version = prev_shard_layout.version(),
+                    shard_id,
+                    parent_shard_id,
+                    "crossing epoch boundary with shard layout change, updating shard id"
+                );
+                shard_id = parent_shard_id;
             }
 
-            block_hash = prev_hash;
+            let receipts_proofs = self.get_incoming_receipts(&block_hash, shard_id);
+            match receipts_proofs {
+                Ok(receipt_proofs) => {
+                    tracing::debug!(
+                        target: "chain",
+                        "found receipts from block with missing chunks",
+                    );
+
+                    // If the shard layout changed we need to filter receipts to
+                    // make sure we only include receipts where receiver belongs
+                    // to the target shard id in the target shard layout.
+                    let filtered_receipt_proofs = filter_incoming_receipts_for_shard(
+                        &target_shard_layout,
+                        target_shard_id,
+                        receipt_proofs,
+                    );
+
+                    ret.push(ReceiptProofResponse(block_hash, filtered_receipt_proofs.into()));
+                }
+                Err(err) => {
+                    tracing::debug!(
+                        target: "chain",
+                        ?err,
+                        "could not find receipts from block with missing chunks"
+                    );
+
+                    // This can happen when all chunks are missing in a block
+                    // and then we can safely assume that there aren't any
+                    // incoming receipts. It would be nicer to explicitly check
+                    // that condition rather than relying on errors when reading
+                    // from the db.
+                    ret.push(ReceiptProofResponse(block_hash, Arc::new(vec![])));
+                }
+            }
+
+            block_hash = *prev_hash;
         }
 
         Ok(ret)
     }
+
     /// Returns whether the block with the given hash was challenged
     fn is_block_challenged(&self, hash: &CryptoHash) -> Result<bool, Error>;
 
@@ -313,6 +369,36 @@ pub trait ChainStoreAccess {
             shard_id = epoch_manager.get_prev_shard_ids(&candidate_hash, vec![shard_id])?[0];
         }
     }
+}
+
+/// Given a vector of receipts return only the receipts that should be assigned
+/// to the target shard id in the target shard layout. Used when collecting the
+/// incoming receipts and the shard layout changed.
+fn filter_incoming_receipts_for_shard(
+    target_shard_layout: &ShardLayout,
+    target_shard_id: u64,
+    receipt_proofs: Arc<Vec<ReceiptProof>>,
+) -> Vec<ReceiptProof> {
+    let mut filtered_receipt_proofs = vec![];
+    for receipt_proof in receipt_proofs.iter() {
+        let mut filtered_receipts = vec![];
+        let ReceiptProof(receipts, shard_proof) = receipt_proof.clone();
+        for receipt in receipts {
+            let receiver_shard_id =
+                account_id_to_shard_id(&receipt.receiver_id, target_shard_layout);
+            if receiver_shard_id == target_shard_id {
+                tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id, "including receipt");
+                filtered_receipts.push(receipt);
+            } else {
+                tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id, "excluding receipt");
+            }
+        }
+        // TODO(resharding) adjust the shard proof accordingly
+        // currently this only matters for state sync
+        let receipt_proof = ReceiptProof(filtered_receipts, shard_proof);
+        filtered_receipt_proofs.push(receipt_proof);
+    }
+    filtered_receipt_proofs
 }
 
 /// All chain-related database operations.
@@ -795,7 +881,7 @@ impl ChainStore {
         shard_id: ShardId,
         block_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
-        let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
+        let key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))?;
         match self.store.get_ser(DBCol::StateHeaders, &key) {
             Ok(Some(header)) => Ok(header),
             _ => Err(Error::Other("Cannot get shard_state_header".into())),
@@ -820,6 +906,15 @@ impl ChainStore {
         store_update.set_ser(DBCol::BlockMisc, LATEST_KNOWN_KEY, &latest_known)?;
         self.latest_known = once_cell::unsync::OnceCell::from(latest_known);
         store_update.commit().map_err(|err| err.into())
+    }
+
+    /// Save epoch sync info
+    #[cfg(feature = "new_epoch_sync")]
+    pub fn get_epoch_sync_info(&self, epoch_id: &EpochId) -> Result<EpochSyncInfo, Error> {
+        option_to_not_found(
+            self.store.get_ser(DBCol::EpochSyncInfo, epoch_id.as_ref()),
+            "EpochSyncInfo",
+        )
     }
 
     /// Retrieve the kinds of state changes occurred in a given block.
@@ -1106,7 +1201,11 @@ impl ChainStoreAccess for ChainStore {
     }
 
     fn chunk_exists(&self, h: &ChunkHash) -> Result<bool, Error> {
-        self.store.exists(DBCol::Chunks, h.as_ref()).map_err(|e| e.into())
+        if self.chunks.get(h.as_ref()).is_some() {
+            Ok(true)
+        } else {
+            self.store.exists(DBCol::Chunks, h.as_ref()).map_err(|e| e.into())
+        }
     }
 
     /// Get previous header.
@@ -1219,7 +1318,7 @@ impl ChainStoreAccess for ChainStore {
                 &self.incoming_receipts,
                 &get_block_shard_id(block_hash, shard_id),
             ),
-            format_args!("INCOMING RECEIPT: {}", block_hash),
+            format_args!("INCOMING RECEIPT: {} {}", block_hash, shard_id),
         )
     }
 
@@ -1875,7 +1974,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 .transactions
                 .insert(transaction.get_hash(), Arc::new(transaction.clone()));
         }
-        for receipt in chunk.receipts() {
+        for receipt in chunk.prev_outgoing_receipts() {
             self.chain_store_cache_update
                 .receipts
                 .insert(receipt.receipt_id, Arc::new(receipt.clone()));
@@ -2129,7 +2228,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 for transaction in chunk.transactions() {
                     self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
                 }
-                for receipt in chunk.receipts() {
+                for receipt in chunk.prev_outgoing_receipts() {
                     self.gc_col(DBCol::Receipts, receipt.get_hash().as_bytes());
                 }
 
@@ -2298,10 +2397,9 @@ impl<'a> ChainStoreUpdate<'a> {
             // We need to make sure all State Parts are removed.
             if let Ok(shard_state_header) = self.chain_store.get_state_header(shard_id, block_hash)
             {
-                let state_num_parts =
-                    get_num_state_parts(shard_state_header.state_root_node().memory_usage);
+                let state_num_parts = shard_state_header.num_state_parts();
                 self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
-                let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
+                let key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))?;
                 self.gc_col(DBCol::StateHeaders, &key);
             }
         }
@@ -2398,10 +2496,9 @@ impl<'a> ChainStoreUpdate<'a> {
             // delete state parts and state headers
             if let Ok(shard_state_header) = self.chain_store.get_state_header(shard_id, block_hash)
             {
-                let state_num_parts =
-                    get_num_state_parts(shard_state_header.state_root_node().memory_usage);
+                let state_num_parts = shard_state_header.num_state_parts();
                 self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
-                let state_header_key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
+                let state_header_key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))?;
                 self.gc_col(DBCol::StateHeaders, &state_header_key);
             }
 
@@ -2455,7 +2552,7 @@ impl<'a> ChainStoreUpdate<'a> {
             for transaction in chunk.transactions() {
                 self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
             }
-            for receipt in chunk.receipts() {
+            for receipt in chunk.prev_outgoing_receipts() {
                 self.gc_col(DBCol::Receipts, receipt.get_hash().as_bytes());
             }
 
@@ -2511,7 +2608,7 @@ impl<'a> ChainStoreUpdate<'a> {
         num_parts: u64,
     ) -> Result<(), Error> {
         for part_id in 0..num_parts {
-            let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+            let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
             self.gc_col(DBCol::StateParts, &key);
         }
         Ok(())
@@ -2706,9 +2803,10 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
             | DBCol::FlatStorageStatus
-            | DBCol::Misc => {
-                unreachable!();
-            }
+            | DBCol::Misc
+            => unreachable!(),
+            #[cfg(feature = "new_epoch_sync")]
+            DBCol::EpochSyncInfo => unreachable!(),
         }
         self.merge(store_update);
     }
@@ -2913,7 +3011,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         let mut chunk_hashes_by_height: HashMap<BlockHeight, HashSet<ChunkHash>> = HashMap::new();
         for (chunk_hash, chunk) in self.chain_store_cache_update.chunks.iter() {
-            if self.chain_store.get_chunk(chunk_hash).is_ok() {
+            if self.chain_store.chunk_exists(chunk_hash)? {
                 // No need to add same Chunk once again
                 continue;
             }
@@ -2936,7 +3034,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
             // Increase transaction refcounts for all included txs
             for tx in chunk.transactions().iter() {
-                let bytes = tx.try_to_vec().expect("Borsh cannot fail");
+                let bytes = borsh::to_vec(&tx).expect("Borsh cannot fail");
                 store_update.increment_refcount(
                     DBCol::Transactions,
                     tx.get_hash().as_ref(),
@@ -2945,8 +3043,8 @@ impl<'a> ChainStoreUpdate<'a> {
             }
 
             // Increase receipt refcounts for all included receipts
-            for receipt in chunk.receipts().iter() {
-                let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
+            for receipt in chunk.prev_outgoing_receipts().iter() {
+                let bytes = borsh::to_vec(&receipt).expect("Borsh cannot fail");
                 store_update.increment_refcount(
                     DBCol::Receipts,
                     receipt.get_hash().as_ref(),
@@ -3016,7 +3114,7 @@ impl<'a> ChainStoreUpdate<'a> {
             )?;
         }
         for (receipt_id, shard_id) in self.chain_store_cache_update.receipt_id_to_shard_id.iter() {
-            let data = shard_id.try_to_vec()?;
+            let data = borsh::to_vec(&shard_id)?;
             store_update.increment_refcount(DBCol::ReceiptIdToShardId, receipt_id.as_ref(), &data);
         }
         for (block_hash, refcount) in self.chain_store_cache_update.block_refcounts.iter() {

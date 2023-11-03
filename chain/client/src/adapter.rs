@@ -59,7 +59,7 @@ pub(crate) struct BlockHeadersResponse(pub Vec<BlockHeader>, pub PeerId);
 /// State request header.
 #[derive(actix::Message, Debug)]
 #[rtype(result = "Option<StateResponse>")]
-pub(crate) struct StateRequestHeader {
+pub struct StateRequestHeader {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
 }
@@ -67,7 +67,7 @@ pub(crate) struct StateRequestHeader {
 /// State request part.
 #[derive(actix::Message, Debug)]
 #[rtype(result = "Option<StateResponse>")]
-pub(crate) struct StateRequestPart {
+pub struct StateRequestPart {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
     pub part_id: u64,
@@ -76,7 +76,7 @@ pub(crate) struct StateRequestPart {
 /// Response to state request.
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub(crate) struct StateResponse(pub Box<StateResponseInfo>);
+pub struct StateResponse(pub Box<StateResponseInfo>);
 
 /// Account announcements that needs to be validated before being processed.
 /// They are paired with last epoch id known to this announcement, in order to accept only
@@ -160,10 +160,7 @@ impl near_network::client::Client for Adapter {
     ) -> Option<Box<FinalExecutionOutcomeView>> {
         match self
             .view_client_addr
-            .send(
-                TxStatusRequest { tx_hash: tx_hash, signer_account_id: account_id }
-                    .with_span_context(),
-            )
+            .send(TxStatusRequest { tx_hash, signer_account_id: account_id }.with_span_context())
             .await
         {
             Ok(res) => res,
@@ -194,9 +191,7 @@ impl near_network::client::Client for Adapter {
     ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
         match self
             .view_client_addr
-            .send(
-                StateRequestHeader { shard_id: shard_id, sync_hash: sync_hash }.with_span_context(),
-            )
+            .send(StateRequestHeader { shard_id, sync_hash }.with_span_context())
             .await
         {
             Ok(Some(StateResponse(resp))) => Ok(Some(*resp)),
@@ -216,10 +211,7 @@ impl near_network::client::Client for Adapter {
     ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
         match self
             .view_client_addr
-            .send(
-                StateRequestPart { shard_id: shard_id, sync_hash: sync_hash, part_id: part_id }
-                    .with_span_context(),
-            )
+            .send(StateRequestPart { shard_id, sync_hash, part_id }.with_span_context())
             .await
         {
             Ok(Some(StateResponse(resp))) => Ok(Some(*resp)),

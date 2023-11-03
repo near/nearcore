@@ -1,6 +1,6 @@
 # Malicious producers in phase 2 of sharding.
 
-In this document, we'll compare the impact of the hypothethical malicious producer on the NEAR system (both in the current setup and how it will work when phase2 is implemented).
+In this document, we'll compare the impact of the hypothetical malicious producer on the NEAR system (both in the current setup and how it will work when phase2 is implemented).
 
 ## Current state (Phase 1)
 
@@ -34,7 +34,7 @@ powerful machines with > 100 cores).
 So in the similar scenario as above - ``C1`` creates a malicious chunks, and 
 sends it to ``B1``, which includes it in the block.
 
-And here's where the complexity starts - as most of the valiators will NOT 
+And here's where the complexity starts - as most of the validators will NOT 
 track the shard which ``C1`` was producing - so they will still sign the block.
 
 The validators that do track that shard will of course (assuming that they are non-malicious) refuse the sign. But overall, they will be a small majority - so the block is going to get enough signatures and be added to the chain.
@@ -61,7 +61,7 @@ and it to the next block.
 Then the validators do the verification themselves, and if successful, they 
 sign the block.
 
-When such block is succesfully signed, the protocol automatically slashes 
+When such block is successfully signed, the protocol automatically slashes 
 malicious nodes (more details below) and initiates the rollback to bring the 
 state back to the state before the bad chunk (so in our case, back to the block 
 produced by `B0`).
@@ -72,7 +72,7 @@ produced by `B0`).
 Slashing is the process of taking away the part of the stake from validators
 that are considered malicious.
 
-In the example above, we'll definately need to slash the ``C1`` - and potentially also any validators that were tracking that shard and did sign the bad block.
+In the example above, we'll definitely need to slash the ``C1`` - and potentially also any validators that were tracking that shard and did sign the bad block.
 
 Things that we'll have to figure out in the future:
 * how much do we slash? all of the stake? some part?
@@ -86,7 +86,7 @@ Things that we'll have to figure out in the future:
 ## Problems with the current Phase 2 design
 
 ### Is slashing painful enough?
-In the example above, we'd succesfully slash the ``C1`` producer - but was it  
+In the example above, we'd successfully slash the ``C1`` producer - but was it  
 enough?
 
 Currently (with 4 shards) you need around 20k NEAR to become a chunk producer. 

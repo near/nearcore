@@ -11,6 +11,7 @@ use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::ApplyTransactionResult;
 use near_chain::types::RuntimeAdapter;
+use near_chain::types::RuntimeStorageConfig;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::types::BlockHeaderInfo;
@@ -50,11 +51,7 @@ pub(crate) fn apply_block(
     let height = block.header().height();
     let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
     if use_flat_storage {
-        runtime
-            .get_flat_storage_manager()
-            .unwrap()
-            .create_flat_storage_for_shard(shard_uid)
-            .unwrap();
+        runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid).unwrap();
     }
     let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
         let chunk = chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap();
@@ -62,6 +59,7 @@ pub(crate) fn apply_block(
         let chain_store_update = ChainStoreUpdate::new(chain_store);
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
+                epoch_manager,
                 shard_id,
                 block_hash,
                 prev_block.chunks()[shard_id as usize].height_included(),
@@ -81,22 +79,20 @@ pub(crate) fn apply_block(
         runtime
             .apply_transactions(
                 shard_id,
-                chunk_inner.prev_state_root(),
+                RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
                 height,
                 block.header().raw_timestamp(),
                 block.header().prev_hash(),
                 block.hash(),
                 &receipts,
                 chunk.transactions(),
-                chunk_inner.validator_proposals(),
-                prev_block.header().gas_price(),
+                chunk_inner.prev_validator_proposals(),
+                prev_block.header().next_gas_price(),
                 chunk_inner.gas_limit(),
                 block.header().challenges_result(),
                 *block.header().random_value(),
                 true,
                 is_first_block_with_chunk_of_version,
-                Default::default(),
-                use_flat_storage,
             )
             .unwrap()
     } else {
@@ -106,7 +102,7 @@ pub(crate) fn apply_block(
         runtime
             .apply_transactions(
                 shard_id,
-                chunk_extra.state_root(),
+                RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
                 block.header().height(),
                 block.header().raw_timestamp(),
                 block.header().prev_hash(),
@@ -114,14 +110,12 @@ pub(crate) fn apply_block(
                 &[],
                 &[],
                 chunk_extra.validator_proposals(),
-                block.header().gas_price(),
+                block.header().next_gas_price(),
                 chunk_extra.gas_limit(),
                 block.header().challenges_result(),
                 *block.header().random_value(),
                 false,
                 false,
-                Default::default(),
-                use_flat_storage,
             )
             .unwrap()
     };
@@ -521,7 +515,7 @@ pub(crate) fn check_apply_block_result(
     block: &Block,
     apply_result: &ApplyTransactionResult,
     epoch_manager: &EpochManagerHandle,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     shard_id: ShardId,
 ) -> anyhow::Result<()> {
     let height = block.header().height();
@@ -631,7 +625,7 @@ pub(crate) fn print_chain(
                                     "{}: {} {: >3} Tgas {: >10}",
                                     shard_id,
                                     format_hash(chunk_hash.0, show_full_hashes),
-                                    chunk.cloned_header().gas_used() / (1_000_000_000_000),
+                                    chunk.cloned_header().prev_gas_used() / (1_000_000_000_000),
                                     chunk_producer
                                 ));
                             } else {
@@ -872,9 +866,21 @@ pub(crate) fn view_trie(
     shard_id: u32,
     shard_version: u32,
     max_depth: u32,
+    limit: Option<u32>,
+    record_type: Option<u8>,
+    from: Option<AccountId>,
+    to: Option<AccountId>,
 ) -> anyhow::Result<()> {
     let trie = get_trie(store, hash, shard_id, shard_version);
-    trie.print_recursive(&mut std::io::stdout().lock(), &hash, max_depth);
+    trie.print_recursive(
+        &mut std::io::stdout().lock(),
+        &hash,
+        max_depth,
+        limit,
+        record_type,
+        &from.as_ref(),
+        &to.as_ref(),
+    );
     Ok(())
 }
 
@@ -884,9 +890,20 @@ pub(crate) fn view_trie_leaves(
     shard_id: u32,
     shard_version: u32,
     max_depth: u32,
+    limit: Option<u32>,
+    record_type: Option<u8>,
+    from: Option<AccountId>,
+    to: Option<AccountId>,
 ) -> anyhow::Result<()> {
     let trie = get_trie(store, state_root_hash, shard_id, shard_version);
-    trie.print_recursive_leaves(&mut std::io::stdout().lock(), max_depth);
+    trie.print_recursive_leaves(
+        &mut std::io::stdout().lock(),
+        max_depth,
+        limit,
+        record_type,
+        &from.as_ref(),
+        &to.as_ref(),
+    );
     Ok(())
 }
 

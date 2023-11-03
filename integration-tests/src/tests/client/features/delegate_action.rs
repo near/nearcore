@@ -4,7 +4,6 @@
 //! This is the module for its integration tests.
 
 use crate::node::{Node, RuntimeNode};
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use crate::tests::standard_cases::fee_helper;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
@@ -28,6 +27,7 @@ use near_primitives::views::{
 };
 use near_test_contracts::{ft_contract, smallest_rs_contract};
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
 use testlib::runtime_utils::{
     add_account_with_access_key, add_contract, add_test_contract, alice_account, bob_account,
@@ -130,13 +130,13 @@ fn check_meta_tx_execution(
     let relayer_before = node_user.view_balance(&relayer).unwrap();
     let receiver_before = node_user.view_balance(&receiver).unwrap_or(0);
     let relayer_nonce_before = node_user
-        .get_access_key(&relayer, &PublicKey::from_seed(KeyType::ED25519, &relayer))
+        .get_access_key(&relayer, &PublicKey::from_seed(KeyType::ED25519, relayer.as_ref()))
         .unwrap()
         .nonce;
     let user_pubk = if sender.is_implicit() {
         PublicKey::from_implicit_account(&sender).unwrap()
     } else {
-        PublicKey::from_seed(KeyType::ED25519, &sender)
+        PublicKey::from_seed(KeyType::ED25519, sender.as_ref())
     };
     let user_nonce_before = node_user.get_access_key(&sender, &user_pubk).unwrap().nonce;
 
@@ -148,13 +148,13 @@ fn check_meta_tx_execution(
 
     // both nonces should be increased by 1
     let relayer_nonce = node_user
-        .get_access_key(&relayer, &PublicKey::from_seed(KeyType::ED25519, &relayer))
+        .get_access_key(&relayer, &PublicKey::from_seed(KeyType::ED25519, relayer.as_ref()))
         .unwrap()
         .nonce;
     assert_eq!(relayer_nonce, relayer_nonce_before + 1);
     // user key must be checked for existence (to test DeleteKey action)
     if let Ok(user_nonce) = node_user
-        .get_access_key(&sender, &PublicKey::from_seed(KeyType::ED25519, &sender))
+        .get_access_key(&sender, &PublicKey::from_seed(KeyType::ED25519, sender.as_ref()))
         .map(|key| key.nonce)
     {
         assert_eq!(user_nonce, user_nonce_before + 1);
@@ -228,14 +228,15 @@ fn check_meta_tx_fn_call(
     // dynamic cost. The contract reward can be inferred from that.
 
     // static send gas is paid and burnt upfront
-    let static_send_gas = fee_helper.cfg.fee(ActionCosts::new_action_receipt).send_fee(false)
-        + num_fn_calls as u64 * fee_helper.cfg.fee(ActionCosts::function_call_base).send_fee(false)
-        + msg_len * fee_helper.cfg.fee(ActionCosts::function_call_byte).send_fee(false);
+    let static_send_gas = fee_helper.cfg().fee(ActionCosts::new_action_receipt).send_fee(false)
+        + num_fn_calls as u64
+            * fee_helper.cfg().fee(ActionCosts::function_call_base).send_fee(false)
+        + msg_len * fee_helper.cfg().fee(ActionCosts::function_call_byte).send_fee(false);
     // static execution gas burnt in the same receipt as the function calls but
     // it doesn't contribute to the contract reward
-    let static_exec_gas = fee_helper.cfg.fee(ActionCosts::new_action_receipt).exec_fee()
-        + num_fn_calls as u64 * fee_helper.cfg.fee(ActionCosts::function_call_base).exec_fee()
-        + msg_len * fee_helper.cfg.fee(ActionCosts::function_call_byte).exec_fee();
+    let static_exec_gas = fee_helper.cfg().fee(ActionCosts::new_action_receipt).exec_fee()
+        + num_fn_calls as u64 * fee_helper.cfg().fee(ActionCosts::function_call_base).exec_fee()
+        + msg_len * fee_helper.cfg().fee(ActionCosts::function_call_byte).exec_fee();
 
     // calculate contract rewards as reward("gas burnt in fn call receipt" - "static exec costs")
     let gas_burnt_for_function_call =
@@ -313,7 +314,7 @@ fn meta_tx_fn_call_access_key() {
     // Check previous allowance is set as expected
     let key =
         node.user().get_access_key(&sender, &public_key).expect("failed looking up fn access key");
-    let AccessKeyPermissionView::FunctionCall { allowance, ..} = key.permission else {
+    let AccessKeyPermissionView::FunctionCall { allowance, .. } = key.permission else {
         panic!("should be function access key")
     };
     assert_eq!(allowance.unwrap(), INITIAL_ALLOWANCE);
@@ -338,7 +339,7 @@ fn meta_tx_fn_call_access_key() {
         .user()
         .get_access_key(&sender, &signer.public_key())
         .expect("failed looking up fn access key");
-    let AccessKeyPermissionView::FunctionCall { allowance, ..} = key.permission else {
+    let AccessKeyPermissionView::FunctionCall { allowance, .. } = key.permission else {
         panic!("should be function access key")
     };
     assert_eq!(
@@ -448,7 +449,7 @@ fn meta_tx_stake() {
 
     let tx_cost = fee_helper.stake_cost();
     let public_key = create_user_test_signer(&sender).public_key;
-    let actions = vec![Action::Stake(StakeAction { public_key, stake: 0 })];
+    let actions = vec![Action::Stake(Box::new(StakeAction { public_key, stake: 0 }))];
     check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver);
 }
 
@@ -465,10 +466,10 @@ fn meta_tx_add_key() {
     // any public key works as long as it doesn't exists on the receiver, the
     // relayer public key is just handy
     let public_key = node.signer().public_key();
-    let actions = vec![Action::AddKey(AddKeyAction {
+    let actions = vec![Action::AddKey(Box::new(AddKeyAction {
         public_key: public_key.clone(),
         access_key: AccessKey::full_access(),
-    })];
+    }))];
     check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver.clone());
 
     let key_view = node
@@ -492,8 +493,9 @@ fn meta_tx_delete_key() {
     let fee_helper = fee_helper(&node);
 
     let tx_cost = fee_helper.delete_key_cost();
-    let public_key = PublicKey::from_seed(KeyType::ED25519, &receiver);
-    let actions = vec![Action::DeleteKey(DeleteKeyAction { public_key: public_key.clone() })];
+    let public_key = PublicKey::from_seed(KeyType::ED25519, receiver.as_ref());
+    let actions =
+        vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key: public_key.clone() }))];
     check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver.clone());
 
     let err = node
@@ -516,7 +518,7 @@ fn meta_tx_delete_account() {
         .create_account(
             relayer.clone(),
             sender.clone(),
-            PublicKey::from_seed(KeyType::ED25519, &sender),
+            PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
             balance,
         )
         .expect("account setup failed")
@@ -575,13 +577,13 @@ fn meta_tx_ft_transfer() {
         .assert_success();
 
     // register sender & receiver FT accounts
-    let actions = vec![ft_register_action(&sender), ft_register_action(&receiver)];
+    let actions = vec![ft_register_action(sender.as_ref()), ft_register_action(&receiver)];
     node.user()
         .sign_and_commit_actions(relayer.clone(), ft_contract.clone(), actions)
         .expect("registering FT accounts")
         .assert_success();
     // initialize sender balance
-    let actions = vec![ft_transfer_action(&sender, 10_000).0];
+    let actions = vec![ft_transfer_action(sender.as_ref(), 10_000).0];
     node.user()
         .sign_and_commit_actions(relayer.clone(), ft_contract.clone(), actions)
         .expect("initializing sender balance failed")
@@ -589,7 +591,7 @@ fn meta_tx_ft_transfer() {
 
     // START OF META TRANSACTION
     // 1% fee to the relayer
-    let (action0, bytes0) = ft_transfer_action(&relayer, 10);
+    let (action0, bytes0) = ft_transfer_action(relayer.as_ref(), 10);
     // the actual transfer
     let (action1, bytes1) = ft_transfer_action(receiver, 1000);
     let actions = vec![action0, action1];
@@ -610,29 +612,29 @@ fn meta_tx_ft_transfer() {
     assert_eq!(2, fn_call_logs.len(), "expected 2 JSON events but found {fn_call_logs:?}");
     assert_eq!(
         fn_call_logs[0],
-        ft_transfer_event(&sender, &relayer, 10),
+        ft_transfer_event(sender.as_ref(), relayer.as_ref(), 10),
         "relayer event looks wrong"
     );
     assert_eq!(
         fn_call_logs[1],
-        ft_transfer_event(&sender, &receiver, 1000),
+        ft_transfer_event(sender.as_str(), &receiver, 1000),
         "receiver event looks wrong"
     );
 
     // Also check FT balances
     assert_ft_balance(&node, &ft_contract, &receiver, 1000);
-    assert_ft_balance(&node, &ft_contract, &sender, 10_000 - 1000 - 10);
-    assert_ft_balance(&node, &ft_contract, &relayer, 1_000_000 - 10_000 + 10);
+    assert_ft_balance(&node, &ft_contract, sender.as_ref(), 10_000 - 1000 - 10);
+    assert_ft_balance(&node, &ft_contract, relayer.as_ref(), 1_000_000 - 10_000 + 10);
 }
 
 /// Call the function "log_something" in the test contract.
 fn log_something_fn_call() -> Action {
-    Action::FunctionCall(FunctionCallAction {
+    Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: TEST_METHOD.to_owned(),
         args: vec![],
         gas: 30_000_000_000_000,
         deposit: 0,
-    })
+    }))
 }
 
 /// Construct an function call action with a FT transfer.
@@ -649,12 +651,12 @@ fn ft_transfer_action(receiver: &str, amount: u128) -> (Action, u64) {
     .collect();
     let method_name = "ft_transfer".to_owned();
     let num_bytes = method_name.len() + args.len();
-    let action = Action::FunctionCall(FunctionCallAction {
+    let action = Action::FunctionCall(Box::new(FunctionCallAction {
         method_name,
         args,
         gas: 20_000_000_000_000,
         deposit: 1,
-    });
+    }));
 
     (action, num_bytes as u64)
 }
@@ -669,12 +671,12 @@ fn ft_register_action(receiver: &str) -> Action {
     )
     .bytes()
     .collect();
-    Action::FunctionCall(FunctionCallAction {
+    Action::FunctionCall(Box::new(FunctionCallAction {
         method_name: "storage_deposit".to_owned(),
         args,
         gas: 20_000_000_000_000,
         deposit: NEAR_BASE,
-    })
+    }))
 }
 
 /// Format a NEP-141 event for an ft transfer
@@ -756,13 +758,13 @@ fn meta_tx_create_named_account() {
     let fee_helper = fee_helper(&node);
     let amount = NEAR_BASE;
 
-    let public_key = PublicKey::from_seed(KeyType::ED25519, &new_account);
+    let public_key = PublicKey::from_seed(KeyType::ED25519, new_account.as_ref());
 
     // That's the minimum to create a (useful) account.
     let actions = vec![
         Action::CreateAccount(CreateAccountAction {}),
         Action::Transfer(TransferAction { deposit: amount }),
-        Action::AddKey(AddKeyAction { public_key, access_key: AccessKey::full_access() }),
+        Action::AddKey(Box::new(AddKeyAction { public_key, access_key: AccessKey::full_access() })),
     ];
 
     // Check the account doesn't exist, yet. We want to create it.

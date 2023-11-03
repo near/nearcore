@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::types::{ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
-use near_chain_configs::GenesisValidationMode;
+use near_chain_configs::{GenesisValidationMode, StateSplitConfig};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::types::EpochInfoAggregator;
 use near_epoch_manager::EpochManager;
@@ -187,7 +187,7 @@ fn create_snapshot(create_cmd: CreateCmd) {
 
     fs::write(
         Path::new(&create_cmd.destination_dir).join("snapshot.borsh"),
-        checkpoint.try_to_vec().unwrap(),
+        borsh::to_vec(&checkpoint).unwrap(),
     )
     .expect("Failed writing to destination file");
 
@@ -243,7 +243,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         ChainConfig {
             save_trie_changes: config.client_config.save_trie_changes,
             background_migration_threads: 1,
-            state_snapshot_every_n_blocks: None,
+            state_split_config: StateSplitConfig::default(),
         },
         None,
     )

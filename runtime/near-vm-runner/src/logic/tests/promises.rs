@@ -2,7 +2,7 @@ use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::logic::types::PromiseResult;
-use borsh::BorshSerialize;
+
 use near_crypto::PublicKey;
 use serde_json;
 
@@ -365,11 +365,10 @@ fn test_promise_batch_action_stake() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build();
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
-    let key = "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf"
-        .parse::<PublicKey>()
-        .unwrap()
-        .try_to_vec()
-        .unwrap();
+    let key = borsh::to_vec(
+        &"ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf".parse::<PublicKey>().unwrap(),
+    )
+    .unwrap();
 
     let key = logic.internal_mem_write(&key);
     let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
@@ -443,11 +442,10 @@ fn test_promise_batch_action_add_key_with_function_call() {
     let mut logic = logic_builder.build();
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
-    let key = "ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf"
-        .parse::<PublicKey>()
-        .unwrap()
-        .try_to_vec()
-        .unwrap();
+    let key = borsh::to_vec(
+        &"ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf".parse::<PublicKey>().unwrap(),
+    )
+    .unwrap();
     let nonce = 1;
     let allowance = 999u128;
     let receiver_id = b"sam";

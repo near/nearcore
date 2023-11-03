@@ -13,9 +13,10 @@ use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
+use crate::sync::adapter::{SyncMessage, SyncShardInfo};
 use crate::sync::state::{StateSync, StateSyncResult};
 use crate::sync_jobs_actor::{create_sync_job_scheduler, SyncJobsActor};
-use crate::{metrics, StatusResponse};
+use crate::{metrics, StatusResponse, SyncAdapter};
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
 use actix_rt::ArbiterHandle;
 use chrono::{DateTime, Utc};
@@ -24,7 +25,7 @@ use near_chain::chain::{
     ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest, BlockCatchUpResponse,
 };
 use near_chain::resharding::{StateSplitRequest, StateSplitResponse};
-use near_chain::state_snapshot_actor::MakeSnapshotCallback;
+use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
 #[cfg(feature = "test_features")]
@@ -48,10 +49,7 @@ use near_network::types::ReasonForBan;
 use near_network::types::{
     NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_o11y::{
-    handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext,
-    WithSpanContextExt,
-};
+use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
@@ -60,7 +58,7 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::static_clock::StaticClock;
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -68,12 +66,13 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
+use near_store::ShardUId;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
@@ -265,31 +264,8 @@ impl ClientActor {
         f: impl FnOnce(&mut Self, Req) -> Res,
     ) -> Res {
         let (_span, msg) = handler_debug_span!(target: "client", msg, msg_type);
-        self.wrap_impl(msg, ctx, msg_type, f)
-    }
-
-    // Same as `wrap()`, because creates a span at the `trace` verbosity.
-    fn wrap_trace<Req: std::fmt::Debug + actix::Message, Res>(
-        &mut self,
-        msg: WithSpanContext<Req>,
-        ctx: &mut Context<Self>,
-        msg_type: &str,
-        f: impl FnOnce(&mut Self, Req) -> Res,
-    ) -> Res {
-        let (_span, msg) = handler_trace_span!(target: "client", msg, msg_type);
-        self.wrap_impl(msg, ctx, msg_type, f)
-    }
-
-    fn wrap_impl<Req: std::fmt::Debug + actix::Message, Res>(
-        &mut self,
-        msg: Req,
-        ctx: &mut Context<Self>,
-        msg_type: &str,
-        f: impl FnOnce(&mut Self, Req) -> Res,
-    ) -> Res {
         self.check_triggers(ctx);
-        let _d =
-            delay_detector::DelayDetector::new(|| format!("NetworkClientMessage {:?}", msg).into());
+        let _span_inner = tracing::debug_span!(target: "client", "NetworkClientMessage").entered();
         metrics::CLIENT_MESSAGES_COUNT.with_label_values(&[msg_type]).inc();
         let timer =
             metrics::CLIENT_MESSAGES_PROCESSING_TIME.with_label_values(&[msg_type]).start_timer();
@@ -420,6 +396,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
 impl Handler<WithSpanContext<ProcessTxRequest>> for ClientActor {
     type Result = ProcessTxResponse;
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<ProcessTxRequest>,
@@ -435,6 +412,7 @@ impl Handler<WithSpanContext<ProcessTxRequest>> for ClientActor {
 impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: WithSpanContext<BlockResponse>, ctx: &mut Context<Self>) {
         self.wrap(msg, ctx, "BlockResponse", |this: &mut Self, msg|{
             let BlockResponse{ block, peer_id, was_requested } = msg;
@@ -489,6 +467,7 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
 impl Handler<WithSpanContext<BlockHeadersResponse>> for ClientActor {
     type Result = Result<(), ReasonForBan>;
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<BlockHeadersResponse>,
@@ -509,6 +488,7 @@ impl Handler<WithSpanContext<BlockHeadersResponse>> for ClientActor {
 impl Handler<WithSpanContext<BlockApproval>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: WithSpanContext<BlockApproval>, ctx: &mut Context<Self>) {
         self.wrap(msg, ctx, "BlockApproval", |this, msg| {
             let BlockApproval(approval, peer_id) = msg;
@@ -523,6 +503,7 @@ impl Handler<WithSpanContext<BlockApproval>> for ClientActor {
 impl Handler<WithSpanContext<StateResponse>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: WithSpanContext<StateResponse>, ctx: &mut Context<Self>) {
         self.wrap(msg, ctx, "StateResponse", |this, msg| {
             let StateResponse(state_response_info) = msg;
@@ -567,6 +548,7 @@ impl Handler<WithSpanContext<StateResponse>> for ClientActor {
 impl Handler<WithSpanContext<RecvChallenge>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: WithSpanContext<RecvChallenge>, ctx: &mut Context<Self>) {
         self.wrap(msg, ctx, "RecvChallenge", |this, msg| {
             let RecvChallenge(challenge) = msg;
@@ -581,9 +563,10 @@ impl Handler<WithSpanContext<RecvChallenge>> for ClientActor {
 impl Handler<WithSpanContext<SetNetworkInfo>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(&mut self, msg: WithSpanContext<SetNetworkInfo>, ctx: &mut Context<Self>) {
         // SetNetworkInfo is a large message. Avoid printing it at the `debug` verbosity.
-        self.wrap_trace(msg, ctx, "SetNetworkInfo", |this, msg| {
+        self.wrap(msg, ctx, "SetNetworkInfo", |this, msg| {
             let SetNetworkInfo(network_info) = msg;
             this.network_info = network_info;
         })
@@ -636,7 +619,7 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<Status>, ctx: &mut Context<Self>) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
-        let _d = delay_detector::DelayDetector::new(|| "client status".into());
+        tracing::debug!(target: "client", ?msg);
         self.check_triggers(ctx);
 
         let head = self.client.chain.head()?;
@@ -789,7 +772,6 @@ impl Handler<WithSpanContext<GetNetworkInfo>> for ClientActor {
         ctx: &mut Context<Self>,
     ) -> Self::Result {
         let (_span, _msg) = handler_debug_span!(target: "client", msg);
-        let _d = delay_detector::DelayDetector::new(|| "client get network info".into());
         self.check_triggers(ctx);
 
         Ok(NetworkInfoResponse {
@@ -820,6 +802,7 @@ pub struct ApplyChunksDoneMessage;
 impl Handler<WithSpanContext<ApplyChunksDoneMessage>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<ApplyChunksDoneMessage>,
@@ -1119,6 +1102,7 @@ impl ClientActor {
     /// Returns the delay before the next time `check_triggers` should be called, which is
     /// min(time until the closest trigger, 1 second).
     fn check_triggers(&mut self, ctx: &mut Context<ClientActor>) -> Duration {
+        let _span = tracing::debug_span!(target: "client", "check_triggers").entered();
         if let Some(config_updater) = &mut self.config_updater {
             config_updater.try_update(&|updateable_client_config| {
                 self.client.update_client_config(updateable_client_config)
@@ -1136,8 +1120,6 @@ impl ClientActor {
                 }
             }
         }
-
-        let _d = delay_detector::DelayDetector::new(|| "client triggers".into());
 
         self.try_process_unfinished_blocks();
 
@@ -1307,8 +1289,8 @@ impl ClientActor {
             if included {
                 self.info_helper.chunk_processed(
                     chunk.shard_id(),
-                    chunk.gas_used(),
-                    chunk.balance_burnt(),
+                    chunk.prev_gas_used(),
+                    chunk.prev_balance_burnt(),
                 );
             } else {
                 self.info_helper.chunk_skipped(chunk.shard_id());
@@ -1346,7 +1328,7 @@ impl ClientActor {
         self.info_helper.block_processed(
             gas_used,
             chunks_in_block as u64,
-            block.header().gas_price(),
+            block.header().next_gas_price(),
             block.header().total_supply(),
             last_final_block_height,
             last_final_ds_block_height,
@@ -1512,16 +1494,19 @@ impl ClientActor {
     /// Runs catchup on repeat, if this client is a validator.
     /// Schedules itself again if it was not ran as response to state parts job result
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
-        let _d = delay_detector::DelayDetector::new(|| "client catchup".into());
-        if let Err(err) = self.client.run_catchup(
-            &self.network_info.highest_height_peers,
-            &self.state_parts_task_scheduler,
-            &self.block_catch_up_scheduler,
-            &self.state_split_scheduler,
-            self.get_apply_chunks_done_callback(),
-            &self.state_parts_client_arbiter.handle(),
-        ) {
-            error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err);
+        {
+            // An extra scope to limit the lifetime of the span.
+            let _span = tracing::debug_span!(target: "client", "catchup").entered();
+            if let Err(err) = self.client.run_catchup(
+                &self.network_info.highest_height_peers,
+                &self.state_parts_task_scheduler,
+                &self.block_catch_up_scheduler,
+                &self.state_split_scheduler,
+                self.get_apply_chunks_done_callback(),
+                &self.state_parts_client_arbiter.handle(),
+            ) {
+                error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err);
+            }
         }
 
         near_performance_metrics::actix::run_later(
@@ -1577,8 +1562,7 @@ impl ClientActor {
     /// Runs itself iff it was not ran as reaction for message with results of
     /// finishing state part job
     fn run_sync_step(&mut self) {
-        let _span = tracing::debug_span!(target: "client", "sync").entered();
-        let _d = delay_detector::DelayDetector::new(|| "client sync".into());
+        let _span = tracing::debug_span!(target: "client", "run_sync_step").entered();
 
         macro_rules! unwrap_and_report (($obj: expr) => (match $obj {
             Ok(v) => v,
@@ -1607,6 +1591,7 @@ impl ClientActor {
             }
 
             SyncRequirement::SyncNeeded { highest_height, .. } => {
+                let mut notify_start_sync = false;
                 if !currently_syncing {
                     info!(
                         target: "client",
@@ -1640,26 +1625,42 @@ impl ClientActor {
                     _ => false,
                 };
                 if sync_state {
-                    let (sync_hash, mut new_shard_sync, just_enter_state_sync) =
-                        match &self.client.sync_status {
-                            SyncStatus::StateSync(StateSyncStatus {
-                                sync_hash,
-                                sync_status: shard_sync,
-                            }) => (*sync_hash, shard_sync.clone(), false),
-                            _ => {
-                                let sync_hash = unwrap_and_report!(self.find_sync_hash());
-                                (sync_hash, HashMap::default(), true)
+                    match self.client.sync_status {
+                        SyncStatus::StateSync(_) => (),
+                        _ => {
+                            let sync_hash = unwrap_and_report!(self.find_sync_hash());
+                            if !self.client.config.archive {
+                                unwrap_and_report!(self
+                                    .client
+                                    .chain
+                                    .reset_data_pre_state_sync(sync_hash));
                             }
-                        };
+                            let s = StateSyncStatus { sync_hash, sync_status: HashMap::default() };
+                            self.client.sync_status = SyncStatus::StateSync(s);
+                            // This is the first time we run state sync.
+                            notify_start_sync = true;
+                        }
+                    };
+                    let state_sync_status = match &mut self.client.sync_status {
+                        SyncStatus::StateSync(s) => s,
+                        _ => unreachable!(),
+                    };
 
                     let me =
                         self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-                    let block_header =
-                        unwrap_and_report!(self.client.chain.get_block_header(&sync_hash));
+                    let block_header = unwrap_and_report!(self
+                        .client
+                        .chain
+                        .get_block_header(&state_sync_status.sync_hash));
                     let prev_hash = *block_header.prev_hash();
-                    let epoch_id =
-                        self.client.chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
-                    let shards_to_sync =
+                    let epoch_id = self
+                        .client
+                        .chain
+                        .get_block_header(&state_sync_status.sync_hash)
+                        .unwrap()
+                        .epoch_id()
+                        .clone();
+                    let shards_to_sync: Vec<ShardId> =
                         (0..self.client.epoch_manager.num_shards(&epoch_id).unwrap())
                             .filter(|x| {
                                 cares_about_shard_this_or_next_epoch(
@@ -1672,16 +1673,40 @@ impl ClientActor {
                             })
                             .collect();
 
-                    if !self.client.config.archive && just_enter_state_sync {
-                        unwrap_and_report!(self.client.chain.reset_data_pre_state_sync(sync_hash));
-                    }
-
                     let use_colour =
                         matches!(self.client.config.log_summary_style, LogSummaryStyle::Colored);
+
+                    // Notify each shard to sync.
+                    if notify_start_sync {
+                        let sync_hash = state_sync_status.sync_hash;
+                        let shard_layout = self
+                            .client
+                            .epoch_manager
+                            .get_shard_layout(&epoch_id)
+                            .expect("Cannot get shard layout");
+                        for &shard_id in &shards_to_sync {
+                            let shard_uid =
+                                ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+                            match self.client.state_sync_adapter.clone().read() {
+                                Ok(sync_adapter) => sync_adapter.send(
+                                    shard_uid,
+                                    (SyncMessage::StartSync(SyncShardInfo {
+                                        shard_uid,
+                                        sync_hash,
+                                    }))
+                                    .with_span_context(),
+                                ),
+                                Err(_) => {
+                                    error!(target:"client", "State sync adapter lock is poisoned.")
+                                }
+                            }
+                        }
+                    }
+
                     match unwrap_and_report!(self.client.state_sync.run(
                         &me,
-                        sync_hash,
-                        &mut new_shard_sync,
+                        state_sync_status.sync_hash,
+                        &mut state_sync_status.sync_status,
                         &mut self.client.chain,
                         self.client.epoch_manager.as_ref(),
                         &self.network_info.highest_height_peers,
@@ -1690,27 +1715,22 @@ impl ClientActor {
                         &self.state_split_scheduler,
                         &self.state_parts_client_arbiter.handle(),
                         use_colour,
+                        self.client.runtime_adapter.clone(),
                     )) {
-                        StateSyncResult::Unchanged => (),
-                        StateSyncResult::Changed(fetch_block) => {
-                            self.client.sync_status = SyncStatus::StateSync(StateSyncStatus {
-                                sync_hash,
-                                sync_status: new_shard_sync,
-                            });
-                            if fetch_block {
-                                if let Some(peer_info) =
-                                    self.network_info.highest_height_peers.choose(&mut thread_rng())
-                                {
-                                    let id = peer_info.peer_info.id.clone();
+                        StateSyncResult::InProgress => (),
+                        StateSyncResult::RequestBlock => {
+                            if let Some(peer_info) =
+                                self.network_info.highest_height_peers.choose(&mut thread_rng())
+                            {
+                                let id = peer_info.peer_info.id.clone();
 
-                                    if let Ok(header) =
-                                        self.client.chain.get_block_header(&sync_hash)
+                                if let Ok(header) =
+                                    self.client.chain.get_block_header(&state_sync_status.sync_hash)
+                                {
+                                    for hash in
+                                        vec![*header.prev_hash(), *header.hash()].into_iter()
                                     {
-                                        for hash in
-                                            vec![*header.prev_hash(), *header.hash()].into_iter()
-                                        {
-                                            self.client.request_block(hash, id.clone());
-                                        }
+                                        self.client.request_block(hash, id.clone());
                                     }
                                 }
                             }
@@ -1722,7 +1742,7 @@ impl ClientActor {
 
                             unwrap_and_report!(self.client.chain.reset_heads_post_state_sync(
                                 &me,
-                                sync_hash,
+                                state_sync_status.sync_hash,
                                 &mut block_processing_artifacts,
                                 self.get_apply_chunks_done_callback(),
                             ));
@@ -1745,7 +1765,6 @@ impl ClientActor {
     /// Print current summary.
     fn log_summary(&mut self) {
         let _span = tracing::debug_span!(target: "client", "log_summary").entered();
-        let _d = delay_detector::DelayDetector::new(|| "client log summary".into());
         self.info_helper.log_summary(
             &self.client,
             &self.node_id,
@@ -1765,12 +1784,14 @@ impl Drop for ClientActor {
 impl Handler<WithSpanContext<ApplyStatePartsResponse>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<ApplyStatePartsResponse>,
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
             sync.set_apply_result(msg.shard_id, msg.apply_result);
@@ -1783,12 +1804,14 @@ impl Handler<WithSpanContext<ApplyStatePartsResponse>> for ClientActor {
 impl Handler<WithSpanContext<BlockCatchUpResponse>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<BlockCatchUpResponse>,
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         if let Some((_, _, blocks_catch_up_state)) =
             self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
         {
@@ -1803,12 +1826,14 @@ impl Handler<WithSpanContext<BlockCatchUpResponse>> for ClientActor {
 impl Handler<WithSpanContext<StateSplitResponse>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<StateSplitResponse>,
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
             sync.set_split_result(msg.shard_id, msg.new_state_roots);
@@ -1821,6 +1846,7 @@ impl Handler<WithSpanContext<StateSplitResponse>> for ClientActor {
 impl Handler<WithSpanContext<ShardsManagerResponse>> for ClientActor {
     type Result = ();
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<ShardsManagerResponse>,
@@ -1851,15 +1877,28 @@ impl Handler<WithSpanContext<ShardsManagerResponse>> for ClientActor {
 impl Handler<WithSpanContext<GetClientConfig>> for ClientActor {
     type Result = Result<ClientConfig, GetClientConfigError>;
 
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<GetClientConfig>,
         _: &mut Context<Self>,
     ) -> Self::Result {
-        let (_span, _msg) = handler_debug_span!(target: "client", msg);
-        let _d = delay_detector::DelayDetector::new(|| "client get client config".into());
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
 
         Ok(self.client.config.clone())
+    }
+}
+
+impl Handler<WithSpanContext<SyncMessage>> for ClientActor {
+    type Result = ();
+
+    #[perf]
+    fn handle(&mut self, msg: WithSpanContext<SyncMessage>, _: &mut Context<Self>) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
+        // TODO
+        // process messages from SyncActors
     }
 }
 
@@ -1878,11 +1917,12 @@ pub fn start_client(
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
     node_id: PeerId,
+    state_sync_adapter: Arc<RwLock<SyncAdapter>>,
     network_adapter: PeerManagerAdapter,
     shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-    make_state_snapshot_callback: Option<MakeSnapshotCallback>,
+    snapshot_callbacks: Option<SnapshotCallbacks>,
     sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
     config_updater: Option<ConfigUpdater>,
@@ -1896,13 +1936,14 @@ pub fn start_client(
         chain_genesis,
         epoch_manager,
         shard_tracker,
+        state_sync_adapter,
         runtime,
         network_adapter.clone(),
         shards_manager_adapter,
         validator_signer.clone(),
         true,
         random_seed_from_thread(),
-        make_state_snapshot_callback,
+        snapshot_callbacks,
     )
     .unwrap();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {

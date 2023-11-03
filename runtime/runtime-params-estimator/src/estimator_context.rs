@@ -3,6 +3,7 @@ use crate::config::{Config, GasMetric};
 use crate::gas_cost::GasCost;
 use genesis_populate::get_account_id;
 use genesis_populate::state_dump::StateDump;
+use near_primitives::config::ExtCosts;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -13,12 +14,14 @@ use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::flat::{
-    BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
-    FlatStorageManager,
+    store_helper, BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
+    FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
 };
-use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache, TrieUpdate};
+use near_store::{
+    ShardTries, ShardUId, StateSnapshotConfig, Store, StoreCompiledContractCache, TrieUpdate,
+};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
-use near_vm_runner::logic::{ExtCosts, VMLimitConfig};
+use near_vm_runner::logic::LimitConfig;
 use node_runtime::{ApplyState, Runtime};
 use std::collections::HashMap;
 use std::iter;
@@ -69,17 +72,32 @@ impl<'c> EstimatorContext<'c> {
         assert!(!roots.is_empty(), "No state roots found.");
         let root = roots[0];
 
-        // Create ShardTries with relevant settings adjusted for estimator.
-        let shard_uids = [ShardUId { shard_id: 0, version: 0 }];
-        let mut trie_config = near_store::TrieConfig::default();
-        trie_config.enable_receipt_prefetching = true;
+        let shard_uid = ShardUId::single_shard();
+        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let mut store_update = store.store_update();
+        store_helper::set_flat_storage_status(
+            &mut store_update,
+            shard_uid,
+            FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                flat_head: BlockInfo::genesis(CryptoHash::hash_borsh(0usize), 0),
+            }),
+        );
+        store_update.commit().unwrap();
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
 
-        let flat_head = CryptoHash::hash_borsh(0usize);
-        let flat_storage_manager = FlatStorageManager::test(store.clone(), &shard_uids, flat_head);
-        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uids[0]).unwrap();
+        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
         self.generate_deltas(&flat_storage);
 
-        let tries = ShardTries::new(store.clone(), trie_config, &shard_uids, flat_storage_manager);
+        // Create ShardTries with relevant settings adjusted for estimator.
+        let mut trie_config = near_store::TrieConfig::default();
+        trie_config.enable_receipt_prefetching = true;
+        let tries = ShardTries::new(
+            store.clone(),
+            trie_config,
+            &[shard_uid],
+            flat_storage_manager,
+            StateSnapshotConfig::default(),
+        );
 
         Testbed {
             config: self.config,
@@ -103,7 +121,7 @@ impl<'c> EstimatorContext<'c> {
             RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).as_ref().clone();
 
         // Override vm limits config to simplify block processing.
-        runtime_config.wasm_config.limit_config = VMLimitConfig {
+        runtime_config.wasm_config.limit_config = LimitConfig {
             max_total_log_length: u64::MAX,
             max_number_registers: u64::MAX,
             max_gas_burnt: u64::MAX,
@@ -113,10 +131,11 @@ impl<'c> EstimatorContext<'c> {
             max_actions_per_receipt: u64::MAX,
             max_promises_per_function_call_action: u64::MAX,
             max_number_input_data_dependencies: u64::MAX,
+            max_length_storage_key: u64::MAX,
 
             max_total_prepaid_gas: u64::MAX,
 
-            ..VMLimitConfig::test()
+            ..runtime_config.wasm_config.limit_config
         };
         runtime_config.account_creation_config.min_allowed_top_level_account_length = 0;
 

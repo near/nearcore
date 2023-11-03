@@ -376,9 +376,11 @@ class NeardRunner:
                         'protocol_version': protocol_version,
                     }, f)
 
-    def do_update_config(self, state_cache_size_mb):
+    def do_update_config(self, state_cache_size_mb, state_snapshot_enabled):
         with self.lock:
-            logging.info(f'updating config with {state_cache_size_mb}')
+            logging.info(
+                f'updating config with state_cache_size_mb={state_cache_size_mb} state_snapshot_enabled={state_snapshot_enabled}'
+            )
             with open(self.target_near_home_path('config.json'), 'r') as f:
                 config = json.load(f)
 
@@ -387,6 +389,9 @@ class NeardRunner:
                 for i in range(4):
                     config['store']['trie_cache']['per_shard_max_bytes'][
                         f's{i}.v1'] = state_cache_size_mb * 10**6
+            if state_snapshot_enabled is not None:
+                key = 'state_snapshot_enabled'
+                config['store'][key] = state_snapshot_enabled
 
             with open(self.target_near_home_path('config.json'), 'w') as f:
                 json.dump(config, f, indent=2)
@@ -710,12 +715,46 @@ class NeardRunner:
                 # TODO: if exit_code is None then we were interrupted and restarted after starting
                 # the amend-genesis command. We assume here that the command was successful. Ok for now since
                 # the command probably won't fail. But should somehow check that it was OK
-                with open(os.path.join(self.neard_logs_dir, 'initlog.txt'),
-                          'ab') as out:
+
+                logging.info('setting use_production_config to true')
+                genesis_path = self.target_near_home_path('genesis.json')
+                with open(genesis_path, 'r') as f:
+                    genesis_config = json.load(f)
+                with open(genesis_path, 'w') as f:
+                    genesis_config['use_production_config'] = True
+                    # protocol_versions in range [56, 63] need to have these
+                    # genesis parameters, otherwise nodes get stuck because at
+                    # some point it produces an incompatible EpochInfo.
+                    # TODO: Make so that the node always constructs EpochInfo
+                    #       using `AllEpochConfig::for_protocol_version()`.
+                    genesis_config['num_block_producer_seats'] = 100
+                    genesis_config['num_block_producer_seats_per_shard'] = [
+                        100, 100, 100, 100
+                    ]
+                    genesis_config['block_producer_kickout_threshold'] = 80
+                    genesis_config['chunk_producer_kickout_threshold'] = 80
+                    genesis_config['shard_layout'] = {
+                        'V1': {
+                            'boundary_accounts': [
+                                'aurora', 'aurora-0',
+                                'kkuuue2akv_1630967379.near'
+                            ],
+                            'shards_split_map': [[0, 1, 2, 3]],
+                            'to_parent_shard_map': [0, 0, 0, 0],
+                            'version': 1
+                        }
+                    }
+                    genesis_config['num_chunk_only_producer_seats'] = 200
+                    genesis_config['max_kickout_stake_perc'] = 30
+                    json.dump(genesis_config, f, indent=2)
+                initlog_path = os.path.join(self.neard_logs_dir, 'initlog.txt')
+                with open(initlog_path, 'ab') as out:
                     cmd = [
-                        self.data['binaries'][0]['system_path'], '--home',
-                        self.target_near_home_path(), '--unsafe-fast-startup',
-                        'run'
+                        self.data['binaries'][0]['system_path'],
+                        '--home',
+                        self.target_near_home_path(),
+                        '--unsafe-fast-startup',
+                        'run',
                     ]
                     self.run_neard(
                         cmd,
@@ -789,7 +828,10 @@ class NeardRunner:
         # something so lightweight
         main_loop = threading.Thread(target=self.main_loop)
         main_loop.start()
-        s = RpcServer(('0.0.0.0', port), self)
+        # this will listen only on the loopback interface and won't be accessible
+        # over the internet. If connecting to another machine, we can SSH and then make
+        # the request locally
+        s = RpcServer(('localhost', port), self)
         s.serve_forever()
 
 

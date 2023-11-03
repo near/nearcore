@@ -1,10 +1,9 @@
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
-use near_chain::types::{ApplyTransactionResult, RuntimeAdapter};
+use near_chain::types::{ApplyTransactionResult, RuntimeAdapter, RuntimeStorageConfig};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_configs::Genesis;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
-use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
@@ -17,7 +16,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::fs::File;
 use std::io::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 fn timestamp_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -195,6 +194,7 @@ fn apply_block_from_range(
         let chain_store_update = ChainStoreUpdate::new(&mut chain_store);
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
+                epoch_manager,
                 shard_id,
                 block_hash,
                 prev_block.chunks()[shard_id as usize].height_included(),
@@ -229,22 +229,20 @@ fn apply_block_from_range(
         runtime_adapter
             .apply_transactions(
                 shard_id,
-                chunk_inner.prev_state_root(),
+                RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
                 height,
                 block.header().raw_timestamp(),
                 block.header().prev_hash(),
                 block.hash(),
                 &receipts,
                 chunk.transactions(),
-                chunk_inner.validator_proposals(),
-                prev_block.header().gas_price(),
+                chunk_inner.prev_validator_proposals(),
+                prev_block.header().next_gas_price(),
                 chunk_inner.gas_limit(),
                 block.header().challenges_result(),
                 *block.header().random_value(),
                 true,
                 is_first_block_with_chunk_of_version,
-                Default::default(),
-                use_flat_storage,
             )
             .unwrap()
     } else {
@@ -256,7 +254,7 @@ fn apply_block_from_range(
         runtime_adapter
             .apply_transactions(
                 shard_id,
-                chunk_extra.state_root(),
+                RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
                 block.header().height(),
                 block.header().raw_timestamp(),
                 block.header().prev_hash(),
@@ -264,14 +262,12 @@ fn apply_block_from_range(
                 &[],
                 &[],
                 chunk_extra.validator_proposals(),
-                block.header().gas_price(),
+                block.header().next_gas_price(),
                 chunk_extra.gas_limit(),
                 block.header().challenges_result(),
                 *block.header().random_value(),
                 false,
                 false,
-                Default::default(),
-                use_flat_storage,
             )
             .unwrap()
     };

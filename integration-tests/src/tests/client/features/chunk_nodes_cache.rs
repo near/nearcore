@@ -1,5 +1,4 @@
 use crate::tests::client::process_blocks::{deploy_test_contract, set_block_protocol_version};
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use assert_matches::assert_matches;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
@@ -17,6 +16,7 @@ use near_primitives::types::{BlockHeightDelta, Gas, TrieNodesCount};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 fn process_transaction(
     env: &mut TestEnv,
@@ -38,18 +38,18 @@ fn process_transaction(
         "test0".parse().unwrap(),
         signer,
         vec![
-            Action::FunctionCall(FunctionCallAction {
+            Action::FunctionCall(Box::new(FunctionCallAction {
                 args: encode(&[0u64, 10u64]),
                 method_name: "write_key_value".to_string(),
                 gas,
                 deposit: 0,
-            }),
-            Action::FunctionCall(FunctionCallAction {
+            })),
+            Action::FunctionCall(Box::new(FunctionCallAction {
                 args: encode(&[1u64, 20u64]),
                 method_name: "write_key_value".to_string(),
                 gas,
                 deposit: 0,
-            }),
+            })),
         ],
         last_block_hash,
     );

@@ -1,5 +1,5 @@
 //! Implementation of the WAST text format for wasmer.
-
+#![cfg(target_arch = "x86_64")]
 #![deny(missing_docs, trivial_numeric_casts, unused_extern_crates)]
 #![warn(unused_import_braces)]
 #![deny(unstable_features)]

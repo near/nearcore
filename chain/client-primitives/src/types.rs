@@ -15,10 +15,9 @@ use near_primitives::types::{
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, DownloadStatusView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
-    FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
-    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView,
-    SplitStorageInfoView, StateChangesKindsView, StateChangesRequestView, StateChangesView,
-    SyncStatusView,
+    GasPriceView, LightClientBlockLiteView, LightClientBlockView, MaintenanceWindowsView,
+    QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView, SplitStorageInfoView,
+    StateChangesKindsView, StateChangesRequestView, StateChangesView, SyncStatusView, TxStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use std::collections::HashMap;
@@ -46,13 +45,6 @@ impl From<near_primitives::errors::EpochError> for Error {
     }
 }
 
-#[derive(Clone, Debug, serde::Serialize, PartialEq)]
-pub enum AccountOrPeerIdOrHash {
-    AccountId(AccountId),
-    PeerId(PeerId),
-    Hash(CryptoHash),
-}
-
 #[derive(Debug, serde::Serialize)]
 pub struct DownloadStatus {
     pub start_time: DateTime<Utc>,
@@ -61,7 +53,7 @@ pub struct DownloadStatus {
     pub error: bool,
     pub done: bool,
     pub state_requests_count: u64,
-    pub last_target: Option<AccountOrPeerIdOrHash>,
+    pub last_target: Option<PeerId>,
 }
 
 impl DownloadStatus {
@@ -728,7 +720,7 @@ impl From<near_chain_primitives::Error> for TxStatusError {
 }
 
 impl Message for TxStatus {
-    type Result = Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError>;
+    type Result = Result<TxStatusView, TxStatusError>;
 }
 
 #[derive(Debug)]

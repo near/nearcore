@@ -10,33 +10,19 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from cluster import start_cluster
 from configured_logger import logger
+import state_sync_lib
 import utils
 
 BLOCK_WAIT = 40
 EPOCH_LENGTH = 80
 
-consensus_config = {
-    "consensus": {
-        "block_fetch_horizon": 10,
-        "block_header_fetch_horizon": 10
-    },
-    "state_sync_enabled": True,
-    "store.state_snapshot_enabled": True,
-}
-node_config = {
-    "state_sync_enabled": True,
-    "store.state_snapshot_enabled": True,
-}
+node_config = state_sync_lib.get_state_sync_config_combined()
 
 nodes = start_cluster(
     4, 0, 1, None,
     [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10],
-     ["chunk_producer_kickout_threshold", 10]], {
-         0: consensus_config,
-         1: consensus_config,
-         2: node_config,
-         3: node_config
-     })
+     ["chunk_producer_kickout_threshold", 10]],
+    {x: node_config for x in range(4)})
 time.sleep(2)
 nodes[1].kill()
 

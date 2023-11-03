@@ -4,8 +4,10 @@
 # Check that the second node doesn't crash (with trie node missing)
 # during state sync.
 
-import sys, time, base58
 import pathlib
+import sys
+import tempfile
+import time
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -13,32 +15,21 @@ from cluster import start_cluster
 from configured_logger import logger
 from key import Key
 from transaction import sign_staking_tx, sign_create_account_with_full_access_key_and_balance_tx
+import state_sync_lib
 import utils
 
 MAX_SYNC_WAIT = 30
 EPOCH_LENGTH = 10
 
-node0_config = {
-    "state_sync_enabled": True,
-    "store.state_snapshot_enabled": True,
-}
-node1_config = {
-    "consensus": {
-        "sync_step_period": {
-            "secs": 0,
-            "nanos": 100
-        }
-    },
-    "tracked_shards": [0],
-    "state_sync_enabled": True,
-    "store.state_snapshot_enabled": True,
-}
+(node_config_dump,
+ node_config_sync) = state_sync_lib.get_state_sync_configs_pair()
+
 nodes = start_cluster(
     1, 1, 1, None,
     [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10],
      ["chunk_producer_kickout_threshold", 10]], {
-         0: node0_config,
-         1: node1_config,
+         0: node_config_dump,
+         1: node_config_sync,
      })
 time.sleep(2)
 nodes[1].kill()

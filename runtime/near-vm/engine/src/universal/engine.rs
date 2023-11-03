@@ -91,7 +91,7 @@ impl UniversalEngine {
     }
 
     /// Compile a WebAssembly binary
-    #[tracing::instrument(target = "near_vm", skip_all)]
+    #[tracing::instrument(target = "near_vm", level = "trace", skip_all)]
     pub fn compile_universal(
         &self,
         binary: &[u8],
@@ -181,7 +181,7 @@ impl UniversalEngine {
     }
 
     /// Load a [`UniversalExecutable`](crate::UniversalExecutable) with this engine.
-    #[tracing::instrument(target = "near_vm", skip_all)]
+    #[tracing::instrument(target = "near_vm", level = "trace", skip_all)]
     pub fn load_universal_executable(
         &self,
         executable: &UniversalExecutable,
@@ -470,7 +470,7 @@ impl UniversalEngine {
     }
 
     /// Validates a WebAssembly module
-    #[tracing::instrument(target = "near_vm", skip_all)]
+    #[tracing::instrument(target = "near_vm", level = "trace", skip_all)]
     pub fn validate(&self, binary: &[u8]) -> Result<(), CompileError> {
         self.inner().validate(binary)
     }

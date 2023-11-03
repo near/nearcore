@@ -1,9 +1,9 @@
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
 use crate::logic::types::Gas;
+use crate::logic::{Config, MemSlice};
 use crate::logic::{HostError, VMLogicError};
-use crate::logic::{MemSlice, VMConfig};
-use borsh::BorshSerialize;
+
 use expect_test::expect;
 use near_primitives_core::config::{ActionCosts, ExtCosts};
 use near_primitives_core::runtime::fees::Fee;
@@ -189,7 +189,6 @@ fn test_overflowing_burn_gas_with_promises_gas_2() {
     logic.promise_batch_action_transfer(index, num_100u128.ptr).unwrap();
     logic.promise_batch_then(index, account_id.len, account_id.ptr).unwrap();
     let minimum_prepay = logic.gas_counter().used_gas();
-    let mut logic_builder = logic_builder;
     logic_builder.context.prepaid_gas = minimum_prepay;
     let mut logic = logic_builder.build();
     let index = promise_batch_create(&mut logic, "rick.test").expect("should create a promise");
@@ -718,15 +717,16 @@ fn create_promise_dependency(logic: &mut TestVMLogic) -> Result<(), VMLogicError
 /// Given the limit in gas, compute the corresponding limit in wasm ops for use
 /// with [`VMLogic::gas`] function.
 fn op_limit(gas_limit: Gas) -> u32 {
-    (gas_limit / (VMConfig::test().regular_op_cost as u64)) as u32
+    (gas_limit / (Config::test().regular_op_cost as u64)) as u32
 }
 
 fn test_pk() -> Vec<u8> {
-    let pk = "ed25519:22W5rKuvbMRphnDoCj6nfrWhRKvh9Xf9SWXfGHaeXGde"
-        .parse::<near_crypto::PublicKey>()
-        .unwrap()
-        .try_to_vec()
-        .unwrap();
+    let pk = borsh::to_vec(
+        &"ed25519:22W5rKuvbMRphnDoCj6nfrWhRKvh9Xf9SWXfGHaeXGde"
+            .parse::<near_crypto::PublicKey>()
+            .unwrap(),
+    )
+    .unwrap();
     pk
 }
 

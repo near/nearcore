@@ -1,5 +1,4 @@
 use crate::tests::client::process_blocks::produce_blocks_from_height;
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use assert_matches::assert_matches;
 use near_async::messaging::CanSend;
 use near_chain::chain::NUM_ORPHAN_ANCESTORS_CHECK;
@@ -12,7 +11,6 @@ use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
-
 use near_primitives::account::AccessKey;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -23,6 +21,7 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};

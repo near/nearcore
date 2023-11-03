@@ -23,7 +23,11 @@ use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQuery};
+use near_jsonrpc_primitives::types::query::RpcQueryRequest;
 use near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse;
+use near_jsonrpc_primitives::types::transactions::{
+    RpcSendTransactionRequest, RpcTransactionResponse,
+};
 use near_network::tcp;
 use near_network::PeerManagerActor;
 use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
@@ -31,7 +35,7 @@ use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives::views::FinalExecutionOutcomeViewEnum;
+use near_primitives::views::{QueryRequest, TxExecutionStatus};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -241,23 +245,16 @@ impl JsonRpcHandler {
     // `process_request_internal`.
     async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
         let timer = Instant::now();
+        let (metrics_name, response) = self.process_request_internal(request).await;
 
-        let request_method = request.method.clone();
-        let response = self.process_request_internal(request).await;
-
-        let request_method = match &response {
-            Err(err) if err.code == -32_601 => "UNSUPPORTED_METHOD",
-            _ => &request_method,
-        };
-
-        metrics::HTTP_RPC_REQUEST_COUNT.with_label_values(&[request_method]).inc();
+        metrics::HTTP_RPC_REQUEST_COUNT.with_label_values(&[&metrics_name]).inc();
         metrics::RPC_PROCESSING_TIME
-            .with_label_values(&[request_method])
+            .with_label_values(&[&metrics_name])
             .observe(timer.elapsed().as_secs_f64());
 
         if let Err(err) = &response {
             metrics::RPC_ERROR_COUNT
-                .with_label_values(&[request_method, &err.code.to_string()])
+                .with_label_values(&[&metrics_name, &err.code.to_string()])
                 .inc();
         }
 
@@ -265,13 +262,56 @@ impl JsonRpcHandler {
     }
 
     /// Processes the request without updating any metrics.
-    async fn process_request_internal(&self, request: Request) -> Result<Value, RpcError> {
+    /// Returns metrics name (method name with optional details as a suffix)
+    /// and the result of the execution.
+    async fn process_request_internal(
+        &self,
+        request: Request,
+    ) -> (String, Result<Value, RpcError>) {
+        let method_name = request.method.to_string();
         let request = match self.process_adversarial_request_internal(request).await {
-            Ok(response) => return response,
+            Ok(response) => return (method_name, response),
+            Err(request) => request,
+        };
+
+        let request = match self.process_basic_requests_internal(request).await {
+            Ok(response) => return (method_name, response),
             Err(request) => request,
         };
 
         match request.method.as_ref() {
+            "query" => {
+                let params: RpcQueryRequest = match RpcRequest::parse(request.params) {
+                    Ok(params) => params,
+                    Err(err) => return (method_name, Err(RpcError::from(err))),
+                };
+                let metrics_name = match params.request {
+                    QueryRequest::ViewAccount { .. } => "query_view_account",
+                    QueryRequest::ViewCode { .. } => "query_view_code",
+                    QueryRequest::ViewState { include_proof, .. } => {
+                        if include_proof {
+                            "query_view_state_with_proof"
+                        } else {
+                            "query_view_state"
+                        }
+                    }
+                    QueryRequest::ViewAccessKey { .. } => "query_view_access_key",
+                    QueryRequest::ViewAccessKeyList { .. } => "query_view_access_key_list",
+                    QueryRequest::CallFunction { .. } => "query_call_function",
+                };
+                (metrics_name.to_string(), process_query_response(self.query(params).await))
+            }
+            _ => {
+                ("UNSUPPORTED_METHOD".to_string(), Err(RpcError::method_not_found(request.method)))
+            }
+        }
+    }
+
+    async fn process_basic_requests_internal(
+        &self,
+        request: Request,
+    ) -> Result<Result<Value, RpcError>, Request> {
+        Ok(match request.method.as_ref() {
             // Handlers ordered alphabetically
             "block" => process_method_call(request, |params| self.block(params)).await,
             "broadcast_tx_async" => {
@@ -297,11 +337,7 @@ impl JsonRpcHandler {
                 process_method_call(request, |params| self.next_light_client_block(params)).await
             }
             "network_info" => process_method_call(request, |_params: ()| self.network_info()).await,
-            "query" => {
-                let params = RpcRequest::parse(request.params)?;
-                let query_response = self.query(params).await;
-                process_query_response(query_response)
-            }
+            "send_tx" => process_method_call(request, |params| self.send_tx(params)).await,
             "status" => process_method_call(request, |_params: ()| self.status()).await,
             "tx" => {
                 process_method_call(request, |params| self.tx_status_common(params, false)).await
@@ -310,17 +346,11 @@ impl JsonRpcHandler {
             "client_config" => {
                 process_method_call(request, |_params: ()| self.client_config()).await
             }
-            "EXPERIMENTAL_broadcast_tx_sync" => {
-                process_method_call(request, |params| self.send_tx_sync(params)).await
-            }
             "EXPERIMENTAL_changes" => {
                 process_method_call(request, |params| self.changes_in_block_by_type(params)).await
             }
             "EXPERIMENTAL_changes_in_block" => {
                 process_method_call(request, |params| self.changes_in_block(params)).await
-            }
-            "EXPERIMENTAL_check_tx" => {
-                process_method_call(request, |params| self.check_tx(params)).await
             }
             "EXPERIMENTAL_genesis_config" => {
                 process_method_call(request, |_params: ()| async {
@@ -360,8 +390,8 @@ impl JsonRpcHandler {
             "sandbox_fast_forward" => {
                 process_method_call(request, |params| self.sandbox_fast_forward(params)).await
             }
-            _ => Err(RpcError::method_not_found(request.method)),
-        }
+            _ => return Err(request),
+        })
     }
 
     /// Handles adversarial requests if they are enabled.
@@ -440,7 +470,7 @@ impl JsonRpcHandler {
 
     async fn send_tx_async(
         &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest,
+        request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
     ) -> CryptoHash {
         let tx = request_data.signed_transaction;
         let hash = tx.get_hash();
@@ -472,8 +502,10 @@ impl JsonRpcHandler {
                     })
                     .await
                 {
-                    Ok(Some(_)) => {
-                        return Ok(true);
+                    Ok(status) => {
+                        if let Some(_) = status.execution_outcome {
+                            return Ok(true);
+                        }
                     }
                     Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
                         ..
@@ -497,23 +529,19 @@ impl JsonRpcHandler {
         })?
     }
 
+    /// Return status of the given transaction
+    ///
+    /// `finality` forces the execution to wait until the desired finality level is reached
     async fn tx_status_fetch(
         &self,
         tx_info: near_jsonrpc_primitives::types::transactions::TransactionInfo,
+        finality: near_primitives::views::TxExecutionStatus,
         fetch_receipt: bool,
     ) -> Result<
-        FinalExecutionOutcomeViewEnum,
+        near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
-        let (tx_hash, account_id) = match &tx_info {
-            near_jsonrpc_primitives::types::transactions::TransactionInfo::Transaction(tx) => {
-                (tx.get_hash(), tx.transaction.signer_id.clone())
-            }
-            near_jsonrpc_primitives::types::transactions::TransactionInfo::TransactionId {
-                hash,
-                account_id,
-            } => (*hash, account_id.clone()),
-        };
+        let (tx_hash, account_id) = tx_info.to_tx_hash_and_account();
         timeout(self.polling_config.polling_timeout, async {
             loop {
                 let tx_status_result = self.view_client_send( TxStatus {
@@ -523,14 +551,18 @@ impl JsonRpcHandler {
                     })
                     .await;
                 match tx_status_result {
-                    Ok(Some(outcome)) => break Ok(outcome),
-                    Ok(None) => {} // No such transaction recorded on chain yet
+                    Ok(result) => {
+                        if result.status >= finality {
+                            break Ok(result.into())
+                        }
+                        // else: No such transaction recorded on chain yet
+                    },
                     Err(err @ near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
                         ..
                     }) => {
-                        if let near_jsonrpc_primitives::types::transactions::TransactionInfo::Transaction(tx) = &tx_info {
+                        if let Some(tx) = tx_info.to_signed_tx() {
                             if let Ok(ProcessTxResponse::InvalidTx(context)) =
-                                self.send_tx(tx.clone(), true).await
+                                self.send_tx_internal(tx.clone(), true).await
                             {
                                 break Err(
                                     near_jsonrpc_primitives::types::transactions::RpcTransactionError::InvalidTransaction {
@@ -539,7 +571,9 @@ impl JsonRpcHandler {
                                 );
                             }
                         }
-                        break Err(err);
+                        if finality == TxExecutionStatus::None {
+                            break Err(err);
+                        }
                     }
                     Err(err) => break Err(err),
                 }
@@ -558,50 +592,10 @@ impl JsonRpcHandler {
         })?
     }
 
-    async fn tx_polling(
-        &self,
-        tx_info: near_jsonrpc_primitives::types::transactions::TransactionInfo,
-    ) -> Result<
-        near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
-        near_jsonrpc_primitives::types::transactions::RpcTransactionError,
-    > {
-        timeout(self.polling_config.polling_timeout, async {
-            loop {
-                match self.tx_status_fetch(tx_info.clone(), false).await {
-                    Ok(tx_status) => {
-                        break Ok(
-                            near_jsonrpc_primitives::types::transactions::RpcTransactionResponse {
-                                final_execution_outcome: tx_status,
-                            },
-                        )
-                    }
-                    // If transaction is missing, keep polling.
-                    Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::UnknownTransaction {
-                        ..
-                    }) => {}
-                    // If we hit any other error, we return to the user.
-                    Err(err) => {
-                        break Err(err.rpc_into());
-                    }
-                }
-                sleep(self.polling_config.polling_interval).await;
-            }
-        })
-        .await
-        .map_err(|_| {
-            metrics::RPC_TIMEOUT_TOTAL.inc();
-            tracing::warn!(
-                target: "jsonrpc", "Timeout: tx_polling method. tx_info {:?}",
-                tx_info,
-            );
-            near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
-        })?
-    }
-
     /// Send a transaction idempotently (subsequent send of the same transaction will not cause
     /// any new side-effects and the result will be the same unless we garbage collected it
     /// already).
-    async fn send_tx(
+    async fn send_tx_internal(
         &self,
         tx: SignedTransaction,
         check_only: bool,
@@ -633,90 +627,28 @@ impl JsonRpcHandler {
         Ok(response)
     }
 
-    async fn send_tx_sync(
+    async fn send_tx(
         &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse,
-        near_jsonrpc_primitives::types::transactions::RpcTransactionError,
-    > {
-        match self.send_tx(request_data.clone().signed_transaction, false).await? {
-            ProcessTxResponse::ValidTx => {
-                Ok(near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse {
-                    transaction_hash: request_data.signed_transaction.get_hash(),
-                })
-            }
-            ProcessTxResponse::RequestRouted => {
-                Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::RequestRouted {
-                    transaction_hash: request_data.signed_transaction.get_hash(),
-                })
-            }
-            network_client_responses=> Err(
-                near_jsonrpc_primitives::types::transactions::RpcTransactionError::from_network_client_responses(
-                    network_client_responses
-                )
-            )
-        }
-    }
-
-    async fn check_tx(
-        &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest,
-    ) -> Result<
-        near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse,
-        near_jsonrpc_primitives::types::transactions::RpcTransactionError,
-    > {
-        match self.send_tx(request_data.clone().signed_transaction, true).await? {
-            ProcessTxResponse::ValidTx => {
-                Ok(near_jsonrpc_primitives::types::transactions::RpcBroadcastTxSyncResponse {
-                    transaction_hash: request_data.signed_transaction.get_hash(),
-                })
-            }
-            ProcessTxResponse::RequestRouted => {
-                Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::RequestRouted {
-                    transaction_hash: request_data.signed_transaction.get_hash(),
-                })
-            }
-            resp => Err(
-                near_jsonrpc_primitives::types::transactions::RpcTransactionError::from_network_client_responses(
-                   resp
-                )
-            )
-        }
-    }
-
-    async fn send_tx_commit(
-        &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest,
+        request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
     ) -> Result<
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
-        let tx = request_data.signed_transaction;
-        match self
-            .tx_status_fetch(
-                near_jsonrpc_primitives::types::transactions::TransactionInfo::Transaction(
-                    tx.clone(),
-                ),
-                false,
-            )
-            .await
-        {
-            Ok(outcome) => {
-                return Ok(near_jsonrpc_primitives::types::transactions::RpcTransactionResponse {
-                    final_execution_outcome: outcome,
-                });
-            }
-            Err(err @ near_jsonrpc_primitives::types::transactions::RpcTransactionError::InvalidTransaction {
-                ..
-            }) => {
-                return Err(err);
-            }
-            _ => {}
+        if request_data.wait_until == TxExecutionStatus::None {
+            self.send_tx_async(request_data).await;
+            return Ok(RpcTransactionResponse {
+                final_execution_outcome: None,
+                final_execution_status: TxExecutionStatus::None,
+            });
         }
-        match self.send_tx(tx.clone(), false).await? {
+        let tx = request_data.signed_transaction;
+        match self.send_tx_internal(tx.clone(), false).await? {
             ProcessTxResponse::ValidTx | ProcessTxResponse::RequestRouted => {
-                self.tx_polling(near_jsonrpc_primitives::types::transactions::TransactionInfo::Transaction(tx)).await
+                self.tx_status_fetch(
+                    near_jsonrpc_primitives::types::transactions::TransactionInfo::from_signed_tx(tx.clone()),
+                    request_data.wait_until,
+                    false,
+                ).await
             }
             network_client_response=> {
                 Err(
@@ -726,6 +658,20 @@ impl JsonRpcHandler {
                 )
             }
         }
+    }
+
+    async fn send_tx_commit(
+        &self,
+        request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
+        near_jsonrpc_primitives::types::transactions::RpcTransactionError,
+    > {
+        self.send_tx(RpcSendTransactionRequest {
+            signed_transaction: request_data.signed_transaction,
+            wait_until: TxExecutionStatus::Final,
+        })
+        .await
     }
 
     async fn health(
@@ -870,13 +816,15 @@ impl JsonRpcHandler {
 
     async fn tx_status_common(
         &self,
-        request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionStatusCommonRequest,
+        request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionStatusRequest,
         fetch_receipt: bool,
     ) -> Result<
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
-        let tx_status = self.tx_status_fetch(request_data.transaction_info, fetch_receipt).await?;
+        let tx_status = self
+            .tx_status_fetch(request_data.transaction_info, request_data.wait_until, fetch_receipt)
+            .await?;
         Ok(tx_status.rpc_into())
     }
 
@@ -1472,15 +1420,20 @@ async fn display_debug_html(
 
     let content = match page_name.as_str() {
         "last_blocks" => Some(debug_page_string!("last_blocks.html", handler)),
+        "last_blocks.css" => Some(debug_page_string!("last_blocks.css", handler)),
         "last_blocks.js" => Some(debug_page_string!("last_blocks.js", handler)),
         "network_info" => Some(debug_page_string!("network_info.html", handler)),
         "network_info.css" => Some(debug_page_string!("network_info.css", handler)),
         "network_info.js" => Some(debug_page_string!("network_info.js", handler)),
         "tier1_network_info" => Some(debug_page_string!("tier1_network_info.html", handler)),
         "epoch_info" => Some(debug_page_string!("epoch_info.html", handler)),
+        "epoch_info.css" => Some(debug_page_string!("epoch_info.css", handler)),
         "chain_n_chunk_info" => Some(debug_page_string!("chain_n_chunk_info.html", handler)),
+        "chain_n_chunk_info.css" => Some(debug_page_string!("chain_n_chunk_info.css", handler)),
         "sync" => Some(debug_page_string!("sync.html", handler)),
+        "sync.css" => Some(debug_page_string!("sync.css", handler)),
         "validator" => Some(debug_page_string!("validator.html", handler)),
+        "validator.css" => Some(debug_page_string!("validator.css", handler)),
         _ => None,
     };
 

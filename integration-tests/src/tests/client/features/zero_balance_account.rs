@@ -1,6 +1,5 @@
 use assert_matches::assert_matches;
 
-use borsh::BorshSerialize;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::adapter::ProcessTxResponse;
@@ -19,13 +18,11 @@ use near_primitives::transaction::{Action, AddKeyAction, DeleteKeyAction, Signed
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use nearcore::config::GenesisExt;
-
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
 
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
-
 /// Assert that an account exists and has zero balance
-fn assert_zero_balance_account(env: &mut TestEnv, account_id: &AccountId) {
+fn assert_zero_balance_account(env: &TestEnv, account_id: &AccountId) {
     let head = env.clients[0].chain.head().unwrap();
     let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
     let response = env.clients[0]
@@ -175,14 +172,14 @@ fn test_zero_balance_account_add_key() {
     for i in 1..5 {
         let new_key = PublicKey::from_seed(KeyType::ED25519, format!("{}", i).as_str());
         keys.push(new_key.clone());
-        actions.push(AddKey(AddKeyAction {
+        actions.push(AddKey(Box::new(AddKeyAction {
             public_key: new_key,
             access_key: AccessKey::full_access(),
-        }));
+        })));
     }
     for i in 0..2 {
         let new_key = PublicKey::from_seed(KeyType::ED25519, format!("{}", i + 5).as_str());
-        actions.push(AddKey(AddKeyAction {
+        actions.push(AddKey(Box::new(AddKeyAction {
             public_key: new_key,
             access_key: AccessKey {
                 nonce: 0,
@@ -192,7 +189,7 @@ fn test_zero_balance_account_add_key() {
                     method_names: vec![],
                 }),
             },
-        }));
+        })));
     }
 
     let head = env.clients[0].chain.head().unwrap();
@@ -230,7 +227,9 @@ fn test_zero_balance_account_add_key() {
         new_account_id.clone(),
         new_account_id.clone(),
         &new_signer,
-        vec![Action::DeleteKey(DeleteKeyAction { public_key: keys.last().unwrap().clone() })],
+        vec![Action::DeleteKey(Box::new(DeleteKeyAction {
+            public_key: keys.last().unwrap().clone(),
+        }))],
         *genesis_block.hash(),
     );
     assert_eq!(env.clients[0].process_tx(delete_key_tx, false, false), ProcessTxResponse::ValidTx);
@@ -323,10 +322,13 @@ fn test_storage_usage_components() {
     const FUNCTION_ACCESS_PERMISSION_STORAGE_USAGE: usize = 98;
 
     let edwards_public_key = PublicKey::from_seed(KeyType::ED25519, "seed");
-    assert_eq!(PUBLIC_KEY_STORAGE_USAGE, edwards_public_key.try_to_vec().unwrap().len());
+    assert_eq!(PUBLIC_KEY_STORAGE_USAGE, borsh::object_length(&edwards_public_key).unwrap());
 
     let full_access_key = AccessKey::full_access();
-    assert_eq!(FULL_ACCESS_PERMISSION_STORAGE_USAGE, full_access_key.try_to_vec().unwrap().len());
+    assert_eq!(
+        FULL_ACCESS_PERMISSION_STORAGE_USAGE,
+        borsh::object_length(&full_access_key).unwrap()
+    );
 
     let fn_access_key = AccessKey {
         nonce: u64::MAX,
@@ -336,7 +338,10 @@ fn test_storage_usage_components() {
             method_names: vec![],
         }),
     };
-    assert_eq!(FUNCTION_ACCESS_PERMISSION_STORAGE_USAGE, fn_access_key.try_to_vec().unwrap().len());
+    assert_eq!(
+        FUNCTION_ACCESS_PERMISSION_STORAGE_USAGE,
+        borsh::object_length(&fn_access_key).unwrap()
+    );
 
     let config_store = RuntimeConfigStore::new(None);
     let config = config_store.get_config(PROTOCOL_VERSION);

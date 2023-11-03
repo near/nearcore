@@ -1,10 +1,13 @@
 use crate::metrics;
 use crate::migrations::load_migration_data;
 use crate::NearConfig;
-use borsh::ser::BorshSerialize;
+
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
-use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter, Tip};
+use near_chain::types::{
+    ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter, RuntimeStorageConfig,
+    StorageDataSource, Tip,
+};
 use near_chain::Error;
 use near_chain_configs::{
     GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, MIN_GC_NUM_EPOCHS_TO_KEEP,
@@ -14,8 +17,8 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::challenge::ChallengesResult;
+use near_primitives::config::ActionCosts;
 use near_primitives::config::ExtCosts;
-use near_primitives::contract::ContractCode;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
@@ -38,14 +41,16 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryRequest, QueryResponse, QueryResponseKind, ViewApplyState,
     ViewStateResult,
 };
+use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
 use near_store::{
-    ApplyStatePartResult, DBCol, PartialStorage, ShardTries, StateSnapshotConfig, Store,
+    ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store,
     StoreCompiledContractCache, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
-use near_vm_runner::logic::{ActionCosts, CompiledContractCache};
+use near_vm_runner::logic::CompiledContractCache;
 use near_vm_runner::precompile_contract;
+use near_vm_runner::ContractCode;
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
@@ -56,7 +61,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 pub mod errors;
 
@@ -69,7 +74,6 @@ pub struct NightshadeRuntime {
     store: Store,
     tries: ShardTries,
     trie_viewer: TrieViewer,
-    flat_storage_manager: FlatStorageManager,
     pub runtime: Runtime,
     epoch_manager: Arc<EpochManagerHandle>,
     migration_data: Arc<MigrationData>,
@@ -83,15 +87,21 @@ impl NightshadeRuntime {
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> Arc<Self> {
-        let state_snapshot_config = if config.config.store.state_snapshot_enabled {
-            StateSnapshotConfig::Enabled {
-                home_dir: home_dir.to_path_buf(),
-                hot_store_path: config.config.store.path.clone().unwrap_or(PathBuf::from("data")),
-                state_snapshot_subdir: PathBuf::from("state_snapshot"),
-                compaction_enabled: config.config.store.state_snapshot_compaction_enabled,
-            }
-        } else {
-            StateSnapshotConfig::Disabled
+        // TODO (#9989): directly use the new state snapshot config once the migration is done.
+        let mut state_snapshot_type =
+            config.config.store.state_snapshot_config.state_snapshot_type.clone();
+        if config.config.store.state_snapshot_enabled {
+            state_snapshot_type = StateSnapshotType::EveryEpoch;
+        }
+        // TODO (#9989): directly use the new state snapshot config once the migration is done.
+        let compaction_enabled = config.config.store.state_snapshot_compaction_enabled
+            || config.config.store.state_snapshot_config.compaction_enabled;
+        let state_snapshot_config = StateSnapshotConfig {
+            state_snapshot_type,
+            home_dir: home_dir.to_path_buf(),
+            hot_store_path: config.config.store.path.clone().unwrap_or(PathBuf::from("data")),
+            state_snapshot_subdir: PathBuf::from("state_snapshot"),
+            compaction_enabled,
         };
         Self::new(
             store,
@@ -125,11 +135,11 @@ impl NightshadeRuntime {
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
-        let tries = ShardTries::new_with_state_snapshot(
+        let tries = ShardTries::new(
             store.clone(),
             trie_config,
             &genesis_config.shard_layout.get_shard_uids(),
-            flat_storage_manager.clone(),
+            flat_storage_manager,
             state_snapshot_config,
         );
         if let Err(err) = tries.maybe_open_state_snapshot(|prev_block_hash: CryptoHash| {
@@ -150,7 +160,6 @@ impl NightshadeRuntime {
             runtime,
             trie_viewer,
             epoch_manager,
-            flat_storage_manager,
             migration_data,
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
         })
@@ -162,6 +171,7 @@ impl NightshadeRuntime {
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         runtime_config_store: RuntimeConfigStore,
+        state_snapshot_type: StateSnapshotType,
     ) -> Arc<Self> {
         Self::new(
             store,
@@ -172,7 +182,8 @@ impl NightshadeRuntime {
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
-            StateSnapshotConfig::Enabled {
+            StateSnapshotConfig {
+                state_snapshot_type,
                 home_dir: home_dir.to_path_buf(),
                 hot_store_path: PathBuf::from("data"),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
@@ -193,6 +204,7 @@ impl NightshadeRuntime {
             genesis_config,
             epoch_manager,
             RuntimeConfigStore::test(),
+            StateSnapshotType::ForReshardingOnly,
         )
     }
 
@@ -462,13 +474,7 @@ impl NightshadeRuntime {
                 let contract_cache = compiled_contract_cache.as_deref();
                 let slot_sender = slot_sender.clone();
                 scope.spawn(move |_| {
-                    precompile_contract(
-                        &code,
-                        &runtime_config.wasm_config,
-                        protocol_version,
-                        contract_cache,
-                    )
-                    .ok();
+                    precompile_contract(&code, &runtime_config.wasm_config, contract_cache).ok();
                     // If this fails, it just means there won't be any more attempts to recv the
                     // slots
                     let _ = slot_sender.send(());
@@ -550,14 +556,13 @@ impl NightshadeRuntime {
             .tries
             .get_trie_with_block_hash_for_shard_from_snapshot(shard_uid, *state_root, &prev_hash)
             .map_err(|err| Error::Other(err.to_string()))?;
-        let state_part = match snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, partial_state, nibbles_begin, nibbles_end, &trie_with_state) {
+        let state_part = borsh::to_vec(&match snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, partial_state, nibbles_begin, nibbles_end, &trie_with_state) {
             Ok(partial_state) => partial_state,
             Err(err) => {
                 error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part");
                 return Err(err.into());
             }
-        }
-            .try_to_vec()
+        })
             .expect("serializer should not fail");
 
         Ok(state_part)
@@ -606,8 +611,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(self.tries.get_view_trie_for_shard(shard_uid, state_root))
     }
 
-    fn get_flat_storage_manager(&self) -> Option<FlatStorageManager> {
-        Some(self.flat_storage_manager.clone())
+    fn get_flat_storage_manager(&self) -> FlatStorageManager {
+        self.tries.get_flat_storage_manager()
     }
 
     fn validate_tx(
@@ -733,32 +738,38 @@ impl RuntimeAdapter for NightshadeRuntime {
                 while let Some(tx) = iter.next() {
                     num_checked_transactions += 1;
                     // Verifying the transaction is on the same chain and hasn't expired yet.
-                    if chain_validate(&tx) {
-                        // Verifying the validity of the transaction based on the current state.
-                        match verify_and_charge_transaction(
-                            runtime_config,
-                            &mut state_update,
-                            gas_price,
-                            &tx,
-                            false,
-                            Some(next_block_height),
-                            current_protocol_version,
-                        ) {
-                            Ok(verification_result) => {
-                                state_update.commit(StateChangeCause::NotWritableToDisk);
-                                total_gas_burnt += verification_result.gas_burnt;
-                                total_size += tx.get_size();
-                                transactions.push(tx);
-                                break;
-                            }
-                            Err(RuntimeError::InvalidTxError(_err)) => {
-                                state_update.rollback();
-                            }
-                            Err(RuntimeError::StorageError(err)) => {
-                                return Err(Error::StorageError(err))
-                            }
-                            Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
+                    if !chain_validate(&tx) {
+                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction that failed chain validation");
+                        continue;
+                    }
+
+                    // Verifying the validity of the transaction based on the current state.
+                    match verify_and_charge_transaction(
+                        runtime_config,
+                        &mut state_update,
+                        gas_price,
+                        &tx,
+                        false,
+                        Some(next_block_height),
+                        current_protocol_version,
+                    ) {
+                        Ok(verification_result) => {
+                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation");
+                            state_update.commit(StateChangeCause::NotWritableToDisk);
+                            total_gas_burnt += verification_result.gas_burnt;
+                            total_size += tx.get_size();
+                            transactions.push(tx);
+                            break;
                         }
+                        Err(RuntimeError::InvalidTxError(err)) => {
+                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that is invalid");
+                            state_update.rollback();
+                        }
+                        Err(RuntimeError::StorageError(err)) => {
+                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction due to storage error");
+                            return Err(Error::StorageError(err));
+                        }
+                        Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
                     }
                 }
             } else {
@@ -777,16 +788,16 @@ impl RuntimeAdapter for NightshadeRuntime {
         match result {
             Ok(gc_stop_height) => gc_stop_height,
             Err(error) => {
-                error!(target: "runtime", "Error when getting the gc stop height. This error may naturally occur after the gc_num_epochs_to_keep config is increased. It should disappear as soon as the node builds up all epochs it wants. Error: {}", error);
+                info!(target: "runtime", "Error when getting the gc stop height. This error may naturally occur after the gc_num_epochs_to_keep config is increased. It should disappear as soon as the node builds up all epochs it wants. Error: {}", error);
                 self.genesis_config.genesis_height
             }
         }
     }
 
-    fn apply_transactions_with_optional_storage_proof(
+    fn apply_transactions(
         &self,
         shard_id: ShardId,
-        state_root: &StateRoot,
+        storage_config: RuntimeStorageConfig,
         height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
@@ -798,20 +809,29 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_limit: Gas,
         challenges: &ChallengesResult,
         random_seed: CryptoHash,
-        generate_storage_proof: bool,
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
-        states_to_patch: SandboxStatePatch,
-        use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
-        let trie =
-            self.get_trie_for_shard(shard_id, prev_block_hash, *state_root, use_flat_storage)?;
+        let _timer =
+            metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
 
-        // TODO (#6316): support chunk nodes caching for TrieRecordingStorage
-        if generate_storage_proof {
-            panic!("Storage proof generation is not enabled yet");
+        let mut trie = match storage_config.source {
+            StorageDataSource::Db => self.get_trie_for_shard(
+                shard_id,
+                prev_block_hash,
+                storage_config.state_root,
+                storage_config.use_flat_storage,
+            )?,
+            StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
+                storage,
+                storage_config.state_root,
+                storage_config.use_flat_storage,
+            ),
+        };
+        if storage_config.record_storage {
+            trie = trie.recording_reads();
         }
-        // let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
+
         match self.process_state_update(
             trie,
             shard_id,
@@ -828,7 +848,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             random_seed,
             is_new_chunk,
             is_first_block_with_chunk_of_version,
-            states_to_patch,
+            storage_config.state_patch,
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e {
@@ -839,46 +859,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                 _ => Err(e),
             },
         }
-    }
-
-    fn check_state_transition(
-        &self,
-        partial_storage: PartialStorage,
-        shard_id: ShardId,
-        state_root: &StateRoot,
-        height: BlockHeight,
-        block_timestamp: u64,
-        prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
-        receipts: &[Receipt],
-        transactions: &[SignedTransaction],
-        last_validator_proposals: ValidatorStakeIter,
-        gas_price: Balance,
-        gas_limit: Gas,
-        challenges: &ChallengesResult,
-        random_value: CryptoHash,
-        is_new_chunk: bool,
-        is_first_block_with_chunk_of_version: bool,
-    ) -> Result<ApplyTransactionResult, Error> {
-        let trie = Trie::from_recorded_storage(partial_storage, *state_root, true);
-        self.process_state_update(
-            trie,
-            shard_id,
-            height,
-            block_hash,
-            block_timestamp,
-            prev_block_hash,
-            receipts,
-            transactions,
-            last_validator_proposals,
-            gas_price,
-            gas_limit,
-            challenges,
-            random_value,
-            is_new_chunk,
-            is_first_block_with_chunk_of_version,
-            Default::default(),
-        )
     }
 
     fn query(
@@ -1176,15 +1156,33 @@ impl RuntimeAdapter for NightshadeRuntime {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let mut genesis_config = self.genesis_config.clone();
         genesis_config.protocol_version = protocol_version;
-        let shard_config = {
-            let epoch_manager = self.epoch_manager.read();
-            epoch_manager.get_shard_config(epoch_id)?
-        };
+
+        let epoch_config = self.epoch_manager.get_epoch_config(epoch_id)?;
+        genesis_config.epoch_length = epoch_config.epoch_length;
+        genesis_config.num_block_producer_seats = epoch_config.num_block_producer_seats;
         genesis_config.num_block_producer_seats_per_shard =
-            shard_config.num_block_producer_seats_per_shard;
+            epoch_config.num_block_producer_seats_per_shard;
         genesis_config.avg_hidden_validator_seats_per_shard =
-            shard_config.avg_hidden_validator_seats_per_shard;
-        genesis_config.shard_layout = shard_config.shard_layout;
+            epoch_config.avg_hidden_validator_seats_per_shard;
+        genesis_config.block_producer_kickout_threshold =
+            epoch_config.block_producer_kickout_threshold;
+        genesis_config.chunk_producer_kickout_threshold =
+            epoch_config.chunk_producer_kickout_threshold;
+        genesis_config.max_kickout_stake_perc = epoch_config.validator_max_kickout_stake_perc;
+        genesis_config.online_min_threshold = epoch_config.online_min_threshold;
+        genesis_config.online_max_threshold = epoch_config.online_max_threshold;
+        genesis_config.fishermen_threshold = epoch_config.fishermen_threshold;
+        genesis_config.minimum_stake_divisor = epoch_config.minimum_stake_divisor;
+        genesis_config.protocol_upgrade_stake_threshold =
+            epoch_config.protocol_upgrade_stake_threshold;
+        genesis_config.shard_layout = epoch_config.shard_layout;
+        genesis_config.num_chunk_only_producer_seats =
+            epoch_config.validator_selection_config.num_chunk_only_producer_seats;
+        genesis_config.minimum_validators_per_shard =
+            epoch_config.validator_selection_config.minimum_validators_per_shard;
+        genesis_config.minimum_stake_ratio =
+            epoch_config.validator_selection_config.minimum_stake_ratio;
+
         let runtime_config =
             self.runtime_config_store.get_config(protocol_version).as_ref().clone();
         Ok(ProtocolConfig { genesis_config, runtime_config })
@@ -1295,6 +1293,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 mod test {
     use std::collections::BTreeSet;
 
+    use near_chain::types::RuntimeStorageConfig;
     use near_chain::{Chain, ChainGenesis};
     use near_epoch_manager::types::BlockHeaderInfo;
     use near_epoch_manager::EpochManager;
@@ -1324,6 +1323,7 @@ mod test {
 
     use super::*;
 
+    use near_primitives::account::id::AccountIdRef;
     use near_primitives::trie_key::TrieKey;
     use primitive_types::U256;
 
@@ -1338,7 +1338,7 @@ mod test {
             sender.validator_id().clone(),
             sender.validator_id().clone(),
             &*signer,
-            vec![Action::Stake(StakeAction { stake, public_key: sender.public_key() })],
+            vec![Action::Stake(Box::new(StakeAction { stake, public_key: sender.public_key() }))],
             // runtime does not validate block history
             CryptoHash::default(),
         )
@@ -1363,7 +1363,7 @@ mod test {
             let mut result = self
                 .apply_transactions(
                     shard_id,
-                    state_root,
+                    RuntimeStorageConfig::new(*state_root, true),
                     height,
                     block_timestamp,
                     prev_block_hash,
@@ -1377,8 +1377,6 @@ mod test {
                     CryptoHash::default(),
                     true,
                     false,
-                    Default::default(),
-                    true,
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
@@ -1389,9 +1387,8 @@ mod test {
 
             let shard_uid =
                 self.epoch_manager.shard_id_to_uid(shard_id, &EpochId::default()).unwrap();
-            if let Some(flat_storage) = self
-                .get_flat_storage_manager()
-                .and_then(|manager| manager.get_flat_storage_for_shard(shard_uid))
+            if let Some(flat_storage) =
+                self.get_flat_storage_manager().get_flat_storage_for_shard(shard_uid)
             {
                 let delta = FlatStateDelta {
                     changes: flat_state_changes,
@@ -1477,7 +1474,8 @@ mod test {
                 Some(RuntimeConfigStore::free()),
                 DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
                 Default::default(),
-                StateSnapshotConfig::Enabled {
+                StateSnapshotConfig {
+                    state_snapshot_type: StateSnapshotType::EveryEpoch,
                     home_dir: PathBuf::from(dir.path()),
                     hot_store_path: PathBuf::from("data"),
                     state_snapshot_subdir: PathBuf::from("state_snapshot"),
@@ -1489,24 +1487,23 @@ mod test {
 
             // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
             // and use a mock chain, so we need to initialize flat storage manually.
-            if let Some(flat_storage_manager) = runtime.get_flat_storage_manager() {
-                for shard_uid in
-                    epoch_manager.get_shard_layout(&EpochId::default()).unwrap().get_shard_uids()
-                {
-                    let mut store_update = store.store_update();
-                    flat_storage_manager.set_flat_storage_for_genesis(
-                        &mut store_update,
-                        shard_uid,
-                        &genesis_hash,
-                        0,
-                    );
-                    store_update.commit().unwrap();
-                    assert!(matches!(
-                        flat_storage_manager.get_flat_storage_status(shard_uid),
-                        near_store::flat::FlatStorageStatus::Ready(_)
-                    ));
-                    flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
-                }
+            let flat_storage_manager = runtime.get_flat_storage_manager();
+            for shard_uid in
+                epoch_manager.get_shard_layout(&EpochId::default()).unwrap().get_shard_uids()
+            {
+                let mut store_update = store.store_update();
+                flat_storage_manager.set_flat_storage_for_genesis(
+                    &mut store_update,
+                    shard_uid,
+                    &genesis_hash,
+                    0,
+                );
+                store_update.commit().unwrap();
+                assert!(matches!(
+                    flat_storage_manager.get_flat_storage_status(shard_uid),
+                    near_store::flat::FlatStorageStatus::Ready(_)
+                ));
+                flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             }
 
             epoch_manager
@@ -2096,13 +2093,13 @@ mod test {
                 let bp = em.get_block_producer_info(&epoch_id, height).unwrap();
                 let cp = em.get_chunk_producer_info(&epoch_id, height, 0).unwrap();
 
-                if bp.account_id().as_ref() == "test1" {
+                if bp.account_id() == "test1" {
                     expected_blocks[0] += 1;
                 } else {
                     expected_blocks[1] += 1;
                 }
 
-                if cp.account_id().as_ref() == "test1" {
+                if cp.account_id() == "test1" {
                     expected_chunks[0] += 1;
                 } else {
                     expected_chunks[1] += 1;
@@ -2487,7 +2484,7 @@ mod test {
                 .into_iter()
                 .map(|fishermen| fishermen.take_account_id())
                 .collect::<Vec<_>>(),
-            vec!["test1".parse().unwrap(), "test2".parse().unwrap()]
+            vec!["test1", "test2"]
         );
         let staking_transaction = stake(2, &signers[0], &block_producers[0], TESTING_INIT_STAKE);
         let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 0);
@@ -2554,7 +2551,7 @@ mod test {
                 .into_iter()
                 .map(|fishermen| fishermen.take_account_id())
                 .collect::<Vec<_>>(),
-            vec!["test1".parse().unwrap()]
+            vec![AccountIdRef::new_or_panic("test1")]
         );
         let staking_transaction = stake(2, &signers[0], &block_producers[0], 0);
         env.step_default(vec![staking_transaction]);
@@ -2780,6 +2777,7 @@ mod test {
             &genesis.config,
             epoch_manager.clone(),
             RuntimeConfigStore::new(None),
+            StateSnapshotType::EveryEpoch,
         );
 
         let block =

@@ -5,13 +5,12 @@ use crate::config::{
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
 use crate::{metrics, ActionResult, ApplyState};
-use borsh::BorshSerialize;
+
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
-use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
@@ -27,6 +26,7 @@ use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
+use near_primitives_core::config::ActionCosts;
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
     StorageError, TrieUpdate,
@@ -35,8 +35,9 @@ use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::types::PromiseResult;
-use near_vm_runner::logic::{ActionCosts, VMContext, VMOutcome};
+use near_vm_runner::logic::{VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
+use near_vm_runner::ContractCode;
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
@@ -80,9 +81,7 @@ pub(crate) fn execute_function_call(
     let context = VMContext {
         current_account_id: runtime_ext.account_id().clone(),
         signer_account_id: action_receipt.signer_id.clone(),
-        signer_account_pk: action_receipt
-            .signer_public_key
-            .try_to_vec()
+        signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key)
             .expect("Failed to serialize"),
         predecessor_account_id: predecessor_id.clone(),
         input: function_call.args.clone(),
@@ -115,7 +114,6 @@ pub(crate) fn execute_function_call(
         &config.wasm_config,
         &config.fees,
         promise_results,
-        apply_state.current_protocol_version,
         apply_state.cache.as_deref(),
     );
 
@@ -461,7 +459,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
         CryptoHash::default(),
         fee_config.storage_usage_config.num_bytes_account
             + public_key.len() as u64
-            + access_key.try_to_vec().unwrap().len() as u64
+            + borsh::object_length(&access_key).unwrap() as u64
             + fee_config.storage_usage_config.num_extra_bytes_record,
     ));
 
@@ -474,7 +472,6 @@ pub(crate) fn action_deploy_contract(
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
     apply_state: &ApplyState,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
     let code = ContractCode::new(deploy_contract.code.clone(), None);
@@ -494,13 +491,7 @@ pub(crate) fn action_deploy_contract(
     // Precompile the contract and store result (compiled code or error) in the database.
     // Note, that contract compilation costs are already accounted in deploy cost using
     // special logic in estimator (see get_runtime_config() function).
-    precompile_contract(
-        &code,
-        &apply_state.config.wasm_config,
-        current_protocol_version,
-        apply_state.cache.as_deref(),
-    )
-    .ok();
+    precompile_contract(&code, &apply_state.config.wasm_config, apply_state.cache.as_deref()).ok();
     Ok(())
 }
 
@@ -559,12 +550,12 @@ pub(crate) fn action_delete_key(
         let storage_usage_config = &fee_config.storage_usage_config;
         let storage_usage = if current_protocol_version >= DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION
         {
-            delete_key.public_key.try_to_vec().unwrap().len() as u64
-                + access_key.try_to_vec().unwrap().len() as u64
+            borsh::object_length(&delete_key.public_key).unwrap() as u64
+                + borsh::object_length(&access_key).unwrap() as u64
                 + storage_usage_config.num_extra_bytes_record
         } else {
-            delete_key.public_key.try_to_vec().unwrap().len() as u64
-                + Some(access_key).try_to_vec().unwrap().len() as u64
+            borsh::object_length(&delete_key.public_key).unwrap() as u64
+                + borsh::object_length(&Some(access_key)).unwrap() as u64
                 + storage_usage_config.num_extra_bytes_record
         };
         // Remove access key
@@ -614,8 +605,8 @@ pub(crate) fn action_add_key(
         account
             .storage_usage()
             .checked_add(
-                add_key.public_key.try_to_vec().unwrap().len() as u64
-                    + add_key.access_key.try_to_vec().unwrap().len() as u64
+                borsh::object_length(&add_key.public_key).unwrap() as u64
+                    + borsh::object_length(&add_key.access_key).unwrap() as u64
                     + storage_config.num_extra_bytes_record,
             )
             .ok_or_else(|| {
@@ -684,11 +675,7 @@ pub(crate) fn apply_delegate_action(
     // Some contracts refund the deposit. Usually they refund the deposit to the predecessor and this is sender_id/Sender from DelegateAction.
     // Therefore Relayer should verify DelegateAction before submitting it because it spends the attached deposit.
 
-    let prepaid_send_fees = total_prepaid_send_fees(
-        &apply_state.config.fees,
-        &action_receipt.actions,
-        apply_state.current_protocol_version,
-    )?;
+    let prepaid_send_fees = total_prepaid_send_fees(&apply_state.config, &action_receipt.actions)?;
     let required_gas = receipt_required_gas(apply_state, &new_receipt)?;
     // This gas will be burnt by the receiver of the created receipt,
     result.gas_used = safe_add_gas(result.gas_used, required_gas)?;
@@ -709,10 +696,9 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
         ReceiptEnum::Action(action_receipt) => {
             let mut required_gas = safe_add_gas(
                 total_prepaid_exec_fees(
-                    &apply_state.config.fees,
+                    &apply_state.config,
                     &action_receipt.actions,
                     &receipt.receiver_id,
-                    apply_state.current_protocol_version,
                 )?,
                 total_prepaid_gas(&action_receipt.actions)?,
             )?;
@@ -798,7 +784,7 @@ fn validate_delegate_action_key(
                 )
                 .into());
             }
-            if delegate_action.receiver_id.as_ref() != function_call_permission.receiver_id {
+            if delegate_action.receiver_id != function_call_permission.receiver_id {
                 result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
                     InvalidAccessKeyError::ReceiverMismatch {
                         tx_receiver: delegate_action.receiver_id.clone(),
@@ -882,9 +868,9 @@ pub(crate) fn check_actor_permissions(
 
 pub(crate) fn check_account_existence(
     action: &Action,
-    account: &mut Option<Account>,
+    account: &Option<Account>,
     account_id: &AccountId,
-    current_protocol_version: ProtocolVersion,
+    config: &RuntimeConfig,
     is_the_only_action: bool,
     is_refund: bool,
 ) -> Result<(), ActionError> {
@@ -896,9 +882,8 @@ pub(crate) fn check_account_existence(
                 }
                 .into());
             } else {
-                if checked_feature!("stable", ImplicitAccountCreation, current_protocol_version)
-                    && account_id.is_implicit()
-                {
+                // TODO: this should be `config.implicit_account_creation`.
+                if config.wasm_config.implicit_account_creation && account_id.is_implicit() {
                     // If the account doesn't exist and it's 64-length hex account ID, then you
                     // should only be able to create it using single transfer action.
                     // Because you should not be able to add another access key to the account in
@@ -917,11 +902,8 @@ pub(crate) fn check_account_existence(
         }
         Action::Transfer(_) => {
             if account.is_none() {
-                return if checked_feature!(
-                    "stable",
-                    ImplicitAccountCreation,
-                    current_protocol_version
-                ) && is_the_only_action
+                return if config.wasm_config.implicit_account_creation
+                    && is_the_only_action
                     && account_id.is_implicit()
                     && !is_refund
                 {
@@ -1168,12 +1150,12 @@ mod tests {
                 actions: vec![
                     non_delegate_action(
                         Action::FunctionCall(
-                            FunctionCallAction {
+                            Box::new(FunctionCallAction {
                                  method_name: "ft_transfer".parse().unwrap(),
                                  args: vec![123, 34, 114, 101, 99, 101, 105, 118, 101, 114, 95, 105, 100, 34, 58, 34, 106, 97, 110, 101, 46, 116, 101, 115, 116, 46, 110, 101, 97, 114, 34, 44, 34, 97, 109, 111, 117, 110, 116, 34, 58, 34, 52, 34, 125],
                                  gas: 30000000000000,
                                  deposit: 1,
-                            }
+                            })
                         )
                     )
                 ],
@@ -1190,7 +1172,7 @@ mod tests {
             gas_price: 1,
             output_data_receivers: Vec::new(),
             input_data_ids: Vec::new(),
-            actions: vec![Action::Delegate(signed_delegate_action.clone())],
+            actions: vec![Action::Delegate(Box::new(signed_delegate_action.clone()))],
         };
 
         (action_receipt, signed_delegate_action)
@@ -1371,10 +1353,10 @@ mod tests {
         // Sender account doesn't exist. Must fail.
         assert_eq!(
             check_account_existence(
-                &Action::Delegate(signed_delegate_action),
+                &Action::Delegate(Box::new(signed_delegate_action)),
                 &mut None,
                 &sender_id,
-                1,
+                &RuntimeConfig::test(),
                 false,
                 false
             ),
@@ -1567,12 +1549,12 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
+            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
                 method_name: "test_method".parse().unwrap(),
-            }))];
+            })))];
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
         assert!(result.result.is_ok(), "Result error {:?}", result.result);
     }
@@ -1618,18 +1600,18 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions = vec![
-            non_delegate_action(Action::FunctionCall(FunctionCallAction {
+            non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
                 method_name: "test_method".parse().unwrap(),
-            })),
-            non_delegate_action(Action::FunctionCall(FunctionCallAction {
+            }))),
+            non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
                 method_name: "test_method".parse().unwrap(),
-            })),
+            }))),
         ];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
@@ -1657,12 +1639,12 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
+            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 1,
                 gas: 300,
                 method_name: "test_method".parse().unwrap(),
-            }))];
+            })))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
 
@@ -1689,12 +1671,12 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
+            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
                 method_name: "test_method".parse().unwrap(),
-            }))];
+            })))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
 
@@ -1724,12 +1706,12 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions =
-            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
+            vec![non_delegate_action(Action::FunctionCall(Box::new(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
                 method_name: "test_method".parse().unwrap(),
-            }))];
+            })))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
 

@@ -20,11 +20,10 @@ use near_store::test_utils::create_test_store;
 use near_store::{KeyLookupMode, Store, TrieTraversalItem};
 use near_vm_runner::logic::TrieNodesCount;
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
-
-use super::utils::TestEnvNightshadeSetupExt;
 
 /// Height on which we start flat storage background creation.
 const START_HEIGHT: BlockHeight = 7;
@@ -556,5 +555,5 @@ fn test_not_supported_block() {
 }
 
 fn get_flat_storage_manager(env: &TestEnv) -> FlatStorageManager {
-    env.clients[0].chain.runtime_adapter.get_flat_storage_manager().unwrap()
+    env.clients[0].chain.runtime_adapter.get_flat_storage_manager()
 }

@@ -1,5 +1,4 @@
 use std::collections::{HashSet, VecDeque};
-use std::path::Path;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
@@ -7,23 +6,17 @@ use std::sync::{Arc, RwLock};
 use actix::System;
 use assert_matches::assert_matches;
 use futures::{future, FutureExt};
-use near_async::messaging::{IntoSender, Sender};
-use near_chain::test_utils::ValidatorSchedule;
-use near_chunks::test_utils::MockClientAdapterForShardsManager;
-
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
-use near_epoch_manager::{EpochManager, EpochManagerHandle};
-use near_primitives::config::{ActionCosts, ExtCosts};
-use near_primitives::num_rational::{Ratio, Rational32};
-
 use near_actix_test_utils::run_actix;
+use near_async::messaging::IntoSender;
 use near_chain::chain::ApplyStatePartsRequest;
+use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
     Block, BlockProcessingArtifact, ChainGenesis, ChainStore, ChainStoreAccess, Error, Provenance,
 };
-use near_chain_configs::{ClientConfig, Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
+use near_chain_configs::{Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
+use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{
     create_chunk_on_height, setup_client_with_synchronous_shards_manager, setup_mock,
@@ -59,7 +52,7 @@ use near_primitives::sharding::{
     ShardChunkHeaderV3,
 };
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::{get_num_state_parts, StatePartKey};
+use near_primitives::state_sync::StatePartKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::{
@@ -70,26 +63,26 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
-use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
+use near_primitives_core::config::{ActionCosts, ExtCosts};
+use near_primitives_core::num_rational::{Ratio, Rational32};
 use near_primitives_core::types::ShardId;
 use near_store::cold_storage::{update_cold_db, update_cold_head};
-use near_store::genesis::initialize_genesis_state;
 use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::test_utils::create_test_store;
+use near_store::NodeStorage;
 use near_store::{get, DBCol, TrieChanges};
-use near_store::{NodeStorage, Store};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use nearcore::{NightshadeRuntime, NEAR_BASE};
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
+use nearcore::NEAR_BASE;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 pub fn set_block_protocol_version(
     block: &mut Block,
@@ -128,6 +121,36 @@ pub(crate) fn produce_blocks_from_height(
     height: BlockHeight,
 ) -> BlockHeight {
     produce_blocks_from_height_with_protocol_version(env, blocks_number, height, PROTOCOL_VERSION)
+}
+
+pub(crate) fn create_account(
+    env: &mut TestEnv,
+    old_account_id: AccountId,
+    new_account_id: AccountId,
+    epoch_length: u64,
+    height: BlockHeight,
+    protocol_version: ProtocolVersion,
+) -> CryptoHash {
+    let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
+    let signer = InMemorySigner::from_seed(
+        old_account_id.clone(),
+        KeyType::ED25519,
+        old_account_id.as_ref(),
+    );
+
+    let tx = SignedTransaction::create_account(
+        height,
+        old_account_id,
+        new_account_id,
+        10u128.pow(24),
+        signer.public_key(),
+        &signer,
+        *block.hash(),
+    );
+    let tx_hash = tx.get_hash();
+    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+    produce_blocks_from_height_with_protocol_version(env, epoch_length, height, protocol_version);
+    tx_hash
 }
 
 pub(crate) fn deploy_test_contract_with_protocol_version(
@@ -231,12 +254,12 @@ pub(crate) fn prepare_env_with_congestion(
             "test0".parse().unwrap(),
             "test0".parse().unwrap(),
             &signer,
-            vec![Action::FunctionCall(FunctionCallAction {
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "call_promise".to_string(),
                 args: serde_json::to_vec(&data).unwrap(),
                 gas: gas_1,
                 deposit: 0,
-            })],
+            }))],
             *genesis_block.hash(),
         );
         tx_hashes.push(signed_transaction.get_hash());
@@ -581,7 +604,7 @@ fn produce_block_with_approvals_arrived_early() {
                             (NetworkResponses::NoResponse.into(), true)
                         }
                         NetworkRequests::Approval { approval_message } => {
-                            if approval_message.target.as_ref() == "test1"
+                            if approval_message.target == "test1"
                                 && approval_message.approval.target_height == 4
                             {
                                 approval_counter += 1;
@@ -590,7 +613,7 @@ fn produce_block_with_approvals_arrived_early() {
                                 let block = block_holder.read().unwrap().clone().unwrap();
                                 conns[0].client_actor.do_send(
                                     BlockResponse {
-                                        block: block,
+                                        block,
                                         peer_id: PeerInfo::random().id,
                                         was_requested: false,
                                     }
@@ -875,7 +898,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                             .mut_header()
                                             .get_mut()
                                             .inner_rest
-                                            .validator_proposals = proposals;
+                                            .prev_validator_proposals = proposals;
                                         block_mut.mut_header().resign(&validator_signer1);
                                     }
                                 }
@@ -1219,7 +1242,7 @@ fn test_invalid_gas_price() {
     let signer = Arc::new(create_test_signer("test1"));
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
-    b1.mut_header().get_mut().inner_rest.gas_price = 0;
+    b1.mut_header().get_mut().inner_rest.next_gas_price = 0;
     b1.mut_header().resign(&*signer);
 
     let res = client.process_block_test(b1.into(), Provenance::NONE);
@@ -1293,8 +1316,9 @@ fn test_bad_orphan() {
             let chunk = &mut block.body.chunks[0].get_mut();
 
             match &mut chunk.inner {
-                ShardChunkHeaderInner::V1(inner) => inner.outcome_root = CryptoHash([1; 32]),
-                ShardChunkHeaderInner::V2(inner) => inner.outcome_root = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V1(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V2(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
+                ShardChunkHeaderInner::V3(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
             }
             chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }
@@ -1394,8 +1418,8 @@ fn test_bad_chunk_mask() {
                 Block::compute_chunk_headers_root(&chunk_headers).0;
             block.mut_header().get_mut().inner_rest.chunk_tx_root =
                 Block::compute_chunk_tx_root(&chunk_headers);
-            block.mut_header().get_mut().inner_rest.chunk_receipts_root =
-                Block::compute_chunk_receipts_root(&chunk_headers);
+            block.mut_header().get_mut().inner_rest.prev_chunk_outgoing_receipts_root =
+                Block::compute_chunk_prev_outgoing_receipts_root(&chunk_headers);
             block.mut_header().get_mut().inner_lite.prev_state_root =
                 Block::compute_state_root(&chunk_headers);
             block.mut_header().get_mut().inner_rest.chunk_mask = vec![true, false];
@@ -1432,7 +1456,7 @@ fn test_minimum_gas_price() {
         env.produce_block(0, i);
     }
     let block = env.clients[0].chain.get_block_by_height(100).unwrap();
-    assert!(block.header().gas_price() >= min_gas_price);
+    assert!(block.header().next_gas_price() >= min_gas_price);
 }
 
 fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
@@ -1810,33 +1834,12 @@ fn test_process_block_after_state_sync() {
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
 
-    let num_clients = 1;
-    let env_objects = (0..num_clients).map(|_|{
-        let tmp_dir = tempfile::tempdir().unwrap();
-        // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
-        // same configuration as in production.
-        let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
-            .open()
-            .unwrap()
-            .get_hot_store();
-        initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-        let runtime =
-            NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
-                as Arc<dyn RuntimeAdapter>;
-        (tmp_dir, store, epoch_manager, runtime)
-    }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
-
-    let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
-    let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();
-    let runtimes = env_objects.iter().map(|x| x.3.clone()).collect::<Vec<_>>();
-
     let mut env = TestEnv::builder(chain_genesis)
-        .clients_count(env_objects.len())
-        .stores(stores)
-        .epoch_managers(epoch_managers)
-        .runtimes(runtimes)
+        .clients_count(1)
         .use_state_snapshots()
+        .real_stores()
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
 
     let sync_height = epoch_length * 4 + 1;
@@ -2161,7 +2164,7 @@ fn test_gas_price_overflow() {
         );
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
-        assert!(block.header().gas_price() <= max_gas_price);
+        assert!(block.header().next_gas_price() <= max_gas_price);
         env.process_block(0, block, Provenance::PRODUCED);
     }
 }
@@ -2181,35 +2184,15 @@ fn test_invalid_block_root() {
 fn test_incorrect_validator_key_produce_block() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     let chain_genesis = ChainGenesis::new(&genesis);
-    let store = create_test_store();
-    let home_dir = Path::new("../../../..");
-    initialize_genesis_state(store.clone(), &genesis, Some(home_dir));
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-    let shard_tracker = ShardTracker::new(TrackedConfig::new_empty(), epoch_manager.clone());
-    let runtime =
-        nearcore::NightshadeRuntime::test(home_dir, store, &genesis.config, epoch_manager.clone());
-    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-        "test0".parse().unwrap(),
-        KeyType::ED25519,
-        "seed",
-    ));
-    let mut config = ClientConfig::test(true, 10, 20, 2, false, true, true, true);
-    config.epoch_length = chain_genesis.epoch_length;
-    let mut client = Client::new(
-        config,
-        chain_genesis,
-        epoch_manager,
-        shard_tracker,
-        runtime,
-        Arc::new(MockPeerManagerAdapter::default()).into(),
-        Sender::noop(),
-        Some(signer),
-        false,
-        TEST_SEED,
-        None,
-    )
-    .unwrap();
-    let res = client.produce_block(1);
+
+    let mut env = TestEnv::builder(chain_genesis)
+        .clients_count(1)
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
+        .track_all_shards()
+        .build();
+
+    let res = env.clients[0].produce_block(1);
     assert_matches!(res, Ok(None));
 }
 
@@ -2360,11 +2343,7 @@ fn test_sync_hash_validity() {
         let block_hash = *env.clients[0].chain.get_block_header_by_height(i).unwrap().hash();
         let res = env.clients[0].chain.check_sync_hash_validity(&block_hash);
         println!("height {:?} -> {:?}", i, res);
-        if i == 11 || i == 16 {
-            assert!(res.unwrap())
-        } else {
-            assert!(!res.unwrap())
-        }
+        assert_eq!(res.unwrap(), i == 0 || (i % epoch_length) == 1);
     }
     let bad_hash = CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap();
     let res = env.clients[0].chain.check_sync_hash_validity(&bad_hash);
@@ -2431,12 +2410,12 @@ fn test_validate_chunk_extra() {
         "test0".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
-        vec![Action::FunctionCall(FunctionCallAction {
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "write_block_height".to_string(),
             args: vec![],
             gas: 100000000000000,
             deposit: 0,
-        })],
+        }))],
         *last_block.hash(),
     );
     assert_eq!(
@@ -2472,12 +2451,12 @@ fn test_validate_chunk_extra() {
             Block::compute_chunk_headers_root(&chunk_headers).0;
         block.mut_header().get_mut().inner_rest.chunk_tx_root =
             Block::compute_chunk_tx_root(&chunk_headers);
-        block.mut_header().get_mut().inner_rest.chunk_receipts_root =
-            Block::compute_chunk_receipts_root(&chunk_headers);
+        block.mut_header().get_mut().inner_rest.prev_chunk_outgoing_receipts_root =
+            Block::compute_chunk_prev_outgoing_receipts_root(&chunk_headers);
         block.mut_header().get_mut().inner_lite.prev_state_root =
             Block::compute_state_root(&chunk_headers);
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
-        block.mut_header().get_mut().inner_lite.outcome_root =
+        block.mut_header().get_mut().inner_lite.prev_outcome_root =
             Block::compute_outcome_root(block.chunks().iter());
         block.mut_header().get_mut().inner_rest.block_body_hash =
             block.compute_block_body_hash().unwrap();
@@ -2568,32 +2547,12 @@ fn test_catchup_gas_price_change() {
     genesis.config.gas_limit = 1000000000000;
     let chain_genesis = ChainGenesis::new(&genesis);
 
-    let env_objects = (0..2).map(|_|{
-        let tmp_dir = tempfile::tempdir().unwrap();
-        // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
-        // same configuration as in production.
-        let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
-            .open()
-            .unwrap()
-            .get_hot_store();
-        initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-        let runtime =
-            NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
-                as Arc<dyn RuntimeAdapter>;
-        (tmp_dir, store, epoch_manager, runtime)
-    }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
-
-    let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
-    let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();
-    let runtimes = env_objects.iter().map(|x| x.3.clone()).collect::<Vec<_>>();
-
     let mut env = TestEnv::builder(chain_genesis)
-        .clients_count(env_objects.len())
-        .stores(stores)
-        .epoch_managers(epoch_managers)
-        .runtimes(runtimes)
+        .clients_count(2)
         .use_state_snapshots()
+        .real_stores()
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
 
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -2626,7 +2585,7 @@ fn test_catchup_gas_price_change() {
         tracing::error!("process_block:{i}:1");
     }
 
-    assert_ne!(blocks[3].header().gas_price(), blocks[4].header().gas_price());
+    assert_ne!(blocks[3].header().next_gas_price(), blocks[4].header().next_gas_price());
     assert!(env.clients[1]
         .chain
         .get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard())
@@ -2637,10 +2596,7 @@ fn test_catchup_gas_price_change() {
     assert_ne!(blocks[4].header().epoch_id(), blocks[5].header().epoch_id());
     assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
     let state_sync_header = env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
-    let state_root = state_sync_header.chunk_prev_state_root();
-    let state_root_node =
-        env.clients[0].runtime_adapter.get_state_root_node(0, &sync_hash, &state_root).unwrap();
-    let num_parts = get_num_state_parts(state_root_node.memory_usage);
+    let num_parts = state_sync_header.num_state_parts();
     let state_sync_parts = (0..num_parts)
         .map(|i| env.clients[0].chain.get_state_response_part(0, i, sync_hash).unwrap())
         .collect::<Vec<_>>();
@@ -2654,12 +2610,15 @@ fn test_catchup_gas_price_change() {
     }
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
     let f = move |msg: ApplyStatePartsRequest| {
-        use borsh::BorshSerialize;
         let store = rt.store();
 
         let shard_id = msg.shard_uid.shard_id as ShardId;
+        assert!(rt
+            .get_flat_storage_manager()
+            .remove_flat_storage_for_shard(msg.shard_uid)
+            .unwrap());
         for part_id in 0..msg.num_parts {
-            let key = StatePartKey(msg.sync_hash, shard_id, part_id).try_to_vec().unwrap();
+            let key = borsh::to_vec(&StatePartKey(msg.sync_hash, shard_id, part_id)).unwrap();
             let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
 
             rt.apply_state_part(
@@ -2754,7 +2713,7 @@ fn test_block_execution_outcomes() {
     let next_block = env.clients[0].chain.get_block_by_height(3).unwrap();
     let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap();
     assert!(next_chunk.transactions().is_empty());
-    assert!(next_chunk.receipts().is_empty());
+    assert!(next_chunk.prev_outgoing_receipts().is_empty());
     let execution_outcomes_from_block = env.clients[0]
         .chain
         .store()
@@ -2891,7 +2850,7 @@ fn test_delayed_receipt_count_limit() {
         let block = env.clients[0].chain.get_block_by_height(height).unwrap();
         let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap();
         // These checks are useful to ensure that we didn't mess up the test setup.
-        assert!(chunk.receipts().len() <= 1);
+        assert!(chunk.prev_outgoing_receipts().len() <= 1);
         assert!(chunk.transactions().len() <= 5);
 
         // Because all transactions are in the transactions pool, this means we have not included
@@ -2947,11 +2906,11 @@ fn test_execution_metadata() {
         + config.fees.fee(ActionCosts::function_call_byte).exec_fee() * "main".len() as u64;
 
     let expected_wasm_ops = match config.wasm_config.limit_config.contract_prepare_version {
-        near_primitives::config::ContractPrepareVersion::V0 => 2,
-        near_primitives::config::ContractPrepareVersion::V1 => 2,
+        near_vm_runner::logic::ContractPrepareVersion::V0 => 2,
+        near_vm_runner::logic::ContractPrepareVersion::V1 => 2,
         // We spend two wasm instructions (call & drop), plus 8 ops for initializing function
         // operand stack (8 bytes worth to hold the return value.)
-        near_primitives::config::ContractPrepareVersion::V2 => 10,
+        near_vm_runner::logic::ContractPrepareVersion::V2 => 10,
     };
 
     // Profile for what's happening *inside* wasm vm during function call.
@@ -3019,7 +2978,7 @@ fn test_epoch_protocol_version_change() {
             .unwrap();
         let chunk_producer =
             env.clients[0].epoch_manager.get_chunk_producer(&epoch_id, i, 0).unwrap();
-        let index = if chunk_producer.as_ref() == "test0" { 0 } else { 1 };
+        let index = if chunk_producer == "test0" { 0 } else { 1 };
         let (encoded_chunk, merkle_paths, receipts) =
             create_chunk_on_height(&mut env.clients[index], i);
 
@@ -3041,7 +3000,7 @@ fn test_epoch_protocol_version_change() {
             .get_epoch_id_from_prev_block(&head.last_block_hash)
             .unwrap();
         let block_producer = env.clients[0].epoch_manager.get_block_producer(&epoch_id, i).unwrap();
-        let index = if block_producer.as_ref() == "test0" { 0 } else { 1 };
+        let index = if block_producer == "test0" { 0 } else { 1 };
         let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
         // upgrade to new protocol version but in the second epoch one node vote for the old version.
         if i != 10 {
@@ -3226,8 +3185,8 @@ fn test_fork_receipt_ids() {
             Block::compute_chunk_headers_root(&chunk_headers).0;
         block.mut_header().get_mut().inner_rest.chunk_tx_root =
             Block::compute_chunk_tx_root(&chunk_headers);
-        block.mut_header().get_mut().inner_rest.chunk_receipts_root =
-            Block::compute_chunk_receipts_root(&chunk_headers);
+        block.mut_header().get_mut().inner_rest.prev_chunk_outgoing_receipts_root =
+            Block::compute_chunk_prev_outgoing_receipts_root(&chunk_headers);
         block.mut_header().get_mut().inner_lite.prev_state_root =
             Block::compute_state_root(&chunk_headers);
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
@@ -3273,8 +3232,8 @@ fn test_fork_execution_outcome() {
             Block::compute_chunk_headers_root(&chunk_headers).0;
         block.mut_header().get_mut().inner_rest.chunk_tx_root =
             Block::compute_chunk_tx_root(&chunk_headers);
-        block.mut_header().get_mut().inner_rest.chunk_receipts_root =
-            Block::compute_chunk_receipts_root(&chunk_headers);
+        block.mut_header().get_mut().inner_rest.prev_chunk_outgoing_receipts_root =
+            Block::compute_chunk_prev_outgoing_receipts_root(&chunk_headers);
         block.mut_header().get_mut().inner_lite.prev_state_root =
             Block::compute_state_root(&chunk_headers);
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
@@ -3353,7 +3312,7 @@ fn test_not_broadcast_block_on_accept() {
 #[test]
 fn test_header_version_downgrade() {
     init_test_logger();
-    use borsh::ser::BorshSerialize;
+
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = 5;
     let chain_genesis = ChainGenesis::new(&genesis);
@@ -3380,8 +3339,8 @@ fn test_header_version_downgrade() {
                 header.inner_rest.latest_protocol_version = PROTOCOL_VERSION;
                 let (hash, signature) = validator_signer.sign_block_header_parts(
                     header.prev_hash,
-                    &header.inner_lite.try_to_vec().expect("Failed to serialize"),
-                    &header.inner_rest.try_to_vec().expect("Failed to serialize"),
+                    &borsh::to_vec(&header.inner_lite).expect("Failed to serialize"),
+                    &borsh::to_vec(&header.inner_rest).expect("Failed to serialize"),
                 );
                 header.hash = hash;
                 header.signature = signature;
@@ -3556,12 +3515,12 @@ fn test_validator_stake_host_function() {
         "test0".parse().unwrap(),
         "test0".parse().unwrap(),
         &signer,
-        vec![Action::FunctionCall(FunctionCallAction {
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "ext_validator_stake".to_string(),
             args: b"test0".to_vec(),
             gas: 100_000_000_000_000,
             deposit: 0,
-        })],
+        }))],
         *genesis_block.hash(),
     );
     assert_eq!(
@@ -3604,18 +3563,16 @@ fn test_catchup_no_sharding_change() {
 /// These tests fail on aarch because the WasmtimeVM::precompile method doesn't populate the cache.
 mod contract_precompilation_tests {
     use super::*;
-    use near_primitives::contract::ContractCode;
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_primitives::views::ViewApplyState;
-    use near_store::{Store, StoreCompiledContractCache, TrieUpdate};
-    use near_vm_runner::get_contract_cache_key;
-    use near_vm_runner::internal::VMKind;
+    use near_store::{StoreCompiledContractCache, TrieUpdate};
     use near_vm_runner::logic::CompiledContractCache;
+    use near_vm_runner::{get_contract_cache_key, ContractCode};
     use node_runtime::state_viewer::TrieViewer;
 
     const EPOCH_LENGTH: u64 = 25;
 
-    fn state_sync_on_height(env: &mut TestEnv, height: BlockHeight) {
+    fn state_sync_on_height(env: &TestEnv, height: BlockHeight) {
         let sync_block = env.clients[0].chain.get_block_by_height(height).unwrap();
         let sync_hash = *sync_block.hash();
         let state_sync_header =
@@ -3645,32 +3602,12 @@ mod contract_precompilation_tests {
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
 
-        let env_objects = (0..num_clients).map(|_|{
-            let tmp_dir = tempfile::tempdir().unwrap();
-            // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
-            // same configuration as in production.
-            let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
-                .open()
-                .unwrap()
-                .get_hot_store();
-            initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
-            let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-            let runtime =
-                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
-                    as Arc<dyn RuntimeAdapter>;
-            (tmp_dir, store, epoch_manager, runtime)
-        }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
-
-        let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
-        let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();
-        let runtimes = env_objects.iter().map(|x| x.3.clone()).collect::<Vec<_>>();
-
         let mut env = TestEnv::builder(ChainGenesis::test())
-            .clients_count(env_objects.len())
-            .stores(stores.clone())
-            .epoch_managers(epoch_managers)
-            .runtimes(runtimes)
+            .clients_count(num_clients)
             .use_state_snapshots()
+            .real_stores()
+            .real_epoch_managers(&genesis.config)
+            .nightshade_runtimes(&genesis)
             .build();
 
         let start_height = 1;
@@ -3689,10 +3626,12 @@ mod contract_precompilation_tests {
         state_sync_on_height(&mut env, height - 1);
 
         // Check existence of contract in both caches.
-        let mut caches: Vec<StoreCompiledContractCache> =
-            stores.iter().map(StoreCompiledContractCache::new).collect();
+        let mut caches: Vec<StoreCompiledContractCache> = env
+            .clients
+            .iter()
+            .map(|client| StoreCompiledContractCache::new(client.chain.store().store()))
+            .collect();
         let contract_code = ContractCode::new(wasm_code.clone(), None);
-        let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
         let epoch_id = env.clients[0]
             .chain
             .get_block_by_height(height - 1)
@@ -3701,7 +3640,7 @@ mod contract_precompilation_tests {
             .epoch_id()
             .clone();
         let runtime_config = env.get_runtime_config(0, epoch_id);
-        let key = get_contract_cache_key(&contract_code, vm_kind, &runtime_config.wasm_config);
+        let key = get_contract_cache_key(&contract_code, &runtime_config.wasm_config);
         for i in 0..num_clients {
             caches[i]
                 .get(&key)
@@ -3759,32 +3698,12 @@ mod contract_precompilation_tests {
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
 
-        let env_objects = (0..num_clients).map(|_|{
-            let tmp_dir = tempfile::tempdir().unwrap();
-            // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
-            // same configuration as in production.
-            let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
-                .open()
-                .unwrap()
-                .get_hot_store();
-            initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
-            let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-            let runtime =
-                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
-                    as Arc<dyn RuntimeAdapter>;
-            (tmp_dir, store, epoch_manager, runtime)
-        }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
-
-        let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
-        let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();
-        let runtimes = env_objects.iter().map(|x| x.3.clone()).collect::<Vec<_>>();
-
         let mut env = TestEnv::builder(ChainGenesis::test())
-            .clients_count(env_objects.len())
-            .stores(stores.clone())
-            .epoch_managers(epoch_managers)
-            .runtimes(runtimes)
+            .clients_count(num_clients)
             .use_state_snapshots()
+            .real_stores()
+            .real_epoch_managers(&genesis.config)
+            .nightshade_runtimes(&genesis)
             .build();
 
         let mut height = 1;
@@ -3815,9 +3734,11 @@ mod contract_precompilation_tests {
         // Perform state sync for the second client on the last produced height.
         state_sync_on_height(&mut env, height - 1);
 
-        let caches: Vec<StoreCompiledContractCache> =
-            stores.iter().map(StoreCompiledContractCache::new).collect();
-        let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
+        let caches: Vec<StoreCompiledContractCache> = env
+            .clients
+            .iter()
+            .map(|client| StoreCompiledContractCache::new(client.chain.store().store()))
+            .collect();
         let epoch_id = env.clients[0]
             .chain
             .get_block_by_height(height - 1)
@@ -3828,12 +3749,10 @@ mod contract_precompilation_tests {
         let runtime_config = env.get_runtime_config(0, epoch_id);
         let tiny_contract_key = get_contract_cache_key(
             &ContractCode::new(tiny_wasm_code.clone(), None),
-            vm_kind,
             &runtime_config.wasm_config,
         );
         let test_contract_key = get_contract_cache_key(
             &ContractCode::new(wasm_code.clone(), None),
-            vm_kind,
             &runtime_config.wasm_config,
         );
 
@@ -3857,32 +3776,12 @@ mod contract_precompilation_tests {
         );
         genesis.config.epoch_length = EPOCH_LENGTH;
 
-        let env_objects = (0..num_clients).map(|_|{
-            let tmp_dir = tempfile::tempdir().unwrap();
-            // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
-            // same configuration as in production.
-            let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
-                .open()
-                .unwrap()
-                .get_hot_store();
-            initialize_genesis_state(store.clone(), &genesis, Some(tmp_dir.path()));
-            let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-            let runtime =
-                NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis.config, epoch_manager.clone())
-                    as Arc<dyn RuntimeAdapter>;
-            (tmp_dir, store, epoch_manager, runtime)
-        }).collect::<Vec<(tempfile::TempDir, Store, Arc<EpochManagerHandle>, Arc<dyn RuntimeAdapter>)>>();
-
-        let stores = env_objects.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
-        let epoch_managers = env_objects.iter().map(|x| x.2.clone()).collect::<Vec<_>>();
-        let runtimes = env_objects.iter().map(|x| x.3.clone()).collect::<Vec<_>>();
-
         let mut env = TestEnv::builder(ChainGenesis::test())
-            .clients_count(env_objects.len())
-            .stores(stores.clone())
-            .epoch_managers(epoch_managers)
-            .runtimes(runtimes)
+            .clients_count(num_clients)
             .use_state_snapshots()
+            .real_stores()
+            .real_epoch_managers(&genesis.config)
+            .nightshade_runtimes(&genesis)
             .build();
 
         let mut height = 1;
@@ -3917,8 +3816,11 @@ mod contract_precompilation_tests {
         // Perform state sync for the second client.
         state_sync_on_height(&mut env, height - 1);
 
-        let caches: Vec<StoreCompiledContractCache> =
-            stores.iter().map(StoreCompiledContractCache::new).collect();
+        let caches: Vec<StoreCompiledContractCache> = env
+            .clients
+            .iter()
+            .map(|client| StoreCompiledContractCache::new(client.chain.store().store()))
+            .collect();
 
         let epoch_id = env.clients[0]
             .chain
@@ -3928,10 +3830,8 @@ mod contract_precompilation_tests {
             .epoch_id()
             .clone();
         let runtime_config = env.get_runtime_config(0, epoch_id);
-        let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
         let contract_key = get_contract_cache_key(
             &ContractCode::new(wasm_code.clone(), None),
-            vm_kind,
             &runtime_config.wasm_config,
         );
 

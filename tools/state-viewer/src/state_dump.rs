@@ -1,4 +1,3 @@
-use borsh::BorshSerialize;
 use chrono::Utc;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::{Genesis, GenesisChangeConfig, GenesisConfig};
@@ -151,13 +150,13 @@ pub fn state_dump_redis(
             if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
                 if let StateRecord::Account { account_id, account } = &sr {
                     println!("Account: {}", account_id);
-                    let redis_key = account_id.as_ref().as_bytes();
+                    let redis_key = account_id.as_bytes();
                     redis_connection.zadd(
                         [b"account:", redis_key].concat(),
                         block_hash.as_ref(),
                         block_height,
                     )?;
-                    let value = account.try_to_vec().unwrap();
+                    let value = borsh::to_vec(&account).unwrap();
                     redis_connection.set(
                         [b"account-data:", redis_key, b":", block_hash.as_ref()].concat(),
                         value,
@@ -167,8 +166,7 @@ pub fn state_dump_redis(
 
                 if let StateRecord::Data { account_id, data_key, value } = &sr {
                     println!("Data: {}", account_id);
-                    let redis_key =
-                        [account_id.as_ref().as_bytes(), b":", data_key.as_ref()].concat();
+                    let redis_key = [account_id.as_bytes(), b":", data_key.as_ref()].concat();
                     redis_connection.zadd(
                         [b"data:", redis_key.as_slice()].concat(),
                         block_hash.as_ref(),
@@ -184,7 +182,7 @@ pub fn state_dump_redis(
 
                 if let StateRecord::Contract { account_id, code } = &sr {
                     println!("Contract: {}", account_id);
-                    let redis_key = [b"code:", account_id.as_ref().as_bytes()].concat();
+                    let redis_key = [b"code:", account_id.as_bytes()].concat();
                     redis_connection.zadd(redis_key.clone(), block_hash.as_ref(), block_height)?;
                     let value_vec: &[u8] = code.as_ref();
                     redis_connection.set(
@@ -244,12 +242,14 @@ fn iterate_over_records(
                     continue;
                 }
                 if let StateRecord::Account { account_id, account } = &mut sr {
-                    total_supply += account.amount() + account.locked();
                     if account.locked() > 0 {
                         let stake = *validators.get(account_id).map(|(_, s)| s).unwrap_or(&0);
-                        account.set_amount(account.amount() + account.locked() - stake);
+                        if account.locked() > stake {
+                            account.set_amount(account.amount() + account.locked() - stake);
+                        }
                         account.set_locked(stake);
                     }
+                    total_supply += account.amount() + account.locked();
                 }
                 change_state_record(&mut sr, change_config);
                 callback(sr);
@@ -293,7 +293,7 @@ mod test {
     use std::path::Path;
     use std::sync::Arc;
 
-    use near_chain::{ChainGenesis, Provenance};
+    use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
     use near_chain_configs::genesis_validate::validate_genesis;
     use near_chain_configs::{Genesis, GenesisChangeConfig};
     use near_client::test_utils::TestEnv;
@@ -313,16 +313,18 @@ mod test {
     use nearcore::config::GenesisExt;
     use nearcore::config::TESTING_INIT_STAKE;
     use nearcore::config::{Config, NearConfig};
+    use nearcore::test_utils::TestEnvNightshadeSetupExt;
     use nearcore::NightshadeRuntime;
 
     use crate::state_dump::state_dump;
     use near_primitives::hash::CryptoHash;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
+    use near_primitives_core::account::id::AccountIdRef;
 
     fn setup(
         epoch_length: NumBlocks,
         protocol_version: ProtocolVersion,
-        use_production_config: bool,
+        test_resharding: bool,
     ) -> (Store, Genesis, TestEnv, NearConfig) {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -330,25 +332,23 @@ mod test {
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = protocol_version;
-        genesis.config.use_production_config = use_production_config;
-        let store = create_test_store();
-        initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-        let nightshade_runtime = NightshadeRuntime::test(
-            Path::new("."),
-            store.clone(),
-            &genesis.config,
-            epoch_manager.clone(),
-        );
-        let mut chain_genesis = ChainGenesis::test();
-        chain_genesis.epoch_length = epoch_length;
-        chain_genesis.gas_limit = genesis.config.gas_limit;
-        let env = TestEnv::builder(chain_genesis)
-            .validator_seats(2)
-            .stores(vec![store.clone()])
-            .epoch_managers(vec![epoch_manager])
-            .runtimes(vec![nightshade_runtime])
-            .build();
+        genesis.config.use_production_config = test_resharding;
+
+        let env = if test_resharding {
+            TestEnv::builder(ChainGenesis::new(&genesis))
+                .validator_seats(2)
+                .use_state_snapshots()
+                .real_stores()
+                .real_epoch_managers(&genesis.config)
+                .nightshade_runtimes(&genesis)
+                .build()
+        } else {
+            TestEnv::builder(ChainGenesis::new(&genesis))
+                .validator_seats(2)
+                .real_epoch_managers(&genesis.config)
+                .nightshade_runtimes(&genesis)
+                .build()
+        };
 
         let near_config = NearConfig::new(
             Config::default(),
@@ -365,6 +365,7 @@ mod test {
         )
         .unwrap();
 
+        let store = env.clients[0].chain.store().store().clone();
         (store, genesis, env, near_config)
     }
 
@@ -628,7 +629,7 @@ mod test {
                 .into_iter()
                 .map(|r| r.account_id)
                 .collect::<Vec<_>>(),
-            vec!["test0".parse().unwrap()]
+            vec!["test0"]
         );
         validate_genesis(&new_genesis).unwrap();
     }
@@ -914,7 +915,7 @@ mod test {
                 .iter()
                 .map(|x| x.account_id.clone())
                 .collect::<Vec<AccountId>>(),
-            vec!["test1".parse().unwrap()]
+            vec!["test1"]
         );
 
         let mut stake = HashMap::<AccountId, Balance>::new();
@@ -924,7 +925,10 @@ mod test {
             }
         });
 
-        assert_eq!(stake.get("test0").unwrap_or(&(0 as Balance)), &(0 as Balance));
+        assert_eq!(
+            stake.get(AccountIdRef::new_or_panic("test0")).unwrap_or(&(0 as Balance)),
+            &(0 as Balance)
+        );
 
         validate_genesis(&new_genesis).unwrap();
     }

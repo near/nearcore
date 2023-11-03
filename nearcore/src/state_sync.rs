@@ -1,5 +1,5 @@
 use crate::metrics;
-use borsh::BorshSerialize;
+
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation};
@@ -13,12 +13,11 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::{get_num_state_parts, StatePartKey, StateSyncDumpProgress};
+use near_primitives::state_sync::{StatePartKey, StateSyncDumpProgress};
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
 use near_store::DBCol;
 use rand::{thread_rng, Rng};
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -32,7 +31,6 @@ pub fn spawn_state_sync_dump(
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
     account_id: Option<AccountId>,
-    credentials_file: Option<PathBuf>,
 ) -> anyhow::Result<Option<StateSyncDumpHandle>> {
     let dump_config = if let Some(dump_config) = client_config.state_sync.dump.clone() {
         dump_config
@@ -45,14 +43,25 @@ pub fn spawn_state_sync_dump(
 
     let external = match dump_config.location {
         ExternalStorageLocation::S3 { bucket, region } => ExternalConnection::S3{
-            bucket: Arc::new(create_bucket_readwrite(&bucket, &region, Duration::from_secs(30), credentials_file).expect(
+            bucket: Arc::new(create_bucket_readwrite(&bucket, &region, Duration::from_secs(30), dump_config.credentials_file).expect(
                 "Failed to authenticate connection to S3. Please either provide AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or create a credentials file and link it in config.json as 's3_credentials_file'."))
         },
         ExternalStorageLocation::Filesystem { root_dir } => ExternalConnection::Filesystem { root_dir },
-        ExternalStorageLocation::GCS { bucket } => ExternalConnection::GCS {
-            gcs_client: Arc::new(cloud_storage::Client::default()),
-            reqwest_client: Arc::new(reqwest::Client::default()),
-            bucket },
+        ExternalStorageLocation::GCS { bucket } => {
+            if let Some(credentials_file) = dump_config.credentials_file {
+                if let Ok(var) = std::env::var("SERVICE_ACCOUNT") {
+                    tracing::warn!(target: "state_sync_dump", "Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'");
+                    println!("Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'");
+                }
+                std::env::set_var("SERVICE_ACCOUNT", &credentials_file);
+                tracing::info!(target: "state_sync_dump", "Set the environment variable 'SERVICE_ACCOUNT' to '{credentials_file:?}'");
+            }
+            ExternalConnection::GCS {
+                gcs_client: Arc::new(cloud_storage::Client::default()),
+                reqwest_client: Arc::new(reqwest::Client::default()),
+                bucket
+            }
+        },
     };
 
     // Determine how many threads to start.
@@ -129,7 +138,7 @@ impl StateSyncDumpHandle {
     }
 }
 
-fn extract_part_id_from_part_file_name(file_name: &String) -> u64 {
+pub fn extract_part_id_from_part_file_name(file_name: &String) -> u64 {
     assert!(is_part_filename(file_name));
     return get_part_id_from_filename(file_name).unwrap();
 }
@@ -405,7 +414,7 @@ fn get_in_progress_data(
 ) -> Result<(StateRoot, u64, CryptoHash), Error> {
     let state_header = chain.get_state_response_header(shard_id, sync_hash)?;
     let state_root = state_header.chunk_prev_state_root();
-    let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
+    let num_parts = state_header.num_state_parts();
 
     let sync_block_header = chain.get_block_header(&sync_hash)?;
     let sync_prev_block_header = chain.get_previous_header(&sync_block_header)?;
@@ -457,7 +466,7 @@ fn obtain_and_store_state_part(
         PartId::new(part_id, num_parts),
     )?;
 
-    let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+    let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
     let mut store_update = chain.store().store().store_update();
     store_update.set(DBCol::StateParts, &key, &state_part);
     store_update.commit()?;

@@ -6,7 +6,8 @@ use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
 use near_primitives::epoch_manager::{
-    AllEpochConfig, EpochConfig, ShardConfig, SlashState, AGGREGATOR_KEY,
+    AllEpochConfig, AllEpochConfigTestOverrides, EpochConfig, ShardConfig, SlashState,
+    AGGREGATOR_KEY,
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -152,8 +153,17 @@ impl EpochManager {
         store: Store,
         genesis_config: &GenesisConfig,
     ) -> Result<Self, EpochError> {
+        Self::new_from_genesis_config_with_test_overrides(store, genesis_config, None)
+    }
+
+    pub fn new_from_genesis_config_with_test_overrides(
+        store: Store,
+        genesis_config: &GenesisConfig,
+        test_overrides: Option<AllEpochConfigTestOverrides>,
+    ) -> Result<Self, EpochError> {
         let reward_calculator = RewardCalculator::new(genesis_config);
-        let all_epoch_config = AllEpochConfig::from(genesis_config);
+        let all_epoch_config =
+            Self::new_all_epoch_config_with_test_overrides(genesis_config, test_overrides);
         Self::new(
             store,
             all_epoch_config,
@@ -164,7 +174,37 @@ impl EpochManager {
     }
 
     pub fn new_arc_handle(store: Store, genesis_config: &GenesisConfig) -> Arc<EpochManagerHandle> {
-        Arc::new(Self::new_from_genesis_config(store, genesis_config).unwrap().into_handle())
+        Self::new_arc_handle_with_test_overrides(store, genesis_config, None)
+    }
+
+    pub fn new_arc_handle_with_test_overrides(
+        store: Store,
+        genesis_config: &GenesisConfig,
+        test_overrides: Option<AllEpochConfigTestOverrides>,
+    ) -> Arc<EpochManagerHandle> {
+        Arc::new(
+            Self::new_from_genesis_config_with_test_overrides(
+                store,
+                genesis_config,
+                test_overrides,
+            )
+            .unwrap()
+            .into_handle(),
+        )
+    }
+
+    fn new_all_epoch_config_with_test_overrides(
+        genesis_config: &GenesisConfig,
+        test_overrides: Option<AllEpochConfigTestOverrides>,
+    ) -> AllEpochConfig {
+        let initial_epoch_config = EpochConfig::from(genesis_config);
+        let epoch_config = AllEpochConfig::new_with_test_overrides(
+            genesis_config.use_production_config(),
+            initial_epoch_config,
+            &genesis_config.chain_id,
+            test_overrides,
+        );
+        epoch_config
     }
 
     pub fn new(
@@ -555,11 +595,10 @@ impl EpochManager {
         let next_version = if let Some((version, stake)) =
             versions.into_iter().max_by_key(|&(_version, stake)| stake)
         {
-            if stake
-                > (total_block_producer_stake
-                    * *config.protocol_upgrade_stake_threshold.numer() as u128)
-                    / *config.protocol_upgrade_stake_threshold.denom() as u128
-            {
+            let numer = *config.protocol_upgrade_stake_threshold.numer() as u128;
+            let denom = *config.protocol_upgrade_stake_threshold.denom() as u128;
+            let threshold = total_block_producer_stake * numer / denom;
+            if stake > threshold {
                 version
             } else {
                 protocol_version
@@ -567,7 +606,6 @@ impl EpochManager {
         } else {
             protocol_version
         };
-
         // Gather slashed validators and add them to kick out first.
         let slashed_validators = last_block_info.slashed();
         for (account_id, _) in slashed_validators.iter() {

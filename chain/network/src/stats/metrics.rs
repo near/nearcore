@@ -363,6 +363,18 @@ pub(crate) static ACCOUNT_TO_PEER_LOOKUPS: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
+pub(crate) static NETWORK_ROUTED_MSG_DISTANCES: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_network_routed_msg_distances",
+        "compares routing distance by protocol (V1 vs V2)",
+        // Compares the routing distances for the V1 and V2 routing protocols.
+        // We are currently running both while validating performance of V2.
+        // Eventually we want to deprecate V1 and run only V2.
+        &["cmp"],
+    )
+    .unwrap()
+});
+
 /// Updated the prometheus metrics about the received routed message `msg`.
 /// `tier` indicates the network over which the message was transmitted.
 /// `fastest` indicates whether this message is the first copy of `msg` received -

@@ -194,7 +194,7 @@ impl Block {
             height,
             Block::compute_state_root(&body.chunks),
             Block::compute_block_body_hash_impl(&body),
-            Block::compute_chunk_receipts_root(&body.chunks),
+            Block::compute_chunk_prev_outgoing_receipts_root(&body.chunks),
             Block::compute_chunk_headers_root(&body.chunks).0,
             Block::compute_chunk_tx_root(&body.chunks),
             body.chunks.len() as u64,
@@ -237,7 +237,7 @@ impl Block {
         timestamp_override: Option<DateTime<chrono::Utc>>,
     ) -> Self {
         // Collect aggregate of validators and gas usage/limits from chunks.
-        let mut validator_proposals = vec![];
+        let mut prev_validator_proposals = vec![];
         let mut gas_used = 0;
         // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
         let mut chunk_mask = vec![];
@@ -245,17 +245,17 @@ impl Block {
         let mut gas_limit = 0;
         for chunk in chunks.iter() {
             if chunk.height_included() == height {
-                validator_proposals.extend(chunk.validator_proposals());
-                gas_used += chunk.gas_used();
+                prev_validator_proposals.extend(chunk.prev_validator_proposals());
+                gas_used += chunk.prev_gas_used();
                 gas_limit += chunk.gas_limit();
-                balance_burnt += chunk.balance_burnt();
+                balance_burnt += chunk.prev_balance_burnt();
                 chunk_mask.push(true);
             } else {
                 chunk_mask.push(false);
             }
         }
-        let new_gas_price = Self::compute_new_gas_price(
-            prev.gas_price(),
+        let next_gas_price = Self::compute_next_gas_price(
+            prev.next_gas_price(),
             gas_used,
             gas_limit,
             gas_price_adjustment_rate,
@@ -289,6 +289,9 @@ impl Block {
             BlockHeader::BlockHeaderV4(_) => {
                 debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
             }
+            BlockHeader::BlockHeaderV5(_) => {
+                debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
+            }
         };
 
         let body = BlockBody { chunks, challenges, vrf_value, vrf_proof };
@@ -299,19 +302,19 @@ impl Block {
             *prev.hash(),
             Block::compute_block_body_hash_impl(&body),
             Block::compute_state_root(&body.chunks),
-            Block::compute_chunk_receipts_root(&body.chunks),
+            Block::compute_chunk_prev_outgoing_receipts_root(&body.chunks),
             Block::compute_chunk_headers_root(&body.chunks).0,
             Block::compute_chunk_tx_root(&body.chunks),
             Block::compute_outcome_root(&body.chunks),
             time,
             Block::compute_challenges_root(&body.challenges),
             random_value,
-            validator_proposals,
+            prev_validator_proposals,
             chunk_mask,
             block_ordinal,
             epoch_id,
             next_epoch_id,
-            new_gas_price,
+            next_gas_price,
             new_total_supply,
             challenges_result,
             signer,
@@ -341,7 +344,7 @@ impl Block {
 
         for chunk in self.chunks().iter() {
             if chunk.height_included() == self.header().height() {
-                balance_burnt += chunk.balance_burnt();
+                balance_burnt += chunk.prev_balance_burnt();
             }
         }
 
@@ -351,29 +354,29 @@ impl Block {
 
     pub fn verify_gas_price(
         &self,
-        prev_gas_price: Balance,
+        gas_price: Balance,
         min_gas_price: Balance,
         max_gas_price: Balance,
         gas_price_adjustment_rate: Rational32,
     ) -> bool {
         let gas_used = Self::compute_gas_used(self.chunks().iter(), self.header().height());
         let gas_limit = Self::compute_gas_limit(self.chunks().iter(), self.header().height());
-        let expected_price = Self::compute_new_gas_price(
-            prev_gas_price,
+        let expected_price = Self::compute_next_gas_price(
+            gas_price,
             gas_used,
             gas_limit,
             gas_price_adjustment_rate,
             min_gas_price,
             max_gas_price,
         );
-        self.header().gas_price() == expected_price
+        self.header().next_gas_price() == expected_price
     }
 
-    /// Computes the new gas price according to the formula:
-    ///   gas_price = prev_gas_price * (1 + (gas_used/gas_limit - 1/2) * adjustment_rate)
+    /// Computes gas price for applying chunks in the next block according to the formula:
+    ///   next_gas_price = gas_price * (1 + (gas_used/gas_limit - 1/2) * adjustment_rate)
     /// and clamped between min_gas_price and max_gas_price.
-    pub fn compute_new_gas_price(
-        prev_gas_price: Balance,
+    pub fn compute_next_gas_price(
+        gas_price: Balance,
         gas_used: Gas,
         gas_limit: Gas,
         gas_price_adjustment_rate: Rational32,
@@ -382,7 +385,7 @@ impl Block {
     ) -> Balance {
         // If block was skipped, the price does not change.
         if gas_limit == 0 {
-            return prev_gas_price;
+            return gas_price;
         }
 
         let gas_used = u128::from(gas_used);
@@ -396,10 +399,10 @@ impl Block {
             + 2 * adjustment_rate_numer * gas_used
             - adjustment_rate_numer * gas_limit;
         let denominator = 2 * adjustment_rate_denom * gas_limit;
-        let new_gas_price =
-            U256::from(prev_gas_price) * U256::from(numerator) / U256::from(denominator);
+        let next_gas_price =
+            U256::from(gas_price) * U256::from(numerator) / U256::from(denominator);
 
-        new_gas_price.clamp(U256::from(min_gas_price), U256::from(max_gas_price)).as_u128()
+        next_gas_price.clamp(U256::from(min_gas_price), U256::from(max_gas_price)).as_u128()
     }
 
     pub fn compute_state_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
@@ -415,13 +418,16 @@ impl Block {
         CryptoHash::hash_borsh(body)
     }
 
-    pub fn compute_chunk_receipts_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
+    pub fn compute_chunk_prev_outgoing_receipts_root<
+        'a,
+        T: IntoIterator<Item = &'a ShardChunkHeader>,
+    >(
         chunks: T,
     ) -> CryptoHash {
         merklize(
             &chunks
                 .into_iter()
-                .map(|chunk| chunk.outgoing_receipts_root())
+                .map(|chunk| chunk.prev_outgoing_receipts_root())
                 .collect::<Vec<CryptoHash>>(),
         )
         .0
@@ -447,8 +453,10 @@ impl Block {
     pub fn compute_outcome_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(
         chunks: T,
     ) -> CryptoHash {
-        merklize(&chunks.into_iter().map(|chunk| chunk.outcome_root()).collect::<Vec<CryptoHash>>())
-            .0
+        merklize(
+            &chunks.into_iter().map(|chunk| chunk.prev_outcome_root()).collect::<Vec<CryptoHash>>(),
+        )
+        .0
     }
 
     pub fn compute_challenges_root(challenges: &Challenges) -> CryptoHash {
@@ -461,7 +469,7 @@ impl Block {
     ) -> Gas {
         chunks.into_iter().fold(0, |acc, chunk| {
             if chunk.height_included() == height {
-                acc + chunk.gas_used()
+                acc + chunk.prev_gas_used()
             } else {
                 acc
             }
@@ -560,8 +568,9 @@ impl Block {
         }
 
         // Check that chunk receipts root stored in the header matches the state root of the chunks
-        let chunk_receipts_root = Block::compute_chunk_receipts_root(self.chunks().iter());
-        if self.header().chunk_receipts_root() != &chunk_receipts_root {
+        let chunk_receipts_root =
+            Block::compute_chunk_prev_outgoing_receipts_root(self.chunks().iter());
+        if self.header().prev_chunk_outgoing_receipts_root() != &chunk_receipts_root {
             return Err(InvalidReceiptRoot);
         }
 

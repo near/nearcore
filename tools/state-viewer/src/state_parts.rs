@@ -12,7 +12,6 @@ use near_primitives::challenge::PartialState;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::StateRecord;
-use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, EpochHeight, ShardId};
@@ -63,6 +62,9 @@ pub(crate) enum StatePartsSubCommand {
         /// Dump part ids up to this part (exclusive).
         #[clap(long)]
         part_to: Option<u64>,
+        /// Location of a file with write permissions to the bucket.
+        #[clap(long)]
+        credentials_file: Option<PathBuf>,
         /// Select an epoch to work on.
         #[clap(subcommand)]
         epoch_selection: EpochSelection,
@@ -119,8 +121,6 @@ impl StatePartsSubCommand {
         let chain_id = &near_config.genesis.config.chain_id;
         let sys = actix::System::new();
         sys.block_on(async move {
-            let credentials_file =
-                near_config.config.s3_credentials_file.clone().map(|file| home_dir.join(file));
             match self {
                 StatePartsSubCommand::Load {
                     action,
@@ -151,7 +151,12 @@ impl StatePartsSubCommand {
                     )
                     .await
                 }
-                StatePartsSubCommand::Dump { part_from, part_to, epoch_selection } => {
+                StatePartsSubCommand::Dump {
+                    part_from,
+                    part_to,
+                    epoch_selection,
+                    credentials_file,
+                } => {
                     let external = create_external_connection(
                         root_dir,
                         s3_bucket,
@@ -179,6 +184,7 @@ impl StatePartsSubCommand {
                     finalize_state_sync(sync_hash, shard_id, &mut chain)
                 }
             }
+            actix::System::current().stop();
         });
         sys.run().unwrap();
     }
@@ -209,6 +215,9 @@ fn create_external_connection(
         .expect("Failed to create an S3 bucket");
         ExternalConnection::S3 { bucket: Arc::new(bucket) }
     } else if let Some(bucket) = gcs_bucket {
+        if let Some(credentials_file) = credentials_file {
+            std::env::set_var("SERVICE_ACCOUNT", &credentials_file);
+        }
         ExternalConnection::GCS {
             gcs_client: Arc::new(cloud_storage::Client::default()),
             reqwest_client: Arc::new(reqwest::Client::default()),
@@ -396,7 +405,15 @@ fn print_state_part(state_root: &StateRoot, _part_id: PartId, data: &[u8]) {
     let trie_nodes: PartialState = BorshDeserialize::try_from_slice(data).unwrap();
     let trie =
         Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root, false);
-    trie.print_recursive(&mut std::io::stdout().lock(), &state_root, u32::MAX);
+    trie.print_recursive(
+        &mut std::io::stdout().lock(),
+        &state_root,
+        u32::MAX,
+        None,
+        None,
+        &None,
+        &None,
+    );
 }
 
 async fn dump_state_parts(
@@ -419,7 +436,7 @@ async fn dump_state_parts(
 
     let state_header = chain.compute_state_response_header(shard_id, sync_hash).unwrap();
     let state_root = state_header.chunk_prev_state_root();
-    let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
+    let num_parts = state_header.num_state_parts();
     let part_ids = get_part_ids(part_from, part_to, num_parts);
 
     tracing::info!(

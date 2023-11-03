@@ -1,5 +1,5 @@
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
-use near_primitives_core::config::{VMLimitConfig, ViewConfig};
+use near_primitives_core::config::ViewConfig;
 
 macro_rules! decl_test_bytes {
     ($testname:ident, $method:ident, $ctx:ident, $want:expr) => {
@@ -50,19 +50,14 @@ decl_test_bytes!(
     test_current_account_id,
     current_account_id,
     ctx,
-    ctx.current_account_id.as_ref().as_bytes()
+    ctx.current_account_id.as_bytes()
 );
-decl_test_bytes!(
-    test_signer_account_id,
-    signer_account_id,
-    ctx,
-    ctx.signer_account_id.as_ref().as_bytes()
-);
+decl_test_bytes!(test_signer_account_id, signer_account_id, ctx, ctx.signer_account_id.as_bytes());
 decl_test_bytes!(
     test_predecessor_account_id,
     predecessor_account_id,
     ctx,
-    ctx.predecessor_account_id.as_ref().as_bytes()
+    ctx.predecessor_account_id.as_bytes()
 );
 decl_test_bytes!(test_signer_account_pk, signer_account_pk, ctx, ctx.signer_account_pk);
 
@@ -96,8 +91,9 @@ fn test_attached_deposit_view() {
     fn test_view(amount: u128) {
         let mut logic_builder = VMLogicBuilder::default();
         let context = &mut logic_builder.context;
-        context.view_config =
-            Some(ViewConfig { max_gas_burnt: VMLimitConfig::test().max_gas_burnt });
+        context.view_config = Some(ViewConfig {
+            max_gas_burnt: crate::logic::Config::test().limit_config.max_gas_burnt,
+        });
         context.account_balance = 0;
         context.attached_deposit = amount;
         let mut logic = logic_builder.build();

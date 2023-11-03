@@ -15,6 +15,8 @@ pub enum ProtocolFeature {
     /// Add `AccessKey` nonce range by setting nonce to `(block_height - 1) * 1e6`, see
     /// <https://github.com/near/nearcore/issues/3779>.
     AccessKeyNonceRange,
+    /// Don't process any receipts for shard when chunk is not present.
+    /// Always use gas price computed in the previous block.
     FixApplyChunks,
     LowerStorageCost,
     DeleteActionRestriction,
@@ -101,17 +103,13 @@ pub enum ProtocolFeature {
     ///
     /// Flat Storage NEP-399: https://github.com/near/NEPs/blob/master/neps/nep-0399.md
     FlatStorageReads,
-
     /// Enables preparation V2. Note that this setting is not supported in production settings
     /// without NearVmRuntime enabled alongside it, as the VM runner would be too slow.
     PreparationV2,
-
     /// Enables Near-Vm. Note that this setting is not at all supported without PreparationV2,
     /// as it hardcodes preparation v2 code into the generated assembly.
     NearVmRuntime,
-
     BlockHeaderV4,
-
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
@@ -124,6 +122,16 @@ pub enum ProtocolFeature {
     RejectBlocksWithOutdatedProtocolVersions,
     #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
     SimpleNightshadeV2,
+    RestrictTla,
+    /// Enables block production with post-state-root.
+    /// NEP: https://github.com/near/NEPs/pull/507
+    PostStateRoot,
+    /// Increases the number of chunk producers.
+    TestnetFewerBlockProducers,
+    /// Enables chunk validation which is introduced with stateless validation.
+    /// NEP: https://github.com/near/NEPs/pull/509
+    #[cfg(feature = "protocol_feature_chunk_validation")]
+    ChunkValidation,
 }
 
 impl ProtocolFeature {
@@ -167,6 +175,7 @@ impl ProtocolFeature {
             ProtocolFeature::ComputeCosts | ProtocolFeature::FlatStorageReads => 61,
             ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
             ProtocolFeature::BlockHeaderV4 => 63,
+            ProtocolFeature::RestrictTla | ProtocolFeature::TestnetFewerBlockProducers => 64,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -177,6 +186,9 @@ impl ProtocolFeature {
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
             ProtocolFeature::SimpleNightshadeV2 => 135,
+            ProtocolFeature::PostStateRoot => 136,
+            #[cfg(feature = "protocol_feature_chunk_validation")]
+            ProtocolFeature::ChunkValidation => 137,
         }
     }
 }
@@ -184,12 +196,12 @@ impl ProtocolFeature {
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 63;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 64;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    138
+    139
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION

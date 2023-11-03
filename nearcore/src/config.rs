@@ -3,7 +3,7 @@ use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{anyhow, bail, Context};
 use near_chain_configs::{
     get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
-    LogSummaryStyle, MutableConfigValue, StateSyncConfig,
+    LogSummaryStyle, MutableConfigValue, StateSplitConfig, StateSyncConfig,
 };
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -120,10 +120,6 @@ pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
-
-pub const MAINNET: &str = "mainnet";
-pub const TESTNET: &str = "testnet";
-pub const BETANET: &str = "betanet";
 
 pub const MAINNET_TELEMETRY_URL: &str = "https://explorer.mainnet.near.org/api/nodes";
 pub const NETWORK_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes";
@@ -350,8 +346,7 @@ pub struct Config {
     /// chunks and underutilizing the capacity of the network.
     #[serde(default = "default_transaction_pool_size_limit")]
     pub transaction_pool_size_limit: Option<u64>,
-    /// If a node needs to upload state parts to S3
-    pub s3_credentials_file: Option<String>,
+    pub state_split_config: StateSplitConfig,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -391,8 +386,8 @@ impl Default for Config {
             state_sync: None,
             state_sync_enabled: None,
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
-            s3_credentials_file: None,
             enable_multiline_logging: None,
+            state_split_config: StateSplitConfig::default(),
         }
     }
 }
@@ -687,9 +682,9 @@ impl NearConfig {
                 flat_storage_creation_period: config.store.flat_storage_creation_period,
                 state_sync_enabled: config.state_sync_enabled.unwrap_or(false),
                 state_sync: config.state_sync.unwrap_or_default(),
-                state_snapshot_every_n_blocks: None,
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
                 enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),
+                state_split_config: config.state_split_config,
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -897,7 +892,9 @@ fn generate_or_load_keys(
 ) -> anyhow::Result<()> {
     generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
     match chain_id {
-        MAINNET | TESTNET | BETANET => {
+        near_primitives::chains::MAINNET
+        | near_primitives::chains::TESTNET
+        | near_primitives::chains::BETANET => {
             generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
         }
         _ => {
@@ -982,7 +979,7 @@ pub fn init_configs(
     // Before finalizing the Config and Genesis, make sure the node and validator keys exist.
     generate_or_load_keys(dir, &config, &chain_id, account_id, test_seed)?;
     match chain_id.as_ref() {
-        MAINNET => {
+        near_primitives::chains::MAINNET => {
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
@@ -1001,7 +998,7 @@ pub fn init_configs(
             genesis.to_file(dir.join(config.genesis_file));
             info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
         }
-        TESTNET | BETANET => {
+        near_primitives::chains::TESTNET | near_primitives::chains::BETANET => {
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
@@ -1076,6 +1073,11 @@ pub fn init_configs(
         _ => {
             // Create new configuration, key files and genesis for one validator.
             config.network.skip_sync_wait = true;
+
+            // Make sure node tracks all shards, see
+            // https://github.com/near/nearcore/issues/7388
+            config.tracked_shards = vec![0];
+
             if fast {
                 config.consensus.min_block_production_delay =
                     Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
@@ -1430,7 +1432,12 @@ pub fn load_config(
                 validation_errors.push_errors(e)
             };
             if validator_signer.is_some()
-                && matches!(genesis.config.chain_id.as_ref(), MAINNET | TESTNET | BETANET)
+                && matches!(
+                    genesis.config.chain_id.as_ref(),
+                    near_primitives::chains::MAINNET
+                        | near_primitives::chains::TESTNET
+                        | near_primitives::chains::BETANET
+                )
                 && config.tracked_shards.is_empty()
             {
                 // Make sure validators tracks all shards, see

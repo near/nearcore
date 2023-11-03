@@ -3,17 +3,17 @@ use crate::{
     get_account, get_received_data, set, set_access_key, set_account, set_code,
     set_delayed_receipt, set_postponed_receipt, set_received_data, ShardTries, TrieUpdate,
 };
-use borsh::BorshSerialize;
+
 use near_chain_configs::Genesis;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::contract::ContractCode;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData};
 use near_primitives::runtime::fees::StorageUsageConfig;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, ShardId, StateChangeCause, StateRoot};
+use near_vm_runner::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic;
 
@@ -52,8 +52,8 @@ impl<'a> StorageComputer<'a> {
                 let public_key: PublicKey = public_key.clone();
                 let access_key: AccessKey = access_key.clone();
                 let storage_usage = self.config.num_extra_bytes_record
-                    + public_key.try_to_vec().unwrap().len() as u64
-                    + access_key.try_to_vec().unwrap().len() as u64;
+                    + borsh::object_length(&public_key).unwrap() as u64
+                    + borsh::object_length(&access_key).unwrap() as u64;
                 Some((account_id.clone(), storage_usage))
             }
             StateRecord::PostponedReceipt(_) => None,

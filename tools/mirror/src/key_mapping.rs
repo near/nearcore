@@ -7,7 +7,7 @@ use sha2::Sha256;
 // We will ensure that every account in the target chain has at least one full access
 // key by adding this one (when preparing the records file, or when sending a create account tx)
 // if one doesn't exist
-pub(crate) const EXTRA_KEY: SecretKey = SecretKey::ED25519(ED25519SecretKey([
+pub const EXTRA_KEY: SecretKey = SecretKey::ED25519(ED25519SecretKey([
     213, 175, 27, 65, 239, 63, 64, 126, 187, 96, 90, 207, 42, 75, 1, 199, 109, 5, 0, 67, 207, 80,
     147, 19, 53, 126, 142, 30, 162, 168, 97, 155, 119, 161, 145, 134, 247, 30, 152, 37, 178, 129,
     174, 62, 225, 47, 43, 131, 212, 59, 200, 4, 158, 143, 3, 235, 237, 190, 51, 82, 253, 38, 36,
@@ -83,10 +83,7 @@ fn map_secp256k1(
 // transactions on the target chain.  If secret is None, then we just
 // use the bytes of the public key directly, otherwise we feed the
 // public key to a key derivation function.
-pub(crate) fn map_key(
-    key: &PublicKey,
-    secret: Option<&[u8; crate::secret::SECRET_LEN]>,
-) -> SecretKey {
+pub fn map_key(key: &PublicKey, secret: Option<&[u8; crate::secret::SECRET_LEN]>) -> SecretKey {
     match key {
         PublicKey::ED25519(k) => SecretKey::ED25519(map_ed25519(k, secret)),
         PublicKey::SECP256K1(k) => SecretKey::SECP256K1(map_secp256k1(k, secret)),
@@ -96,7 +93,7 @@ pub(crate) fn map_key(
 // If it's an implicit account, interprets it as an ed25519 public key, maps that and then returns
 // the resulting implicit account. Otherwise does nothing. We do this so that transactions creating
 // an implicit account by sending money will generate an account that we can control
-pub(crate) fn map_account(
+pub fn map_account(
     account_id: &AccountId,
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
 ) -> AccountId {

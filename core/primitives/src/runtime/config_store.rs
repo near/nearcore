@@ -18,7 +18,9 @@ static BASE_CONFIG: &str = include_config!("parameters.yaml");
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the file containing the diffs in bytes.
 static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
+    (35, include_config!("35.yaml")),
     (42, include_config!("42.yaml")),
+    (46, include_config!("46.yaml")),
     (48, include_config!("48.yaml")),
     (49, include_config!("49.yaml")),
     (50, include_config!("50.yaml")),
@@ -27,19 +29,22 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     // Increased deployment costs, increased wasmer2 stack_limit, added limiting of contract locals,
     // set read_cached_trie_node cost, decrease storage key limit
     (53, include_config!("53.yaml")),
+    (55, include_config!("55.yaml")),
     (57, include_config!("57.yaml")),
     // Introduce Zero Balance Account and increase account creation cost to 7.7Tgas
     (59, include_config!("59.yaml")),
     (61, include_config!("61.yaml")),
     (62, include_config!("62.yaml")),
     (63, include_config!("63.yaml")),
+    (64, include_config!("64.yaml")),
+    (129, include_config!("129.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
 pub static INITIAL_TESTNET_CONFIG: &str = include_config!("parameters_testnet.yaml");
 
 /// Stores runtime config for each protocol version where it was updated.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RuntimeConfigStore {
     /// Maps protocol version to the config.
     store: BTreeMap<ProtocolVersion, Arc<RuntimeConfig>>,
@@ -108,7 +113,7 @@ impl RuntimeConfigStore {
     /// need to override it specifically to preserve compatibility.
     pub fn for_chain_id(chain_id: &str) -> Self {
         match chain_id {
-            "testnet" => {
+            crate::chains::TESTNET => {
                 let genesis_runtime_config = RuntimeConfig::initial_testnet_config();
                 Self::new(Some(&genesis_runtime_config))
             }
@@ -260,20 +265,24 @@ mod tests {
             store.get_config(LowerStorageCost.protocol_version() - 1).as_ref()
         );
 
-        let expected_config = {
-            let first_diff = CONFIG_DIFFS[0].1.parse().unwrap();
-            base_params.apply_diff(first_diff).unwrap();
-            RuntimeConfig::new(&base_params).unwrap()
-        };
+        for (ver, diff) in &CONFIG_DIFFS[..] {
+            if *ver <= LowerStorageCost.protocol_version() {
+                base_params.apply_diff(diff.parse().unwrap()).unwrap();
+            }
+        }
+        let expected_config = RuntimeConfig::new(&base_params).unwrap();
         assert_eq!(**config, expected_config);
 
         let config = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert_eq!(config.fees.fee(ActionCosts::new_data_receipt_base).send_sir, 36_486_732_312);
-        let expected_config = {
-            let second_diff = CONFIG_DIFFS[1].1.parse().unwrap();
-            base_params.apply_diff(second_diff).unwrap();
-            RuntimeConfig::new(&base_params).unwrap()
-        };
+        for (ver, diff) in &CONFIG_DIFFS[..] {
+            if *ver <= LowerStorageCost.protocol_version() {
+                continue;
+            } else if *ver <= LowerDataReceiptAndEcrecoverBaseCost.protocol_version() {
+                base_params.apply_diff(diff.parse().unwrap()).unwrap();
+            }
+        }
+        let expected_config = RuntimeConfig::new(&base_params).unwrap();
         assert_eq!(config.as_ref(), &expected_config);
     }
 
@@ -308,19 +317,26 @@ mod tests {
     #[cfg(not(feature = "calimero_zero_storage"))]
     fn test_json_unchanged() {
         use crate::views::RuntimeConfigView;
+        use near_primitives_core::version::PROTOCOL_VERSION;
 
         let store = RuntimeConfigStore::new(None);
+        let mut any_failure = false;
 
         for version in store.store.keys() {
             let snapshot_name = format!("{version}.json");
             let config_view = RuntimeConfigView::from(store.get_config(*version).as_ref().clone());
-            insta::assert_json_snapshot!(snapshot_name, config_view);
+            any_failure |= std::panic::catch_unwind(|| {
+                insta::assert_json_snapshot!(snapshot_name, config_view, { ".wasm_config.vm_kind" => "<REDACTED>"});
+            })
+            .is_err();
         }
 
         // Store the latest values of parameters in a human-readable snapshot.
         {
             let mut params: ParameterTable = BASE_CONFIG.parse().unwrap();
-            for (_, diff_bytes) in CONFIG_DIFFS {
+            for (_, diff_bytes) in
+                CONFIG_DIFFS.iter().filter(|(version, _)| *version <= PROTOCOL_VERSION)
+            {
                 params.apply_diff(diff_bytes.parse().unwrap()).unwrap();
             }
             insta::with_settings!({
@@ -329,7 +345,9 @@ mod tests {
                 description => "THIS IS AN AUTOGENERATED FILE. DO NOT EDIT THIS FILE DIRECTLY.",
                 omit_expression => true,
             }, {
-                insta::assert_display_snapshot!("parameters", params);
+                any_failure |= std::panic::catch_unwind(|| {
+                    insta::assert_display_snapshot!("parameters", params);
+                }).is_err();
             });
         }
 
@@ -341,7 +359,13 @@ mod tests {
         for version in testnet_store.store.keys() {
             let snapshot_name = format!("testnet_{version}.json");
             let config_view = RuntimeConfigView::from(store.get_config(*version).as_ref().clone());
-            insta::assert_json_snapshot!(snapshot_name, config_view);
+            any_failure |= std::panic::catch_unwind(|| {
+                insta::assert_json_snapshot!(snapshot_name, config_view, { ".wasm_config.vm_kind" => "<REDACTED>"});
+            })
+            .is_err();
+        }
+        if any_failure {
+            panic!("some snapshot assertions failed");
         }
     }
 

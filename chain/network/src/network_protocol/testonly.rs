@@ -190,7 +190,7 @@ pub fn make_chunk_parts(chunk: ShardChunk) -> Vec<PartialEncodedChunkPart> {
     let (parts, _) = EncodedShardChunk::encode_transaction_receipts(
         &mut rs,
         chunk.transactions().to_vec(),
-        &chunk.receipts(),
+        &chunk.prev_outgoing_receipts(),
     )
     .unwrap();
     let mut content = EncodedShardChunkBody { parts };
@@ -250,7 +250,7 @@ pub struct Chain {
 }
 
 impl Chain {
-    pub fn make<R: Rng>(clock: &mut time::FakeClock, rng: &mut R, block_count: usize) -> Chain {
+    pub fn make<R: Rng>(clock: &time::FakeClock, rng: &mut R, block_count: usize) -> Chain {
         let mut chunks = ChunkSet::new();
         let mut blocks = vec![];
         blocks.push(make_genesis_block(&clock.clock(), chunks.make()));

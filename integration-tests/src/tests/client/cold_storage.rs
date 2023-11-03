@@ -21,12 +21,11 @@ use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::{DBCol, Store, COLD_HEAD_KEY, HEAD_KEY};
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::{cold_storage::spawn_cold_store_loop, NearConfig};
 use std::collections::HashSet;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
-
-use super::utils::TestEnvNightshadeSetupExt;
 
 fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) {
     let pretty_key = near_fmt::StorageKey(key);
@@ -122,12 +121,12 @@ fn test_storage_after_commit_of_cold_update() {
                     "test0".parse().unwrap(),
                     "test0".parse().unwrap(),
                     &signer,
-                    vec![Action::FunctionCall(FunctionCallAction {
+                    vec![Action::FunctionCall(Box::new(FunctionCallAction {
                         method_name: "write_random_value".to_string(),
                         args: vec![],
                         gas: 100_000_000_000_000,
                         deposit: 0,
-                    })],
+                    }))],
                     last_hash,
                 );
                 assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);

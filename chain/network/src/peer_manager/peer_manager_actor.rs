@@ -2,8 +2,7 @@ use crate::client;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong,
-    RawRoutedMessage, RoutedMessageBody,
+    Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -23,7 +22,7 @@ use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
 use near_async::messaging::Sender;
 use near_async::time;
-use near_o11y::{handler_trace_span, OpenTelemetrySpanExt, WithSpanContext};
+use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -731,9 +730,6 @@ impl PeerManagerActor {
         let _span =
             tracing::trace_span!(target: "network", "handle_msg_network_requests", msg_type)
                 .entered();
-        let _d = delay_detector::DelayDetector::new(|| {
-            format!("network request {}", msg.as_ref()).into()
-        });
         metrics::REQUEST_COUNT_BY_TYPE_TOTAL.with_label_values(&[msg.as_ref()]).inc();
         match msg {
             NetworkRequests::Block { block } => {
@@ -767,12 +763,7 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequestHeader { shard_id, sync_hash, target } => {
-                let peer_id = match target {
-                    AccountOrPeerIdOrHash::AccountId(_) => return NetworkResponses::RouteNotFound,
-                    AccountOrPeerIdOrHash::PeerId(peer_id) => peer_id,
-                    AccountOrPeerIdOrHash::Hash(_) => return NetworkResponses::RouteNotFound,
-                };
+            NetworkRequests::StateRequestHeader { shard_id, sync_hash, peer_id } => {
                 if self.state.tier2.send_message(
                     peer_id,
                     Arc::new(PeerMessage::StateRequestHeader(shard_id, sync_hash)),
@@ -782,12 +773,7 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, target } => {
-                let peer_id = match target {
-                    AccountOrPeerIdOrHash::AccountId(_) => return NetworkResponses::RouteNotFound,
-                    AccountOrPeerIdOrHash::PeerId(peer_id) => peer_id,
-                    AccountOrPeerIdOrHash::Hash(_) => return NetworkResponses::RouteNotFound,
-                };
+            NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, peer_id } => {
                 if self.state.tier2.send_message(
                     peer_id,
                     Arc::new(PeerMessage::StateRequestPart(shard_id, sync_hash, part_id)),
@@ -970,6 +956,7 @@ impl PeerManagerActor {
 
 impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
     type Result = ();
+    #[perf]
     fn handle(&mut self, msg: WithSpanContext<SetChainInfo>, ctx: &mut Self::Context) {
         let (_span, SetChainInfo(info)) = handler_trace_span!(target: "network", msg);
         let _timer =
@@ -1003,13 +990,14 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
 
 impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerActor {
     type Result = PeerManagerMessageResponse;
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<PeerManagerMessageRequest>,
         ctx: &mut Self::Context,
     ) -> Self::Result {
         let msg_type: &str = (&msg.msg).into();
-        let (_span, msg) = handler_trace_span!(target: "network", msg, msg_type);
+        let (_span, msg) = handler_debug_span!(target: "network", msg, msg_type);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         self.handle_peer_manager_message(msg, ctx)
@@ -1018,6 +1006,7 @@ impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerA
 
 impl actix::Handler<GetDebugStatus> for PeerManagerActor {
     type Result = DebugStatus;
+    #[perf]
     fn handle(&mut self, msg: GetDebugStatus, _ctx: &mut actix::Context<Self>) -> Self::Result {
         match msg {
             GetDebugStatus::PeerStore => {

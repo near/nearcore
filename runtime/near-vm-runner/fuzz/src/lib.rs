@@ -1,7 +1,7 @@
 use core::fmt;
-use near_primitives::contract::ContractCode;
 use near_vm_runner::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
 use near_vm_runner::logic::VMContext;
+use near_vm_runner::ContractCode;
 
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
 pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
