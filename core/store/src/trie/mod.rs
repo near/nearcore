@@ -17,7 +17,9 @@ use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::{FlatStateValue, ValueRef};
 use near_primitives::state_record::StateRecord;
-use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
+use near_primitives::trie_key::trie_key_parsers::{
+    parse_account_id_from_contract_data_key, parse_account_id_prefix,
+};
 use near_primitives::trie_key::TrieKey;
 pub use near_primitives::types::TrieNodesCount;
 use near_primitives::types::{AccountId, StateRoot, StateRootNode};
@@ -1047,10 +1049,12 @@ impl Trie {
     ) -> Result<Option<ValueRef>, StorageError> {
         let mut hash = self.root;
         loop {
-            let node = match self.retrieve_raw_node(&hash, None, charge_gas_for_trie_node_access)? {
-                None => return Ok(None),
-                Some((_bytes, node)) => node.node,
-            };
+            let account_id = parse_account_id_from_contract_data_key(hash.as_bytes()).ok();
+            let node =
+                match self.retrieve_raw_node(&hash, account_id, charge_gas_for_trie_node_access)? {
+                    None => return Ok(None),
+                    Some((_bytes, node)) => node.node,
+                };
             match node {
                 RawTrieNode::Leaf(existing_key, value) => {
                     return Ok(if NibbleSlice::from_encoded(&existing_key).0 == key {
