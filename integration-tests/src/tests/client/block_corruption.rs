@@ -13,6 +13,9 @@ use near_primitives_core::types::BlockHeight;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
+const NOT_BREAKING_CHANGE_MSG: &str = "Not a breaking change";
+const BLOCK_NOT_PARSED_MSG: &str = "Corrupt block didn't parse";
+
 fn create_tx_load(height: BlockHeight, last_block: &Block) -> Vec<SignedTransaction> {
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let tx = SignedTransaction::send_money(
@@ -212,10 +215,10 @@ fn check_process_flipped_block_fails_on_bit(
                 }
             }
         } else {
-            return Ok(anyhow::anyhow!("Not a breaking change"));
+            return Ok(anyhow::anyhow!(NOT_BREAKING_CHANGE_MSG));
         }
     }
-    return Ok(anyhow::anyhow!("Corrupt block didn't parse"));
+    return Ok(anyhow::anyhow!(BLOCK_NOT_PARSED_MSG));
 }
 
 /// Produce a block. Flip a bit in it.
@@ -224,8 +227,9 @@ fn check_process_flipped_block_fails_on_bit(
 ///
 /// Checks are performed for all bits even if some of them fail.
 /// Results are accumulated in `errs` and `oks` vectors, that are printed at the end of the test.
-/// Test fails if `errs` is not empty,
-/// which means that for some bit either corrupt block was processed, or correct block was not.
+/// Test fails if
+/// - `errs` is not empty which means that for some bit either corrupt block was processed, or correct block was not.
+/// - `oks` only contain trivial errors which means that nothing was checked actually.
 ///
 /// `oks` are printed to check the sanity of the test.
 /// This vector should include various validation errors that correspond to data changed with a bit flip.
@@ -260,8 +264,15 @@ fn check_process_flipped_block_fails() {
     }
     tracing::info!("{}", ["-"; 100].concat());
     tracing::info!("All of the Oks:");
-    for ok in oks {
+    for ok in &oks {
         tracing::info!("{:?}", ok);
     }
     assert!(errs.is_empty());
+    assert!(
+        oks.iter()
+            .filter(|e| e.to_string() != NOT_BREAKING_CHANGE_MSG
+                && e.to_string() != BLOCK_NOT_PARSED_MSG)
+            .count()
+            > 0
+    );
 }
