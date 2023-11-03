@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::metrics::MEM_TRIE_NUM_LOOKUPS;
 use super::node::{MemTrieNodePtr, MemTrieNodeView};
 use crate::NibbleSlice;
@@ -19,7 +21,7 @@ use near_primitives::state::FlatStateValue;
 pub fn memtrie_lookup(
     root: MemTrieNodePtr<'_>,
     key: &[u8],
-    mut nodes_accessed: Option<&mut Vec<(CryptoHash, Vec<u8>)>>,
+    mut nodes_accessed: Option<&mut Vec<(CryptoHash, Arc<[u8]>)>>,
 ) -> Option<FlatStateValue> {
     MEM_TRIE_NUM_LOOKUPS.inc();
     let mut nibbles = NibbleSlice::new(key);
@@ -29,7 +31,7 @@ pub fn memtrie_lookup(
         let view = node.view();
         if let Some(nodes_accessed) = &mut nodes_accessed {
             let raw_node_serialized = borsh::to_vec(&view.to_raw_trie_node_with_size()).unwrap();
-            nodes_accessed.push((view.node_hash(), raw_node_serialized));
+            nodes_accessed.push((view.node_hash(), raw_node_serialized.into()));
         }
         match view {
             MemTrieNodeView::Leaf { extension, value } => {
