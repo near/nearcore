@@ -1401,8 +1401,7 @@ mod tests {
     use rand::Rng;
 
     use crate::test_utils::{
-        create_test_store, create_tries, create_tries_complex, gen_changes, simplify_changes,
-        test_populate_trie,
+        create_test_store, gen_changes, simplify_changes, test_populate_trie, TestTriesBuilder,
     };
     use crate::{DBCol, MissingTrieValueContext};
 
@@ -1434,7 +1433,7 @@ mod tests {
     #[test]
     fn test_basic_trie() {
         // test trie version > 0
-        let tries = create_tries_complex(SHARD_VERSION, 2);
+        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
         let shard_uid = ShardUId { version: SHARD_VERSION, shard_id: 0 };
         let trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
         assert_eq!(trie.get(&[122]), Ok(None));
@@ -1454,7 +1453,7 @@ mod tests {
 
     #[test]
     fn test_trie_iter() {
-        let tries = create_tries_complex(SHARD_VERSION, 2);
+        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
         let shard_uid = ShardUId { version: SHARD_VERSION, shard_id: 0 };
         let pairs = vec![
             (b"a".to_vec(), Some(b"111".to_vec())),
@@ -1488,7 +1487,7 @@ mod tests {
 
     #[test]
     fn test_trie_leaf_into_branch() {
-        let tries = create_tries_complex(SHARD_VERSION, 2);
+        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
         let shard_uid = ShardUId { version: SHARD_VERSION, shard_id: 0 };
         let changes = vec![
             (b"dog".to_vec(), Some(b"puppy".to_vec())),
@@ -1500,7 +1499,7 @@ mod tests {
 
     #[test]
     fn test_trie_same_node() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let changes = vec![
             (b"dogaa".to_vec(), Some(b"puppy".to_vec())),
             (b"dogbb".to_vec(), Some(b"puppy".to_vec())),
@@ -1513,7 +1512,7 @@ mod tests {
 
     #[test]
     fn test_trie_iter_seek_stop_at_extension() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let changes = vec![
             (vec![0, 116, 101, 115, 116], Some(vec![0])),
             (vec![2, 116, 101, 115, 116], Some(vec![0])),
@@ -1557,7 +1556,7 @@ mod tests {
 
     #[test]
     fn test_trie_remove_non_existent_key() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let initial = vec![
             (vec![99, 44, 100, 58, 58, 49], Some(vec![1])),
             (vec![99, 44, 100, 58, 58, 50], Some(vec![1])),
@@ -1583,7 +1582,7 @@ mod tests {
             (vec![2, 2, 3], Some(vec![1])),
             (vec![3, 2, 3], Some(vec![1])),
         ];
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), initial);
         tries.get_trie_for_shard(ShardUId::single_shard(), root).iter().unwrap().for_each(
             |result| {
@@ -1604,7 +1603,7 @@ mod tests {
     fn test_trie_unique() {
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
-            let tries = create_tries();
+            let tries = TestTriesBuilder::new().build();
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), Trie::EMPTY_ROOT);
             let trie_changes = gen_changes(&mut rng, 20);
             let simplified_changes = simplify_changes(&trie_changes);
@@ -1626,7 +1625,7 @@ mod tests {
     fn test_iterator_seek_prefix() {
         let mut rng = rand::thread_rng();
         for _test_run in 0..10 {
-            let tries = create_tries();
+            let tries = TestTriesBuilder::new().build();
             let trie_changes = gen_changes(&mut rng, 500);
             let state_root = test_populate_trie(
                 &tries,
@@ -1663,7 +1662,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _test_run in 0..10 {
             let num_iterations = rng.gen_range(1..20);
-            let tries = create_tries();
+            let tries = TestTriesBuilder::new().build();
             let store = tries.get_store();
             let mut state_root = Trie::EMPTY_ROOT;
             for _ in 0..num_iterations {
@@ -1697,7 +1696,7 @@ mod tests {
     #[test]
     fn test_trie_restart() {
         let store = create_test_store();
-        let tries = ShardTries::test(store.clone(), 1);
+        let tries = TestTriesBuilder::new().with_store(store.clone()).build();
         let empty_root = Trie::EMPTY_ROOT;
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
@@ -1709,7 +1708,7 @@ mod tests {
         ];
         let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
 
-        let tries2 = ShardTries::test(store, 1);
+        let tries2 = TestTriesBuilder::new().with_store(store).build();
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard(), root);
         assert_eq!(trie2.get(b"doge"), Ok(Some(b"coin".to_vec())));
     }
@@ -1717,8 +1716,7 @@ mod tests {
     // TODO: somehow also test that we don't record unnecessary nodes
     #[test]
     fn test_trie_recording_reads() {
-        let store = create_test_store();
-        let tries = ShardTries::test(store, 1);
+        let tries = TestTriesBuilder::new().build();
         let empty_root = Trie::EMPTY_ROOT;
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
@@ -1750,8 +1748,7 @@ mod tests {
 
     #[test]
     fn test_trie_recording_reads_update() {
-        let store = create_test_store();
-        let tries = ShardTries::test(store, 1);
+        let tries = TestTriesBuilder::new().build();
         let empty_root = Trie::EMPTY_ROOT;
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
@@ -1786,7 +1783,7 @@ mod tests {
     #[test]
     fn test_dump_load_trie() {
         let store = create_test_store();
-        let tries = ShardTries::test(store.clone(), 1);
+        let tries = TestTriesBuilder::new().with_store(store.clone()).build();
         let empty_root = Trie::EMPTY_ROOT;
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
@@ -1797,7 +1794,7 @@ mod tests {
         store.save_state_to_file(&dir.path().join("test.bin")).unwrap();
         let store2 = create_test_store();
         store2.load_state_from_file(&dir.path().join("test.bin")).unwrap();
-        let tries2 = ShardTries::test(store2, 1);
+        let tries2 = TestTriesBuilder::new().with_store(store2).build();
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard(), root);
         assert_eq!(trie2.get(b"doge").unwrap().unwrap(), b"coin");
     }

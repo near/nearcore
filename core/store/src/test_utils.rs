@@ -1,22 +1,25 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
-use itertools::Itertools;
-use near_primitives::state::{FlatStateValue, ValueRef};
-use near_primitives::trie_key::TrieKey;
-use rand::seq::SliceRandom;
-use rand::Rng;
-
 use crate::db::TestDB;
-use crate::flat::{store_helper, BlockInfo, FlatStorageReadyStatus, FlatStorageStatus};
+use crate::flat::{
+    store_helper, BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
+};
 use crate::metadata::{DbKind, DbVersion, DB_VERSION};
-use crate::{get, get_delayed_receipt_indices, DBCol, NodeStorage, ShardTries, Store};
+use crate::{
+    get, get_delayed_receipt_indices, DBCol, NodeStorage, ShardTries, StateSnapshotConfig, Store,
+    TrieConfig,
+};
+use itertools::Itertools;
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DataReceipt, Receipt, ReceiptEnum};
 use near_primitives::shard_layout::{ShardUId, ShardVersion};
+use near_primitives::state::{FlatStateValue, ValueRef};
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{NumShards, StateRoot};
+use rand::seq::SliceRandom;
+use rand::Rng;
+use std::collections::HashMap;
 use std::str::from_utf8;
+use std::sync::Arc;
 
 /// Creates an in-memory node storage.
 ///
@@ -61,44 +64,75 @@ pub fn create_test_store() -> Store {
     create_test_node_storage(DB_VERSION, DbKind::RPC).get_hot_store()
 }
 
-/// Creates a Trie using an in-memory database.
-pub fn create_tries() -> ShardTries {
-    create_tries_complex(0, 1)
-}
-
-pub fn create_tries_complex(shard_version: ShardVersion, num_shards: NumShards) -> ShardTries {
-    let store = create_test_store();
-    ShardTries::test_shard_version(store, shard_version, num_shards)
-}
-
-pub fn create_tries_with_flat_storage() -> ShardTries {
-    create_tries_complex_with_flat_storage(0, 1)
-}
-
-pub fn create_tries_complex_with_flat_storage(
+pub struct TestTriesBuilder {
+    store: Option<Store>,
     shard_version: ShardVersion,
     num_shards: NumShards,
-) -> ShardTries {
-    let tries = create_tries_complex(shard_version, num_shards);
-    let mut store_update = tries.store_update();
-    for shard_id in 0..num_shards {
-        let shard_uid = ShardUId { version: shard_version, shard_id: shard_id.try_into().unwrap() };
-        store_helper::set_flat_storage_status(
-            &mut store_update,
-            shard_uid,
-            FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                flat_head: BlockInfo::genesis(CryptoHash::default(), 0),
-            }),
-        );
-    }
-    store_update.commit().unwrap();
+    enable_flat_storage: bool,
+}
 
-    let flat_storage_manager = tries.get_flat_storage_manager();
-    for shard_id in 0..num_shards {
-        let shard_uid = ShardUId { version: shard_version, shard_id: shard_id.try_into().unwrap() };
-        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+impl TestTriesBuilder {
+    pub fn new() -> Self {
+        Self { store: None, shard_version: 0, num_shards: 1, enable_flat_storage: false }
     }
-    tries
+
+    pub fn with_store(mut self, store: Store) -> Self {
+        self.store = Some(store);
+        self
+    }
+
+    pub fn with_shard_layout(mut self, shard_version: ShardVersion, num_shards: NumShards) -> Self {
+        self.shard_version = shard_version;
+        self.num_shards = num_shards;
+        self
+    }
+
+    pub fn with_flat_storage(mut self) -> Self {
+        self.enable_flat_storage = true;
+        self
+    }
+
+    pub fn build(self) -> ShardTries {
+        let store = self.store.unwrap_or_else(create_test_store);
+        let shard_uids = (0..self.num_shards)
+            .map(|shard_id| ShardUId { shard_id: shard_id as u32, version: self.shard_version })
+            .collect::<Vec<_>>();
+        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let tries = ShardTries::new(
+            store,
+            TrieConfig::default(),
+            &shard_uids,
+            flat_storage_manager,
+            StateSnapshotConfig::default(),
+        );
+        if self.enable_flat_storage {
+            let mut store_update = tries.store_update();
+            for shard_id in 0..self.num_shards {
+                let shard_uid = ShardUId {
+                    version: self.shard_version,
+                    shard_id: shard_id.try_into().unwrap(),
+                };
+                store_helper::set_flat_storage_status(
+                    &mut store_update,
+                    shard_uid,
+                    FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                        flat_head: BlockInfo::genesis(CryptoHash::default(), 0),
+                    }),
+                );
+            }
+            store_update.commit().unwrap();
+
+            let flat_storage_manager = tries.get_flat_storage_manager();
+            for shard_id in 0..self.num_shards {
+                let shard_uid = ShardUId {
+                    version: self.shard_version,
+                    shard_id: shard_id.try_into().unwrap(),
+                };
+                flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+            }
+        }
+        tries
+    }
 }
 
 pub fn test_populate_trie(

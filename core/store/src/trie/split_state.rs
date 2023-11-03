@@ -319,7 +319,7 @@ pub fn get_delayed_receipts(
 mod tests {
     use crate::split_state::{apply_delayed_receipts_to_split_states_impl, get_delayed_receipts};
     use crate::test_utils::{
-        create_tries, gen_changes, gen_receipts, get_all_delayed_receipts, test_populate_trie,
+        gen_changes, gen_receipts, get_all_delayed_receipts, test_populate_trie, TestTriesBuilder,
     };
 
     use crate::{set, ShardTries, ShardUId, Trie};
@@ -337,7 +337,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         for _ in 0..20 {
-            let tries = create_tries();
+            let tries = TestTriesBuilder::new().build();
             // add 4 new shards for version 1
             let num_shards = 4;
             let mut state_root = Trie::EMPTY_ROOT;
@@ -385,7 +385,7 @@ mod tests {
             let all_receipts = gen_receipts(&mut rng, 200);
 
             // push receipt to trie
-            let tries = create_tries();
+            let tries = TestTriesBuilder::new().build();
             let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), Trie::EMPTY_ROOT);
             let mut delayed_receipt_indices = DelayedReceiptIndices::default();
 
@@ -475,7 +475,7 @@ mod tests {
     fn test_apply_delayed_receipts_to_new_states() {
         let mut rng = rand::thread_rng();
 
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let num_shards = 4;
 
         for _ in 0..10 {

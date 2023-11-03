@@ -869,7 +869,7 @@ pub fn apply_memtrie_changes(memtries: &mut MemTries, changes: &MemTrieChanges) 
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::create_test_store;
+    use crate::test_utils::TestTriesBuilder;
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::trie::mem::updating::apply_memtrie_changes;
     use crate::trie::mem::MemTries;
@@ -893,8 +893,7 @@ mod tests {
     impl TestTries {
         fn new(check_deleted_keys: bool) -> Self {
             let mem = MemTries::new(100 * 1024 * 1024, ShardUId::single_shard());
-            let store = create_test_store();
-            let disk = ShardTries::test(store, 1);
+            let disk = TestTriesBuilder::new().build();
             Self {
                 mem,
                 disk,

@@ -78,7 +78,7 @@ pub fn load_trie_from_flat_state(
 #[cfg(test)]
 mod tests {
     use crate::test_utils::{
-        create_tries, simplify_changes, test_populate_flat_storage, test_populate_trie,
+        simplify_changes, test_populate_flat_storage, test_populate_trie, TestTriesBuilder,
     };
     use crate::trie::mem::loading::load_trie_from_flat_state;
     use crate::trie::mem::lookup::memtrie_lookup;
@@ -91,7 +91,7 @@ mod tests {
     use std::collections::HashSet;
 
     fn check(keys: Vec<Vec<u8>>) {
-        let shard_tries = create_tries();
+        let shard_tries = TestTriesBuilder::new().build();
         let shard_uid = ShardUId::single_shard();
         let changes = keys.iter().map(|key| (key.to_vec(), Some(key.to_vec()))).collect::<Vec<_>>();
         let changes = simplify_changes(&changes);

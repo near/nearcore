@@ -1,4 +1,4 @@
-use crate::test_utils::{create_tries_complex, gen_changes, simplify_changes, test_populate_trie};
+use crate::test_utils::{gen_changes, simplify_changes, test_populate_trie, TestTriesBuilder};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
 use crate::{PartialStorage, Trie, TrieUpdate};
 use assert_matches::assert_matches;
@@ -101,7 +101,7 @@ where
 fn test_reads_with_incomplete_storage() {
     let mut rng = rand::thread_rng();
     for _ in 0..50 {
-        let tries = create_tries_complex(1, 2);
+        let tries = TestTriesBuilder::new().with_shard_layout(1, 2).build();
         let shard_uid = ShardUId { version: 1, shard_id: 0 };
         let trie_changes = gen_changes(&mut rng, 20);
         let trie_changes = simplify_changes(&trie_changes);
@@ -144,7 +144,6 @@ fn test_reads_with_incomplete_storage() {
 #[cfg(test)]
 mod nodes_counter_tests {
     use super::*;
-    use crate::test_utils::create_tries;
     use crate::trie::nibble_slice::NibbleSlice;
 
     fn create_trie_key(nibbles: &[u8]) -> Vec<u8> {
@@ -152,7 +151,7 @@ mod nodes_counter_tests {
     }
 
     fn create_trie(items: &[(Vec<u8>, Option<Vec<u8>>)]) -> Rc<Trie> {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let shard_uid = ShardUId { version: 1, shard_id: 0 };
         let trie_changes = simplify_changes(&items);
         let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes);
@@ -205,7 +204,7 @@ mod nodes_counter_tests {
 #[cfg(test)]
 mod trie_storage_tests {
     use super::*;
-    use crate::test_utils::{create_test_store, create_tries};
+    use crate::test_utils::create_test_store;
     use crate::trie::accounting_cache::TrieAccountingCache;
     use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage};
     use crate::trie::TrieRefcountAddition;
@@ -214,7 +213,7 @@ mod trie_storage_tests {
     use near_primitives::hash::hash;
 
     fn create_store_with_values(values: &[Vec<u8>], shard_uid: ShardUId) -> Store {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let mut trie_changes = TrieChanges::empty(Trie::EMPTY_ROOT);
         trie_changes.insertions = values
             .iter()
