@@ -1069,8 +1069,8 @@ pub struct StateStatsStateRecord {
 }
 
 impl StateStatsStateRecord {
-    pub fn size(&self) -> usize {
-        self.key.len() + self.value.len()
+    pub fn size(&self) -> ByteSize {
+        ByteSize::b(self.key.len() as u64 + self.value.len() as u64)
     }
 }
 
