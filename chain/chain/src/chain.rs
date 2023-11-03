@@ -5962,7 +5962,7 @@ impl<'a> ChainUpdate<'a> {
                 // Without this assert same BlockInfo will cause infinite loop instead of crash with a message.
                 assert!(
                     current_header.height() > last_block_info.last_finalized_height(),
-                    "Reached block at height {:?} with hash{:?} from {:?}",
+                    "Reached block at height {:?} with hash {:?} from {:?}",
                     current_header.height(),
                     current_header.hash(),
                     last_block_info
