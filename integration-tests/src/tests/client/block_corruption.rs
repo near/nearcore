@@ -187,8 +187,8 @@ fn check_process_flipped_block_fails_on_bit(
                     ));
                 }
                 Err(e) => {
-                    if let Err(e) = env.clients[0]
-                        .process_block_test(correct_block.into(), Provenance::NONE)
+                    if let Err(e) =
+                        env.clients[0].process_block_test(correct_block.into(), Provenance::NONE)
                     {
                         return Err(anyhow::anyhow!("Was unable to process default block after attempting to process default block with {} bit switched. {}",
                         corrupted_bit_idx, e)
