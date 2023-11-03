@@ -301,6 +301,7 @@ fn run_loop_all_shards(
                             .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
                             .set(0);
                     }
+                    reset_num_parts_metrics(&chain_id, shard_id as u64);
                 }
                 Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height }) => {
                     tracing::info!("last one was waiting, epoch_height: {}", epoch_height);
@@ -309,15 +310,15 @@ fn run_loop_all_shards(
                         crate::metrics::STATE_SYNC_DUMP_CHECK_HAS_SKIPPED_EPOCH
                             .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
                             .set(1);
+                        reset_num_parts_metrics(&chain_id, shard_id as u64);
                     } else {
+                        // this check would be working on the same epoch as last check, so we don't reset the num parts metrics to 0 repeatedly
                         tracing::info!("last one was waiting. Latest epoch is the same as last one waiting. Will recheck the same epoch at epoch_height: {}", epoch_height);
-                        crate::metrics::STATE_SYNC_DUMP_CHECK_HAS_SKIPPED_EPOCH
-                            .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
-                            .set(0);
                     }
                 }
                 Err(_) => {
                     tracing::info!("last one errored out, will start check from the latest epoch");
+                    reset_num_parts_metrics(&chain_id, shard_id as u64);
                 }
             }
 
@@ -358,6 +359,21 @@ fn run_loop_all_shards(
             is_prometheus_server_up = true;
         }
     }
+}
+
+fn reset_num_parts_metrics(chain_id: &str, shard_id: ShardId) -> () {
+    crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_TOTAL
+        .with_label_values(&[&shard_id.to_string(), chain_id])
+        .set(0);
+    crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_DUMPED
+        .with_label_values(&[&shard_id.to_string(), &chain_id])
+        .set(0);
+    crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_VALID
+        .with_label_values(&[&shard_id.to_string(), chain_id])
+        .set(0);
+    crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_INVALID
+        .with_label_values(&[&shard_id.to_string(), chain_id])
+        .set(0);
 }
 
 async fn run_single_check_with_3_retries(
@@ -448,19 +464,6 @@ async fn run_single_check(
         .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
         .set(1);
 
-    crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_TOTAL
-        .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
-        .set(0);
-    crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_DUMPED
-        .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
-        .set(0);
-    crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_VALID
-        .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
-        .set(0);
-    crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_INVALID
-        .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
-        .set(0);
-
     let external = create_external_connection(
         root_dir.clone(),
         s3_bucket.clone(),
@@ -502,10 +505,10 @@ async fn run_single_check(
         .set(num_parts as i64);
 
     if num_parts < total_required_parts {
-        tracing::info!("total state parts required: {} < number of parts already dumped: {}, waiting for all parts to be dumped", total_required_parts, num_parts);
+        tracing::info!("epoch_height: {}, shard_id: {}, total state parts required: {} > number of parts already dumped: {}, waiting for all parts to be dumped", epoch_height, shard_id, total_required_parts, num_parts);
         return Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height: epoch_height });
     } else if num_parts > total_required_parts {
-        tracing::info!("total state parts required: {} > number of parts already dumped: {}, there are more dumped parts than total required, something is seriously wrong", total_required_parts, num_parts);
+        tracing::info!("epoch_height: {}, shard_id: {}, total state parts required: {} < number of parts already dumped: {}, there are more dumped parts than total required, something is seriously wrong", epoch_height, shard_id, total_required_parts, num_parts);
         return Ok(StatePartsDumpCheckStatus::Done { epoch_height: epoch_height });
     }
 
