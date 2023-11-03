@@ -45,6 +45,9 @@ impl StateSnaptshotTestEnv {
             enable_receipt_prefetching: false,
             sweat_prefetch_receivers: Vec::new(),
             sweat_prefetch_senders: Vec::new(),
+            load_mem_tries_for_shards: Vec::new(),
+            load_mem_tries_for_all_shards: false,
+            max_mem_tries_size_per_shard: 0,
         };
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         let shard_uids = [ShardUId::single_shard()];

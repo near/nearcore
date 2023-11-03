@@ -1,5 +1,6 @@
 use crate::config::TrieCacheConfig;
 use crate::StoreConfig;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::AccountId;
 use std::str::FromStr;
 use tracing::error;
@@ -20,7 +21,7 @@ pub(crate) const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize =
 const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 1000;
 
 /// Stores necessary configuration for the creation of tries.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct TrieConfig {
     pub shard_cache_config: TrieCacheConfig,
     pub view_shard_cache_config: TrieCacheConfig,
@@ -30,6 +31,14 @@ pub struct TrieConfig {
     pub sweat_prefetch_receivers: Vec<AccountId>,
     /// List of allowed predecessor accounts for SWEAT prefetching.
     pub sweat_prefetch_senders: Vec<AccountId>,
+    /// List of shards we will load into memory.
+    pub load_mem_tries_for_shards: Vec<ShardUId>,
+    pub load_mem_tries_for_all_shards: bool,
+    /// Maximum size, in number of bytes, of a single shard in memory.
+    /// This amount is reserved upfront with mmap. If the machine does not have
+    /// that much RAM, enable memory overcommit. The actual memory usage is only
+    /// the real size of the loaded tries.
+    pub max_mem_tries_size_per_shard: usize,
 }
 
 impl TrieConfig {
@@ -53,6 +62,14 @@ impl TrieConfig {
                 Err(e) => error!(target: "config", "invalid account id {account}: {e}"),
             }
         }
+        for shard_uid in &config.load_mem_tries_for_shards {
+            match ShardUId::from_str(shard_uid) {
+                Ok(shard_uid) => this.load_mem_tries_for_shards.push(shard_uid),
+                Err(e) => error!(target: "config", "invalid shard uid {shard_uid}: {e}"),
+            }
+        }
+        this.load_mem_tries_for_all_shards = config.load_mem_tries_for_all_shards;
+        this.max_mem_tries_size_per_shard = config.max_mem_tries_size_per_shard;
 
         this
     }
