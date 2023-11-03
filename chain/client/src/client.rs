@@ -564,33 +564,27 @@ impl Client {
             .count()
     }
 
-    /// Produce block if we are block producer for given `next_height` block height.
+    /// Produce block if we are block producer for given block `height`.
     /// Either returns produced block (not applied) or error.
-    pub fn produce_block(&mut self, next_height: BlockHeight) -> Result<Option<Block>, Error> {
-        let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
-        let known_height = self.chain.store().get_latest_known()?.height;
+    pub fn produce_block(&mut self, height: BlockHeight) -> Result<Option<Block>, Error> {
+        let _span = tracing::debug_span!(target: "client", "produce_block", height).entered();
 
-        let validator_signer = self
-            .validator_signer
-            .as_ref()
-            .ok_or_else(|| Error::BlockProducer("Called without block producer info.".to_string()))?
-            .clone();
         let head = self.chain.head()?;
         assert_eq!(
             head.epoch_id,
             self.epoch_manager.get_epoch_id_from_prev_block(&head.prev_block_hash).unwrap()
         );
 
-        let prev_hash = head.last_block_hash;
-        self.produce_block_on(next_height, prev_hash)
+        self.produce_block_on(height, head.last_block_hash)
     }
 
+    /// Produce block for given `next_height` on top of block `prev_hash`.
+    /// Should be called either from `produce_block` or in tests.
     pub fn produce_block_on(
         &mut self,
         next_height: BlockHeight,
         prev_hash: CryptoHash,
     ) -> Result<Option<Block>, Error> {
-        println!("produce_block_on {next_height} prev_hash={prev_hash}");
         let known_height = self.chain.store().get_latest_known()?.height;
         let validator_signer = self
             .validator_signer
