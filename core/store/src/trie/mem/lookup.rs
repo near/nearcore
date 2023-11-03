@@ -1,37 +1,39 @@
+use super::metrics::MEM_TRIE_NUM_LOOKUPS;
 use super::node::{MemTrieNodePtr, MemTrieNodeView};
 use crate::NibbleSlice;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state::FlatStateValue;
-use near_vm_runner::logic::TrieNodesCount;
-use std::collections::HashSet;
 
 /// Performs a lookup in an in-memory trie, while taking care of cache
 /// accounting for gas calculation purposes.
+///
+/// The provided callback is invoked for:
+///  - each node accessed during the lookup, with the parameters
+///    (false, node hash, borsh serialized node), as well as
+///  - once for the value, if the value is inlined, with the parameters
+///    (true, value hash, the value).
+///
+/// The callback is used for:
+///  - Gas accounting of touched nodes and values
+///  - Populating the trie accounting cache (for legacy compatibility)
+///  - Recording accessed nodes and values, for state witness production.
 pub fn memtrie_lookup(
     root: MemTrieNodePtr<'_>,
     key: &[u8],
-    mut accessed_cache: Option<&mut HashSet<CryptoHash>>,
-    nodes_count: &mut TrieNodesCount,
+    mut node_access_callback: impl FnMut(bool, CryptoHash, Vec<u8>),
 ) -> Option<FlatStateValue> {
+    MEM_TRIE_NUM_LOOKUPS.inc();
     let mut nibbles = NibbleSlice::new(key);
     let mut node = root;
 
-    loop {
-        // This logic is carried from on-disk trie. It must remain unchanged,
-        // because gas accounting is dependent on these counters.
-        if let Some(cache) = &mut accessed_cache {
-            if cache.insert(node.view().node_hash()) {
-                nodes_count.db_reads += 1;
-            } else {
-                nodes_count.mem_reads += 1;
-            }
-        } else {
-            nodes_count.db_reads += 1;
-        }
-        match node.view() {
+    let result = loop {
+        let view = node.view();
+        let raw_node_serialized = borsh::to_vec(&view.to_raw_trie_node_with_size()).unwrap();
+        node_access_callback(false, view.node_hash(), raw_node_serialized);
+        match view {
             MemTrieNodeView::Leaf { extension, value } => {
                 if nibbles == NibbleSlice::from_encoded(extension.raw_slice()).0 {
-                    return Some(value.to_flat_value());
+                    break value.to_flat_value();
                 } else {
                     return None;
                 }
@@ -58,7 +60,7 @@ pub fn memtrie_lookup(
             }
             MemTrieNodeView::BranchWithValue { children, value, .. } => {
                 if nibbles.is_empty() {
-                    return Some(value.to_flat_value());
+                    break value.to_flat_value();
                 }
                 let first = nibbles.at(0);
                 nibbles = nibbles.mid(1);
@@ -68,5 +70,9 @@ pub fn memtrie_lookup(
                 };
             }
         }
+    };
+    if let FlatStateValue::Inlined(value) = &result {
+        node_access_callback(true, hash(value), value.clone());
     }
+    Some(result)
 }
