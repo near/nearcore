@@ -1093,7 +1093,7 @@ impl std::fmt::Debug for StateStatsStateRecord {
         let Some(state_record) = state_record else { return None::<StateRecord>.fmt(f) };
 
         f.debug_struct("StateStatsStateRecord")
-            .field("account_id", state_record_to_account_id(&state_record))
+            .field("account_id", &state_record_to_account_id(&state_record).as_str())
             .field("type", &state_record.get_type_string())
             .field("size", &self.size())
             .finish()
@@ -1107,17 +1107,22 @@ pub struct StateStats {
 
     pub top_state_records: BinaryHeap<StateStatsStateRecord>,
 
-    pub middle_state_record: Option<StateRecord>,
+    pub middle_state_record: Option<StateStatsStateRecord>,
 }
 
 impl core::fmt::Debug for StateStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let average_size =
-            self.total_size.as_u64().checked_div(self.total_count as u64).map(ByteSize::b);
+        let average_size = self
+            .total_size
+            .as_u64()
+            .checked_div(self.total_count as u64)
+            .map(ByteSize::b)
+            .unwrap_or_default();
         f.debug_struct("StateStats")
             .field("total_size", &self.total_size)
             .field("total_count", &self.total_count)
             .field("average_size", &average_size)
+            .field("middle_state_record", &self.middle_state_record.as_ref().unwrap())
             .field("top_state_records", &self.top_state_records)
             .finish()
     }
@@ -1188,8 +1193,7 @@ pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: Near
 
             current_size += key.len() + value.len();
             if middle_size <= current_size as u64 {
-                let state_record = StateRecord::from_raw_key_value(key, value);
-                state_stats.middle_state_record = state_record;
+                state_stats.middle_state_record = Some(StateStatsStateRecord { key, value });
                 break;
             }
         }
