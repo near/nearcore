@@ -231,16 +231,24 @@ impl TrieCacheInner {
 pub struct TrieCache(pub(crate) Arc<Mutex<TrieCacheInner>>);
 
 impl TrieCache {
-    pub fn new(config: &TrieConfig, shard_uid: ShardUId, is_view: bool) -> Self {
+    pub fn new(
+        config: &TrieConfig,
+        shard_uid: ShardUId,
+        is_view: bool,
+        overide_cache_size: Option<u64>,
+    ) -> Self {
         let cache_config =
             if is_view { &config.view_shard_cache_config } else { &config.shard_cache_config };
-        // TODO(jbajic) ShardUId optional since the size of the contract cache should not depend
-        // on the shard id
-        let total_size_limit = cache_config
-            .per_shard_max_bytes
-            .get(&shard_uid)
-            .copied()
-            .unwrap_or(cache_config.default_max_bytes);
+        let total_size_limit = if let Some(cache_size) = overide_cache_size {
+            cache_size
+        } else {
+            cache_config
+                .per_shard_max_bytes
+                .get(&shard_uid)
+                .copied()
+                .unwrap_or(cache_config.default_max_bytes)
+        };
+
         let queue_capacity = config.deletions_queue_capacity();
         Self(Arc::new(Mutex::new(TrieCacheInner::new(
             queue_capacity,
@@ -744,7 +752,7 @@ mod trie_cache_tests {
         expected_size: u64,
     ) {
         let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
-        let trie_cache = TrieCache::new(&trie_config, shard_uid, is_view);
+        let trie_cache = TrieCache::new(&trie_config, shard_uid, is_view, None);
         assert_eq!(expected_size, trie_cache.lock().total_size_limit,);
         assert_eq!(is_view, trie_cache.lock().is_view,);
     }

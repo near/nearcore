@@ -19,8 +19,11 @@ use std::sync::{Arc, RwLock};
 
 use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 
-const CONTRACT_CACHES: &'static [(&'static str, u32)] =
-    &[("token.sweat", 2), ("tge-lockup.sweat", 2), ("sweat_welcome.near", 2)];
+const CONTRACT_CACHES: &'static [(&'static str, u32, u64)] = &[
+    ("token.sweat", 2, 500_000_000),
+    ("tge-lockup.sweat", 2, 500_000_000),
+    ("sweat_welcome.near", 2, 500_000_000),
+];
 
 struct ShardTriesInner {
     store: Store,
@@ -102,16 +105,21 @@ impl ShardTries {
     ) -> HashMap<ShardUId, TrieCache> {
         shard_uids
             .iter()
-            .map(|&shard_uid| (shard_uid, TrieCache::new(config, shard_uid, is_view)))
+            .map(|&shard_uid| (shard_uid, TrieCache::new(config, shard_uid, is_view, None)))
             .collect()
     }
 
     fn create_contract_specific_caches(config: &TrieConfig) -> HashMap<&'static str, TrieCache> {
         let mut contract_specific_cache = HashMap::new();
-        for (contract, shard_uid) in CONTRACT_CACHES {
+        for (contract, shard_uid, cache_size) in CONTRACT_CACHES {
             contract_specific_cache.insert(
                 *contract,
-                TrieCache::new(config, ShardUId { version: 0, shard_id: *shard_uid }, true),
+                TrieCache::new(
+                    config,
+                    ShardUId { version: 0, shard_id: *shard_uid },
+                    true,
+                    Some(*cache_size),
+                ),
             );
         }
         contract_specific_cache
@@ -137,7 +145,7 @@ impl ShardTries {
             let mut caches = caches_to_use.write().expect(POISONED_LOCK_ERR);
             caches
                 .entry(shard_uid)
-                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
+                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view, None))
                 .clone()
         };
         // Do not enable prefetching on view caches.
@@ -198,7 +206,7 @@ impl ShardTries {
             let mut caches = self.0.view_caches.write().expect(POISONED_LOCK_ERR);
             caches
                 .entry(shard_uid)
-                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, true))
+                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, true, None))
                 .clone()
         };
         let storage = Rc::new(TrieCachingStorage::new(
@@ -256,7 +264,7 @@ impl ShardTries {
         let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
         let cache = caches
             .entry(shard_uid)
-            .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))
+            .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false, None))
             .clone();
         cache.update_cache(ops);
     }
