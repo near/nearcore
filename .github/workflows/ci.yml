@@ -96,7 +96,7 @@ jobs:
       - uses: bufbuild/buf-setup-action@1158f4fa81bc02e1ff62abcca6d516c9e24c77da
       - uses: bufbuild/buf-breaking-action@a074e988ee34efcd4927079e79c611f428354c01
         with:
-          against: "https://github.com/near/nearcore.git#ref=${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}"
+          against: "https://github.com/near/nearcore.git#${{github.event.pull_request.base.sha && format('ref={0}', github.event.pull_request.base.sha) || 'branch=master' }}"
 
   sanity_checks:
     name: "Sanity Checks"
