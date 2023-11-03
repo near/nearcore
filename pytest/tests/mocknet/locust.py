@@ -16,12 +16,16 @@ def init_locust_node(instance_name):
     if node is None:
         sys.exit(f'could not find node {instance_name}')
     cmd_utils.init_node(node)
-    init_command = 'sudo apt update && sudo apt-get install -y git virtualenv build-essential python3-dev'
-    init_command += '&& git clone https://github.com/near/nearcore /home/ubuntu/nearcore '
-    init_command += '&& mkdir /home/ubuntu/locust'
-    init_command += '&& cd /home/ubuntu/locust && python3 -m virtualenv venv -p $(which python3) '
-    init_command += '&& ./venv/bin/pip install -r /home/ubuntu/nearcore/pytest/requirements.txt'
-    init_command += '&& ./venv/bin/pip install locust'
+    commands = [
+        'sudo apt update',
+        'sudo apt-get install -y git virtualenv build-essential python3-dev',
+        'git clone https://github.com/near/nearcore /home/ubuntu/nearcore',
+        'mkdir /home/ubuntu/locust',
+        'cd /home/ubuntu/locust && python3 -m virtualenv venv -p $(which python3)',
+        './venv/bin/pip install -r /home/ubuntu/nearcore/pytest/requirements.txt',
+        './venv/bin/pip install locust',
+    ]
+    init_command = ' && '.join(commands)
     cmd_utils.run_cmd(node, init_command)
 
 
