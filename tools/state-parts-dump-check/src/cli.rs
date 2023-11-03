@@ -8,7 +8,9 @@ use near_client::sync::external::{
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
-use near_primitives::types::{BlockId, BlockReference, EpochId, EpochReference, Finality, ShardId, StateRoot};
+use near_primitives::types::{
+    BlockId, BlockReference, EpochId, EpochReference, Finality, ShardId, StateRoot,
+};
 use near_primitives::views::BlockView;
 use near_store::Trie;
 use nearcore::state_sync::extract_part_id_from_part_file_name;

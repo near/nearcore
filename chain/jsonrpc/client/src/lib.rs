@@ -10,9 +10,7 @@ use near_jsonrpc_primitives::types::transactions::{
 };
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{
-    BlockId, BlockReference, MaybeEpochReference, MaybeBlockId, ShardId,
-};
+use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, MaybeEpochReference, ShardId};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, GasPriceView, StatusResponse,
