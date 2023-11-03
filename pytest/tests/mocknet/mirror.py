@@ -322,7 +322,7 @@ def neard_runner_jsonrpc(node, method, params=[]):
     # followed by a new quote started with ' and the rest of the string, to get any single quotes
     # in method or params into the command correctly
     body = body.replace("'", "'\"'\"'")
-    r = run_cmd(node, f'curl localhost:3000 -d \'{body}\'')
+    r = cmd_utils.run_cmd(node, f'curl localhost:3000 -d \'{body}\'')
     response = json.loads(r.stdout)
     if 'error' in response:
         # TODO: errors should be handled better here in general but just exit for now
