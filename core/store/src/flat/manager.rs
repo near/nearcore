@@ -1,7 +1,6 @@
 use crate::flat::{
     store_helper, BlockInfo, FlatStorageReadyStatus, FlatStorageStatus, POISONED_LOCK_ERR,
 };
-use itertools::Itertools;
 use near_primitives::block::Block;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
