@@ -479,17 +479,17 @@ impl Client {
         &self,
         prev_hash: &CryptoHash,
         prev_prev_hash: &CryptoHash,
-        next_height: BlockHeight,
+        height: BlockHeight,
         known_height: BlockHeight,
         account_id: &AccountId,
         next_block_proposer: &AccountId,
     ) -> Result<bool, Error> {
-        if self.known_block_height(next_height, known_height) {
+        if self.known_block_height(height, known_height) {
             return Ok(true);
         }
 
         if !self.is_me_block_producer(account_id, next_block_proposer) {
-            info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
+            info!(target: "client", "Produce block: chain at {}, not block producer for next block.", height);
             return Ok(true);
         }
 
@@ -578,11 +578,11 @@ impl Client {
         self.produce_block_on(height, head.last_block_hash)
     }
 
-    /// Produce block for given `next_height` on top of block `prev_hash`.
+    /// Produce block for given `height` on top of block `prev_hash`.
     /// Should be called either from `produce_block` or in tests.
     pub fn produce_block_on(
         &mut self,
-        next_height: BlockHeight,
+        height: BlockHeight,
         prev_hash: CryptoHash,
     ) -> Result<Option<Block>, Error> {
         let known_height = self.chain.store().get_latest_known()?.height;
@@ -594,7 +594,7 @@ impl Client {
 
         // Check that we are were called at the block that we are producer for.
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
-        let next_block_proposer = self.epoch_manager.get_block_producer(&epoch_id, next_height)?;
+        let next_block_proposer = self.epoch_manager.get_block_producer(&epoch_id, height)?;
 
         let prev = self.chain.get_block_header(&prev_hash)?;
         let prev_height = prev.height();
@@ -609,7 +609,7 @@ impl Client {
         if self.should_reschedule_block(
             &prev_hash,
             &prev_prev_hash,
-            next_height,
+            height,
             known_height,
             validator_signer.validator_id(),
             &next_block_proposer,
@@ -637,7 +637,7 @@ impl Client {
         debug!(
             target: "client",
             validator=?validator_signer.validator_id(),
-            next_height=next_height,
+            height=height,
             prev_height=prev.height(),
             prev_hash=format_hash(prev_hash),
             new_chunks_count=new_chunks.len(),
@@ -651,7 +651,7 @@ impl Client {
             return Ok(None);
         }
 
-        let mut approvals_map = self.doomslug.get_witness(&prev_hash, prev_height, next_height);
+        let mut approvals_map = self.doomslug.get_witness(&prev_hash, prev_height, height);
 
         // At this point, the previous epoch hash must be available
         let epoch_id = self
@@ -722,9 +722,9 @@ impl Client {
 
         // Add debug information about the block production (and info on when did the chunks arrive).
         self.block_production_info.record_block_production(
-            next_height,
+            height,
             BlockProductionTracker::construct_chunk_collection_info(
-                next_height,
+                height,
                 &epoch_id,
                 chunks.len() as ShardId,
                 &new_chunks,
@@ -734,7 +734,7 @@ impl Client {
 
         // Collect new chunks.
         for (shard_id, (mut chunk_header, _, _)) in new_chunks {
-            *chunk_header.height_included_mut() = next_height;
+            *chunk_header.height_included_mut() = height;
             chunks[shard_id as usize] = chunk_header;
         }
 
@@ -770,7 +770,7 @@ impl Client {
             this_epoch_protocol_version,
             next_epoch_protocol_version,
             prev_header,
-            next_height,
+            height,
             block_ordinal,
             chunks,
             epoch_id,
@@ -790,10 +790,9 @@ impl Client {
         );
 
         // Update latest known even before returning block out, to prevent race conditions.
-        self.chain.mut_store().save_latest_known(LatestKnown {
-            height: next_height,
-            seen: block.header().raw_timestamp(),
-        })?;
+        self.chain
+            .mut_store()
+            .save_latest_known(LatestKnown { height, seen: block.header().raw_timestamp() })?;
 
         metrics::BLOCK_PRODUCED_TOTAL.inc();
 
