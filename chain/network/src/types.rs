@@ -22,8 +22,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::BlockHeight;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::net::SocketAddr;
@@ -233,7 +232,7 @@ pub enum NetworkRequests {
     /// Announce account
     AnnounceAccount(AnnounceAccount),
     /// Broadcast information about a hosted snapshot.
-    SnapshotHostInfo(Arc<SnapshotHostInfo>),
+    SnapshotHostInfo { sync_hash: CryptoHash, epoch_height: EpochHeight, shards: Vec<ShardId> },
 
     /// Request chunk parts and/or receipts
     PartialEncodedChunkRequest {

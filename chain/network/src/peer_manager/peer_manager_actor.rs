@@ -338,7 +338,7 @@ impl PeerManagerActor {
 
                     let mut interval = time::Interval::new(clock.now(), time::Duration::seconds(30));
 
-                    let mut epoch_height: EpochHeight = 9876543210;
+                    let mut epoch_height: EpochHeight = 321;
 
                     async move {
                         loop {
@@ -352,7 +352,7 @@ impl PeerManagerActor {
                                 peer_id.clone(),
                                 hash,
                                 epoch_height,
-                                vec![23, epoch_height % 10],
+                                vec![0, epoch_height % 10 + 1],
                                 &state.config.node_key,
                             );
 
@@ -816,9 +816,19 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::SnapshotHostInfo(snapshot_host_info) => {
+            NetworkRequests::SnapshotHostInfo { sync_hash, epoch_height, shards } => {
+                // Sign the information about the locally created snapshot using the keys in the
+                // network config before broadcasting it
+                let snapshot_host_info = SnapshotHostInfo::new(
+                    self.state.config.node_id(),
+                    sync_hash,
+                    epoch_height,
+                    shards,
+                    &self.state.config.node_key,
+                );
+
                 self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncSnapshotHosts(
-                    SyncSnapshotHosts { hosts: vec![snapshot_host_info] },
+                    SyncSnapshotHosts { hosts: vec![snapshot_host_info.into()] },
                 )));
                 NetworkResponses::NoResponse
             }
