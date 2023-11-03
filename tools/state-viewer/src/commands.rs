@@ -25,6 +25,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state::FlatStateValue;
+use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
@@ -1088,7 +1089,14 @@ impl PartialOrd for StateStatsStateRecord {
 impl std::fmt::Debug for StateStatsStateRecord {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let state_record = StateRecord::from_raw_key_value(self.key.clone(), self.value.clone());
-        state_record.fmt(f)
+
+        let Some(state_record) = state_record else { return None::<StateRecord>.fmt(f) };
+
+        f.debug_struct("StateStatsStateRecord")
+            .field("account_id", state_record_to_account_id(&state_record))
+            .field("type", &state_record.get_type_string())
+            .field("size", &self.size())
+            .finish()
     }
 }
 
@@ -1186,7 +1194,8 @@ pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: Near
             }
         }
 
-        tracing::info!(target: "state_viewer", ?shard_uid, "{state_stats:#?}")
+        tracing::info!(target: "state_viewer",  "{shard_uid:?}");
+        tracing::info!(target: "state_viewer",  "{state_stats:#?}");
     }
 }
 
