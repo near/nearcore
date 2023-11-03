@@ -1076,7 +1076,7 @@ impl StateStatsStateRecord {
 
 impl Ord for StateStatsStateRecord {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.size().cmp(&other.size())
+        self.size().cmp(&other.size()).reverse()
     }
 }
 
