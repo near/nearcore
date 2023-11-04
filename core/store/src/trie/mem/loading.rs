@@ -82,6 +82,7 @@ mod tests {
     };
     use crate::trie::mem::loading::load_trie_from_flat_state;
     use crate::trie::mem::lookup::memtrie_lookup;
+    use crate::trie::OptimizedValueRef;
     use crate::{KeyLookupMode, NibbleSlice, Trie, TrieUpdate};
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
@@ -128,8 +129,8 @@ mod tests {
         let mut nodes_count = TrieNodesCount { db_reads: 0, mem_reads: 0 };
         for key in keys.iter() {
             let actual_value_ref = memtrie_lookup(root, key, Some(&mut cache), &mut nodes_count)
-                .map(|v| v.to_value_ref());
-            let expected_value_ref = trie.get_ref(key, KeyLookupMode::Trie).unwrap();
+                .map(OptimizedValueRef::from_flat_value);
+            let expected_value_ref = trie.get_optimized_ref(key, KeyLookupMode::Trie).unwrap();
             assert_eq!(actual_value_ref, expected_value_ref, "{:?}", NibbleSlice::new(key));
             assert_eq!(&nodes_count, &trie.get_trie_nodes_count());
         }
