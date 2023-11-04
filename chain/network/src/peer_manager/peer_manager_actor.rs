@@ -26,9 +26,7 @@ use near_async::time;
 use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
-use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::EpochHeight;
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
     RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
@@ -242,7 +240,6 @@ impl PeerManagerActor {
             let arbiter = arbiter.clone();
             let state = state.clone();
             let clock = clock.clone();
-            let peer_id = my_peer_id.clone();
             async move {
                 // Start server if address provided.
                 if let Some(server_addr) = &state.config.node_addr {
