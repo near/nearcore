@@ -990,7 +990,8 @@ impl<T: ChainAccess> TxMirror<T> {
                     actions.push(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })));
                 }
                 Action::Transfer(_) => {
-                    if tx.receiver_id().get_account_type().is_implicit()
+                    // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
+                    if tx.receiver_id().get_account_type() == AccountType::NearImplicitAccount
                         && source_actions.len() == 1
                     {
                         let target_account =
