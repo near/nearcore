@@ -3,6 +3,7 @@ use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::utils::{aggregate_per_block_measurements, overhead_per_measured_block, percentiles};
 use near_primitives::config::ExtCosts;
 use near_primitives::hash::hash;
+use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_contract_data_key;
 use near_store::trie::accounting_cache::TrieAccountingCache;
 use near_store::TrieCachingStorage;
 use std::collections::HashMap;
@@ -300,7 +301,11 @@ fn read_raw_nodes_from_storage(
     keys.iter()
         .map(|key| {
             let bytes = accounting_cache
-                .retrieve_raw_bytes_with_accounting(key, caching_storage, None)
+                .retrieve_raw_bytes_with_accounting(
+                    key,
+                    caching_storage,
+                    parse_account_id_from_contract_data_key(key.as_bytes()).ok()
+                )
                 .unwrap();
             near_store::estimator::decode_extension_node(&bytes).len()
         })
