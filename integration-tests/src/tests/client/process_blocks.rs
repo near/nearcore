@@ -3050,10 +3050,10 @@ fn test_fork_receipt_ids() {
     }
 
     // Ensure that in stateless validation protocol receipts in fork blocks are executed.
-    let b3 = env.clients[0].produce_block_on(last_height + 3, *block1.hash()).unwrap().unwrap();
-    let b4 = env.clients[0].produce_block_on(last_height + 4, *block2.hash()).unwrap().unwrap();
-    env.clients[0].process_block_test(b3.into(), Provenance::NONE).unwrap();
-    env.clients[0].process_block_test(b4.into(), Provenance::NONE).unwrap();
+    let block3 = env.clients[0].produce_block_on(last_height + 3, *block1.hash()).unwrap().unwrap();
+    let block4 = env.clients[0].produce_block_on(last_height + 4, *block2.hash()).unwrap().unwrap();
+    env.clients[0].process_block_test(block3.into(), Provenance::NONE).unwrap();
+    env.clients[0].process_block_test(block4.into(), Provenance::NONE).unwrap();
 
     let transaction_execution_outcome =
         env.clients[0].chain.mut_store().get_outcomes_by_id(&tx_hash).unwrap();
@@ -3105,10 +3105,10 @@ fn test_fork_execution_outcome() {
         env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
     }
 
-    let b3 = env.clients[0].produce_block_on(last_height + 3, *block1.hash()).unwrap().unwrap();
-    let b4 = env.clients[0].produce_block_on(last_height + 4, *block2.hash()).unwrap().unwrap();
-    env.clients[0].process_block_test(b3.into(), Provenance::NONE).unwrap();
-    env.clients[0].process_block_test(b4.into(), Provenance::NONE).unwrap();
+    let block3 = env.clients[0].produce_block_on(last_height + 3, *block1.hash()).unwrap().unwrap();
+    let block4 = env.clients[0].produce_block_on(last_height + 4, *block2.hash()).unwrap().unwrap();
+    env.clients[0].process_block_test(block3.into(), Provenance::NONE).unwrap();
+    env.clients[0].process_block_test(block4.into(), Provenance::NONE).unwrap();
 
     let transaction_execution_outcome =
         env.clients[0].chain.mut_store().get_outcomes_by_id(&tx_hash).unwrap();
