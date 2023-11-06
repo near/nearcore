@@ -6,6 +6,7 @@ use crate::network_protocol::{
     DistanceVector, Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError,
     PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse,
     RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
+    SyncSnapshotHosts,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -17,6 +18,7 @@ use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::routing::edge::verify_nonce;
 use crate::routing::NetworkTopologyChange;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
+use crate::snapshot_hosts::SnapshotHostInfoError;
 use crate::stats::metrics;
 use crate::tcp;
 use crate::types::{
@@ -398,6 +400,9 @@ impl PeerActor {
                     metrics::bool_to_str(d.requesting_full_sync),
                 ])
                 .inc(),
+            PeerMessage::SyncSnapshotHosts(_) => {
+                metrics::SYNC_SNAPSHOT_HOSTS.with_label_values(&["sent"]).inc()
+            }
             _ => (),
         };
 
@@ -634,6 +639,9 @@ impl PeerActor {
             send_accounts_data_demux: demux::Demux::new(
                 self.network_state.config.accounts_data_broadcast_rate_limit,
             ),
+            send_snapshot_hosts_demux: demux::Demux::new(
+                self.network_state.config.snapshot_hosts_broadcast_rate_limit,
+            ),
         });
 
         let tracker = self.tracker.clone();
@@ -777,6 +785,8 @@ impl PeerActor {
                             }
                             // Sync the RoutingTable.
                             act.sync_routing_table();
+                            // Sync snapshot hosts
+                            act.sync_snapshot_hosts();
                         }
 
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
@@ -806,6 +816,12 @@ impl PeerActor {
             known_edges,
             vec![],
         )));
+    }
+
+    // Send all known snapshot hosts.
+    fn sync_snapshot_hosts(&self) {
+        let hosts = self.network_state.snapshot_hosts.get_hosts();
+        self.send_message_or_log(&PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts }));
     }
 
     fn handle_msg_connecting(&mut self, ctx: &mut actix::Context<Self>, msg: PeerMessage) {
@@ -1251,6 +1267,26 @@ impl PeerActor {
                             AccountDataError::InvalidSignature => ReasonForBan::InvalidSignature,
                             AccountDataError::DataTooLarge => ReasonForBan::Abusive,
                             AccountDataError::SingleAccountMultipleData => ReasonForBan::Abusive,
+                        }));
+                    }
+                    message_processed_event();
+                }));
+            }
+            PeerMessage::SyncSnapshotHosts(msg) => {
+                metrics::SYNC_SNAPSHOT_HOSTS.with_label_values(&["received"]).inc();
+                // Early exit, if there is no data in the message.
+                if msg.hosts.is_empty() {
+                    message_processed_event();
+                    return;
+                }
+                let network_state = self.network_state.clone();
+                ctx.spawn(wrap_future(async move {
+                    if let Some(err) = network_state.add_snapshot_hosts(msg.hosts).await {
+                        conn.stop(Some(match err {
+                            SnapshotHostInfoError::InvalidSignature => {
+                                ReasonForBan::InvalidSignature
+                            }
+                            SnapshotHostInfoError::DuplicatePeerId => ReasonForBan::Abusive,
                         }));
                     }
                     message_processed_event();

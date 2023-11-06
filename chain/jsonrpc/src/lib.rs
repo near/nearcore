@@ -761,6 +761,10 @@ impl JsonRpcHandler {
                         .peer_manager_send(near_network::debug::GetDebugStatus::Routes)
                         .await?
                         .rpc_into(),
+                    "/debug/api/snapshot_hosts" => self
+                        .peer_manager_send(near_network::debug::GetDebugStatus::SnapshotHosts)
+                        .await?
+                        .rpc_into(),
                     _ => return Ok(None),
                 };
             Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {

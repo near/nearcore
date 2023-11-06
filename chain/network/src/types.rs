@@ -6,7 +6,7 @@ pub use crate::network_protocol::{
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
     Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, StateResponseInfo,
+    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, SnapshotHostInfo, StateResponseInfo,
     StateResponseInfoV1, StateResponseInfoV2,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
@@ -22,8 +22,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::BlockHeight;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::net::SocketAddr;
@@ -230,6 +229,8 @@ pub enum NetworkRequests {
     StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64, peer_id: PeerId },
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
+    /// Broadcast information about a hosted snapshot.
+    SnapshotHostInfo { sync_hash: CryptoHash, epoch_height: EpochHeight, shards: Vec<ShardId> },
 
     /// Request chunk parts and/or receipts
     PartialEncodedChunkRequest {

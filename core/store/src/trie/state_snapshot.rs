@@ -117,6 +117,11 @@ impl StateSnapshot {
         Self { prev_block_hash, store, flat_storage_manager }
     }
 
+    /// Returns the UIds for the shards included in the snapshot.
+    pub fn get_shard_uids(&self) -> Vec<ShardUId> {
+        self.flat_storage_manager.get_shard_uids()
+    }
+
     /// Returns status of a shard of a flat storage in the state snapshot.
     pub fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus {
         self.flat_storage_manager.get_flat_storage_status(shard_uid)
@@ -152,13 +157,14 @@ impl ShardTries {
         Ok((data.store.clone(), data.flat_storage_manager.clone()))
     }
 
-    /// Makes a snapshot of the current state of the DB.
+    /// Makes a snapshot of the current state of the DB, if one is not already available.
+    /// If a new snapshot is created, returns the ids of the included shards.
     pub fn create_state_snapshot(
         &self,
         prev_block_hash: CryptoHash,
         shard_uids: &[ShardUId],
         block: &Block,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<Option<Vec<ShardUId>>, anyhow::Error> {
         metrics::HAS_STATE_SNAPSHOT.set(0);
         // The function returns an `anyhow::Error`, because no special handling of errors is done yet. The errors are logged and ignored.
         let _span =
@@ -175,7 +181,7 @@ impl ShardTries {
                 && state_snapshot.prev_block_hash == prev_block_hash
             {
                 tracing::warn!(target: "state_snapshot", ?prev_block_hash, "Requested a state snapshot but that is already available");
-                return Ok(());
+                return Ok(None);
             }
             tracing::error!(target: "state_snapshot", ?prev_block_hash, ?state_snapshot.prev_block_hash, "Requested a state snapshot but that is already available with a different hash");
         }
@@ -231,7 +237,7 @@ impl ShardTries {
 
         metrics::HAS_STATE_SNAPSHOT.set(1);
         tracing::info!(target: "state_snapshot", ?prev_block_hash, "Made a checkpoint");
-        Ok(())
+        Ok(Some(state_snapshot_lock.as_ref().unwrap().get_shard_uids()))
     }
 
     /// Runs compaction on the snapshot.

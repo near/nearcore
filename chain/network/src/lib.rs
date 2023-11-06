@@ -5,6 +5,7 @@ mod network_protocol;
 mod peer;
 mod peer_manager;
 mod private_actix;
+mod snapshot_hosts;
 mod stats;
 mod store;
 mod stun;

@@ -200,6 +200,14 @@ pub(crate) static SYNC_ACCOUNTS_DATA: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub(crate) static SYNC_SNAPSHOT_HOSTS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_sync_snapshot_hosts",
+        "Number of SyncSnapshotHost messages sent/received",
+        &["direction"],
+    )
+    .unwrap()
+});
 
 pub(crate) static REQUEST_COUNT_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
