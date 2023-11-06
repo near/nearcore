@@ -5,8 +5,8 @@
 use super::block_stats::BlockStats;
 use super::peer_manager_mock::PeerManagerMock;
 use crate::adapter::{
-    AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, SetNetworkInfo, StateRequestHeader, StateRequestPart,
+    BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
+    SetNetworkInfo, StateRequestHeader, StateRequestPart,
 };
 use crate::{start_view_client, Client, ClientActor, SyncAdapter, SyncStatus, ViewClientActor};
 use actix::{Actor, Addr, AsyncContext, Context};
@@ -54,7 +54,7 @@ use num_rational::Ratio;
 use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
 use std::cmp::max;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
@@ -450,7 +450,6 @@ pub fn setup_mock_all_validators(
 
     let connectors: Arc<OnceCell<Vec<ActorHandlesForTesting>>> = Default::default();
 
-    let announced_accounts = Arc::new(RwLock::new(HashSet::new()));
     let genesis_block = Arc::new(RwLock::new(None));
 
     let last_height = Arc::new(RwLock::new(vec![0; key_pairs.len()]));
@@ -471,7 +470,6 @@ pub fn setup_mock_all_validators(
         let addresses = addresses.clone();
         let connectors1 = connectors.clone();
         let network_mock1 = peer_manager_mock.clone();
-        let announced_accounts1 = announced_accounts.clone();
         let last_height1 = last_height.clone();
         let last_height2 = last_height.clone();
         let largest_endorsed_height1 = largest_endorsed_height.clone();
@@ -740,25 +738,6 @@ pub fn setup_mock_all_validators(
                                             future::ready(())
                                         }),
                                 );
-                            }
-                        }
-                        NetworkRequests::AnnounceAccount(announce_account) => {
-                            let mut aa = announced_accounts1.write().unwrap();
-                            let key = (
-                                announce_account.account_id.clone(),
-                                announce_account.epoch_id.clone(),
-                            );
-                            if aa.get(&key).is_none() {
-                                aa.insert(key);
-                                for actor_handles in connectors1 {
-                                    actor_handles.view_client_actor.do_send(
-                                        AnnounceAccountRequest(vec![(
-                                            announce_account.clone(),
-                                            None,
-                                        )])
-                                            .with_span_context(),
-                                    )
-                                }
                             }
                         }
                         NetworkRequests::Approval { approval_message } => {

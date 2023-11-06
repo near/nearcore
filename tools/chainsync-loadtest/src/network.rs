@@ -14,11 +14,11 @@ use near_network::types::{
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::types::{AccountId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 use nearcore::config::NearConfig;
 use rand::seq::SliceRandom;
@@ -294,12 +294,5 @@ impl near_network::client::Client for Network {
         for s in n.info_futures.split_off(0) {
             s.send(n.info_.clone()).unwrap();
         }
-    }
-
-    async fn announce_account(
-        &self,
-        accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
-    ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
-        Ok(accounts.into_iter().map(|a| a.0).collect())
     }
 }
