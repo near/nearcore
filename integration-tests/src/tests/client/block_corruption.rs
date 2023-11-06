@@ -114,6 +114,52 @@ fn is_breaking_block_change(original: &Block, corrupt: &Block) -> bool {
         && original != corrupt
 }
 
+///  If the corrupt block can be parsed, we are trying to process it and expecting it to fail.
+///  If it successfully fails, we are processing the correct block and expecting it to be ok.
+///
+/// Returns `Ok(processing_error)` if corrupt block was parsed and its processing failed.
+/// Returns `Ok(reason)` if corrupt block wasn't parsed or had changes that are not breaking by design.
+/// Returns `Err(reason)` if corrupt block was processed or correct block wasn't processed afterwards.
+fn check_corrupt_block(
+    mut env: TestEnv,
+    corrupt_block_vec: Vec<u8>,
+    correct_block: Block,
+    corrupted_bit_idx: usize,
+) -> Result<anyhow::Error, anyhow::Error> {
+    if let Ok(mut corrupt_block) = Block::try_from_slice(corrupt_block_vec.as_slice()) {
+        corrupt_block.mut_header().get_mut().inner_rest.block_body_hash =
+            corrupt_block.compute_block_body_hash().unwrap();
+        corrupt_block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
+            "test0".parse().unwrap(),
+            KeyType::ED25519,
+            "test0",
+        ));
+
+        if !is_breaking_block_change(&correct_block, &corrupt_block) {
+            return Ok(anyhow::anyhow!(NOT_BREAKING_CHANGE_MSG));
+        }
+
+        match env.clients[0].process_block_test(corrupt_block.into(), Provenance::NONE) {
+            Ok(_) => Err(anyhow::anyhow!(
+                "Was able to process default block with {} bit switched.",
+                corrupted_bit_idx
+            )),
+            Err(e) => {
+                if let Err(e) =
+                    env.clients[0].process_block_test(correct_block.into(), Provenance::NONE)
+                {
+                    return Err(anyhow::anyhow!("Was unable to process default block after attempting to process default block with {} bit switched. {}",
+                    corrupted_bit_idx, e)
+                    );
+                }
+                Ok(e.into())
+            }
+        }
+    } else {
+        return Ok(anyhow::anyhow!(BLOCK_NOT_PARSED_MSG));
+    }
+}
+
 /// Each block contains one 'send' transaction.
 /// First three blocks are produced without changes.
 /// For the fourth block we are calculating two versions – correct and corrupt.
@@ -153,11 +199,6 @@ fn check_process_flipped_block_fails_on_bit(
         last_block = block;
     }
 
-    let block_len = borsh::to_vec(&last_block).unwrap().len();
-    if corrupted_bit_idx >= block_len * 8 {
-        return Ok(anyhow::anyhow!("End"));
-    }
-
     let h = mid_height + 1;
 
     let txs = create_tx_load(h, &last_block);
@@ -173,52 +214,18 @@ fn check_process_flipped_block_fails_on_bit(
 
     let mut block_vec = borsh::to_vec(&correct_block).unwrap();
 
-    // Technically we don't have to do first step, because of Ok("End") check.
-    // But we may change that part in the future for some reason, and I want this part to be reliable.
+    if corrupted_bit_idx >= block_vec.len() * 8 {
+        return Ok(anyhow::anyhow!("End"));
+    }
 
-    // get BIT index modulo BIT length of block
-    let mod_idx = corrupted_bit_idx % (block_vec.len() * 8);
     // get index of BYTE that we are changing
-    let byte_idx = mod_idx / 8;
+    let byte_idx = corrupted_bit_idx / 8;
     // get index of BIT in that BYTE that we are flipping
-    let bit_idx = mod_idx % 8;
+    let bit_idx = corrupted_bit_idx % 8;
     // flip that BIT
     block_vec[byte_idx] ^= 1 << bit_idx;
 
-    if let Ok(mut corrupt_block) = Block::try_from_slice(block_vec.as_slice()) {
-        corrupt_block.mut_header().get_mut().inner_rest.block_body_hash =
-            corrupt_block.compute_block_body_hash().unwrap();
-        corrupt_block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
-            "test0".parse().unwrap(),
-            KeyType::ED25519,
-            "test0",
-        ));
-
-        if is_breaking_block_change(&correct_block, &corrupt_block) {
-            match env.clients[0].process_block_test(corrupt_block.clone().into(), Provenance::NONE)
-            {
-                Ok(_) => {
-                    return Err(anyhow::anyhow!(
-                        "Was able to process default block with {} bit switched.",
-                        corrupted_bit_idx
-                    ));
-                }
-                Err(e) => {
-                    if let Err(e) =
-                        env.clients[0].process_block_test(correct_block.into(), Provenance::NONE)
-                    {
-                        return Err(anyhow::anyhow!("Was unable to process default block after attempting to process default block with {} bit switched. {}",
-                        corrupted_bit_idx, e)
-                        );
-                    }
-                    return Ok(e.into());
-                }
-            }
-        } else {
-            return Ok(anyhow::anyhow!(NOT_BREAKING_CHANGE_MSG));
-        }
-    }
-    return Ok(anyhow::anyhow!(BLOCK_NOT_PARSED_MSG));
+    check_corrupt_block(env, block_vec, correct_block, corrupted_bit_idx)
 }
 
 /// Produce a block. Flip a bit in it.
