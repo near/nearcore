@@ -1,15 +1,14 @@
 pub use self::iterator::TrieUpdateIterator;
-use super::Trie;
+use super::{OptimizedValueRef, Trie};
 use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::StorageError;
-use near_primitives::hash::CryptoHash;
-use near_primitives::state::ValueRef;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
     TrieCacheMode,
 };
 use std::collections::BTreeMap;
+
 mod iterator;
 
 /// Key-value update. Contains a TrieKey and a value.
@@ -30,7 +29,7 @@ pub struct TrieUpdate {
 }
 
 pub enum TrieUpdateValuePtr<'a> {
-    HashAndSize(&'a Trie, u32, CryptoHash),
+    Ref(&'a Trie, OptimizedValueRef),
     MemoryRef(&'a [u8]),
 }
 
@@ -38,16 +37,14 @@ impl<'a> TrieUpdateValuePtr<'a> {
     pub fn len(&self) -> u32 {
         match self {
             TrieUpdateValuePtr::MemoryRef(value) => value.len() as u32,
-            TrieUpdateValuePtr::HashAndSize(_, length, _) => *length,
+            TrieUpdateValuePtr::Ref(_, value_ref) => value_ref.len() as u32,
         }
     }
 
     pub fn deref_value(&self) -> Result<Vec<u8>, StorageError> {
         match self {
             TrieUpdateValuePtr::MemoryRef(value) => Ok(value.to_vec()),
-            TrieUpdateValuePtr::HashAndSize(trie, _, hash) => {
-                trie.internal_retrieve_trie_node(hash, true).map(|bytes| bytes.to_vec())
-            }
+            TrieUpdateValuePtr::Ref(trie, value_ref) => Ok(trie.deref_optimized(value_ref)?),
         }
     }
 }
@@ -75,11 +72,12 @@ impl TrieUpdate {
             }
         }
 
-        self.trie.get_ref(&key, mode).map(|option| {
-            option.map(|ValueRef { length, hash }| {
-                TrieUpdateValuePtr::HashAndSize(&self.trie, length, hash)
-            })
-        })
+        let result = self
+            .trie
+            .get_optimized_ref(&key, mode)?
+            .map(|optimized_value_ref| TrieUpdateValuePtr::Ref(&self.trie, optimized_value_ref));
+
+        Ok(result)
     }
 
     pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
@@ -169,10 +167,10 @@ impl crate::TrieAccess for TrieUpdate {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::TestTriesBuilder;
-
     use super::*;
+    use crate::test_utils::TestTriesBuilder;
     use crate::ShardUId;
+    use near_primitives::hash::CryptoHash;
     const SHARD_VERSION: u32 = 1;
     const COMPLEX_SHARD_UID: ShardUId = ShardUId { version: SHARD_VERSION, shard_id: 0 };
 

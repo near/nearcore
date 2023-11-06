@@ -390,7 +390,10 @@ fn test_flat_storage_creation_start_from_state_part() {
             .unwrap();
         for part_trie_keys in trie_keys.iter() {
             for trie_key in part_trie_keys.iter() {
-                assert_matches!(trie.get_ref(&trie_key, KeyLookupMode::FlatStorage), Ok(Some(_)));
+                assert_matches!(
+                    trie.get_optimized_ref(&trie_key, KeyLookupMode::FlatStorage),
+                    Ok(Some(_))
+                );
             }
         }
         assert_eq!(trie.get_trie_nodes_count(), TrieNodesCount { db_reads: 0, mem_reads: 0 });
@@ -542,7 +545,7 @@ fn test_not_supported_block() {
         if height == flat_head_height {
             env.produce_block(0, START_HEIGHT);
         }
-        get_ref_results.push(trie.get_ref(&trie_key_bytes, KeyLookupMode::FlatStorage));
+        get_ref_results.push(trie.get_optimized_ref(&trie_key_bytes, KeyLookupMode::FlatStorage));
     }
 
     // The first result should be FlatStorageError, because we can't read from first chunk view anymore.

@@ -992,15 +992,17 @@ mod tests {
                     self.disk.get_trie_for_shard(ShardUId::single_shard(), self.state_root);
                 let memtrie_result =
                     memtrie_root.and_then(|memtrie_root| memtrie_lookup(memtrie_root, key, None));
-                let disk_result = disk_trie.get_ref(key, KeyLookupMode::Trie).unwrap();
+                let disk_result = disk_trie.get_optimized_ref(key, KeyLookupMode::Trie).unwrap();
                 if let Some(value_ref) = value_ref {
                     let memtrie_value_ref = memtrie_result
                         .expect(&format!("Key {} is in truth but not in memtrie", hex::encode(key)))
                         .to_value_ref();
-                    let disk_value_ref = disk_result.expect(&format!(
-                        "Key {} is in truth but not in disk trie",
-                        hex::encode(key)
-                    ));
+                    let disk_value_ref = disk_result
+                        .expect(&format!(
+                            "Key {} is in truth but not in disk trie",
+                            hex::encode(key)
+                        ))
+                        .into_value_ref();
                     assert_eq!(
                         memtrie_value_ref,
                         *value_ref,
@@ -1239,7 +1241,7 @@ mod tests {
             let num_insertions =
                 rand::thread_rng().gen_range(0..=(MAX_KEYS - existing_keys.len()) / SLOWDOWN);
             let num_deletions =
-                rand::thread_rng().gen_range(0..=existing_keys.len() / SLOWDOWN + 1);
+                rand::thread_rng().gen_range(0..=(existing_keys.len() + SLOWDOWN - 1) / SLOWDOWN);
             let mut changes = Vec::new();
             for _ in 0..num_insertions {
                 let key_length = rand::thread_rng().gen_range(0..=10);

@@ -1,5 +1,3 @@
-#![allow(dead_code)] // still being implemented
-
 mod encoding;
 mod mutation;
 #[cfg(test)]
