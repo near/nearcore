@@ -313,7 +313,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                 num_blocks,
                 only_valid,
             ) => {
-                info!(target: "adversary", "Producing {} blocks", num_blocks);
+                info!(target: "adversary", num_blocks, "Starting adversary blocks production");
                 if only_valid {
                     this.client.adv_produce_blocks = Some(AdvProduceBlocksMode::OnlyValid);
                 } else {
@@ -331,7 +331,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                         continue;
                     }
                     let block = block.expect("block should exist after produced");
-                    info!(target: "adversary", "Producing {} block out of {}, height = {}", blocks_produced, num_blocks, height);
+                    info!(target: "adversary", blocks_produced, num_blocks, height, "Producing adversary block");
                     this.network_adapter.send(
                         PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::Block { block: block.clone() },

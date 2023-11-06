@@ -470,7 +470,7 @@ impl Client {
 
         // If we are not block proposer, skip block production.
         if account_id != next_block_proposer {
-            info!(target: "client", "Produce block: chain at {}, not block producer for next block.", height);
+            info!(target: "client", height, "Skipping block production, not block producer for next block.");
             return Ok(false);
         }
 
@@ -494,7 +494,7 @@ impl Client {
         if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
             let prev_prev_hash = prev_header.prev_hash();
             if !self.chain.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
-                debug!(target: "client", "Produce block: prev block is not caught up");
+                debug!(target: "client", "Skipping block production, prev block is not caught up");
                 return Ok(false);
             }
         }
