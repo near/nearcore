@@ -13,11 +13,6 @@ use near_primitives::state::FlatStateValue;
 /// will be added to the vector as (node hash, serialized `RawTrieNodeWithSize`).
 /// Even if the key is not found, the nodes that were accessed to make that
 /// determination will be added to the vector.
-///
-/// The callback is used for:
-///  - Gas accounting of touched nodes
-///  - Populating the trie accounting cache (for legacy compatibility)
-///  - Recording accessed nodes, for state witness production.
 pub fn memtrie_lookup(
     root: MemTrieNodePtr<'_>,
     key: &[u8],
