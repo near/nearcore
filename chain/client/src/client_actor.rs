@@ -9,7 +9,7 @@ use crate::adapter::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ProcessTxRequest, ProcessTxResponse,
     RecvChallenge, SetNetworkInfo, StateResponse,
 };
-use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
+use crate::client::{AdvProduceBlocksMode, Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
@@ -310,9 +310,12 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                 num_blocks,
                 only_valid,
             ) => {
-                info!(target: "adversary", "Producing {} blocks", num_blocks);
-                this.client.adv_produce_blocks = true;
-                this.client.adv_produce_blocks_only_valid = only_valid;
+                info!(target: "adversary", num_blocks, "Starting adversary blocks production");
+                if only_valid {
+                    this.client.adv_produce_blocks = Some(AdvProduceBlocksMode::OnlyValid);
+                } else {
+                    this.client.adv_produce_blocks = Some(AdvProduceBlocksMode::All);
+                }
                 let start_height =
                     this.client.chain.mut_store().get_latest_known().unwrap().height + 1;
                 let mut blocks_produced = 0;
@@ -325,7 +328,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                         continue;
                     }
                     let block = block.expect("block should exist after produced");
-                    info!(target: "adversary", "Producing {} block out of {}, height = {}", blocks_produced, num_blocks, height);
+                    info!(target: "adversary", blocks_produced, num_blocks, height, "Producing adversary block");
                     this.network_adapter.send(
                         PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::Block { block: block.clone() },
