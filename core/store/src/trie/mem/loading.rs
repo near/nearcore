@@ -119,7 +119,7 @@ pub fn load_trie_from_flat_state_and_delta(
     shard_uid: ShardUId,
     maximum_arena_size: usize,
 ) -> Result<MemTries, StorageError> {
-    debug!(target: "memtrie", "Loading base trie for {} from flat state...", shard_uid);
+    debug!(target: "memtrie", %shard_uid, "Loading base trie from flat state...");
     let flat_head = match get_flat_storage_status(&store, shard_uid)? {
         FlatStorageStatus::Ready(status) => status.flat_head,
         other => {
@@ -139,7 +139,7 @@ pub fn load_trie_from_flat_state_and_delta(
     )
     .unwrap();
 
-    debug!(target: "memtrie", "Loading flat state deltas for {}...", shard_uid);
+    debug!(target: "memtrie", %shard_uid, "Loading flat state deltas...");
     // We load the deltas in order of height, so that we always have the previous state root
     // already loaded.
     let mut sorted_deltas: BTreeSet<(BlockHeight, CryptoHash, CryptoHash)> = Default::default();
@@ -147,7 +147,7 @@ pub fn load_trie_from_flat_state_and_delta(
         sorted_deltas.insert((delta.block.height, delta.block.hash, delta.block.prev_hash));
     }
 
-    debug!(target: "memtrie", "{} deltas to apply for {}", sorted_deltas.len(), shard_uid);
+    debug!(target: "memtrie", %shard_uid, "{} deltas to apply", sorted_deltas.len());
     for (height, hash, prev_hash) in sorted_deltas.into_iter() {
         let delta = get_delta_changes(&store, shard_uid, hash).unwrap();
         if let Some(changes) = delta {
@@ -169,10 +169,10 @@ pub fn load_trie_from_flat_state_and_delta(
                 apply_memtrie_changes(&mut mem_tries, &mem_trie_changes, height);
             assert_eq!(new_root_after_apply, new_state_root);
         }
-        debug!(target:"memtrie", "Applied memtrie changes for height {}, shard {}", height, shard_uid);
+        debug!(target: "memtrie", %shard_uid, "Applied memtrie changes for height {}", height);
     }
 
-    debug!(target: "memtrie", "Done loading for {}", shard_uid);
+    debug!(target: "memtrie", %shard_uid, "Done loading memtries for shard");
     Ok(mem_tries)
 }
 
