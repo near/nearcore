@@ -462,15 +462,22 @@ impl Client {
             }
         }
 
-        // If height is known already, don't produce new block for this height.
-        let known_height = self.chain.store().get_latest_known()?.height;
-        if height <= known_height {
-            return Ok(false);
-        }
-
         // If we are not block proposer, skip block production.
         if account_id != next_block_proposer {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", height);
+            return Ok(false);
+        }
+
+        #[cfg(feature = "test_features")]
+        {
+            if self.adv_produce_blocks == Some(AdvProduceBlocksMode::OnlyValid) {
+                return Ok(true);
+            }
+        }
+
+        // If height is known already, don't produce new block for this height.
+        let known_height = self.chain.store().get_latest_known()?.height;
+        if height <= known_height {
             return Ok(false);
         }
 
