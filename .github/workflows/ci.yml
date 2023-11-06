@@ -149,16 +149,13 @@ jobs:
           python3 -m pip install --progress-bar off --user -r requirements.txt
           python3 tests/sanity/spin_up_cluster.py
         env:
-          NEAR_ROOT: "target/quick-release"
+          NEAR_ROOT: "../target/quick-release"
 
       - run: cargo build --profile quick-release -p neard --bin neard
-      - run: python3 scripts/state/update_res.py check
-        env:
-          NEAR_ROOT: "target/quick-release"
 
+      - run: python3 scripts/state/update_res.py check
       - run: python3 scripts/check_nightly.py
       - run: python3 scripts/check_pytests.py
-
       - run: python3 scripts/fix_nightly_feature_flags.py
 
       # TODO: this should probably be a separate job
