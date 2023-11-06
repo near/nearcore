@@ -10,7 +10,7 @@ use near_jsonrpc_primitives::types::transactions::{
 };
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, MaybeEpochReference, ShardId};
+use near_primitives::types::{BlockId, BlockReference, EpochReference, MaybeBlockId, ShardId};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, GasPriceView, StatusResponse,
@@ -187,7 +187,7 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn EXPERIMENTAL_tx_status(&self, tx: String) -> RpcRequest<RpcTransactionResponse>;
     pub fn health(&self) -> RpcRequest<()>;
     pub fn chunk(&self, id: ChunkId) -> RpcRequest<ChunkView>;
-    pub fn validators(&self, epoch_id_or_block_id: MaybeEpochReference) -> RpcRequest<EpochValidatorInfo>;
+    pub fn validators(&self, epoch_id_or_block_id: Option<EpochReference>) -> RpcRequest<EpochValidatorInfo>;
     pub fn gas_price(&self, block_id: MaybeBlockId) -> RpcRequest<GasPriceView>;
 });
 

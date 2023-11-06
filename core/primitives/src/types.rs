@@ -905,8 +905,6 @@ pub enum EpochReference {
     Latest,
 }
 
-pub type MaybeEpochReference = Option<EpochReference>;
-
 impl serde::Serialize for EpochReference {
     fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
     where
