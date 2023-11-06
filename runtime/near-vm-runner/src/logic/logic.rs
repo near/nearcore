@@ -1772,10 +1772,17 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.ext.get_receipt_receiver(receipt_idx);
-        let is_receiver_implicit =
-            self.config.implicit_account_creation && receiver_id.is_implicit();
-        let send_fee = transfer_send_fee(self.fees_config, sir, is_receiver_implicit);
-        let exec_fee = transfer_exec_fee(self.fees_config, is_receiver_implicit);
+        let send_fee = transfer_send_fee(
+            self.fees_config,
+            sir,
+            self.config.implicit_account_creation,
+            receiver_id.get_account_type(),
+        );
+        let exec_fee = transfer_exec_fee(
+            self.fees_config,
+            self.config.implicit_account_creation,
+            receiver_id.get_account_type(),
+        );
         let burn_gas = send_fee;
         let use_gas = burn_gas.checked_add(exec_fee).ok_or(HostError::IntegerOverflow)?;
         self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::transfer)?;

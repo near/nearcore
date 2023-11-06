@@ -3,7 +3,7 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
     PeerInfo, PeerMessage, RoutedMessageBody, SignedAccountData, SignedOwnedAccount,
-    SyncAccountsData,
+    SnapshotHostInfo, SyncAccountsData, SyncSnapshotHosts,
 };
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
@@ -104,6 +104,8 @@ pub(crate) struct Connection {
 
     /// Demultiplexer for the calls to send_accounts_data().
     pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
+    /// Demultiplexer for the calls to send_snapshot_hosts().
+    pub send_snapshot_hosts_demux: demux::Demux<Vec<Arc<SnapshotHostInfo>>, ()>,
 }
 
 impl fmt::Debug for Connection {
@@ -177,6 +179,58 @@ impl Connection {
             if res.is_err() {
                 tracing::info!(
                     "peer {} disconnected, while sending SyncAccountsData",
+                    this.peer_info.id
+                );
+            }
+        }
+    }
+
+    // Accepts a list of SnapshotHostInfos to be broadcast to all neighbors of the node.
+    // Multiple calls to this function made in quick succession will be condensed into a
+    // single outgoing message.
+    pub fn send_snapshot_hosts(
+        self: &Arc<Self>,
+        data: Vec<Arc<SnapshotHostInfo>>,
+    ) -> impl Future<Output = ()> {
+        let this = self.clone();
+        async move {
+            // Pass the data through the snapshot_hosts_demux to
+            // rate-limit the production of network messages.
+            let res = this
+                .send_snapshot_hosts_demux
+                .call(data, {
+                    let this = this.clone();
+                    // This function describes how to combine multiple vectors of
+                    // SnapshotHostInfos into a single batch of data.
+                    |ds: Vec<Vec<Arc<SnapshotHostInfo>>>| async move {
+                        let res = ds.iter().map(|_| ()).collect();
+                        let mut sum = HashMap::<_, Arc<SnapshotHostInfo>>::new();
+                        for d in ds.into_iter().flatten() {
+                            match sum.entry(d.peer_id.clone()) {
+                                Entry::Occupied(mut x) => {
+                                    // If two entries are present for the same peer,
+                                    // keep one with the greatest epoch_height.
+                                    if x.get().epoch_height < d.epoch_height {
+                                        x.insert(d);
+                                    }
+                                }
+                                Entry::Vacant(x) => {
+                                    x.insert(d);
+                                }
+                            }
+                        }
+                        // Send a single SyncSnapshotHosts message with the condensed data.
+                        let msg = Arc::new(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts {
+                            hosts: sum.into_values().collect(),
+                        }));
+                        this.send_message(msg);
+                        res
+                    }
+                })
+                .await;
+            if res.is_err() {
+                tracing::info!(
+                    "peer {} disconnected, while sending SyncSnapshotHosts",
                     this.peer_info.id
                 );
             }

@@ -200,6 +200,14 @@ pub(crate) static SYNC_ACCOUNTS_DATA: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub(crate) static SYNC_SNAPSHOT_HOSTS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_sync_snapshot_hosts",
+        "Number of SyncSnapshotHost messages sent/received",
+        &["direction"],
+    )
+    .unwrap()
+});
 
 pub(crate) static REQUEST_COUNT_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
@@ -346,19 +354,6 @@ pub(crate) static ALREADY_CONNECTED_ACCOUNT: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
         "near_already_connected_account",
         "A second peer with the same validator key is trying to connect to our node. This means that the validator peer has invalid setup."
-    )
-    .unwrap()
-});
-
-pub(crate) static ACCOUNT_TO_PEER_LOOKUPS: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec(
-        "near_account_to_peer_lookups",
-        "number of lookups of peer_id by account_id (for routed messages)",
-        // Source is either "AnnounceAccount" or "AccountData".
-        // We want to deprecate AnnounceAccount, so eventually we want all
-        // lookups to be done via AccountData. For now AnnounceAccount is
-        // used as a fallback.
-        &["source"],
     )
     .unwrap()
 });

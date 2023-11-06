@@ -5,8 +5,10 @@ mod borsh_conv;
 mod edge;
 mod peer;
 mod proto_conv;
+mod state_sync;
 pub use edge::*;
 pub use peer::*;
+pub use state_sync::*;
 
 #[cfg(test)]
 pub(crate) mod testonly;
@@ -408,6 +410,7 @@ pub enum PeerMessage {
     Disconnect(Disconnect),
     Challenge(Challenge),
 
+    SyncSnapshotHosts(SyncSnapshotHosts),
     StateRequestHeader(ShardId, CryptoHash),
     StateRequestPart(ShardId, CryptoHash, u64),
     VersionedStateResponse(StateResponseInfo),

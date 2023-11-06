@@ -285,6 +285,15 @@ pub struct ConnectionInfoView {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct SnapshotHostInfoView {
+    pub peer_id: PeerId,
+    pub sync_hash: CryptoHash,
+    pub epoch_height: u64,
+    pub shards: Vec<u64>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum QueryResponseKind {
     ViewAccount(AccountView),
@@ -444,6 +453,11 @@ pub struct PeerStoreView {
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub struct RecentOutboundConnectionsView {
     pub recent_outbound_connections: Vec<ConnectionInfoView>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub struct SnapshotHostsView {
+    pub hosts: Vec<SnapshotHostInfoView>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]

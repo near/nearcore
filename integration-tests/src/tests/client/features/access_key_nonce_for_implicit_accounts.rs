@@ -7,7 +7,7 @@ use near_chain_configs::Genesis;
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
@@ -18,6 +18,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::utils::derive_near_implicit_account_id;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
@@ -118,6 +119,7 @@ fn test_transaction_hash_collision() {
 /// should fail since the protocol upgrade.
 fn get_status_of_tx_hash_collision_for_implicit_account(
     protocol_version: ProtocolVersion,
+    implicit_account_signer: InMemorySigner,
 ) -> ProcessTxResponse {
     let epoch_length = 100;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -128,17 +130,11 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-
-    let signer1 = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
-
-    let public_key = &signer1.public_key;
-    let raw_public_key = public_key.unwrap_as_ed25519().0.to_vec();
-    let implicit_account_id = AccountId::try_from(hex::encode(&raw_public_key)).unwrap();
-    let implicit_account_signer =
-        InMemorySigner::from_secret_key(implicit_account_id.clone(), signer1.secret_key.clone());
     let deposit_for_account_creation = 10u128.pow(23);
     let mut height = 1;
     let blocks_number = 5;
+    let signer1 = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+    let implicit_account_id = implicit_account_signer.account_id.clone();
 
     // Send money to implicit account, invoking its creation.
     let send_money_tx = SignedTransaction::send_money(
@@ -202,23 +198,37 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
     response
 }
 
-/// Test that duplicate transactions from implicit accounts are properly rejected.
+/// Test that duplicate transactions from NEAR-implicit accounts are properly rejected.
 #[test]
 fn test_transaction_hash_collision_for_implicit_account_fail() {
     let protocol_version = ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version();
+    let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
+    let implicit_account_id =
+        derive_near_implicit_account_id(secret_key.public_key().unwrap_as_ed25519());
+    let implicit_account_signer = InMemorySigner::from_secret_key(implicit_account_id, secret_key);
     assert_matches!(
-        get_status_of_tx_hash_collision_for_implicit_account(protocol_version),
+        get_status_of_tx_hash_collision_for_implicit_account(
+            protocol_version,
+            implicit_account_signer
+        ),
         ProcessTxResponse::InvalidTx(InvalidTxError::InvalidNonce { .. })
     );
 }
 
-/// Test that duplicate transactions from implicit accounts are not rejected until protocol upgrade.
+/// Test that duplicate transactions from NEAR-implicit accounts are not rejected until protocol upgrade.
 #[test]
 fn test_transaction_hash_collision_for_implicit_account_ok() {
     let protocol_version =
         ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
+    let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
+    let implicit_account_id =
+        derive_near_implicit_account_id(secret_key.public_key().unwrap_as_ed25519());
+    let implicit_account_signer = InMemorySigner::from_secret_key(implicit_account_id, secret_key);
     assert_matches!(
-        get_status_of_tx_hash_collision_for_implicit_account(protocol_version),
+        get_status_of_tx_hash_collision_for_implicit_account(
+            protocol_version,
+            implicit_account_signer
+        ),
         ProcessTxResponse::ValidTx
     );
 }
