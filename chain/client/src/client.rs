@@ -107,6 +107,8 @@ const BLOCK_HORIZON: u64 = 500;
 /// number of blocks at the epoch start for which we will log more detailed info
 pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
 
+/// Defines whether in case of adversarial block production invalid blocks can
+/// be produced.
 #[derive(PartialEq, Eq)]
 pub enum AdvProduceBlocksMode {
     All,
@@ -114,7 +116,8 @@ pub enum AdvProduceBlocksMode {
 }
 
 pub struct Client {
-    /// Adversarial controls
+    /// Adversarial controls - should be enabled only to test disruptive
+    /// behaviour on chain.
     #[cfg(feature = "test_features")]
     pub adv_produce_blocks: Option<AdvProduceBlocksMode>,
     #[cfg(feature = "test_features")]
@@ -446,8 +449,11 @@ impl Client {
         Ok(())
     }
 
-    // Checks couple conditions whether Client can produce new block on height
-    // `height` on top of block with `prev_header`.
+    /// Checks couple conditions whether Client can produce new block on height
+    /// `height` on top of block with `prev_header`.
+    /// Needed to skip several checks in case of adversarial controls enabled.
+    /// TODO: consider returning `Result<(), Error>` as `Ok(false)` looks like
+    /// faulty logic.
     fn can_produce_block(
         &self,
         prev_header: &BlockHeader,
