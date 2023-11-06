@@ -9,25 +9,22 @@ on:
   merge_group:
 
 jobs:
-  backward_compat:
-    name: "Backward Compatibility"
+  build_binary:
+    name: "Build neard binary"
     runs-on: ubuntu-22.04-16core
-    defaults:
-      run:
-        working-directory: ./pytest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
-        with:
-          python-version: 3.11
-          cache: pip
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
           save-if: "false" # use the cache from nextest, but don’t double-save
-          # TODO: the python script should use the quick-release cargo profile, but currently does not
-      - run: pip3 install --user -r requirements.txt
-      - run: python3 tests/sanity/backward_compatible.py
+      - run: cargo build --locked --profile quick-release -p neard --bin neard
+      - uses: actions/upload-artifact@v3
+        with:
+          name: neard
+          path: target/quick-release/neard
+          if-no-files-found: error
+          retention-days: 1
 
   cargo_nextest:
     name: "Cargo Nextest (${{matrix.name}})"
@@ -68,25 +65,6 @@ jobs:
         env:
           RUST_BACKTRACE: short
 
-  db_migration:
-    name: "Database Migration"
-    runs-on: ubuntu-22.04-16core
-    defaults:
-      run:
-        working-directory: ./pytest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
-        with:
-          python-version: 3.11
-          cache: pip
-      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
-        with:
-          prefix-key: "0" # change this to invalidate CI cache
-          save-if: "false" # use the cache from nextest, but don’t double-save
-      - run: pip3 install --user -r requirements.txt
-      - run: python3 tests/sanity/db_migration.py
-
   protobuf_backward_compat:
     name: "Protobuf Backward Compatibility"
     runs-on: ubuntu-latest
@@ -98,8 +76,54 @@ jobs:
         with:
           against: "https://github.com/near/nearcore.git#${{github.event.pull_request.base.sha && format('ref={0}', github.event.pull_request.base.sha) || 'branch=master' }}"
 
-  sanity_checks:
+  py_backward_compat:
+    name: "Backward Compatibility"
+    needs: build_binary
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: ./pytest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+          cache: pip
+      - uses: actions/download-artifact@v3
+        with:
+          name: neard
+          path: pytest # NB: this does not account for defaults.run.working-directory
+      - run: echo "CURRENT_NEARD=$PWD/neard" >> "$GITHUB_ENV"
+      - run: chmod +x "$CURRENT_NEARD"
+      - run: pip3 install --user -r requirements.txt
+      - run: python3 tests/sanity/backward_compatible.py
+
+  py_db_migration:
+    name: "Database Migration"
+    needs: build_binary
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: ./pytest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+          cache: pip
+      - uses: actions/download-artifact@v3
+        with:
+          name: neard
+          path: pytest # NB: this does not account for defaults.run.working-directory
+      - run: echo "CURRENT_NEARD=$PWD/neard" >> "$GITHUB_ENV"
+      - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
+      - run: chmod +x "$CURRENT_NEARD"
+      - run: pip3 install --user -r requirements.txt
+      - run: python3 tests/sanity/db_migration.py
+
+  py_sanity_checks:
     name: "Sanity Checks"
+    needs: build_binary
     runs-on: ubuntu-22.04-16core
     strategy:
       fail-fast: false
@@ -115,7 +139,7 @@ jobs:
         with:
           prefix-key: "0" # change this to invalidate CI cache
           save-if: "false" # use the cache from nextest, but don’t double-save
-      - run: cargo build -p neard --bin neard --features nightly
+      - run: cargo build --profile quick-release -p neard --bin neard --features nightly
       - name: run spin_up_cluster.py
         # Note: We're not running spin_up_cluster.py for non-nightly
         # because spinning up non-nightly clusters is already covered
@@ -124,9 +148,13 @@ jobs:
           cd pytest
           python3 -m pip install --progress-bar off --user -r requirements.txt
           python3 tests/sanity/spin_up_cluster.py
+        env:
+          NEAR_ROOT: "target/quick-release"
 
       - run: cargo build --profile quick-release -p neard --bin neard
       - run: python3 scripts/state/update_res.py check
+        env:
+          NEAR_ROOT: "target/quick-release"
 
       - run: python3 scripts/check_nightly.py
       - run: python3 scripts/check_pytests.py
@@ -149,9 +177,10 @@ jobs:
               exit 1
           fi >&2
 
-  upgradability:
+  py_upgradability:
     name: "Upgradability"
-    runs-on: ubuntu-22.04-16core
+    needs: build_binary
+    runs-on: ubuntu-22.04
     defaults:
       run:
         working-directory: ./pytest
@@ -161,9 +190,12 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
+      - uses: actions/download-artifact@v3
         with:
-          prefix-key: "0" # change this to invalidate CI cache
-          save-if: "false" # use the cache from nextest, but don’t double-save
+          name: neard
+          path: pytest # NB: this does not account for defaults.run.working-directory
+      - run: echo "CURRENT_NEARD=$PWD/neard" >> "$GITHUB_ENV"
+      - run: chmod +x "$CURRENT_NEARD"
+      - run: ls -alh
       - run: pip3 install --user -r requirements.txt
       - run: python3 tests/sanity/upgradable.py
