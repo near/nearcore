@@ -7,6 +7,7 @@ use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
 use crate::{apply_chunk, epoch_info};
 use ansi_term::Color::Red;
+use bytesize::ByteSize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::ApplyTransactionResult;
@@ -23,15 +24,19 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
+use near_primitives::state::FlatStateValue;
+use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
 use near_store::test_utils::create_test_store;
+use near_store::TrieStorage;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
+use std::collections::BinaryHeap;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
@@ -1055,6 +1060,148 @@ pub(crate) fn clear_cache(store: Store) {
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::CachedContractCode);
     store_update.commit().unwrap();
+}
+
+#[derive(PartialEq, Eq)]
+pub struct StateStatsStateRecord {
+    key: Vec<u8>,
+    value: Vec<u8>,
+}
+
+impl StateStatsStateRecord {
+    pub fn size(&self) -> ByteSize {
+        ByteSize::b(self.key.len() as u64 + self.value.len() as u64)
+    }
+}
+
+impl Ord for StateStatsStateRecord {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.size().cmp(&other.size()).reverse()
+    }
+}
+
+impl PartialOrd for StateStatsStateRecord {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl std::fmt::Debug for StateStatsStateRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state_record = StateRecord::from_raw_key_value(self.key.clone(), self.value.clone());
+
+        let Some(state_record) = state_record else { return None::<StateRecord>.fmt(f) };
+
+        f.debug_struct("StateStatsStateRecord")
+            .field("account_id", &state_record_to_account_id(&state_record).as_str())
+            .field("type", &state_record.get_type_string())
+            .field("size", &self.size())
+            .finish()
+    }
+}
+
+#[derive(Default)]
+pub struct StateStats {
+    pub total_size: ByteSize,
+    pub total_count: usize,
+
+    pub top_state_records: BinaryHeap<StateStatsStateRecord>,
+
+    pub middle_state_record: Option<StateStatsStateRecord>,
+}
+
+impl core::fmt::Debug for StateStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let average_size = self
+            .total_size
+            .as_u64()
+            .checked_div(self.total_count as u64)
+            .map(ByteSize::b)
+            .unwrap_or_default();
+        f.debug_struct("StateStats")
+            .field("total_size", &self.total_size)
+            .field("total_count", &self.total_count)
+            .field("average_size", &average_size)
+            .field("middle_state_record", &self.middle_state_record.as_ref().unwrap())
+            .field("top_state_records", &self.top_state_records)
+            .finish()
+    }
+}
+
+impl StateStats {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn push(&mut self, key: Vec<u8>, value: Vec<u8>) -> () {
+        self.total_size += key.len() as u64 + value.len() as u64;
+        self.total_count += 1;
+
+        self.top_state_records.push(StateStatsStateRecord { key, value });
+        if self.top_state_records.len() > 5 {
+            self.top_state_records.pop();
+        }
+    }
+}
+
+fn read_flat_state_value(
+    trie_storage: &TrieDBStorage,
+    flat_state_value: FlatStateValue,
+) -> Vec<u8> {
+    match flat_state_value {
+        FlatStateValue::Ref(val) => trie_storage.retrieve_raw_bytes(&val.hash).unwrap().to_vec(),
+        FlatStateValue::Inlined(val) => val,
+    }
+}
+
+pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: NearConfig) {
+    let (epoch_manager, runtime, _, block_header) =
+        load_trie(store.clone(), home_dir, &near_config);
+
+    let block_hash = *block_header.hash();
+    let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash).unwrap();
+
+    for shard_uid in shard_layout.get_shard_uids() {
+        let flat_storage_manager = runtime.get_flat_storage_manager();
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+        let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
+        let chunk_view = flat_storage_manager.chunk_view(shard_uid, block_hash).unwrap();
+
+        let mut state_stats = StateStats::new();
+
+        let iter = chunk_view.iter_flat_state_entries(None, None);
+        for item in iter {
+            let Ok((key, value)) = item else {
+                continue;
+            };
+
+            let value = read_flat_state_value(&trie_storage, value);
+
+            state_stats.push(key, value);
+        }
+
+        let middle_size = state_stats.total_size.as_u64() / 2;
+
+        let mut current_size = 0;
+        let iter = chunk_view.iter_flat_state_entries(None, None);
+        for item in iter {
+            let Ok((key, value)) = item else {
+                tracing::warn!(target: "state_viewer", ?item, "error in iter item");
+                continue;
+            };
+
+            let value = read_flat_state_value(&trie_storage, value);
+
+            current_size += key.len() + value.len();
+            if middle_size <= current_size as u64 {
+                state_stats.middle_state_record = Some(StateStatsStateRecord { key, value });
+                break;
+            }
+        }
+
+        tracing::info!(target: "state_viewer",  "{shard_uid:?}");
+        tracing::info!(target: "state_viewer",  "{state_stats:#?}");
+    }
 }
 
 #[cfg(test)]

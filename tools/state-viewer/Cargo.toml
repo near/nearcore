@@ -13,6 +13,7 @@ actix.workspace = true
 ansi_term.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
+bytesize.workspace = true
 chrono.workspace = true
 clap.workspace = true
 cloud-storage.workspace = true
@@ -51,11 +52,7 @@ testlib.workspace = true
 insta.workspace = true
 
 [features]
-sandbox = [
-  "node-runtime/sandbox",
-  "near-chain/sandbox",
-  "near-client/sandbox",
-]
+sandbox = ["node-runtime/sandbox", "near-chain/sandbox", "near-client/sandbox"]
 nightly = [
   "nightly_protocol",
   "near-chain-configs/nightly",

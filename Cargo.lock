@@ -6651,6 +6651,7 @@ dependencies = [
  "ansi_term",
  "anyhow",
  "borsh 1.0.0",
+ "bytesize",
  "chrono",
  "clap 4.2.4",
  "cloud-storage",
