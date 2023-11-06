@@ -596,8 +596,9 @@ impl Client {
             #[cfg(not(feature = "test_features"))]
             return Ok(None);
             #[cfg(feature = "test_features")]
-            if self.adv_produce_blocks != Some(AdvProduceBlocksMode::All) {
-                return Ok(None);
+            match self.adv_produce_blocks {
+                None | Some(AdvProduceBlocksMode::OnlyValid) => return Ok(None),
+                Some(AdvProduceBlocksMode::All) => {}
             }
         }
 
