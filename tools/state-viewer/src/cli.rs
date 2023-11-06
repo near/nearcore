@@ -84,7 +84,7 @@ pub enum StateViewerSubCommand {
     /// Dump or apply state parts.
     StateParts(StatePartsCmd),
     /// Iterates over the Flat State and prints some statistics.
-    /// e.g. large accounts, total, average and median size, median account
+    /// e.g. large accounts, total, average and median size, middle account
     StateStats(StateStatsCmd),
     /// Benchmark how long does it take to iterate the trie.
     TrieIterationBenchmark(TrieIterationBenchmarkCmd),

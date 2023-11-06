@@ -1186,6 +1186,7 @@ pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: Near
         let iter = chunk_view.iter_flat_state_entries(None, None);
         for item in iter {
             let Ok((key, value)) = item else {
+                tracing::warn!(target: "state_viewer", ?item, "error in iter item");
                 continue;
             };
 
