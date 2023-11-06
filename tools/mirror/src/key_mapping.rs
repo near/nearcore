@@ -1,6 +1,8 @@
 use hkdf::Hkdf;
 use near_crypto::{ED25519PublicKey, ED25519SecretKey, PublicKey, Secp256K1PublicKey, SecretKey};
 use near_primitives::types::AccountId;
+use near_primitives::utils::derive_near_implicit_account_id;
+use near_primitives_core::account::id::AccountType;
 use sha2::Sha256;
 
 // there is nothing special about this key, it's just some randomly generated one.
@@ -90,18 +92,22 @@ pub fn map_key(key: &PublicKey, secret: Option<&[u8; crate::secret::SECRET_LEN]>
     }
 }
 
-// If it's an implicit account, interprets it as an ed25519 public key, maps that and then returns
-// the resulting implicit account. Otherwise does nothing. We do this so that transactions creating
-// an implicit account by sending money will generate an account that we can control
+// If it's a NEAR-implicit account, interprets it as an ed25519 public key,
+// maps that and then returns the resulting implicit account. Otherwise does nothing.
+// We do this so that transactions creating an implicit account
+// by sending money will generate an account that we can control.
 pub fn map_account(
     account_id: &AccountId,
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
 ) -> AccountId {
-    if account_id.is_implicit() {
-        let public_key = PublicKey::from_implicit_account(account_id).expect("must be implicit");
-        let mapped_key = map_key(&public_key, secret);
-        hex::encode(mapped_key.public_key().key_data()).parse().unwrap()
-    } else {
-        account_id.clone()
+    match account_id.get_account_type() {
+        AccountType::NearImplicitAccount => {
+            let public_key =
+                PublicKey::from_near_implicit_account(account_id).expect("must be near-implicit");
+            let mapped_key = map_key(&public_key, secret);
+            derive_near_implicit_account_id(mapped_key.public_key().unwrap_as_ed25519())
+        }
+        AccountType::EthImplicitAccount => account_id.clone(),
+        AccountType::NamedAccount => account_id.clone(),
     }
 }
