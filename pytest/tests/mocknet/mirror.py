@@ -139,7 +139,8 @@ def init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False):
     prompt_init_flags(args)
     if args.neard_upgrade_binary_url is None:
         configs = [{
-            "is_traffic_generator": False,
+            "is_traffic_generator":
+            False,
             "binaries": [{
                 "url": args.neard_binary_url,
                 "epoch_height": 0
@@ -160,7 +161,7 @@ def init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False):
         for i in range(len(nodes)):
             configs.append({
                 "is_traffic_generator":
-                    False,
+                False,
                 "binaries": [{
                     "url": args.neard_binary_url,
                     "epoch_height": 0
@@ -170,8 +171,7 @@ def init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False):
                 }]
             })
         traffic_generator_config = {
-            "is_traffic_generator":
-                True,
+            "is_traffic_generator": True,
             "binaries": [{
                 "url": args.neard_upgrade_binary_url,
                 "epoch_height": 0
@@ -221,9 +221,12 @@ def get_network_nodes(new_test_rpc_responses, num_validators):
                 # we assume here that validator_account_id is not null, validator_public_key
                 # better not be null either
                 validators.append({
-                    'account_id': response['validator_account_id'],
-                    'public_key': response['validator_public_key'],
-                    'amount': str(10**33),
+                    'account_id':
+                    response['validator_account_id'],
+                    'public_key':
+                    response['validator_public_key'],
+                    'amount':
+                    str(10**33),
                 })
         if len(boot_nodes) < 20:
             boot_nodes.append(
@@ -420,6 +423,14 @@ def start_traffic_cmd(args, traffic_generator, nodes):
     )
 
 
+def neard_runner_update_binaries(node):
+    neard_runner_jsonrpc(node, 'update_binaries')
+
+
+def update_binaries_cmd(args, traffic_generator, nodes):
+    pmap(neard_runner_update_binaries, nodes)
+
+
 if __name__ == '__main__':
     parser = ArgumentParser(description='Run a load test')
     parser.add_argument('--chain-id', type=str, required=True)
@@ -508,6 +519,17 @@ if __name__ == '__main__':
     ''')
     reset_parser.add_argument('--yes', action='store_true')
     reset_parser.set_defaults(func=reset_cmd)
+
+    # It re-uses the same binary urls because it's quite easy to do it with the
+    # nearcore-release buildkite and urls in the following format without commit
+    # but only with the branch name:
+    # https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/<branch-name>/neard"
+    update_binaries_parser = subparsers.add_parser(
+        'update-binaries',
+        help=
+        'Update the neard binaries by re-downloading them. The same urls are used.'
+    )
+    update_binaries_parser.set_defaults(func=update_binaries_cmd)
 
     args = parser.parse_args()
 

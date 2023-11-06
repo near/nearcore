@@ -59,6 +59,8 @@ class JSONHandler(http.server.BaseHTTPRequestHandler):
         self.dispatcher.add_method(server.neard_runner.do_start, name="start")
         self.dispatcher.add_method(server.neard_runner.do_stop, name="stop")
         self.dispatcher.add_method(server.neard_runner.do_reset, name="reset")
+        self.dispatcher.add_method(server.neard_runner.do_update_binaries,
+                                   name="update_binaries")
         super().__init__(request, client_address, server)
 
     def do_GET(self):
@@ -172,15 +174,20 @@ class NeardRunner:
                     # TODO: maybe it could make sense to allow this, meaning don't run any binary
                     # on this node until the network reaches that epoch, then we bring this node online
                     sys.exit(
-                        f'config should contain one binary with epoch_height 0')
+                        f'config should contain one binary with epoch_height 0'
+                    )
             else:
                 if epoch_height == last_epoch_height:
-                    sys.exit(f'repeated epoch height in config: {epoch_height}')
+                    sys.exit(
+                        f'repeated epoch height in config: {epoch_height}')
             last_epoch_height = epoch_height
             binaries.append({
-                'url': b['url'],
-                'epoch_height': b['epoch_height'],
-                'system_path': self.home_path('binaries', f'neard{i}')
+                'url':
+                b['url'],
+                'epoch_height':
+                b['epoch_height'],
+                'system_path':
+                self.home_path('binaries', f'neard{i}')
             })
         return binaries
 
@@ -189,7 +196,8 @@ class NeardRunner:
             'system_path']
 
     # tries to download the binaries specified in config.json, saving them in $home/binaries/
-    def download_binaries(self):
+    # if force is set to true all binaries will be downloaded, otherwise only the missing ones
+    def download_binaries(self, force):
         binaries = self.parse_binaries_config()
 
         try:
@@ -197,13 +205,19 @@ class NeardRunner:
         except FileExistsError:
             pass
 
-        with self.lock:
-            num_binaries_saved = len(self.data['binaries'])
+        if force:
+            # always start from 0 and download all binaries
+            start_index = 0
+        else:
+            # start at the index of the first missing binary
+            # typically it's all or nothing
+            with self.lock:
+                start_index = len(self.data['binaries'])
 
         # for now we assume that the binaries recorded in data.json as having been
         # dowloaded are still valid and were not touched. Also this assumes that their
         # filenames are neard0, neard1, etc. in the right order and with nothing skipped
-        for i in range(num_binaries_saved, len(binaries)):
+        for i in range(start_index, len(binaries)):
             b = binaries[i]
             logging.info(f'downloading binary from {b["url"]}')
             with open(b['system_path'], 'wb') as f:
@@ -222,14 +236,14 @@ class NeardRunner:
 
     def target_near_home_path(self, *args):
         if self.is_traffic_generator():
-            args = ('target',) + args
+            args = ('target', ) + args
         return os.path.join(self.neard_home, *args)
 
     def home_path(self, *args):
         return os.path.join(self.home, *args)
 
     def tmp_near_home_path(self, *args):
-        args = ('tmp-near-home',) + args
+        args = ('tmp-near-home', ) + args
         return os.path.join(self.home, *args)
 
     def neard_init(self):
@@ -442,6 +456,11 @@ class NeardRunner:
                     'Cannot reset node as test state has not been initialized yet'
                 )
 
+    def do_update_binaries(self):
+        logging.info('update binaries')
+        self.download_binaries(force=True)
+        logging.info('update binaries finished')
+
     def do_ready(self):
         with self.lock:
             state = self.get_state()
@@ -526,7 +545,7 @@ class NeardRunner:
             try:
                 p = psutil.Process(self.data['neard_process']['pid'])
                 if int(p.create_time()
-                      ) == self.data['neard_process']['create_time']:
+                       ) == self.data['neard_process']['create_time']:
                     return path, True, None
             except psutil.NoSuchProcess:
                 self.neard = None
@@ -552,7 +571,7 @@ class NeardRunner:
         try:
             p = psutil.Process(self.data['neard_process']['pid'])
             if int(p.create_time()
-                  ) == self.data['neard_process']['create_time']:
+                   ) == self.data['neard_process']['create_time']:
                 logging.info('stopping neard')
                 p.send_signal(signal.SIGINT)
                 p.wait()
@@ -700,7 +719,8 @@ class NeardRunner:
         path, running, exit_code = self.poll_neard()
         if path is None:
             logging.error(
-                'state is AMEND_GENESIS, but no amend-genesis process is known')
+                'state is AMEND_GENESIS, but no amend-genesis process is known'
+            )
             self.set_state(TestState.AWAITING_NETWORK_INIT)
             self.save_data()
         elif not running:
@@ -742,7 +762,8 @@ class NeardRunner:
                             ],
                             'shards_split_map': [[0, 1, 2, 3]],
                             'to_parent_shard_map': [0, 0, 0, 0],
-                            'version': 1
+                            'version':
+                            1
                         }
                     }
                     genesis_config['num_chunk_only_producer_seats'] = 200
@@ -861,7 +882,7 @@ def main():
     runner = NeardRunner(args)
 
     logging.info("downloading binaries")
-    runner.download_binaries()
+    runner.download_binaries(force=False)
 
     logging.info("serve")
     runner.serve(args.port)
