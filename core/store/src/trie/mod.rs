@@ -558,6 +558,57 @@ enum NodeOrValue {
     Value(std::sync::Arc<[u8]>),
 }
 
+/// Like a ValueRef, but allows for optimized retrieval of the value if the
+/// value were already readily available when the ValueRef was retrieved.
+///
+/// This can be the case if the value came from flat storage, for example,
+/// when some values are inlined into the storage.
+///
+/// Information-wise, this struct contains the same information as a
+/// FlatStateValue; however, we make this a separate struct because
+/// dereferencing a ValueRef (and likewise, OptimizedValueRef) requires proper
+/// gas accounting; it is not a free operation. Therefore, while
+/// OptimizedValueRef can be directly converted to a ValueRef, dereferencing
+/// the value, even if the value is already available, can only be done via
+/// `Trie::deref_optimized`.
+#[derive(Debug, PartialEq, Eq)]
+pub enum OptimizedValueRef {
+    Ref(ValueRef),
+    AvailableValue(ValueAccessToken),
+}
+
+/// Opaque wrapper around Vec<u8> so that the value cannot be used directly and
+/// must instead be dereferenced via `Trie::deref_optimized`, so that gas
+/// accounting is never skipped.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ValueAccessToken {
+    // Must stay private.
+    value: Vec<u8>,
+}
+
+impl OptimizedValueRef {
+    fn from_flat_value(value: FlatStateValue) -> Self {
+        match value {
+            FlatStateValue::Ref(value_ref) => Self::Ref(value_ref),
+            FlatStateValue::Inlined(value) => Self::AvailableValue(ValueAccessToken { value }),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Ref(value_ref) => value_ref.len(),
+            Self::AvailableValue(token) => token.value.len(),
+        }
+    }
+
+    pub fn into_value_ref(self) -> ValueRef {
+        match self {
+            Self::Ref(value_ref) => value_ref,
+            Self::AvailableValue(token) => ValueRef::new(&token.value),
+        }
+    }
+}
+
 impl Trie {
     pub const EMPTY_ROOT: StateRoot = StateRoot::new();
 
@@ -1096,13 +1147,9 @@ impl Trie {
     fn lookup_from_flat_storage(
         &self,
         key: &[u8],
-        ref_only: bool,
-    ) -> Result<Option<FlatStateValue>, StorageError> {
+    ) -> Result<Option<OptimizedValueRef>, StorageError> {
         let flat_storage_chunk_view = self.flat_storage_chunk_view.as_ref().unwrap();
-        let mut value = flat_storage_chunk_view.get_value(key)?;
-        if ref_only {
-            value = value.map(|value| FlatStateValue::Ref(value.to_value_ref()));
-        }
+        let value = flat_storage_chunk_view.get_value(key)?;
         if self.recorder.is_some() {
             // If recording, we need to look up in the trie as well to record the trie nodes,
             // as they are needed to prove the value. Also, it's important that this lookup
@@ -1110,28 +1157,12 @@ impl Trie {
             // needed to prove the non-existence of the key.
             let value_ref_from_trie =
                 self.lookup_from_state_column(NibbleSlice::new(key), false)?;
-            match &value {
-                Some(FlatStateValue::Inlined(value)) => {
-                    assert!(value_ref_from_trie.is_some());
-                    let value_from_trie =
-                        self.retrieve_value(&value_ref_from_trie.unwrap().hash)?;
-                    assert_eq!(&value_from_trie, value);
-                }
-                Some(FlatStateValue::Ref(value_ref)) => {
-                    assert_eq!(value_ref_from_trie.as_ref(), Some(value_ref));
-                }
-                None => {
-                    assert!(value_ref_from_trie.is_none());
-                }
-            }
-        } else {
-            if let Some(FlatStateValue::Inlined(value)) = &value {
-                self.accounting_cache
-                    .borrow_mut()
-                    .retroactively_account(hash(value), value.clone().into());
-            }
+            debug_assert_eq!(
+                &value_ref_from_trie,
+                &value.as_ref().map(|value| value.to_value_ref())
+            );
         }
-        Ok(value)
+        Ok(value.map(OptimizedValueRef::from_flat_value))
     }
 
     /// Looks up the given key by walking the trie nodes stored in the
@@ -1266,7 +1297,8 @@ impl Trie {
         Ok(bytes.to_vec())
     }
 
-    /// Return the value reference to the `key`
+    /// Retrieves an `OptimizedValueRef`` for the given key. See `OptimizedValueRef`.
+    ///
     /// `mode`: whether we will try to perform the lookup through flat storage or trie.
     ///         Note that even if `mode == KeyLookupMode::FlatStorage`, we still may not use
     ///         flat storage if the trie is not created with a flat storage object in it.
@@ -1276,43 +1308,51 @@ impl Trie {
     ///         storage for key lookup performed in `storage_write`, so we need
     ///         the `use_flat_storage` to differentiate whether the lookup is performed for
     ///         storage_write or not.
-    pub fn get_ref(
+    pub fn get_optimized_ref(
         &self,
         key: &[u8],
         mode: KeyLookupMode,
-    ) -> Result<Option<ValueRef>, StorageError> {
-        let use_flat_storage =
-            mode == KeyLookupMode::FlatStorage && self.flat_storage_chunk_view.is_some();
-        let charge_gas_for_trie_node_access =
-            mode == KeyLookupMode::Trie || self.charge_gas_for_trie_node_access;
-        if use_flat_storage {
-            Ok(self.lookup_from_flat_storage(key, true)?.map(|value| value.to_value_ref()))
-        } else {
-            self.lookup_from_state_column(NibbleSlice::new(key), charge_gas_for_trie_node_access)
-        }
-    }
-
-    /// Retrieves a value, which may or may not be the complete value, for the given key.
-    /// If the full value could be obtained cheaply it is returned; otherwise only the reference
-    /// is returned.
-    fn get_flat_value(&self, key: &[u8]) -> Result<Option<FlatStateValue>, StorageError> {
-        if self.flat_storage_chunk_view.is_some() {
-            self.lookup_from_flat_storage(key, false)
+    ) -> Result<Option<OptimizedValueRef>, StorageError> {
+        if mode == KeyLookupMode::FlatStorage && self.flat_storage_chunk_view.is_some() {
+            self.lookup_from_flat_storage(key)
         } else {
             Ok(self
                 .lookup_from_state_column(
                     NibbleSlice::new(key),
-                    self.charge_gas_for_trie_node_access,
+                    mode == KeyLookupMode::Trie || self.charge_gas_for_trie_node_access,
                 )?
-                .map(|value| FlatStateValue::Ref(value)))
+                .map(OptimizedValueRef::Ref))
+        }
+    }
+
+    /// Dereferences an `OptimizedValueRef` into the full value, and properly
+    /// accounts for the gas, caching, and recording (if enabled). This may or
+    /// may not incur a on-disk lookup, depending on whether the
+    /// `OptimizedValueRef` contains an already available value.
+    pub fn deref_optimized(
+        &self,
+        optimized_value_ref: &OptimizedValueRef,
+    ) -> Result<Vec<u8>, StorageError> {
+        match optimized_value_ref {
+            OptimizedValueRef::Ref(value_ref) => self.retrieve_value(&value_ref.hash),
+            OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => {
+                let value_hash = hash(value);
+                let arc_value: Arc<[u8]> = value.clone().into();
+                self.accounting_cache
+                    .borrow_mut()
+                    .retroactively_account(value_hash, arc_value.clone());
+                if let Some(recorder) = &self.recorder {
+                    recorder.borrow_mut().record(&value_hash, arc_value);
+                }
+                Ok(value.clone())
+            }
         }
     }
 
     /// Retrieves the full value for the given key.
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
-        match self.get_flat_value(key)? {
-            Some(FlatStateValue::Ref(value_ref)) => self.retrieve_value(&value_ref.hash).map(Some),
-            Some(FlatStateValue::Inlined(value)) => Ok(Some(value)),
+        match self.get_optimized_ref(key, KeyLookupMode::FlatStorage)? {
+            Some(optimized_ref) => Ok(Some(self.deref_optimized(&optimized_ref)?)),
             None => Ok(None),
         }
     }

@@ -170,7 +170,7 @@ mod trie_recording_tests {
                 .collect::<Vec<_>>();
 
             // First, check that the trie is using flat storage, so that counters are all zero.
-            // Only use get_ref(), because get() will actually dereference values which can
+            // Only use get_optimized_ref(), because get() will actually dereference values which can
             // cause trie reads.
             let trie = tries.get_trie_with_block_hash_for_shard(
                 shard_uid,
@@ -179,7 +179,7 @@ mod trie_recording_tests {
                 false,
             );
             for key in &keys_to_test_with {
-                trie.get_ref(&key, crate::KeyLookupMode::FlatStorage).unwrap();
+                trie.get_optimized_ref(&key, crate::KeyLookupMode::FlatStorage).unwrap();
             }
             assert_eq!(trie.get_trie_nodes_count(), TrieNodesCount { db_reads: 0, mem_reads: 0 });
 

@@ -996,15 +996,17 @@ mod tests {
                         &mut TrieNodesCount { db_reads: 0, mem_reads: 0 },
                     )
                 });
-                let disk_result = disk_trie.get_ref(key, KeyLookupMode::Trie).unwrap();
+                let disk_result = disk_trie.get_optimized_ref(key, KeyLookupMode::Trie).unwrap();
                 if let Some(value_ref) = value_ref {
                     let memtrie_value_ref = memtrie_result
                         .expect(&format!("Key {} is in truth but not in memtrie", hex::encode(key)))
                         .to_value_ref();
-                    let disk_value_ref = disk_result.expect(&format!(
-                        "Key {} is in truth but not in disk trie",
-                        hex::encode(key)
-                    ));
+                    let disk_value_ref = disk_result
+                        .expect(&format!(
+                            "Key {} is in truth but not in disk trie",
+                            hex::encode(key)
+                        ))
+                        .into_value_ref();
                     assert_eq!(
                         memtrie_value_ref,
                         *value_ref,
