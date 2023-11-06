@@ -64,7 +64,7 @@ impl FlatStorageManager {
         );
     }
 
-    /// Creates flat storage instance for shard `shard_id`. The function also checks that
+    /// Creates flat storage instance for shard `shard_uid`. The function also checks that
     /// the shard's flat storage state hasn't been set before, otherwise it panics.
     /// TODO (#7327): this behavior may change when we implement support for state sync
     /// and resharding.

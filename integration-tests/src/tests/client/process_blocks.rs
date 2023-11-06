@@ -2370,7 +2370,10 @@ fn test_validate_chunk_extra() {
     let accepted_blocks = env.clients[0].finish_block_in_processing(block2.hash());
     assert_eq!(accepted_blocks.len(), 1);
 
-    // About to produce a block on top of block1. Validate that this chunk is legit.
+    // Produce a block on top of block1.
+    // Validate that result of chunk execution in `block1` is legit.
+    let b = env.clients[0].produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
+    env.clients[0].process_block_test(b.into(), Provenance::PRODUCED).unwrap();
     let chunks = env.clients[0]
         .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash());
     let chunk_extra =
@@ -3011,6 +3014,8 @@ fn test_query_final_state() {
     assert!(account_state1.amount < TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
 }
 
+// Check that if the same receipt is executed twice in forked chain, both outcomes are recorded
+// but child receipt ids are different.
 #[test]
 fn test_fork_receipt_ids() {
     let (mut env, tx_hash) = prepare_env_with_transaction();
@@ -3020,15 +3025,15 @@ fn test_fork_receipt_ids() {
 
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
-    let next_height = produced_block.header().height() + 1;
-    let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], next_height);
-    let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
-    let mut block2 = env.clients[0].produce_block(next_height + 1).unwrap().unwrap();
+    let last_height = produced_block.header().height();
+    let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], last_height + 1);
+    let mut block1 = env.clients[0].produce_block(last_height + 1).unwrap().unwrap();
+    let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();
 
     // Process two blocks on two different forks that contain the same chunk.
-    for (i, block) in vec![&mut block2, &mut block1].into_iter().enumerate() {
+    for block in vec![&mut block2, &mut block1].into_iter() {
         let mut chunk_header = encoded_chunk.cloned_header();
-        *chunk_header.height_included_mut() = next_height - i as BlockHeight + 1;
+        *chunk_header.height_included_mut() = block.header().height();
         let chunk_headers = vec![chunk_header];
         block.set_chunks(chunk_headers.clone());
         block.mut_header().get_mut().inner_rest.chunk_headers_root =
@@ -3044,6 +3049,12 @@ fn test_fork_receipt_ids() {
         env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
     }
 
+    // Ensure that in stateless validation protocol receipts in fork blocks are executed.
+    let block3 = env.clients[0].produce_block_on(last_height + 3, *block1.hash()).unwrap().unwrap();
+    let block4 = env.clients[0].produce_block_on(last_height + 4, *block2.hash()).unwrap().unwrap();
+    env.clients[0].process_block_test(block3.into(), Provenance::NONE).unwrap();
+    env.clients[0].process_block_test(block4.into(), Provenance::NONE).unwrap();
+
     let transaction_execution_outcome =
         env.clients[0].chain.mut_store().get_outcomes_by_id(&tx_hash).unwrap();
     assert_eq!(transaction_execution_outcome.len(), 2);
@@ -3052,6 +3063,9 @@ fn test_fork_receipt_ids() {
     assert_ne!(receipt_id0, receipt_id1);
 }
 
+// Check that in if receipt is executed twice in different forks, two execution
+// outcomes are recorded, canonical chain outcome is correct and GC cleanups
+// all outcomes.
 #[test]
 fn test_fork_execution_outcome() {
     init_test_logger();
@@ -3069,13 +3083,13 @@ fn test_fork_execution_outcome() {
     let validator_signer = create_test_signer("test0");
     let next_height = last_height + 1;
     let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], next_height);
-    let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
-    let mut block2 = env.clients[0].produce_block(next_height + 1).unwrap().unwrap();
+    let mut block1 = env.clients[0].produce_block(last_height + 1).unwrap().unwrap();
+    let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();
 
     // Process two blocks on two different forks that contain the same chunk.
-    for (i, block) in vec![&mut block2, &mut block1].into_iter().enumerate() {
+    for block in vec![&mut block2, &mut block1].into_iter() {
         let mut chunk_header = encoded_chunk.cloned_header();
-        *chunk_header.height_included_mut() = next_height - i as BlockHeight + 1;
+        *chunk_header.height_included_mut() = block.header().height();
         let chunk_headers = vec![chunk_header];
         block.set_chunks(chunk_headers.clone());
         block.mut_header().get_mut().inner_rest.chunk_headers_root =
@@ -3091,6 +3105,11 @@ fn test_fork_execution_outcome() {
         env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
     }
 
+    let block3 = env.clients[0].produce_block_on(last_height + 3, *block1.hash()).unwrap().unwrap();
+    let block4 = env.clients[0].produce_block_on(last_height + 4, *block2.hash()).unwrap().unwrap();
+    env.clients[0].process_block_test(block3.into(), Provenance::NONE).unwrap();
+    env.clients[0].process_block_test(block4.into(), Provenance::NONE).unwrap();
+
     let transaction_execution_outcome =
         env.clients[0].chain.mut_store().get_outcomes_by_id(&tx_hash).unwrap();
     assert_eq!(transaction_execution_outcome.len(), 1);
@@ -3101,8 +3120,9 @@ fn test_fork_execution_outcome() {
     let canonical_chain_outcome = env.clients[0].chain.get_execution_outcome(&receipt_id).unwrap();
     assert_eq!(canonical_chain_outcome.block_hash, *block2.hash());
 
-    // make sure gc works properly
-    for i in 5..32 {
+    // Make sure that GC cleanups execution outcomes.
+    let epoch_length = env.clients[0].config.epoch_length;
+    for i in last_height + 5..last_height + 5 + epoch_length * 6 {
         env.produce_block(0, i);
     }
     let transaction_execution_outcome =
