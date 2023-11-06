@@ -361,13 +361,12 @@ def neard_runner_network_init(node, validators, boot_nodes, epoch_length,
                                 })
 
 
-def neard_update_config(node, state_cache_size_mb, state_snapshot_enabled):
+def neard_update_config(node, key_value):
     return neard_runner_jsonrpc(
         node,
         'update_config',
         params={
-            'state_cache_size_mb': state_cache_size_mb,
-            'state_snapshot_enabled': state_snapshot_enabled,
+            "key_value": key_value,
         },
     )
 
@@ -377,8 +376,7 @@ def update_config_cmd(args, traffic_generator, nodes):
     results = pmap(
         lambda node: neard_update_config(
             node,
-            args.state_cache_size_mb,
-            args.state_snapshot_enabled,
+            args.set,
         ),
         nodes,
     )
@@ -453,9 +451,19 @@ if __name__ == '__main__':
     update_config_parser = subparsers.add_parser(
         'update-config',
         help='''Update config.json with given flags for all nodes.''')
-    update_config_parser.add_argument('--state-cache-size-mb', type=int)
-    update_config_parser.add_argument('--state-snapshot-enabled',
-                                      action=BooleanOptionalAction)
+    update_config_parser.add_argument(
+        '--set',
+        help='''
+        A key value pair to set in the config. The key will be interpreted as a
+        json path to the config to be updated. The value will be parsed as json.   
+        e.g.
+        --set 'aaa.bbb.ccc=5'
+        --set 'aaa.bbb.ccc="5"'
+        --set 'aaa.bbb.ddd={"eee":6,"fff":"7"}' # no spaces!
+        ''',
+    )
+    update_config_parser.set_defaults(func=update_config_cmd)
+
     update_config_parser.set_defaults(func=update_config_cmd)
 
     restart_parser = subparsers.add_parser(

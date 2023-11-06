@@ -390,22 +390,24 @@ class NeardRunner:
                         'protocol_version': protocol_version,
                     }, f)
 
-    def do_update_config(self, state_cache_size_mb, state_snapshot_enabled):
+    def do_update_config(self, key_value):
         with self.lock:
-            logging.info(
-                f'updating config with state_cache_size_mb={state_cache_size_mb} state_snapshot_enabled={state_snapshot_enabled}'
-            )
+            logging.info(f'updating config with {key_value}')
             with open(self.target_near_home_path('config.json'), 'r') as f:
                 config = json.load(f)
 
-            config['store']['trie_cache']['per_shard_max_bytes'] = {}
-            if state_cache_size_mb is not None:
-                for i in range(4):
-                    config['store']['trie_cache']['per_shard_max_bytes'][
-                        f's{i}.v1'] = state_cache_size_mb * 10**6
-            if state_snapshot_enabled is not None:
-                key = 'state_snapshot_enabled'
-                config['store'][key] = state_snapshot_enabled
+            [key, value] = key_value.split("=", 1)
+            key_item_list = key.split(".")
+
+            object = config
+            for key_item in key_item_list[:-1]:
+                if key_item not in object:
+                    object[key_item] = {}
+                object = object[key_item]
+
+            value = json.loads(value)
+
+            object[key_item_list[-1]] = value
 
             with open(self.target_near_home_path('config.json'), 'w') as f:
                 json.dump(config, f, indent=2)
