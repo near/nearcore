@@ -72,10 +72,10 @@ impl TrieUpdate {
             }
         }
 
-        let result = 
-            self.trie
-                .get_optimized_ref(&key, mode)?
-                .map(|optimized_value_ref| TrieUpdateValuePtr::Ref(&self.trie, optimized_value_ref));
+        let result = self
+            .trie
+            .get_optimized_ref(&key, mode)?
+            .map(|optimized_value_ref| TrieUpdateValuePtr::Ref(&self.trie, optimized_value_ref));
 
         Ok(result)
     }
