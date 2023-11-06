@@ -9,13 +9,15 @@ use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{KeyType, PublicKey, Signer};
-use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::account::{
+    id::AccountType, AccessKey, AccessKeyPermission, FunctionCallPermission,
+};
 use near_primitives::config::ActionCosts;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, InvalidAccessKeyError, InvalidTxError,
     TxExecutionError,
 };
-use near_primitives::test_utils::{create_user_test_signer, implicit_test_account};
+use near_primitives::test_utils::{create_user_test_signer, near_implicit_test_account};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
@@ -133,10 +135,10 @@ fn check_meta_tx_execution(
         .get_access_key(&relayer, &PublicKey::from_seed(KeyType::ED25519, relayer.as_ref()))
         .unwrap()
         .nonce;
-    let user_pubk = if sender.is_implicit() {
-        PublicKey::from_implicit_account(&sender).unwrap()
-    } else {
-        PublicKey::from_seed(KeyType::ED25519, sender.as_ref())
+    let user_pubk = match sender.get_account_type() {
+        AccountType::NearImplicitAccount => PublicKey::from_near_implicit_account(&sender).unwrap(),
+        AccountType::EthImplicitAccount => PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
+        AccountType::NamedAccount => PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
     };
     let user_nonce_before = node_user.get_access_key(&sender, &user_pubk).unwrap().nonce;
 
@@ -779,11 +781,9 @@ fn meta_tx_create_named_account() {
 
 /// Try creating an implicit account with `CreateAction` which is not allowed in
 /// or outside meta transactions and must fail with `OnlyImplicitAccountCreationAllowed`.
-#[test]
-fn meta_tx_create_implicit_account_fails() {
+fn meta_tx_create_implicit_account_fails(new_account: AccountId) {
     let relayer = bob_account();
     let sender = alice_account();
-    let new_account: AccountId = implicit_test_account();
     let node = RuntimeNode::new(&relayer);
 
     let actions = vec![Action::CreateAccount(CreateAccountAction {})];
@@ -798,17 +798,20 @@ fn meta_tx_create_implicit_account_fails() {
     ));
 }
 
+#[test]
+fn meta_tx_create_near_implicit_account_fails() {
+    meta_tx_create_implicit_account_fails(near_implicit_test_account());
+}
+
 /// Try creating an implicit account with a meta tx transfer and use the account
 /// in the same meta transaction.
 ///
 /// This is expected to fail with `AccountDoesNotExist`, known limitation of NEP-366.
 /// It only works with accounts that already exists because it needs to do a
 /// nonce check against the access key, which can only exist if the account exists.
-#[test]
-fn meta_tx_create_and_use_implicit_account() {
+fn meta_tx_create_and_use_implicit_account(new_account: AccountId) {
     let relayer = bob_account();
     let sender = alice_account();
-    let new_account: AccountId = implicit_test_account();
     let node = RuntimeNode::new(&relayer);
 
     // Check the account doesn't exist, yet. We will attempt creating it.
@@ -832,17 +835,20 @@ fn meta_tx_create_and_use_implicit_account() {
     ));
 }
 
+#[test]
+fn meta_tx_create_and_use_near_implicit_account() {
+    meta_tx_create_and_use_implicit_account(near_implicit_test_account());
+}
+
 /// Creating an implicit account with a meta tx transfer and use the account in
 /// a second meta transaction.
 ///
 /// Creation through a meta tx should work as normal, it's just that the relayer
 /// pays for the storage and the user could delete the account and cash in,
 /// hence this workflow is not ideal from all circumstances.
-#[test]
-fn meta_tx_create_implicit_account() {
+fn meta_tx_create_implicit_account(new_account: AccountId) {
     let relayer = bob_account();
     let sender = alice_account();
-    let new_account: AccountId = implicit_test_account();
     let node = RuntimeNode::new(&relayer);
 
     // Check account doesn't exist, yet
@@ -851,7 +857,12 @@ fn meta_tx_create_implicit_account() {
     let fee_helper = fee_helper(&node);
     let initial_amount = nearcore::NEAR_BASE;
     let actions = vec![Action::Transfer(TransferAction { deposit: initial_amount })];
-    let tx_cost = fee_helper.create_account_transfer_full_key_cost();
+
+    let tx_cost = match new_account.get_account_type() {
+        AccountType::NearImplicitAccount => fee_helper.create_account_transfer_full_key_cost(),
+        AccountType::EthImplicitAccount => panic!("must be near-implicit"),
+        AccountType::NamedAccount => panic!("must be near-implicit"),
+    };
     check_meta_tx_no_fn_call(
         &node,
         actions,
@@ -886,4 +897,9 @@ fn meta_tx_create_implicit_account() {
     // (note: relayer balance checks etc are done in the shared checker function)
     let balance = node.view_balance(&new_account).expect("failed looking up balance");
     assert_eq!(balance, initial_amount);
+}
+
+#[test]
+fn meta_tx_create_near_implicit_account() {
+    meta_tx_create_implicit_account(near_implicit_test_account());
 }
