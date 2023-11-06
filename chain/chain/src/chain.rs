@@ -1950,10 +1950,8 @@ impl Chain {
                 #[cfg(feature = "new_epoch_sync")]
                 {
                     // At this point BlockInfo for this header should be in DB and in `epoch_manager`s cache because of `add_validator_proposals` call.
-                    let block_info = self.epoch_manager.get_block_info(header.hash())?;
-
                     let mut chain_update = self.chain_update();
-                    chain_update.save_epoch_sync_info(&block_info)?;
+                    chain_update.save_epoch_sync_info_if_finalised(header)?;
                     chain_update.commit()?;
                 }
             }
@@ -5486,8 +5484,7 @@ impl<'a> ChainUpdate<'a> {
         #[cfg(feature = "new_epoch_sync")]
         {
             // BlockInfo should be already recorded in epoch_manager cache because of `add_validator_proposals` call
-            let block_info = self.epoch_manager.get_block_info(block.hash())?;
-            self.save_epoch_sync_info(&block_info)?;
+            self.save_epoch_sync_info_if_finalised(block.header())?;
         }
 
         // Add validated block to the db, even if it's not the canonical fork.
@@ -5865,22 +5862,66 @@ impl<'a> ChainUpdate<'a> {
         Ok(true)
     }
 
+    /// This function assumes `BlockInfo` is already retrievable from `epoch_manager`.
+    /// This can be achieved by calling `add_validator_proposals`.
+    #[cfg(feature = "new_epoch_sync")]
+    fn save_epoch_sync_info_if_finalised(&mut self, header: &BlockHeader) -> Result<(), Error> {
+        let block_info = self.epoch_manager.get_block_info(header.hash())?;
+        let epoch_first_block_hash = block_info.epoch_first_block();
+
+        if *epoch_first_block_hash == CryptoHash::default() {
+            // This is the genesis epoch. We don't have any fully finalised epoch yet.
+            return Ok(());
+        }
+
+        let epoch_first_block_info = self.epoch_manager.get_block_info(epoch_first_block_hash)?;
+        let prev_epoch_last_block_hash = epoch_first_block_info.prev_hash();
+
+        if *prev_epoch_last_block_hash == CryptoHash::default() {
+            // This is the genesis epoch. We don't have any fully finalised epoch yet.
+            return Ok(());
+        }
+        let prev_epoch_last_block_info =
+            self.epoch_manager.get_block_info(prev_epoch_last_block_hash)?;
+
+        if prev_epoch_last_block_info.epoch_id() == epoch_first_block_info.epoch_id() {
+            // Previous epoch is the genesis epoch. We don't have any fully finalised epoch yet.
+            return Ok(());
+        }
+
+        // Check that last finalised block is after epoch first block.
+        // So, that it is in the current epoch.
+        let last_final_block_hash = header.last_final_block();
+        if *last_final_block_hash == CryptoHash::default() {
+            // We didn't finalise any blocks yet. We don't have any fully finalised epoch yet.
+            return Ok(());
+        }
+        let last_final_block_info = self.epoch_manager.get_block_info(last_final_block_hash)?;
+        if last_final_block_info.epoch_id() != epoch_first_block_info.epoch_id() {
+            // Last finalised block is in the previous epoch.
+            // We didn't finalise header with `epoch_sync_data_hash` for the previous epoch yet.
+            return Ok(());
+        }
+        self.save_epoch_sync_info_impl(&prev_epoch_last_block_info, epoch_first_block_hash)
+    }
+
     /// If the block is the last one in the epoch
     /// construct and record `EpochSyncInfo` to `self.chain_store_update`.
     #[cfg(feature = "new_epoch_sync")]
-    fn save_epoch_sync_info(&mut self, last_block_info: &BlockInfo) -> Result<(), Error> {
-        let epoch_id = last_block_info.epoch_id();
-        if self.epoch_manager.is_next_block_epoch_start(last_block_info.hash())? {
-            let mut store_update = self.chain_store_update.store().store_update();
-            store_update
-                .set_ser(
-                    DBCol::EpochSyncInfo,
-                    epoch_id.as_ref(),
-                    &self.create_epoch_sync_info(last_block_info)?,
-                )
-                .map_err(EpochError::from)?;
-            self.chain_store_update.merge(store_update);
-        }
+    fn save_epoch_sync_info_impl(
+        &mut self,
+        last_block_info: &BlockInfo,
+        next_epoch_first_hash: &CryptoHash,
+    ) -> Result<(), Error> {
+        let mut store_update = self.chain_store_update.store().store_update();
+        store_update
+            .set_ser(
+                DBCol::EpochSyncInfo,
+                last_block_info.epoch_id().as_ref(),
+                &self.create_epoch_sync_info(last_block_info, next_epoch_first_hash)?,
+            )
+            .map_err(EpochError::from)?;
+        self.chain_store_update.merge(store_update);
         Ok(())
     }
 
@@ -5909,6 +5950,7 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// For epoch sync we need to save:
+    /// - (*) first header of the next epoch (contains `epoch_sync_data_hash` for `EpochInfo` validation)
     /// - first header of the epoch
     /// - last header of the epoch
     /// - prev last header of the epoch
@@ -5923,6 +5965,7 @@ impl<'a> ChainUpdate<'a> {
     fn get_epoch_sync_info_headers(
         &self,
         last_block_info: &BlockInfo,
+        next_epoch_first_hash: &CryptoHash,
     ) -> Result<(HashMap<CryptoHash, BlockHeader>, HashSet<CryptoHash>), Error> {
         let mut headers = HashMap::new();
         let mut headers_to_save = HashSet::new();
@@ -5935,6 +5978,7 @@ impl<'a> ChainUpdate<'a> {
             Ok(())
         };
 
+        add_header(next_epoch_first_hash)?;
         add_header(last_block_info.epoch_first_block())?;
         add_header(last_block_info.hash())?;
         add_header(last_block_info.prev_hash())?;
@@ -5968,11 +6012,16 @@ impl<'a> ChainUpdate<'a> {
 
     /// Data that is necessary to prove Epoch in new Epoch Sync.
     #[cfg(feature = "new_epoch_sync")]
-    fn create_epoch_sync_info(&self, last_block_info: &BlockInfo) -> Result<EpochSyncInfo, Error> {
+    fn create_epoch_sync_info(
+        &self,
+        last_block_info: &BlockInfo,
+        next_epoch_first_hash: &CryptoHash,
+    ) -> Result<EpochSyncInfo, Error> {
         let mut all_block_hashes = self.epoch_manager.get_all_epoch_hashes(last_block_info)?;
         all_block_hashes.reverse();
 
-        let (headers, headers_to_save) = self.get_epoch_sync_info_headers(last_block_info)?;
+        let (headers, headers_to_save) =
+            self.get_epoch_sync_info_headers(last_block_info, next_epoch_first_hash)?;
 
         let epoch_id = last_block_info.epoch_id();
         let next_epoch_id = self.epoch_manager.get_next_epoch_id(last_block_info.hash())?;
@@ -5982,6 +6031,7 @@ impl<'a> ChainUpdate<'a> {
             all_block_hashes,
             headers,
             headers_to_save,
+            next_epoch_first_hash: *next_epoch_first_hash,
             epoch_info: (*self.epoch_manager.get_epoch_info(epoch_id)?).clone(),
             next_epoch_info: (*self.epoch_manager.get_epoch_info(&next_epoch_id)?).clone(),
             next_next_epoch_info: (*self.epoch_manager.get_epoch_info(&next_next_epoch_id)?)
