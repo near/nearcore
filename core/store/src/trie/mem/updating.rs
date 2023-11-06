@@ -1245,7 +1245,7 @@ mod tests {
             let num_insertions =
                 rand::thread_rng().gen_range(0..=(MAX_KEYS - existing_keys.len()) / SLOWDOWN);
             let num_deletions =
-                rand::thread_rng().gen_range(0..=existing_keys.len() / SLOWDOWN + 1);
+                rand::thread_rng().gen_range(0..=(existing_keys.len() + SLOWDOWN - 1) / SLOWDOWN);
             let mut changes = Vec::new();
             for _ in 0..num_insertions {
                 let key_length = rand::thread_rng().gen_range(0..=10);
