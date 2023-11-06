@@ -130,7 +130,7 @@ impl TrieAccountingCache {
                     if let Some(metrics) = &self.metrics {
                         metrics.contract_cache_misses.inc();
                     }
-                    let node = storage.retrieve_raw_bytes(hash, None)?;
+                    let node = storage.retrieve_raw_bytes(hash)?;
 
                     let mut guard = contract_specific_cache.lock();
                     guard.put(*hash, node.clone());
@@ -153,7 +153,7 @@ impl TrieAccountingCache {
             if let Some(metrics) = &self.metrics {
                 metrics.accounting_cache_misses.inc();
             }
-            let node = storage.retrieve_raw_bytes(hash, None)?;
+            let node = storage.retrieve_raw_bytes(hash)?;
 
             if self.enable {
                 self.cache.insert(*hash, node.clone());

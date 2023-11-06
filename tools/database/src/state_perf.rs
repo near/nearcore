@@ -45,7 +45,7 @@ impl StatePerfCommand {
             if include_sample {
                 perf_context.reset();
             }
-            trie_storage.retrieve_raw_bytes(&value_ref.hash, None).unwrap();
+            trie_storage.retrieve_raw_bytes(&value_ref.hash).unwrap();
             if include_sample {
                 perf_context.record();
             }

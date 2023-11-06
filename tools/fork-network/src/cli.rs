@@ -478,7 +478,7 @@ impl ForkNetworkCommand {
         for item in store_helper::iter_flat_state_entries(shard_uid, &store, None, None) {
             let (key, value) = match item {
                 Ok((key, FlatStateValue::Ref(ref_value))) => {
-                    (key, trie_storage.retrieve_raw_bytes(&ref_value.hash, None)?.to_vec())
+                    (key, trie_storage.retrieve_raw_bytes(&ref_value.hash)?.to_vec())
                 }
                 Ok((key, FlatStateValue::Inlined(value))) => (key, value),
                 otherwise => panic!("Unexpected flat state value: {otherwise:?}"),

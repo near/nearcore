@@ -308,7 +308,7 @@ impl Chain {
         let flat_state_value_to_trie_value_fn = |value: FlatStateValue| -> Vec<u8> {
             match value {
                 FlatStateValue::Ref(ref_value) => {
-                    trie_storage.retrieve_raw_bytes(&ref_value.hash, None).unwrap().to_vec()
+                    trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()
                 }
                 FlatStateValue::Inlined(inline_value) => inline_value,
             }

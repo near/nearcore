@@ -38,7 +38,6 @@ impl TrieStorage for IncompletePartialStorage {
     fn retrieve_raw_bytes(
         &self,
         hash: &CryptoHash,
-        _: Option<AccountId>,
     ) -> Result<Arc<[u8]>, StorageError> {
         let result = self
             .recorded_storage
@@ -244,9 +243,9 @@ mod trie_storage_tests {
         let store = create_store_with_values(&values, shard_uid);
         let trie_db_storage = TrieDBStorage::new(store, shard_uid);
         let key = hash(&value);
-        assert_eq!(trie_db_storage.retrieve_raw_bytes(&key, None).unwrap().as_ref(), value);
+        assert_eq!(trie_db_storage.retrieve_raw_bytes(&key).unwrap().as_ref(), value);
         let wrong_key = hash(&vec![2]);
-        assert_matches!(trie_db_storage.retrieve_raw_bytes(&wrong_key, None), Err(_));
+        assert_matches!(trie_db_storage.retrieve_raw_bytes(&wrong_key), Err(_));
     }
 
     /// Put item into storage. Check that getting it from cache returns the correct value.
@@ -301,7 +300,7 @@ mod trie_storage_tests {
         let value = vec![1u8];
         let key = hash(&value);
 
-        let result = trie_caching_storage.retrieve_raw_bytes(&key, None);
+        let result = trie_caching_storage.retrieve_raw_bytes(&key);
         assert_matches!(result, Err(StorageError::MissingTrieValue(_, _)));
     }
 
@@ -362,7 +361,7 @@ mod trie_storage_tests {
         assert_eq!(trie_cache.get(&key), None);
 
         // Because we are in the CachingShard mode, item should be placed into shard cache.
-        let result = trie_caching_storage.retrieve_raw_bytes(&key, None);
+        let result = trie_caching_storage.retrieve_raw_bytes(&key);
         assert_eq!(result.unwrap().as_ref(), value);
 
         // Move to CachingChunk mode. Retrieval should increment the counter, because it is the first time we accessed

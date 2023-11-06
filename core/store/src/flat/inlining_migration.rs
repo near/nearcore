@@ -136,7 +136,7 @@ impl StateValueReader {
         std::thread::spawn(move || {
             while let Ok(req) = recv.recv() {
                 let trie_storage = TrieDBStorage::new(store.clone(), req.shard_uid);
-                let bytes = match trie_storage.retrieve_raw_bytes(&req.value_hash, None) {
+                let bytes = match trie_storage.retrieve_raw_bytes(&req.value_hash) {
                     Ok(bytes) => Some(bytes.to_vec()),
                     Err(err) => {
                         log_skipped("failed to read value from State", err);

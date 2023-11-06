@@ -296,7 +296,6 @@ pub trait TrieStorage {
     fn retrieve_raw_bytes(
         &self,
         hash: &CryptoHash,
-        account_id: Option<AccountId>,
     ) -> Result<Arc<[u8]>, StorageError>;
 
     /// DEPRECATED.
@@ -323,7 +322,6 @@ impl TrieStorage for TrieMemoryPartialStorage {
     fn retrieve_raw_bytes(
         &self,
         hash: &CryptoHash,
-        _: Option<AccountId>,
     ) -> Result<Arc<[u8]>, StorageError> {
         let result =
             self.recorded_storage.get(hash).cloned().ok_or(StorageError::MissingTrieValue(
@@ -460,7 +458,6 @@ impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(
         &self,
         hash: &CryptoHash,
-        _: Option<AccountId>,
     ) -> Result<Arc<[u8]>, StorageError> {
         // Try to get value from shard cache containing most recently touched nodes.
         let mut guard = self.shard_cache.lock();
@@ -606,7 +603,6 @@ impl TrieStorage for TrieDBStorage {
     fn retrieve_raw_bytes(
         &self,
         hash: &CryptoHash,
-        _: Option<AccountId>,
     ) -> Result<Arc<[u8]>, StorageError> {
         read_node_from_db(&self.store, self.shard_uid, hash)
     }

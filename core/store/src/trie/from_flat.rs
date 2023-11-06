@@ -17,7 +17,7 @@ pub fn construct_trie_from_flat(store: Store, write_store: Store, shard_uid: Sha
             let (key, value) = entry.unwrap();
             let value = match value {
                 FlatStateValue::Ref(ref_value) => {
-                    trie_storage.retrieve_raw_bytes(&ref_value.hash, None).unwrap().to_vec()
+                    trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()
                 }
                 FlatStateValue::Inlined(inline_value) => inline_value,
             };

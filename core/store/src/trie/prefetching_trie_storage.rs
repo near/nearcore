@@ -225,7 +225,6 @@ impl TrieStorage for TriePrefetchingStorage {
     fn retrieve_raw_bytes(
         &self,
         hash: &CryptoHash,
-        _: Option<AccountId>,
     ) -> Result<Arc<[u8]>, StorageError> {
         // Try to get value from shard cache containing most recently touched nodes.
         let mut shard_cache_guard = self.shard_cache.lock();

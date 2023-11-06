@@ -546,7 +546,7 @@ impl Trie {
                 account_id,
             )?
         } else {
-            self.storage.retrieve_raw_bytes(hash, None)?
+            self.storage.retrieve_raw_bytes(hash)?
         };
         if let Some(recorder) = &self.recorder {
             recorder.borrow_mut().record(hash, result.clone());
