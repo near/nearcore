@@ -137,9 +137,7 @@ fn check_meta_tx_execution(
         .nonce;
     let user_pubk = match sender.get_account_type() {
         AccountType::NearImplicitAccount => PublicKey::from_near_implicit_account(&sender).unwrap(),
-        AccountType::EthImplicitAccount => {
-            PublicKey::from_seed(KeyType::SECP256K1, sender.as_ref())
-        }
+        AccountType::EthImplicitAccount => PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
         AccountType::NamedAccount => PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
     };
     let user_nonce_before = node_user.get_access_key(&sender, &user_pubk).unwrap().nonce;
