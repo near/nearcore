@@ -477,20 +477,19 @@ impl Client {
 
     fn should_reschedule_block(
         &self,
-        head: &Tip,
         prev_hash: &CryptoHash,
         prev_prev_hash: &CryptoHash,
-        next_height: BlockHeight,
+        height: BlockHeight,
         known_height: BlockHeight,
         account_id: &AccountId,
         next_block_proposer: &AccountId,
     ) -> Result<bool, Error> {
-        if self.known_block_height(next_height, known_height) {
+        if self.known_block_height(height, known_height) {
             return Ok(true);
         }
 
         if !self.is_me_block_producer(account_id, next_block_proposer) {
-            info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
+            info!(target: "client", "Produce block: chain at {}, not block producer for next block.", height);
             return Ok(true);
         }
 
@@ -501,7 +500,7 @@ impl Client {
             }
         }
 
-        if self.epoch_manager.is_next_block_epoch_start(&head.last_block_hash)? {
+        if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
             if !self.chain.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
                 // Currently state for the chunks we are interested in this epoch
                 // are not yet caught up (e.g. still state syncing).
@@ -565,31 +564,40 @@ impl Client {
             .count()
     }
 
-    /// Produce block if we are block producer for given `next_height` block height.
+    /// Produce block if we are block producer for given block `height`.
     /// Either returns produced block (not applied) or error.
-    pub fn produce_block(&mut self, next_height: BlockHeight) -> Result<Option<Block>, Error> {
-        let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
-        let known_height = self.chain.store().get_latest_known()?.height;
+    pub fn produce_block(&mut self, height: BlockHeight) -> Result<Option<Block>, Error> {
+        let _span = tracing::debug_span!(target: "client", "produce_block", height).entered();
 
-        let validator_signer = self
-            .validator_signer
-            .as_ref()
-            .ok_or_else(|| Error::BlockProducer("Called without block producer info.".to_string()))?
-            .clone();
         let head = self.chain.head()?;
         assert_eq!(
             head.epoch_id,
             self.epoch_manager.get_epoch_id_from_prev_block(&head.prev_block_hash).unwrap()
         );
 
-        // Check that we are were called at the block that we are producer for.
-        let epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash).unwrap();
-        let next_block_proposer = self.epoch_manager.get_block_producer(&epoch_id, next_height)?;
+        self.produce_block_on(height, head.last_block_hash)
+    }
 
-        let prev = self.chain.get_block_header(&head.last_block_hash)?;
-        let prev_hash = head.last_block_hash;
-        let prev_height = head.height;
+    /// Produce block for given `height` on top of block `prev_hash`.
+    /// Should be called either from `produce_block` or in tests.
+    pub fn produce_block_on(
+        &mut self,
+        height: BlockHeight,
+        prev_hash: CryptoHash,
+    ) -> Result<Option<Block>, Error> {
+        let known_height = self.chain.store().get_latest_known()?.height;
+        let validator_signer = self
+            .validator_signer
+            .as_ref()
+            .ok_or_else(|| Error::BlockProducer("Called without block producer info.".to_string()))?
+            .clone();
+
+        // Check that we are were called at the block that we are producer for.
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
+        let next_block_proposer = self.epoch_manager.get_block_producer(&epoch_id, height)?;
+
+        let prev = self.chain.get_block_header(&prev_hash)?;
+        let prev_height = prev.height();
         let prev_prev_hash = *prev.prev_hash();
         let prev_epoch_id = prev.epoch_id().clone();
         let prev_next_bp_hash = *prev.next_bp_hash();
@@ -599,10 +607,9 @@ impl Client {
         let _ = self.check_and_update_doomslug_tip()?;
 
         if self.should_reschedule_block(
-            &head,
             &prev_hash,
             &prev_prev_hash,
-            next_height,
+            height,
             known_height,
             validator_signer.validator_id(),
             &next_block_proposer,
@@ -611,7 +618,7 @@ impl Client {
         }
         let (validator_stake, _) = self.epoch_manager.get_validator_by_account_id(
             &epoch_id,
-            &head.last_block_hash,
+            &prev_hash,
             &next_block_proposer,
         )?;
 
@@ -630,9 +637,9 @@ impl Client {
         debug!(
             target: "client",
             validator=?validator_signer.validator_id(),
-            next_height=next_height,
+            height=height,
             prev_height=prev.height(),
-            prev_hash=format_hash(head.last_block_hash),
+            prev_hash=format_hash(prev_hash),
             new_chunks_count=new_chunks.len(),
             new_chunks=?new_chunks.keys().sorted().collect_vec(),
             "Producing block",
@@ -644,12 +651,12 @@ impl Client {
             return Ok(None);
         }
 
-        let mut approvals_map = self.doomslug.get_witness(&prev_hash, prev_height, next_height);
+        let mut approvals_map = self.doomslug.get_witness(&prev_hash, prev_height, height);
 
         // At this point, the previous epoch hash must be available
         let epoch_id = self
             .epoch_manager
-            .get_epoch_id_from_prev_block(&head.last_block_hash)
+            .get_epoch_id_from_prev_block(&prev_hash)
             .expect("Epoch hash should exist at this point");
         let protocol_version = self
             .epoch_manager
@@ -676,7 +683,7 @@ impl Client {
 
         let next_epoch_id = self
             .epoch_manager
-            .get_next_epoch_id_from_prev_block(&head.last_block_hash)
+            .get_next_epoch_id_from_prev_block(&prev_hash)
             .expect("Epoch hash should exist at this point");
 
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
@@ -715,9 +722,9 @@ impl Client {
 
         // Add debug information about the block production (and info on when did the chunks arrive).
         self.block_production_info.record_block_production(
-            next_height,
+            height,
             BlockProductionTracker::construct_chunk_collection_info(
-                next_height,
+                height,
                 &epoch_id,
                 chunks.len() as ShardId,
                 &new_chunks,
@@ -727,32 +734,29 @@ impl Client {
 
         // Collect new chunks.
         for (shard_id, (mut chunk_header, _, _)) in new_chunks {
-            *chunk_header.height_included_mut() = next_height;
+            *chunk_header.height_included_mut() = height;
             chunks[shard_id as usize] = chunk_header;
         }
 
         let prev_header = &prev_block.header();
 
-        let next_epoch_id =
-            self.epoch_manager.get_next_epoch_id_from_prev_block(&head.last_block_hash)?;
+        let next_epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(&prev_hash)?;
 
-        let minted_amount =
-            if self.epoch_manager.is_next_block_epoch_start(&head.last_block_hash)? {
-                Some(self.epoch_manager.get_epoch_minted_amount(&next_epoch_id)?)
-            } else {
-                None
-            };
+        let minted_amount = if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
+            Some(self.epoch_manager.get_epoch_minted_amount(&next_epoch_id)?)
+        } else {
+            None
+        };
 
-        let epoch_sync_data_hash =
-            if self.epoch_manager.is_next_block_epoch_start(&head.last_block_hash)? {
-                Some(self.epoch_manager.get_epoch_sync_data_hash(
-                    prev_block.hash(),
-                    &epoch_id,
-                    &next_epoch_id,
-                )?)
-            } else {
-                None
-            };
+        let epoch_sync_data_hash = if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
+            Some(self.epoch_manager.get_epoch_sync_data_hash(
+                prev_block.hash(),
+                &epoch_id,
+                &next_epoch_id,
+            )?)
+        } else {
+            None
+        };
 
         // Get all the current challenges.
         // TODO(2445): Enable challenges when they are working correctly.
@@ -766,7 +770,7 @@ impl Client {
             this_epoch_protocol_version,
             next_epoch_protocol_version,
             prev_header,
-            next_height,
+            height,
             block_ordinal,
             chunks,
             epoch_id,
@@ -786,10 +790,9 @@ impl Client {
         );
 
         // Update latest known even before returning block out, to prevent race conditions.
-        self.chain.mut_store().save_latest_known(LatestKnown {
-            height: next_height,
-            seen: block.header().raw_timestamp(),
-        })?;
+        self.chain
+            .mut_store()
+            .save_latest_known(LatestKnown { height, seen: block.header().raw_timestamp() })?;
 
         metrics::BLOCK_PRODUCED_TOTAL.inc();
 
