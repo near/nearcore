@@ -1,5 +1,6 @@
 use crate::network_protocol::testonly as data;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
+use crate::testonly::assert_is_superset;
 use crate::testonly::{make_rng, AsSet as _};
 use crate::types::SnapshotHostInfo;
 use near_crypto::SecretKey;
@@ -84,8 +85,10 @@ async fn invalid_signature() {
     let res = cache.insert(vec![info0_invalid_sig.clone(), info1.clone()]).await;
     // invalid signature => InvalidSignature
     assert_eq!(Some(SnapshotHostInfoError::InvalidSignature), res.1);
-    // Partial update is allowed, in case an error is encountered.
-    assert_eq!([&info1].as_set(), res.0.as_set());
+    // Partial update is allowed in case an error is encountered.
+    // The valid info1 may or may not be processed before the invalid info0 is detected
+    // due to parallelization, so we check for superset rather than strict equality.
+    assert_is_superset(&[&info1].as_set(), &res.0.as_set());
     // Partial update should match the state.
     assert_eq!([&info1].as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
 }
