@@ -743,7 +743,6 @@ impl<'a> MemTrieUpdate<'a> {
     /// Converts the changes to memtrie changes. Also returns the list of new nodes inserted,
     /// in hash and serialized form.
     fn to_mem_trie_changes_internal(
-        block_height: BlockHeight,
         shard_uid: String,
         arena: &ArenaMemory,
         updated_nodes: Vec<Option<UpdatedMemTrieNode>>,
@@ -762,7 +761,7 @@ impl<'a> MemTrieUpdate<'a> {
             .map(|(node_id, hash, _)| (*node_id, *hash))
             .collect();
         (
-            MemTrieChanges { node_ids_with_hashes, updated_nodes, block_height },
+            MemTrieChanges { node_ids_with_hashes, updated_nodes },
             nodes_hashes_and_serialized
                 .into_iter()
                 .map(|(_, hash, serialized)| (hash, serialized))
@@ -771,20 +770,20 @@ impl<'a> MemTrieUpdate<'a> {
     }
 
     /// Converts the updates to memtrie changes only.
-    pub fn to_mem_trie_changes_only(self, block_height: BlockHeight) -> MemTrieChanges {
+    pub fn to_mem_trie_changes_only(self) -> MemTrieChanges {
         let Self { arena, updated_nodes, shard_uid, .. } = self;
         let (mem_trie_changes, _) =
-            Self::to_mem_trie_changes_internal(block_height, shard_uid, arena, updated_nodes);
+            Self::to_mem_trie_changes_internal(shard_uid, arena, updated_nodes);
         mem_trie_changes
     }
 
     /// Converts the updates to trie changes as well as memtrie changes.
-    pub fn to_trie_changes(self, block_height: BlockHeight) -> TrieChanges {
+    pub fn to_trie_changes(self) -> TrieChanges {
         let Self { root, arena, shard_uid, trie_refcount_changes, updated_nodes } = self;
         let mut trie_refcount_changes =
             trie_refcount_changes.expect("Cannot to_trie_changes for memtrie changes only");
         let (mem_trie_changes, hashes_and_serialized) =
-            Self::to_mem_trie_changes_internal(block_height, shard_uid, arena, updated_nodes);
+            Self::to_mem_trie_changes_internal(shard_uid, arena, updated_nodes);
 
         // We've accounted for the dereferenced nodes, as well as value addition/subtractions.
         // The only thing left is to increment refcount for all new nodes.
@@ -809,9 +808,13 @@ impl<'a> MemTrieUpdate<'a> {
 
 /// Applies the given memtrie changes to the in-memory trie data structure.
 /// Returns the new root hash.
-pub fn apply_memtrie_changes(memtries: &mut MemTries, changes: &MemTrieChanges) -> CryptoHash {
+pub fn apply_memtrie_changes(
+    memtries: &mut MemTries,
+    changes: &MemTrieChanges,
+    block_height: BlockHeight,
+) -> CryptoHash {
     memtries
-        .construct_root(changes.block_height, |arena| {
+        .construct_root(block_height, |arena| {
             let mut last_node_id: Option<MemTrieNodeId> = None;
             let map_to_new_node_id = |node_id: OldOrUpdatedNodeId,
                                       old_to_new_map: &HashMap<
@@ -878,7 +881,6 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::state::{FlatStateValue, ValueRef};
-    use near_vm_runner::logic::TrieNodesCount;
     use rand::Rng;
     use std::collections::{HashMap, HashSet};
 
@@ -915,7 +917,7 @@ mod tests {
                     update.delete(&key);
                 }
             }
-            update.to_trie_changes(0)
+            update.to_trie_changes()
         }
 
         fn make_memtrie_changes_only(
@@ -933,7 +935,7 @@ mod tests {
                     update.delete(&key);
                 }
             }
-            update.to_mem_trie_changes_only(0)
+            update.to_mem_trie_changes_only()
         }
 
         fn make_disk_changes_only(
@@ -958,7 +960,7 @@ mod tests {
             assert_eq!(disk_changes, all_changes);
 
             // Then apply the changes and check consistency of new state roots.
-            let new_state_root_from_mem = apply_memtrie_changes(&mut self.mem, &memtrie_changes);
+            let new_state_root_from_mem = apply_memtrie_changes(&mut self.mem, &memtrie_changes, 0);
             let mut store_update = self.disk.store_update();
             let new_state_root_from_disk =
                 self.disk.apply_all(&disk_changes, ShardUId::single_shard(), &mut store_update);
@@ -988,14 +990,8 @@ mod tests {
                 };
                 let disk_trie =
                     self.disk.get_trie_for_shard(ShardUId::single_shard(), self.state_root);
-                let memtrie_result = memtrie_root.and_then(|memtrie_root| {
-                    memtrie_lookup(
-                        memtrie_root,
-                        key,
-                        None,
-                        &mut TrieNodesCount { db_reads: 0, mem_reads: 0 },
-                    )
-                });
+                let memtrie_result =
+                    memtrie_root.and_then(|memtrie_root| memtrie_lookup(memtrie_root, key, None));
                 let disk_result = disk_trie.get_optimized_ref(key, KeyLookupMode::Trie).unwrap();
                 if let Some(value_ref) = value_ref {
                     let memtrie_value_ref = memtrie_result

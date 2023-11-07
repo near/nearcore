@@ -25,7 +25,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
 use near_primitives::trie_key::TrieKey;
 pub use near_primitives::types::TrieNodesCount;
-use near_primitives::types::{AccountId, BlockHeight, StateRoot, StateRootNode};
+use near_primitives::types::{AccountId, StateRoot, StateRootNode};
 use near_vm_runner::ContractCode;
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
@@ -486,7 +486,6 @@ impl TrieRefcountDeltaMap {
 pub struct MemTrieChanges {
     node_ids_with_hashes: Vec<(UpdatedMemTrieNodeId, CryptoHash)>,
     updated_nodes: Vec<Option<UpdatedMemTrieNode>>,
-    block_height: BlockHeight,
 }
 
 ///
