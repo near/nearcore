@@ -290,11 +290,12 @@ def status_cmd(args, traffic_generator, nodes):
 
 
 def reset_cmd(args, traffic_generator, nodes):
-    print(
-        'this will reset all nodes\' home dirs to their initial states right after test initialization finished. continue? [yes/no]'
-    )
-    if sys.stdin.readline().strip() != 'yes':
-        sys.exit()
+    if not args.yes:
+        print(
+            'this will reset all nodes\' home dirs to their initial states right after test initialization finished. continue? [yes/no]'
+        )
+        if sys.stdin.readline().strip() != 'yes':
+            sys.exit()
     all_nodes = nodes + [traffic_generator]
     pmap(neard_runner_reset, all_nodes)
     logger.info(
@@ -357,13 +358,12 @@ def neard_runner_network_init(node, validators, boot_nodes, epoch_length,
                                 })
 
 
-def neard_update_config(node, state_cache_size_mb, state_snapshot_enabled):
+def neard_update_config(node, key_value):
     return neard_runner_jsonrpc(
         node,
         'update_config',
         params={
-            'state_cache_size_mb': state_cache_size_mb,
-            'state_snapshot_enabled': state_snapshot_enabled,
+            "key_value": key_value,
         },
     )
 
@@ -373,8 +373,7 @@ def update_config_cmd(args, traffic_generator, nodes):
     results = pmap(
         lambda node: neard_update_config(
             node,
-            args.state_cache_size_mb,
-            args.state_snapshot_enabled,
+            args.set,
         ),
         nodes,
     )
@@ -419,6 +418,14 @@ def start_traffic_cmd(args, traffic_generator, nodes):
     )
 
 
+def neard_runner_update_binaries(node):
+    neard_runner_jsonrpc(node, 'update_binaries')
+
+
+def update_binaries_cmd(args, traffic_generator, nodes):
+    pmap(neard_runner_update_binaries, nodes + [traffic_generator])
+
+
 if __name__ == '__main__':
     parser = ArgumentParser(description='Run a load test')
     parser.add_argument('--chain-id', type=str, required=True)
@@ -441,9 +448,17 @@ if __name__ == '__main__':
     update_config_parser = subparsers.add_parser(
         'update-config',
         help='''Update config.json with given flags for all nodes.''')
-    update_config_parser.add_argument('--state-cache-size-mb', type=int)
-    update_config_parser.add_argument('--state-snapshot-enabled',
-                                      action=BooleanOptionalAction)
+    update_config_parser.add_argument(
+        '--set',
+        help='''
+        A key value pair to set in the config. The key will be interpreted as a
+        json path to the config to be updated. The value will be parsed as json.   
+        e.g.
+        --set 'aaa.bbb.ccc=5'
+        --set 'aaa.bbb.ccc="5"'
+        --set 'aaa.bbb.ddd={"eee":6,"fff":"7"}' # no spaces!
+        ''',
+    )
     update_config_parser.set_defaults(func=update_config_cmd)
 
     restart_parser = subparsers.add_parser(
@@ -505,7 +520,19 @@ if __name__ == '__main__':
     the test can be reset from the start without having to do that again. This command resets all nodes'
     data dirs to what was saved then, so that start-traffic will start the test all over again.
     ''')
+    reset_parser.add_argument('--yes', action='store_true')
     reset_parser.set_defaults(func=reset_cmd)
+
+    # It re-uses the same binary urls because it's quite easy to do it with the
+    # nearcore-release buildkite and urls in the following format without commit
+    # but only with the branch name:
+    # https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/<branch-name>/neard"
+    update_binaries_parser = subparsers.add_parser(
+        'update-binaries',
+        help=
+        'Update the neard binaries by re-downloading them. The same urls are used.'
+    )
+    update_binaries_parser.set_defaults(func=update_binaries_cmd)
 
     args = parser.parse_args()
 
