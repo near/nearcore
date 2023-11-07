@@ -1,11 +1,11 @@
 pub use crate::peer_manager::peer_manager_actor::{Event, PeerManagerActor};
 
 mod accounts_data;
-mod announce_accounts;
 mod network_protocol;
 mod peer;
 mod peer_manager;
 mod private_actix;
+mod snapshot_hosts;
 mod stats;
 mod store;
 mod stun;

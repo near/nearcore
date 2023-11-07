@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.0.0"                               # managed by cargo-workspaces, see below
+version = "0.0.0" # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
 rust-version = "1.73.0"
@@ -69,6 +69,7 @@ members = [
     "tools/fork-network",
     "tools/indexer/example",
     "tools/mirror",
+    "tools/mock-node",
     "tools/ping",
     "tools/restaked",
     "tools/rpctypegen/core",
@@ -122,10 +123,7 @@ clap = { version = "4.2.0", features = ["derive", "env", "string"] }
 cloud-storage = "0.11.1"
 conqueue = "0.4.0"
 cpu-time = "1.0"
-criterion = { version = "0.3.5", default_features = false, features = [
-    "html_reports",
-    "cargo_bench_support",
-] }
+criterion = { version = "0.3.5", default_features = false, features = ["html_reports", "cargo_bench_support"] }
 crossbeam = "0.8"
 crossbeam-channel = "0.5.8"
 crossbeam-queue = "0.3.8"
@@ -175,7 +173,7 @@ more-asserts = "0.2"
 near-account-id = { version = "1.0.0-alpha.2", features = ["internal_unstable", "serde", "borsh"] }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
-near-database-tool = { path = "tools/database" }
+near-database-tool= { path = "tools/database" }
 near-async = { path = "core/async" }
 near-cache = { path = "utils/near-cache" }
 near-chain = { path = "chain/chain" }
@@ -199,9 +197,7 @@ near-indexer-primitives = { path = "chain/indexer-primitives" }
 near-jsonrpc = { path = "chain/jsonrpc" }
 near-jsonrpc-adversarial-primitives = { path = "chain/jsonrpc-adversarial-primitives" }
 near-jsonrpc-client = { path = "chain/jsonrpc/client" }
-near-jsonrpc-primitives = { path = "chain/jsonrpc-primitives", features = [
-    "full",
-] }
+near-jsonrpc-primitives = { path = "chain/jsonrpc-primitives", features = ["full"] }
 near-jsonrpc-tests = { path = "chain/jsonrpc/jsonrpc-tests" }
 near-mainnet-res = { path = "utils/mainnet-res" }
 near-mirror = { path = "tools/mirror" }
@@ -276,13 +272,7 @@ reqwest = { version = "0.11.14", features = ["blocking"] }
 ripemd = "0.1.1"
 rkyv = "0.7.31"
 rlimit = "0.7"
-rocksdb = { version = "0.21.0", default-features = false, features = [
-    "snappy",
-    "lz4",
-    "zstd",
-    "zlib",
-    "jemalloc",
-] }
+rocksdb = { version = "0.21.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib", "jemalloc"] }
 runtime-tester = { path = "test-utils/runtime-tester" }
 rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "functions"] }
 rustc-demangle = "0.1"
@@ -332,12 +322,7 @@ tracing = { version = "0.1.36", features = ["std"] }
 tracing-appender = "0.2.2"
 tracing-opentelemetry = "0.17.0"
 tracing-span-tree = "0.1"
-tracing-subscriber = { version = "0.3.15", features = [
-    "env-filter",
-    "fmt",
-    "registry",
-    "std",
-] }
+tracing-subscriber = { version = "0.3.15", features = ["env-filter", "fmt", "registry", "std"] }
 trybuild = "1.0.11"
 turn = "0.6"
 validator = "0.12"
@@ -345,31 +330,19 @@ wasm-encoder = "0.27.0"
 wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.1" }
 wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.1" }
 wasmer-engine = { package = "wasmer-engine-near", version = "=2.4.1" }
-wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.4.1", features = [
-    "compiler",
-] }
-wasmer-runtime = { version = "0.18.0", package = "wasmer-runtime-near", features = [
-    "default-backend-singlepass",
-], default-features = false }
+wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.4.1", features = ["compiler"] }
+wasmer-runtime = { version = "0.18.0", package = "wasmer-runtime-near", features = ["default-backend-singlepass"], default-features = false }
 wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near" }
 wasmer-types = { package = "wasmer-types-near", version = "=2.4.1" }
 wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.1" }
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmprinter = "0.2"
 wasm-smith = "0.10"
-wasmtime = { version = "9.0.3", default-features = false, features = [
-    "cranelift",
-] }
+wasmtime = { version = "9.0.3", default-features = false, features = ["cranelift"] }
 wast = "40.0"
 wat = "1.0.40"
 webrtc-util = "0.7"
-winapi = { version = "0.3", features = [
-    "winbase",
-    "memoryapi",
-    "errhandlingapi",
-    "winnt",
-    "impl-default",
-] }
+winapi = { version = "0.3", features = ["winbase", "memoryapi", "errhandlingapi", "winnt", "impl-default"] }
 xshell = "0.2.1"
 xz2 = "0.1.6"
 

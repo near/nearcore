@@ -107,12 +107,19 @@ const BLOCK_HORIZON: u64 = 500;
 /// number of blocks at the epoch start for which we will log more detailed info
 pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
 
+/// Defines whether in case of adversarial block production invalid blocks can
+/// be produced.
+#[derive(PartialEq, Eq)]
+pub enum AdvProduceBlocksMode {
+    All,
+    OnlyValid,
+}
+
 pub struct Client {
-    /// Adversarial controls
+    /// Adversarial controls - should be enabled only to test disruptive
+    /// behaviour on chain.
     #[cfg(feature = "test_features")]
-    pub adv_produce_blocks: bool,
-    #[cfg(feature = "test_features")]
-    pub adv_produce_blocks_only_valid: bool,
+    pub adv_produce_blocks: Option<AdvProduceBlocksMode>,
     #[cfg(feature = "test_features")]
     pub produce_invalid_chunks: bool,
     #[cfg(feature = "test_features")]
@@ -319,9 +326,7 @@ impl Client {
         );
         Ok(Self {
             #[cfg(feature = "test_features")]
-            adv_produce_blocks: false,
-            #[cfg(feature = "test_features")]
-            adv_produce_blocks_only_valid: false,
+            adv_produce_blocks: None,
             #[cfg(feature = "test_features")]
             produce_invalid_chunks: false,
             #[cfg(feature = "test_features")]
@@ -444,77 +449,57 @@ impl Client {
         Ok(())
     }
 
-    /// Check that this block height is not known yet.
-    fn known_block_height(&self, next_height: BlockHeight, known_height: BlockHeight) -> bool {
-        #[cfg(feature = "test_features")]
-        {
-            if self.adv_produce_blocks {
-                return false;
-            }
-        }
-
-        next_height <= known_height
-    }
-
-    /// Check that we are next block producer.
-    fn is_me_block_producer(
+    /// Checks couple conditions whether Client can produce new block on height
+    /// `height` on top of block with `prev_header`.
+    /// Needed to skip several checks in case of adversarial controls enabled.
+    /// TODO: consider returning `Result<(), Error>` as `Ok(false)` looks like
+    /// faulty logic.
+    fn can_produce_block(
         &self,
-        account_id: &AccountId,
-        next_block_proposer: &AccountId,
-    ) -> bool {
-        #[cfg(feature = "test_features")]
-        {
-            if self.adv_produce_blocks_only_valid {
-                return account_id == next_block_proposer;
-            }
-            if self.adv_produce_blocks {
-                return true;
-            }
-        }
-
-        account_id == next_block_proposer
-    }
-
-    fn should_reschedule_block(
-        &self,
-        prev_hash: &CryptoHash,
-        prev_prev_hash: &CryptoHash,
+        prev_header: &BlockHeader,
         height: BlockHeight,
-        known_height: BlockHeight,
         account_id: &AccountId,
         next_block_proposer: &AccountId,
     ) -> Result<bool, Error> {
-        if self.known_block_height(height, known_height) {
-            return Ok(true);
-        }
-
-        if !self.is_me_block_producer(account_id, next_block_proposer) {
-            info!(target: "client", "Produce block: chain at {}, not block producer for next block.", height);
-            return Ok(true);
-        }
-
         #[cfg(feature = "test_features")]
         {
-            if self.adv_produce_blocks {
-                return Ok(false);
-            }
-        }
-
-        if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
-            if !self.chain.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
-                // Currently state for the chunks we are interested in this epoch
-                // are not yet caught up (e.g. still state syncing).
-                // We reschedule block production.
-                // Alex's comment:
-                // The previous block is not caught up for the next epoch relative to the previous
-                // block, which is the current epoch for this block, so this block cannot be applied
-                // at all yet, block production must to be rescheduled
-                debug!(target: "client", "Produce block: prev block is not caught up");
+            if self.adv_produce_blocks == Some(AdvProduceBlocksMode::All) {
                 return Ok(true);
             }
         }
 
-        Ok(false)
+        // If we are not block proposer, skip block production.
+        if account_id != next_block_proposer {
+            info!(target: "client", height, "Skipping block production, not block producer for next block.");
+            return Ok(false);
+        }
+
+        #[cfg(feature = "test_features")]
+        {
+            if self.adv_produce_blocks == Some(AdvProduceBlocksMode::OnlyValid) {
+                return Ok(true);
+            }
+        }
+
+        // If height is known already, don't produce new block for this height.
+        let known_height = self.chain.store().get_latest_known()?.height;
+        if height <= known_height {
+            return Ok(false);
+        }
+
+        // If we are to start new epoch with this block, check if the previous
+        // block is caught up. If it is not the case, we wouldn't be able to
+        // apply the following block, so we also skip block production.
+        let prev_hash = prev_header.hash();
+        if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
+            let prev_prev_hash = prev_header.prev_hash();
+            if !self.chain.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
+                debug!(target: "client", height, "Skipping block production, prev block is not caught up");
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
     }
 
     pub fn get_chunk_headers_ready_for_inclusion(
@@ -585,7 +570,6 @@ impl Client {
         height: BlockHeight,
         prev_hash: CryptoHash,
     ) -> Result<Option<Block>, Error> {
-        let known_height = self.chain.store().get_latest_known()?.height;
         let validator_signer = self
             .validator_signer
             .as_ref()
@@ -598,7 +582,6 @@ impl Client {
 
         let prev = self.chain.get_block_header(&prev_hash)?;
         let prev_height = prev.height();
-        let prev_prev_hash = *prev.prev_hash();
         let prev_epoch_id = prev.epoch_id().clone();
         let prev_next_bp_hash = *prev.next_bp_hash();
 
@@ -606,11 +589,9 @@ impl Client {
         // doomslug witness. Have to do it before checking the ability to produce a block.
         let _ = self.check_and_update_doomslug_tip()?;
 
-        if self.should_reschedule_block(
-            &prev_hash,
-            &prev_prev_hash,
+        if !self.can_produce_block(
+            &prev,
             height,
-            known_height,
             validator_signer.validator_id(),
             &next_block_proposer,
         )? {
@@ -628,8 +609,9 @@ impl Client {
             #[cfg(not(feature = "test_features"))]
             return Ok(None);
             #[cfg(feature = "test_features")]
-            if !self.adv_produce_blocks || self.adv_produce_blocks_only_valid {
-                return Ok(None);
+            match self.adv_produce_blocks {
+                None | Some(AdvProduceBlocksMode::OnlyValid) => return Ok(None),
+                Some(AdvProduceBlocksMode::All) => {}
             }
         }
 

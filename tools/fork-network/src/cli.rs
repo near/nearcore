@@ -105,7 +105,7 @@ struct SetValidatorsCmd {
     pub validators: PathBuf,
     #[arg(short, long, default_value = "1000")]
     pub epoch_length: NumBlocks,
-    #[arg(long, default_value = "-fork")]
+    #[arg(long, default_value = "-fork", allow_hyphen_values = true)]
     pub chain_id_suffix: String,
 }
 

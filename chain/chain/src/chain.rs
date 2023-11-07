@@ -4050,6 +4050,7 @@ impl Chain {
 
         let protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+
         if checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
             let transaction_validity_period = self.transaction_validity_period;
             for transaction in transactions {
@@ -4059,10 +4060,7 @@ impl Chain {
                         &transaction.transaction.block_hash,
                         transaction_validity_period,
                     )
-                    .map_err(|_| {
-                        tracing::warn!("Invalid Transactions for mock node");
-                        Error::from(Error::InvalidTransactions)
-                    })?;
+                    .map_err(|_| Error::from(Error::InvalidTransactions))?;
             }
         };
 
@@ -4273,13 +4271,15 @@ impl Chain {
         if let Some(snapshot_callbacks) = &self.snapshot_callbacks {
             if make_snapshot {
                 let head = self.head()?;
+                let epoch_height =
+                    self.epoch_manager.get_epoch_height_from_prev_block(&head.prev_block_hash)?;
                 let shard_uids = self
                     .epoch_manager
                     .get_shard_layout_from_prev_block(&head.prev_block_hash)?
                     .get_shard_uids();
                 let last_block = self.get_block(&head.last_block_hash)?;
                 let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
-                make_snapshot_callback(head.prev_block_hash, shard_uids, last_block);
+                make_snapshot_callback(head.prev_block_hash, epoch_height, shard_uids, last_block);
             } else if delete_snapshot {
                 let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
                 delete_snapshot_callback();
