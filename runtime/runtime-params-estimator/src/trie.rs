@@ -304,7 +304,7 @@ fn read_raw_nodes_from_storage(
                 .retrieve_raw_bytes_with_accounting(
                     key,
                     caching_storage,
-                    parse_account_id_from_contract_data_key(key.as_bytes()).ok()
+                    parse_account_id_from_contract_data_key(key.as_bytes()).ok(),
                 )
                 .unwrap();
             near_store::estimator::decode_extension_node(&bytes).len()

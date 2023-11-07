@@ -10,6 +10,7 @@ use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::types::{AccountId, ShardId};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -293,10 +294,7 @@ pub trait TrieStorage {
     /// # Errors
     ///
     /// [`StorageError`] if the storage fails internally or the hash is not present.
-    fn retrieve_raw_bytes(
-        &self,
-        hash: &CryptoHash,
-    ) -> Result<Arc<[u8]>, StorageError>;
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError>;
 
     /// DEPRECATED.
     /// Returns `TrieCachingStorage` if `TrieStorage` is implemented by it.
@@ -319,10 +317,7 @@ pub struct TrieMemoryPartialStorage {
 }
 
 impl TrieStorage for TrieMemoryPartialStorage {
-    fn retrieve_raw_bytes(
-        &self,
-        hash: &CryptoHash,
-    ) -> Result<Arc<[u8]>, StorageError> {
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         let result =
             self.recorded_storage.get(hash).cloned().ok_or(StorageError::MissingTrieValue(
                 MissingTrieValueContext::TrieMemoryPartialStorage,
@@ -393,6 +388,7 @@ pub struct TrieCachingStorage {
 struct TrieCacheInnerMetrics {
     shard_cache_hits: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_misses: GenericCounter<prometheus::core::AtomicU64>,
+    shard_cache_could_be_contract: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_too_large: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_size: GenericGauge<prometheus::core::AtomicI64>,
     shard_cache_current_total_size: GenericGauge<prometheus::core::AtomicI64>,
@@ -421,6 +417,8 @@ impl TrieCachingStorage {
         let metrics = TrieCacheInnerMetrics {
             shard_cache_hits: metrics::SHARD_CACHE_HITS.with_label_values(&metrics_labels),
             shard_cache_misses: metrics::SHARD_CACHE_MISSES.with_label_values(&metrics_labels),
+            shard_cache_could_be_contract: metrics::SHARD_CACHE_COULD_BE_CONTRACT
+                .with_label_values(&[]),
             shard_cache_too_large: metrics::SHARD_CACHE_TOO_LARGE
                 .with_label_values(&metrics_labels),
             shard_cache_size: metrics::SHARD_CACHE_SIZE.with_label_values(&metrics_labels),
@@ -455,14 +453,14 @@ impl TrieCachingStorage {
 }
 
 impl TrieStorage for TrieCachingStorage {
-    fn retrieve_raw_bytes(
-        &self,
-        hash: &CryptoHash,
-    ) -> Result<Arc<[u8]>, StorageError> {
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         // Try to get value from shard cache containing most recently touched nodes.
         let mut guard = self.shard_cache.lock();
         self.metrics.shard_cache_size.set(guard.len() as i64);
         self.metrics.shard_cache_current_total_size.set(guard.current_total_size() as i64);
+        if parse_account_id_from_raw_key(hash.as_bytes()).is_ok() {
+            self.metrics.shard_cache_could_be_contract.inc();
+        }
         let val = match guard.get(hash) {
             Some(val) => {
                 self.metrics.shard_cache_hits.inc();
@@ -600,10 +598,7 @@ impl TrieDBStorage {
 }
 
 impl TrieStorage for TrieDBStorage {
-    fn retrieve_raw_bytes(
-        &self,
-        hash: &CryptoHash,
-    ) -> Result<Arc<[u8]>, StorageError> {
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         read_node_from_db(&self.store, self.shard_uid, hash)
     }
 }

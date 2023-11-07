@@ -35,10 +35,7 @@ impl IncompletePartialStorage {
 }
 
 impl TrieStorage for IncompletePartialStorage {
-    fn retrieve_raw_bytes(
-        &self,
-        hash: &CryptoHash,
-    ) -> Result<Arc<[u8]>, StorageError> {
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         let result = self
             .recorded_storage
             .get(hash)

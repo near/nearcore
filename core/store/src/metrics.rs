@@ -56,6 +56,11 @@ pub static SHARD_CACHE_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
+pub static SHARD_CACHE_COULD_BE_CONTRACT: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec("near_could_be_contract_cache", "This is from contract", &[])
+        .unwrap()
+});
+
 pub static SHARD_CACHE_TOO_LARGE: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_shard_cache_too_large",
