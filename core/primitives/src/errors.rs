@@ -1205,3 +1205,71 @@ impl From<near_vm_runner::logic::errors::FunctionCallError> for FunctionCallErro
         }
     }
 }
+
+#[cfg(feature = "new_epoch_sync")]
+pub mod epoch_sync {
+    use near_primitives_core::hash::CryptoHash;
+    use near_primitives_core::types::EpochHeight;
+    use std::fmt::{Debug, Display};
+
+    #[derive(Eq, PartialEq, Clone)]
+    pub enum EpochSyncHashType {
+        LastFinalBlock,
+        FirstEpochBlock,
+        NextEpochFirstBlock,
+        Other,
+    }
+
+    impl Display for EpochSyncHashType {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                EpochSyncHashType::LastFinalBlock => write!(f, "Last final block ",),
+                EpochSyncHashType::FirstEpochBlock => write!(f, "First epoch block ",),
+                EpochSyncHashType::NextEpochFirstBlock => write!(f, "Next epoch first block ",),
+                EpochSyncHashType::Other => write!(f, "",),
+            }
+        }
+    }
+
+    #[derive(Eq, PartialEq, Clone)]
+    pub enum EpochSyncInfoError {
+        HashNotFound { hash: CryptoHash, hash_type: EpochSyncHashType, epoch_height: EpochHeight },
+        ShortEpoch { epoch_height: EpochHeight },
+    }
+
+    impl std::error::Error for EpochSyncInfoError {}
+
+    impl Display for EpochSyncInfoError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                EpochSyncInfoError::HashNotFound { hash, hash_type, epoch_height } => {
+                    write!(
+                        f,
+                        "{} hash {:?} not a part of EpochSyncInfo for epoch {:?}",
+                        hash_type, hash, epoch_height
+                    )
+                }
+                EpochSyncInfoError::ShortEpoch { epoch_height } => {
+                    write!(f, "all_block_hashes.len() < 2 for epoch {:?}", epoch_height)
+                }
+            }
+        }
+    }
+
+    impl Debug for EpochSyncInfoError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                EpochSyncInfoError::HashNotFound { hash, hash_type, epoch_height } => {
+                    write!(
+                        f,
+                        "{} hash {:?} not a part of EpochSyncInfo for epoch {:?}",
+                        hash_type, hash, epoch_height
+                    )
+                }
+                EpochSyncInfoError::ShortEpoch { epoch_height } => {
+                    write!(f, "all_block_hashes is empty for epoch {:?}", epoch_height)
+                }
+            }
+        }
+    }
+}
