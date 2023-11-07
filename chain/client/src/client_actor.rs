@@ -9,7 +9,9 @@ use crate::adapter::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ProcessTxRequest, ProcessTxResponse,
     RecvChallenge, SetNetworkInfo, StateResponse,
 };
-use crate::client::{AdvProduceBlocksMode, Client, EPOCH_START_INFO_BLOCKS};
+#[cfg(feature = "test_features")]
+use crate::client::AdvProduceBlocksMode;
+use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
