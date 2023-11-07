@@ -139,8 +139,7 @@ def init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False):
     prompt_init_flags(args)
     if args.neard_upgrade_binary_url is None:
         configs = [{
-            "is_traffic_generator":
-            False,
+            "is_traffic_generator": False,
             "binaries": [{
                 "url": args.neard_binary_url,
                 "epoch_height": 0
@@ -161,7 +160,7 @@ def init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False):
         for i in range(len(nodes)):
             configs.append({
                 "is_traffic_generator":
-                False,
+                    False,
                 "binaries": [{
                     "url": args.neard_binary_url,
                     "epoch_height": 0
@@ -171,7 +170,8 @@ def init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False):
                 }]
             })
         traffic_generator_config = {
-            "is_traffic_generator": True,
+            "is_traffic_generator":
+                True,
             "binaries": [{
                 "url": args.neard_upgrade_binary_url,
                 "epoch_height": 0
@@ -221,12 +221,9 @@ def get_network_nodes(new_test_rpc_responses, num_validators):
                 # we assume here that validator_account_id is not null, validator_public_key
                 # better not be null either
                 validators.append({
-                    'account_id':
-                    response['validator_account_id'],
-                    'public_key':
-                    response['validator_public_key'],
-                    'amount':
-                    str(10**33),
+                    'account_id': response['validator_account_id'],
+                    'public_key': response['validator_public_key'],
+                    'amount': str(10**33),
                 })
         if len(boot_nodes) < 20:
             boot_nodes.append(
