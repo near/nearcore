@@ -4052,6 +4052,7 @@ impl Chain {
 
         let protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+
         if checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
             let transaction_validity_period = self.transaction_validity_period;
             for transaction in transactions {
@@ -4061,10 +4062,7 @@ impl Chain {
                         &transaction.transaction.block_hash,
                         transaction_validity_period,
                     )
-                    .map_err(|_| {
-                        tracing::warn!("Invalid Transactions for mock node");
-                        Error::from(Error::InvalidTransactions)
-                    })?;
+                    .map_err(|_| Error::from(Error::InvalidTransactions))?;
             }
         };
 
