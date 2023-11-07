@@ -1067,33 +1067,143 @@ pub(crate) fn clear_cache(store: Store) {
     store_update.commit().unwrap();
 }
 
-#[derive(PartialEq, Eq)]
-pub struct StateStatsAccount {
-    pub account_id: AccountId,
-    pub size: ByteSize,
-}
+/// Prints the state statistics for all shards. Please note that it relies on
+/// the live flat storage and may break if the node is not stopped.
+pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: NearConfig) {
+    let (epoch_manager, runtime, _, block_header) =
+        load_trie(store.clone(), home_dir, &near_config);
 
-impl Ord for StateStatsAccount {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.size.cmp(&other.size).reverse()
+    let block_hash = *block_header.hash();
+    let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash).unwrap();
+
+    let flat_storage_manager = runtime.get_flat_storage_manager();
+    for shard_uid in shard_layout.get_shard_uids() {
+        print_state_stats_for_shard_uid(&store, &flat_storage_manager, block_hash, shard_uid);
     }
 }
 
-impl PartialOrd for StateStatsAccount {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
+/// Prints the state statistics for a single shard.
+fn print_state_stats_for_shard_uid(
+    store: &Store,
+    flat_storage_manager: &FlatStorageManager,
+    block_hash: CryptoHash,
+    shard_uid: ShardUId,
+) {
+    flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+    let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
+    let chunk_view = flat_storage_manager.chunk_view(shard_uid, block_hash).unwrap();
+
+    let mut state_stats = StateStats::default();
+
+    // iteratate for the first time to get the size statistics
+    let group_by = get_state_stats_group_by(&chunk_view, &trie_storage);
+    let iter = get_state_stats_account_iter(&group_by);
+    for state_stats_account in iter {
+        state_stats.push(state_stats_account);
+    }
+
+    // iterate for the second time to find the middle account
+    let group_by = get_state_stats_group_by(&chunk_view, &trie_storage);
+    let iter = get_state_stats_account_iter(&group_by);
+    let mut current_size = ByteSize::default();
+    for state_stats_account in iter {
+        current_size += state_stats_account.size;
+        if 2 * current_size.as_u64() > state_stats.total_size.as_u64() {
+            state_stats.middle_state_record = Some(state_stats_account);
+            break;
+        }
+    }
+
+    tracing::info!(target: "state_viewer", "{shard_uid:?}");
+    tracing::info!(target: "state_viewer", "{state_stats:#?}");
+}
+
+/// Gets the flat state iterator from the chunk view, rearranges it to be sorted
+/// by the account id, rather than type, account id and finally groups the
+/// records by account id while collecting aggregate statistics.
+fn get_state_stats_group_by<'a>(
+    chunk_view: &'a FlatStorageChunkView,
+    trie_storage: &'a TrieDBStorage,
+) -> GroupBy<
+    AccountId,
+    impl Iterator<Item = StateStatsStateRecord> + 'a,
+    impl FnMut(&StateStatsStateRecord) -> AccountId,
+> {
+    // The flat state iterator is sorted by type, account id. In order to
+    // rearrange it we get the iterators for each type and later merge them by
+    // the account id.
+    let type_iters = NON_DELAYED_RECEIPT_COLUMNS
+        .iter()
+        .map(|(type_byte, _)| {
+            chunk_view.iter_flat_state_entries(Some(&[*type_byte]), Some(&[*type_byte + 1]))
+        })
+        .into_iter();
+
+    // Filter out any errors.
+    let type_iters = type_iters.map(|type_iter| type_iter.filter_map(|item| item.ok())).into_iter();
+
+    // Read the values from and convert items to StateStatsStateRecord.
+    let type_iters = type_iters
+        .map(move |type_iter| {
+            type_iter.filter_map(move |(key, value)| {
+                let value = read_flat_state_value(&trie_storage, value);
+                let key_size = key.len() as u64;
+                let value_size = value.len() as u64;
+                let size = ByteSize::b(key_size + value_size);
+                let state_record = StateRecord::from_raw_key_value(key, value);
+                state_record.map(|state_record| StateStatsStateRecord {
+                    account_id: state_record_to_account_id(&state_record).clone(),
+                    state_record,
+                    size,
+                })
+            })
+        })
+        .into_iter();
+
+    // Merge the iterators for different types. The StateStatsStateRecord
+    // implements the Ord and PartialOrd traits that compare items by their
+    // account ids.
+    let iter = type_iters.kmerge().into_iter();
+
+    // Finally, group by the account id.
+    iter.group_by(|state_record| state_record.account_id.clone())
+}
+
+/// Given the StateStatsStateRecords grouped by the account id returns an
+/// iterator of StateStatsAccount.
+fn get_state_stats_account_iter<'a>(
+    group_by: &'a GroupBy<
+        AccountId,
+        impl Iterator<Item = StateStatsStateRecord> + 'a,
+        impl FnMut(&StateStatsStateRecord) -> AccountId,
+    >,
+) -> impl Iterator<Item = StateStatsAccount> + 'a {
+    // aggregate size for each account id group
+    group_by
+        .into_iter()
+        .map(|(account_id, group)| {
+            let mut size = ByteSize::b(0);
+            for state_stats_state_record in group {
+                size += state_stats_state_record.size;
+            }
+            StateStatsAccount { account_id, size }
+        })
+        .into_iter()
+}
+
+/// Helper function to read the value from flat storage.
+/// It either returns the inlined value or reads ref value from the storage.
+fn read_flat_state_value(
+    trie_storage: &TrieDBStorage,
+    flat_state_value: FlatStateValue,
+) -> Vec<u8> {
+    match flat_state_value {
+        FlatStateValue::Ref(val) => trie_storage.retrieve_raw_bytes(&val.hash).unwrap().to_vec(),
+        FlatStateValue::Inlined(val) => val,
     }
 }
 
-impl std::fmt::Debug for StateStatsAccount {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StateStatsStateRecord")
-            .field("account_id", &self.account_id.as_str())
-            .field("size", &self.size)
-            .finish()
-    }
-}
-
+/// StateStats is used for storing the state statistics of a single trie.
 #[derive(Default)]
 pub struct StateStats {
     pub total_size: ByteSize,
@@ -1133,68 +1243,12 @@ impl StateStats {
     }
 }
 
-fn read_flat_state_value(
-    trie_storage: &TrieDBStorage,
-    flat_state_value: FlatStateValue,
-) -> Vec<u8> {
-    match flat_state_value {
-        FlatStateValue::Ref(val) => trie_storage.retrieve_raw_bytes(&val.hash).unwrap().to_vec(),
-        FlatStateValue::Inlined(val) => val,
-    }
-}
-
-pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: NearConfig) {
-    let (epoch_manager, runtime, _, block_header) =
-        load_trie(store.clone(), home_dir, &near_config);
-
-    let block_hash = *block_header.hash();
-    let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash).unwrap();
-
-    let flat_storage_manager = runtime.get_flat_storage_manager();
-    for shard_uid in shard_layout.get_shard_uids() {
-        print_state_stats_for_shard_uid(&store, &flat_storage_manager, block_hash, shard_uid);
-    }
-}
-
-fn print_state_stats_for_shard_uid(
-    store: &Store,
-    flat_storage_manager: &FlatStorageManager,
-    block_hash: CryptoHash,
-    shard_uid: ShardUId,
-) {
-    flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
-    let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
-    let chunk_view = flat_storage_manager.chunk_view(shard_uid, block_hash).unwrap();
-
-    let mut state_stats = StateStats::default();
-
-    // iteratate for the first time to get the size statistics
-    let group_by = get_state_stats_group_by(&chunk_view, &trie_storage);
-    let iter = get_state_stats_account_iter(&group_by);
-    for state_stats_account in iter {
-        state_stats.push(state_stats_account);
-    }
-
-    // iterate for the second time to find the middle account
-    let group_by = get_state_stats_group_by(&chunk_view, &trie_storage);
-    let iter = get_state_stats_account_iter(&group_by);
-    let mut current_size = ByteSize::default();
-    for state_stats_account in iter {
-        current_size += state_stats_account.size;
-        if 2 * current_size.as_u64() > state_stats.total_size.as_u64() {
-            state_stats.middle_state_record = Some(state_stats_account);
-            break;
-        }
-    }
-
-    tracing::info!(target: "state_viewer", "{shard_uid:?}");
-    tracing::info!(target: "state_viewer", "{state_stats:#?}");
-}
-
+/// StateStatsStateRecord stores the state record and associated information.
+/// It's used as a helper struct for merging state records from different record types.
 #[derive(Eq, PartialEq)]
 struct StateStatsStateRecord {
-    account_id: AccountId,
     state_record: StateRecord,
+    account_id: AccountId,
     size: ByteSize,
 }
 
@@ -1210,69 +1264,33 @@ impl PartialOrd for StateStatsStateRecord {
     }
 }
 
-// Gets the flat state iterator and groups items by account id.
-fn get_state_stats_group_by<'a>(
-    chunk_view: &'a FlatStorageChunkView,
-    trie_storage: &'a TrieDBStorage,
-) -> GroupBy<
-    AccountId,
-    impl Iterator<Item = StateStatsStateRecord> + 'a,
-    impl FnMut(&StateStatsStateRecord) -> AccountId,
-> {
-    // let iter = chunk_view.iter_flat_state_entries(None, None);
-
-    let type_iters = NON_DELAYED_RECEIPT_COLUMNS
-        .iter()
-        .map(|(type_byte, _)| {
-            chunk_view.iter_flat_state_entries(Some(&[*type_byte]), Some(&[*type_byte + 1]))
-        })
-        .into_iter();
-
-    // filter out any errors
-    let type_iters = type_iters.map(|type_iter| type_iter.filter_map(|item| item.ok())).into_iter();
-
-    // convert to (StateRecord, size)
-    let type_iters = type_iters
-        .map(move |type_iter| {
-            type_iter.filter_map(move |(key, value)| {
-                let value = read_flat_state_value(&trie_storage, value);
-                let key_size = key.len() as u64;
-                let value_size = value.len() as u64;
-                let size = ByteSize::b(key_size + value_size);
-                let state_record = StateRecord::from_raw_key_value(key, value);
-                state_record.map(|state_record| StateStatsStateRecord {
-                    account_id: state_record_to_account_id(&state_record).clone(),
-                    state_record,
-                    size,
-                })
-            })
-        })
-        .into_iter();
-
-    let iter = type_iters.kmerge().into_iter();
-
-    // group by account id
-    iter.group_by(|state_record| state_record.account_id.clone())
+/// StateStatsAccount stores aggregated information about an account.
+/// It is the result of the grouping of state records belonging to the same account.
+#[derive(PartialEq, Eq)]
+pub struct StateStatsAccount {
+    pub account_id: AccountId,
+    pub size: ByteSize,
 }
 
-fn get_state_stats_account_iter<'a>(
-    group_by: &'a GroupBy<
-        AccountId,
-        impl Iterator<Item = StateStatsStateRecord> + 'a,
-        impl FnMut(&StateStatsStateRecord) -> AccountId,
-    >,
-) -> impl Iterator<Item = StateStatsAccount> + 'a {
-    // aggregate size for each account id group
-    group_by
-        .into_iter()
-        .map(|(account_id, group)| {
-            let mut size = ByteSize::b(0);
-            for state_stats_state_record in group {
-                size += state_stats_state_record.size;
-            }
-            StateStatsAccount { account_id, size }
-        })
-        .into_iter()
+impl Ord for StateStatsAccount {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.size.cmp(&other.size).reverse()
+    }
+}
+
+impl PartialOrd for StateStatsAccount {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl std::fmt::Debug for StateStatsAccount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StateStatsStateRecord")
+            .field("account_id", &self.account_id.as_str())
+            .field("size", &self.size)
+            .finish()
+    }
 }
 
 #[cfg(test)]
