@@ -201,6 +201,7 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
 /// Test that duplicate transactions from ETH-implicit account can be properly rejected
 /// if we set nonce to `(block_height - 1) * 1e6` for transactions that results in
 /// access key being added to the ETH-implicit account.
+#[cfg(feature = "protocol_feature_eth_implicit")]
 #[test]
 fn test_transaction_eth_implicit_account() {
     let epoch_length = 10;
@@ -337,6 +338,7 @@ fn test_transaction_eth_implicit_account() {
 }
 
 /// Test that the signer is correctly verified for transactions done from an ETH-implicit account.
+#[cfg(feature = "protocol_feature_eth_implicit")]
 #[test]
 fn test_transaction_eth_implicit_account_invalid_pk() {
     let epoch_length = 10;
@@ -417,9 +419,9 @@ fn test_transaction_eth_implicit_account_invalid_pk() {
 
     // Now we send money from ETH-implicit account using correct signing key.
     // As this is the first valid transaction from that account, no access key has been added yet,
-    // so using 0 nonce should pass (we should not use 0 nonce in real transaction).
+    // so using nonce=1 should pass (however, we should use `block_height - 1) * 1e6` in a real transaction).
     let send_money_from_implicit_account_tx = SignedTransaction::send_money(
-        0,
+        1,
         implicit_account_id,
         "test0".parse().unwrap(),
         &implicit_account_signer,
@@ -465,6 +467,7 @@ fn test_transaction_hash_collision_for_near_implicit_account_ok() {
 /// Test that duplicate transactions from ETH-implicit accounts are not rejected before and after protocol upgrade.
 /// It is responsibility of the transaction signer to choose nonce equal to `(block_height - 1) * 1e6` in case the transaction
 /// results in adding a new key to an ETH-implicit account (see https://github.com/near/NEPs/issues/498#issuecomment-1782881395).
+#[cfg(feature = "protocol_feature_eth_implicit")]
 #[test]
 fn test_transaction_hash_collision_for_eth_implicit_account_ok() {
     let protocol_version =

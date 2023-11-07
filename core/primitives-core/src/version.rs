@@ -128,6 +128,8 @@ pub enum ProtocolFeature {
     /// NEP: https://github.com/near/NEPs/pull/509
     #[cfg(feature = "protocol_feature_chunk_validation")]
     ChunkValidation,
+    #[cfg(feature = "protocol_feature_eth_implicit")]
+    EthImplicit,
 }
 
 impl ProtocolFeature {
@@ -183,6 +185,8 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV2 => 135,
             #[cfg(feature = "protocol_feature_chunk_validation")]
             ProtocolFeature::ChunkValidation => 137,
+            #[cfg(feature = "protocol_feature_eth_implicit")]
+            ProtocolFeature::EthImplicit => 138,
         }
     }
 }
@@ -195,7 +199,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 64;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    139
+    140
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION

@@ -1,6 +1,7 @@
 use crate::node::RuntimeNode;
 use crate::tests::standard_cases::*;
 use near_chain_configs::Genesis;
+#[cfg(feature = "protocol_feature_eth_implicit")]
 use near_crypto::SecretKey;
 use near_primitives::state_record::StateRecord;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE};
@@ -121,6 +122,7 @@ fn test_transfer_tokens_near_implicit_account_runtime() {
     transfer_tokens_implicit_account(node, public_key);
 }
 
+#[cfg(feature = "protocol_feature_eth_implicit")]
 #[test]
 fn test_transfer_tokens_eth_implicit_account_runtime() {
     let node = create_runtime_node();
@@ -135,6 +137,7 @@ fn test_trying_to_create_near_implicit_account_runtime() {
     trying_to_create_implicit_account(node, public_key);
 }
 
+#[cfg(feature = "protocol_feature_eth_implicit")]
 #[test]
 fn test_trying_to_create_eth_implicit_account_runtime() {
     let node = create_runtime_node();

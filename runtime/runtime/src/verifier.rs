@@ -2,7 +2,9 @@ use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
 use crate::near_primitives::account::Account;
 use crate::VerificationResult;
 use near_crypto::key_conversion::is_valid_staking_key;
-use near_primitives::account::{AccessKey, AccessKeyPermission};
+#[cfg(feature = "protocol_feature_eth_implicit")]
+use near_primitives::account::AccessKey;
+use near_primitives::account::AccessKeyPermission;
 use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::checked_feature;
 use near_primitives::errors::{
@@ -17,9 +19,11 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::types::{BlockHeight, StorageUsage};
+#[cfg(feature = "protocol_feature_eth_implicit")]
 use near_primitives::utils::derive_account_id_from_public_key;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
+#[cfg(feature = "protocol_feature_eth_implicit")]
 use near_primitives_core::account::id::AccountType;
 use near_store::{
     get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
@@ -154,54 +158,53 @@ pub fn verify_and_charge_transaction(
             return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() }.into());
         }
     };
-    // By default, we always check nonce.
-    let mut should_check_nonce = true;
-    let mut access_key = match get_access_key(state_update, signer_id, public_key)? {
-        Some(access_key) => access_key,
-        None => match signer_id.get_account_type() {
-            // Access key is missing, but in the case of a transaction from ETH-implicit account
-            // there is a possibility that full access key will be created now.
-            AccountType::EthImplicitAccount => {
-                if derive_account_id_from_public_key(public_key) == *signer_id {
-                    // This is the only case we do not compare access key nonce with transaction nonce,
-                    // because the access key is created now.
-                    should_check_nonce = false;
-                    // TODO What about increasing storage usage for that account, because we added access key?
-                    AccessKey::full_access()
-                } else {
-                    // Provided public key is not the one from which the signer address was derived.
-                    return Err(InvalidTxError::InvalidAccessKeyError(
-                        InvalidAccessKeyError::InvalidPkForEthAddress {
-                            account_id: signer_id.clone(),
-                            public_key: public_key.clone(),
-                        },
-                    )
-                    .into());
-                }
-            }
-            // Transactions done from non-ETH-implicit account must have access key already added.
-            _ => {
+
+    #[cfg(feature = "protocol_feature_eth_implicit")]
+    let mut access_key = get_access_key(state_update, signer_id, public_key)?;
+    #[cfg(not(feature = "protocol_feature_eth_implicit"))]
+    let access_key = get_access_key(state_update, signer_id, public_key)?;
+
+    #[cfg(feature = "protocol_feature_eth_implicit")]
+    {
+        // Access key is missing, but in the case of a transaction from ETH-implicit account
+        // there is a possibility that full access key will be created now.
+        if access_key.is_none() && signer_id.get_account_type() == AccountType::EthImplicitAccount {
+            if derive_account_id_from_public_key(public_key) == *signer_id {
+                // TODO What about increasing storage usage for that account, because we added access key?
+                access_key = Some(AccessKey::full_access());
+            } else {
+                // Provided public key is not the one from which the signer address was derived.
                 return Err(InvalidTxError::InvalidAccessKeyError(
-                    InvalidAccessKeyError::AccessKeyNotFound {
+                    InvalidAccessKeyError::InvalidPkForEthAddress {
                         account_id: signer_id.clone(),
                         public_key: public_key.clone(),
                     },
                 )
                 .into());
             }
-        },
-    };
-
-    if should_check_nonce {
-        if transaction.nonce <= access_key.nonce {
-            return Err(InvalidTxError::InvalidNonce {
-                tx_nonce: transaction.nonce,
-                ak_nonce: access_key.nonce,
-            }
-            .into());
         }
     }
 
+    let mut access_key = match access_key {
+        Some(access_key) => access_key,
+        None => {
+            return Err(InvalidTxError::InvalidAccessKeyError(
+                InvalidAccessKeyError::AccessKeyNotFound {
+                    account_id: signer_id.clone(),
+                    public_key: public_key.clone(),
+                },
+            )
+            .into());
+        }
+    };
+
+    if transaction.nonce <= access_key.nonce {
+        return Err(InvalidTxError::InvalidNonce {
+            tx_nonce: transaction.nonce,
+            ak_nonce: access_key.nonce,
+        }
+        .into());
+    }
     if checked_feature!("stable", AccessKeyNonceRange, current_protocol_version) {
         if let Some(height) = block_height {
             let upper_bound =

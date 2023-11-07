@@ -17,10 +17,9 @@ use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, InvalidAccessKeyError, InvalidTxError,
     TxExecutionError,
 };
-use near_primitives::test_utils::{
-    create_user_test_signer, eth_implicit_test_account, eth_implicit_test_account_secret,
-    near_implicit_test_account,
-};
+use near_primitives::test_utils::{create_user_test_signer, near_implicit_test_account};
+#[cfg(feature = "protocol_feature_eth_implicit")]
+use near_primitives::test_utils::{eth_implicit_test_account, eth_implicit_test_account_secret};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
@@ -111,6 +110,31 @@ fn reject_valid_meta_tx_in_older_versions() {
     );
 }
 
+/// For NEAR-implicit accounts, returns the corresponding implicit public key.
+/// For Named accounts, generates a public key using the account ID as the seed.
+///
+/// In case of ETH-implicit account, the ETH-implicit address shall be derived from the public key.
+/// Thus, we cannot derive the public key from ETH-implicit address and the caller must
+/// explicitly provide the Secp256K1 `public_key` matching the sender address.
+fn derive_public_key_from_sender(sender: &AccountId, public_key: Option<PublicKey>) -> PublicKey {
+    match sender.get_account_type() {
+        AccountType::NearImplicitAccount => PublicKey::from_near_implicit_account(&sender).unwrap(),
+        AccountType::EthImplicitAccount => {
+            // We require that tests sending transactions from ETH-implicit accounts must provide the public key.
+            #[cfg(feature = "protocol_feature_eth_implicit")]
+            {
+                public_key.unwrap()
+            }
+
+            #[cfg(not(feature = "protocol_feature_eth_implicit"))]
+            {
+                PublicKey::from_seed(KeyType::ED25519, sender.as_ref())
+            }
+        }
+        AccountType::NamedAccount => PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
+    }
+}
+
 /// Take a list of actions and execute them as a meta transaction, check
 /// everything executes successfully, return balance differences for the sender,
 /// relayer, and receiver.
@@ -141,16 +165,9 @@ fn check_meta_tx_execution(
         .unwrap()
         .nonce;
 
-    let user_pubk = match sender.get_account_type() {
-        AccountType::NearImplicitAccount => PublicKey::from_near_implicit_account(&sender).unwrap(),
-        // We require that tests sending transactions from ETH-implicit accounts provide the public key.
-        // It is because we can't infer public key from ETH-implicit account ID, and we need
-        // the public key from which the ETH-implicit sender address was derived.
-        AccountType::EthImplicitAccount => public_key.unwrap(),
-        AccountType::NamedAccount => PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
-    };
+    let user_pubk = derive_public_key_from_sender(&sender, public_key);
 
-    let user_nonce_before = node_user.get_access_key(&sender, &user_pubk);
+    let access_key_before = node_user.get_access_key(&sender, &user_pubk);
 
     let tx_result =
         node_user.meta_tx(sender.clone(), receiver.clone(), relayer.clone(), actions).unwrap();
@@ -165,17 +182,27 @@ fn check_meta_tx_execution(
         .nonce;
     assert_eq!(relayer_nonce, relayer_nonce_before + 1);
 
-    match user_nonce_before {
-        Ok(user_nonce_before) => {
+    match access_key_before {
+        Ok(access_key_before) => {
             // user key must be checked for existence (to test DeleteKey action)
             if let Ok(user_nonce) = node_user
                 .get_access_key(&sender, &PublicKey::from_seed(KeyType::ED25519, sender.as_ref()))
                 .map(|key| key.nonce)
             {
-                assert_eq!(user_nonce, user_nonce_before.nonce + 1);
+                assert_eq!(user_nonce, access_key_before.nonce + 1);
             }
         }
-        Err(_) => assert!(sender.get_account_type() == AccountType::EthImplicitAccount),
+        Err(_) => {
+            #[cfg(feature = "protocol_feature_eth_implicit")]
+            {
+                assert!(sender.get_account_type() == AccountType::EthImplicitAccount);
+            }
+
+            #[cfg(not(feature = "protocol_feature_eth_implicit"))]
+            {
+                panic!("Sender account must have access key");
+            }
+        }
     }
 
     let sender_after = node_user.view_balance(&sender).unwrap_or(0);
@@ -829,6 +856,7 @@ fn meta_tx_create_near_implicit_account_fails() {
     meta_tx_create_implicit_account_fails(near_implicit_test_account());
 }
 
+#[cfg(feature = "protocol_feature_eth_implicit")]
 #[test]
 fn meta_tx_create_eth_implicit_account_fails() {
     meta_tx_create_implicit_account_fails(eth_implicit_test_account());
@@ -871,6 +899,7 @@ fn meta_tx_create_and_use_near_implicit_account() {
     meta_tx_create_and_use_implicit_account(near_implicit_test_account());
 }
 
+#[cfg(feature = "protocol_feature_eth_implicit")]
 #[test]
 fn meta_tx_create_and_use_eth_implicit_account() {
     meta_tx_create_and_use_implicit_account(eth_implicit_test_account());
@@ -952,6 +981,7 @@ fn meta_tx_create_near_implicit_account() {
     meta_tx_create_implicit_account(near_implicit_test_account(), None);
 }
 
+#[cfg(feature = "protocol_feature_eth_implicit")]
 #[test]
 fn meta_tx_create_eth_implicit_account() {
     let secret_key = eth_implicit_test_account_secret();

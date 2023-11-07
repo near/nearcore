@@ -19,6 +19,8 @@ use crate::version::{
 
 use near_crypto::{KeyType, PublicKey};
 use near_primitives_core::account::id::AccountId;
+#[cfg(not(feature = "protocol_feature_eth_implicit"))]
+use near_primitives_core::account::id::AccountType;
 
 use std::mem::size_of;
 use std::ops::Deref;
@@ -467,6 +469,20 @@ where
     T: serde::Serialize,
 {
     Serializable(object)
+}
+
+/// From `near-account-id` version `1.0.0-alpha.2`, `is_implicit` returns true for ETH-implicit accounts.
+/// This function is a wrapper for `is_implicit` method so that we can easily differentiate its behavior
+/// based on the protocol version.
+pub fn account_is_implicit(account_id: &AccountId) -> bool {
+    #[cfg(feature = "protocol_feature_eth_implicit")]
+    {
+        account_id.get_account_type().is_implicit()
+    }
+    #[cfg(not(feature = "protocol_feature_eth_implicit"))]
+    {
+        account_id.get_account_type() == AccountType::NearImplicitAccount
+    }
 }
 
 /// Derives `AccountId` from `PublicKey`.

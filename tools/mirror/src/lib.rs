@@ -22,6 +22,7 @@ use near_primitives::transaction::{
 use near_primitives::types::{
     AccountId, BlockHeight, BlockReference, Finality, TransactionOrReceiptId,
 };
+use near_primitives::utils::account_is_implicit;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, QueryRequest, QueryResponseKind,
     SignedTransactionView,
@@ -990,9 +991,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     actions.push(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })));
                 }
                 Action::Transfer(_) => {
-                    if tx.receiver_id().get_account_type().is_implicit()
-                        && source_actions.len() == 1
-                    {
+                    if account_is_implicit(tx.receiver_id()) && source_actions.len() == 1 {
                         let target_account =
                             crate::key_mapping::map_account(tx.receiver_id(), self.secret.as_ref());
                         if !account_exists(&self.target_view_client, &target_account)

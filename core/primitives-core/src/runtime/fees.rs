@@ -219,7 +219,14 @@ pub fn transfer_exec_fee(
         (false, _) => transfer_fee,
         // Extra fee for the CreateAccount.
         (true, AccountType::EthImplicitAccount) => {
-            transfer_fee + cfg.fee(ActionCosts::create_account).exec_fee()
+            #[cfg(feature = "protocol_feature_eth_implicit")]
+            {
+                transfer_fee + cfg.fee(ActionCosts::create_account).exec_fee()
+            }
+            #[cfg(not(feature = "protocol_feature_eth_implicit"))]
+            {
+                transfer_fee
+            }
         }
         // Extra fees for the CreateAccount and AddFullAccessKey.
         (true, AccountType::NearImplicitAccount) => {
@@ -244,7 +251,14 @@ pub fn transfer_send_fee(
         (false, _) => transfer_fee,
         // Extra fee for the CreateAccount.
         (true, AccountType::EthImplicitAccount) => {
-            transfer_fee + cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
+            #[cfg(feature = "protocol_feature_eth_implicit")]
+            {
+                transfer_fee + cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
+            }
+            #[cfg(not(feature = "protocol_feature_eth_implicit"))]
+            {
+                transfer_fee
+            }
         }
         // Extra fees for the CreateAccount and AddFullAccessKey.
         (true, AccountType::NearImplicitAccount) => {

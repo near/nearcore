@@ -4,7 +4,9 @@ use futures::{future::LocalBoxFuture, FutureExt};
 
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
-use near_primitives::account::{id::AccountType, AccessKey};
+#[cfg(feature = "protocol_feature_eth_implicit")]
+use near_primitives::account::id::AccountType;
+use near_primitives::account::AccessKey;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -263,14 +265,21 @@ pub trait User {
     ) -> Result<FinalExecutionOutcomeView, ServerError> {
         let inner_signer = create_user_test_signer(&signer_id);
         let access_key = self.get_access_key(&signer_id, &inner_signer.public_key);
-
         let user_nonce = match access_key {
             Ok(access_key) => access_key.nonce,
-            Err(_) => match signer_id.get_account_type() {
-                // Zero nonce is for tests only. In real setting we should use `(block_height - 1) * 1e6`.
-                AccountType::EthImplicitAccount => 0,
-                _ => panic!("failed reading user's nonce for access key"),
-            },
+            Err(_) => {
+                #[cfg(not(feature = "protocol_feature_eth_implicit"))]
+                {
+                    panic!("failed reading user's nonce for access key");
+                }
+
+                #[cfg(feature = "protocol_feature_eth_implicit")]
+                match signer_id.get_account_type() {
+                    // Zero nonce is for tests only. In real setting we should use `(block_height - 1) * 1e6`.
+                    AccountType::EthImplicitAccount => 0,
+                    _ => panic!("failed reading user's nonce for access key"),
+                }
+            }
         };
 
         let delegate_action = DelegateAction {
