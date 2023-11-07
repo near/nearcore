@@ -317,7 +317,12 @@ pub fn start_with_config_and_synchronization(
     );
 
     let state_snapshot_actor = Arc::new(
-        StateSnapshotActor::new(runtime.get_flat_storage_manager(), runtime.get_tries()).start(),
+        StateSnapshotActor::new(
+            runtime.get_flat_storage_manager(),
+            network_adapter.clone().into(),
+            runtime.get_tries(),
+        )
+        .start(),
     );
     let delete_snapshot_callback = get_delete_snapshot_callback(state_snapshot_actor.clone());
     let make_snapshot_callback =

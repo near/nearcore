@@ -9,10 +9,10 @@ use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::types::{AccountId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 
 /// Transaction status query
@@ -77,13 +77,6 @@ pub struct StateRequestPart {
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct StateResponse(pub Box<StateResponseInfo>);
-
-/// Account announcements that needs to be validated before being processed.
-/// They are paired with last epoch id known to this announcement, in order to accept only
-/// newer announcements.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "Result<Vec<AnnounceAccount>,ReasonForBan>")]
-pub(crate) struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
@@ -317,20 +310,6 @@ impl near_network::client::Client for Adapter {
         match self.client_addr.send(SetNetworkInfo(info).with_span_context()).await {
             Ok(()) => {}
             Err(err) => tracing::error!("mailbox error: {err}"),
-        }
-    }
-
-    async fn announce_account(
-        &self,
-        accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
-    ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
-        match self.view_client_addr.send(AnnounceAccountRequest(accounts).with_span_context()).await
-        {
-            Ok(res) => res,
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(vec![])
-            }
         }
     }
 }

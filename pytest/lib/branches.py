@@ -103,6 +103,17 @@ def escaped(branch):
 
 def _compile_current(branch: str) -> Executables:
     """Compile current branch."""
+    prebuilt_neard = os.environ.get("CURRENT_NEARD")
+    if prebuilt_neard is not None:
+        logger.info(
+            f'Using `CURRENT_NEARD={prebuilt_neard}` neard for branch {branch}')
+        try:
+            path = pathlib.Path(prebuilt_neard).resolve()
+            return Executables(path.parent, path)
+        except OSError as e:
+            logger.exception('Could not use `CURRENT_NEARD`, will build…')
+
+    logger.info(f'Building neard for branch {branch}')
     subprocess.check_call(['cargo', 'build', '-p', 'neard', '--bin', 'neard'],
                           cwd=_REPO_DIR)
     subprocess.check_call(['cargo', 'build', '-p', 'near-test-contracts'],

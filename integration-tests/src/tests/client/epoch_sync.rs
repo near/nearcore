@@ -4,6 +4,7 @@ use actix::Actor;
 use actix_rt::System;
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
+use near_chain::ChainStoreAccess;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -18,6 +19,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
+use near_primitives::types::EpochId;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
 use near_store::Mode::ReadOnly;
@@ -75,13 +77,13 @@ fn generate_transactions(last_hash: &CryptoHash, h: BlockHeight) -> Vec<SignedTr
 }
 
 /// Produce 4 epochs with some transactions.
-/// At the end of each epoch check that `EpochSyncInfo` has been recorded.
+/// When the first block of the next epoch is finalised check that `EpochSyncInfo` has been recorded.
 #[test]
 fn test_continuous_epoch_sync_info_population() {
     init_test_logger();
 
     let epoch_length = 5;
-    let max_height = epoch_length * 4 + 1;
+    let max_height = epoch_length * 4 + 3;
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
 
@@ -94,6 +96,7 @@ fn test_continuous_epoch_sync_info_population() {
         .build();
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
+    let mut last_epoch_id = EpochId::default();
 
     for h in 1..max_height {
         for tx in generate_transactions(&last_hash, h) {
@@ -104,13 +107,22 @@ fn test_continuous_epoch_sync_info_population() {
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         last_hash = *block.hash();
 
-        if env.clients[0].epoch_manager.is_next_block_epoch_start(&last_hash).unwrap() {
-            let epoch_id = block.header().epoch_id().clone();
+        let last_final_hash = block.header().last_final_block();
+        if *last_final_hash == CryptoHash::default() {
+            continue;
+        }
+        let last_final_header =
+            env.clients[0].chain.store().get_block_header(last_final_hash).unwrap();
+
+        if *last_final_header.epoch_id() != last_epoch_id {
+            let epoch_id = last_epoch_id.clone();
 
             tracing::debug!("Checking epoch: {:?}", &epoch_id);
             assert!(env.clients[0].chain.store().get_epoch_sync_info(&epoch_id).is_ok());
             tracing::debug!("OK");
         }
+
+        last_epoch_id = last_final_header.epoch_id().clone();
     }
 }
 

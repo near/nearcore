@@ -96,7 +96,8 @@ def main():
     # Run new node and verify it runs for a few more blocks.
     logging.info("Starting the current node...")
     config = executables.current.node_config()
-    node.binary_name = config['binary_name']
+    node.near_root = executables.current.root
+    node.binary_name = executables.current.neard
     node.start(boot_node=node)
 
     logging.info("Running the current node...")

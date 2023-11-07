@@ -1,9 +1,12 @@
 use actix::{AsyncContext, Context};
+use near_async::messaging::CanSend;
+use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::types::{EpochHeight, ShardId};
 use near_store::flat::FlatStorageManager;
 use near_store::ShardTries;
 use std::sync::Arc;
@@ -15,12 +18,17 @@ use std::sync::Arc;
 /// 3. CompactSnapshotRequest: compacts a snapshot store.
 pub struct StateSnapshotActor {
     flat_storage_manager: FlatStorageManager,
+    network_adapter: PeerManagerAdapter,
     tries: ShardTries,
 }
 
 impl StateSnapshotActor {
-    pub fn new(flat_storage_manager: FlatStorageManager, tries: ShardTries) -> Self {
-        Self { flat_storage_manager, tries }
+    pub fn new(
+        flat_storage_manager: FlatStorageManager,
+        network_adapter: PeerManagerAdapter,
+        tries: ShardTries,
+    ) -> Self {
+        Self { flat_storage_manager, network_adapter, tries }
     }
 }
 
@@ -40,6 +48,8 @@ struct DeleteAndMaybeCreateSnapshotRequest {
 struct CreateSnapshotRequest {
     /// prev_hash of the last processed block.
     prev_block_hash: CryptoHash,
+    /// epoch height associated with prev_block_hash
+    epoch_height: EpochHeight,
     /// Shards that need to be present in the snapshot.
     shard_uids: Vec<ShardUId>,
     /// Last block of the prev epoch.
@@ -81,7 +91,7 @@ impl actix::Handler<WithSpanContext<CreateSnapshotRequest>> for StateSnapshotAct
         let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
         tracing::debug!(target: "state_snapshot", ?msg);
 
-        let CreateSnapshotRequest { prev_block_hash, shard_uids, block } = msg;
+        let CreateSnapshotRequest { prev_block_hash, epoch_height, shard_uids, block } = msg;
         let res = self.tries.create_state_snapshot(prev_block_hash, &shard_uids, &block);
 
         // Unlocking flat state head can be done asynchronously in state_snapshot_actor.
@@ -90,7 +100,20 @@ impl actix::Handler<WithSpanContext<CreateSnapshotRequest>> for StateSnapshotAct
             tracing::error!(target: "state_snapshot", ?prev_block_hash, ?shard_uids, "Failed to unlock flat state updates");
         }
         match res {
-            Ok(_) => {
+            Ok(res_shard_uids) => {
+                if let Some(res_shard_uids) = res_shard_uids {
+                    self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::SnapshotHostInfo {
+                            sync_hash: prev_block_hash,
+                            epoch_height,
+                            shards: res_shard_uids
+                                .iter()
+                                .map(|uid| uid.shard_id as ShardId)
+                                .collect(),
+                        },
+                    ));
+                }
+
                 if self.tries.state_snapshot_config().compaction_enabled {
                     context.address().do_send(CompactSnapshotRequest {}.with_span_context());
                 } else {
@@ -122,7 +145,7 @@ impl actix::Handler<WithSpanContext<CompactSnapshotRequest>> for StateSnapshotAc
 }
 
 type MakeSnapshotCallback =
-    Arc<dyn Fn(CryptoHash, Vec<ShardUId>, Block) -> () + Send + Sync + 'static>;
+    Arc<dyn Fn(CryptoHash, EpochHeight, Vec<ShardUId>, Block) -> () + Send + Sync + 'static>;
 
 type DeleteSnapshotCallback = Arc<dyn Fn() -> () + Send + Sync + 'static>;
 
@@ -136,7 +159,7 @@ pub fn get_make_snapshot_callback(
     state_snapshot_addr: Arc<actix::Addr<StateSnapshotActor>>,
     flat_storage_manager: FlatStorageManager,
 ) -> MakeSnapshotCallback {
-    Arc::new(move |prev_block_hash, shard_uids, block| {
+    Arc::new(move |prev_block_hash, epoch_height, shard_uids, block| {
         tracing::info!(
             target: "state_snapshot",
             ?prev_block_hash,
@@ -148,7 +171,8 @@ pub fn get_make_snapshot_callback(
             tracing::error!(target: "state_snapshot", ?prev_block_hash, ?shard_uids, "Failed to lock flat state updates");
             return;
         }
-        let create_snapshot_request = CreateSnapshotRequest { prev_block_hash, shard_uids, block };
+        let create_snapshot_request =
+            CreateSnapshotRequest { prev_block_hash, epoch_height, shard_uids, block };
         state_snapshot_addr.do_send(
             DeleteAndMaybeCreateSnapshotRequest {
                 create_snapshot_request: Some(create_snapshot_request),

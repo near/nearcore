@@ -1,34 +1,34 @@
+use std::sync::Arc;
+
+use super::metrics::MEM_TRIE_NUM_LOOKUPS;
 use super::node::{MemTrieNodePtr, MemTrieNodeView};
 use crate::NibbleSlice;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
-use near_vm_runner::logic::TrieNodesCount;
-use std::collections::HashSet;
 
 /// Performs a lookup in an in-memory trie, while taking care of cache
 /// accounting for gas calculation purposes.
+///
+/// If `nodes_accessed` is provided, each trie node along the lookup path
+/// will be added to the vector as (node hash, serialized `RawTrieNodeWithSize`).
+/// Even if the key is not found, the nodes that were accessed to make that
+/// determination will be added to the vector.
 pub fn memtrie_lookup(
     root: MemTrieNodePtr<'_>,
     key: &[u8],
-    mut accessed_cache: Option<&mut HashSet<CryptoHash>>,
-    nodes_count: &mut TrieNodesCount,
+    mut nodes_accessed: Option<&mut Vec<(CryptoHash, Arc<[u8]>)>>,
 ) -> Option<FlatStateValue> {
+    MEM_TRIE_NUM_LOOKUPS.inc();
     let mut nibbles = NibbleSlice::new(key);
     let mut node = root;
 
     loop {
-        // This logic is carried from on-disk trie. It must remain unchanged,
-        // because gas accounting is dependent on these counters.
-        if let Some(cache) = &mut accessed_cache {
-            if cache.insert(node.view().node_hash()) {
-                nodes_count.db_reads += 1;
-            } else {
-                nodes_count.mem_reads += 1;
-            }
-        } else {
-            nodes_count.db_reads += 1;
+        let view = node.view();
+        if let Some(nodes_accessed) = &mut nodes_accessed {
+            let raw_node_serialized = borsh::to_vec(&view.to_raw_trie_node_with_size()).unwrap();
+            nodes_accessed.push((view.node_hash(), raw_node_serialized.into()));
         }
-        match node.view() {
+        match view {
             MemTrieNodeView::Leaf { extension, value } => {
                 if nibbles == NibbleSlice::from_encoded(extension.raw_slice()).0 {
                     return Some(value.to_flat_value());
