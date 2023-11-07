@@ -345,9 +345,7 @@ mod tests {
                                         let transaction = SignedTransaction::create_account(
                                             next_nonce,
                                             "test1".parse().unwrap(),
-                                            gen_account_from_alphabet(&mut rng, b"abcdefghijklmn")
-                                                .parse()
-                                                .unwrap(),
+                                            gen_account_from_alphabet(&mut rng, b"abcdefghijklmn"),
                                             5 * NEAR_BASE,
                                             signer0.public_key.clone(),
                                             &signer0,
