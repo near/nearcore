@@ -712,7 +712,9 @@ impl Doomslug {
                     DoomslugBlockProductionReadiness::NotReady => false,
                     DoomslugBlockProductionReadiness::ReadySince(when) => {
                         if has_enough_chunks {
-                            tracing::info!(target: "doomslug", target_height, enough_approvals_for = ?now.saturating_duration_since(when), "ready to produce block, has enough chunks");
+                            if log_block_production_info {
+                                info!("ready to produce block @ {}, has enough approvals for {:?}, has enough chunks", target_height, now.saturating_duration_since(when));
+                            }
                             true
                         } else {
                             let delay = self.timer.get_delay(
@@ -720,10 +722,12 @@ impl Doomslug {
                             ) / 6;
 
                             let ready = now > when + delay;
-                            if ready {
-                                tracing::info!(target: "doomslug", target_height, enough_approvals_for = ?now.saturating_duration_since(when), "ready to produce block, does not have enough chunks");
-                            } else {
-                                tracing::info!(target: "doomslug", target_height, need_to_wait_for = ?(when + delay).saturating_duration_since(now), enough_approvals_for = ?now.saturating_duration_since(when), "not ready to produce block, need to wait");
+                            if log_block_production_info {
+                                if ready {
+                                    tracing::info!(target: "doomslug", target_height, enough_approvals_for = ?now.saturating_duration_since(when), "ready to produce block, does not have enough chunks");
+                                } else {
+                                    tracing::info!(target: "doomslug", target_height, need_to_wait_for = ?(when + delay).saturating_duration_since(now), enough_approvals_for = ?now.saturating_duration_since(when), "not ready to produce block, need to wait");
+                                }
                             }
                             ready
                         }

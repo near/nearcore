@@ -82,7 +82,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 2048;
@@ -609,9 +609,9 @@ impl Client {
         debug!(
             target: "client",
             validator=?validator_signer.validator_id(),
-            next_height=next_height,
+            height=height,
             prev_height=prev.height(),
-            prev_hash=format_hash(head.last_block_hash),
+            prev_hash=format_hash(prev_hash),
             new_chunks_count=new_chunks.len(),
             new_chunks=?new_chunks.keys().sorted().collect_vec(),
             "Producing block",
