@@ -1018,6 +1018,15 @@ impl ClientActor {
 
         let epoch_id =
             self.client.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
+        let log_block_production_info =
+            if self.client.epoch_manager.is_next_block_epoch_start(&head.last_block_hash)? {
+                true
+            } else {
+                // the next block is still the same epoch
+                let epoch_start_height =
+                    self.client.epoch_manager.get_epoch_start_height(&head.last_block_hash)?;
+                latest_known.height - epoch_start_height < EPOCH_START_INFO_BLOCKS
+            };
 
         // We try to produce block for multiple heights (up to the highest height for which we've seen 2/3 of approvals).
         if latest_known.height + 1 <= self.client.doomslug.get_largest_height_crossing_threshold() {
@@ -1063,6 +1072,7 @@ impl ClientActor {
                     StaticClock::instant(),
                     height,
                     have_all_chunks,
+                    log_block_production_info,
                 ) {
                     if let Err(err) = self.produce_block(height) {
                         // If there is an error, report it and let it retry on the next loop step.
@@ -1591,7 +1601,9 @@ impl ClientActor {
                     {
                         let _span = tracing::debug_span!(target: "sync", "set_no_sync").entered();
                         {
-                            let _span = tracing::debug_span!(target: "sync", "set_sync", sync_type = "None").entered();
+                            let _span =
+                                tracing::debug_span!(target: "sync", "set_sync", sync = "NoSync")
+                                    .entered();
                             self.client.sync_status = SyncStatus::NoSync;
                             // Initial transition out of "syncing" state.
                             // Announce this client's account id if their epoch is coming up.
@@ -1646,13 +1658,11 @@ impl ClientActor {
                                     .reset_data_pre_state_sync(sync_hash));
                             }
                             let s = StateSyncStatus { sync_hash, sync_status: HashMap::default() };
+                            let _span =
+                                tracing::debug_span!(target: "sync", "set_state_sync").entered();
                             {
-                                let _span = tracing::debug_span!(target: "sync", "set_state_sync")
-                                    .entered();
-                                {
-                                    let _span = tracing::debug_span!(target: "sync", "set_sync", sync = "StateSync").entered();
-                                    self.client.sync_status = SyncStatus::StateSync(s);
-                                }
+                                let _span = tracing::debug_span!(target: "sync", "set_sync", sync = "StateSync").entered();
+                                self.client.sync_status = SyncStatus::StateSync(s);
                             }
                             // This is the first time we run state sync.
                             notify_start_sync = true;
@@ -1767,17 +1777,15 @@ impl ClientActor {
                             self.client
                                 .process_block_processing_artifact(block_processing_artifacts);
 
+                            let _span =
+                                tracing::debug_span!(target: "sync", "set_block_sync").entered();
                             {
-                                let _span = tracing::debug_span!(target: "sync", "set_block_sync")
-                                    .entered();
-                                {
-                                    let _span = tracing::debug_span!(target: "sync", "set_sync", sync = "BlockSync").entered();
-                                    self.client.sync_status = SyncStatus::BodySync {
-                                        start_height: 0,
-                                        current_height: 0,
-                                        highest_height: 0,
-                                    };
-                                }
+                                let _span = tracing::debug_span!(target: "sync", "set_sync", sync = "BlockSync").entered();
+                                self.client.sync_status = SyncStatus::BodySync {
+                                    start_height: 0,
+                                    current_height: 0,
+                                    highest_height: 0,
+                                };
                             }
                         }
                     }

@@ -11,6 +11,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
+use tracing::info;
 
 /// Have that many iterations in the timer instead of `loop` to prevent potential bugs from blocking
 /// the node
@@ -696,6 +697,7 @@ impl Doomslug {
         now: Instant,
         target_height: BlockHeight,
         has_enough_chunks: bool,
+        log_block_production_info: bool,
     ) -> bool {
         let _span = tracing::debug_span!(target: "doomslug", "ready_to_produce_block", has_enough_chunks, target_height).entered();
         let hash_or_height =

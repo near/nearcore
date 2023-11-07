@@ -82,7 +82,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, trace, warn};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 2048;
@@ -461,9 +461,17 @@ impl Client {
             }
         }
 
-        if !self.is_me_block_producer(account_id, next_block_proposer) {
-            info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
-            return Ok(true);
+        // If we are not block proposer, skip block production.
+        if account_id != next_block_proposer {
+            info!(target: "client", height, "Skipping block production, not block producer for next block.");
+            return Ok(false);
+        }
+
+        #[cfg(feature = "test_features")]
+        {
+            if self.adv_produce_blocks == Some(AdvProduceBlocksMode::OnlyValid) {
+                return Ok(true);
+            }
         }
 
         // If height is known already, don't produce new block for this height.
@@ -479,15 +487,8 @@ impl Client {
         if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
             let prev_prev_hash = prev_header.prev_hash();
             if !self.chain.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
-                // Currently state for the chunks we are interested in this epoch
-                // are not yet caught up (e.g. still state syncing).
-                // We reschedule block production.
-                // Alex's comment:
-                // The previous block is not caught up for the next epoch relative to the previous
-                // block, which is the current epoch for this block, so this block cannot be applied
-                // at all yet, block production must to be rescheduled
-                debug!(target: "client", "Produce block: prev block is not caught up");
-                return Ok(true);
+                debug!(target: "client", height, "Skipping block production, prev block is not caught up");
+                return Ok(false);
             }
         }
 
@@ -539,9 +540,14 @@ impl Client {
 
     /// Produce block if we are block producer for given block `height`.
     /// Either returns produced block (not applied) or error.
-    pub fn produce_block(&mut self, next_height: BlockHeight) -> Result<Option<Block>, Error> {
-        let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
-        let known_height = self.chain.store().get_latest_known()?.height;
+    pub fn produce_block(&mut self, height: BlockHeight) -> Result<Option<Block>, Error> {
+        let _span = tracing::debug_span!(target: "client", "produce_block", height).entered();
+
+        let head = self.chain.head()?;
+        assert_eq!(
+            head.epoch_id,
+            self.epoch_manager.get_epoch_id_from_prev_block(&head.prev_block_hash).unwrap()
+        );
 
         self.produce_block_on(height, head.last_block_hash)
     }
