@@ -109,6 +109,7 @@ pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
 
 /// Defines whether in case of adversarial block production invalid blocks can
 /// be produced.
+#[cfg(feature = "test_features")]
 #[derive(PartialEq, Eq)]
 pub enum AdvProduceBlocksMode {
     All,
