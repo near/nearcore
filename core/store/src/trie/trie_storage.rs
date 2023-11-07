@@ -16,6 +16,8 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
+use super::shard_tries::CONTRACT_CACHES;
+
 pub(crate) struct BoundedQueue<T> {
     queue: VecDeque<T>,
     /// If queue size exceeds capacity, item from the tail is removed.
@@ -389,6 +391,7 @@ struct TrieCacheInnerMetrics {
     shard_cache_hits: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_misses: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_could_be_contract: GenericCounter<prometheus::core::AtomicU64>,
+    shard_cache_is_cached_contract: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_too_large: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_size: GenericGauge<prometheus::core::AtomicI64>,
     shard_cache_current_total_size: GenericGauge<prometheus::core::AtomicI64>,
@@ -418,6 +421,8 @@ impl TrieCachingStorage {
             shard_cache_hits: metrics::SHARD_CACHE_HITS.with_label_values(&metrics_labels),
             shard_cache_misses: metrics::SHARD_CACHE_MISSES.with_label_values(&metrics_labels),
             shard_cache_could_be_contract: metrics::SHARD_CACHE_COULD_BE_CONTRACT
+                .with_label_values(&[]),
+            shard_cache_is_cached_contract: metrics::SHARD_CACHE_IS_CACHED_CONTRACT
                 .with_label_values(&[]),
             shard_cache_too_large: metrics::SHARD_CACHE_TOO_LARGE
                 .with_label_values(&metrics_labels),
@@ -458,8 +463,17 @@ impl TrieStorage for TrieCachingStorage {
         let mut guard = self.shard_cache.lock();
         self.metrics.shard_cache_size.set(guard.len() as i64);
         self.metrics.shard_cache_current_total_size.set(guard.current_total_size() as i64);
-        if parse_account_id_from_raw_key(hash.as_bytes()).is_ok() {
-            self.metrics.shard_cache_could_be_contract.inc();
+
+        if let Some(maybe_account_id) = parse_account_id_from_raw_key(hash.as_bytes()).ok() {
+            if let Some(acc_id) = maybe_account_id {
+                self.metrics.shard_cache_could_be_contract.inc();
+                if CONTRACT_CACHES
+                    .iter()
+                    .any(|&(contract_name, _, _)| contract_name == acc_id.as_str())
+                {
+                    self.metrics.shard_cache_is_cached_contract.inc();
+                }
+            }
         }
         let val = match guard.get(hash) {
             Some(val) => {

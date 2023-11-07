@@ -19,7 +19,7 @@ use std::sync::{Arc, RwLock};
 
 use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 
-const CONTRACT_CACHES: &'static [(&'static str, u32, u64)] = &[
+pub const CONTRACT_CACHES: &'static [(&'static str, u32, u64)] = &[
     ("token.sweat", 2, 500_000_000),
     ("tge-lockup.sweat", 2, 500_000_000),
     ("sweat_welcome.near", 2, 500_000_000),
