@@ -11,7 +11,7 @@
     "react-dom": "^18.2.0",
     "react-query": "^3.39.3",
     "react-router": "^6.17.0",
-    "react-router-dom": "^6.16.0",
+    "react-router-dom": "^6.17.0",
     "react-scripts": "^5.0.1",
     "react-tooltip": "^5.21.5",
     "react-xarrows": "^2.0.2"
