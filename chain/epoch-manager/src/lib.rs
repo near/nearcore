@@ -1843,4 +1843,38 @@ impl EpochManager {
             Ok(None)
         }
     }
+
+    #[cfg(feature = "new_epoch_sync")]
+    pub fn get_all_epoch_hashes(
+        &self,
+        last_block_info: &BlockInfo,
+    ) -> Result<Vec<CryptoHash>, EpochError> {
+        let _span =
+            tracing::debug_span!(target: "epoch_manager", "get_all_epoch_hashes", ?last_block_info)
+                .entered();
+
+        let mut result = vec![];
+        let first_epoch_block_height =
+            self.get_block_info(last_block_info.epoch_first_block())?.height();
+        let mut current_block_info = last_block_info.clone();
+        while current_block_info.hash() != last_block_info.epoch_first_block() {
+            // Check that we didn't reach previous epoch.
+            // This only should happen if BlockInfo data is incorrect.
+            // Without this assert same BlockInfo will cause infinite loop instead of crash with a message.
+            assert!(
+                current_block_info.height() > first_epoch_block_height,
+                "Reached {:?} from {:?} when first epoch height is {:?}",
+                current_block_info,
+                last_block_info,
+                first_epoch_block_height
+            );
+
+            result.push(*current_block_info.hash());
+            current_block_info = (*self.get_block_info(current_block_info.prev_hash())?).clone();
+        }
+        // First block of an epoch is not covered by the while loop.
+        result.push(*current_block_info.hash());
+
+        Ok(result)
+    }
 }

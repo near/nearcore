@@ -13,7 +13,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::account::id::AccountIdRef;
 use near_primitives_core::config::ActionCosts;
 use near_store::genesis::GenesisStateApplier;
-use near_store::test_utils::create_tries;
+use near_store::test_utils::TestTriesBuilder;
 use near_store::ShardTries;
 use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
@@ -261,8 +261,14 @@ impl RuntimeGroup {
             let signer = signer.clone();
             let state_records = Arc::clone(&group.state_records);
             let validators = group.validators.clone();
-            let runtime_factory =
-                move || StandaloneRuntime::new(signer, &state_records, create_tries(), validators);
+            let runtime_factory = move || {
+                StandaloneRuntime::new(
+                    signer,
+                    &state_records,
+                    TestTriesBuilder::new().build(),
+                    validators,
+                )
+            };
             handles.push(Self::start_runtime_in_thread(group.clone(), runtime_factory));
         }
         handles

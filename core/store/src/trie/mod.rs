@@ -1,3 +1,7 @@
+use self::accounting_cache::TrieAccountingCache;
+use self::mem::updating::{UpdatedMemTrieNode, UpdatedMemTrieNodeId};
+use self::trie_recording::TrieRecorder;
+use self::trie_storage::TrieMemoryPartialStorage;
 use crate::flat::{FlatStateChanges, FlatStorageChunkView};
 pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::{
@@ -12,6 +16,7 @@ pub use crate::trie::state_snapshot::{SnapshotError, StateSnapshot, StateSnapsho
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
+pub use from_flat::construct_trie_from_flat;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
@@ -20,13 +25,13 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
 use near_primitives::trie_key::TrieKey;
 pub use near_primitives::types::TrieNodesCount;
-use near_primitives::types::{AccountId, StateRoot, StateRootNode};
+use near_primitives::types::{AccountId, BlockHeight, StateRoot, StateRootNode};
 use near_vm_runner::ContractCode;
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Write;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::rc::Rc;
 use std::str;
 use std::sync::Arc;
@@ -49,11 +54,6 @@ mod trie_storage;
 #[cfg(test)]
 mod trie_tests;
 pub mod update;
-
-use self::accounting_cache::TrieAccountingCache;
-use self::trie_recording::TrieRecorder;
-use self::trie_storage::TrieMemoryPartialStorage;
-pub use from_flat::construct_trie_from_flat;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -364,21 +364,59 @@ pub trait TrieAccess {
     fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError>;
 }
 
-/// Stores reference count change for some key-value pair in DB.
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct TrieRefcountChange {
+/// Stores reference count addition for some key-value pair in DB.
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
+pub struct TrieRefcountAddition {
     /// Hash of trie_node_or_value and part of the DB key.
     /// Used for uniting with shard id to get actual DB key.
     trie_node_or_value_hash: CryptoHash,
     /// DB value. Can be either serialized RawTrieNodeWithSize or value corresponding to
     /// some TrieKey.
     trie_node_or_value: Vec<u8>,
-    /// Reference count difference which will be added to the total refcount if it corresponds to
-    /// insertion and subtracted from it in the case of deletion.
+    /// Reference count difference which will be added to the total refcount.
     rc: std::num::NonZeroU32,
 }
 
-impl TrieRefcountChange {
+/// Stores reference count subtraction for some key in DB.
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
+pub struct TrieRefcountSubtraction {
+    /// Hash of trie_node_or_value and part of the DB key.
+    /// Used for uniting with shard id to get actual DB key.
+    trie_node_or_value_hash: CryptoHash,
+    /// Obsolete field but which we cannot remove because this data is persisted
+    /// to the database.
+    _ignored: IgnoredVecU8,
+    /// Reference count difference which will be subtracted to the total refcount.
+    rc: std::num::NonZeroU32,
+}
+
+/// Struct that is borsh compatible with Vec<u8> but which is logically the unit type.
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug)]
+struct IgnoredVecU8 {
+    _ignored: Vec<u8>,
+}
+
+impl PartialEq for IgnoredVecU8 {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+impl Eq for IgnoredVecU8 {}
+impl Hash for IgnoredVecU8 {
+    fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {}
+}
+impl PartialOrd for IgnoredVecU8 {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for IgnoredVecU8 {
+    fn cmp(&self, _other: &Self) -> std::cmp::Ordering {
+        std::cmp::Ordering::Equal
+    }
+}
+
+impl TrieRefcountAddition {
     pub fn hash(&self) -> &CryptoHash {
         &self.trie_node_or_value_hash
     }
@@ -386,14 +424,71 @@ impl TrieRefcountChange {
     pub fn payload(&self) -> &[u8] {
         self.trie_node_or_value.as_slice()
     }
-}
 
-impl Hash for TrieRefcountChange {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(&self.trie_node_or_value_hash.0);
-        state.write_u32(self.rc.into());
+    pub fn revert(&self) -> TrieRefcountSubtraction {
+        TrieRefcountSubtraction::new(self.trie_node_or_value_hash, self.rc)
     }
 }
+
+impl TrieRefcountSubtraction {
+    pub fn new(trie_node_or_value_hash: CryptoHash, rc: std::num::NonZeroU32) -> Self {
+        Self { trie_node_or_value_hash, _ignored: Default::default(), rc }
+    }
+}
+
+/// Helps produce a list of additions and subtractions to the trie,
+/// especially in the case where deletions don't carry the full value.
+pub struct TrieRefcountDeltaMap {
+    map: HashMap<CryptoHash, (Option<Vec<u8>>, i32)>,
+}
+
+impl TrieRefcountDeltaMap {
+    pub fn new() -> Self {
+        Self { map: HashMap::new() }
+    }
+
+    pub fn add(&mut self, hash: CryptoHash, data: Vec<u8>, refcount: u32) {
+        let (old_value, old_rc) = self.map.entry(hash).or_insert((None, 0));
+        *old_value = Some(data);
+        *old_rc += refcount as i32;
+    }
+
+    pub fn subtract(&mut self, hash: CryptoHash, refcount: u32) {
+        let (_, old_rc) = self.map.entry(hash).or_insert((None, 0));
+        *old_rc -= refcount as i32;
+    }
+
+    pub fn into_changes(self) -> (Vec<TrieRefcountAddition>, Vec<TrieRefcountSubtraction>) {
+        let mut insertions = Vec::new();
+        let mut deletions = Vec::new();
+        for (hash, (value, rc)) in self.map.into_iter() {
+            if rc > 0 {
+                insertions.push(TrieRefcountAddition {
+                    trie_node_or_value_hash: hash,
+                    trie_node_or_value: value.expect("value must be present"),
+                    rc: std::num::NonZeroU32::new(rc as u32).unwrap(),
+                });
+            } else if rc < 0 {
+                deletions.push(TrieRefcountSubtraction::new(
+                    hash,
+                    std::num::NonZeroU32::new((-rc) as u32).unwrap(),
+                ));
+            }
+        }
+        // Sort so that trie changes have unique representation.
+        insertions.sort();
+        deletions.sort();
+        (insertions, deletions)
+    }
+}
+
+#[derive(Default, Clone, PartialEq, Eq, Debug)]
+pub struct MemTrieChanges {
+    node_ids_with_hashes: Vec<(UpdatedMemTrieNodeId, CryptoHash)>,
+    updated_nodes: Vec<Option<UpdatedMemTrieNode>>,
+    block_height: BlockHeight,
+}
+
 ///
 /// TrieChanges stores delta for refcount.
 /// Multiple versions of the state work the following way:
@@ -421,17 +516,30 @@ impl Hash for TrieRefcountChange {
 pub struct TrieChanges {
     pub old_root: StateRoot,
     pub new_root: StateRoot,
-    insertions: Vec<TrieRefcountChange>,
-    deletions: Vec<TrieRefcountChange>,
+    insertions: Vec<TrieRefcountAddition>,
+    deletions: Vec<TrieRefcountSubtraction>,
+    // If Some, in-memory changes are applied as well.
+    #[borsh(skip)]
+    pub mem_trie_changes: Option<MemTrieChanges>,
 }
 
 impl TrieChanges {
     pub fn empty(old_root: StateRoot) -> Self {
-        TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
+        TrieChanges {
+            old_root,
+            new_root: old_root,
+            insertions: vec![],
+            deletions: vec![],
+            mem_trie_changes: Default::default(),
+        }
     }
 
-    pub fn insertions(&self) -> &[TrieRefcountChange] {
+    pub fn insertions(&self) -> &[TrieRefcountAddition] {
         self.insertions.as_slice()
+    }
+
+    pub fn deletions(&self) -> &[TrieRefcountSubtraction] {
+        self.deletions.as_slice()
     }
 }
 
@@ -448,6 +556,57 @@ pub struct ApplyStatePartResult {
 enum NodeOrValue {
     Node(RawTrieNodeWithSize),
     Value(std::sync::Arc<[u8]>),
+}
+
+/// Like a ValueRef, but allows for optimized retrieval of the value if the
+/// value were already readily available when the ValueRef was retrieved.
+///
+/// This can be the case if the value came from flat storage, for example,
+/// when some values are inlined into the storage.
+///
+/// Information-wise, this struct contains the same information as a
+/// FlatStateValue; however, we make this a separate struct because
+/// dereferencing a ValueRef (and likewise, OptimizedValueRef) requires proper
+/// gas accounting; it is not a free operation. Therefore, while
+/// OptimizedValueRef can be directly converted to a ValueRef, dereferencing
+/// the value, even if the value is already available, can only be done via
+/// `Trie::deref_optimized`.
+#[derive(Debug, PartialEq, Eq)]
+pub enum OptimizedValueRef {
+    Ref(ValueRef),
+    AvailableValue(ValueAccessToken),
+}
+
+/// Opaque wrapper around Vec<u8> so that the value cannot be used directly and
+/// must instead be dereferenced via `Trie::deref_optimized`, so that gas
+/// accounting is never skipped.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ValueAccessToken {
+    // Must stay private.
+    value: Vec<u8>,
+}
+
+impl OptimizedValueRef {
+    fn from_flat_value(value: FlatStateValue) -> Self {
+        match value {
+            FlatStateValue::Ref(value_ref) => Self::Ref(value_ref),
+            FlatStateValue::Inlined(value) => Self::AvailableValue(ValueAccessToken { value }),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Ref(value_ref) => value_ref.len(),
+            Self::AvailableValue(token) => token.value.len(),
+        }
+    }
+
+    pub fn into_value_ref(self) -> ValueRef {
+        match self {
+            Self::Ref(value_ref) => value_ref,
+            Self::AvailableValue(token) => ValueRef::new(&token.value),
+        }
+    }
 }
 
 impl Trie {
@@ -598,12 +757,8 @@ impl Trie {
     ) -> Result<(), StorageError> {
         match value {
             ValueHandle::HashAndSize(value) => {
-                let bytes = self.internal_retrieve_trie_node(&value.hash, true)?;
-                memory
-                    .refcount_changes
-                    .entry(value.hash)
-                    .or_insert_with(|| (bytes.to_vec(), 0))
-                    .1 -= 1;
+                self.internal_retrieve_trie_node(&value.hash, true)?;
+                memory.refcount_changes.subtract(value.hash, 1);
             }
             ValueHandle::InMemory(_) => {
                 // do nothing
@@ -941,9 +1096,9 @@ impl Trie {
     ) -> Result<StorageHandle, StorageError> {
         match self.retrieve_raw_node(hash, true)? {
             None => Ok(memory.store(TrieNodeWithSize::empty())),
-            Some((bytes, node)) => {
+            Some((_, node)) => {
                 let result = memory.store(TrieNodeWithSize::from_raw(node));
-                memory.refcount_changes.entry(*hash).or_insert_with(|| (bytes.to_vec(), 0)).1 -= 1;
+                memory.refcount_changes.subtract(*hash, 1);
                 Ok(result)
             }
         }
@@ -992,13 +1147,9 @@ impl Trie {
     fn lookup_from_flat_storage(
         &self,
         key: &[u8],
-        ref_only: bool,
-    ) -> Result<Option<FlatStateValue>, StorageError> {
+    ) -> Result<Option<OptimizedValueRef>, StorageError> {
         let flat_storage_chunk_view = self.flat_storage_chunk_view.as_ref().unwrap();
-        let mut value = flat_storage_chunk_view.get_value(key)?;
-        if ref_only {
-            value = value.map(|value| FlatStateValue::Ref(value.to_value_ref()));
-        }
+        let value = flat_storage_chunk_view.get_value(key)?;
         if self.recorder.is_some() {
             // If recording, we need to look up in the trie as well to record the trie nodes,
             // as they are needed to prove the value. Also, it's important that this lookup
@@ -1006,28 +1157,12 @@ impl Trie {
             // needed to prove the non-existence of the key.
             let value_ref_from_trie =
                 self.lookup_from_state_column(NibbleSlice::new(key), false)?;
-            match &value {
-                Some(FlatStateValue::Inlined(value)) => {
-                    assert!(value_ref_from_trie.is_some());
-                    let value_from_trie =
-                        self.retrieve_value(&value_ref_from_trie.unwrap().hash)?;
-                    assert_eq!(&value_from_trie, value);
-                }
-                Some(FlatStateValue::Ref(value_ref)) => {
-                    assert_eq!(value_ref_from_trie.as_ref(), Some(value_ref));
-                }
-                None => {
-                    assert!(value_ref_from_trie.is_none());
-                }
-            }
-        } else {
-            if let Some(FlatStateValue::Inlined(value)) = &value {
-                self.accounting_cache
-                    .borrow_mut()
-                    .retroactively_account(hash(value), value.clone().into());
-            }
+            debug_assert_eq!(
+                &value_ref_from_trie,
+                &value.as_ref().map(|value| value.to_value_ref())
+            );
         }
-        Ok(value)
+        Ok(value.map(OptimizedValueRef::from_flat_value))
     }
 
     /// Looks up the given key by walking the trie nodes stored in the
@@ -1162,7 +1297,8 @@ impl Trie {
         Ok(bytes.to_vec())
     }
 
-    /// Return the value reference to the `key`
+    /// Retrieves an `OptimizedValueRef`` for the given key. See `OptimizedValueRef`.
+    ///
     /// `mode`: whether we will try to perform the lookup through flat storage or trie.
     ///         Note that even if `mode == KeyLookupMode::FlatStorage`, we still may not use
     ///         flat storage if the trie is not created with a flat storage object in it.
@@ -1172,71 +1308,53 @@ impl Trie {
     ///         storage for key lookup performed in `storage_write`, so we need
     ///         the `use_flat_storage` to differentiate whether the lookup is performed for
     ///         storage_write or not.
-    pub fn get_ref(
+    pub fn get_optimized_ref(
         &self,
         key: &[u8],
         mode: KeyLookupMode,
-    ) -> Result<Option<ValueRef>, StorageError> {
-        let use_flat_storage =
-            mode == KeyLookupMode::FlatStorage && self.flat_storage_chunk_view.is_some();
-        let charge_gas_for_trie_node_access =
-            mode == KeyLookupMode::Trie || self.charge_gas_for_trie_node_access;
-        if use_flat_storage {
-            Ok(self.lookup_from_flat_storage(key, true)?.map(|value| value.to_value_ref()))
-        } else {
-            self.lookup_from_state_column(NibbleSlice::new(key), charge_gas_for_trie_node_access)
-        }
-    }
-
-    /// Retrieves a value, which may or may not be the complete value, for the given key.
-    /// If the full value could be obtained cheaply it is returned; otherwise only the reference
-    /// is returned.
-    fn get_flat_value(&self, key: &[u8]) -> Result<Option<FlatStateValue>, StorageError> {
-        if self.flat_storage_chunk_view.is_some() {
-            self.lookup_from_flat_storage(key, false)
+    ) -> Result<Option<OptimizedValueRef>, StorageError> {
+        if mode == KeyLookupMode::FlatStorage && self.flat_storage_chunk_view.is_some() {
+            self.lookup_from_flat_storage(key)
         } else {
             Ok(self
                 .lookup_from_state_column(
                     NibbleSlice::new(key),
-                    self.charge_gas_for_trie_node_access,
+                    mode == KeyLookupMode::Trie || self.charge_gas_for_trie_node_access,
                 )?
-                .map(|value| FlatStateValue::Ref(value)))
+                .map(OptimizedValueRef::Ref))
+        }
+    }
+
+    /// Dereferences an `OptimizedValueRef` into the full value, and properly
+    /// accounts for the gas, caching, and recording (if enabled). This may or
+    /// may not incur a on-disk lookup, depending on whether the
+    /// `OptimizedValueRef` contains an already available value.
+    pub fn deref_optimized(
+        &self,
+        optimized_value_ref: &OptimizedValueRef,
+    ) -> Result<Vec<u8>, StorageError> {
+        match optimized_value_ref {
+            OptimizedValueRef::Ref(value_ref) => self.retrieve_value(&value_ref.hash),
+            OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => {
+                let value_hash = hash(value);
+                let arc_value: Arc<[u8]> = value.clone().into();
+                self.accounting_cache
+                    .borrow_mut()
+                    .retroactively_account(value_hash, arc_value.clone());
+                if let Some(recorder) = &self.recorder {
+                    recorder.borrow_mut().record(&value_hash, arc_value);
+                }
+                Ok(value.clone())
+            }
         }
     }
 
     /// Retrieves the full value for the given key.
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
-        match self.get_flat_value(key)? {
-            Some(FlatStateValue::Ref(value_ref)) => self.retrieve_value(&value_ref.hash).map(Some),
-            Some(FlatStateValue::Inlined(value)) => Ok(Some(value)),
+        match self.get_optimized_ref(key, KeyLookupMode::FlatStorage)? {
+            Some(optimized_ref) => Ok(Some(self.deref_optimized(&optimized_ref)?)),
             None => Ok(None),
         }
-    }
-
-    pub(crate) fn convert_to_insertions_and_deletions(
-        changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
-    ) -> (Vec<TrieRefcountChange>, Vec<TrieRefcountChange>) {
-        let mut deletions = Vec::new();
-        let mut insertions = Vec::new();
-        for (trie_node_or_value_hash, (trie_node_or_value, rc)) in changes.into_iter() {
-            if rc > 0 {
-                insertions.push(TrieRefcountChange {
-                    trie_node_or_value_hash,
-                    trie_node_or_value,
-                    rc: std::num::NonZeroU32::new(rc as u32).unwrap(),
-                });
-            } else if rc < 0 {
-                deletions.push(TrieRefcountChange {
-                    trie_node_or_value_hash,
-                    trie_node_or_value,
-                    rc: std::num::NonZeroU32::new((-rc) as u32).unwrap(),
-                });
-            }
-        }
-        // Sort so that trie changes have unique representation
-        insertions.sort();
-        deletions.sort();
-        (insertions, deletions)
     }
 
     pub fn update<I>(&self, changes: I) -> Result<TrieChanges, StorageError>
@@ -1323,8 +1441,7 @@ mod tests {
     use rand::Rng;
 
     use crate::test_utils::{
-        create_test_store, create_tries, create_tries_complex, gen_changes, simplify_changes,
-        test_populate_trie,
+        create_test_store, gen_changes, simplify_changes, test_populate_trie, TestTriesBuilder,
     };
     use crate::{DBCol, MissingTrieValueContext};
 
@@ -1356,7 +1473,7 @@ mod tests {
     #[test]
     fn test_basic_trie() {
         // test trie version > 0
-        let tries = create_tries_complex(SHARD_VERSION, 2);
+        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
         let shard_uid = ShardUId { version: SHARD_VERSION, shard_id: 0 };
         let trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
         assert_eq!(trie.get(&[122]), Ok(None));
@@ -1376,7 +1493,7 @@ mod tests {
 
     #[test]
     fn test_trie_iter() {
-        let tries = create_tries_complex(SHARD_VERSION, 2);
+        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
         let shard_uid = ShardUId { version: SHARD_VERSION, shard_id: 0 };
         let pairs = vec![
             (b"a".to_vec(), Some(b"111".to_vec())),
@@ -1410,7 +1527,7 @@ mod tests {
 
     #[test]
     fn test_trie_leaf_into_branch() {
-        let tries = create_tries_complex(SHARD_VERSION, 2);
+        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
         let shard_uid = ShardUId { version: SHARD_VERSION, shard_id: 0 };
         let changes = vec![
             (b"dog".to_vec(), Some(b"puppy".to_vec())),
@@ -1422,7 +1539,7 @@ mod tests {
 
     #[test]
     fn test_trie_same_node() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let changes = vec![
             (b"dogaa".to_vec(), Some(b"puppy".to_vec())),
             (b"dogbb".to_vec(), Some(b"puppy".to_vec())),
@@ -1435,7 +1552,7 @@ mod tests {
 
     #[test]
     fn test_trie_iter_seek_stop_at_extension() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let changes = vec![
             (vec![0, 116, 101, 115, 116], Some(vec![0])),
             (vec![2, 116, 101, 115, 116], Some(vec![0])),
@@ -1479,7 +1596,7 @@ mod tests {
 
     #[test]
     fn test_trie_remove_non_existent_key() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let initial = vec![
             (vec![99, 44, 100, 58, 58, 49], Some(vec![1])),
             (vec![99, 44, 100, 58, 58, 50], Some(vec![1])),
@@ -1505,7 +1622,7 @@ mod tests {
             (vec![2, 2, 3], Some(vec![1])),
             (vec![3, 2, 3], Some(vec![1])),
         ];
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), initial);
         tries.get_trie_for_shard(ShardUId::single_shard(), root).iter().unwrap().for_each(
             |result| {
@@ -1526,7 +1643,7 @@ mod tests {
     fn test_trie_unique() {
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
-            let tries = create_tries();
+            let tries = TestTriesBuilder::new().build();
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), Trie::EMPTY_ROOT);
             let trie_changes = gen_changes(&mut rng, 20);
             let simplified_changes = simplify_changes(&trie_changes);
@@ -1548,7 +1665,7 @@ mod tests {
     fn test_iterator_seek_prefix() {
         let mut rng = rand::thread_rng();
         for _test_run in 0..10 {
-            let tries = create_tries();
+            let tries = TestTriesBuilder::new().build();
             let trie_changes = gen_changes(&mut rng, 500);
             let state_root = test_populate_trie(
                 &tries,
@@ -1585,7 +1702,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _test_run in 0..10 {
             let num_iterations = rng.gen_range(1..20);
-            let tries = create_tries();
+            let tries = TestTriesBuilder::new().build();
             let store = tries.get_store();
             let mut state_root = Trie::EMPTY_ROOT;
             for _ in 0..num_iterations {
@@ -1619,7 +1736,7 @@ mod tests {
     #[test]
     fn test_trie_restart() {
         let store = create_test_store();
-        let tries = ShardTries::test(store.clone(), 1);
+        let tries = TestTriesBuilder::new().with_store(store.clone()).build();
         let empty_root = Trie::EMPTY_ROOT;
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
@@ -1631,7 +1748,7 @@ mod tests {
         ];
         let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
 
-        let tries2 = ShardTries::test(store, 1);
+        let tries2 = TestTriesBuilder::new().with_store(store).build();
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard(), root);
         assert_eq!(trie2.get(b"doge"), Ok(Some(b"coin".to_vec())));
     }
@@ -1639,8 +1756,7 @@ mod tests {
     // TODO: somehow also test that we don't record unnecessary nodes
     #[test]
     fn test_trie_recording_reads() {
-        let store = create_test_store();
-        let tries = ShardTries::test(store, 1);
+        let tries = TestTriesBuilder::new().build();
         let empty_root = Trie::EMPTY_ROOT;
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
@@ -1672,8 +1788,7 @@ mod tests {
 
     #[test]
     fn test_trie_recording_reads_update() {
-        let store = create_test_store();
-        let tries = ShardTries::test(store, 1);
+        let tries = TestTriesBuilder::new().build();
         let empty_root = Trie::EMPTY_ROOT;
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
@@ -1708,7 +1823,7 @@ mod tests {
     #[test]
     fn test_dump_load_trie() {
         let store = create_test_store();
-        let tries = ShardTries::test(store.clone(), 1);
+        let tries = TestTriesBuilder::new().with_store(store.clone()).build();
         let empty_root = Trie::EMPTY_ROOT;
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
@@ -1719,8 +1834,71 @@ mod tests {
         store.save_state_to_file(&dir.path().join("test.bin")).unwrap();
         let store2 = create_test_store();
         store2.load_state_from_file(&dir.path().join("test.bin")).unwrap();
-        let tries2 = ShardTries::test(store2, 1);
+        let tries2 = TestTriesBuilder::new().with_store(store2).build();
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard(), root);
         assert_eq!(trie2.get(b"doge").unwrap().unwrap(), b"coin");
+    }
+}
+
+#[cfg(test)]
+mod borsh_compatibility_test {
+    use borsh::{BorshDeserialize, BorshSerialize};
+    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::types::StateRoot;
+
+    use crate::trie::{TrieRefcountAddition, TrieRefcountSubtraction};
+    use crate::TrieChanges;
+
+    #[test]
+    fn test_trie_changes_compatibility() {
+        #[derive(BorshSerialize)]
+        struct LegacyTrieRefcountChange {
+            trie_node_or_value_hash: CryptoHash,
+            trie_node_or_value: Vec<u8>,
+            rc: std::num::NonZeroU32,
+        }
+
+        #[derive(BorshSerialize)]
+        struct LegacyTrieChanges {
+            old_root: StateRoot,
+            new_root: StateRoot,
+            insertions: Vec<LegacyTrieRefcountChange>,
+            deletions: Vec<LegacyTrieRefcountChange>,
+        }
+
+        let changes = LegacyTrieChanges {
+            old_root: hash(b"a"),
+            new_root: hash(b"b"),
+            insertions: vec![LegacyTrieRefcountChange {
+                trie_node_or_value_hash: hash(b"c"),
+                trie_node_or_value: b"d".to_vec(),
+                rc: std::num::NonZeroU32::new(1).unwrap(),
+            }],
+            deletions: vec![LegacyTrieRefcountChange {
+                trie_node_or_value_hash: hash(b"e"),
+                trie_node_or_value: b"f".to_vec(),
+                rc: std::num::NonZeroU32::new(2).unwrap(),
+            }],
+        };
+
+        let serialized = borsh::to_vec(&changes).unwrap();
+        let deserialized = TrieChanges::try_from_slice(&serialized).unwrap();
+        assert_eq!(
+            deserialized,
+            TrieChanges {
+                old_root: hash(b"a"),
+                new_root: hash(b"b"),
+                insertions: vec![TrieRefcountAddition {
+                    trie_node_or_value_hash: hash(b"c"),
+                    trie_node_or_value: b"d".to_vec(),
+                    rc: std::num::NonZeroU32::new(1).unwrap(),
+                }],
+                deletions: vec![TrieRefcountSubtraction::new(
+                    hash(b"e"),
+                    std::num::NonZeroU32::new(2).unwrap(),
+                )],
+                mem_trie_changes: None,
+            }
+        );
     }
 }

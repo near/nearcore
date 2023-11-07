@@ -83,6 +83,9 @@ pub enum StateViewerSubCommand {
     StateChanges(StateChangesCmd),
     /// Dump or apply state parts.
     StateParts(StatePartsCmd),
+    /// Iterates over the Flat State and prints some statistics.
+    /// e.g. large accounts, total, average and median size, middle account
+    StateStats(StateStatsCmd),
     /// Benchmark how long does it take to iterate the trie.
     TrieIterationBenchmark(TrieIterationBenchmarkCmd),
     /// View head of the storage.
@@ -144,6 +147,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::State => state(home_dir, near_config, store),
             StateViewerSubCommand::StateChanges(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::StateStats(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
@@ -617,6 +621,16 @@ impl StatePartsCmd {
         );
     }
 }
+
+#[derive(clap::Parser)]
+pub struct StateStatsCmd {}
+
+impl StateStatsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        print_state_stats(home_dir, store, near_config);
+    }
+}
+
 #[derive(clap::Parser)]
 pub struct ViewChainCmd {
     #[clap(long)]

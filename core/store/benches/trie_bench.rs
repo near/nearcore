@@ -5,7 +5,7 @@ use bencher::Bencher;
 use rand::random;
 
 use near_primitives::shard_layout::ShardUId;
-use near_store::test_utils::create_tries;
+use near_store::test_utils::TestTriesBuilder;
 use near_store::Trie;
 
 fn rand_bytes() -> Vec<u8> {
@@ -14,7 +14,7 @@ fn rand_bytes() -> Vec<u8> {
 
 fn trie_lookup(bench: &mut Bencher) {
     let (changed_keys, trie) = {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
 
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), Trie::EMPTY_ROOT);
         let mut changes = vec![];
@@ -42,7 +42,7 @@ fn trie_lookup(bench: &mut Bencher) {
 }
 
 fn trie_update(bench: &mut Bencher) {
-    let tries = create_tries();
+    let tries = TestTriesBuilder::new().build();
     let trie = tries.get_trie_for_shard(ShardUId::single_shard(), Trie::EMPTY_ROOT);
     let mut changes = vec![];
     for _ in 0..100 {

@@ -99,4 +99,11 @@ impl FlatStateValue {
             Self::Inlined(value) => ValueRef::new(value),
         }
     }
+
+    pub fn value_len(&self) -> usize {
+        match self {
+            Self::Ref(value_ref) => value_ref.len(),
+            Self::Inlined(value) => value.len(),
+        }
+    }
 }

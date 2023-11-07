@@ -144,7 +144,8 @@ def test_upgrade() -> None:
     # Restart stable nodes into new version.
     for i in range(3):
         nodes[i].kill()
-        nodes[i].binary_name = config['binary_name']
+        nodes[i].near_root = executables.current.root
+        nodes[i].binary_name = executables.current.neard
         nodes[i].start(
             boot_node=nodes[0],
             extra_env={"NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE": "1"},

@@ -39,10 +39,7 @@ use near_primitives::challenge::{
 };
 use near_primitives::checked_feature;
 #[cfg(feature = "new_epoch_sync")]
-use near_primitives::epoch_manager::{
-    block_info::BlockInfo,
-    epoch_sync::{BlockHeaderPair, EpochSyncInfo},
-};
+use near_primitives::epoch_manager::{block_info::BlockInfo, epoch_sync::EpochSyncInfo};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{
@@ -477,21 +474,10 @@ pub struct Chain {
     /// to create the parts. This information is used for debugging
     pub(crate) requested_state_parts: StateRequestTracker,
 
-    /// Lets trigger new state snapshots.
-    state_snapshot_helper: StateSnapshotHelper,
-
-    pub(crate) state_split_config: near_chain_configs::StateSplitConfig,
-}
-
-/// Lets trigger new state snapshots.
-#[derive(Default)]
-struct StateSnapshotHelper {
     /// A callback to initiate state snapshot.
     snapshot_callbacks: Option<SnapshotCallbacks>,
 
-    /// Count of blocks since the last snapshot.
-    /// Useful for keeping track of count if StateSnapshotType is EveryEpochAndNBlocks
-    blocks_since_last_snapshot: u64,
+    pub(crate) state_split_config: near_chain_configs::StateSplitConfig,
 }
 
 impl Drop for Chain {
@@ -583,7 +569,7 @@ impl Chain {
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
-            state_snapshot_helper: Default::default(),
+            snapshot_callbacks: None,
             state_split_config: StateSplitConfig::default(),
         })
     }
@@ -749,10 +735,7 @@ impl Chain {
             last_time_head_updated: StaticClock::instant(),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
-            state_snapshot_helper: StateSnapshotHelper {
-                snapshot_callbacks,
-                blocks_since_last_snapshot: 0,
-            },
+            snapshot_callbacks,
             state_split_config: chain_config.state_split_config,
         })
     }
@@ -1817,18 +1800,6 @@ impl Chain {
         receipt_proofs.shuffle(&mut rng);
     }
 
-    #[cfg(test)]
-    pub(crate) fn mark_block_as_challenged(
-        &mut self,
-        block_hash: &CryptoHash,
-        challenger_hash: &CryptoHash,
-    ) -> Result<(), Error> {
-        let mut chain_update = self.chain_update();
-        chain_update.mark_block_as_challenged(block_hash, Some(challenger_hash))?;
-        chain_update.commit()?;
-        Ok(())
-    }
-
     /// Start processing a received or produced block. This function will process block asynchronously.
     /// It preprocesses the block by verifying that the block is valid and ready to process, then
     /// schedules the work of applying chunks in rayon thread pool. The function will return before
@@ -1975,6 +1946,16 @@ impl Chain {
                     .add_validator_proposals(BlockHeaderInfo::new(header, last_finalized_height))?;
                 chain_update.chain_store_update.merge(epoch_manager_update);
                 chain_update.commit()?;
+
+                #[cfg(feature = "new_epoch_sync")]
+                {
+                    // At this point BlockInfo for this header should be in DB and in `epoch_manager`s cache because of `add_validator_proposals` call.
+                    let block_info = self.epoch_manager.get_block_info(header.hash())?;
+
+                    let mut chain_update = self.chain_update();
+                    chain_update.save_epoch_sync_info(&block_info)?;
+                    chain_update.commit()?;
+                }
             }
         }
 
@@ -4289,16 +4270,18 @@ impl Chain {
         if !make_snapshot && !delete_snapshot {
             return Ok(());
         }
-        if let Some(snapshot_callbacks) = &self.state_snapshot_helper.snapshot_callbacks {
+        if let Some(snapshot_callbacks) = &self.snapshot_callbacks {
             if make_snapshot {
                 let head = self.head()?;
+                let epoch_height =
+                    self.epoch_manager.get_epoch_height_from_prev_block(&head.prev_block_hash)?;
                 let shard_uids = self
                     .epoch_manager
                     .get_shard_layout_from_prev_block(&head.prev_block_hash)?
                     .get_shard_uids();
                 let last_block = self.get_block(&head.last_block_hash)?;
                 let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
-                make_snapshot_callback(head.prev_block_hash, shard_uids, last_block);
+                make_snapshot_callback(head.prev_block_hash, epoch_height, shard_uids, last_block);
             } else if delete_snapshot {
                 let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
                 delete_snapshot_callback();
@@ -4310,8 +4293,6 @@ impl Chain {
     /// Function to check whether we need to create a new snapshot while processing the current block
     /// Note that this functions is called as a part of block preprocesing, so the head is not updated to current block
     fn should_make_or_delete_snapshot(&mut self) -> Result<(bool, bool), Error> {
-        self.state_snapshot_helper.blocks_since_last_snapshot += 1;
-
         // head value is that of the previous block, i.e. curr_block.prev_hash
         let head = self.head()?;
         if head.prev_block_hash == CryptoHash::default() {
@@ -4330,20 +4311,11 @@ impl Chain {
             StateSnapshotType::EveryEpoch => is_epoch_boundary,
             // For resharding only, we snapshot if next block would be in a different shard layout
             StateSnapshotType::ForReshardingOnly => is_epoch_boundary && will_shard_layout_change,
-            // For every N blocks, we snapshot if next block would be in a different epoch
-            // OR if we have reached N blocks since the last snapshot
-            StateSnapshotType::EveryEpochAndNBlocks(n) => {
-                is_epoch_boundary || self.state_snapshot_helper.blocks_since_last_snapshot >= n
-            }
         };
 
         // We need to delete the existing snapshot at the epoch boundary if we are not making a new snapshot
         // This is useful for the next epoch after resharding where make_snapshot is false but it's an epoch boundary
         let delete_snapshot = !make_snapshot && is_epoch_boundary;
-
-        if make_snapshot {
-            self.state_snapshot_helper.blocks_since_last_snapshot = 0;
-        }
 
         Ok((make_snapshot, delete_snapshot))
     }
@@ -5513,9 +5485,9 @@ impl<'a> ChainUpdate<'a> {
 
         #[cfg(feature = "new_epoch_sync")]
         {
-            // BlockInfo should be already recorded in epoch_manager cache
+            // BlockInfo should be already recorded in epoch_manager cache because of `add_validator_proposals` call
             let block_info = self.epoch_manager.get_block_info(block.hash())?;
-            self.save_epoch_sync_info(block.header().epoch_id(), block.header(), &block_info)?;
+            self.save_epoch_sync_info(&block_info)?;
         }
 
         // Add validated block to the db, even if it's not the canonical fork.
@@ -5896,19 +5868,15 @@ impl<'a> ChainUpdate<'a> {
     /// If the block is the last one in the epoch
     /// construct and record `EpochSyncInfo` to `self.chain_store_update`.
     #[cfg(feature = "new_epoch_sync")]
-    fn save_epoch_sync_info(
-        &mut self,
-        epoch_id: &EpochId,
-        last_block_header: &BlockHeader,
-        last_block_info: &BlockInfo,
-    ) -> Result<(), Error> {
-        if self.epoch_manager.is_next_block_epoch_start(last_block_header.hash())? {
+    fn save_epoch_sync_info(&mut self, last_block_info: &BlockInfo) -> Result<(), Error> {
+        let epoch_id = last_block_info.epoch_id();
+        if self.epoch_manager.is_next_block_epoch_start(last_block_info.hash())? {
             let mut store_update = self.chain_store_update.store().store_update();
             store_update
                 .set_ser(
                     DBCol::EpochSyncInfo,
                     epoch_id.as_ref(),
-                    &self.create_epoch_sync_info(last_block_header, last_block_info)?,
+                    &self.create_epoch_sync_info(last_block_info)?,
                 )
                 .map_err(EpochError::from)?;
             self.chain_store_update.merge(store_update);
@@ -5916,9 +5884,14 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    /// Create a pair of `BlockHeader`s necessary to create `BlockInfo` for `block_hash`
+    /// Create a pair of `BlockHeader`s necessary to create `BlockInfo` for `block_hash`:
+    /// - header for `block_hash`
+    /// - header for `last_final_block` of `block_hash` header
     #[cfg(feature = "new_epoch_sync")]
-    fn get_header_pair(&self, block_hash: &CryptoHash) -> Result<BlockHeaderPair, Error> {
+    fn get_header_pair(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<(BlockHeader, BlockHeader), Error> {
         let header = self.chain_store_update.get_block_header(block_hash)?;
         // `block_hash` can correspond to genesis block, for which there is no last final block recorded,
         // because `last_final_block` for genesis is `CryptoHash::default()`
@@ -5932,25 +5905,87 @@ impl<'a> ChainUpdate<'a> {
                 self.chain_store_update.get_block_header(header.last_final_block())?
             }
         };
-        Ok(BlockHeaderPair { header, last_finalised_header })
+        Ok((header, last_finalised_header))
+    }
+
+    /// For epoch sync we need to save:
+    /// - first header of the epoch
+    /// - last header of the epoch
+    /// - prev last header of the epoch
+    /// - every header on chain from `last_final_block` to the end of the epoch
+    /// - (*) header of the `last_final_block` for each of previously mentioned headers
+    ///
+    /// Because headers may repeat between those points, we use one `HashMap` to store them indexed by hash.
+    ///
+    /// Headers not marked with (*) need to be saved on the syncing node.
+    /// Headers marked with (*) only needed for `EpochSyncInfo` validation.
+    #[cfg(feature = "new_epoch_sync")]
+    fn get_epoch_sync_info_headers(
+        &self,
+        last_block_info: &BlockInfo,
+    ) -> Result<(HashMap<CryptoHash, BlockHeader>, HashSet<CryptoHash>), Error> {
+        let mut headers = HashMap::new();
+        let mut headers_to_save = HashSet::new();
+
+        let mut add_header = |block_hash: &CryptoHash| -> Result<(), Error> {
+            let (header, last_finalised_header) = self.get_header_pair(block_hash)?;
+            headers.insert(*header.hash(), header);
+            headers.insert(*last_finalised_header.hash(), last_finalised_header);
+            headers_to_save.insert(*block_hash);
+            Ok(())
+        };
+
+        add_header(last_block_info.epoch_first_block())?;
+        add_header(last_block_info.hash())?;
+        add_header(last_block_info.prev_hash())?;
+
+        // If we didn't add `last_final_block_hash` yet, go down the chain until we find it.
+        if last_block_info.hash() != last_block_info.last_final_block_hash()
+            && last_block_info.prev_hash() != last_block_info.last_final_block_hash()
+        {
+            let mut current_header =
+                self.chain_store_update.get_block_header(last_block_info.prev_hash())?;
+            while current_header.hash() != last_block_info.last_final_block_hash() {
+                // This only should happen if BlockInfo data is incorrect.
+                // Without this assert same BlockInfo will cause infinite loop instead of crash with a message.
+                assert!(
+                    current_header.height() > last_block_info.last_finalized_height(),
+                    "Reached block at height {:?} with hash {:?} from {:?}",
+                    current_header.height(),
+                    current_header.hash(),
+                    last_block_info
+                );
+
+                // current_header was already added, as we start from current_header = prev_header.
+                current_header =
+                    self.chain_store_update.get_block_header(current_header.prev_hash())?;
+                add_header(current_header.hash())?;
+            }
+        }
+
+        Ok((headers, headers_to_save))
     }
 
     /// Data that is necessary to prove Epoch in new Epoch Sync.
     #[cfg(feature = "new_epoch_sync")]
-    fn create_epoch_sync_info(
-        &self,
-        last_block_header: &BlockHeader,
-        last_block_info: &BlockInfo,
-    ) -> Result<EpochSyncInfo, Error> {
-        let last = self.get_header_pair(last_block_header.hash())?;
-        let prev_last = self.get_header_pair(last_block_header.prev_hash())?;
-        let first = self.get_header_pair(last_block_info.epoch_first_block())?;
-        let epoch_info = self.epoch_manager.get_epoch_info(last_block_info.epoch_id())?;
+    fn create_epoch_sync_info(&self, last_block_info: &BlockInfo) -> Result<EpochSyncInfo, Error> {
+        let mut all_block_hashes = self.epoch_manager.get_all_epoch_hashes(last_block_info)?;
+        all_block_hashes.reverse();
+
+        let (headers, headers_to_save) = self.get_epoch_sync_info_headers(last_block_info)?;
+
+        let epoch_id = last_block_info.epoch_id();
+        let next_epoch_id = self.epoch_manager.get_next_epoch_id(last_block_info.hash())?;
+        let next_next_epoch_id = EpochId(*last_block_info.hash());
+
         Ok(EpochSyncInfo {
-            last,
-            prev_last,
-            first,
-            block_producers: epoch_info.validators_iter().collect(),
+            all_block_hashes,
+            headers,
+            headers_to_save,
+            epoch_info: (*self.epoch_manager.get_epoch_info(epoch_id)?).clone(),
+            next_epoch_info: (*self.epoch_manager.get_epoch_info(&next_epoch_id)?).clone(),
+            next_next_epoch_info: (*self.epoch_manager.get_epoch_info(&next_next_epoch_id)?)
+                .clone(),
         })
     }
 }

@@ -7,6 +7,7 @@ use crate::config::ActionCosts;
 use crate::num_rational::Rational32;
 use crate::types::{Balance, Gas};
 use enum_map::EnumMap;
+use near_account_id::AccountType;
 
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
@@ -203,28 +204,49 @@ impl StorageUsageConfig {
 
 /// Helper functions for computing Transfer fees.
 /// In case of implicit account creation they always include extra fees for the CreateAccount and
-/// AddFullAccessKey actions that are implicit.
+/// AddFullAccessKey (for NEAR-implicit account only) actions that are implicit.
 /// We can assume that no overflow will happen here.
-pub fn transfer_exec_fee(cfg: &RuntimeFeesConfig, is_receiver_implicit: bool) -> Gas {
-    if is_receiver_implicit {
-        cfg.fee(ActionCosts::create_account).exec_fee()
-            + cfg.fee(ActionCosts::add_full_access_key).exec_fee()
-            + cfg.fee(ActionCosts::transfer).exec_fee()
-    } else {
-        cfg.fee(ActionCosts::transfer).exec_fee()
+pub fn transfer_exec_fee(
+    cfg: &RuntimeFeesConfig,
+    implicit_account_creation_allowed: bool,
+    receiver_account_type: AccountType,
+) -> Gas {
+    let transfer_fee = cfg.fee(ActionCosts::transfer).exec_fee();
+    match (implicit_account_creation_allowed, receiver_account_type) {
+        // Regular transfer to a named account.
+        (_, AccountType::NamedAccount) => transfer_fee,
+        // No account will be created, just a regular transfer.
+        (false, _) => transfer_fee,
+        // Currently, no account is created on transfer to ETH-implicit account, just a regular transfer.
+        (true, AccountType::EthImplicitAccount) => transfer_fee,
+        // Extra fees for the CreateAccount and AddFullAccessKey.
+        (true, AccountType::NearImplicitAccount) => {
+            transfer_fee
+                + cfg.fee(ActionCosts::create_account).exec_fee()
+                + cfg.fee(ActionCosts::add_full_access_key).exec_fee()
+        }
     }
 }
 
 pub fn transfer_send_fee(
     cfg: &RuntimeFeesConfig,
     sender_is_receiver: bool,
-    is_receiver_implicit: bool,
+    implicit_account_creation_allowed: bool,
+    receiver_account_type: AccountType,
 ) -> Gas {
-    if is_receiver_implicit {
-        cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
-            + cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
-            + cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver)
-    } else {
-        cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver)
+    let transfer_fee = cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
+    match (implicit_account_creation_allowed, receiver_account_type) {
+        // Regular transfer to a named account.
+        (_, AccountType::NamedAccount) => transfer_fee,
+        // No account will be created, just a regular transfer.
+        (false, _) => transfer_fee,
+        // Currently, no account is created on transfer to ETH-implicit account, just a regular transfer.
+        (true, AccountType::EthImplicitAccount) => transfer_fee,
+        // Extra fees for the CreateAccount and AddFullAccessKey.
+        (true, AccountType::NearImplicitAccount) => {
+            transfer_fee
+                + cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
+                + cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)
+        }
     }
 }

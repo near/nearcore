@@ -81,7 +81,7 @@ Responsibilities:
 First, the `PeerManagerActor` actor gets started. `PeerManagerActor` opens the
 TCP server, which listens to incoming connections. It starts the
 `RoutingTableActor`, which then starts the `EdgeValidatorActor`. When
-a incoming connection gets accepted, it starts a new `PeerActor`
+an incoming connection gets accepted, it starts a new `PeerActor`
 on its own thread.
 
 # 4. NetworkConfig
@@ -93,7 +93,7 @@ Here is a list of features read from config:
 * `boot_nodes` - list of nodes to connect to on start.
 * `addr` - listening address.
 * `max_num_peers` - by default we connect up to 40 peers, current implementation
-  supports upto 128.
+  supports up to 128.
 
 # 5. Connecting to other peers.
 
@@ -389,8 +389,8 @@ Routing table computation does a few things:
 * Removes unreachable edges from memory and stores them to disk.
 * The distance is calculated as the minimum number of nodes on the path from
   given node `A`, to each other node on the network. That is, `A` has a distance
-  of `0` to itself. It's neighbors will have a distance of `1`. The neighbors of
-  theirs neighbors will have a distance of `2`, etc.
+  of `0` to itself. Its neighbors will have a distance of `1`. The neighbors of
+  their neighbors will have a distance of `2`, etc.
 
 ## 9.1 Step 1
 

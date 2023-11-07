@@ -1529,7 +1529,7 @@ mod tests {
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_primitives_core::config::{ExtCosts, ParameterCost};
-    use near_store::test_utils::create_tries;
+    use near_store::test_utils::TestTriesBuilder;
     use near_store::{set_access_key, ShardTries, StoreCompiledContractCache};
     use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -1563,7 +1563,7 @@ mod tests {
 
     #[test]
     fn test_get_and_set_accounts() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), MerkleHash::default());
         let test_account = account_new(to_yocto(10), hash(&[]));
@@ -1575,7 +1575,7 @@ mod tests {
 
     #[test]
     fn test_get_account_from_trie() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let root = MerkleHash::default();
         let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
         let test_account = account_new(to_yocto(10), hash(&[]));
@@ -1601,7 +1601,7 @@ mod tests {
         gas_limit: Gas,
     ) -> (Runtime, ShardTries, CryptoHash, ApplyState, Arc<InMemorySigner>, impl EpochInfoProvider)
     {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let root = MerkleHash::default();
         let runtime = Runtime::new();
         let account_id = alice_account();

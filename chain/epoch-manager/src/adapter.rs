@@ -376,6 +376,15 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<bool, EpochError>;
 
     fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError>;
+
+    /// Returns a vector of all hashes in the epoch ending with `last_block_info`.
+    /// Only return blocks on chain of `last_block_info`.
+    /// Hashes are returned in the order from the last block to the first block.
+    #[cfg(feature = "new_epoch_sync")]
+    fn get_all_epoch_hashes(
+        &self,
+        last_block_info: &BlockInfo,
+    ) -> Result<Vec<CryptoHash>, EpochError>;
 }
 
 impl EpochManagerAdapter for EpochManagerHandle {
@@ -943,5 +952,14 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.will_shard_layout_change(parent_hash)
+    }
+
+    #[cfg(feature = "new_epoch_sync")]
+    fn get_all_epoch_hashes(
+        &self,
+        last_block_info: &BlockInfo,
+    ) -> Result<Vec<CryptoHash>, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.get_all_epoch_hashes(last_block_info)
     }
 }

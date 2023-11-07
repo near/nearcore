@@ -36,6 +36,8 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use super::TrieRefcountDeltaMap;
+
 /// Trie key in nibbles corresponding to the right boundary for the last state part.
 /// Guaranteed to be bigger than any existing trie key.
 const LAST_STATE_PART_BOUNDARY: &[u8; 1] = &[16];
@@ -457,12 +459,12 @@ impl Trie {
         let path_end = trie.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
         let mut iterator = trie.iter()?;
         let trie_traversal_items = iterator.visit_nodes_interval(&path_begin, &path_end)?;
-        let mut map = HashMap::new();
+        let mut refcount_changes = TrieRefcountDeltaMap::new();
         let mut flat_state_delta = FlatStateChanges::default();
         let mut contract_codes = Vec::new();
         for TrieTraversalItem { hash, key } in trie_traversal_items {
             let value = trie.retrieve_value(&hash)?;
-            map.entry(hash).or_insert_with(|| (value.to_vec(), 0)).1 += 1;
+            refcount_changes.add(hash, value.to_vec(), 1);
             if let Some(trie_key) = key {
                 let flat_state_value = FlatStateValue::on_disk(&value);
                 flat_state_delta.insert(trie_key.clone(), Some(flat_state_value));
@@ -471,13 +473,14 @@ impl Trie {
                 }
             }
         }
-        let (insertions, deletions) = Trie::convert_to_insertions_and_deletions(map);
+        let (insertions, deletions) = refcount_changes.into_changes();
         Ok(ApplyStatePartResult {
             trie_changes: TrieChanges {
                 old_root: Trie::EMPTY_ROOT,
                 new_root: *state_root,
                 insertions,
                 deletions,
+                mem_trie_changes: None,
             },
             flat_state_delta,
             contract_codes,
@@ -506,6 +509,8 @@ impl Trie {
 mod tests {
     use assert_matches::assert_matches;
     use std::collections::{HashMap, HashSet};
+    use std::fmt::Debug;
+    use std::hash::Hash;
     use std::sync::Arc;
 
     use rand::prelude::ThreadRng;
@@ -514,11 +519,11 @@ mod tests {
 
     use near_primitives::hash::{hash, CryptoHash};
 
-    use crate::test_utils::{
-        create_tries, create_tries_with_flat_storage, gen_changes, test_populate_trie,
-    };
+    use crate::test_utils::{gen_changes, test_populate_trie, TestTriesBuilder};
     use crate::trie::iterator::CrumbStatus;
-    use crate::trie::{TrieRefcountChange, ValueHandle};
+    use crate::trie::{
+        TrieRefcountAddition, TrieRefcountDeltaMap, TrieRefcountSubtraction, ValueHandle,
+    };
 
     use super::*;
     use crate::{DBCol, MissingTrieValueContext, TrieCachingStorage};
@@ -541,7 +546,7 @@ mod tests {
         // that boundaries are nontrivial.
         let num_parts = 10u64;
 
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let state_root =
             test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), trie_changes);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
@@ -580,7 +585,7 @@ mod tests {
         // empty and other parts contain exactly one key.
         let num_parts = trie_changes.len() + 1;
 
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let state_root = test_populate_trie(
             &tries,
             &Trie::EMPTY_ROOT,
@@ -629,7 +634,7 @@ mod tests {
             })?;
             let mut insertions = insertions
                 .into_iter()
-                .map(|(k, (v, rc))| TrieRefcountChange {
+                .map(|(k, (v, rc))| TrieRefcountAddition {
                     trie_node_or_value_hash: k,
                     trie_node_or_value: v,
                     rc: std::num::NonZeroU32::new(rc).unwrap(),
@@ -641,6 +646,7 @@ mod tests {
                 new_root: *state_root,
                 insertions,
                 deletions: vec![],
+                mem_trie_changes: None,
             })
         }
 
@@ -815,7 +821,7 @@ mod tests {
         let max_part_overhead =
             big_value_length.max(max_key_length_in_nibbles * max_node_serialized_size * 2);
         let trie_changes = gen_trie_changes(&mut rng, max_key_length, big_value_length);
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let state_root =
             test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), trie_changes);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
@@ -881,31 +887,34 @@ mod tests {
             return TrieChanges::empty(Trie::EMPTY_ROOT);
         }
         let new_root = changes[0].new_root;
-        let mut map = HashMap::new();
+        let mut map = TrieRefcountDeltaMap::new();
         for changes_set in changes {
             assert!(changes_set.deletions.is_empty(), "state parts only have insertions");
-            for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
+            for TrieRefcountAddition { trie_node_or_value_hash, trie_node_or_value, rc } in
                 changes_set.insertions
             {
-                map.entry(trie_node_or_value_hash).or_insert_with(|| (trie_node_or_value, 0)).1 +=
-                    rc.get() as i32;
+                map.add(trie_node_or_value_hash, trie_node_or_value, rc.get());
             }
-            for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
-                changes_set.deletions
+            for TrieRefcountSubtraction { trie_node_or_value_hash, rc, .. } in changes_set.deletions
             {
-                map.entry(trie_node_or_value_hash).or_insert_with(|| (trie_node_or_value, 0)).1 -=
-                    rc.get() as i32;
+                map.subtract(trie_node_or_value_hash, rc.get());
             }
         }
-        let (insertions, deletions) = Trie::convert_to_insertions_and_deletions(map);
-        TrieChanges { old_root: Default::default(), new_root, insertions, deletions }
+        let (insertions, deletions) = map.into_changes();
+        TrieChanges {
+            old_root: Default::default(),
+            new_root,
+            insertions,
+            deletions,
+            mem_trie_changes: None,
+        }
     }
 
     #[test]
     fn test_combine_state_parts() {
         let mut rng = rand::thread_rng();
         for _ in 0..2000 {
-            let tries = create_tries();
+            let tries = TestTriesBuilder::new().build();
             let trie_changes = gen_changes(&mut rng, 20);
             let state_root = test_populate_trie(
                 &tries,
@@ -971,10 +980,7 @@ mod tests {
         }
     }
 
-    fn format_simple_trie_refcount_diff(
-        left: &[TrieRefcountChange],
-        right: &[TrieRefcountChange],
-    ) -> String {
+    fn format_simple_trie_refcount_diff<T: Hash + Debug + Eq>(left: &[T], right: &[T]) -> String {
         let left_set: HashSet<_> = HashSet::from_iter(left.iter());
         let right_set: HashSet<_> = HashSet::from_iter(right.iter());
         format!(
@@ -1031,7 +1037,7 @@ mod tests {
     /// Doesn't use FlatStorage.
     #[test]
     fn invalid_state_parts() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let shard_uid = ShardUId::single_shard();
         let part_id = PartId::new(1, 2);
         let trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
@@ -1106,7 +1112,7 @@ mod tests {
     fn test_get_trie_nodes_for_part() {
         let mut rng = rand::thread_rng();
         for _ in 0..20 {
-            let tries = create_tries();
+            let tries = TestTriesBuilder::new().build();
             let trie_changes = gen_changes(&mut rng, 10);
 
             let state_root = test_populate_trie(
@@ -1141,7 +1147,7 @@ mod tests {
     fn get_trie_nodes_for_part_with_flat_storage() {
         let value_len = 1000usize;
 
-        let tries = create_tries_with_flat_storage();
+        let tries = TestTriesBuilder::new().with_flat_storage().build();
         let shard_uid = ShardUId::single_shard();
         let block_hash = CryptoHash::default();
         let part_id = PartId::new(1, 3);

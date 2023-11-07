@@ -283,8 +283,6 @@ pub struct ClientConfig {
     pub state_sync_enabled: bool,
     /// Options for syncing state.
     pub state_sync: StateSyncConfig,
-    /// TODO (#9989): To be phased out in favor of state_snapshot_config
-    pub state_snapshot_every_n_blocks: Option<u64>,
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
     pub transaction_pool_size_limit: Option<u64>,
@@ -364,7 +362,6 @@ impl ClientConfig {
             flat_storage_creation_period: Duration::from_secs(1),
             state_sync_enabled,
             state_sync: StateSyncConfig::default(),
-            state_snapshot_every_n_blocks: None,
             transaction_pool_size_limit: None,
             enable_multiline_logging: false,
             state_split_config: StateSplitConfig::default(),

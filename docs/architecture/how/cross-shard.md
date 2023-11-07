@@ -1,7 +1,7 @@
 # Cross shard transactions - deep dive
 
 In this article, we'll look deeper into how cross-shard transactions are working
-on the simple example of user `shard0` transfering money to user `shard1`.
+on the simple example of user `shard0` transferring money to user `shard1`.
 
 These users are on separate shards (`shard0` is on shard 0 and `shard1` is on
 shard 1).
@@ -50,7 +50,7 @@ As the first step, we want to change this transaction into a Receipt (a.k.a
 * the message signature matches (that is - that this message was actually signed
   by this key)
 * that this key is authorized to act on behalf of that account (so it is a full
-  access key to this account - or a valid fuction key).
+  access key to this account - or a valid function key).
 
 The last point above means, that we MUST execute this (Transaction to Receipt)
 transition within the shard that the `signer` belongs to (as other shards don't
@@ -124,7 +124,7 @@ Chunk: Ok(
 ```
 
 **Side note:** When we're converting the transaction into a receipt, we also use
-this moment to deduct prepaid gas fees and transfered tokens from the 'signer'
+this moment to deduct prepaid gas fees and transferred tokens from the 'signer'
 account. The details on how much gas is charged can be found at https://nomicon.io/RuntimeSpec/Fees/.
 
 ## Step 2 - cross shard receipt
@@ -298,7 +298,7 @@ So putting it all together would look like this:
 But wait - NEAR was saying that transfers are happening with 2 blocks - but here
 I see that it took 3 blocks. What's wrong?
 
-The image above is a simplification, and reality is a little bit tricker -
+The image above is a simplification, and reality is a little bit trickier -
 especially as receipts in a given chunks are actually receipts received as a
 result from running a PREVIOUS chunk from this shard.
 
@@ -317,7 +317,7 @@ So our image should look more like this:
 In this example, the black boxes are representing the 'processing' of the chunk,
 and red arrows are cross-shard communication.
 
-So when we process Shard 0 from block 1676, we read the transation, and output
+So when we process Shard 0 from block 1676, we read the transaction, and output
 the receipt - which later becomes the input for shard 1 in block 1677.
 
 But you might still be wondering - so why didn't we add the Receipt (transfer)
@@ -337,4 +337,4 @@ result (receipt) into next block's chunk.
 <!-- TODO: maybe add the link to that article here? -->
 In a future article, we'll discuss how the actual cross-shard communication
 works (red arrows) in the picture, and how we could guarantee that a given shard
-really gets all the red arrows, before is starts processing.
+really gets all the red arrows, before it starts processing.
