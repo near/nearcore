@@ -100,7 +100,10 @@ following steps when creating a PR:
 need to pass before a PR can be merged.
 2. When all the comments from the reviewer(s) have been addressed, they should
 approve the PR allowing a PR to be merged.
-3. An approved PR can be merged by clicking the "Merge when ready" button.  The
+3. Before merging a PR, the code should be reviewed properly. In particular, the
+person who clicks "Merge when ready" has specific duties, exposed in the last
+paragraph of the "Code review process" section below.
+4. An approved PR can be merged by clicking the "Merge when ready" button.  The
 button can be clicked by the author if they have the appropriate access, or by a
 reviewer otherwise.  PR authors can also click the button immediately after filing
 a PR; removing an additional round-trip after the PR gets approved. The PR author
@@ -135,6 +138,16 @@ The candidate should have a good understanding of the codebase and then
 the existing super owners will discuss and approve the addition.  These
 discussions take place on zulip so if you are interested in becoming a
 code reviewer, please reach out to us there.
+
+The person who clicks the "Merge when ready" button is the one who
+guarantees that no unreviewed code was added between the approving review
+and the commit that is being landed. They must be especially careful of
+commits that might have happened before the review, but not have been
+reviewed (eg. because the review was already in progress), as they will
+show above the review line on the GitHub UI. In addition, not refreshing
+the page might lead to these commits just not displaying, so the reviewer
+should refresh the page both before and after clicking "Merge when ready,"
+and confirm that the commits are as expected.
 
 ## Release Schedule
 

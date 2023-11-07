@@ -9,10 +9,10 @@ use crate::{
 };
 use itertools::Itertools;
 use near_primitives::account::id::AccountId;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DataReceipt, Receipt, ReceiptEnum};
 use near_primitives::shard_layout::{ShardUId, ShardVersion};
-use near_primitives::state::{FlatStateValue, ValueRef};
+use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{NumShards, StateRoot};
 use rand::seq::SliceRandom;
@@ -174,9 +174,7 @@ pub fn test_populate_flat_storage(
             &mut store_update,
             shard_uid,
             key.clone(),
-            value.as_ref().map(|value| {
-                FlatStateValue::Ref(ValueRef { hash: hash(value), length: value.len() as u32 })
-            }),
+            value.as_ref().map(|value| FlatStateValue::on_disk(value)),
         );
     }
     store_update.commit().unwrap();

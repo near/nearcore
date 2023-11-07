@@ -1244,9 +1244,16 @@ pub mod epoch_sync {
         pub all_block_hashes: Vec<CryptoHash>,
         /// All headers relevant to epoch sync.
         /// Contains epoch headers that need to be saved + supporting headers needed for validation.
+        /// Probably contains one header from the previous epoch.
+        /// It refers to `last_final_block` of the first block of the epoch.
+        /// Also contains first header from the next epoch.
+        /// It refers to `next_epoch_first_hash`.
         pub headers: HashMap<CryptoHash, BlockHeader>,
         /// Hashes of headers that need to be validated and saved.
         pub headers_to_save: HashSet<CryptoHash>,
+        /// Hash of the first block of the next epoch.
+        /// Header of this block contains `epoch_sync_data_hash`.
+        pub next_epoch_first_hash: CryptoHash,
         pub epoch_info: EpochInfo,
         pub next_epoch_info: EpochInfo,
         pub next_next_epoch_info: EpochInfo,

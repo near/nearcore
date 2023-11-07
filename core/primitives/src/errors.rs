@@ -111,6 +111,8 @@ pub enum StorageError {
     /// We guarantee that such block cannot become final, thus block processing
     /// must resume normally.
     FlatStorageBlockNotSupported(String),
+    /// In-memory trie could not be loaded for some reason.
+    MemTrieLoadingError(String),
 }
 
 impl std::fmt::Display for StorageError {
