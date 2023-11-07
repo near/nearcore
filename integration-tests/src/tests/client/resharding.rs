@@ -20,7 +20,6 @@ use near_primitives::transaction::{
 use near_primitives::types::{BlockHeight, NumShards, ProtocolVersion, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolFeature;
-#[cfg(not(feature = "protocol_feature_simple_nightshade_v2"))]
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryRequest};
 use near_primitives_core::num_rational::Rational32;
@@ -48,6 +47,7 @@ const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion = PROTOCOL_VERSION 
 
 const P_CATCHUP: f64 = 0.2;
 
+#[derive(Clone, Copy)]
 enum ReshardingType {
     // In the V0->V1 resharding outgoing receipts are reassigned to receiver.
     V1,
@@ -166,6 +166,7 @@ struct TestReshardingEnv {
     epoch_length: u64,
     num_clients: usize,
     rng: StdRng,
+    resharding_type: Option<ReshardingType>,
 }
 
 impl TestReshardingEnv {
@@ -178,6 +179,7 @@ impl TestReshardingEnv {
         genesis_protocol_version: ProtocolVersion,
         rng_seed: u64,
         state_snapshot_enabled: bool,
+        resharding_type: Option<ReshardingType>,
     ) -> Self {
         let mut rng = SeedableRng::seed_from_u64(rng_seed);
         let validators: Vec<AccountId> =
@@ -225,6 +227,7 @@ impl TestReshardingEnv {
             init_txs: vec![],
             txs_by_height: BTreeMap::new(),
             rng,
+            resharding_type,
         }
     }
 
@@ -250,13 +253,13 @@ impl TestReshardingEnv {
         &mut self,
         drop_chunk_condition: &DropChunkCondition,
         protocol_version: ProtocolVersion,
-        resharding_type: &ReshardingType,
     ) {
         let env = &mut self.env;
         let head = env.clients[0].chain.head().unwrap();
         let next_height = head.height + 1;
-        let expected_num_shards =
-            get_expected_shards_num(self.epoch_length, next_height, resharding_type);
+        let expected_num_shards = self
+            .resharding_type
+            .map(|t| get_expected_shards_num(self.epoch_length, next_height, &t));
 
         tracing::debug!(target: "test", next_height, expected_num_shards, "step");
 
@@ -339,7 +342,9 @@ impl TestReshardingEnv {
                 .get_shard_layout_from_prev_block(block.header().prev_hash())
                 .unwrap()
                 .num_shards();
-            assert_eq!(num_shards, expected_num_shards);
+            if let Some(expected_num_shards) = expected_num_shards {
+                assert_eq!(num_shards, expected_num_shards);
+            }
         }
 
         env.process_partial_encoded_chunks();
@@ -890,6 +895,7 @@ fn test_shard_layout_upgrade_simple_impl(
         genesis_protocol_version,
         rng_seed,
         state_snapshot_enabled,
+        Some(resharding_type),
     );
     test_env.set_init_tx(vec![]);
 
@@ -917,7 +923,7 @@ fn test_shard_layout_upgrade_simple_impl(
 
     let drop_chunk_condition = DropChunkCondition::new();
     for _ in 1..4 * epoch_length {
-        test_env.step_impl(&drop_chunk_condition, target_protocol_version, &resharding_type);
+        test_env.step_impl(&drop_chunk_condition, target_protocol_version);
         test_env.check_receipt_id_to_shard_id();
         test_env.check_snapshot(state_snapshot_enabled);
     }
@@ -964,6 +970,7 @@ fn create_test_env_for_cross_contract_test(
     genesis_protocol_version: ProtocolVersion,
     epoch_length: u64,
     rng_seed: u64,
+    resharding_type: Option<ReshardingType>,
 ) -> TestReshardingEnv {
     TestReshardingEnv::new(
         epoch_length,
@@ -974,6 +981,7 @@ fn create_test_env_for_cross_contract_test(
         genesis_protocol_version,
         rng_seed,
         false,
+        resharding_type,
     )
 }
 
@@ -1197,14 +1205,18 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(
     let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
     let target_protocol_version = get_target_protocol_version(&resharding_type);
 
-    let mut test_env =
-        create_test_env_for_cross_contract_test(genesis_protocol_version, epoch_length, rng_seed);
+    let mut test_env = create_test_env_for_cross_contract_test(
+        genesis_protocol_version,
+        epoch_length,
+        rng_seed,
+        Some(resharding_type),
+    );
 
     let new_accounts = setup_test_env_with_cross_contract_txs(&mut test_env, epoch_length);
 
     let drop_chunk_condition = DropChunkCondition::new();
     for _ in 1..5 * epoch_length {
-        test_env.step_impl(&drop_chunk_condition, target_protocol_version, &resharding_type);
+        test_env.step_impl(&drop_chunk_condition, target_protocol_version);
         test_env.check_receipt_id_to_shard_id();
     }
 
@@ -1259,8 +1271,12 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(
     let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
     let target_protocol_version = get_target_protocol_version(&resharding_type);
 
-    let mut test_env =
-        create_test_env_for_cross_contract_test(genesis_protocol_version, epoch_length, rng_seed);
+    let mut test_env = create_test_env_for_cross_contract_test(
+        genesis_protocol_version,
+        epoch_length,
+        rng_seed,
+        Some(resharding_type),
+    );
 
     let new_accounts = setup_test_env_with_cross_contract_txs(&mut test_env, epoch_length);
 
@@ -1278,7 +1294,7 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(
     let by_height_shard_id = HashSet::from([(drop_height, drop_shard_id)]);
     let drop_chunk_condition = DropChunkCondition::with_by_height_shard_id(by_height_shard_id);
     for _ in 1..5 * epoch_length {
-        test_env.step_impl(&drop_chunk_condition, target_protocol_version, &resharding_type);
+        test_env.step_impl(&drop_chunk_condition, target_protocol_version);
         test_env.check_receipt_id_to_shard_id();
     }
 
@@ -1319,34 +1335,27 @@ fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_44() {
 
 // Test cross contract calls
 // This test case tests when there are missing chunks in the produced blocks
-// This is to test that all the chunk management logic in sharding split is correct
-fn test_shard_layout_upgrade_missing_chunks(
-    resharding_type: ReshardingType,
+// This is to test that all the chunk management logic is correct, e.g. inclusion of outgoing
+// receipts into next chunks
+fn test_missing_chunks(
+    test_env: &mut TestReshardingEnv,
     p_missing: f64,
-    rng_seed: u64,
+    target_protocol_version: ProtocolVersion,
+    epoch_length: u64,
 ) {
-    init_test_logger();
-
-    let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
-    let target_protocol_version = get_target_protocol_version(&resharding_type);
-    let epoch_length = 10;
-
-    let mut test_env =
-        create_test_env_for_cross_contract_test(genesis_protocol_version, epoch_length, rng_seed);
-
     // setup
-    let new_accounts = setup_test_env_with_cross_contract_txs(&mut test_env, epoch_length);
+    let new_accounts = setup_test_env_with_cross_contract_txs(test_env, epoch_length);
 
     // randomly dropping chunks at the first few epochs when sharding splits happens
     // make sure initial txs (deploy smart contracts) are processed succesfully
     let drop_chunk_condition = DropChunkCondition::new();
     for _ in 1..3 {
-        test_env.step_impl(&drop_chunk_condition, target_protocol_version, &resharding_type);
+        test_env.step_impl(&drop_chunk_condition, target_protocol_version);
     }
 
     let drop_chunk_condition = DropChunkCondition::with_probability(p_missing);
     for _ in 3..3 * epoch_length {
-        test_env.step_impl(&drop_chunk_condition, target_protocol_version, &resharding_type);
+        test_env.step_impl(&drop_chunk_condition, target_protocol_version);
         let last_height = test_env.env.clients[0].chain.head().unwrap().height;
         for height in last_height - 3..=last_height {
             test_env.check_next_block_with_new_chunk(height);
@@ -1357,7 +1366,7 @@ fn test_shard_layout_upgrade_missing_chunks(
     // make sure all included transactions finished processing
     let drop_chunk_condition = DropChunkCondition::new();
     for _ in 3 * epoch_length..5 * epoch_length {
-        test_env.step_impl(&drop_chunk_condition, target_protocol_version, &resharding_type);
+        test_env.step_impl(&drop_chunk_condition, target_protocol_version);
         let last_height = test_env.env.clients[0].chain.head().unwrap().height;
         for height in last_height - 3..=last_height {
             test_env.check_next_block_with_new_chunk(height);
@@ -1371,6 +1380,38 @@ fn test_shard_layout_upgrade_missing_chunks(
     test_env.check_accounts(new_accounts);
 
     test_env.check_split_states_artifacts();
+}
+
+fn test_shard_layout_upgrade_missing_chunks(
+    resharding_type: ReshardingType,
+    p_missing: f64,
+    rng_seed: u64,
+) {
+    init_test_logger();
+
+    let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
+    let target_protocol_version = get_target_protocol_version(&resharding_type);
+    let epoch_length = 10;
+
+    let mut test_env = create_test_env_for_cross_contract_test(
+        genesis_protocol_version,
+        epoch_length,
+        rng_seed,
+        Some(resharding_type),
+    );
+    test_missing_chunks(&mut test_env, p_missing, target_protocol_version, epoch_length)
+}
+
+// Use resharding setup to run protocol for couple epochs with given probability
+// of missing chunk. In particular, checks that all txs generated in env have
+// final outcome in the end.
+// TODO: remove logical dependency on resharding.
+fn test_latest_protocol_missing_chunks(p_missing: f64, rng_seed: u64) {
+    init_test_logger();
+    let epoch_length = 10;
+    let mut test_env =
+        create_test_env_for_cross_contract_test(PROTOCOL_VERSION, epoch_length, rng_seed, None);
+    test_missing_chunks(&mut test_env, p_missing, PROTOCOL_VERSION, epoch_length)
 }
 
 #[test]
@@ -1446,6 +1487,21 @@ fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_43() {
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_44() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 44);
+}
+
+#[test]
+fn test_latest_protocol_missing_chunks_low_missing_prob() {
+    test_latest_protocol_missing_chunks(0.1, 25);
+}
+
+#[test]
+fn test_latest_protocol_missing_chunks_mid_missing_prob() {
+    test_latest_protocol_missing_chunks(0.5, 26);
+}
+
+#[test]
+fn test_latest_protocol_missing_chunks_high_missing_prob() {
+    test_latest_protocol_missing_chunks(0.9, 27);
 }
 
 // TODO(resharding) add a test with missing blocks

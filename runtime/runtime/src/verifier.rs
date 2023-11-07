@@ -549,7 +549,7 @@ mod tests {
     };
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
-    use near_store::test_utils::create_tries;
+    use near_store::test_utils::TestTriesBuilder;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
     use crate::near_primitives::shard_layout::ShardUId;
@@ -591,7 +591,7 @@ mod tests {
         // account has data
         accounts: Vec<(AccountId, Balance, Balance, Vec<AccessKey>, bool, bool)>,
     ) -> (Arc<InMemorySigner>, TrieUpdate, Balance) {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let root = MerkleHash::default();
 
         let account_id = alice_account();

@@ -284,16 +284,16 @@ pub fn spawn_trie_metrics_loop(
 mod tests {
     use super::*;
     use near_primitives::trie_key::col;
-    use near_store::test_utils::create_tries;
     use near_store::test_utils::simplify_changes;
     use near_store::test_utils::test_populate_trie;
+    use near_store::test_utils::TestTriesBuilder;
 
     fn create_item(key: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
         (key.to_vec(), Some(vec![]))
     }
 
     fn create_trie(items: &[(Vec<u8>, Option<Vec<u8>>)]) -> Trie {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let shard_uid = ShardUId { version: 1, shard_id: 0 };
         let trie_changes = simplify_changes(&items);
         let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes);

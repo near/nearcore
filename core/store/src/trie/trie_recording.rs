@@ -28,8 +28,8 @@ impl TrieRecorder {
 #[cfg(test)]
 mod trie_recording_tests {
     use crate::test_utils::{
-        create_tries_complex_with_flat_storage, gen_larger_changes, simplify_changes,
-        test_populate_flat_storage, test_populate_trie,
+        gen_larger_changes, simplify_changes, test_populate_flat_storage, test_populate_trie,
+        TestTriesBuilder,
     };
     use crate::Trie;
     use near_primitives::hash::CryptoHash;
@@ -45,7 +45,7 @@ mod trie_recording_tests {
     fn test_trie_recording_consistency(enable_accounting_cache: bool, use_missing_keys: bool) {
         let mut rng = rand::thread_rng();
         for _ in 0..NUM_ITERATIONS_PER_TEST {
-            let tries = create_tries_complex_with_flat_storage(1, 2);
+            let tries = TestTriesBuilder::new().with_shard_layout(1, 2).with_flat_storage().build();
 
             let shard_uid = ShardUId { version: 1, shard_id: 0 };
             let trie_changes = gen_larger_changes(&mut rng, 50);
@@ -136,7 +136,7 @@ mod trie_recording_tests {
     ) {
         let mut rng = rand::thread_rng();
         for _ in 0..NUM_ITERATIONS_PER_TEST {
-            let tries = create_tries_complex_with_flat_storage(1, 2);
+            let tries = TestTriesBuilder::new().with_shard_layout(1, 2).with_flat_storage().build();
 
             let shard_uid = ShardUId { version: 1, shard_id: 0 };
             let trie_changes = gen_larger_changes(&mut rng, 50);
@@ -170,7 +170,7 @@ mod trie_recording_tests {
                 .collect::<Vec<_>>();
 
             // First, check that the trie is using flat storage, so that counters are all zero.
-            // Only use get_ref(), because get() will actually dereference values which can
+            // Only use get_optimized_ref(), because get() will actually dereference values which can
             // cause trie reads.
             let trie = tries.get_trie_with_block_hash_for_shard(
                 shard_uid,
@@ -179,7 +179,7 @@ mod trie_recording_tests {
                 false,
             );
             for key in &keys_to_test_with {
-                trie.get_ref(&key, crate::KeyLookupMode::FlatStorage).unwrap();
+                trie.get_optimized_ref(&key, crate::KeyLookupMode::FlatStorage).unwrap();
             }
             assert_eq!(trie.get_trie_nodes_count(), TrieNodesCount { db_reads: 0, mem_reads: 0 });
 

@@ -1,6 +1,7 @@
 use crate::client;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
+use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::{
     Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
 };
@@ -15,7 +16,7 @@ use crate::tcp;
 use crate::types::{
     ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
-    SetChainInfo,
+    SetChainInfo, SnapshotHostInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
@@ -25,10 +26,10 @@ use near_async::time;
 use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
-use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
-    RecentOutboundConnectionsView,
+    RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
 };
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
@@ -103,7 +104,6 @@ pub enum Event {
     PeerManagerStarted,
     ServerStarted,
     RoutedMessageDropped,
-    AccountsAdded(Vec<AnnounceAccount>),
     EdgesAdded(Vec<Edge>),
     Ping(Ping),
     Pong(Pong),
@@ -650,6 +650,7 @@ impl PeerManagerActor {
         let tier2 = self.state.tier2.load();
         let now = self.clock.now();
         let graph = self.state.graph.load();
+        let accounts_data = self.state.accounts_data.load();
         let connected_peer = |cp: &Arc<connection::Connection>| ConnectedPeerInfo {
             full_peer_info: cp.full_peer_info(),
             received_bytes_per_sec: cp.stats.received_bytes_per_sec.load(Ordering::Relaxed),
@@ -679,21 +680,27 @@ impl PeerManagerActor {
                 .values()
                 .map(|x| x.stats.received_bytes_per_sec.load(Ordering::Relaxed))
                 .sum(),
-            known_producers: self
-                .state
-                .account_announcements
-                .get_announcements()
-                .into_iter()
-                .map(|announce_account| KnownProducer {
-                    account_id: announce_account.account_id,
-                    peer_id: announce_account.peer_id.clone(),
-                    // TODO: fill in the address.
-                    addr: None,
-                    next_hops: self.state.graph.routing_table.view_route(&announce_account.peer_id),
+            known_producers: accounts_data
+                .keys_by_id
+                .iter()
+                .filter_map(|(account_id, account_keys)| {
+                    let peer_id = account_keys
+                        .iter()
+                        .flat_map(|key| accounts_data.data.get(key))
+                        .next()
+                        .map(|data| data.peer_id.clone())?;
+                    let next_hops = self.state.graph.routing_table.view_route(&peer_id);
+                    Some(KnownProducer {
+                        account_id: account_id.clone(),
+                        peer_id,
+                        // TODO: fill in the address.
+                        addr: None,
+                        next_hops,
+                    })
                 })
                 .collect(),
-            tier1_accounts_keys: self.state.accounts_data.load().keys.iter().cloned().collect(),
-            tier1_accounts_data: self.state.accounts_data.load().data.values().cloned().collect(),
+            tier1_accounts_keys: accounts_data.keys.iter().cloned().collect(),
+            tier1_accounts_data: accounts_data.data.values().cloned().collect(),
         }
     }
 
@@ -724,7 +731,7 @@ impl PeerManagerActor {
     fn handle_msg_network_requests(
         &mut self,
         msg: NetworkRequests,
-        ctx: &mut actix::Context<Self>,
+        _ctx: &mut actix::Context<Self>,
     ) -> NetworkResponses {
         let msg_type: &str = msg.as_ref();
         let _span =
@@ -783,15 +790,24 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::BanPeer { peer_id, ban_reason } => {
-                self.state.disconnect_and_ban(&self.clock, &peer_id, ban_reason);
+            NetworkRequests::SnapshotHostInfo { sync_hash, epoch_height, shards } => {
+                // Sign the information about the locally created snapshot using the keys in the
+                // network config before broadcasting it
+                let snapshot_host_info = SnapshotHostInfo::new(
+                    self.state.config.node_id(),
+                    sync_hash,
+                    epoch_height,
+                    shards,
+                    &self.state.config.node_key,
+                );
+
+                self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncSnapshotHosts(
+                    SyncSnapshotHosts { hosts: vec![snapshot_host_info.into()] },
+                )));
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::AnnounceAccount(announce_account) => {
-                let state = self.state.clone();
-                ctx.spawn(wrap_future(async move {
-                    state.add_accounts(vec![announce_account]).await;
-                }));
+            NetworkRequests::BanPeer { peer_id, ban_reason } => {
+                self.state.disconnect_and_ban(&self.clock, &peer_id, ban_reason);
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedChunkRequest { target, request, create_time } => {
@@ -1072,6 +1088,20 @@ impl actix::Handler<GetDebugStatus> for PeerManagerActor {
                 })
             }
             GetDebugStatus::Routes => DebugStatus::Routes(self.state.graph_v2.get_debug_view()),
+            GetDebugStatus::SnapshotHosts => DebugStatus::SnapshotHosts(SnapshotHostsView {
+                hosts: self
+                    .state
+                    .snapshot_hosts
+                    .get_hosts()
+                    .iter()
+                    .map(|h| SnapshotHostInfoView {
+                        peer_id: h.peer_id.clone(),
+                        sync_hash: h.sync_hash,
+                        epoch_height: h.epoch_height,
+                        shards: h.shards.clone(),
+                    })
+                    .collect::<Vec<_>>(),
+            }),
         }
     }
 }

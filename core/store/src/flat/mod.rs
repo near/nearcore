@@ -32,6 +32,8 @@ mod manager;
 mod metrics;
 mod storage;
 pub mod store_helper;
+#[cfg(test)]
+pub mod test_utils;
 mod types;
 
 pub use chunk_view::FlatStorageChunkView;

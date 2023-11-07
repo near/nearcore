@@ -3,6 +3,7 @@ use super::*;
 
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::proto::{self};
+use crate::network_protocol::state_sync::{SnapshotHostInfo, SyncSnapshotHosts};
 use crate::network_protocol::{
     AdvertisedPeerDistance, Disconnect, DistanceVector, PeerMessage, PeersRequest, PeersResponse,
     RoutingTableUpdate, SyncAccountsData,
@@ -162,6 +163,71 @@ impl TryFrom<&proto::StateResponseInfo> for StateResponseInfo {
 
 //////////////////////////////////////////
 
+#[derive(thiserror::Error, Debug)]
+pub enum ParseSnapshotHostInfoError {
+    #[error("peer_id {0}")]
+    PeerId(ParseRequiredError<ParsePublicKeyError>),
+    #[error("sync_hash {0}")]
+    SyncHash(ParseRequiredError<ParseCryptoHashError>),
+    #[error("signature {0}")]
+    Signature(ParseRequiredError<ParseSignatureError>),
+}
+
+impl From<&SnapshotHostInfo> for proto::SnapshotHostInfo {
+    fn from(x: &SnapshotHostInfo) -> Self {
+        Self {
+            peer_id: MF::some((&x.peer_id).into()),
+            sync_hash: MF::some((&x.sync_hash).into()),
+            epoch_height: x.epoch_height,
+            shards: x.shards.clone(),
+            signature: MF::some((&x.signature).into()),
+            ..Default::default()
+        }
+    }
+}
+
+impl TryFrom<&proto::SnapshotHostInfo> for SnapshotHostInfo {
+    type Error = ParseSnapshotHostInfoError;
+    fn try_from(x: &proto::SnapshotHostInfo) -> Result<Self, Self::Error> {
+        Ok(Self {
+            peer_id: try_from_required(&x.peer_id).map_err(Self::Error::PeerId)?,
+            sync_hash: try_from_required(&x.sync_hash).map_err(Self::Error::SyncHash)?,
+            epoch_height: x.epoch_height,
+            shards: x.shards.clone(),
+            signature: try_from_required(&x.signature).map_err(Self::Error::Signature)?,
+        })
+    }
+}
+
+//////////////////////////////////////////
+
+#[derive(thiserror::Error, Debug)]
+pub enum ParseSyncSnapshotHostsError {
+    #[error("hosts {0}")]
+    Hosts(ParseVecError<ParseSnapshotHostInfoError>),
+}
+
+impl From<&SyncSnapshotHosts> for proto::SyncSnapshotHosts {
+    fn from(x: &SyncSnapshotHosts) -> Self {
+        Self { hosts: x.hosts.iter().map(|d| d.as_ref().into()).collect(), ..Default::default() }
+    }
+}
+
+impl TryFrom<&proto::SyncSnapshotHosts> for SyncSnapshotHosts {
+    type Error = ParseSyncSnapshotHostsError;
+    fn try_from(x: &proto::SyncSnapshotHosts) -> Result<Self, Self::Error> {
+        Ok(Self {
+            hosts: try_from_slice(&x.hosts)
+                .map_err(Self::Error::Hosts)?
+                .into_iter()
+                .map(Arc::new)
+                .collect(),
+        })
+    }
+}
+
+//////////////////////////////////////////
+
 impl From<&PeerMessage> for proto::PeerMessage {
     fn from(x: &PeerMessage) -> Self {
         Self {
@@ -243,6 +309,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     borsh: borsh::to_vec(&r).unwrap(),
                     ..Default::default()
                 }),
+                PeerMessage::SyncSnapshotHosts(ssh) => ProtoMT::SyncSnapshotHosts(ssh.into()),
                 PeerMessage::StateRequestHeader(shard_id, sync_hash) => {
                     ProtoMT::StateRequestHeader(proto::StateRequestHeader {
                         shard_id: *shard_id,
@@ -317,6 +384,8 @@ pub enum ParsePeerMessageError {
     SyncAccountsData(ParseVecError<ParseSignedAccountDataError>),
     #[error("state_response: {0}")]
     StateResponse(ParseRequiredError<ParseStateInfoError>),
+    #[error("sync_snapshot_hosts: {0}")]
+    SyncSnapshotHosts(ParseSyncSnapshotHostsError),
 }
 
 impl TryFrom<&proto::PeerMessage> for PeerMessage {
@@ -414,6 +483,9 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ),
             ProtoMT::StateResponse(t) => PeerMessage::VersionedStateResponse(
                 try_from_required(&t.state_response_info).map_err(Self::Error::StateResponse)?,
+            ),
+            ProtoMT::SyncSnapshotHosts(srh) => PeerMessage::SyncSnapshotHosts(
+                srh.try_into().map_err(Self::Error::SyncSnapshotHosts)?,
             ),
         })
     }

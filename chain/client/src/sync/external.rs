@@ -354,7 +354,7 @@ mod test {
     /// This test should be ignored by default, as it requires gcloud credentials to run.
     /// Specify the path to service account json  in `SERVICE_ACCOUNT` variable to run the test.
     #[test]
-    #[ignore]
+    #[cfg_attr(not(feature = "gcs_credentials"), ignore)]
     fn test_gcs_upload_list_download() {
         init_test_logger();
         let rt = tokio::runtime::Runtime::new().unwrap();

@@ -304,7 +304,7 @@ function Page() {
         <div className="explanation">Skipped chunks have grey background.</div>
         <div className="explanation">
             Red text means that we don't know this producer
-            (it's not present in our announce account list).
+            (we haven't received the account data).
         </div>
         {error && <div className="error">{error.stack}</div>}
         <div className="missed-blocks">

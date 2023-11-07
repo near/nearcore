@@ -248,7 +248,7 @@ mod tests {
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{Action, TransferAction};
     use near_primitives::types::{MerkleHash, StateChangeCause};
-    use near_store::test_utils::create_tries;
+    use near_store::test_utils::TestTriesBuilder;
     use near_store::{set_account, Trie};
     use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -263,7 +263,7 @@ mod tests {
 
     #[test]
     fn test_check_balance_no_op() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let root = MerkleHash::default();
         let final_state = tries.new_trie_update(ShardUId::single_shard(), root);
         check_balance(
@@ -280,7 +280,7 @@ mod tests {
 
     #[test]
     fn test_check_balance_unaccounted_refund() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let root = MerkleHash::default();
         let final_state = tries.new_trie_update(ShardUId::single_shard(), root);
         let err = check_balance(
@@ -300,7 +300,7 @@ mod tests {
         set_initial_state: impl FnOnce(&mut TrieUpdate),
         set_final_state: impl FnOnce(&mut TrieUpdate),
     ) -> TrieUpdate {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let shard_uid = ShardUId::single_shard();
 
         // Commit initial state
@@ -429,7 +429,7 @@ mod tests {
 
     #[test]
     fn test_total_balance_overflow_returns_unexpected_overflow() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let root = MerkleHash::default();
         let alice_id = alice_account();
         let bob_id = bob_account();

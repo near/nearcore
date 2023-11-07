@@ -1,36 +1,30 @@
 use assert_matches::assert_matches;
-
-use near_async::messaging::CanSend;
-use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_primitives::test_utils::create_test_signer;
-
 use near_chain::validate::validate_challenge;
-use near_chain::{Block, Chain, ChainGenesis, ChainStoreAccess, Error, Provenance};
+use near_chain::{Block, ChainGenesis, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::ShardsManager;
 use near_client::test_utils::{create_chunk, create_chunk_with_transactions, TestEnv};
 use near_client::{Client, ProcessTxResponse};
-use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_network::test_utils::MockPeerManagerAdapter;
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::NetworkRequests;
-use near_o11y::testonly::init_test_logger;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk, PartialState,
     TrieValue,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
+use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::num_rational::Ratio;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, EpochId};
+use near_primitives::types::AccountId;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Trie;
-use nearcore::config::{GenesisExt, FISHERMEN_THRESHOLD};
+use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::sync::Arc;
 
@@ -515,61 +509,6 @@ fn test_verify_chunk_invalid_state_challenge() {
     }
 }
 
-/// Receive invalid state transition in chunk as next chunk producer.
-/// TODO(2445): Enable challenges when they are working correctly.
-#[test]
-#[ignore]
-fn test_receive_invalid_chunk_as_chunk_producer() {
-    init_test_logger();
-    let mut env = TestEnv::builder(ChainGenesis::test()).clients_count(2).build();
-    env.produce_block(0, 1);
-    let block1 = env.clients[0].chain.get_block_by_height(1).unwrap();
-    env.process_block(1, block1, Provenance::NONE);
-    let (chunk, merkle_paths, receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
-    let client = &mut env.clients[0];
-    assert!(client
-        .persist_and_distribute_encoded_chunk(
-            chunk.clone(),
-            merkle_paths.clone(),
-            receipts.clone(),
-            client.validator_signer.as_ref().unwrap().validator_id().clone()
-        )
-        .is_err());
-    let result = client.process_block_test(block.clone().into(), Provenance::NONE);
-    // We have declined block with invalid chunk.
-    assert!(result.is_err());
-    assert_eq!(client.chain.head().unwrap().height, 1);
-    // But everyone who doesn't track this shard have accepted.
-    let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
-    let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
-    let (_receipts_root, receipts_proofs) = merklize(&receipts_hashes);
-    let receipts_by_shard = Chain::group_receipts_by_shard(receipts, &shard_layout);
-    let one_part_receipt_proofs = ShardsManager::receipts_recipient_filter(
-        0,
-        Vec::default(),
-        &receipts_by_shard,
-        &receipts_proofs,
-    );
-
-    let partial_encoded_chunk = chunk.create_partial_encoded_chunk(
-        vec![0],
-        one_part_receipt_proofs,
-        &[merkle_paths[0].clone()],
-    );
-    env.shards_manager_adapters[1]
-        .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk));
-    env.process_block(1, block, Provenance::NONE);
-
-    // At this point we should create a challenge and send it out.
-    let last_message = env.network_adapters[0].pop().unwrap().as_network_requests();
-    // The other client processes challenge and invalidates the chain.
-    if let NetworkRequests::Challenge(challenge) = last_message {
-        assert_eq!(env.clients[1].chain.head().unwrap().height, 2);
-        assert!(env.clients[1].process_challenge(challenge).is_ok());
-        assert_eq!(env.clients[1].chain.head().unwrap().height, 1);
-    }
-}
-
 /// Receive invalid state transition in chunk as a validator / non-producer.
 #[test]
 fn test_receive_invalid_chunk_as_validator() {}
@@ -581,160 +520,3 @@ fn test_receive_two_chunks_from_one_producer() {}
 /// Receive two different blocks from the same block producer.
 #[test]
 fn test_receive_two_blocks_from_one_producer() {}
-
-/// Receive challenges in the blocks.
-/// TODO(2445): Enable challenges when they are working correctly.
-#[test]
-#[ignore]
-fn test_block_challenge() {
-    init_test_logger();
-    let mut env = TestEnv::builder(ChainGenesis::test()).build();
-    env.produce_block(0, 1);
-    let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
-
-    let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
-    let shard_id = chunk.cloned_header().shard_id();
-    let challenge = Challenge::produce(
-        ChallengeBody::ChunkProofs(ChunkProofs {
-            block_header: borsh::to_vec(&block.header()).unwrap(),
-            chunk: MaybeEncodedShardChunk::Encoded(chunk),
-            merkle_proof: merkle_paths[shard_id as usize].clone(),
-        }),
-        &*env.clients[0].validator_signer.as_ref().unwrap().clone(),
-    );
-    env.clients[0].process_challenge(challenge.clone()).unwrap();
-    env.produce_block(0, 2);
-    assert_eq!(env.clients[0].chain.get_block_by_height(2).unwrap().challenges(), &[challenge]);
-    assert!(env.clients[0].chain.mut_store().is_block_challenged(block.hash()).unwrap());
-}
-
-/// Make sure that fisherman can initiate challenges while an account that is neither a fisherman nor
-/// a validator cannot.
-// TODO(2445): Enable challenges when they are working correctly.
-#[test]
-#[ignore]
-fn test_fishermen_challenge() {
-    init_test_logger();
-    let mut genesis = Genesis::test(
-        vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()],
-        1,
-    );
-    genesis.config.epoch_length = 5;
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .clients_count(3)
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
-    let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
-    let genesis_hash = *env.clients[0].chain.genesis().hash();
-    let stake_transaction = SignedTransaction::stake(
-        1,
-        "test1".parse().unwrap(),
-        &signer,
-        FISHERMEN_THRESHOLD,
-        signer.public_key(),
-        genesis_hash,
-    );
-    assert_eq!(
-        env.clients[0].process_tx(stake_transaction, false, false),
-        ProcessTxResponse::ValidTx
-    );
-    for i in 1..=11 {
-        env.produce_block(0, i);
-    }
-
-    let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
-
-    let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
-    let shard_id = chunk.cloned_header().shard_id();
-    let challenge_body = ChallengeBody::ChunkProofs(ChunkProofs {
-        block_header: borsh::to_vec(&block.header()).unwrap(),
-        chunk: MaybeEncodedShardChunk::Encoded(chunk),
-        merkle_proof: merkle_paths[shard_id as usize].clone(),
-    });
-    let challenge = Challenge::produce(
-        challenge_body.clone(),
-        &*env.clients[1].validator_signer.as_ref().unwrap().clone(),
-    );
-    let challenge1 = Challenge::produce(
-        challenge_body,
-        &*env.clients[2].validator_signer.as_ref().unwrap().clone(),
-    );
-    assert!(env.clients[0].process_challenge(challenge1).is_err());
-    env.clients[0].process_challenge(challenge.clone()).unwrap();
-    env.produce_block(0, 12);
-    assert_eq!(env.clients[0].chain.get_block_by_height(12).unwrap().challenges(), &[challenge]);
-    assert!(env.clients[0].chain.mut_store().is_block_challenged(block.hash()).unwrap());
-}
-
-/// If there are two blocks produced at the same height but by different block producers, no
-/// challenge should be generated
-#[test]
-// Something weird happens here. For len_in_blocks = 13 this test passes for versions up to 49,
-// but fails for version 50 (because of chunk validator sampling changes). But if we set it to 20,
-// it fails for version 49 as well
-#[ignore]
-fn test_challenge_in_different_epoch() {
-    init_test_logger();
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
-    genesis.config.epoch_length = 3;
-    //    genesis.config.validator_kickout_threshold = 10;
-    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.epoch_length = 3;
-
-    let mut env = TestEnv::builder(chain_genesis)
-        .clients_count(2)
-        .validator_seats(2)
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .network_adapters(vec![network_adapter.clone(), network_adapter.clone()])
-        .build();
-
-    let mut fork_blocks = vec![];
-    let len_in_blocks = 13;
-    for h in 1..len_in_blocks {
-        if let Some(block) = env.clients[0].produce_block(h).unwrap() {
-            env.process_block(0, block, Provenance::PRODUCED);
-        }
-        if let Some(block) = env.clients[1].produce_block(h).unwrap() {
-            env.process_block(1, block.clone(), Provenance::PRODUCED);
-            fork_blocks.push(block);
-        }
-    }
-
-    let fork1_block = env.clients[0].produce_block(len_in_blocks).unwrap().unwrap();
-    env.process_block(0, fork1_block, Provenance::PRODUCED);
-    let fork2_block = env.clients[1].produce_block(len_in_blocks).unwrap().unwrap();
-    fork_blocks.push(fork2_block);
-    for block in fork_blocks {
-        let height = block.header().height();
-        let result = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-        let len = network_adapter.requests.write().unwrap().len();
-        for _ in 0..len {
-            match network_adapter
-                .requests
-                .write()
-                .unwrap()
-                .pop_front()
-                .map(|f| f.as_network_requests())
-            {
-                Some(NetworkRequests::Challenge(_)) => {
-                    panic!("Unexpected challenge");
-                }
-                Some(_) => {}
-                None => break,
-            }
-        }
-        if height < len_in_blocks {
-            assert!(result.is_ok());
-        } else {
-            if let Err(e) = result {
-                match e {
-                    Error::ChunksMissing(_) => {}
-                    _ => panic!("unexpected error: {}", e),
-                }
-            }
-        }
-    }
-}

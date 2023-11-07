@@ -25,8 +25,6 @@ expensive --timeout=1800 near-client near_client tests::catching_up::test_all_ch
 expensive --timeout=1800 near-client near_client tests::catching_up::test_all_chunks_accepted_1000_rare_epoch_changing --features nightly
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_hold
 expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_receipts_sync_hold --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::test_chunk_grieving
-expensive --timeout=1800 near-client near_client tests::catching_up::test_chunk_grieving --features nightly
 
 expensive integration-tests integration_tests tests::test_catchup::test_catchup
 expensive integration-tests integration_tests tests::test_catchup::test_catchup --features nightly
@@ -128,6 +126,8 @@ expensive --timeout=600 near-chain near_chain tests::gc::test_gc_pine --features
 expensive --timeout=700 near-chain near_chain tests::gc::test_gc_star_large
 expensive --timeout=700 near-chain near_chain tests::gc::test_gc_star_large --features nightly
 
+expensive integration-tests integration_tests tests::client::block_corruption::check_process_flipped_block_fails
+expensive integration-tests integration_tests tests::client::block_corruption::check_process_flipped_block_fails --features nightly
 expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full
 expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full --features nightly
 expensive integration-tests integration_tests tests::client::chunks_management::chunks_recovered_from_full_cop

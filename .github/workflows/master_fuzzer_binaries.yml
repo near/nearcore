@@ -1,4 +1,4 @@
-name: Build fuzz targets from master
+name: Fuzz Master
 on:
   push:
     branches:
@@ -6,6 +6,7 @@ on:
 
 jobs:
   build_fuzzers:
+    name: Build Fuzzers
     runs-on: "ubuntu-22.04-16core"
 
     permissions:
@@ -23,17 +24,6 @@ jobs:
         run: |
           rustup install nightly
           rustup default nightly
-
-      - name: Set swap to 10G
-        shell: bash
-        run: |
-          export SWAP_FILE=$(swapon --show=NAME | tail -n 1)
-          sudo swapoff $SWAP_FILE
-          sudo rm $SWAP_FILE
-          sudo fallocate -l 10G $SWAP_FILE
-          sudo chmod 600 $SWAP_FILE
-          sudo mkswap $SWAP_FILE
-          sudo swapon $SWAP_FILE
 
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
