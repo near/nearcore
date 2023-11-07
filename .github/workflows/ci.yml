@@ -17,7 +17,7 @@ jobs:
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
-          shared-key: "cargo_nextest"
+          shared-key: "cargo_nextest-linux"
           save-if: "false" # use the cache from nextest, but don’t double-save
       - run: cargo build --locked --profile quick-release -p neard --bin neard
       - uses: actions/upload-artifact@v3
@@ -35,12 +35,15 @@ jobs:
       matrix:
         include:
           - name: Linux
+            cache_id: linux
             os: ubuntu-22.04-16core
             flags: ""
           - name: Linux Nightly
+            cache_id: linux
             os: ubuntu-22.04-16core
             flags: "--features nightly,test_features"
           - name: MacOS
+            cache_id: macos
             os: macos-latest-xlarge
             # FIXME: some of these tests don't work very well on MacOS at the moment. Should fix
             # them at earliest convenience :)
@@ -61,6 +64,7 @@ jobs:
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
+          shared-key: "cargo_nextest-${{ matrix.cache_id }}"
       - run: cargo nextest run --locked --workspace -p '*' --cargo-profile quick-release --profile ci ${{ matrix.flags }}
         env:
           RUST_BACKTRACE: short
@@ -135,7 +139,7 @@ jobs:
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
-          shared-key: "cargo_nextest"
+          shared-key: "cargo_nextest-linux"
           save-if: "false" # use the cache from nextest, but don’t double-save
       - run: pip3 install --user -r pytest/requirements.txt
       # This is the only job that uses `--features nightly` so we build this in-line instead of a
@@ -212,7 +216,7 @@ jobs:
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
-          shared-key: "cargo_nextest"
+          shared-key: "cargo_nextest-linux"
           save-if: "false" # use the cache from nextest, but don’t double-save
       - run: ./chain/jsonrpc/build_errors_schema.sh
       - run: git diff --quiet ./chain/jsonrpc/res/rpc_errors_schema.json || exit 1
