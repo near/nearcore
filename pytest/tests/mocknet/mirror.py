@@ -426,7 +426,7 @@ def neard_runner_update_binaries(node):
 
 
 def update_binaries_cmd(args, traffic_generator, nodes):
-    pmap(neard_runner_update_binaries, nodes)
+    pmap(neard_runner_update_binaries, nodes + [traffic_generator])
 
 
 if __name__ == '__main__':
@@ -462,8 +462,6 @@ if __name__ == '__main__':
         --set 'aaa.bbb.ddd={"eee":6,"fff":"7"}' # no spaces!
         ''',
     )
-    update_config_parser.set_defaults(func=update_config_cmd)
-
     update_config_parser.set_defaults(func=update_config_cmd)
 
     restart_parser = subparsers.add_parser(
