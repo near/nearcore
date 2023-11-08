@@ -59,6 +59,8 @@ class JSONHandler(http.server.BaseHTTPRequestHandler):
         self.dispatcher.add_method(server.neard_runner.do_start, name="start")
         self.dispatcher.add_method(server.neard_runner.do_stop, name="stop")
         self.dispatcher.add_method(server.neard_runner.do_reset, name="reset")
+        self.dispatcher.add_method(server.neard_runner.do_update_binaries,
+                                   name="update_binaries")
         super().__init__(request, client_address, server)
 
     def do_GET(self):
@@ -189,7 +191,8 @@ class NeardRunner:
             'system_path']
 
     # tries to download the binaries specified in config.json, saving them in $home/binaries/
-    def download_binaries(self):
+    # if force is set to true all binaries will be downloaded, otherwise only the missing ones
+    def download_binaries(self, force):
         binaries = self.parse_binaries_config()
 
         try:
@@ -197,13 +200,19 @@ class NeardRunner:
         except FileExistsError:
             pass
 
-        with self.lock:
-            num_binaries_saved = len(self.data['binaries'])
+        if force:
+            # always start from 0 and download all binaries
+            start_index = 0
+        else:
+            # start at the index of the first missing binary
+            # typically it's all or nothing
+            with self.lock:
+                start_index = len(self.data['binaries'])
 
         # for now we assume that the binaries recorded in data.json as having been
         # dowloaded are still valid and were not touched. Also this assumes that their
         # filenames are neard0, neard1, etc. in the right order and with nothing skipped
-        for i in range(num_binaries_saved, len(binaries)):
+        for i in range(start_index, len(binaries)):
             b = binaries[i]
             logging.info(f'downloading binary from {b["url"]}')
             with open(b['system_path'], 'wb') as f:
@@ -376,22 +385,24 @@ class NeardRunner:
                         'protocol_version': protocol_version,
                     }, f)
 
-    def do_update_config(self, state_cache_size_mb, state_snapshot_enabled):
+    def do_update_config(self, key_value):
         with self.lock:
-            logging.info(
-                f'updating config with state_cache_size_mb={state_cache_size_mb} state_snapshot_enabled={state_snapshot_enabled}'
-            )
+            logging.info(f'updating config with {key_value}')
             with open(self.target_near_home_path('config.json'), 'r') as f:
                 config = json.load(f)
 
-            config['store']['trie_cache']['per_shard_max_bytes'] = {}
-            if state_cache_size_mb is not None:
-                for i in range(4):
-                    config['store']['trie_cache']['per_shard_max_bytes'][
-                        f's{i}.v1'] = state_cache_size_mb * 10**6
-            if state_snapshot_enabled is not None:
-                key = 'state_snapshot_enabled'
-                config['store'][key] = state_snapshot_enabled
+            [key, value] = key_value.split("=", 1)
+            key_item_list = key.split(".")
+
+            object = config
+            for key_item in key_item_list[:-1]:
+                if key_item not in object:
+                    object[key_item] = {}
+                object = object[key_item]
+
+            value = json.loads(value)
+
+            object[key_item_list[-1]] = value
 
             with open(self.target_near_home_path('config.json'), 'w') as f:
                 json.dump(config, f, indent=2)
@@ -425,6 +436,7 @@ class NeardRunner:
     def do_reset(self):
         with self.lock:
             state = self.get_state()
+            logging.info(f"do_reset {state}")
             if state == TestState.RUNNING:
                 self.kill_neard()
                 self.set_state(TestState.RESETTING)
@@ -440,6 +452,11 @@ class NeardRunner:
                     message=
                     'Cannot reset node as test state has not been initialized yet'
                 )
+
+    def do_update_binaries(self):
+        logging.info('update binaries')
+        self.download_binaries(force=True)
+        logging.info('update binaries finished')
 
     def do_ready(self):
         with self.lock:
@@ -796,6 +813,7 @@ class NeardRunner:
 
     def reset_near_home(self):
         try:
+            logging.info("removing the old directory")
             shutil.rmtree(self.target_near_home_path('data'))
         except FileNotFoundError:
             pass
@@ -855,10 +873,13 @@ def main():
     # only let one instance of this code run at a time
     _fd = get_lock(args.home)
 
+    logging.info("creating neard runner")
     runner = NeardRunner(args)
 
-    runner.download_binaries()
+    logging.info("downloading binaries")
+    runner.download_binaries(force=False)
 
+    logging.info("serve")
     runner.serve(args.port)
 
 

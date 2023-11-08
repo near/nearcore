@@ -14,7 +14,6 @@ import base58
 import ed25519
 import requests
 import requests.exceptions
-import mocknet_helpers
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -22,6 +21,7 @@ from utils import load_binary_file
 from configured_logger import logger
 import cluster
 import key
+import mocknet_helpers
 import transaction
 
 JsonDict = typing.Dict[str, typing.Any]

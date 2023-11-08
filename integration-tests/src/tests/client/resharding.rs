@@ -249,7 +249,7 @@ impl TestReshardingEnv {
     /// allows for changing the protocol version in the middle of the test the
     /// testing_v2 argument means whether the test should expect the sharding
     /// layout V2 to be used once the appropriate protocol version is reached
-    fn step_impl(
+    fn step(
         &mut self,
         drop_chunk_condition: &DropChunkCondition,
         protocol_version: ProtocolVersion,
@@ -923,7 +923,7 @@ fn test_shard_layout_upgrade_simple_impl(
 
     let drop_chunk_condition = DropChunkCondition::new();
     for _ in 1..4 * epoch_length {
-        test_env.step_impl(&drop_chunk_condition, target_protocol_version);
+        test_env.step(&drop_chunk_condition, target_protocol_version);
         test_env.check_receipt_id_to_shard_id();
         test_env.check_snapshot(state_snapshot_enabled);
     }
@@ -1216,7 +1216,7 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(
 
     let drop_chunk_condition = DropChunkCondition::new();
     for _ in 1..5 * epoch_length {
-        test_env.step_impl(&drop_chunk_condition, target_protocol_version);
+        test_env.step(&drop_chunk_condition, target_protocol_version);
         test_env.check_receipt_id_to_shard_id();
     }
 
@@ -1294,7 +1294,7 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(
     let by_height_shard_id = HashSet::from([(drop_height, drop_shard_id)]);
     let drop_chunk_condition = DropChunkCondition::with_by_height_shard_id(by_height_shard_id);
     for _ in 1..5 * epoch_length {
-        test_env.step_impl(&drop_chunk_condition, target_protocol_version);
+        test_env.step(&drop_chunk_condition, target_protocol_version);
         test_env.check_receipt_id_to_shard_id();
     }
 
@@ -1350,12 +1350,12 @@ fn test_missing_chunks(
     // make sure initial txs (deploy smart contracts) are processed succesfully
     let drop_chunk_condition = DropChunkCondition::new();
     for _ in 1..3 {
-        test_env.step_impl(&drop_chunk_condition, target_protocol_version);
+        test_env.step(&drop_chunk_condition, target_protocol_version);
     }
 
     let drop_chunk_condition = DropChunkCondition::with_probability(p_missing);
     for _ in 3..3 * epoch_length {
-        test_env.step_impl(&drop_chunk_condition, target_protocol_version);
+        test_env.step(&drop_chunk_condition, target_protocol_version);
         let last_height = test_env.env.clients[0].chain.head().unwrap().height;
         for height in last_height - 3..=last_height {
             test_env.check_next_block_with_new_chunk(height);
@@ -1366,7 +1366,7 @@ fn test_missing_chunks(
     // make sure all included transactions finished processing
     let drop_chunk_condition = DropChunkCondition::new();
     for _ in 3 * epoch_length..5 * epoch_length {
-        test_env.step_impl(&drop_chunk_condition, target_protocol_version);
+        test_env.step(&drop_chunk_condition, target_protocol_version);
         let last_height = test_env.env.clients[0].chain.head().unwrap().height;
         for height in last_height - 3..=last_height {
             test_env.check_next_block_with_new_chunk(height);

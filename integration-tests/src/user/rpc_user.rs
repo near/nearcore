@@ -16,7 +16,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, MaybeBlockId, ShardId,
+    AccountId, BlockHeight, BlockId, BlockReference, EpochReference, ShardId,
 };
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
@@ -56,8 +56,13 @@ impl RpcUser {
         self.actix(move |client| client.query(request).map_err(|err| err.to_string()))
     }
 
-    pub fn validators(&self, block_id: MaybeBlockId) -> Result<EpochValidatorInfo, String> {
-        self.actix(move |client| client.validators(block_id).map_err(|err| err.to_string()))
+    pub fn validators(
+        &self,
+        epoch_id_or_block_id: Option<EpochReference>,
+    ) -> Result<EpochValidatorInfo, String> {
+        self.actix(move |client| {
+            client.validators(epoch_id_or_block_id).map_err(|err| err.to_string())
+        })
     }
 }
 

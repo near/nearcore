@@ -4,6 +4,7 @@ use actix::Actor;
 use actix_rt::System;
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
+use near_chain::ChainStoreAccess;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -13,11 +14,13 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::WaitOrTimeoutActor;
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
+use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_sync::EpochSyncInfo;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
+use near_primitives::types::EpochId;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
 use near_store::Mode::ReadOnly;
@@ -75,13 +78,13 @@ fn generate_transactions(last_hash: &CryptoHash, h: BlockHeight) -> Vec<SignedTr
 }
 
 /// Produce 4 epochs with some transactions.
-/// At the end of each epoch check that `EpochSyncInfo` has been recorded.
+/// When the first block of the next epoch is finalised check that `EpochSyncInfo` has been recorded.
 #[test]
 fn test_continuous_epoch_sync_info_population() {
     init_test_logger();
 
     let epoch_length = 5;
-    let max_height = epoch_length * 4 + 1;
+    let max_height = epoch_length * 4 + 3;
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
 
@@ -94,6 +97,7 @@ fn test_continuous_epoch_sync_info_population() {
         .build();
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
+    let mut last_epoch_id = EpochId::default();
 
     for h in 1..max_height {
         for tx in generate_transactions(&last_hash, h) {
@@ -104,13 +108,22 @@ fn test_continuous_epoch_sync_info_population() {
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         last_hash = *block.hash();
 
-        if env.clients[0].epoch_manager.is_next_block_epoch_start(&last_hash).unwrap() {
-            let epoch_id = block.header().epoch_id().clone();
+        let last_final_hash = block.header().last_final_block();
+        if *last_final_hash == CryptoHash::default() {
+            continue;
+        }
+        let last_final_header =
+            env.clients[0].chain.store().get_block_header(last_final_hash).unwrap();
+
+        if *last_final_header.epoch_id() != last_epoch_id {
+            let epoch_id = last_epoch_id.clone();
 
             tracing::debug!("Checking epoch: {:?}", &epoch_id);
             assert!(env.clients[0].chain.store().get_epoch_sync_info(&epoch_id).is_ok());
             tracing::debug!("OK");
         }
+
+        last_epoch_id = last_final_header.epoch_id().clone();
     }
 }
 
@@ -221,4 +234,75 @@ fn test_continuous_epoch_sync_info_population_on_header_sync() {
             );
         }
     });
+}
+
+/// Check that we can reconstruct `BlockInfo` and `epoch_sync_data_hash` from `EpochSyncInfo`.
+#[test]
+fn test_epoch_sync_data_hash_from_epoch_sync_info() {
+    init_test_logger();
+
+    let epoch_length = 5;
+    let max_height = epoch_length * 4 + 3;
+
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+
+    genesis.config.epoch_length = epoch_length;
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::builder(chain_genesis)
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
+        .build();
+
+    let mut last_hash = *env.clients[0].chain.genesis().hash();
+    let mut last_epoch_id = EpochId::default();
+
+    for h in 1..max_height {
+        for tx in generate_transactions(&last_hash, h) {
+            assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+        }
+
+        let block = env.clients[0].produce_block(h).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        last_hash = *block.hash();
+
+        let last_final_hash = block.header().last_final_block();
+        if *last_final_hash == CryptoHash::default() {
+            continue;
+        }
+        let last_final_header =
+            env.clients[0].chain.store().get_block_header(last_final_hash).unwrap();
+
+        if *last_final_header.epoch_id() != last_epoch_id {
+            let epoch_id = last_epoch_id.clone();
+
+            let epoch_sync_info =
+                env.clients[0].chain.store().get_epoch_sync_info(&epoch_id).unwrap();
+
+            tracing::debug!("Checking epoch sync info: {:?}", &epoch_sync_info);
+
+            // Check that all BlockInfos needed for new epoch sync can be reconstructed.
+            // This also helps with debugging if `epoch_sync_data_hash` doesn't match.
+            for hash in &epoch_sync_info.headers_to_save {
+                let block_info = env.clients[0]
+                    .chain
+                    .store()
+                    .store()
+                    .get_ser::<BlockInfo>(DBCol::BlockInfo, hash.as_ref())
+                    .unwrap()
+                    .unwrap();
+                let reconstructed_block_info = epoch_sync_info.get_block_info(hash).unwrap();
+                assert_eq!(block_info, reconstructed_block_info);
+            }
+
+            assert_eq!(
+                epoch_sync_info.calculate_epoch_sync_data_hash().unwrap(),
+                epoch_sync_info.get_epoch_sync_data_hash().unwrap().unwrap(),
+            );
+
+            tracing::debug!("OK");
+        }
+
+        last_epoch_id = last_final_header.epoch_id().clone();
+    }
 }

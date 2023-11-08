@@ -17,7 +17,7 @@ use std::fmt::{Display, Formatter};
 
 /// Record in the state storage.
 #[serde_as]
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Eq, PartialEq)]
 pub enum StateRecord {
     /// Account information.
     Account { account_id: AccountId, account: Account },
