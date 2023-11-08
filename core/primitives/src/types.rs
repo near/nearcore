@@ -897,7 +897,7 @@ pub struct BlockChunkValidatorStats {
     pub chunk_stats: ValidatorStats,
 }
 
-#[derive(serde::Deserialize, Debug, arbitrary::Arbitrary)]
+#[derive(serde::Deserialize, Debug, arbitrary::Arbitrary, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EpochReference {
     EpochId(EpochId),
