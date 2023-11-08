@@ -99,6 +99,7 @@ impl HeaderSync {
                     current_height: header_head.height,
                     highest_height,
                 };
+                tracing::debug!(target: "sync", ?sync_status);
             }
             self.syncing_peer = None;
             if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {

@@ -81,6 +81,7 @@ impl BlockSync {
                 tracing::debug_span!(target: "sync", "set_sync", sync = "BlockSync").entered();
             *sync_status =
                 SyncStatus::BodySync { start_height, current_height: head.height, highest_height };
+            tracing::debug!(target: "sync", ?sync_status);
         }
         Ok(false)
     }

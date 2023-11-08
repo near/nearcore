@@ -1597,19 +1597,17 @@ impl ClientActor {
             | SyncRequirement::NoPeers
             | SyncRequirement::AdvHeaderSyncDisabled => {
                 if currently_syncing {
-                    info!(target: "client", "disabling sync: {}", &sync);
+                    let _span = tracing::debug_span!(target: "sync", "set_no_sync").entered();
+                    info!(target: "client", ?sync, "disabling sync");
                     {
-                        let _span = tracing::debug_span!(target: "sync", "set_no_sync").entered();
-                        {
-                            let _span =
-                                tracing::debug_span!(target: "sync", "set_sync", sync = "NoSync")
-                                    .entered();
-                            self.client.sync_status = SyncStatus::NoSync;
-                            // Initial transition out of "syncing" state.
-                            // Announce this client's account id if their epoch is coming up.
-                            let head = unwrap_and_report!(self.client.chain.head());
-                            self.check_send_announce_account(head.prev_block_hash);
-                        }
+                        let _span =
+                            tracing::debug_span!(target: "sync", "set_sync", sync = "NoSync")
+                                .entered();
+                        self.client.sync_status = SyncStatus::NoSync;
+                        // Initial transition out of "syncing" state.
+                        // Announce this client's account id if their epoch is coming up.
+                        let head = unwrap_and_report!(self.client.chain.head());
+                        self.check_send_announce_account(head.prev_block_hash);
                     }
                 }
             }
@@ -1663,6 +1661,7 @@ impl ClientActor {
                             {
                                 let _span = tracing::debug_span!(target: "sync", "set_sync", sync = "StateSync").entered();
                                 self.client.sync_status = SyncStatus::StateSync(s);
+                                tracing::debug!(target: "sync", sync_status = ?self.client.sync_status);
                             }
                             // This is the first time we run state sync.
                             notify_start_sync = true;
@@ -1786,6 +1785,7 @@ impl ClientActor {
                                     current_height: 0,
                                     highest_height: 0,
                                 };
+                                tracing::debug!(target: "sync", sync_status = ?self.client.sync_status);
                             }
                         }
                     }
