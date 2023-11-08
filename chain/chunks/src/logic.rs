@@ -142,6 +142,7 @@ pub fn decode_encoded_chunk(
     epoch_manager: &dyn EpochManagerAdapter,
     shard_tracker: &ShardTracker,
 ) -> Result<(ShardChunk, PartialEncodedChunk), Error> {
+    let _span = tracing::debug_span!(target: "chunks", "decode_encoded_chunk", height_included = encoded_chunk.cloned_header().height_included(), shard_id = encoded_chunk.cloned_header().shard_id(), chunk_hash = ?encoded_chunk.chunk_hash()).entered();
     let chunk_hash = encoded_chunk.chunk_hash();
 
     if let Ok(shard_chunk) = encoded_chunk
