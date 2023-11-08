@@ -248,7 +248,8 @@ fn test_protocol_config_rpc() {
 
         let runtime_config_store = RuntimeConfigStore::new(None);
         let intial_runtime_config = runtime_config_store.get_config(ProtocolVersion::MIN);
-        let latest_runtime_config = runtime_config_store.get_config(ProtocolVersion::MAX);
+        let latest_runtime_config =
+            runtime_config_store.get_config(near_primitives::version::PROTOCOL_VERSION);
         assert_ne!(
             config_response.config_view.runtime_config.storage_amount_per_byte,
             intial_runtime_config.storage_amount_per_byte()
