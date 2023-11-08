@@ -1232,8 +1232,11 @@ pub enum SlashState {
 #[cfg(feature = "new_epoch_sync")]
 pub mod epoch_sync {
     use crate::block_header::BlockHeader;
+    use crate::epoch_manager::block_info::BlockInfo;
     use crate::epoch_manager::epoch_info::EpochInfo;
+    use crate::errors::epoch_sync::{EpochSyncHashType, EpochSyncInfoError};
     use borsh::{BorshDeserialize, BorshSerialize};
+    use near_o11y::log_assert;
     use near_primitives_core::hash::CryptoHash;
     use std::collections::{HashMap, HashSet};
 
@@ -1257,5 +1260,95 @@ pub mod epoch_sync {
         pub epoch_info: EpochInfo,
         pub next_epoch_info: EpochInfo,
         pub next_next_epoch_info: EpochInfo,
+    }
+
+    impl EpochSyncInfo {
+        /// Reconstruct BlockInfo for `hash` from information in EpochSyncInfo.
+        pub fn get_block_info(&self, hash: &CryptoHash) -> Result<BlockInfo, EpochSyncInfoError> {
+            let epoch_height = self.epoch_info.epoch_height();
+
+            let epoch_first_hash = self
+                .all_block_hashes
+                .first()
+                .ok_or(EpochSyncInfoError::ShortEpoch { epoch_height })?;
+            let epoch_first_header =
+                self.get_header(*epoch_first_hash, EpochSyncHashType::FirstEpochBlock)?;
+
+            let header = self.get_header(*hash, EpochSyncHashType::Other)?;
+
+            log_assert!(
+                epoch_first_header.epoch_id() == header.epoch_id(),
+                "We can only correctly reconstruct headers from this epoch"
+            );
+
+            let last_finalized_height = if *header.last_final_block() == CryptoHash::default() {
+                0
+            } else {
+                let last_finalized_header =
+                    self.get_header(*header.last_final_block(), EpochSyncHashType::LastFinalBlock)?;
+                last_finalized_header.height()
+            };
+            let mut block_info = BlockInfo::new(
+                *header.hash(),
+                header.height(),
+                last_finalized_height,
+                *header.last_final_block(),
+                *header.prev_hash(),
+                header.prev_validator_proposals().collect(),
+                header.chunk_mask().to_vec(),
+                vec![],
+                header.total_supply(),
+                header.latest_protocol_version(),
+                header.raw_timestamp(),
+            );
+
+            *block_info.epoch_id_mut() = epoch_first_header.epoch_id().clone();
+            *block_info.epoch_first_block_mut() = *epoch_first_header.hash();
+            Ok(block_info)
+        }
+
+        /// Reconstruct legacy `epoch_sync_data_hash` from `EpochSyncInfo`.
+        /// `epoch_sync_data_hash` was introduced in `BlockHeaderInnerRestV3`.
+        /// Using this hash we can verify that `EpochInfo` data provided in `EpochSyncInfo` is correct.
+        pub fn calculate_epoch_sync_data_hash(&self) -> Result<CryptoHash, EpochSyncInfoError> {
+            let epoch_height = self.epoch_info.epoch_height();
+
+            if self.all_block_hashes.len() < 2 {
+                return Err(EpochSyncInfoError::ShortEpoch { epoch_height });
+            }
+            let epoch_first_block = self.all_block_hashes[0];
+            let epoch_prev_last_block = self.all_block_hashes[self.all_block_hashes.len() - 2];
+            let epoch_last_block = self.all_block_hashes[self.all_block_hashes.len() - 1];
+
+            Ok(CryptoHash::hash_borsh(&(
+                self.get_block_info(&epoch_first_block)?,
+                self.get_block_info(&epoch_prev_last_block)?,
+                self.get_block_info(&epoch_last_block)?,
+                &self.epoch_info,
+                &self.next_epoch_info,
+                &self.next_next_epoch_info,
+            )))
+        }
+
+        /// Read legacy `epoch_sync_data_hash` from next epoch first header.
+        /// `epoch_sync_data_hash` was introduced in `BlockHeaderInnerRestV3`.
+        /// Using this hash we can verify that `EpochInfo` data provided in `EpochSyncInfo` is correct.
+        pub fn get_epoch_sync_data_hash(&self) -> Result<Option<CryptoHash>, EpochSyncInfoError> {
+            let next_epoch_first_header =
+                self.get_header(self.next_epoch_first_hash, EpochSyncHashType::Other)?;
+            Ok(next_epoch_first_header.epoch_sync_data_hash())
+        }
+
+        fn get_header(
+            &self,
+            hash: CryptoHash,
+            hash_type: EpochSyncHashType,
+        ) -> Result<&BlockHeader, EpochSyncInfoError> {
+            self.headers.get(&hash).ok_or(EpochSyncInfoError::HashNotFound {
+                hash,
+                hash_type,
+                epoch_height: self.epoch_info.epoch_height(),
+            })
+        }
     }
 }
