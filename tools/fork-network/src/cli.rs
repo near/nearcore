@@ -15,7 +15,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col;
@@ -25,8 +25,8 @@ use near_primitives::types::{
 };
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::db::RocksDB;
+use near_store::flat::FlatStorageStatus;
 use near_store::flat::{store_helper, BlockInfo};
-use near_store::flat::{FlatStorageManager, FlatStorageStatus};
 use near_store::{
     checkpoint_hot_storage_and_cleanup_columns, DBCol, Store, TrieDBStorage, TrieStorage,
     FINAL_HEAD_KEY,
@@ -237,7 +237,6 @@ impl ForkNetworkCommand {
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?.unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
         let all_shard_uids = shard_layout.get_shard_uids();
-        let num_shards = all_shard_uids.len();
         // Flat state can be at different heights for different shards.
         // That is fine, we'll simply lookup state root for each .
         let fork_heads = get_fork_heads(&all_shard_uids, store.clone())?;
@@ -246,40 +245,47 @@ impl ForkNetworkCommand {
         let chain =
             ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, false);
 
-        // Move flat storage to the max height for consistency across shards.
-        let (block_height, desired_block_hash) =
-            fork_heads.iter().map(|head| (head.height, head.hash)).max().unwrap();
+        // Pick an arbitrary height to include in the new genesis config.
+        let block_height = fork_heads.iter().map(|head| head.height).max().unwrap() + 1;
 
-        let desired_block_header = chain.get_block_header(&desired_block_hash)?;
-        let epoch_id = desired_block_header.epoch_id();
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let num_shards = fork_heads.len();
+        let epoch_ids: Vec<EpochId> = fork_heads
+            .iter()
+            .map(|fork_head| {
+                let header = chain.get_block_header(&fork_head.hash).unwrap();
+                let epoch_id = header.epoch_id();
+                epoch_id.clone()
+            })
+            .collect();
 
-        // Advance flat heads to the same (max) block height to ensure
-        // consistency of state across the shards.
-        let state_roots: Vec<StateRoot> = (0..num_shards)
-            .map(|shard_id| {
+        // As flat state of different shards can be in different epochs, ensure
+        // that the shards correspond to the same ShardLayout.
+        // I don't know how to recover from the case of them not matching.
+        // But if they do match, then we can work with this DB.
+        let shard_layouts: Vec<ShardLayout> = (0..num_shards)
+            .map(|shard_id| epoch_manager.get_shard_layout(&epoch_ids[shard_id]).unwrap())
+            .collect();
+        assert!(shard_layouts.iter().all(|layout| layout.clone() == shard_layouts[0]));
+
+        let state_roots: Vec<StateRoot> = fork_heads
+            .iter()
+            .enumerate()
+            .map(|(shard_id, fork_head)| {
+                let epoch_id = &epoch_ids[shard_id];
                 let shard_uid =
                     epoch_manager.shard_id_to_uid(shard_id as ShardId, epoch_id).unwrap();
-                flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
-                let flat_storage =
-                    flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
-                flat_storage.update_flat_head(&desired_block_hash, true).unwrap();
-                let chunk_extra = chain.get_chunk_extra(&desired_block_hash, &shard_uid).unwrap();
+                let chunk_extra = chain.get_chunk_extra(&fork_head.hash, &shard_uid).unwrap();
                 let state_root = chunk_extra.state_root();
                 tracing::info!(?shard_id, ?epoch_id, ?state_root);
                 *state_root
             })
             .collect();
 
-        // Increment height to represent that some changes were made to the original state.
-        tracing::info!(
-            block_height,
-            ?desired_block_hash,
-            ?state_roots,
-            ?epoch_id,
-            "Moved flat heads to a common block"
-        );
-        let block_height = block_height + 1;
+        // Pick an arbitrary epoch_id.
+        // As the shard_layout doesn't change, all epoch_manager operations will
+        // have the same result regardless of which of the epoch_ids we pick.
+        let epoch_id = &epoch_ids[0];
+        tracing::info!(block_height, ?state_roots, ?epoch_id);
 
         let mut store_update = store.store_update();
         store_update.set_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID", epoch_id)?;
