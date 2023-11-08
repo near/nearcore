@@ -90,6 +90,16 @@ pub static CONTRACT_CACHE_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
         .unwrap()
 });
 
+pub static USING_ACCOUNTING_CACHE: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec("near_using_accounting_cache_for_retrieve", "Using accountig cache", &[""])
+        .unwrap()
+});
+
+pub static CALLING_RETRIEVE: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec("near_calling_retrieve_trie_node", "Retrieve trie node", &[""])
+        .unwrap()
+});
+
 pub static CONTRACT_CACHE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec("near_contract_cache_size", "Contract cache size", &["is_view"])
         .unwrap()

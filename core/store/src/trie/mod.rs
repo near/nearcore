@@ -10,8 +10,10 @@ pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub use crate::trie::state_snapshot::{SnapshotError, StateSnapshot, StateSnapshotConfig};
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
-use crate::StorageError;
+use crate::{metrics, StorageError};
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_o11y::metrics::prometheus;
+use near_o11y::metrics::prometheus::core::GenericCounter;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
@@ -330,7 +332,22 @@ impl std::fmt::Debug for TrieNode {
     }
 }
 
+struct TrieMetrics {
+    using_accounting_cache: GenericCounter<prometheus::core::AtomicU64>,
+    retrieving_trie_node: GenericCounter<prometheus::core::AtomicU64>,
+}
+
+impl Default for TrieMetrics {
+    fn default() -> Self {
+        TrieMetrics {
+            using_accounting_cache: metrics::USING_ACCOUNTING_CACHE.with_label_values(&[]),
+            retrieving_trie_node: metrics::CALLING_RETRIEVE.with_label_values(&[]),
+        }
+    }
+}
+
 pub struct Trie {
+    metrics: TrieMetrics,
     storage: Rc<dyn TrieStorage>,
     root: StateRoot,
     /// If present, flat storage is used to look up keys (if asked for).
@@ -471,6 +488,7 @@ impl Trie {
             None => RefCell::new(TrieAccountingCache::new(None, HashMap::new())),
         };
         Trie {
+            metrics: TrieMetrics::default(),
             storage,
             root,
             charge_gas_for_trie_node_access: flat_storage_chunk_view.is_none(),

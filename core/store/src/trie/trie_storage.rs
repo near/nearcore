@@ -486,8 +486,6 @@ impl TrieStorage for TrieCachingStorage {
             tracing::info!("parse_account_id_from_received_data_key");
         }
 
-
-
         if let Some(maybe_account_id) = parse_account_id_from_raw_key(hash.as_bytes()).ok() {
             if let Some(acc_id) = maybe_account_id {
                 self.metrics.shard_cache_could_be_contract.inc();
