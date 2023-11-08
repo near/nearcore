@@ -189,7 +189,7 @@ impl NetworkState {
             tier1: connection::Pool::new(config.node_id()),
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             peer_store,
-            snapshot_hosts: Arc::new(SnapshotHostsCache::new()),
+            snapshot_hosts: Arc::new(SnapshotHostsCache::new(config.snapshot_hosts.clone())),
             connection_store: connection_store::ConnectionStore::new(store).unwrap(),
             pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
             accounts_data: Arc::new(AccountDataCache::new()),
