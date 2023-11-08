@@ -94,6 +94,7 @@ impl HeaderSync {
             {
                 let _span =
                     tracing::debug_span!(target: "sync", "set_sync", sync = "HeaderSync").entered();
+                tracing::debug!(target: "sync", prev_sync_status = ?sync_status);
                 *sync_status = SyncStatus::HeaderSync {
                     start_height,
                     current_height: header_head.height,

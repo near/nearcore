@@ -1603,6 +1603,7 @@ impl ClientActor {
                         let _span =
                             tracing::debug_span!(target: "sync", "set_sync", sync = "NoSync")
                                 .entered();
+                        tracing::debug!(target: "sync", prev_sync_status = ?self.client.sync_status);
                         self.client.sync_status = SyncStatus::NoSync;
                         // Initial transition out of "syncing" state.
                         // Announce this client's account id if their epoch is coming up.
@@ -1660,6 +1661,7 @@ impl ClientActor {
                                 tracing::debug_span!(target: "sync", "set_state_sync").entered();
                             {
                                 let _span = tracing::debug_span!(target: "sync", "set_sync", sync = "StateSync").entered();
+                                tracing::debug!(target: "sync", prev_sync_status = ?self.client.sync_status);
                                 self.client.sync_status = SyncStatus::StateSync(s);
                                 tracing::debug!(target: "sync", sync_status = ?self.client.sync_status);
                             }
@@ -1780,6 +1782,7 @@ impl ClientActor {
                                 tracing::debug_span!(target: "sync", "set_block_sync").entered();
                             {
                                 let _span = tracing::debug_span!(target: "sync", "set_sync", sync = "BlockSync").entered();
+                                tracing::debug!(target: "sync", prev_sync_status = ?self.client.sync_status);
                                 self.client.sync_status = SyncStatus::BodySync {
                                     start_height: 0,
                                     current_height: 0,
