@@ -4143,6 +4143,7 @@ dependencies = [
  "insta",
  "near-crypto",
  "near-fmt",
+ "near-o11y",
  "near-primitives-core",
  "near-rpc-error-macro",
  "near-stdx",

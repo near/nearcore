@@ -17,7 +17,7 @@ impl RpcRequest for RpcValidatorRequest {
                 None => Ok(EpochReference::Latest),
             })
             .unwrap_or_parse()?;
-        Ok(Self { epoch_reference })
+        Ok(Self { epoch_reference: epoch_reference })
     }
 }
 
@@ -47,5 +47,65 @@ impl RpcFrom<GetValidatorInfoError> for RpcValidatorError {
                 Self::InternalError { error_message: error.to_string() }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::api::RpcRequest;
+    use near_jsonrpc_primitives::types::validator::RpcValidatorRequest;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::types::{BlockId, EpochId, EpochReference};
+
+    #[test]
+    fn test_serialize_validators_params_as_vec() {
+        let block_hash = CryptoHash::new();
+        let params = serde_json::json!([block_hash.to_string()]);
+        let result = RpcValidatorRequest::parse(params);
+        assert_eq!(
+            result.unwrap(),
+            RpcValidatorRequest {
+                epoch_reference: EpochReference::BlockId(BlockId::Hash(block_hash)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_serialize_validators_params_as_object_input_block_hash() {
+        let block_hash = CryptoHash::new();
+        let params = serde_json::json!({"block_id": block_hash.to_string()});
+        let result = RpcValidatorRequest::parse(params);
+        assert_eq!(
+            result.unwrap(),
+            RpcValidatorRequest {
+                epoch_reference: EpochReference::BlockId(BlockId::Hash(block_hash)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_serialize_validators_params_as_object_input_block_height() {
+        let block_height: u64 = 12345;
+        let params = serde_json::json!({"block_id": block_height});
+        let result = RpcValidatorRequest::parse(params);
+        assert!(result.is_ok());
+        let result_unwrap = result.unwrap();
+        let res_serialized = format!("{result_unwrap:?}");
+        let expected = RpcValidatorRequest {
+            epoch_reference: EpochReference::BlockId(BlockId::Height(block_height)),
+        };
+        let expected_serialized = format!("{expected:?}");
+        assert_eq!(res_serialized, expected_serialized);
+    }
+
+    #[test]
+    fn test_serialize_validators_params_as_object_input_epoch_id() {
+        let epoch_id = CryptoHash::new();
+        let params = serde_json::json!({"epoch_id": epoch_id.to_string()});
+        let result = RpcValidatorRequest::parse(params);
+        assert_eq!(
+            result.unwrap(),
+            RpcValidatorRequest { epoch_reference: EpochReference::EpochId(EpochId(epoch_id)) }
+        );
     }
 }

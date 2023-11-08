@@ -56,10 +56,11 @@ fn test_get_validator_info_rpc() {
                     if block_view.header.height > 1 {
                         let client = new_client(&format!("http://{}", rpc_addrs_copy[0]));
                         let block_hash = block_view.header.hash;
-                        let invalid_res = client.validators(Some(BlockId::Hash(block_hash))).await;
+                        let invalid_res = client
+                            .validators(Some(EpochReference::BlockId(BlockId::Hash(block_hash))))
+                            .await;
                         assert!(invalid_res.is_err());
                         let res = client.validators(None).await.unwrap();
-
                         assert_eq!(res.current_validators.len(), 1);
                         assert!(res.current_validators.iter().any(|r| r.account_id == "near.0"));
                         System::current().stop();

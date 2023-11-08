@@ -6007,6 +6007,10 @@ impl<'a> ChainUpdate<'a> {
             }
         }
 
+        // We don't need to save `next_epoch_first_hash` during `EpochSyncInfo` processing.
+        // It is only needed for validation.
+        headers_to_save.remove(next_epoch_first_hash);
+
         Ok((headers, headers_to_save))
     }
 
