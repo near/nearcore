@@ -17,7 +17,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     BlockHeight, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
-use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
@@ -383,27 +383,27 @@ impl ShardTries {
             })
             .collect::<Vec<_>>();
         let store = self.0.store.clone();
-        info!(target: "memtrie", "Loading tries to memory for shards {:?}...", shard_uids);
+        info!(target: "memtrie", "Loading tries to memory for shards {:?}...", shard_uids_to_load);
         shard_uids_to_load
-            .into_par_iter()
+            .par_iter()
             .map(|shard_uid| -> Result<(), StorageError> {
                 let mem_tries = load_trie_from_flat_state_and_delta(
                     &store,
-                    shard_uid,
+                    *shard_uid,
                     trie_config.max_mem_tries_size_per_shard,
                 )?;
                 self.0
                     .mem_tries
                     .write()
                     .unwrap()
-                    .insert(shard_uid, Arc::new(RwLock::new(mem_tries)));
+                    .insert(*shard_uid, Arc::new(RwLock::new(mem_tries)));
                 Ok(())
             })
             .collect::<Vec<Result<_, _>>>()
             .into_iter()
             .collect::<Result<_, _>>()?;
 
-        info!(target: "memtrie", "Memtries loading complete for shards {:?}", shard_uids);
+        info!(target: "memtrie", "Memtries loading complete for shards {:?}", shard_uids_to_load);
         Ok(())
     }
 

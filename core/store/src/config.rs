@@ -69,7 +69,7 @@ pub struct StoreConfig {
     /// List of shard UIDs for which we should load the tries in memory.
     /// TODO(#9511): This does not automatically survive resharding. We may need to figure out a
     /// strategy for that.
-    pub load_mem_tries_for_shards: Vec<String>,
+    pub load_mem_tries_for_shards: Vec<ShardUId>,
     /// If true, load mem tries for all shards; this has priority over `load_mem_tries_for_shards`.
     pub load_mem_tries_for_all_shards: bool,
     /// Maximum size, in number of bytes, of a single shard in memory.
@@ -275,7 +275,7 @@ impl Default for StoreConfig {
                 "sweat_the_oracle.testnet".to_owned(),
             ],
 
-            load_mem_tries_for_shards: vec!["s3.v1".to_owned()],
+            load_mem_tries_for_shards: vec![ShardUId { shard_id: 3, version: 1 }],
             load_mem_tries_for_all_shards: false,
             max_mem_tries_size_per_shard: 16 * 1024 * 1024 * 1024,
 

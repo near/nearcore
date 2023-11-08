@@ -1239,25 +1239,15 @@ impl Trie {
         }
     }
 
-    /// Retrieves the value (inlined or reference) for the given key, from the in-memory trie.
-    /// In general, in-memory tries may inline a value if the value is short, but otherwise
-    /// it would defer the storage of the value to the state column. This method will
-    /// return whichever the in-memory trie has.
+    /// Retrieves an `OptimizedValueRef` (a hash of or inlined value) for the given
+    /// key from the in-memory trie. In general, in-memory tries may inline a value
+    /// if the value is short, but otherwise it would defer the storage of the value
+    /// to the state column. This method will return whichever the in-memory trie has.
+    /// Refer to `get_optimized_ref` for the semantics of using the returned type.
     ///
-    /// If an inlined value is returned, this method will charge the corresponding gas
-    /// as if the value were accessed from the trie storage. It will also insert the
-    /// value into the accounting cache, as well as recording the access to the value
-    /// if recording is enabled. In other words, if an inlined value is returned the
-    /// behavior is equivalent to if the trie were used to access the value reference
-    /// and then the reference were used to look up the full value.
-    ///
-    /// If `ref_only` is true, even if the inlined value is stored in memory, we
-    /// would still convert it to a reference. This is useful if making an access for
-    /// the value (thereby charging gas for it) is not desired.
-    ///
-    /// `charge_gas_for_trie_node_access` is used to control whether node accesses
-    /// incur any gas. Note that a value access (if an inlined value were returned)
-    /// always incurs gas.
+    /// `charge_gas_for_trie_node_access` is used to control whether Trie node
+    /// accesses incur any gas. Note that access to values is never charged here;
+    /// it is only charged when the returned ref is dereferenced.
     fn lookup_from_memory(
         &self,
         key: &[u8],
@@ -1275,7 +1265,7 @@ impl Trie {
         })?;
 
         let mut accessed_nodes = Vec::new();
-        let result = memtrie_lookup(root, key, Some(&mut accessed_nodes));
+        let flat_value = memtrie_lookup(root, key, Some(&mut accessed_nodes));
         if charge_gas_for_trie_node_access {
             for (node_hash, serialized_node) in &accessed_nodes {
                 self.accounting_cache
@@ -1288,7 +1278,7 @@ impl Trie {
                 recorder.borrow_mut().record(&node_hash, serialized_node);
             }
         }
-        Ok(result.map(OptimizedValueRef::from_flat_value))
+        Ok(flat_value.map(OptimizedValueRef::from_flat_value))
     }
 
     /// For debugging only. Returns the raw node at the given path starting from the root.

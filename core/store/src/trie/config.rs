@@ -62,12 +62,7 @@ impl TrieConfig {
                 Err(e) => error!(target: "config", "invalid account id {account}: {e}"),
             }
         }
-        for shard_uid in &config.load_mem_tries_for_shards {
-            match ShardUId::from_str(shard_uid) {
-                Ok(shard_uid) => this.load_mem_tries_for_shards.push(shard_uid),
-                Err(e) => error!(target: "config", "invalid shard uid {shard_uid}: {e}"),
-            }
-        }
+        this.load_mem_tries_for_shards = config.load_mem_tries_for_shards.clone();
         this.load_mem_tries_for_all_shards = config.load_mem_tries_for_all_shards;
         this.max_mem_tries_size_per_shard = config.max_mem_tries_size_per_shard;
 
