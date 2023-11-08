@@ -104,6 +104,7 @@ use near_network::types::{
     PartialEncodedChunkResponseMsg,
 };
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::block::Tip;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -249,8 +250,8 @@ pub struct ShardsManager {
 
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
-    peer_manager_adapter: Sender<PeerManagerMessageRequest>,
-    client_adapter: Sender<ShardsManagerResponse>,
+    peer_manager_adapter: Sender<WithSpanContext<PeerManagerMessageRequest>>,
+    client_adapter: Sender<WithSpanContext<ShardsManagerResponse>>,
     rs: ReedSolomonWrapper,
 
     encoded_chunks: EncodedChunksCache,
@@ -274,8 +275,8 @@ impl ShardsManager {
         me: Option<AccountId>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
-        network_adapter: Sender<PeerManagerMessageRequest>,
-        client_adapter: Sender<ShardsManagerResponse>,
+        network_adapter: Sender<WithSpanContext<PeerManagerMessageRequest>>,
+        client_adapter: Sender<WithSpanContext<ShardsManagerResponse>>,
         store: ReadOnlyChunksStore,
         initial_chain_head: Tip,
         initial_chain_header_head: Tip,
@@ -454,13 +455,16 @@ impl ShardsManager {
                     min_height: height.saturating_sub(CHUNK_REQUEST_PEER_HORIZON),
                 };
 
-                self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::PartialEncodedChunkRequest {
-                        target,
-                        request,
-                        create_time: self.clock.now(),
-                    },
-                ));
+                self.peer_manager_adapter.send(
+                    PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::PartialEncodedChunkRequest {
+                            target,
+                            request,
+                            create_time: self.clock.now(),
+                        },
+                    )
+                    .with_span_context(),
+                );
             } else {
                 warn!(target: "client", "{:?} requests parts {:?} for chunk {:?} from self",
                     me, part_ords, chunk_hash
@@ -785,9 +789,12 @@ impl ShardsManager {
             .with_label_values(&labels)
             .observe(elapsed);
 
-        self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::PartialEncodedChunkResponse { route_back, response },
-        ));
+        self.peer_manager_adapter.send(
+            PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::PartialEncodedChunkResponse { route_back, response },
+            )
+            .with_span_context(),
+        );
     }
 
     /// Finds the parts and receipt proofs asked for in the request, and returns a response
@@ -1578,10 +1585,13 @@ impl ShardsManager {
 
         if have_all_parts {
             if self.encoded_chunks.mark_chunk_for_inclusion(&chunk_hash) {
-                self.client_adapter.send(ShardsManagerResponse::ChunkHeaderReadyForInclusion {
-                    chunk_header: header.clone(),
-                    chunk_producer,
-                });
+                self.client_adapter.send(
+                    ShardsManagerResponse::ChunkHeaderReadyForInclusion {
+                        chunk_header: header.clone(),
+                        chunk_producer,
+                    }
+                    .with_span_context(),
+                );
             }
         }
         // we can safely unwrap here because we already checked that chunk_hash exist in encoded_chunks
@@ -1654,8 +1664,10 @@ impl ShardsManager {
         self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
         self.requested_partial_encoded_chunks.remove(&chunk_hash);
         debug!(target: "chunks", "Completed chunk {:?}", chunk_hash);
-        self.client_adapter
-            .send(ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk });
+        self.client_adapter.send(
+            ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk }
+                .with_span_context(),
+        );
     }
 
     /// Try to process chunks in the chunk cache whose previous block hash is `prev_block_hash` and
@@ -1737,24 +1749,30 @@ impl ShardsManager {
             // We don't because with the current implementation, we force all validators to track all
             // shards by making their config tracking all shards.
             // See https://github.com/near/nearcore/issues/7388
-            self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::PartialEncodedChunkForward {
-                    account_id: bp_account_id,
-                    forward: forward.clone(),
-                },
-            ));
+            self.peer_manager_adapter.send(
+                PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedChunkForward {
+                        account_id: bp_account_id,
+                        forward: forward.clone(),
+                    },
+                )
+                .with_span_context(),
+            );
         }
 
         // We also forward chunk parts to incoming chunk producers because we want them to be able
         // to produce the next chunk without delays. For the same reason as above, we don't check if they
         // actually track this shard.
         for next_chunk_producer in next_chunk_producers {
-            self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::PartialEncodedChunkForward {
-                    account_id: next_chunk_producer,
-                    forward: forward.clone(),
-                },
-            ));
+            self.peer_manager_adapter.send(
+                PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedChunkForward {
+                        account_id: next_chunk_producer,
+                        forward: forward.clone(),
+                    },
+                )
+                .with_span_context(),
+            );
         }
 
         Ok(())
@@ -1905,12 +1923,15 @@ impl ShardsManager {
                 );
 
             if Some(&to_whom) != self.me.as_ref() {
-                self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::PartialEncodedChunkMessage {
-                        account_id: to_whom.clone(),
-                        partial_encoded_chunk,
-                    },
-                ));
+                self.peer_manager_adapter.send(
+                    PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::PartialEncodedChunkMessage {
+                            account_id: to_whom.clone(),
+                            partial_encoded_chunk,
+                        },
+                    )
+                    .with_span_context(),
+                );
             }
         }
 

@@ -77,8 +77,8 @@ impl Handler<WithSpanContext<ShardsManagerRequestFromNetwork>> for ShardsManager
 pub fn start_shards_manager(
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
-    network_adapter: Sender<PeerManagerMessageRequest>,
-    client_adapter_for_shards_manager: Sender<ShardsManagerResponse>,
+    network_adapter: Sender<WithSpanContext<PeerManagerMessageRequest>>,
+    client_adapter_for_shards_manager: Sender<WithSpanContext<ShardsManagerResponse>>,
     me: Option<AccountId>,
     store: Store,
     chunk_request_retry_period: Duration,

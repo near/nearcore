@@ -1267,9 +1267,12 @@ impl ClientActor {
         if let Some(block) = self.client.produce_block(next_height)? {
             tracing::debug!(target: "client", "did");
             // If we produced the block, send it out before we apply the block.
-            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::Block { block: block.clone() },
-            ));
+            self.network_adapter.send(
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Block {
+                    block: block.clone(),
+                })
+                .with_span_context(),
+            );
             // We’ve produced the block so that counts as validated block.
             let block = MaybeValidated::from_validated(block);
             let res = self.client.start_process_block(
@@ -1954,7 +1957,7 @@ pub fn start_client(
     node_id: PeerId,
     state_sync_adapter: Arc<RwLock<SyncAdapter>>,
     network_adapter: PeerManagerAdapter,
-    shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
+    shards_manager_adapter: Sender<WithSpanContext<ShardsManagerRequestFromClient>>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
     snapshot_callbacks: Option<SnapshotCallbacks>,

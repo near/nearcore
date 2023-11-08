@@ -2831,8 +2831,8 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
+        let _span = tracing::debug_span!(target: "chain", "check_orphans", ?prev_hash, num_orphans = self.orphans.len()).entered();
         // Check if there are orphans we can process.
-        debug!(target: "chain", "Check orphans: from {}, # total orphans {}", prev_hash, self.orphans.len());
         // check within the descendents of `prev_hash` to see if there are orphans there that
         // are ready to request missing chunks for
         let orphans_to_check =

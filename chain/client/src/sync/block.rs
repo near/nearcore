@@ -5,6 +5,7 @@ use near_chain::{check_known, ChainStoreAccess};
 use near_client_primitives::types::SyncStatus;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
+use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{BlockHeight, BlockHeightDelta};
@@ -220,9 +221,13 @@ impl BlockSync {
             if let Some(peer) = peer {
                 debug!(target: "sync", "Block sync: {}/{} requesting block {} at height {} from {} (out of {} peers)",
                        chain_head.height, header_head.height, hash, height, peer.peer_info.id, highest_height_peers.len());
-                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::BlockRequest { hash, peer_id: peer.peer_info.id.clone() },
-                ));
+                self.network_adapter.send(
+                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::BlockRequest {
+                        hash,
+                        peer_id: peer.peer_info.id.clone(),
+                    })
+                    .with_span_context(),
+                );
             } else {
                 warn!(target: "sync", "Block sync: {}/{} No available {}peers to request block {} from",
                       chain_head.height, header_head.height, if request_from_archival { "archival " } else { "" }, hash);

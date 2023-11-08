@@ -1,5 +1,6 @@
 use near_network::types::SetChainInfo;
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
+use near_o11y::WithSpanContext;
 
 pub struct PeerManagerMock {
     handle: Box<
@@ -26,14 +27,18 @@ impl actix::Actor for PeerManagerMock {
     type Context = actix::Context<Self>;
 }
 
-impl actix::Handler<PeerManagerMessageRequest> for PeerManagerMock {
+impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerMock {
     type Result = PeerManagerMessageResponse;
-    fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
-        (self.handle)(msg, ctx)
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<PeerManagerMessageRequest>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        (self.handle)(msg.msg, ctx)
     }
 }
 
-impl actix::Handler<SetChainInfo> for PeerManagerMock {
+impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerMock {
     type Result = ();
-    fn handle(&mut self, _msg: SetChainInfo, _ctx: &mut Self::Context) {}
+    fn handle(&mut self, _msg: WithSpanContext<SetChainInfo>, _ctx: &mut Self::Context) {}
 }

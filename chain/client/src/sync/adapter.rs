@@ -8,7 +8,7 @@ use near_async::messaging::Sender;
 use near_network::types::{
     PeerManagerMessageRequest, StateSync as NetworkStateSync, StateSyncResponse,
 };
-use near_o11y::WithSpanContextExt;
+use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::hash::CryptoHash;
 use near_store::ShardUId;
 use std::collections::HashMap;
@@ -44,15 +44,15 @@ pub struct SyncAdapter {
     /// Address of the sync actors indexed by the SharUid
     actor_handler_map: HashMap<ShardUId, ActorHandler>,
     /// Message channel for client
-    client_adapter: Sender<SyncMessage>,
+    client_adapter: Sender<WithSpanContext<SyncMessage>>,
     /// Message channel with network
-    network_adapter: Sender<PeerManagerMessageRequest>,
+    network_adapter: Sender<WithSpanContext<PeerManagerMessageRequest>>,
 }
 
 impl SyncAdapter {
     pub fn new(
-        client_adapter: Sender<SyncMessage>,
-        network_adapter: Sender<PeerManagerMessageRequest>,
+        client_adapter: Sender<WithSpanContext<SyncMessage>>,
+        network_adapter: Sender<WithSpanContext<PeerManagerMessageRequest>>,
     ) -> Self {
         Self { actor_handler_map: [].into(), client_adapter, network_adapter }
     }

@@ -11,9 +11,9 @@ use tracing::{debug, info, warn};
 #[allow(dead_code)]
 struct MessageSenders {
     /// Used to send messages to client
-    client_adapter: Sender<ClientSyncMessage>,
+    client_adapter: Sender<WithSpanContext<ClientSyncMessage>>,
     /// Used to send messages to peer manager
-    network_adapter: Sender<PeerManagerMessageRequest>,
+    network_adapter: Sender<WithSpanContext<PeerManagerMessageRequest>>,
 }
 
 /// Actor that runs state sync for a shard
@@ -30,8 +30,8 @@ pub struct SyncActor {
 impl SyncActor {
     pub fn new(
         shard_uid: ShardUId,
-        client_adapter: Sender<ClientSyncMessage>,
-        network_adapter: Sender<PeerManagerMessageRequest>,
+        client_adapter: Sender<WithSpanContext<ClientSyncMessage>>,
+        network_adapter: Sender<WithSpanContext<PeerManagerMessageRequest>>,
     ) -> Self {
         Self {
             shard_uid,

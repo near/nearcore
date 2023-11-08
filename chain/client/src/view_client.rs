@@ -527,9 +527,14 @@ impl ViewClientActor {
                     .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
                 let validator = self.chain.find_validator_for_forwarding(target_shard_id)?;
 
-                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::TxStatus(validator, signer_account_id, tx_hash),
-                ));
+                self.network_adapter.send(
+                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::TxStatus(
+                        validator,
+                        signer_account_id,
+                        tx_hash,
+                    ))
+                    .with_span_context(),
+                );
             }
             Ok(TxStatusView { execution_outcome: None, status: TxExecutionStatus::None })
         }

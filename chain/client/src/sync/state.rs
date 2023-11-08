@@ -42,6 +42,7 @@ use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
+use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::shard_layout::ShardUId;
@@ -592,9 +593,12 @@ impl StateSync {
         near_performance_metrics::actix::spawn(
             std::any::type_name::<Self>(),
             self.network_adapter
-                .send_async(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::StateRequestHeader { shard_id, sync_hash, peer_id },
-                ))
+                .send_async(
+                    PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::StateRequestHeader { shard_id, sync_hash, peer_id },
+                    )
+                    .with_span_context(),
+                )
                 .then(move |result| {
                     if let Ok(NetworkResponses::RouteNotFound) =
                         result.map(|f| f.as_network_response())
@@ -1177,9 +1181,15 @@ fn request_part_from_peers(
     near_performance_metrics::actix::spawn(
         "StateSync",
         network_adapter
-            .send_async(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, peer_id },
-            ))
+            .send_async(
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::StateRequestPart {
+                    shard_id,
+                    sync_hash,
+                    part_id,
+                    peer_id,
+                })
+                .with_span_context(),
+            )
             .then(move |result| {
                 // TODO: possible optimization - in the current code, even if one of the targets it not present in the network graph
                 //       (so we keep getting RouteNotFound) - we'll still keep trying to assign parts to it.

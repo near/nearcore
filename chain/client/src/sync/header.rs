@@ -7,6 +7,7 @@ use near_chain::{Chain, ChainStoreAccess};
 use near_client_primitives::types::SyncStatus;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::static_clock::StaticClock;
@@ -182,7 +183,8 @@ impl HeaderSync {
                                                 ban_reason:
                                                     near_network::types::ReasonForBan::HeightFraud,
                                             },
-                                        ),
+                                        )
+                                        .with_span_context(),
                                     );
                                     // This peer is fraudulent, let's skip this beat and wait for
                                     // the next one when this peer is not in the list anymore.
@@ -226,12 +228,13 @@ impl HeaderSync {
     ) -> Option<HighestHeightPeerInfo> {
         if let Ok(locator) = self.get_locator(chain) {
             debug!(target: "sync", "Sync: request headers: asking {} for headers, {:?}", peer.peer_info.id, locator);
-            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::BlockHeadersRequest {
+            self.network_adapter.send(
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::BlockHeadersRequest {
                     hashes: locator,
                     peer_id: peer.peer_info.id.clone(),
-                },
-            ));
+                })
+                .with_span_context(),
+            );
             return Some(peer);
         }
         None

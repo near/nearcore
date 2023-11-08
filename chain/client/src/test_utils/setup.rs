@@ -14,7 +14,6 @@ use actix_rt::System;
 use chrono::DateTime;
 use chrono::Utc;
 use futures::{future, FutureExt};
-use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{CanSend, IntoSender, LateBoundSender, Sender};
 use near_async::time;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
@@ -37,7 +36,7 @@ use near_network::types::{
 };
 use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network::types::{PeerInfo, PeerType};
-use near_o11y::WithSpanContextExt;
+use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
@@ -151,12 +150,12 @@ pub fn setup(
         epoch_manager.clone(),
         shard_tracker.clone(),
         network_adapter.clone().into_sender(),
-        ctx.address().with_auto_span_context().into_sender(),
+        ctx.address().into_sender(),
         Some(account_id),
         store,
         config.chunk_request_retry_period,
     );
-    let shards_manager_adapter = Arc::new(shards_manager_addr.with_auto_span_context());
+    let shards_manager_adapter = Arc::new(shards_manager_addr);
 
     let state_sync_adapter =
         Arc::new(RwLock::new(SyncAdapter::new(Sender::noop(), Sender::noop())));
@@ -583,7 +582,7 @@ pub fn setup_mock_all_validators(
                                 target.account_id.as_ref().map(|s| s.clone()),
                                 drop_chunks,
                                 |c| {
-                                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest { partial_encoded_chunk_request: request.clone(), route_back: my_address });
+                                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest { partial_encoded_chunk_request: request.clone(), route_back: my_address }.with_span_context());
                                 },
                             );
                         }
@@ -594,7 +593,7 @@ pub fn setup_mock_all_validators(
                                 route_back,
                                 drop_chunks,
                                 |c| {
-                                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse { partial_encoded_chunk_response: response.clone(), received_time: Instant::now() });
+                                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse { partial_encoded_chunk_response: response.clone(), received_time: Instant::now() }.with_span_context());
                                 },
                             );
                         }
@@ -608,7 +607,7 @@ pub fn setup_mock_all_validators(
                                 account_id.clone(),
                                 drop_chunks,
                                 |c| {
-                                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk.clone().into()));
+                                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk.clone().into()).with_span_context());
                                 },
                             );
                         }
@@ -619,7 +618,7 @@ pub fn setup_mock_all_validators(
                                 account_id.clone(),
                                 drop_chunks,
                                 |c| {
-                                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward.clone()));
+                                    c.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward.clone()).with_span_context());
                                 }
                             );
                         }
@@ -990,7 +989,7 @@ pub fn setup_client(
 
 pub fn setup_synchronous_shards_manager(
     account_id: Option<AccountId>,
-    client_adapter: Sender<ShardsManagerResponse>,
+    client_adapter: Sender<WithSpanContext<ShardsManagerResponse>>,
     network_adapter: PeerManagerAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
@@ -1038,7 +1037,7 @@ pub fn setup_client_with_synchronous_shards_manager(
     account_id: Option<AccountId>,
     enable_doomslug: bool,
     network_adapter: PeerManagerAdapter,
-    client_adapter: Sender<ShardsManagerResponse>,
+    client_adapter: Sender<WithSpanContext<ShardsManagerResponse>>,
     chain_genesis: ChainGenesis,
     rng_seed: RngSeed,
     archive: bool,
@@ -1081,12 +1080,14 @@ pub fn setup_client_with_synchronous_shards_manager(
 /// A combined trait bound for both the client side and network side of the ShardsManager API.
 #[derive(Clone, derive_more::AsRef)]
 pub struct ShardsManagerAdapterForTest {
-    pub client: Sender<ShardsManagerRequestFromClient>,
-    pub network: Sender<ShardsManagerRequestFromNetwork>,
+    pub client: Sender<WithSpanContext<ShardsManagerRequestFromClient>>,
+    pub network: Sender<WithSpanContext<ShardsManagerRequestFromNetwork>>,
 }
 
-impl<A: CanSend<ShardsManagerRequestFromClient> + CanSend<ShardsManagerRequestFromNetwork>>
-    From<Arc<A>> for ShardsManagerAdapterForTest
+impl<
+        A: CanSend<WithSpanContext<ShardsManagerRequestFromClient>>
+            + CanSend<WithSpanContext<ShardsManagerRequestFromNetwork>>,
+    > From<Arc<A>> for ShardsManagerAdapterForTest
 {
     fn from(arc: Arc<A>) -> Self {
         Self { client: arc.as_sender(), network: arc.as_sender() }

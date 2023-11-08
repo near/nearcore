@@ -102,16 +102,19 @@ impl actix::Handler<WithSpanContext<CreateSnapshotRequest>> for StateSnapshotAct
         match res {
             Ok(res_shard_uids) => {
                 if let Some(res_shard_uids) = res_shard_uids {
-                    self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::SnapshotHostInfo {
-                            sync_hash: prev_block_hash,
-                            epoch_height,
-                            shards: res_shard_uids
-                                .iter()
-                                .map(|uid| uid.shard_id as ShardId)
-                                .collect(),
-                        },
-                    ));
+                    self.network_adapter.send(
+                        PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::SnapshotHostInfo {
+                                sync_hash: prev_block_hash,
+                                epoch_height,
+                                shards: res_shard_uids
+                                    .iter()
+                                    .map(|uid| uid.shard_id as ShardId)
+                                    .collect(),
+                            },
+                        )
+                        .with_span_context(),
+                    );
                 }
 
                 if self.tries.state_snapshot_config().compaction_enabled {

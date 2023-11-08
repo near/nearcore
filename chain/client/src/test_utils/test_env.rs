@@ -16,6 +16,7 @@ use near_network::types::NetworkRequests;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use near_o11y::testonly::TracingCapture;
+use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::block::Block;
 use near_primitives::epoch_manager::RngSeed;
@@ -131,6 +132,7 @@ impl TestEnv {
                 keep_going = false;
                 // process partial encoded chunks
                 while let Some(request) = network_adapter.pop() {
+                    let request = request.msg;
                     // if there are any requests in any of the adapters reset
                     // keep going to true as processing of any message may
                     // trigger more messages to be processed in other clients
@@ -151,7 +153,7 @@ impl TestEnv {
                                 ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
                                     partial_encoded_chunk,
                                 );
-                            self.shards_manager(&account_id).send(message);
+                            self.shards_manager(&account_id).send(message.with_span_context());
                         }
                         PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::PartialEncodedChunkForward { account_id, forward },
@@ -160,7 +162,7 @@ impl TestEnv {
                                 ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
                                     forward,
                                 );
-                            self.shards_manager(&account_id).send(message);
+                            self.shards_manager(&account_id).send(message.with_span_context());
                         }
                         _ => {
                             tracing::debug!(target: "test", ?request, "skipping unsupported request type");
@@ -175,7 +177,7 @@ impl TestEnv {
     /// `id`: id for the client
     pub fn process_partial_encoded_chunks_requests(&mut self, id: usize) {
         while let Some(request) = self.network_adapters[id].pop() {
-            self.process_partial_encoded_chunk_request(id, request);
+            self.process_partial_encoded_chunk_request(id, request.msg);
         }
     }
 
@@ -196,7 +198,8 @@ impl TestEnv {
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
                         partial_encoded_chunk_response: response,
                         received_time: Instant::now(),
-                    },
+                    }
+                    .with_span_context(),
                 );
             }
         } else {
@@ -213,16 +216,19 @@ impl TestEnv {
             ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
                 partial_encoded_chunk_request: request.clone(),
                 route_back: CryptoHash::default(),
-            },
+            }
+            .with_span_context(),
         );
         let response = self.network_adapters[id].pop_most_recent();
         match response {
-            Some(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::PartialEncodedChunkResponse { route_back: _, response },
-            )) => return Some(response),
-            Some(response) => {
-                self.network_adapters[id].put_back_most_recent(response);
-            }
+            Some(x) => match x.msg {
+                PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedChunkResponse { route_back: _, response },
+                ) => return Some(response),
+                response => {
+                    self.network_adapters[id].put_back_most_recent(response.with_span_context())
+                }
+            },
             None => {}
         }
 
@@ -235,6 +241,7 @@ impl TestEnv {
     pub fn process_shards_manager_responses(&mut self, id: usize) -> bool {
         let mut any_processed = false;
         while let Some(msg) = self.client_adapters[id].pop() {
+            let msg = msg.msg;
             match msg {
                 ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
                     self.clients[id].on_chunk_completed(

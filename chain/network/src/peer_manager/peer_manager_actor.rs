@@ -203,7 +203,7 @@ impl PeerManagerActor {
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
         client: Arc<dyn client::Client>,
-        shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
+        shards_manager_adapter: Sender<WithSpanContext<ShardsManagerRequestFromNetwork>>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;

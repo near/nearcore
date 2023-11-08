@@ -347,9 +347,9 @@ pub fn start_with_config_and_synchronization(
         config_updater,
     );
     if let SyncConfig::Peers = config.client_config.state_sync.sync {
-        client_adapter_for_sync.bind(client_actor.clone().with_auto_span_context())
+        client_adapter_for_sync.bind(client_actor.clone())
     };
-    client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
+    client_adapter_for_shards_manager.bind(client_actor.clone());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         epoch_manager.clone(),
         shard_tracker.clone(),
@@ -359,7 +359,7 @@ pub fn start_with_config_and_synchronization(
         split_store.unwrap_or(storage.get_hot_store()),
         config.client_config.chunk_request_retry_period,
     );
-    shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
+    shards_manager_adapter.bind(shards_manager_actor);
 
     let flat_state_migration_handle =
         FlatStateValuesInliningMigrationHandle::start_background_migration(
@@ -389,9 +389,9 @@ pub fn start_with_config_and_synchronization(
         genesis_id,
     )
     .context("PeerManager::spawn()")?;
-    network_adapter.bind(network_actor.clone().with_auto_span_context());
+    network_adapter.bind(network_actor.clone());
     if let SyncConfig::Peers = config.client_config.state_sync.sync {
-        network_adapter_for_sync.bind(network_actor.clone().with_auto_span_context())
+        network_adapter_for_sync.bind(network_actor.clone())
     }
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
