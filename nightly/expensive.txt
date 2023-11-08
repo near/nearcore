@@ -201,10 +201,6 @@ expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_q
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_query_rpc_account_view_account_doesnt_exist_must_return_error --features nightly
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_query_rpc_account_view_must_succeed
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_query_rpc_account_view_must_succeed --features nightly
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_send_tx_sync_returns_transaction_hash
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_send_tx_sync_returns_transaction_hash --features nightly
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_send_tx_sync_to_lightclient_must_be_routed
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_send_tx_sync_to_lightclient_must_be_routed --features nightly
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_tx_not_enough_balance_must_return_error
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_tx_not_enough_balance_must_return_error --features nightly
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_validators_by_epoch_id_current_epoch_not_fails
