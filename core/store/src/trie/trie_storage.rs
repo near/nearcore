@@ -10,7 +10,7 @@ use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
+use near_primitives::trie_key::trie_key_parsers::{parse_account_id_from_raw_key, parse_account_id_from_contract_data_key, parse_account_id_from_account_key, parse_account_id_from_contract_code_key, parse_trie_key_access_key_from_raw_key, parse_account_id_from_received_data_key};
 use near_primitives::types::{AccountId, ShardId};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -463,6 +463,30 @@ impl TrieStorage for TrieCachingStorage {
         let mut guard = self.shard_cache.lock();
         self.metrics.shard_cache_size.set(guard.len() as i64);
         self.metrics.shard_cache_current_total_size.set(guard.current_total_size() as i64);
+
+        let acc_id_contract_key = parse_account_id_from_contract_data_key(hash.as_bytes());
+        if acc_id_contract_key.is_ok() {
+            tracing::info!("parse_account_id_from_contract_data_key");
+        }
+
+        let acc_id_contract_code = parse_account_id_from_contract_code_key(hash.as_bytes());
+        if acc_id_contract_code.is_ok() {
+            tracing::info!("parse_account_id_from_contract_code_key");
+        }
+
+        let acc_id_raw_key = parse_account_id_from_raw_key(hash.as_bytes());
+        if acc_id_raw_key.is_ok() {
+            if acc_id_raw_key.unwrap().is_some() {
+                tracing::info!("parse_account_id_from_raw_key");
+            }
+        }
+
+        let acc_id_received_data_key = parse_account_id_from_received_data_key(hash.as_bytes());
+        if acc_id_received_data_key.is_ok() {
+            tracing::info!("parse_account_id_from_received_data_key");
+        }
+
+
 
         if let Some(maybe_account_id) = parse_account_id_from_raw_key(hash.as_bytes()).ok() {
             if let Some(acc_id) = maybe_account_id {
