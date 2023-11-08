@@ -15,7 +15,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col;
@@ -237,30 +237,58 @@ impl ForkNetworkCommand {
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?.unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
         let all_shard_uids = shard_layout.get_shard_uids();
-        let fork_head = get_fork_head(&all_shard_uids, store.clone())?;
-        tracing::info!(?fork_head);
+        // Flat state can be at different heights for different shards.
+        // That is fine, we'll simply lookup state root for each .
+        let fork_heads = get_fork_heads(&all_shard_uids, store.clone())?;
+        tracing::info!(?fork_heads);
 
         let chain =
             ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, false);
 
-        let header = chain.get_block_header(&fork_head.hash)?;
-        let epoch_id = header.epoch_id();
-        let num_shards = shard_layout.num_shards();
-        let block_hash = fork_head.hash;
-        let block_height = fork_head.height + 1;
+        // Pick an arbitrary height to include in the new genesis config.
+        let block_height = fork_heads.iter().map(|head| head.height).max().unwrap() + 1;
 
-        let state_roots: Vec<StateRoot> = (0..num_shards)
-            .map(|shard_id| {
-                let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
-                let chunk_extra = chain.get_chunk_extra(&fork_head.hash, &shard_uid).unwrap();
-                *chunk_extra.state_root()
+        let num_shards = fork_heads.len();
+        let epoch_ids: Vec<EpochId> = fork_heads
+            .iter()
+            .map(|fork_head| {
+                let header = chain.get_block_header(&fork_head.hash).unwrap();
+                let epoch_id = header.epoch_id();
+                epoch_id.clone()
             })
             .collect();
 
-        tracing::info!(?epoch_id, ?block_hash, block_height, ?state_roots);
+        // As flat state of different shards can be in different epochs, ensure
+        // that the shards correspond to the same ShardLayout.
+        // I don't know how to recover from the case of them not matching.
+        // But if they do match, then we can work with this DB.
+        let shard_layouts: Vec<ShardLayout> = (0..num_shards)
+            .map(|shard_id| epoch_manager.get_shard_layout(&epoch_ids[shard_id]).unwrap())
+            .collect();
+        assert!(shard_layouts.iter().all(|layout| layout.clone() == shard_layouts[0]));
+
+        let state_roots: Vec<StateRoot> = fork_heads
+            .iter()
+            .enumerate()
+            .map(|(shard_id, fork_head)| {
+                let epoch_id = &epoch_ids[shard_id];
+                let shard_uid =
+                    epoch_manager.shard_id_to_uid(shard_id as ShardId, epoch_id).unwrap();
+                let chunk_extra = chain.get_chunk_extra(&fork_head.hash, &shard_uid).unwrap();
+                let state_root = chunk_extra.state_root();
+                tracing::info!(?shard_id, ?epoch_id, ?state_root);
+                *state_root
+            })
+            .collect();
+
+        // Pick an arbitrary epoch_id.
+        // As the shard_layout doesn't change, all epoch_manager operations will
+        // have the same result regardless of which of the epoch_ids we pick.
+        let epoch_id = &epoch_ids[0];
+        tracing::info!(block_height, ?state_roots, ?epoch_id);
+
         let mut store_update = store.store_update();
         store_update.set_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID", epoch_id)?;
-        store_update.set_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH", &block_hash)?;
         store_update.set(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT", &block_height.to_le_bytes());
         for (shard_id, state_root) in state_roots.iter().enumerate() {
             store_update.set_ser(
@@ -285,7 +313,7 @@ impl ForkNetworkCommand {
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
 
-        let (prev_state_roots, prev_hash, epoch_id, _block_height) =
+        let (prev_state_roots, epoch_id, _block_height) =
             self.get_state_roots_and_hash(store.clone())?;
 
         let epoch_manager =
@@ -299,12 +327,7 @@ impl ForkNetworkCommand {
 
         let make_storage_mutator: MakeSingleShardStorageMutatorFn =
             Arc::new(move |shard_id, prev_state_root| {
-                SingleShardStorageMutator::new(
-                    shard_id,
-                    &runtime.clone(),
-                    prev_hash,
-                    prev_state_root,
-                )
+                SingleShardStorageMutator::new(shard_id, &runtime.clone(), prev_state_root)
             });
 
         let new_state_roots = self.prepare_state(
@@ -333,7 +356,7 @@ impl ForkNetworkCommand {
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
 
-        let (prev_state_roots, prev_hash, epoch_id, block_height) =
+        let (prev_state_roots, epoch_id, block_height) =
             self.get_state_roots_and_hash(store.clone())?;
 
         let epoch_manager =
@@ -349,7 +372,6 @@ impl ForkNetworkCommand {
             epoch_manager.clone(),
             &runtime,
             epoch_id.clone(),
-            prev_hash,
             prev_state_roots,
         )?;
         let (new_state_roots, new_validator_accounts) =
@@ -394,9 +416,8 @@ impl ForkNetworkCommand {
     fn get_state_roots_and_hash(
         &self,
         store: Store,
-    ) -> anyhow::Result<(Vec<StateRoot>, CryptoHash, EpochId, BlockHeight)> {
+    ) -> anyhow::Result<(Vec<StateRoot>, EpochId, BlockHeight)> {
         let epoch_id = EpochId(store.get_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID")?.unwrap());
-        let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH")?.unwrap();
         let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT")?.unwrap();
         let block_height = u64::from_le_bytes(block_height.as_slice().try_into().unwrap());
         let mut state_roots = vec![];
@@ -409,8 +430,8 @@ impl ForkNetworkCommand {
             assert_eq!(key, format!("FORK_TOOL_SHARD_ID:{shard_id}"));
             state_roots.push(state_root);
         }
-        tracing::info!(?state_roots, ?block_hash, ?epoch_id, block_height);
-        Ok((state_roots, block_hash, epoch_id, block_height))
+        tracing::info!(?state_roots, ?epoch_id, block_height);
+        Ok((state_roots, epoch_id, block_height))
     }
 
     /// Checks that `~/.near/data/fork-snapshot/data` exists.
@@ -788,7 +809,8 @@ fn backup_genesis_file_path(home_dir: &Path, genesis_file: &str) -> PathBuf {
 /// Returns hash of flat head.
 /// Checks that all shards have flat storage.
 /// Checks that flat heads of all shards match.
-fn get_fork_head(all_shard_uids: &[ShardUId], store: Store) -> anyhow::Result<BlockInfo> {
+fn get_fork_heads(all_shard_uids: &[ShardUId], store: Store) -> anyhow::Result<Vec<BlockInfo>> {
+    // Iterate over each shard to check that flat storage is Ready.
     let flat_heads :Vec<BlockInfo> = all_shard_uids.iter().map(|shard_uid|{
         let flat_storage_status = store
             .get_ser::<FlatStorageStatus>(DBCol::FlatStorageStatus, &shard_uid.to_bytes()).unwrap()
@@ -799,9 +821,7 @@ fn get_fork_head(all_shard_uids: &[ShardUId], store: Store) -> anyhow::Result<Bl
             panic!("Flat storage is not ready for shard {shard_uid}: {flat_storage_status:?}. Please reset the fork, and run the node for longer");
         }
     }).collect();
-    let flat_head = flat_heads[0];
-    assert!(flat_heads.iter().all(|x| x == &flat_head));
-    Ok(flat_head)
+    Ok(flat_heads)
 }
 
 fn backup_genesis_file(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<()> {
