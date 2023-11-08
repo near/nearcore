@@ -91,12 +91,12 @@ pub static CONTRACT_CACHE_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
 });
 
 pub static USING_ACCOUNTING_CACHE: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec("near_using_accounting_cache_for_retrieve", "Using accountig cache", &[""])
+    try_create_int_counter_vec("near_using_accounting_cache_for_retrieve", "Using accountig cache", &[])
         .unwrap()
 });
 
 pub static CALLING_RETRIEVE: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec("near_calling_retrieve_trie_node", "Retrieve trie node", &[""])
+    try_create_int_counter_vec("near_calling_retrieve_trie_node", "Retrieve trie node", &[])
         .unwrap()
 });
 
