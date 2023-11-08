@@ -894,7 +894,7 @@ mod tests {
 
     impl TestTries {
         fn new(check_deleted_keys: bool) -> Self {
-            let mem = MemTries::new(100 * 1024 * 1024, ShardUId::single_shard());
+            let mem = MemTries::new(ShardUId::single_shard());
             let disk = TestTriesBuilder::new().build();
             Self {
                 mem,

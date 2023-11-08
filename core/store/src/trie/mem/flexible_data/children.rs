@@ -46,7 +46,7 @@ impl FlexibleDataHeader for EncodedChildrenHeader {
         let mut j = 0;
         for (i, child) in children.into_iter().enumerate() {
             if self.mask & (1 << i) != 0 {
-                target.write_usize_at(j, child.unwrap().pos);
+                target.write_pos_at(j, child.unwrap().pos);
                 j += size_of::<usize>();
             } else {
                 debug_assert!(child.is_none());
