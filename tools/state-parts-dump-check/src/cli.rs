@@ -52,7 +52,7 @@ pub enum StatePartsDumpCheckSubCommand {
 #[derive(clap::Parser)]
 pub struct LoopCheckCommand {
     /// Listen address for prometheus metrics.
-    #[clap(long, default_value = "0.0.0.0:9090")]
+    #[clap(long, default_value = "0.0.0.0:4040")]
     prometheus_addr: String,
     // address of RPC server to retrieve latest block, epoch information
     #[clap(long)]
