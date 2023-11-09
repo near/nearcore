@@ -590,7 +590,11 @@ impl JsonRpcHandler {
                 tx_info,
                 fetch_receipt,
             );
-            tx_status_result.err().unwrap()
+            if let Err(error) = tx_status_result {
+                error
+            } else {
+                near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
+            }
         })?
     }
 
