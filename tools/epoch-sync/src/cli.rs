@@ -53,13 +53,7 @@ impl EpochSyncCommand {
             .join("epoch-sync-snapshot");
         let snapshot_path = home_dir.join(store_path_addition.clone());
 
-        let opener = NodeStorage::opener(
-            home_dir,
-            near_config.config.archive,
-            &near_config.config.store,
-            near_config.config.cold_store.as_ref(),
-        );
-        let storage = opener.open().unwrap_or_else(|e| panic!("Error opening storage: {:#}", e));
+        let storage = nearcore::open_storage(&home_dir, &mut near_config)?;
 
         if snapshot_path.exists() && snapshot_path.is_dir() {
             tracing::info!(?snapshot_path, "Found a DB snapshot");
