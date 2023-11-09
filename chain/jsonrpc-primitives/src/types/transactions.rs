@@ -31,7 +31,7 @@ pub enum SignedTransaction {
     SignedTransaction(near_primitives::transaction::SignedTransaction),
 }
 
-#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize, Clone)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcTransactionError {
     #[error("An error happened during transaction execution: {context:?}")]
