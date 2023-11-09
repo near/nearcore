@@ -24,19 +24,17 @@ class TestRpcFinality(unittest.TestCase):
         min_block_delay = 3
 
         consensus = {
-            "consensus": {
-                "min_block_production_delay": {
-                    "secs": min_block_delay,
-                    "nanos": 0,
-                },
-                "max_block_production_delay": {
-                    "secs": min_block_delay * 2,
-                    "nanos": 0,
-                },
-                "max_block_wait_delay": {
-                    "secs": min_block_delay * 3,
-                    "nanos": 0,
-                }
+            "min_block_production_delay": {
+                "secs": min_block_delay,
+                "nanos": 0,
+            },
+            "max_block_production_delay": {
+                "secs": min_block_delay * 2,
+                "nanos": 0,
+            },
+            "max_block_wait_delay": {
+                "secs": min_block_delay * 3,
+                "nanos": 0,
             }
         }
 
