@@ -1,5 +1,6 @@
 use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 use super::TrieRefcountSubtraction;
+use crate::flat::store_helper::remove_all_state_values;
 use crate::flat::{FlatStorageManager, FlatStorageStatus};
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
@@ -332,6 +333,16 @@ impl ShardTries {
     ) -> Result<FlatStorageStatus, StorageError> {
         let (_store, manager) = self.get_state_snapshot(&sync_prev_prev_hash)?;
         Ok(manager.get_flat_storage_status(shard_uid))
+    }
+
+    /// Removes all trie state values from store for a given shard_uid
+    /// Useful when we are trying to delete state of parent shard after resharding
+    /// Note that flat storage needs to be handled separately
+    pub fn delete_trie_for_shard(&self, shard_uid: ShardUId, store_update: &mut StoreUpdate) {
+        // Clear both caches and remove state values from store
+        self.0.caches.write().expect(POISONED_LOCK_ERR).remove(&shard_uid);
+        self.0.view_caches.write().expect(POISONED_LOCK_ERR).remove(&shard_uid);
+        remove_all_state_values(store_update, shard_uid);
     }
 }
 
