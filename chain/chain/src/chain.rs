@@ -6021,7 +6021,7 @@ impl<'a> ChainUpdate<'a> {
 
     /// Data that is necessary to prove Epoch in new Epoch Sync.
     #[cfg(feature = "new_epoch_sync")]
-    fn create_epoch_sync_info(
+    pub fn create_epoch_sync_info(
         &self,
         last_block_info: &BlockInfo,
         next_epoch_first_hash: &CryptoHash,

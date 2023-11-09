@@ -6,6 +6,8 @@ use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
 use near_database_tool::commands::DatabaseCommand;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
+#[cfg(feature = "new_epoch_sync")]
+use near_epoch_sync_tool::EpochSyncCommand;
 use near_flat_storage::commands::FlatStorageCommand;
 use near_fork_network::cli::ForkNetworkCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
@@ -144,6 +146,10 @@ impl NeardCmd {
             NeardSubCommand::StatePartsDumpCheck(cmd) => {
                 cmd.run()?;
             }
+            #[cfg(feature = "new_epoch_sync")]
+            NeardSubCommand::EpochSync(cmd) => {
+                cmd.run(&home_dir)?;
+            }
         };
         Ok(())
     }
@@ -272,6 +278,10 @@ pub(super) enum NeardSubCommand {
 
     /// Check completeness of dumped state parts of an epoch
     StatePartsDumpCheck(StatePartsDumpCheckCommand),
+
+    #[cfg(feature = "new_epoch_sync")]
+    /// Testing tool for epoch sync
+    EpochSync(EpochSyncCommand),
 }
 
 #[derive(clap::Parser)]
