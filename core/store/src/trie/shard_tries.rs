@@ -591,6 +591,30 @@ mod test {
     use super::*;
     use std::{assert_eq, str::FromStr};
 
+    fn create_trie() -> ShardTries {
+        let store = create_test_store();
+        let trie_cache_config = TrieCacheConfig {
+            default_max_bytes: DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
+            per_shard_max_bytes: Default::default(),
+            shard_cache_deletions_queue_capacity: 0,
+        };
+        let trie_config = TrieConfig {
+            shard_cache_config: trie_cache_config.clone(),
+            view_shard_cache_config: trie_cache_config,
+            enable_receipt_prefetching: false,
+            sweat_prefetch_receivers: Vec::new(),
+            sweat_prefetch_senders: Vec::new(),
+        };
+        let shard_uids = Vec::from([ShardUId::single_shard()]);
+        ShardTries::new(
+            store.clone(),
+            trie_config,
+            &shard_uids,
+            FlatStorageManager::new(store),
+            StateSnapshotConfig::default(),
+        )
+    }
+
     #[test]
     fn test_delayed_receipt_row_key() {
         let trie_key1 = TrieKey::DelayedReceipt { index: 1 };
@@ -658,31 +682,9 @@ mod test {
     //TODO(jbajic) Simplify logic for creating configuration
     #[test]
     fn test_insert_delete_trie_cache() {
-        let store = create_test_store();
-        let trie_cache_config = TrieCacheConfig {
-            default_max_bytes: DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
-            per_shard_max_bytes: Default::default(),
-            shard_cache_deletions_queue_capacity: 0,
-        };
-        let trie_config = TrieConfig {
-            shard_cache_config: trie_cache_config.clone(),
-            view_shard_cache_config: trie_cache_config,
-            enable_receipt_prefetching: false,
-            sweat_prefetch_receivers: Vec::new(),
-            sweat_prefetch_senders: Vec::new(),
-        };
-        let shard_uids = Vec::from([ShardUId { shard_id: 0, version: 0 }]);
-        let shard_uid = *shard_uids.first().unwrap();
-
-        let trie = ShardTries::new(
-            store.clone(),
-            trie_config,
-            &shard_uids,
-            FlatStorageManager::new(store),
-            StateSnapshotConfig::default(),
-        );
-
-        let trie_caches = &trie.0.caches;
+        let shard_uid = ShardUId::single_shard();
+        let tries = create_trie();
+        let trie_caches = &tries.0.caches;
         // Assert only one cache for one shard exists
         assert_eq!(trie_caches.read().unwrap().len(), 1);
         // Assert the shard uid is correct
@@ -695,14 +697,14 @@ mod test {
         assert!(trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
 
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
-        trie.update_cache(insert_ops, shard_uid);
+        tries.update_cache(insert_ops, shard_uid);
         assert_eq!(
             trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).unwrap().to_vec(),
             val
         );
 
         let deletions_ops = Vec::from([(&key, None)]);
-        trie.update_cache(deletions_ops, shard_uid);
+        tries.update_cache(deletions_ops, shard_uid);
         assert!(trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
     }
 
@@ -750,5 +752,34 @@ mod test {
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
         trie.update_cache(insert_ops, shard_uid);
         assert!(trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
+    }
+
+    #[test]
+    fn test_delete_trie_for_shard() {
+        let shard_uid = ShardUId::single_shard();
+        let tries = create_trie();
+
+        let key = CryptoHash::hash_borsh("alice").as_bytes().to_vec();
+        let val: Vec<u8> = Vec::from([0, 1, 2, 3, 4]);
+
+        // insert some data
+        let trie = tries.get_trie_for_shard(shard_uid, CryptoHash::default());
+        let trie_changes = trie.update(vec![(key, Some(val))]).unwrap();
+        let mut store_update = tries.store_update();
+        tries.apply_insertions(&trie_changes, shard_uid, &mut store_update);
+        store_update.commit().unwrap();
+
+        // delete trie for shard_uid
+        let mut store_update = tries.store_update();
+        tries.delete_trie_for_shard(shard_uid, &mut store_update);
+        store_update.commit().unwrap();
+
+        // verify if data and caches are deleted
+        assert!(tries.0.caches.read().unwrap().get(&shard_uid).is_none());
+        assert!(tries.0.view_caches.read().unwrap().get(&shard_uid).is_none());
+        let store = tries.get_store();
+        let key_prefix = shard_uid.to_bytes();
+        let mut iter = store.iter_prefix(DBCol::State, &key_prefix);
+        assert!(iter.next().is_none());
     }
 }
