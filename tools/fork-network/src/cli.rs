@@ -272,6 +272,8 @@ impl ForkNetworkCommand {
             })
             .collect();
 
+        // Increment height to represent that some changes were made to the original state.
+        let block_height = block_height + 1;
         tracing::info!(block_height, ?state_roots, ?epoch_id);
 
         let mut store_update = store.store_update();
