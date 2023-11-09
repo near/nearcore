@@ -15,7 +15,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col;
@@ -258,7 +258,6 @@ impl ForkNetworkCommand {
         // consistency of state across the shards.
         let state_roots: Vec<StateRoot> = (0..num_shards)
             .map(|shard_id| {
-                let epoch_id = &epoch_ids[shard_id];
                 let shard_uid =
                     epoch_manager.shard_id_to_uid(shard_id as ShardId, epoch_id).unwrap();
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
@@ -273,8 +272,14 @@ impl ForkNetworkCommand {
             .collect();
 
         // Increment height to represent that some changes were made to the original state.
+        tracing::info!(
+            block_height,
+            ?desired_block_hash,
+            ?state_roots,
+            ?epoch_id,
+            "Moved flat heads to a common block"
+        );
         let block_height = block_height + 1;
-        tracing::info!(block_height, ?state_roots, ?epoch_id);
 
         let mut store_update = store.store_update();
         store_update.set_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID", epoch_id)?;
