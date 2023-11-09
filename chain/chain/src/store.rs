@@ -2324,6 +2324,7 @@ impl<'a> ChainStoreUpdate<'a> {
     /// Most of the work happens on the last block of the epoch when resharding is COMPLETED
     /// During GC, when we detect a change in shard layout, we can clear off all entries from
     /// the parent shards
+    /// TODO(resharding): Need to clean remaining columns after resharding
     pub fn clear_resharding_data(
         &mut self,
         runtime: &dyn RuntimeAdapter,

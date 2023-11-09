@@ -680,6 +680,31 @@ impl TestReshardingEnv {
             }));
         }
     }
+
+    fn check_trie_and_flat_state(&self, expect_deleted: bool) {
+        let tries = self.env.clients[0].chain.runtime_adapter.get_tries();
+        let flat_storage_manager =
+            self.env.clients[0].chain.runtime_adapter.get_flat_storage_manager();
+        let store = tries.get_store();
+        for shard_uid in get_parent_shard_uids(&self.resharding_type.unwrap()) {
+            // verify we have no keys in State and FlatState column
+            let key_prefix = shard_uid.to_bytes();
+            assert_eq!(
+                expect_deleted,
+                store.iter_prefix(DBCol::State, &key_prefix).next().is_none()
+            );
+            assert_eq!(
+                expect_deleted,
+                store.iter_prefix(DBCol::FlatState, &key_prefix).next().is_none()
+            );
+            // verify that flat storage status says Empty
+            let status = flat_storage_manager.get_flat_storage_status(shard_uid);
+            match status {
+                FlatStorageStatus::Empty => assert!(expect_deleted),
+                _ => assert!(!expect_deleted, "unexpected flat storage status: {:?}", status),
+            }
+        }
+    }
 }
 
 // Returns the block producer for the next block after the current head.
@@ -972,6 +997,8 @@ fn test_shard_layout_upgrade_simple_v2_seed_44() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44, false);
 }
 
+/// In this test we are checking whether we are properly deleting trie state and flat state
+/// from the old shard layout after resharding. This is handled as a part of Garbage Collection (GC)
 fn test_shard_layout_upgrade_gc_impl(resharding_type: ReshardingType, rng_seed: u64) {
     init_test_logger();
     tracing::info!(target: "test", "test_shard_layout_upgrade_gc_impl starting");
@@ -992,29 +1019,20 @@ fn test_shard_layout_upgrade_gc_impl(resharding_type: ReshardingType, rng_seed: 
         Some(resharding_type),
     );
 
-    // We keep trie data for 5 epochs, so running step about 8 times should be good
+    // GC period is about 5 epochs. We should expect to see state deleted at the end of the 7th epoch
+    // Epoch 0, blocks 1-5  : genesis shard layout
+    // Epoch 1, blocks 6-10 : genesis shard layout, state split happens
+    // Epoch 2: blocks 10-15: target shard layout, shard layout is upgraded
+    // Epoch 3-7: target shard layout, waiting for GC to happen
+    // Epoch 8: block 37: GC happens, state is deleted
     let drop_chunk_condition = DropChunkCondition::new();
-    for _ in 1..8 * epoch_length {
+    for _ in 0..7 * epoch_length + 1 {
+        // we expect the trie state and flat state to NOT be deleted before GC
+        test_env.check_trie_and_flat_state(false);
         test_env.step(&drop_chunk_condition, target_protocol_version);
     }
-
-    // iterate through parent shards and check whether we have any state from the old shard layout
-    let tries = test_env.env.clients[0].chain.runtime_adapter.get_tries();
-    let flat_storage_manager =
-        test_env.env.clients[0].chain.runtime_adapter.get_flat_storage_manager();
-    let store = tries.get_store();
-    for shard_uid in get_parent_shard_uids(&resharding_type) {
-        // verify we have no keys in State and FlatState column
-        let key_prefix = shard_uid.to_bytes();
-        assert!(store.iter_prefix(DBCol::State, &key_prefix).next().is_none());
-        assert!(store.iter_prefix(DBCol::FlatState, &key_prefix).next().is_none());
-        // verify that flat storage status says Empty
-        let status = flat_storage_manager.get_flat_storage_status(shard_uid);
-        match status {
-            FlatStorageStatus::Empty => {}
-            _ => assert!(false, "unexpected flat storage status: {:?}", status),
-        }
-    }
+    // Once GC is done, we expect the trie state and flat state to be deleted
+    test_env.check_trie_and_flat_state(true);
 }
 
 #[test]
