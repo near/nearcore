@@ -219,9 +219,11 @@ class BaseNode(object):
         return self.json_rpc('broadcast_tx_async',
                              [base64.b64encode(signed_tx).decode('utf8')])
 
-    def send_tx_and_wait(self, signed_tx, timeout):
-        return self.json_rpc('broadcast_tx_commit',
-                             [base64.b64encode(signed_tx).decode('utf8')],
+    def send_tx_and_wait(self, signed_tx, timeout, wait_until='FINAL'):
+        return self.json_rpc('send_tx', {
+            'signed_tx_base64': base64.b64encode(signed_tx).decode('utf8'),
+            'wait_until': wait_until
+        },
                              timeout=timeout)
 
     def get_status(self,
