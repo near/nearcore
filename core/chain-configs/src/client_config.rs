@@ -176,7 +176,9 @@ pub struct StateSplitConfig {
 
 impl Default for StateSplitConfig {
     fn default() -> Self {
-        Self { batch_size: bytesize::ByteSize::mb(30), batch_delay: Duration::from_millis(100) }
+        // Conservative default for a slower resharding that puts as little
+        // extra load on the node as possible.
+        Self { batch_size: bytesize::ByteSize::kb(500), batch_delay: Duration::from_millis(100) }
     }
 }
 
