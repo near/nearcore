@@ -261,10 +261,13 @@ impl JsonRpcClient {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_split_storage_info", request)
     }
 
-    pub fn validators(&self, epoch_id_or_block_id: Option<EpochReference>)  -> RpcRequest<EpochValidatorInfo> {
+    pub fn validators(
+        &self,
+        epoch_id_or_block_id: Option<EpochReference>,
+    ) -> RpcRequest<EpochValidatorInfo> {
         let epoch_reference = match epoch_id_or_block_id {
             Some(epoch_reference) => epoch_reference,
-            _ => EpochReference::Latest
+            _ => EpochReference::Latest,
         };
         call_method(&self.client, &self.server_addr, "validators", epoch_reference)
     }
