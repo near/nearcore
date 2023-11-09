@@ -19,6 +19,8 @@ Please provide links to external discussions and documents such as google design
 
 Please provide an estimate of which teams in Near One will need to contribute to this project and the estimated time to finish this project.  The estimated time should differentiate between engineering time and release time as appropriate.
 
+Based on which teams from Near One will be involved, add appropriate `T-*` labels for the teams for them.
+
 # Assumptions
 
 Are there any assumptions that you are making that the stakeholders evaluating the viability of this project should be aware of?  Some examples are:
