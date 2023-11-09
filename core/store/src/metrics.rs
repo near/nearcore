@@ -100,6 +100,11 @@ pub static CALLING_RETRIEVE: Lazy<IntCounterVec> = Lazy::new(|| {
         .unwrap()
 });
 
+pub static HAS_ACCOUNT_ID: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec("near_has_account_id", "Calling with account id", &[])
+        .unwrap()
+});
+
 pub static CONTRACT_CACHE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec("near_contract_cache_size", "Contract cache size", &["is_view"])
         .unwrap()

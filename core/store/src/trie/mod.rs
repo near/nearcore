@@ -335,6 +335,7 @@ impl std::fmt::Debug for TrieNode {
 struct TrieMetrics {
     using_accounting_cache: GenericCounter<prometheus::core::AtomicU64>,
     retrieving_trie_node: GenericCounter<prometheus::core::AtomicU64>,
+    has_account_id: GenericCounter<prometheus::core::AtomicU64>,
 }
 
 impl Default for TrieMetrics {
@@ -342,6 +343,7 @@ impl Default for TrieMetrics {
         TrieMetrics {
             using_accounting_cache: metrics::USING_ACCOUNTING_CACHE.with_label_values(&[]),
             retrieving_trie_node: metrics::CALLING_RETRIEVE.with_label_values(&[]),
+            has_account_id: metrics::CALLING_RETRIEVE.with_label_values(&[]),
         }
     }
 }
@@ -559,6 +561,9 @@ impl Trie {
     ) -> Result<Arc<[u8]>, StorageError> {
         self.metrics.retrieving_trie_node.inc();
         let result = if use_accounting_cache {
+            if account_id.is_some() {
+                self.metrics.has_account_id.inc();
+            }
             self.metrics.using_accounting_cache.inc();
             self.accounting_cache.borrow_mut().retrieve_raw_bytes_with_accounting(
                 hash,
@@ -939,6 +944,9 @@ impl Trie {
         if hash == &Self::EMPTY_ROOT {
             return Ok(None);
         }
+        if account_id.is_some() {
+            self.metrics.has_account_id.inc();
+        }
         let bytes = self.internal_retrieve_trie_node(hash, account_id, use_accounting_cache)?;
         let node = RawTrieNodeWithSize::try_from_slice(&bytes).map_err(|err| {
             StorageError::StorageInconsistentState(format!("Failed to decode node {hash}: {err}"))
@@ -1190,6 +1198,9 @@ impl Trie {
         hash: &CryptoHash,
         account_id: Option<AccountId>,
     ) -> Result<Vec<u8>, StorageError> {
+        if account_id.is_some() {
+            self.metrics.has_account_id.inc();
+        }
         let bytes = self.internal_retrieve_trie_node(hash, account_id, true)?;
         Ok(bytes.to_vec())
     }
