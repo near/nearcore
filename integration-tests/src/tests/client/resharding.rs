@@ -1025,7 +1025,7 @@ fn test_shard_layout_upgrade_gc() {
 #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_gc_v2() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44);
+    test_shard_layout_upgrade_gc_impl(ReshardingType::V2, 44);
 }
 
 const GAS_1: u64 = 300_000_000_000_000;
