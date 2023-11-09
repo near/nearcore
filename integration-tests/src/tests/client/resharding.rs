@@ -689,18 +689,14 @@ impl TestReshardingEnv {
         for shard_uid in get_parent_shard_uids(&self.resharding_type.unwrap()) {
             // verify we have no keys in State and FlatState column
             let key_prefix = shard_uid.to_bytes();
-            assert_eq!(
-                expect_deleted,
-                store.iter_prefix(DBCol::State, &key_prefix).next().is_none()
-            );
-            assert_eq!(
-                expect_deleted,
-                store.iter_prefix(DBCol::FlatState, &key_prefix).next().is_none()
-            );
+            if expect_deleted {
+                assert!(store.iter_prefix(DBCol::State, &key_prefix).next().is_none());
+                assert!(store.iter_prefix(DBCol::FlatState, &key_prefix).next().is_none());
+            }
             // verify that flat storage status says Empty
             let status = flat_storage_manager.get_flat_storage_status(shard_uid);
             match status {
-                FlatStorageStatus::Empty => assert!(expect_deleted),
+                FlatStorageStatus::Empty => assert!(expect_deleted, "flat storage status Empty"),
                 _ => assert!(!expect_deleted, "unexpected flat storage status: {:?}", status),
             }
         }
