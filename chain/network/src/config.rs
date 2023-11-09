@@ -5,6 +5,7 @@ use crate::network_protocol::PeerInfo;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::sink::Sink;
+use crate::snapshot_hosts;
 use crate::stun;
 use crate::tcp;
 use crate::types::ROUTED_MESSAGE_TTL;
@@ -96,6 +97,7 @@ pub struct NetworkConfig {
     pub validator: Option<ValidatorConfig>,
 
     pub peer_store: peer_store::Config,
+    pub snapshot_hosts: snapshot_hosts::Config,
     pub whitelist_nodes: Vec<PeerInfo>,
     pub handshake_timeout: time::Duration,
 
@@ -285,6 +287,9 @@ impl NetworkConfig {
                 ban_window: cfg.ban_window.try_into()?,
                 peer_expiration_duration: cfg.peer_expiration_duration.try_into()?,
             },
+            snapshot_hosts: snapshot_hosts::Config {
+                snapshot_hosts_cache_size: cfg.snapshot_hosts_cache_size,
+            },
             whitelist_nodes: if cfg.whitelist_nodes.is_empty() {
                 vec![]
             } else {
@@ -367,6 +372,7 @@ impl NetworkConfig {
                 peer_expiration_duration: time::Duration::seconds(60 * 60),
                 connect_only_to_boot_nodes: false,
             },
+            snapshot_hosts: snapshot_hosts::Config { snapshot_hosts_cache_size: 1000 },
             whitelist_nodes: vec![],
             handshake_timeout: time::Duration::seconds(5),
             connect_to_reliable_peers_on_startup: true,
