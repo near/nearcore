@@ -557,7 +557,9 @@ impl Trie {
         account_id: Option<AccountId>,
         use_accounting_cache: bool,
     ) -> Result<Arc<[u8]>, StorageError> {
+        self.metrics.retrieving_trie_node.inc();
         let result = if use_accounting_cache {
+            self.metrics.using_accounting_cache.inc();
             self.accounting_cache.borrow_mut().retrieve_raw_bytes_with_accounting(
                 hash,
                 &*self.storage,
