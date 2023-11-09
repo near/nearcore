@@ -294,10 +294,12 @@ fn run_state_sync_with_dumped_parts(
         let runtime_client_1 = Arc::clone(&env.clients[1].runtime_adapter);
         let runtime_client_0 = Arc::clone(&env.clients[0].runtime_adapter);
         let client_0_store = runtime_client_0.store();
+        let mut store_update = runtime_client_1.store().store_update();
         assert!(runtime_client_1
             .get_flat_storage_manager()
-            .remove_flat_storage_for_shard(ShardUId::single_shard())
+            .remove_flat_storage_for_shard(ShardUId::single_shard(), &mut store_update)
             .unwrap());
+        store_update.commit().unwrap();
 
         for part_id in 0..num_parts {
             let key = borsh::to_vec(&StatePartKey(sync_hash, 0, part_id)).unwrap();

@@ -665,11 +665,12 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 let store = rt.store();
 
                 let shard_id = msg.shard_uid.shard_id as ShardId;
-
+                let mut store_update = store.store_update();
                 assert!(rt
                     .get_flat_storage_manager()
-                    .remove_flat_storage_for_shard(msg.shard_uid)
+                    .remove_flat_storage_for_shard(msg.shard_uid, &mut store_update)
                     .unwrap());
+                store_update.commit().unwrap();
 
                 for part_id in 0..msg.num_parts {
                     let key =
