@@ -36,6 +36,7 @@ members = [
     "chain/rosetta-rpc",
     "chain/telemetry",
     "core/async",
+    "core/async-derive",
     "core/chain-configs",
     "core/crypto",
     "core/dyn-configs",
@@ -188,6 +189,7 @@ near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
 near-database-tool= { path = "tools/database" }
 near-async = { path = "core/async" }
+near-async-derive = { path = "core/async-derive" }
 near-cache = { path = "utils/near-cache" }
 near-chain = { path = "chain/chain" }
 near-chain-configs = { path = "core/chain-configs" }

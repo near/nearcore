@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use futures::{future::BoxFuture, FutureExt, TryFutureExt};
 use near_o11y::{WithSpanContext, WithSpanContextExt};
 
@@ -16,19 +18,43 @@ where
     }
 }
 
+/// Generic failure for async send. We don't use MailboxError because that is Actix-specific.
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
+pub enum AsyncSendError {
+    #[default]
+    Closed,
+    Timeout,
+}
+
+impl Display for AsyncSendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AsyncSendError::Closed => write!(f, "Closed"),
+            AsyncSendError::Timeout => write!(f, "Timeout"),
+        }
+    }
+}
+
+pub type ActixResult<T> = Result<<T as actix::Message>::Result, AsyncSendError>;
+
 /// An actix Addr implements CanSendAsync for any message type that the actor handles.
 /// Here, the future output of send_async is a Result, because Actix may return an
 /// error. The error is converted to (), so that the caller does not need to be aware of
 /// Actix-specific error messages.
-impl<M, A> CanSendAsync<M, Result<M::Result, ()>> for actix::Addr<A>
+impl<M, A> CanSendAsync<M, Result<M::Result, AsyncSendError>> for actix::Addr<A>
 where
     M: actix::Message + Send + 'static,
     M::Result: Send,
     A: actix::Actor + actix::Handler<M>,
     A::Context: actix::dev::ToEnvelope<A, M>,
 {
-    fn send_async(&self, message: M) -> BoxFuture<'static, Result<M::Result, ()>> {
-        self.send(message).map_err(|_| ()).boxed()
+    fn send_async(&self, message: M) -> BoxFuture<'static, Result<M::Result, AsyncSendError>> {
+        self.send(message)
+            .map_err(|err| match err {
+                actix::MailboxError::Closed => AsyncSendError::Closed,
+                actix::MailboxError::Timeout => AsyncSendError::Timeout,
+            })
+            .boxed()
     }
 }
 
@@ -49,6 +75,12 @@ where
 ///   );
 pub struct AddrWithAutoSpanContext<T: actix::Actor> {
     inner: actix::Addr<T>,
+}
+
+impl<T: actix::Actor> Clone for AddrWithAutoSpanContext<T> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
 }
 
 /// Extension function to convert an Addr<WithSpanContext<T>> to an AddrWithAutoSpanContext<T>.
@@ -73,14 +105,14 @@ where
     }
 }
 
-impl<M, S> CanSendAsync<M, Result<M::Result, ()>> for AddrWithAutoSpanContext<S>
+impl<M, S> CanSendAsync<M, Result<M::Result, AsyncSendError>> for AddrWithAutoSpanContext<S>
 where
     M: actix::Message + 'static,
     M::Result: Send,
     S: actix::Actor,
-    actix::Addr<S>: CanSendAsync<WithSpanContext<M>, Result<M::Result, ()>>,
+    actix::Addr<S>: CanSendAsync<WithSpanContext<M>, Result<M::Result, AsyncSendError>>,
 {
-    fn send_async(&self, message: M) -> BoxFuture<'static, Result<M::Result, ()>> {
+    fn send_async(&self, message: M) -> BoxFuture<'static, Result<M::Result, AsyncSendError>> {
         self.inner.send_async(message.with_span_context())
     }
 }

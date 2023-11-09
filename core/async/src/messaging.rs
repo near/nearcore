@@ -1,4 +1,5 @@
 use futures::future::BoxFuture;
+use futures::FutureExt;
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
 
@@ -48,11 +49,6 @@ impl<M> Sender<M> {
 
     fn from_arc<T: CanSend<M> + 'static>(arc: Arc<T>) -> Self {
         Self { sender: arc }
-    }
-
-    /// Creates a no-op sender that does nothing with the message.
-    pub fn noop() -> Self {
-        Self::from_impl(Noop)
     }
 }
 
@@ -107,8 +103,8 @@ impl<M, R> AsyncSender<M, R> {
 /// through to the inner object. bind() should be called when the inner object is ready.
 /// All calls to send() and send_async() through this wrapper will block until bind() is called.
 ///
-/// This struct is intended to be wrapped with an Arc, e.g.
-///   let late_bound = Arc::new(LateBoundSender::default());
+/// Example:
+///   let late_bound = LateBoundSender::new();
 ///   let something_else = SomethingElse::new(late_bound.as_sender());
 ///   let implementation = Implementation::new(something_else);
 ///   late_bound.bind(implementation);
@@ -116,13 +112,11 @@ pub struct LateBoundSender<S> {
     sender: OnceCell<S>,
 }
 
-impl<S> Default for LateBoundSender<S> {
-    fn default() -> Self {
-        Self { sender: OnceCell::default() }
-    }
-}
-
 impl<S> LateBoundSender<S> {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self { sender: OnceCell::new() })
+    }
+
     pub fn bind(&self, sender: S) {
         self.sender.set(sender).map_err(|_| ()).expect("cannot set sender twice");
     }
@@ -143,38 +137,44 @@ impl<M, R, S: CanSendAsync<M, R>> CanSendAsync<M, R> for LateBoundSender<S> {
     }
 }
 
-struct Noop;
+pub struct Noop;
 
 impl<M> CanSend<M> for Noop {
     fn send(&self, _message: M) {}
 }
 
-/// Anything that contains a Sender also implements CanSend. This is useful for implementing
-/// APIs that require multiple sender interfaces, so that the multi-sender API can be used
-/// to send individual message types directly.
-///
-/// For example:
-///
-///   #[derive(Clone, derive_more::AsRef)]
-///   pub struct MyAPI {
-///     client: Sender<ClientMessage>,
-///     network: AsyncSender<NetworkMessage, NetworkResponse>,
-///   }
-///
-///   fn something(api: &MyAPI) {
-///     // There's no need to do api.client.send() or api.network.send_async() here.
-///     api.send(ClientMessage::Something);
-///     api.send_async(NetworkMessage::Something).then(...);
-///   }
-impl<A: AsRef<Sender<M>> + Send + Sync + 'static, M: 'static> CanSend<M> for A {
-    fn send(&self, message: M) {
-        self.as_ref().send(message)
+impl<M: Send, R: Send + 'static, E: Default + Send + 'static> CanSendAsync<M, Result<R, E>>
+    for Noop
+{
+    fn send_async(&self, _message: M) -> BoxFuture<'static, Result<R, E>> {
+        futures::future::ready(Err(E::default())).boxed()
     }
 }
-impl<A: AsRef<AsyncSender<M, R>> + Send + Sync + 'static, M: 'static, R: 'static> CanSendAsync<M, R>
-    for A
-{
-    fn send_async(&self, message: M) -> BoxFuture<'static, R> {
-        self.as_ref().send_async(message)
+
+/// Creates a no-op sender that does nothing with the message.
+///
+/// Returns a type that can be converted to any type of sender,
+/// sync or async, including multi-senders.
+pub fn noop() -> Noop {
+    Noop
+}
+
+/// A trait for converting something that implements individual senders into
+/// a multi-sender.
+pub trait IntoMultiSender<A> {
+    fn as_multi_sender(self: &Arc<Self>) -> A;
+    fn into_multi_sender(self) -> A;
+}
+
+pub trait MultiSenderFrom<A> {
+    fn multi_sender_from(a: Arc<A>) -> Self;
+}
+
+impl<A, B: MultiSenderFrom<A>> IntoMultiSender<B> for A {
+    fn as_multi_sender(self: &Arc<Self>) -> B {
+        B::multi_sender_from(self.clone())
+    }
+    fn into_multi_sender(self) -> B {
+        B::multi_sender_from(Arc::new(self))
     }
 }

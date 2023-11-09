@@ -7,6 +7,7 @@ use crate::PeerManagerActor;
 use actix::{Actor, ActorContext, Context, Handler};
 use futures::future::BoxFuture;
 use futures::{future, Future, FutureExt};
+use near_async::actix::AsyncSendError;
 use near_async::messaging::{CanSend, CanSendAsync};
 use near_crypto::{KeyType, SecretKey};
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext};
@@ -234,13 +235,13 @@ pub struct MockPeerManagerAdapter {
     pub notify: Notify,
 }
 
-impl CanSendAsync<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, ()>>
+impl CanSendAsync<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, AsyncSendError>>
     for MockPeerManagerAdapter
 {
     fn send_async(
         &self,
         message: PeerManagerMessageRequest,
-    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, ()>> {
+    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, AsyncSendError>> {
         self.requests.write().unwrap().push_back(message);
         self.notify.notify_one();
         async { Ok(PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)) }
