@@ -397,7 +397,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, EpochError> {
         let epoch_manager = self.read();
-        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(EpochError::from)?.num_shards())
+        Ok(epoch_manager.get_shard_layout(epoch_id)?.num_shards())
     }
 
     fn num_total_parts(&self) -> usize {
@@ -432,7 +432,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_id: &EpochId,
     ) -> Result<ShardId, EpochError> {
         let epoch_manager = self.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(EpochError::from)?;
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
         Ok(account_id_to_shard_id(account_id, &shard_layout))
     }
 
@@ -442,23 +442,23 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_id: &EpochId,
     ) -> Result<ShardUId, EpochError> {
         let epoch_manager = self.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(EpochError::from)?;
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
         Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
     }
 
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
         let epoch_manager = self.read();
-        Ok(epoch_manager.get_block_info(hash).map_err(EpochError::from)?)
+        epoch_manager.get_block_info(hash)
     }
 
     fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
         let epoch_manager = self.read();
-        Ok(epoch_manager.get_epoch_config(epoch_id).map_err(EpochError::from)?)
+        epoch_manager.get_epoch_config(epoch_id)
     }
 
     fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
         let epoch_manager = self.read();
-        Ok(epoch_manager.get_epoch_info(epoch_id).map_err(EpochError::from)?)
+        epoch_manager.get_epoch_info(epoch_id)
     }
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
@@ -468,13 +468,13 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
         let epoch_manager = self.read();
-        let epoch_config = epoch_manager.get_epoch_config(epoch_id).map_err(EpochError::from)?;
+        let epoch_config = epoch_manager.get_epoch_config(epoch_id)?;
         Ok(ShardConfig::new(epoch_config))
     }
 
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.is_next_block_epoch_start(parent_hash).map_err(EpochError::from)
+        epoch_manager.is_next_block_epoch_start(parent_hash)
     }
 
     fn get_epoch_id_from_prev_block(
@@ -491,15 +491,12 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<EpochHeight, EpochError> {
         let epoch_manager = self.read();
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-        epoch_manager
-            .get_epoch_info(&epoch_id)
-            .map(|info| info.epoch_height())
-            .map_err(EpochError::from)
+        epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height())
     }
 
     fn get_next_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_next_epoch_id(block_hash).map_err(EpochError::from)
+        epoch_manager.get_next_epoch_id(block_hash)
     }
 
     fn get_next_epoch_id_from_prev_block(
@@ -507,7 +504,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         parent_hash: &CryptoHash,
     ) -> Result<EpochId, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).map_err(EpochError::from)
+        epoch_manager.get_next_epoch_id_from_prev_block(parent_hash)
     }
 
     fn get_prev_shard_ids(
@@ -547,7 +544,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_epoch_id(block_hash).map_err(EpochError::from)
+        epoch_manager.get_epoch_id(block_hash)
     }
 
     fn compare_epoch_id(
@@ -561,7 +558,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_epoch_start_height(block_hash).map_err(EpochError::from)
+        epoch_manager.get_epoch_start_height(block_hash)
     }
 
     fn get_prev_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
@@ -575,9 +572,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<EpochId, EpochError> {
         let epoch_manager = self.read();
         if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
-            epoch_manager.get_epoch_id(prev_block_hash).map_err(EpochError::from)
+            epoch_manager.get_epoch_id(prev_block_hash)
         } else {
-            epoch_manager.get_prev_epoch_id(prev_block_hash).map_err(EpochError::from)
+            epoch_manager.get_prev_epoch_id(prev_block_hash)
         }
     }
 
@@ -858,9 +855,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<bool, Error> {
         let info = {
             let epoch_manager = self.read();
-            epoch_manager
-                .get_all_block_approvers_ordered(prev_block_hash)
-                .map_err(EpochError::from)?
+            epoch_manager.get_all_block_approvers_ordered(prev_block_hash)?
         };
         if approvals.len() > info.len() {
             return Ok(false);
@@ -900,9 +895,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<(), Error> {
         let info = {
             let epoch_manager = self.read();
-            epoch_manager
-                .get_heuristic_block_approvers_ordered(epoch_id)
-                .map_err(EpochError::from)?
+            epoch_manager.get_heuristic_block_approvers_ordered(epoch_id)?
         };
 
         let message_to_sign = Approval::get_data_for_sig(
