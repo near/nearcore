@@ -343,7 +343,7 @@ impl Default for TrieMetrics {
         TrieMetrics {
             using_accounting_cache: metrics::USING_ACCOUNTING_CACHE.with_label_values(&[]),
             retrieving_trie_node: metrics::CALLING_RETRIEVE.with_label_values(&[]),
-            has_account_id: metrics::CALLING_RETRIEVE.with_label_values(&[]),
+            has_account_id: metrics::HAS_ACCOUNT_ID.with_label_values(&[]),
         }
     }
 }
