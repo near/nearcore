@@ -13,7 +13,7 @@ use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_manager::{AllEpochConfig, AllEpochConfigTestOverrides, EpochConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
-use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid};
+use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid, ShardLayout};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -23,8 +23,10 @@ use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryRequest};
 use near_primitives_core::num_rational::Rational32;
+use near_store::flat::FlatStorageStatus;
 use near_store::test_utils::{gen_account, gen_unique_accounts};
 use near_store::trie::SnapshotError;
+use near_store::{DBCol, ShardUId};
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
@@ -67,6 +69,13 @@ fn get_genesis_protocol_version(resharding_type: &ReshardingType) -> ProtocolVer
     match resharding_type {
         ReshardingType::V1 => SIMPLE_NIGHTSHADE_PROTOCOL_VERSION - 1,
         ReshardingType::V2 => SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION - 1,
+    }
+}
+
+fn get_parent_shard_uids(resharding_type: &ReshardingType) -> Vec<ShardUId> {
+    match resharding_type {
+        ReshardingType::V1 => ShardLayout::v0_single_shard().get_shard_uids(),
+        ReshardingType::V2 => ShardLayout::get_simple_nightshade_layout().get_shard_uids(),
     }
 }
 
@@ -671,6 +680,27 @@ impl TestReshardingEnv {
             }));
         }
     }
+
+    fn check_trie_and_flat_state(&self, expect_deleted: bool) {
+        let tries = self.env.clients[0].chain.runtime_adapter.get_tries();
+        let flat_storage_manager =
+            self.env.clients[0].chain.runtime_adapter.get_flat_storage_manager();
+        let store = tries.get_store();
+        for shard_uid in get_parent_shard_uids(&self.resharding_type.unwrap()) {
+            // verify we have no keys in State and FlatState column
+            let key_prefix = shard_uid.to_bytes();
+            if expect_deleted {
+                assert!(store.iter_prefix(DBCol::State, &key_prefix).next().is_none());
+                assert!(store.iter_prefix(DBCol::FlatState, &key_prefix).next().is_none());
+            }
+            // verify that flat storage status says Empty
+            let status = flat_storage_manager.get_flat_storage_status(shard_uid);
+            match status {
+                FlatStorageStatus::Empty => assert!(expect_deleted, "flat storage status Empty"),
+                _ => assert!(!expect_deleted, "unexpected flat storage status: {:?}", status),
+            }
+        }
+    }
 }
 
 // Returns the block producer for the next block after the current head.
@@ -961,6 +991,55 @@ fn test_shard_layout_upgrade_simple_v2_seed_43() {
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_44() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44, false);
+}
+
+/// In this test we are checking whether we are properly deleting trie state and flat state
+/// from the old shard layout after resharding. This is handled as a part of Garbage Collection (GC)
+fn test_shard_layout_upgrade_gc_impl(resharding_type: ReshardingType, rng_seed: u64) {
+    init_test_logger();
+    tracing::info!(target: "test", "test_shard_layout_upgrade_gc_impl starting");
+
+    let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
+    let target_protocol_version = get_target_protocol_version(&resharding_type);
+
+    let epoch_length = 5;
+    let mut test_env: TestReshardingEnv = TestReshardingEnv::new(
+        epoch_length,
+        2,
+        2,
+        100,
+        None,
+        genesis_protocol_version,
+        rng_seed,
+        false,
+        Some(resharding_type),
+    );
+
+    // GC period is about 5 epochs. We should expect to see state deleted at the end of the 7th epoch
+    // Epoch 0, blocks 1-5  : genesis shard layout
+    // Epoch 1, blocks 6-10 : genesis shard layout, state split happens
+    // Epoch 2: blocks 10-15: target shard layout, shard layout is upgraded
+    // Epoch 3-7: target shard layout, waiting for GC to happen
+    // Epoch 8: block 37: GC happens, state is deleted
+    let drop_chunk_condition = DropChunkCondition::new();
+    for _ in 0..7 * epoch_length + 1 {
+        // we expect the trie state and flat state to NOT be deleted before GC
+        test_env.check_trie_and_flat_state(false);
+        test_env.step(&drop_chunk_condition, target_protocol_version);
+    }
+    // Once GC is done, we expect the trie state and flat state to be deleted
+    test_env.check_trie_and_flat_state(true);
+}
+
+#[test]
+fn test_shard_layout_upgrade_gc() {
+    test_shard_layout_upgrade_gc_impl(ReshardingType::V1, 44);
+}
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_gc_v2() {
+    test_shard_layout_upgrade_gc_impl(ReshardingType::V2, 44);
 }
 
 const GAS_1: u64 = 300_000_000_000_000;

@@ -52,7 +52,7 @@ use near_store::{
 
 use crate::byzantine_assert;
 use crate::chunks_store::ReadOnlyChunksStore;
-use crate::types::{Block, BlockHeader, LatestKnown};
+use crate::types::{Block, BlockHeader, LatestKnown, RuntimeAdapter};
 use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use near_store::flat::store_helper;
 use std::sync::Arc;
@@ -2318,6 +2318,43 @@ impl<'a> ChainStoreUpdate<'a> {
             shard_uids_to_gc.extend(next_shard_layout.get_shard_uids());
         }
         shard_uids_to_gc
+    }
+
+    /// GC trie state and flat state data after a resharding event
+    /// Most of the work happens on the last block of the epoch when resharding is COMPLETED
+    /// During GC, when we detect a change in shard layout, we can clear off all entries from
+    /// the parent shards
+    /// TODO(resharding): Need to clean remaining columns after resharding
+    pub fn clear_resharding_data(
+        &mut self,
+        runtime: &dyn RuntimeAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
+        block_hash: CryptoHash,
+    ) -> Result<(), Error> {
+        // Need to check if this is the last block of the epoch where resharding is completed
+        // which means shard layout changed in the previous epoch
+        if !epoch_manager.is_next_block_epoch_start(&block_hash)? {
+            return Ok(());
+        }
+        let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+        let prev_epoch_id = epoch_manager.get_prev_epoch_id(&block_hash)?;
+        let prev_shard_layout = epoch_manager.get_shard_layout(&prev_epoch_id)?;
+        if shard_layout == prev_shard_layout {
+            return Ok(());
+        }
+
+        // Now we can proceed to removing the trie state and flat state
+        let mut store_update = self.store().store_update();
+        for shard_uid in prev_shard_layout.get_shard_uids() {
+            runtime.get_tries().delete_trie_for_shard(shard_uid, &mut store_update);
+            runtime
+                .get_flat_storage_manager()
+                .remove_flat_storage_for_shard(shard_uid, &mut store_update)?;
+        }
+
+        self.merge(store_update);
+        Ok(())
     }
 
     // Clearing block data of `block_hash`, if on a fork.
