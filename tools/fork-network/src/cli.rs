@@ -237,6 +237,7 @@ impl ForkNetworkCommand {
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?.unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
         let all_shard_uids = shard_layout.get_shard_uids();
+        let num_shards = all_shard_uids.len();
         // Flat state can be at different heights for different shards.
         // That is fine, we'll simply lookup state root for each .
         let fork_heads = get_fork_heads(&all_shard_uids, store.clone())?;
@@ -249,30 +250,12 @@ impl ForkNetworkCommand {
         let (block_height, desired_block_hash) =
             fork_heads.iter().map(|head| (head.height, head.hash)).max().unwrap();
 
-        let num_shards = all_shard_uids.len();
-        let epoch_ids: Vec<EpochId> = fork_heads
-            .iter()
-            .map(|fork_head| {
-                let header = chain.get_block_header(&fork_head.hash).unwrap();
-                let epoch_id = header.epoch_id();
-                epoch_id.clone()
-            })
-            .collect();
-
-        // As flat state of different shards can be in different epochs, ensure
-        // that the shards correspond to the same ShardLayout.
-        // I don't know how to recover from the case of them not matching.
-        // But if they do match, then we can work with this DB.
-        let shard_layouts: Vec<ShardLayout> = (0..num_shards)
-            .map(|shard_id| epoch_manager.get_shard_layout(&epoch_ids[shard_id]).unwrap())
-            .collect();
-        assert!(shard_layouts.iter().all(|layout| layout.clone() == shard_layouts[0]));
-
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
-
         let desired_block_header = chain.get_block_header(&desired_block_hash)?;
         let epoch_id = desired_block_header.epoch_id();
+        let flat_storage_manager = FlatStorageManager::new(store.clone());
 
+        // Advance flat heads to the same (max) block height to ensure
+        // consistency of state across the shards.
         let state_roots: Vec<StateRoot> = (0..num_shards)
             .map(|shard_id| {
                 let epoch_id = &epoch_ids[shard_id];
