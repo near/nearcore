@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout near/nearcore branch
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Set up git user
         uses: fregante/setup-git-user@v2
       - name: Publish near-workspaces on crates.io
