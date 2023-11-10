@@ -120,7 +120,12 @@ fn get_trie_update_batch(
     let mut size: u64 = 0;
     let mut entries = Vec::new();
     while let Some(item) = iter.next() {
+<<<<<<< HEAD
         let (key, value) = item?;
+=======
+        let item = item?;
+        let (key, value) = item;
+>>>>>>> a13479fd5 (feat(resharding): improved error handling)
         size += key.len() as u64 + value.as_ref().map_or(0, |v| v.len() as u64);
         entries.push((key, value));
         if size > config.batch_size.as_u64() {
@@ -385,6 +390,8 @@ impl Chain {
         )?;
 
         tracing::debug!(target: "resharding", ?shard_uid, "build_state_for_split_shards_impl finished");
+        // return Err(Error::Other("boom".to_string()));
+
         Ok(state_roots)
     }
 

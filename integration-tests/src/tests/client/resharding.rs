@@ -373,6 +373,7 @@ impl TestReshardingEnv {
         }
 
         Ok(())
+<<<<<<< HEAD
     }
 
     fn should_catchup(rng: &mut StdRng, epoch_length: u64, next_height: u64) -> bool {
@@ -390,6 +391,8 @@ impl TestReshardingEnv {
         }
 
         rng.gen_bool(P_CATCHUP)
+=======
+>>>>>>> a13479fd5 (feat(resharding): improved error handling)
     }
 
     // Submit the tx to all clients for processing and checks:
@@ -1688,7 +1691,6 @@ fn test_shard_layout_upgrade_error_handling_v1() {
     test_shard_layout_upgrade_error_handling_impl(ReshardingType::V1, 42, false);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_error_handling_v2() {
     test_shard_layout_upgrade_error_handling_impl(ReshardingType::V2, 42, false);

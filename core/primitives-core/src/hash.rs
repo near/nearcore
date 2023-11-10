@@ -207,7 +207,8 @@ impl fmt::Debug for CryptoHash {
 
 impl fmt::Display for CryptoHash {
     fn fmt(&self, fmtr: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.to_base58_impl(|encoded| fmtr.write_str(encoded))
+        // TODO remove me debugging only
+        self.to_base58_impl(|encoded| fmtr.write_str(&encoded[..4]))
     }
 }
 
