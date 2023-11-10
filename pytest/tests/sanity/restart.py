@@ -17,7 +17,7 @@ BLOCKS2 = 40
 
 nodes = start_cluster(
     2, 0, 2, None,
-    [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
+    [["epoch_length", 10], ["block_producer_kickout_threshold", 0]], {})
 
 started = time.time()
 
