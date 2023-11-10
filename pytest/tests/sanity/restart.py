@@ -15,9 +15,12 @@ TIMEOUT = 150
 BLOCKS1 = 20
 BLOCKS2 = 40
 
+# The epoch size is 10 and the validators will miss a few blocks during restarts, so the kickout threshold has to be adjusted.
+# Otherwise validators will get kicked out and the blockchain will grind to a halt. The threshold is set to 0 to avoid any such problems.
+# On production network this isn't a problem because the epoch size is a few orders of magnitude larger.
 nodes = start_cluster(
     2, 0, 2, None,
-    [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
+    [["epoch_length", 10], ["block_producer_kickout_threshold", 0]], {})
 
 started = time.time()
 
