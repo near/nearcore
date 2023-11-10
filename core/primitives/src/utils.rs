@@ -8,6 +8,8 @@ use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde;
 
+use crate::account::AccessKey;
+use crate::errors::InvalidAccessKeyError;
 use crate::hash::{hash, CryptoHash};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
@@ -18,9 +20,7 @@ use crate::version::{
 };
 
 use near_crypto::{KeyType, PublicKey};
-use near_primitives_core::account::id::AccountId;
-#[cfg(not(feature = "protocol_feature_eth_implicit"))]
-use near_primitives_core::account::id::AccountType;
+use near_primitives_core::account::id::{AccountId, AccountType};
 
 use std::mem::size_of;
 use std::ops::Deref;
@@ -495,6 +495,38 @@ pub fn derive_account_id_from_public_key(public_key: &PublicKey) -> AccountId {
             use sha3::Digest;
             let pk_hash = sha3::Keccak256::digest(&public_key.key_data());
             format!("0x{}", hex::encode(&pk_hash[12..32])).parse().unwrap()
+        }
+    }
+}
+
+/// Checks if access key is missing. If not, returns Ok(access_key).
+/// Otherwise, there is a chance that a full access key will be added now
+/// for an ETH-implicit address. If none of these occurs, returns appropriate error.
+pub fn check_access_key(
+    access_key: Option<AccessKey>,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+) -> Result<AccessKey, InvalidAccessKeyError> {
+    match access_key {
+        Some(access_key) => Ok(access_key),
+        None => {
+            #[cfg(feature = "protocol_feature_eth_implicit")]
+            if account_id.get_account_type() == AccountType::EthImplicitAccount {
+                if derive_account_id_from_public_key(public_key) == *account_id {
+                    // TODO What about increasing storage usage for that account, because we added access key?
+                    return Ok(AccessKey::full_access());
+                } else {
+                    // Provided public key is not the one from which the signer address was derived.
+                    return Err(InvalidAccessKeyError::InvalidPkForEthAddress {
+                        account_id: account_id.clone(),
+                        public_key: public_key.clone(),
+                    });
+                }
+            }
+            Err(InvalidAccessKeyError::AccessKeyNotFound {
+                account_id: account_id.clone(),
+                public_key: public_key.clone(),
+            })
         }
     }
 }

@@ -12,7 +12,9 @@ use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::AccessKey;
-use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
+#[cfg(feature = "protocol_feature_eth_implicit")]
+use near_primitives::errors::InvalidAccessKeyError;
+use near_primitives::errors::InvalidTxError;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;

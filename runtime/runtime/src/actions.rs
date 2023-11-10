@@ -22,8 +22,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode};
-#[cfg(feature = "protocol_feature_eth_implicit")]
-use near_primitives::utils::derive_account_id_from_public_key;
+use near_primitives::utils::check_access_key;
 use near_primitives::utils::{account_is_implicit, create_random_seed};
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
@@ -755,49 +754,17 @@ fn validate_delegate_action_key(
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     // 'delegate_action.sender_id' account existence must be checked by a caller
-    let sender_id = &delegate_action.sender_id;
-    let public_key: &PublicKey = &delegate_action.public_key;
-
-    #[cfg(feature = "protocol_feature_eth_implicit")]
-    let mut access_key = get_access_key(state_update, &sender_id, &public_key)?;
-    #[cfg(not(feature = "protocol_feature_eth_implicit"))]
-    let access_key = get_access_key(state_update, &sender_id, &public_key)?;
-
-    #[cfg(feature = "protocol_feature_eth_implicit")]
-    {
-        // Access key is missing, but in the case of a transaction from ETH-implicit account
-        // there is a possibility that full access key will be created now.
-        if access_key.is_none() && sender_id.get_account_type() == AccountType::EthImplicitAccount {
-            if derive_account_id_from_public_key(public_key) == *sender_id {
-                // TODO What about increasing storage usage for that account, because we added access key?
-                access_key = Some(AccessKey::full_access());
-            } else {
-                // Provided public key is not the one from which the signer address was derived.
-                result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
-                    InvalidAccessKeyError::InvalidPkForEthAddress {
-                        account_id: sender_id.clone(),
-                        public_key: public_key.clone(),
-                    },
-                )
-                .into());
+    let access_key =
+        get_access_key(state_update, &delegate_action.sender_id, &delegate_action.public_key)?;
+    let mut access_key =
+        match check_access_key(access_key, &delegate_action.sender_id, &delegate_action.public_key)
+        {
+            Ok(access_key) => access_key,
+            Err(error) => {
+                result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(error).into());
                 return Ok(());
             }
-        }
-    }
-
-    let mut access_key = match access_key {
-        Some(access_key) => access_key,
-        None => {
-            result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
-                InvalidAccessKeyError::AccessKeyNotFound {
-                    account_id: sender_id.clone(),
-                    public_key: public_key.clone(),
-                },
-            )
-            .into());
-            return Ok(());
-        }
-    };
+        };
 
     if delegate_action.nonce <= access_key.nonce {
         result.result = Err(ActionErrorKind::DelegateActionInvalidNonce {
@@ -874,7 +841,12 @@ fn validate_delegate_action_key(
         }
     };
 
-    set_access_key(state_update, sender_id.clone(), public_key.clone(), &access_key);
+    set_access_key(
+        state_update,
+        delegate_action.sender_id.clone(),
+        delegate_action.public_key.clone(),
+        &access_key,
+    );
 
     Ok(())
 }

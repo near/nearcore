@@ -2,8 +2,6 @@ use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
 use crate::near_primitives::account::Account;
 use crate::VerificationResult;
 use near_crypto::key_conversion::is_valid_staking_key;
-#[cfg(feature = "protocol_feature_eth_implicit")]
-use near_primitives::account::AccessKey;
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::checked_feature;
@@ -19,12 +17,9 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::types::{BlockHeight, StorageUsage};
-#[cfg(feature = "protocol_feature_eth_implicit")]
-use near_primitives::utils::derive_account_id_from_public_key;
+use near_primitives::utils::check_access_key;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
-#[cfg(feature = "protocol_feature_eth_implicit")]
-use near_primitives_core::account::id::AccountType;
 use near_store::{
     get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
 };
@@ -150,7 +145,6 @@ pub fn verify_and_charge_transaction(
         )?;
     let transaction = &signed_transaction.transaction;
     let signer_id = &transaction.signer_id;
-    let public_key = &transaction.public_key;
 
     let mut signer = match get_account(state_update, signer_id)? {
         Some(signer) => signer,
@@ -159,42 +153,11 @@ pub fn verify_and_charge_transaction(
         }
     };
 
-    #[cfg(feature = "protocol_feature_eth_implicit")]
-    let mut access_key = get_access_key(state_update, signer_id, public_key)?;
-    #[cfg(not(feature = "protocol_feature_eth_implicit"))]
-    let access_key = get_access_key(state_update, signer_id, public_key)?;
-
-    #[cfg(feature = "protocol_feature_eth_implicit")]
-    {
-        // Access key is missing, but in the case of a transaction from ETH-implicit account
-        // there is a possibility that full access key will be created now.
-        if access_key.is_none() && signer_id.get_account_type() == AccountType::EthImplicitAccount {
-            if derive_account_id_from_public_key(public_key) == *signer_id {
-                // TODO What about increasing storage usage for that account, because we added access key?
-                access_key = Some(AccessKey::full_access());
-            } else {
-                // Provided public key is not the one from which the signer address was derived.
-                return Err(InvalidTxError::InvalidAccessKeyError(
-                    InvalidAccessKeyError::InvalidPkForEthAddress {
-                        account_id: signer_id.clone(),
-                        public_key: public_key.clone(),
-                    },
-                )
-                .into());
-            }
-        }
-    }
-
-    let mut access_key = match access_key {
-        Some(access_key) => access_key,
-        None => {
-            return Err(InvalidTxError::InvalidAccessKeyError(
-                InvalidAccessKeyError::AccessKeyNotFound {
-                    account_id: signer_id.clone(),
-                    public_key: public_key.clone(),
-                },
-            )
-            .into());
+    let access_key = get_access_key(state_update, signer_id, &transaction.public_key)?;
+    let mut access_key = match check_access_key(access_key, signer_id, &transaction.public_key) {
+        Ok(access_key) => access_key,
+        Err(error) => {
+            return Err(InvalidTxError::InvalidAccessKeyError(error).into());
         }
     };
 
@@ -735,11 +698,10 @@ mod tests {
     mod zero_balance_account_tests {
         use crate::near_primitives::account::id::AccountId;
         use crate::near_primitives::account::{
-            AccessKeyPermission, Account, FunctionCallPermission,
+            AccessKey, AccessKeyPermission, Account, FunctionCallPermission,
         };
         use crate::verifier::tests::{setup_accounts, TESTING_INIT_BALANCE};
         use crate::verifier::{is_zero_balance_account, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT};
-        use near_primitives::account::AccessKey;
         use near_store::{get_account, TrieUpdate};
         use testlib::runtime_utils::{alice_account, bob_account};
 

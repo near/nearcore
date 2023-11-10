@@ -110,31 +110,6 @@ fn reject_valid_meta_tx_in_older_versions() {
     );
 }
 
-/// For NEAR-implicit accounts, returns the corresponding implicit public key.
-/// For Named accounts, generates a public key using the account ID as the seed.
-///
-/// In case of ETH-implicit account, the ETH-implicit address shall be derived from the public key.
-/// Thus, we cannot derive the public key from ETH-implicit address and the caller must
-/// explicitly provide the Secp256K1 `public_key` matching the sender address.
-fn derive_public_key_from_sender(sender: &AccountId, public_key: Option<PublicKey>) -> PublicKey {
-    match sender.get_account_type() {
-        AccountType::NearImplicitAccount => PublicKey::from_near_implicit_account(&sender).unwrap(),
-        AccountType::EthImplicitAccount => {
-            // We require that tests sending transactions from ETH-implicit accounts must provide the public key.
-            #[cfg(feature = "protocol_feature_eth_implicit")]
-            {
-                public_key.unwrap()
-            }
-
-            #[cfg(not(feature = "protocol_feature_eth_implicit"))]
-            {
-                PublicKey::from_seed(KeyType::ED25519, sender.as_ref())
-            }
-        }
-        AccountType::NamedAccount => PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
-    }
-}
-
 /// Take a list of actions and execute them as a meta transaction, check
 /// everything executes successfully, return balance differences for the sender,
 /// relayer, and receiver.
@@ -165,7 +140,24 @@ fn check_meta_tx_execution(
         .unwrap()
         .nonce;
 
-    let user_pubk = derive_public_key_from_sender(&sender, public_key);
+    let user_pubk = match sender.get_account_type() {
+        AccountType::NearImplicitAccount => PublicKey::from_near_implicit_account(&sender).unwrap(),
+        AccountType::EthImplicitAccount => {
+            // In case of ETH-implicit account, the ETH-implicit address shall be derived from the public key.
+            // Thus, we cannot derive the public key from ETH-implicit address and the caller must
+            // explicitly provide the Secp256K1 `public_key` matching the sender address.
+            #[cfg(feature = "protocol_feature_eth_implicit")]
+            {
+                public_key.unwrap()
+            }
+
+            #[cfg(not(feature = "protocol_feature_eth_implicit"))]
+            {
+                PublicKey::from_seed(KeyType::ED25519, sender.as_ref())
+            }
+        }
+        AccountType::NamedAccount => PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
+    };
 
     let access_key_before = node_user.get_access_key(&sender, &user_pubk);
 
