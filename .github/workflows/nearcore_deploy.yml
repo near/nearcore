@@ -48,11 +48,10 @@ jobs:
 
       - name: Neard binary build and upload to S3
         run: |
-          tree -L 2
           ./scripts/binary_release.sh
 
       - name: Update latest version metadata in S3
         run: |
           echo $(git rev-parse HEAD) > latest
           branch=$(git rev-parse --abbrev-ref HEAD)
-          # aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${branch}/latest
+          aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${branch}/latest
