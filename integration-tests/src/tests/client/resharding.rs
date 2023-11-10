@@ -1680,5 +1680,10 @@ fn test_shard_layout_upgrade_error_handling_v1() {
     test_shard_layout_upgrade_error_handling_impl(ReshardingType::V1, 42, false);
 }
 
+#[test]
+fn test_shard_layout_upgrade_error_handling_v2() {
+    test_shard_layout_upgrade_error_handling_impl(ReshardingType::V2, 42, false);
+}
+
 // TODO(resharding) add a test with missing blocks
 // TODO(resharding) add a test with deleting accounts and delayed receipts check
