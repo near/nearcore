@@ -15,7 +15,7 @@ on:
 jobs:
   binary-release:
     name: "Build and publish neard binary"
-    runs-on: "ubuntu-22.04-8core"
+    runs-on: "ubuntu-22.04-16core"
     environment: deploy
     permissions:
       id-token: write # required to use OIDC authentication
@@ -48,11 +48,10 @@ jobs:
 
       - name: Neard binary build and upload to S3
         run: |
-          chmod +x nearcore/scripts/binary-release.sh
-          nearcore/scripts/binary-release.sh
+          ./scripts/binary_release.sh
 
       - name: Update latest version metadata in S3
         run: |
           echo $(git rev-parse HEAD) > latest
           branch=$(git rev-parse --abbrev-ref HEAD)
-          # aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${branch}/latest
+          aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${branch}/latest
