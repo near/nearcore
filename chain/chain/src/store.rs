@@ -9,7 +9,6 @@ use near_cache::CellLruCache;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 use near_primitives::checked_feature;
 #[cfg(feature = "new_epoch_sync")]
 use near_primitives::epoch_manager::epoch_sync::EpochSyncInfo;
@@ -614,7 +613,6 @@ impl ChainStore {
     ) -> Result<(), Error> {
         tracing::trace!(target: "resharding", ?protocol_version, shard_id, receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
         // If simple nightshade v2 is enabled and stable use that.
-        #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
         if checked_feature!("stable", SimpleNightshadeV2, protocol_version) {
             Self::reassign_outgoing_receipts_for_resharding_v2(
                 receipts,
@@ -648,7 +646,6 @@ impl ChainStore {
     /// 3' will get all outgoing receipts from its parent 3
     /// 4' will get no outgoing receipts from its parent 3
     /// All receipts are distributed to children, each exactly once.
-    #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
     fn reassign_outgoing_receipts_for_resharding_v2(
         receipts: &mut Vec<Receipt>,
         shard_layout: &ShardLayout,

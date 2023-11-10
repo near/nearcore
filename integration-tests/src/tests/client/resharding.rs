@@ -40,12 +40,8 @@ use tracing::debug;
 const SIMPLE_NIGHTSHADE_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshade.protocol_version();
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshadeV2.protocol_version();
-
-#[cfg(not(feature = "protocol_feature_simple_nightshade_v2"))]
-const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion = PROTOCOL_VERSION + 1;
 
 const P_CATCHUP: f64 = 0.2;
 
@@ -1000,19 +996,16 @@ fn test_shard_layout_upgrade_simple_v1_with_snapshot_enabled() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V1, 42, true);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_42() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 42, false);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_43() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 43, false);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_44() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44, false);
@@ -1061,7 +1054,6 @@ fn test_shard_layout_upgrade_gc() {
     test_shard_layout_upgrade_gc_impl(ReshardingType::V1, 44);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_gc_v2() {
     test_shard_layout_upgrade_gc_impl(ReshardingType::V2, 44);
@@ -1342,7 +1334,6 @@ fn test_shard_layout_upgrade_cross_contract_calls_v1() {
 
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_42() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 42);
@@ -1350,7 +1341,6 @@ fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_42() {
 
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_43() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 43);
@@ -1358,7 +1348,6 @@ fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_43() {
 
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_44() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 44);
@@ -1419,19 +1408,16 @@ fn test_shard_layout_upgrade_incoming_receipts_impl_v1() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V1, 42);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_42() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 42);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_43() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 43);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_44() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 44);
@@ -1535,19 +1521,16 @@ fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v1() {
 
 // V2, low missing prob
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_42() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 42);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_43() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 43);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_44() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 44);
@@ -1555,19 +1538,16 @@ fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_44() {
 
 // V2, mid missing prob
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_42() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 42);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_43() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 43);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_44() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 44);
@@ -1575,19 +1555,16 @@ fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_44() {
 
 // V2, high missing prob
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_42() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 42);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_43() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 43);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_44() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 44);
@@ -1688,7 +1665,6 @@ fn test_shard_layout_upgrade_error_handling_v1() {
     test_shard_layout_upgrade_error_handling_impl(ReshardingType::V1, 42, false);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_error_handling_v2() {
     test_shard_layout_upgrade_error_handling_impl(ReshardingType::V2, 42, false);
