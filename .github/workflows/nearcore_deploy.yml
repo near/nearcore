@@ -1,0 +1,81 @@
+name: Nearcore release
+
+on:
+  push:
+    branches: main
+
+  workflow_dispatch:
+    inputs:
+      branch_ref:
+        description: "Nearcore branch to build and publish"
+        type: string
+        required: true
+      publish_docker:
+        default: false
+        description: "Publish docker image"
+        type: boolean
+        required: false
+      publish_crates:
+        default: false
+        description: "Publish crates"
+        type: boolean
+        required: false
+
+jobs:
+  binary-release:
+    name: "Build and publish neard binary"
+    runs-on: "ubuntu-22.04-8core"
+    environment: deploy
+    permissions:
+      id-token: write # required to use OIDC authentication
+      contents: write # required for crates push
+    timeout-minutes: 20 
+    
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::754641474505:role/GitHubActionsRunner
+          role-duration-seconds: 900 # the ttl of the session, in seconds.
+          aws-region: us-west-1
+
+      - name: list required bucket path 
+        run: |
+          sleep 915
+          aws s3 ls 
+
+  docker-release:
+    name: "Build and publish docker image"
+    runs-on: "ubuntu-22.04-8core"
+    if: github.ref == 'refs/heads/master' || ${{ fromJSON(inputs.publish_docker) }}
+    environment: deploy
+    permissions:
+        id-token: write # required to use OIDC authentication
+        contents: write # required for crates push
+    timeout-minutes: 20 
+
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+            role-to-assume: arn:aws:iam::754641474505:role/GitHubActionsRunner
+            role-duration-seconds: 900 # the ttl of the session, in seconds.
+            aws-region: aaaa
+
+  creates-publish:
+    name: "Build and publish docker image"
+    runs-on: "ubuntu-22.04-8core"
+    if: github.ref == 'refs/heads/master' || ${{ fromJSON(inputs.publish_docker) }}
+    environment: deploy
+    permissions:
+        id-token: write # required to use OIDC authentication
+        contents: write # required for crates push
+    timeout-minutes: 20 
+
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+            role-to-assume: arn:aws:iam::754641474505:role/GitHubActionsRunner
+            role-duration-seconds: 900 # the ttl of the session, in seconds.
+            aws-region: aaaa
