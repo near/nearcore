@@ -1611,7 +1611,7 @@ fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_42() {
     }
 }
 
-#[cfg_attr(checked_feature("stable", SimpleNightshadeV2, PROTOCOL_VERSION), ignore)]
+#[test]
 fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_43() {
     // TODO(resharding) remove those checks once rolled out
     if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
