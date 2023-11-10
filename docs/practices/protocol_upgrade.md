@@ -74,7 +74,7 @@ where `nightly_protocol` is a marker feature that indicates that we are on
 nightly protocol whereas `nightly` is a collection of new protocol features
 which also implies `nightly_protocol`. 
 
-When it is not necessary to use a rust feature for the new protocl feature 
+When it is not necessary to use a rust feature for the new protocol feature 
 the Cargo.toml file will remain unchanged.
 
 When it is necessary to use a rust feature for the new protocol feature, it 
