@@ -19,3 +19,6 @@ near-chain-configs.workspace = true
 near-epoch-manager.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
+
+[features]
+new_epoch_sync = ["nearcore/new_epoch_sync"]

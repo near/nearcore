@@ -216,11 +216,13 @@ fn validate_epoch_sync_info(
 
 fn get_hash_to_prev_hash(storage: &NodeStorage) -> anyhow::Result<HashMap<CryptoHash, CryptoHash>> {
     let mut hash_to_prev_hash = HashMap::new();
-    for result in storage.get_hot_store().iter(DBCol::BlockHeader) {
+    for result in storage.get_hot_store().iter(DBCol::BlockInfo) {
         let (_, value) = result?;
-        let header =
-            BlockHeader::try_from_slice(value.as_ref()).expect("Failed to deser BlockHeader");
-        hash_to_prev_hash.insert(*header.hash(), *header.prev_hash());
+        let block_info =
+            BlockInfo::try_from_slice(value.as_ref()).expect("Failed to deser BlockInfo");
+        if block_info.hash() != block_info.prev_hash() {
+            hash_to_prev_hash.insert(*block_info.hash(), *block_info.prev_hash());
+        }
     }
     Ok(hash_to_prev_hash)
 }
