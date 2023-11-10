@@ -22,7 +22,8 @@ on:
 
 jobs:
   build_fuzzers:
-    runs-on: "ubuntu-20.04"
+    name: Build Fuzzers
+    runs-on: "ubuntu-22.04-8core"
 
     permissions:
       contents: "read"
@@ -39,17 +40,6 @@ jobs:
         run: |
           rustup install nightly
           rustup default nightly
-
-      - name: Set swap to 10G
-        shell: bash
-        run: |
-          export SWAP_FILE=$(swapon --show=NAME | tail -n 1)
-          sudo swapoff $SWAP_FILE
-          sudo rm $SWAP_FILE
-          sudo fallocate -l 10G $SWAP_FILE
-          sudo chmod 600 $SWAP_FILE
-          sudo mkswap $SWAP_FILE
-          sudo swapon $SWAP_FILE
 
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
@@ -86,7 +76,7 @@ jobs:
         run: echo "branch_type=${{ github.event.inputs.branch_type }}" >> "$GITHUB_ENV"
 
       - name: "Compile fuzzers and upload to GCS"
-      - run: |
+        run: |
           NAME="nearcore-$branch_type-$(env TZ=Etc/UTC  date +"%Y%m%d%H%M%S")"
           cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
           gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://fuzzer_targets/$branch_type/$NAME.tar.gz"

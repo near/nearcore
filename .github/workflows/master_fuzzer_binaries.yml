@@ -1,4 +1,4 @@
-name: Fuzz Master
+name: Build fuzz targets from master
 on:
   push:
     branches:
