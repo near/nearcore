@@ -373,7 +373,6 @@ impl TestReshardingEnv {
         }
 
         Ok(())
-<<<<<<< HEAD
     }
 
     fn should_catchup(rng: &mut StdRng, epoch_length: u64, next_height: u64) -> bool {
@@ -391,8 +390,6 @@ impl TestReshardingEnv {
         }
 
         rng.gen_bool(P_CATCHUP)
-=======
->>>>>>> a13479fd5 (feat(resharding): improved error handling)
     }
 
     // Submit the tx to all clients for processing and checks:
