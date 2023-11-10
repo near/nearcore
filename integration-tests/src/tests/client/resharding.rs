@@ -22,6 +22,7 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryRequest};
+use near_primitives_core::checked_feature;
 use near_primitives_core::num_rational::Rational32;
 use near_store::flat::FlatStorageStatus;
 use near_store::test_utils::{gen_account, gen_unique_accounts};
@@ -40,12 +41,8 @@ use tracing::debug;
 const SIMPLE_NIGHTSHADE_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshade.protocol_version();
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshadeV2.protocol_version();
-
-#[cfg(not(feature = "protocol_feature_simple_nightshade_v2"))]
-const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion = PROTOCOL_VERSION + 1;
 
 const P_CATCHUP: f64 = 0.2;
 
@@ -54,7 +51,6 @@ enum ReshardingType {
     // In the V0->V1 resharding outgoing receipts are reassigned to receiver.
     V1,
     // In the V1->V2 resharding outgoing receipts are reassigned to lowest index child.
-    #[allow(unused)]
     V2,
 }
 
@@ -1000,22 +996,28 @@ fn test_shard_layout_upgrade_simple_v1_with_snapshot_enabled() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V1, 42, true);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_42() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 42, false);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 42, false);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_43() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 43, false);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 43, false);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_44() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44, false);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44, false);
+    }
 }
 
 /// In this test we are checking whether we are properly deleting trie state and flat state
@@ -1061,10 +1063,12 @@ fn test_shard_layout_upgrade_gc() {
     test_shard_layout_upgrade_gc_impl(ReshardingType::V1, 44);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_gc_v2() {
-    test_shard_layout_upgrade_gc_impl(ReshardingType::V2, 44);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_gc_impl(ReshardingType::V2, 44);
+    }
 }
 
 const GAS_1: u64 = 300_000_000_000_000;
@@ -1342,26 +1346,32 @@ fn test_shard_layout_upgrade_cross_contract_calls_v1() {
 
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_42() {
-    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 42);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 42);
+    }
 }
 
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_43() {
-    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 43);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 43);
+    }
 }
 
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_44() {
-    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 44);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 44);
+    }
 }
 
 fn test_shard_layout_upgrade_incoming_receipts_impl(
@@ -1415,26 +1425,32 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(
 // is missing there aren't any other chunks so there aren't any incoming
 // receipts at all.
 #[test]
-fn test_shard_layout_upgrade_incoming_receipts_impl_v1() {
+fn test_shard_layout_upgrade_incoming_receipts_v1() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V1, 42);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
-fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_42() {
-    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 42);
+fn test_shard_layout_upgrade_incoming_receipts_v2_seed_42() {
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 42);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
-fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_43() {
-    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 43);
+fn test_shard_layout_upgrade_incoming_receipts_v2_seed_43() {
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 43);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
-fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_44() {
-    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 44);
+fn test_shard_layout_upgrade_incoming_receipts_v2_seed_44() {
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 44);
+    }
 }
 
 // Test cross contract calls
@@ -1535,62 +1551,80 @@ fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v1() {
 
 // V2, low missing prob
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_42() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 42);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 42);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_43() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 43);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 43);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_44() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 44);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 44);
+    }
 }
 
 // V2, mid missing prob
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_42() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 42);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 42);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_43() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 43);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 43);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_44() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 44);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 44);
+    }
 }
 
 // V2, high missing prob
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_42() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 42);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 42);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_43() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 43);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 43);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_44() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 44);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 44);
+    }
 }
 
 #[test]
@@ -1688,10 +1722,12 @@ fn test_shard_layout_upgrade_error_handling_v1() {
     test_shard_layout_upgrade_error_handling_impl(ReshardingType::V1, 42, false);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_error_handling_v2() {
-    test_shard_layout_upgrade_error_handling_impl(ReshardingType::V2, 42, false);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_error_handling_impl(ReshardingType::V2, 42, false);
+    }
 }
 
 // TODO(resharding) add a test with missing blocks
