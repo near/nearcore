@@ -48,8 +48,7 @@ jobs:
 
       - name: Neard binary build and upload to S3
         run: |
-          chmod +x nearcore/scripts/binary-release.sh
-          nearcore/scripts/binary-release.sh
+          scripts/binary-release.sh
 
       - name: Update latest version metadata in S3
         run: |

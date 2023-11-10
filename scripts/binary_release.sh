@@ -12,11 +12,8 @@ case "$release" in
     ;;
 esac
 
-branch=${BUILDKITE_BRANCH:-${GITHUB_REF##*/}}
-commit=${BUILDKITE_COMMIT:-${GITHUB_SHA}}
-if [[ ${commit} = "HEAD" ]]; then
-    commit=$(git rev-parse HEAD)
-fi
+branch=$(git rev-parse --abbrev-ref HEAD)
+commit=$(git rev-parse HEAD)
 
 os=$(uname)
 arch=$(uname -m)
