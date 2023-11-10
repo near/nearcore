@@ -318,10 +318,8 @@ impl TestReshardingEnv {
             chunk_producer_to_shard_id.entry(validator_id).or_default().push(shard_id);
         }
 
-        // Make sure that catchup is done before the end of each epoch, but when it is done is
-        // by chance. This simulates when catchup takes a long time to be done
-        let should_catchup =
-            self.rng.gen_bool(P_CATCHUP) || (next_height + 1) % self.epoch_length == 0;
+        let should_catchup = Self::should_catchup(&mut self.rng, self.epoch_length, next_height);
+
         // process block, this also triggers chunk producers for the next block to produce chunks
         for j in 0..self.num_clients {
             let client = &mut env.clients[j];
@@ -375,6 +373,23 @@ impl TestReshardingEnv {
         }
 
         Ok(())
+    }
+
+    fn should_catchup(rng: &mut StdRng, epoch_length: u64, next_height: u64) -> bool {
+        // Always do catchup before the end of the epoch to ensure it happens at
+        // least once. Doing it in the very last block triggers some error conditions.
+        if (next_height + 1) % epoch_length == 0 {
+            return true;
+        }
+
+        // Don't do catchup in the very first block of the epoch. This is
+        // primarily for the error handling test where we want to corrupt the
+        // databse before catchup happens.
+        if next_height % epoch_length == 1 {
+            return false;
+        }
+
+        rng.gen_bool(P_CATCHUP)
     }
 
     // Submit the tx to all clients for processing and checks:
@@ -1648,27 +1663,24 @@ fn test_shard_layout_upgrade_error_handling_impl(
             tracing::info!(target: "test", ?err, "step failed, as expected");
             return;
         }
-        test_env.check_receipt_id_to_shard_id();
-        test_env.check_snapshot(state_snapshot_enabled);
 
         // corrupt the state snapshot if available to make resharding fail
-        let client = test_env.env.clients.get(0).unwrap();
-        let runtime = &client.runtime_adapter;
-        let tries = runtime.get_tries();
-        let snapshot_hash = tries.get_state_snapshot_hash();
-        let Ok(snapshot_hash) = snapshot_hash else { continue };
-        let (store, flat_storage_manager) = tries.get_state_snapshot(&snapshot_hash).unwrap();
-        let shard_uids = flat_storage_manager.get_shard_uids();
-        let mut store_update = store.store_update();
-        for shard_uid in shard_uids {
-            flat_storage_manager
-                .remove_flat_storage_for_shard(shard_uid, &mut store_update)
-                .unwrap();
-        }
-        store_update.commit().unwrap();
+        currupt_state_snapshot(&test_env);
     }
 
     assert!(false, "no error was recorded, something is wrong in error handling");
+}
+
+fn currupt_state_snapshot(test_env: &TestReshardingEnv) {
+    let tries = test_env.env.clients[0].runtime_adapter.get_tries();
+    let Ok(snapshot_hash) = tries.get_state_snapshot_hash() else { return };
+    let (store, flat_storage_manager) = tries.get_state_snapshot(&snapshot_hash).unwrap();
+    let shard_uids = flat_storage_manager.get_shard_uids();
+    let mut store_update = store.store_update();
+    for shard_uid in shard_uids {
+        flat_storage_manager.remove_flat_storage_for_shard(shard_uid, &mut store_update).unwrap();
+    }
+    store_update.commit().unwrap();
 }
 
 #[test]
