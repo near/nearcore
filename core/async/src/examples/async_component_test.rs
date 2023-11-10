@@ -1,18 +1,16 @@
-use derive_enum_from_into::{EnumFrom, EnumTryInto};
-use std::sync::Arc;
-
-use crate::{
-    messaging::{CanSend, IntoAsyncSender, IntoSender},
-    test_loop::{
-        event_handler::{capture_events, LoopEventHandler},
-        futures::{drive_futures, MessageExpectingResponse, TestLoopFutureSpawner, TestLoopTask},
-        TestLoopBuilder,
-    },
-};
-
 use super::async_component::{
     InnerComponent, InnerRequest, InnerResponse, OuterComponent, OuterRequest, OuterResponse,
 };
+use crate::{
+    messaging::{CanSend, IntoSender, MessageExpectingResponse},
+    test_loop::{
+        event_handler::{capture_events, LoopEventHandler},
+        futures::{drive_futures, TestLoopFutureSpawner, TestLoopTask},
+        TestLoopBuilder,
+    },
+};
+use derive_enum_from_into::{EnumFrom, EnumTryInto};
+use std::sync::Arc;
 
 #[derive(derive_more::AsMut, derive_more::AsRef)]
 struct TestData {
@@ -60,7 +58,7 @@ fn test_async_component() {
         output: vec![],
         inner_component: InnerComponent,
         outer_component: OuterComponent::new(
-            sender.clone().into_async_sender(),
+            sender.clone().into_sender(),
             sender.clone().into_sender(),
         ),
     });

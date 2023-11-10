@@ -5,10 +5,9 @@ use crate::types::{
 };
 use crate::PeerManagerActor;
 use actix::{Actor, ActorContext, Context, Handler};
-use futures::future::BoxFuture;
 use futures::{future, Future, FutureExt};
 use near_async::actix::AsyncSendError;
-use near_async::messaging::{CanSend, CanSendAsync};
+use near_async::messaging::{CanSend, MessageExpectingResponse};
 use near_crypto::{KeyType, SecretKey};
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_primitives::hash::hash;
@@ -235,17 +234,26 @@ pub struct MockPeerManagerAdapter {
     pub notify: Notify,
 }
 
-impl CanSendAsync<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, AsyncSendError>>
-    for MockPeerManagerAdapter
+impl
+    CanSend<
+        MessageExpectingResponse<
+            PeerManagerMessageRequest,
+            Result<PeerManagerMessageResponse, AsyncSendError>,
+        >,
+    > for MockPeerManagerAdapter
 {
-    fn send_async(
+    fn send(
         &self,
-        message: PeerManagerMessageRequest,
-    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, AsyncSendError>> {
-        self.requests.write().unwrap().push_back(message);
+        message: MessageExpectingResponse<
+            PeerManagerMessageRequest,
+            Result<PeerManagerMessageResponse, AsyncSendError>,
+        >,
+    ) {
+        self.requests.write().unwrap().push_back(message.message);
         self.notify.notify_one();
-        async { Ok(PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)) }
-            .boxed()
+        (message.responder)(Ok(PeerManagerMessageResponse::NetworkResponses(
+            NetworkResponses::NoResponse,
+        )));
     }
 }
 

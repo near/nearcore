@@ -1,6 +1,6 @@
 use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
-use crate::client;
+use crate::client::ClientSenderForNetwork;
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
 use crate::config;
@@ -98,7 +98,7 @@ pub(crate) struct NetworkState {
     pub created_at: time::Instant,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
-    pub client: Arc<dyn client::Client>,
+    pub client: ClientSenderForNetwork,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
 
     /// Network-related info about the chain.
@@ -166,7 +166,7 @@ impl NetworkState {
         peer_store: peer_store::PeerStore,
         config: config::VerifiedConfig,
         genesis_id: GenesisId,
-        client: Arc<dyn client::Client>,
+        client: ClientSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         whitelist_nodes: Vec<WhitelistNode>,
     ) -> Self {

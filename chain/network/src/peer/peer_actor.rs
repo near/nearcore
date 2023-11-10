@@ -1069,12 +1069,12 @@ impl PeerActor {
                 PeerMessage::StateRequestHeader(shard_id, sync_hash) => network_state
                     .client
                     .state_request_header(shard_id, sync_hash)
-                    .await?
+                    .await
                     .map(PeerMessage::VersionedStateResponse),
                 PeerMessage::StateRequestPart(shard_id, sync_hash, part_id) => network_state
                     .client
                     .state_request_part(shard_id, sync_hash, part_id)
-                    .await?
+                    .await
                     .map(PeerMessage::VersionedStateResponse),
                 PeerMessage::VersionedStateResponse(info) => {
                         //TODO: Route to state sync actor.
