@@ -55,6 +55,7 @@ mod trie_tests;
 pub mod update;
 
 use self::accounting_cache::TrieAccountingCache;
+use self::shard_tries::CONTRACT_CACHES;
 use self::trie_recording::TrieRecorder;
 use self::trie_storage::TrieMemoryPartialStorage;
 pub use from_flat::construct_trie_from_flat;
@@ -336,6 +337,7 @@ struct TrieMetrics {
     using_accounting_cache: GenericCounter<prometheus::core::AtomicU64>,
     retrieving_trie_node: GenericCounter<prometheus::core::AtomicU64>,
     has_account_id: GenericCounter<prometheus::core::AtomicU64>,
+    is_cached_contract: GenericCounter<prometheus::core::AtomicU64>,
 }
 
 impl Default for TrieMetrics {
@@ -344,6 +346,7 @@ impl Default for TrieMetrics {
             using_accounting_cache: metrics::USING_ACCOUNTING_CACHE.with_label_values(&[]),
             retrieving_trie_node: metrics::CALLING_RETRIEVE.with_label_values(&[]),
             has_account_id: metrics::HAS_ACCOUNT_ID.with_label_values(&[]),
+            is_cached_contract: metrics::IS_CACHED_CONTRACT.with_label_values(&[]),
         }
     }
 }
@@ -561,8 +564,14 @@ impl Trie {
     ) -> Result<Arc<[u8]>, StorageError> {
         self.metrics.retrieving_trie_node.inc();
         let result = if use_accounting_cache {
-            if account_id.is_some() {
+            if let Some(acc_id) = account_id.clone() {
                 self.metrics.has_account_id.inc();
+                if CONTRACT_CACHES
+                    .iter()
+                    .any(|&(contract_name, _, _)| contract_name == acc_id.as_str())
+                {
+                    self.metrics.is_cached_contract.inc();
+                }
             }
             self.metrics.using_accounting_cache.inc();
             self.accounting_cache.borrow_mut().retrieve_raw_bytes_with_accounting(
@@ -944,8 +953,12 @@ impl Trie {
         if hash == &Self::EMPTY_ROOT {
             return Ok(None);
         }
-        if account_id.is_some() {
+        if let Some(acc_id) = account_id.clone() {
             self.metrics.has_account_id.inc();
+            if CONTRACT_CACHES.iter().any(|&(contract_name, _, _)| contract_name == acc_id.as_str())
+            {
+                self.metrics.is_cached_contract.inc();
+            }
         }
         let bytes = self.internal_retrieve_trie_node(hash, account_id, use_accounting_cache)?;
         let node = RawTrieNodeWithSize::try_from_slice(&bytes).map_err(|err| {
@@ -1198,8 +1211,12 @@ impl Trie {
         hash: &CryptoHash,
         account_id: Option<AccountId>,
     ) -> Result<Vec<u8>, StorageError> {
-        if account_id.is_some() {
+        if let Some(acc_id) = account_id.clone() {
             self.metrics.has_account_id.inc();
+            if CONTRACT_CACHES.iter().any(|&(contract_name, _, _)| contract_name == acc_id.as_str())
+            {
+                self.metrics.is_cached_contract.inc();
+            }
         }
         let bytes = self.internal_retrieve_trie_node(hash, account_id, true)?;
         Ok(bytes.to_vec())
