@@ -4,7 +4,7 @@ set -eo pipefail
 release="${1:-release}"
 
 case "$release" in
-  release|nightly-release|perf-release|assertions-release|shardnet-release)
+  release|nightly-release|perf-release|assertions-release)
     ;;
   *)  
     echo "Unsupported release type '$release'. Please provide no argument for normal release or provide nightly-release for nightly."
@@ -57,7 +57,7 @@ function upload_binary {
 upload_binary neard
 
 # disabled until we clarify why we need this binary in S3
-# if [ "$release" != "assertions-release" ] && [ "$release" != "shardnet-release" ]
+# if [ "$release" != "assertions-release" ]
 # then
 #   upload_binary store-validator
 # fi
