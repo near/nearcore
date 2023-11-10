@@ -1676,6 +1676,7 @@ fn test_shard_layout_upgrade_error_handling_v1() {
     test_shard_layout_upgrade_error_handling_impl(ReshardingType::V1, 42, false);
 }
 
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_error_handling_v2() {
     test_shard_layout_upgrade_error_handling_impl(ReshardingType::V2, 42, false);
