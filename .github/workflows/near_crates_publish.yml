@@ -1,4 +1,4 @@
-name: near workspaces crates publish
+name: near crates publish
 
 on:
   push:
