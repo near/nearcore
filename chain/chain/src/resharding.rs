@@ -385,7 +385,6 @@ impl Chain {
         )?;
 
         tracing::debug!(target: "resharding", ?shard_uid, "build_state_for_split_shards_impl finished");
-
         Ok(state_roots)
     }
 

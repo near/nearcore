@@ -1668,11 +1668,7 @@ fn test_shard_layout_upgrade_error_handling_impl(
         store_update.commit().unwrap();
     }
 
-    test_env.check_tx_outcomes(false);
-    test_env.check_accounts(accounts_to_check.iter().collect());
-    test_env.check_split_states_artifacts();
-    test_env.check_outgoing_receipts_reassigned(&resharding_type);
-    tracing::info!(target: "test", "test_shard_layout_upgrade_simple_impl finished");
+    assert!(false, "no error was recorded, something is wrong in error handling");
 }
 
 #[test]
