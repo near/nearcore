@@ -48,8 +48,8 @@ jobs:
 
       - name: Neard binary build and upload to S3
         run: |
-          tree -L 3
-          nearcore/scripts/binary_release.sh
+          tree -L 2
+          ./scripts/binary_release.sh
 
       - name: Update latest version metadata in S3
         run: |
