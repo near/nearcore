@@ -3,6 +3,7 @@
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::IntegerOverflowError;
 use near_primitives_core::config::ActionCosts;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use num_bigint::BigUint;
 use num_traits::cast::ToPrimitive;
 use num_traits::pow::Pow;
@@ -101,6 +102,7 @@ pub fn total_send_fees(
                     sender_is_receiver,
                     config.wasm_config.implicit_account_creation,
                     receiver_id.get_account_type(),
+                    PROTOCOL_VERSION,
                 )
             }
             Stake(_) => fees.fee(ActionCosts::stake).send_fee(sender_is_receiver),
@@ -195,6 +197,7 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
                 fees,
                 config.wasm_config.implicit_account_creation,
                 receiver_id.get_account_type(),
+                PROTOCOL_VERSION,
             )
         }
         Stake(_) => fees.fee(ActionCosts::stake).exec_fee(),

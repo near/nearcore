@@ -30,6 +30,7 @@ use near_primitives::views::{
 use near_primitives_core::account::id::AccountType;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission};
 use near_primitives_core::types::{Nonce, ShardId};
+use near_primitives_core::version::PROTOCOL_VERSION;
 use nearcore::config::NearConfig;
 use rocksdb::DB;
 use std::borrow::Cow;
@@ -991,7 +992,10 @@ impl<T: ChainAccess> TxMirror<T> {
                     actions.push(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })));
                 }
                 Action::Transfer(_) => {
-                    if account_is_implicit(tx.receiver_id()) && source_actions.len() == 1 {
+                    // TODO(eth-implicit) What protocol version to use?
+                    if account_is_implicit(tx.receiver_id(), PROTOCOL_VERSION)
+                        && source_actions.len() == 1
+                    {
                         let target_account =
                             crate::key_mapping::map_account(tx.receiver_id(), self.secret.as_ref());
                         if !account_exists(&self.target_view_client, &target_account)

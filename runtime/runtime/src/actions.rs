@@ -475,19 +475,17 @@ pub(crate) fn action_implicit_account_creation_transfer(
         // Invariant: The `account_id` is implicit.
         // It holds because in the only calling site, we've checked the permissions before.
         AccountType::EthImplicitAccount => {
-            #[cfg(feature = "protocol_feature_eth_implicit")]
-            {
+            if checked_feature!("stable", EthImplicit, current_protocol_version) {
                 *account = Some(Account::new(
                     transfer.deposit,
                     0,
                     CryptoHash::default(),
+                    // In comparison with NEAR-implicit match arm above, we do not account for
+                    // public_key and access key object.
                     fee_config.storage_usage_config.num_bytes_account
                         + fee_config.storage_usage_config.num_extra_bytes_record,
                 ));
-            }
-
-            #[cfg(not(feature = "protocol_feature_eth_implicit"))]
-            {
+            } else {
                 panic!("must be near-implicit");
             }
         }
@@ -756,15 +754,18 @@ fn validate_delegate_action_key(
     // 'delegate_action.sender_id' account existence must be checked by a caller
     let access_key =
         get_access_key(state_update, &delegate_action.sender_id, &delegate_action.public_key)?;
-    let mut access_key =
-        match check_access_key(access_key, &delegate_action.sender_id, &delegate_action.public_key)
-        {
-            Ok(access_key) => access_key,
-            Err(error) => {
-                result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(error).into());
-                return Ok(());
-            }
-        };
+    let mut access_key = match check_access_key(
+        access_key,
+        &delegate_action.sender_id,
+        &delegate_action.public_key,
+        apply_state.current_protocol_version,
+    ) {
+        Ok(access_key) => access_key,
+        Err(error) => {
+            result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(error).into());
+            return Ok(());
+        }
+    };
 
     if delegate_action.nonce <= access_key.nonce {
         result.result = Err(ActionErrorKind::DelegateActionInvalidNonce {
@@ -896,6 +897,7 @@ pub(crate) fn check_account_existence(
     config: &RuntimeConfig,
     is_the_only_action: bool,
     is_refund: bool,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionError> {
     match action {
         Action::CreateAccount(_) => {
@@ -906,7 +908,9 @@ pub(crate) fn check_account_existence(
                 .into());
             } else {
                 // TODO: this should be `config.implicit_account_creation`.
-                if config.wasm_config.implicit_account_creation && account_is_implicit(account_id) {
+                if config.wasm_config.implicit_account_creation
+                    && account_is_implicit(account_id, current_protocol_version)
+                {
                     // If the account doesn't exist and it's implicit, then you
                     // should only be able to create it using single transfer action.
                     // Because you should not be able to add another access key to the account in
@@ -927,7 +931,7 @@ pub(crate) fn check_account_existence(
             if account.is_none() {
                 return if config.wasm_config.implicit_account_creation
                     && is_the_only_action
-                    && account_is_implicit(account_id)
+                    && account_is_implicit(account_id, current_protocol_version)
                     && !is_refund
                 {
                     // OK. It's implicit account creation.
@@ -1381,7 +1385,8 @@ mod tests {
                 &sender_id,
                 &RuntimeConfig::test(),
                 false,
-                false
+                false,
+                apply_state.current_protocol_version,
             ),
             Err(ActionErrorKind::AccountDoesNotExist { account_id: sender_id.clone() }.into())
         );

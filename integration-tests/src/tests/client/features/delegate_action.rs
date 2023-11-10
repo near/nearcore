@@ -12,20 +12,22 @@ use near_crypto::{KeyType, PublicKey, Signer};
 use near_primitives::account::{
     id::AccountType, AccessKey, AccessKeyPermission, FunctionCallPermission,
 };
+use near_primitives::checked_feature;
 use near_primitives::config::ActionCosts;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, InvalidAccessKeyError, InvalidTxError,
     TxExecutionError,
 };
-use near_primitives::test_utils::{create_user_test_signer, near_implicit_test_account};
-#[cfg(feature = "protocol_feature_eth_implicit")]
-use near_primitives::test_utils::{eth_implicit_test_account, eth_implicit_test_account_secret};
+use near_primitives::test_utils::{
+    create_user_test_signer, eth_implicit_test_account, eth_implicit_test_account_secret,
+    near_implicit_test_account,
+};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
@@ -125,6 +127,7 @@ fn check_meta_tx_execution(
     public_key: Option<PublicKey>,
 ) -> (FinalExecutionOutcomeView, i128, i128, i128) {
     let node_user = node.user();
+    let protocol_version = node.genesis().config.protocol_version;
 
     assert_eq!(
         relayer,
@@ -146,13 +149,9 @@ fn check_meta_tx_execution(
             // In case of ETH-implicit account, the ETH-implicit address shall be derived from the public key.
             // Thus, we cannot derive the public key from ETH-implicit address and the caller must
             // explicitly provide the Secp256K1 `public_key` matching the sender address.
-            #[cfg(feature = "protocol_feature_eth_implicit")]
-            {
+            if checked_feature!("stable", EthImplicit, protocol_version) {
                 public_key.unwrap()
-            }
-
-            #[cfg(not(feature = "protocol_feature_eth_implicit"))]
-            {
+            } else {
                 PublicKey::from_seed(KeyType::ED25519, sender.as_ref())
             }
         }
@@ -161,8 +160,9 @@ fn check_meta_tx_execution(
 
     let access_key_before = node_user.get_access_key(&sender, &user_pubk);
 
-    let tx_result =
-        node_user.meta_tx(sender.clone(), receiver.clone(), relayer.clone(), actions).unwrap();
+    let tx_result = node_user
+        .meta_tx(sender.clone(), receiver.clone(), relayer.clone(), actions, protocol_version)
+        .unwrap();
 
     // Execution of the transaction and all receipts should succeed
     tx_result.assert_success();
@@ -185,13 +185,9 @@ fn check_meta_tx_execution(
             }
         }
         Err(_) => {
-            #[cfg(feature = "protocol_feature_eth_implicit")]
-            {
+            if checked_feature!("stable", EthImplicit, node.genesis().config.protocol_version) {
                 assert!(sender.get_account_type() == AccountType::EthImplicitAccount);
-            }
-
-            #[cfg(not(feature = "protocol_feature_eth_implicit"))]
-            {
+            } else {
                 panic!("Sender account must have access key");
             }
         }
@@ -443,7 +439,10 @@ fn meta_tx_fn_call_access_wrong_method() {
     );
 
     let actions = vec![log_something_fn_call()];
-    let tx_result = node.user().meta_tx(sender, receiver, relayer, actions).unwrap();
+    let tx_result = node
+        .user()
+        .meta_tx(sender, receiver, relayer, actions, node.genesis().config.protocol_version)
+        .unwrap();
     // actual check has to be done in the receipt on the sender shard, not the
     // relayer, so let's check the receipt is present with the appropriate error
     let inner_status = &tx_result.receipts_outcome[0].outcome.status;
@@ -832,7 +831,10 @@ fn meta_tx_create_implicit_account_fails(new_account: AccountId) {
     let node = RuntimeNode::new(&relayer);
 
     let actions = vec![Action::CreateAccount(CreateAccountAction {})];
-    let tx_result = node.user().meta_tx(sender, new_account, relayer, actions).unwrap();
+    let tx_result = node
+        .user()
+        .meta_tx(sender, new_account, relayer, actions, node.genesis().config.protocol_version)
+        .unwrap();
 
     let account_creation_result = &tx_result.receipts_outcome[1].outcome.status;
     assert!(matches!(
@@ -848,9 +850,11 @@ fn meta_tx_create_near_implicit_account_fails() {
     meta_tx_create_implicit_account_fails(near_implicit_test_account());
 }
 
-#[cfg(feature = "protocol_feature_eth_implicit")]
 #[test]
 fn meta_tx_create_eth_implicit_account_fails() {
+    if !checked_feature!("stable", EthImplicit, PROTOCOL_VERSION) {
+        return;
+    }
     meta_tx_create_implicit_account_fails(eth_implicit_test_account());
 }
 
@@ -876,7 +880,16 @@ fn meta_tx_create_and_use_implicit_account(new_account: AccountId) {
 
     // Execute and expect `AccountDoesNotExist`, as we try to call a meta
     // transaction on a user that doesn't exist yet.
-    let tx_result = node.user().meta_tx(sender, new_account.clone(), relayer, actions).unwrap();
+    let tx_result = node
+        .user()
+        .meta_tx(
+            sender,
+            new_account.clone(),
+            relayer,
+            actions,
+            node.genesis().config.protocol_version,
+        )
+        .unwrap();
     let status = &tx_result.receipts_outcome[1].outcome.status;
     assert!(matches!(
         status,
@@ -891,9 +904,11 @@ fn meta_tx_create_and_use_near_implicit_account() {
     meta_tx_create_and_use_implicit_account(near_implicit_test_account());
 }
 
-#[cfg(feature = "protocol_feature_eth_implicit")]
 #[test]
 fn meta_tx_create_and_use_eth_implicit_account() {
+    if !checked_feature!("stable", EthImplicit, PROTOCOL_VERSION) {
+        return;
+    }
     meta_tx_create_and_use_implicit_account(eth_implicit_test_account());
 }
 
@@ -945,7 +960,7 @@ fn meta_tx_create_implicit_account(
 
     let tx_cost = match new_account.get_account_type() {
         AccountType::NearImplicitAccount => fee_helper.transfer_cost(),
-        // TODO Test did not pass with `transfer_full_key_cost`, only passes with `transfer_cost`.
+        // TODO(eth-implicit) Include fee for adding full access key.
         AccountType::EthImplicitAccount => fee_helper.transfer_cost(),
         AccountType::NamedAccount => panic!("must be implicit"),
     };
@@ -973,9 +988,11 @@ fn meta_tx_create_near_implicit_account() {
     meta_tx_create_implicit_account(near_implicit_test_account(), None);
 }
 
-#[cfg(feature = "protocol_feature_eth_implicit")]
 #[test]
 fn meta_tx_create_eth_implicit_account() {
+    if !checked_feature!("stable", EthImplicit, PROTOCOL_VERSION) {
+        return;
+    }
     let secret_key = eth_implicit_test_account_secret();
     meta_tx_create_implicit_account(eth_implicit_test_account(), Some(secret_key.public_key()));
 }

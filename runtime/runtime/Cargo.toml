@@ -32,13 +32,8 @@ near-store.workspace = true
 near-vm-runner.workspace = true
 
 [features]
-protocol_feature_eth_implicit = [
-  "near-primitives/protocol_feature_eth_implicit",
-]
-
 nightly = [
   "nightly_protocol",
-  "protocol_feature_eth_implicit",
   "near-chain-configs/nightly",
   "near-o11y/nightly",
   "near-primitives-core/nightly",

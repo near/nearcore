@@ -12,16 +12,15 @@ use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::AccessKey;
-#[cfg(feature = "protocol_feature_eth_implicit")]
-use near_primitives::errors::InvalidAccessKeyError;
-use near_primitives::errors::InvalidTxError;
+use near_primitives::checked_feature;
+use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::utils::derive_account_id_from_public_key;
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -203,12 +202,15 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
 /// Test that duplicate transactions from ETH-implicit account can be properly rejected
 /// if we set nonce to `(block_height - 1) * 1e6` for transactions that results in
 /// access key being added to the ETH-implicit account.
-#[cfg(feature = "protocol_feature_eth_implicit")]
 #[test]
 fn test_transaction_eth_implicit_account() {
+    if !checked_feature!("stable", EthImplicit, PROTOCOL_VERSION) {
+        return;
+    }
     let epoch_length = 10;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.protocol_version = ProtocolFeature::EthImplicit.protocol_version();
     let mut env = TestEnv::builder(ChainGenesis::test())
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -340,12 +342,15 @@ fn test_transaction_eth_implicit_account() {
 }
 
 /// Test that the signer is correctly verified for transactions done from an ETH-implicit account.
-#[cfg(feature = "protocol_feature_eth_implicit")]
 #[test]
 fn test_transaction_eth_implicit_account_invalid_pk() {
+    if !checked_feature!("stable", EthImplicit, PROTOCOL_VERSION) {
+        return;
+    }
     let epoch_length = 10;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.protocol_version = ProtocolFeature::EthImplicit.protocol_version();
     let mut env = TestEnv::builder(ChainGenesis::test())
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -392,7 +397,7 @@ fn test_transaction_eth_implicit_account_invalid_pk() {
     assert_matches!(
         response,
         ProcessTxResponse::InvalidTx(InvalidTxError::InvalidAccessKeyError(
-            InvalidAccessKeyError::InvalidPkForEthAddress { .. }
+            InvalidAccessKeyError::InvalidPublicKeyForEthAddress { .. }
         ))
     );
 
@@ -415,7 +420,7 @@ fn test_transaction_eth_implicit_account_invalid_pk() {
     assert_matches!(
         response,
         ProcessTxResponse::InvalidTx(InvalidTxError::InvalidAccessKeyError(
-            InvalidAccessKeyError::InvalidPkForEthAddress { .. }
+            InvalidAccessKeyError::InvalidPublicKeyForEthAddress { .. }
         ))
     );
 
@@ -466,27 +471,24 @@ fn test_transaction_hash_collision_for_near_implicit_account_ok() {
     );
 }
 
-/// Test that duplicate transactions from ETH-implicit accounts are not rejected before and after protocol upgrade.
+/// Test that duplicate transactions from ETH-implicit accounts are not rejected.
 /// It is responsibility of the transaction signer to choose nonce equal to `(block_height - 1) * 1e6` in case the transaction
 /// results in adding a new key to an ETH-implicit account (see https://github.com/near/NEPs/issues/498#issuecomment-1782881395).
-#[cfg(feature = "protocol_feature_eth_implicit")]
 #[test]
 fn test_transaction_hash_collision_for_eth_implicit_account_ok() {
-    let protocol_version =
-        ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
-    for protocol_version in protocol_version..=protocol_version + 1 {
-        let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
-        let implicit_account_id = derive_account_id_from_public_key(&secret_key.public_key());
-        let implicit_account_signer =
-            InMemorySigner::from_secret_key(implicit_account_id, secret_key);
-        assert_matches!(
-            get_status_of_tx_hash_collision_for_implicit_account(
-                protocol_version,
-                implicit_account_signer
-            ),
-            ProcessTxResponse::ValidTx
-        );
+    if !checked_feature!("stable", EthImplicit, PROTOCOL_VERSION) {
+        return;
     }
+    let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
+    let implicit_account_id = derive_account_id_from_public_key(&secret_key.public_key());
+    let implicit_account_signer = InMemorySigner::from_secret_key(implicit_account_id, secret_key);
+    assert_matches!(
+        get_status_of_tx_hash_collision_for_implicit_account(
+            ProtocolFeature::EthImplicit.protocol_version(),
+            implicit_account_signer
+        ),
+        ProcessTxResponse::ValidTx
+    );
 }
 
 /// Test that chunks with transactions that have expired are considered invalid.

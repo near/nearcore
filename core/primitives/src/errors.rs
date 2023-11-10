@@ -212,7 +212,7 @@ pub enum InvalidAccessKeyError {
     /// Having a deposit with a function call action is not allowed with a function call access key.
     DepositWithFunctionCall,
     /// ETH-implicit `account_id` isn't derived from the `public_key`.
-    InvalidPkForEthAddress { account_id: AccountId, public_key: PublicKey },
+    InvalidPublicKeyForEthAddress { account_id: AccountId, public_key: PublicKey },
 }
 
 /// Describes the error for validating a list of actions.
@@ -614,11 +614,13 @@ impl Display for InvalidAccessKeyError {
             InvalidAccessKeyError::DepositWithFunctionCall => {
                 write!(f, "Having a deposit with a function call action is not allowed with a function call access key.")
             }
-            InvalidAccessKeyError::InvalidPkForEthAddress { account_id, public_key } => write!(
-                f,
-                "ETH-implicit address {:?} isn't derived from the public_key {}",
-                account_id, public_key
-            ),
+            InvalidAccessKeyError::InvalidPublicKeyForEthAddress { account_id, public_key } => {
+                write!(
+                    f,
+                    "ETH-implicit address {:?} isn't derived from the public_key {}",
+                    account_id, public_key
+                )
+            }
         }
     }
 }

@@ -545,13 +545,12 @@ pub fn create_test_signer(account_name: &str) -> InMemoryValidatorSigner {
 pub fn create_user_test_signer(account_name: &AccountIdRef) -> InMemorySigner {
     let account_id = account_name.to_owned();
     if account_id == near_implicit_test_account() {
-        return InMemorySigner::from_secret_key(account_id, near_implicit_test_account_secret());
+        InMemorySigner::from_secret_key(account_id, near_implicit_test_account_secret())
+    } else if account_id == eth_implicit_test_account() {
+        InMemorySigner::from_secret_key(account_id, eth_implicit_test_account_secret())
+    } else {
+        InMemorySigner::from_seed(account_id, KeyType::ED25519, account_name.as_str())
     }
-    #[cfg(feature = "protocol_feature_eth_implicit")]
-    if account_id == eth_implicit_test_account() {
-        return InMemorySigner::from_secret_key(account_id, eth_implicit_test_account_secret());
-    }
-    InMemorySigner::from_seed(account_id, KeyType::ED25519, account_name.as_str())
 }
 
 /// A fixed NEAR-implicit account for which tests can know the private key.
@@ -565,13 +564,11 @@ pub fn near_implicit_test_account_secret() -> SecretKey {
 }
 
 /// A fixed ETH-implicit account for which tests can know the private key.
-#[cfg(feature = "protocol_feature_eth_implicit")]
 pub fn eth_implicit_test_account() -> AccountId {
     "0x96791e923f8cf697ad9c3290f2c9059f0231b24c".parse().unwrap()
 }
 
 /// Private key for the fixed ETH-implicit test account.
-#[cfg(feature = "protocol_feature_eth_implicit")]
 pub fn eth_implicit_test_account_secret() -> SecretKey {
     "secp256k1:X4ETFKtQkSGVoZEnkn7bZ3LyajJaK2b3eweXaKmynGx".parse().unwrap()
 }

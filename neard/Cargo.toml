@@ -70,14 +70,11 @@ no_cache = ["nearcore/no_cache"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
-protocol_feature_simple_nightshade_v2 = ["nearcore/protocol_feature_simple_nightshade_v2"]
-protocol_feature_eth_implicit = ["nearcore/protocol_feature_eth_implicit"]
 serialize_all_state_changes = ["nearcore/serialize_all_state_changes"]
 new_epoch_sync = ["nearcore/new_epoch_sync"]
 
 nightly = [
   "nightly_protocol",
-  "protocol_feature_eth_implicit",
   "protocol_feature_fix_staking_threshold",
   "serialize_all_state_changes",
   "near-chain-configs/nightly",

@@ -154,7 +154,12 @@ pub fn verify_and_charge_transaction(
     };
 
     let access_key = get_access_key(state_update, signer_id, &transaction.public_key)?;
-    let mut access_key = match check_access_key(access_key, signer_id, &transaction.public_key) {
+    let mut access_key = match check_access_key(
+        access_key,
+        signer_id,
+        &transaction.public_key,
+        current_protocol_version,
+    ) {
         Ok(access_key) => access_key,
         Err(error) => {
             return Err(InvalidTxError::InvalidAccessKeyError(error).into());

@@ -447,7 +447,7 @@
         "RequiresFullAccess",
         "NotEnoughAllowance",
         "DepositWithFunctionCall",
-        "InvalidPkForEthAddress"
+        "InvalidPublicKeyForEthAddress"
       ],
       "props": {}
     },
@@ -488,14 +488,6 @@
         "tx_nonce": ""
       }
     },
-    "InvalidPkForEthAddress": {
-      "name": "InvalidPkForEthAddress",
-      "subtypes": [],
-      "props": {
-        "account_id": "",
-        "public_key": ""
-      }
-    },
     "InvalidPredecessorId": {
       "name": "InvalidPredecessorId",
       "subtypes": [],
@@ -521,6 +513,14 @@
       "name": "InvalidPublicKey",
       "subtypes": [],
       "props": {}
+    },
+    "InvalidPublicKeyForEthAddress": {
+      "name": "InvalidPublicKeyForEthAddress",
+      "subtypes": [],
+      "props": {
+        "account_id": "",
+        "public_key": ""
+      }
     },
     "InvalidReceiptIndex": {
       "name": "InvalidReceiptIndex",

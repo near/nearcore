@@ -316,6 +316,7 @@ impl Runtime {
             &apply_state.config,
             is_the_only_action,
             is_refund,
+            apply_state.current_protocol_version,
         ) {
             result.result = Err(e);
             return Ok(result);

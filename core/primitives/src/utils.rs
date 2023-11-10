@@ -9,6 +9,7 @@ use rand::{thread_rng, Rng};
 use serde;
 
 use crate::account::AccessKey;
+use crate::checked_feature;
 use crate::errors::InvalidAccessKeyError;
 use crate::hash::{hash, CryptoHash};
 use crate::receipt::Receipt;
@@ -474,13 +475,10 @@ where
 /// From `near-account-id` version `1.0.0-alpha.2`, `is_implicit` returns true for ETH-implicit accounts.
 /// This function is a wrapper for `is_implicit` method so that we can easily differentiate its behavior
 /// based on the protocol version.
-pub fn account_is_implicit(account_id: &AccountId) -> bool {
-    #[cfg(feature = "protocol_feature_eth_implicit")]
-    {
+pub fn account_is_implicit(account_id: &AccountId, protocol_version: ProtocolVersion) -> bool {
+    if checked_feature!("stable", EthImplicit, protocol_version) {
         account_id.get_account_type().is_implicit()
-    }
-    #[cfg(not(feature = "protocol_feature_eth_implicit"))]
-    {
+    } else {
         account_id.get_account_type() == AccountType::NearImplicitAccount
     }
 }
@@ -506,27 +504,30 @@ pub fn check_access_key(
     access_key: Option<AccessKey>,
     account_id: &AccountId,
     public_key: &PublicKey,
+    protocol_version: ProtocolVersion,
 ) -> Result<AccessKey, InvalidAccessKeyError> {
     match access_key {
         Some(access_key) => Ok(access_key),
         None => {
-            #[cfg(feature = "protocol_feature_eth_implicit")]
-            if account_id.get_account_type() == AccountType::EthImplicitAccount {
-                if derive_account_id_from_public_key(public_key) == *account_id {
-                    // TODO What about increasing storage usage for that account, because we added access key?
-                    return Ok(AccessKey::full_access());
-                } else {
-                    // Provided public key is not the one from which the signer address was derived.
-                    return Err(InvalidAccessKeyError::InvalidPkForEthAddress {
-                        account_id: account_id.clone(),
-                        public_key: public_key.clone(),
-                    });
-                }
+            if !checked_feature!("stable", EthImplicit, protocol_version)
+                || account_id.get_account_type() != AccountType::EthImplicitAccount
+            {
+                return Err(InvalidAccessKeyError::AccessKeyNotFound {
+                    account_id: account_id.clone(),
+                    public_key: public_key.clone(),
+                });
             }
-            Err(InvalidAccessKeyError::AccessKeyNotFound {
-                account_id: account_id.clone(),
-                public_key: public_key.clone(),
-            })
+
+            if derive_account_id_from_public_key(public_key) == *account_id {
+                // TODO(eth-implicit) Is storage increase for that account (because we added access key) correctly handled?
+                return Ok(AccessKey::full_access());
+            } else {
+                // Provided public key is not the one from which the signer address was derived.
+                return Err(InvalidAccessKeyError::InvalidPublicKeyForEthAddress {
+                    account_id: account_id.clone(),
+                    public_key: public_key.clone(),
+                });
+            }
         }
     }
 }
