@@ -961,6 +961,8 @@ async fn repeated_data_in_sync_routing_table() {
 
     let mut edges_got = HashSet::new();
     let mut edges_want = HashSet::new();
+    let mut accounts_got = HashSet::new();
+    let mut accounts_want = HashSet::new();
     edges_want.insert(peer.edge.clone().unwrap());
 
     // Gradually increment the amount of data in the system and then broadcast it.
@@ -971,12 +973,17 @@ async fn repeated_data_in_sync_routing_table() {
         // It is important because the first SyncRoutingTable contains snapshot of all data known to
         // the node (not just the diff), so we expect incremental behavior only after the first
         // SyncRoutingTable.
-        while edges_got != edges_want {
+        while edges_got != edges_want || accounts_got != accounts_want {
             match peer.events.recv().await {
                 peer::testonly::Event::Network(PME::MessageProcessed(
                     tcp::Tier::T2,
                     PeerMessage::SyncRoutingTable(got),
                 )) => {
+                    for a in got.accounts {
+                        assert!(!accounts_got.contains(&a), "repeated broadcast: {a:?}");
+                        assert!(accounts_want.contains(&a), "unexpected broadcast: {a:?}");
+                        accounts_got.insert(a);
+                    }
                     for e in got.edges {
                         // TODO(gprusak): Currently there is a race condition between
                         // initial full sync and broadcasting the new connection edge,
@@ -996,10 +1003,11 @@ async fn repeated_data_in_sync_routing_table() {
         // Add more data.
         let key = data::make_secret_key(rng);
         edges_want.insert(data::make_edge(&peer.cfg.network.node_key, &key, 1));
+        accounts_want.insert(data::make_announce_account(rng));
         // Send all the data created so far. PeerManager is expected to discard the duplicates.
         peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
             edges: edges_want.iter().cloned().collect(),
-            accounts: vec![],
+            accounts: accounts_want.iter().cloned().collect(),
         }))
         .await;
     }
@@ -1200,6 +1208,39 @@ async fn fix_local_edges() {
     tracing::info!(target:"test","checking the consistency");
     pm.check_consistency().await;
     drop(conn);
+}
+
+#[tokio::test]
+async fn do_not_block_announce_account_broadcast() {
+    abort_on_panic();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let db0 = TestDB::new();
+    let db1 = TestDB::new();
+    let aa = data::make_announce_account(rng);
+
+    tracing::info!(target:"test", "spawn 2 nodes and announce the account.");
+    let pm0 = start_pm(clock.clock(), db0.clone(), chain.make_config(rng), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), db1.clone(), chain.make_config(rng), chain.clone()).await;
+    pm1.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+    pm1.announce_account(aa.clone()).await;
+    assert_eq!(&aa.peer_id, &pm0.wait_for_account_owner(&aa.account_id).await);
+    drop(pm0);
+    drop(pm1);
+
+    tracing::info!(target:"test", "spawn 3 nodes and re-announce the account.");
+    // Even though the account was previously announced (pm0 and pm1 have it in DB),
+    // the nodes should allow to let the broadcast through.
+    let pm0 = start_pm(clock.clock(), db0, chain.make_config(rng), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), db1, chain.make_config(rng), chain.clone()).await;
+    let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    pm1.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+    pm2.connect_to(&pm0.peer_info(), tcp::Tier::T2).await;
+    pm1.announce_account(aa.clone()).await;
+    assert_eq!(&aa.peer_id, &pm2.wait_for_account_owner(&aa.account_id).await);
 }
 
 /// Check that two archival nodes keep connected after network rebalance. Nodes 0 and 1 are archival nodes, others aren't.

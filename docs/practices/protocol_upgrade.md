@@ -55,8 +55,12 @@ the new protocol version.
 To make protocol upgrades more robust, we introduce the concept of a nightly
 protocol version together with the protocol feature flags to allow easy testing
 of the cutting-edge protocol changes without jeopardizing the stability of the
-codebase overall. In `Cargo.toml` file of the crates we have in nearcore, we
-introduce rust compile-time features `nightly_protocol` and `nightly`
+codebase overall. The use of the nightly and nightly_protocol for new features
+is mandatory while the use of dedicated rust features for new protocol features 
+is optional and only recommended when necessary. Adding rust features leads to 
+conditional compilation which is generally not developer friendly. In `Cargo.toml`
+file of the crates we have in nearcore, we introduce rust compile-time features
+`nightly_protocol` and `nightly`:
 
 ```toml
 nightly_protocol = []
@@ -68,9 +72,16 @@ nightly = [
 
 where `nightly_protocol` is a marker feature that indicates that we are on
 nightly protocol whereas `nightly` is a collection of new protocol features
-which also implies `nightly_protocol`. For example, when we introduce EVM as a
-new protocol change, suppose the current protocol version is 40, then we would
-do the following change in `Cargo.toml`:
+which also implies `nightly_protocol`. 
+
+When it is not necessary to use a rust feature for the new protocol feature 
+the Cargo.toml file will remain unchanged.
+
+When it is necessary to use a rust feature for the new protocol feature, it 
+can be added to the Cargo.toml, to the nightly features. For example, when
+we introduce EVM as a new protocol change, suppose the current protocol
+version is 40, then we would do the following change in Cargo.toml:
+
 
 ```toml
 nightly_protocol = []
@@ -98,8 +109,8 @@ the distinction between the stable protocol and nightly protocol clearer.
 To determine whether a protocol feature is enabled, we do the following:
 
 * We maintain a `ProtocolFeature` enum where each variant corresponds to some
-  protocol feature. For nightly protocol features, the variant is gated by the
-  corresponding rust compile-time feature.
+  protocol feature. For nightly protocol features, the variant may optionally
+  be gated by the corresponding rust compile-time feature.
 * We implement a function `protocol_version` to return, for each variant, the
   corresponding protocol version in which the feature is enabled.
 * When we need to decide whether to use the new feature based on the protocol
@@ -114,11 +125,13 @@ For more details, please refer to
 
 It is worth mentioning that there are two types of checks related to protocol features:
 
-* For stable features, we check whether they should be enabled by checking the
-  protocol version of the current epoch. This does not involve any rust
-  compile-time features.
-* For nightly features, we have both the check of protocol version and the rust
-  compile-time feature gating.
+* Runtime checks that compare the protocol version of the current epoch and
+  the protocol version of the feature. Those runtime checks must be used for
+  both stable and nightly features.
+* Compile time checks that check if the rust feature corresponding with the
+  protocol feature is enabled. This check is optional and can only be used for
+  nightly features.  
+
 
 ### Testing
 

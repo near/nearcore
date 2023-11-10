@@ -3,7 +3,8 @@
 /// in particular schema::StoreUpdate is not exported.
 use crate::network_protocol::Edge;
 use crate::types::ConnectionInfo;
-use near_primitives::network::PeerId;
+use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::types::AccountId;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::debug;
@@ -41,6 +42,25 @@ pub(crate) struct Store(schema::Store);
 /// DBCol::PeerComponent      -> Mapping from `peer_id` to last component nonce if there
 ///                          exists one it belongs to.
 impl Store {
+    /// Inserts (account_id,aa) to the AccountAnnouncements column.
+    pub fn set_account_announcement(
+        &mut self,
+        account_id: &AccountId,
+        aa: &AnnounceAccount,
+    ) -> Result<(), Error> {
+        let mut update = self.0.new_update();
+        update.set::<schema::AccountAnnouncements>(account_id, aa);
+        self.0.commit(update).map_err(Error)
+    }
+
+    /// Fetches row with key account_id from the AccountAnnouncements column.
+    pub fn get_account_announcement(
+        &self,
+        account_id: &AccountId,
+    ) -> Result<Option<AnnounceAccount>, Error> {
+        self.0.get::<schema::AccountAnnouncements>(account_id).map_err(Error)
+    }
+
     /// Atomically stores a graph component consisting of <peers> and <edges>
     /// to the DB. On completion, all peers are considered members of the new component
     /// (even if they were members of a different component so far).
