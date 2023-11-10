@@ -252,17 +252,25 @@ impl TestReshardingEnv {
         self.txs_by_height.insert(height, txs);
     }
 
+    fn step(
+        &mut self,
+        drop_chunk_condition: &DropChunkCondition,
+        protocol_version: ProtocolVersion,
+    ) {
+        self.step_err(drop_chunk_condition, protocol_version).unwrap();
+    }
+
     /// produces and processes the next block also checks that all accounts in
     /// initial_accounts are intact
     ///
     /// allows for changing the protocol version in the middle of the test the
     /// testing_v2 argument means whether the test should expect the sharding
     /// layout V2 to be used once the appropriate protocol version is reached
-    fn step(
+    fn step_err(
         &mut self,
         drop_chunk_condition: &DropChunkCondition,
         protocol_version: ProtocolVersion,
-    ) {
+    ) -> Result<(), near_client::Error> {
         let env = &mut self.env;
         let head = env.clients[0].chain.head().unwrap();
         let next_height = head.height + 1;
@@ -310,10 +318,8 @@ impl TestReshardingEnv {
             chunk_producer_to_shard_id.entry(validator_id).or_default().push(shard_id);
         }
 
-        // Make sure that catchup is done before the end of each epoch, but when it is done is
-        // by chance. This simulates when catchup takes a long time to be done
-        let should_catchup =
-            self.rng.gen_bool(P_CATCHUP) || (next_height + 1) % self.epoch_length == 0;
+        let should_catchup = Self::should_catchup(&mut self.rng, self.epoch_length, next_height);
+
         // process block, this also triggers chunk producers for the next block to produce chunks
         for j in 0..self.num_clients {
             let client = &mut env.clients[j];
@@ -333,7 +339,7 @@ impl TestReshardingEnv {
             let block = MaybeValidated::from(block.clone());
             client.start_process_block(block, Provenance::NONE, Arc::new(|_| {})).unwrap();
             if should_catchup {
-                run_catchup(client, &[]).unwrap();
+                run_catchup(client, &[])?;
             }
             while wait_for_all_blocks_in_processing(&mut client.chain) {
                 let (_, errors) =
@@ -341,7 +347,7 @@ impl TestReshardingEnv {
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
             if should_catchup {
-                run_catchup(&mut env.clients[j], &[]).unwrap();
+                run_catchup(&mut env.clients[j], &[])?;
             }
         }
 
@@ -365,6 +371,25 @@ impl TestReshardingEnv {
         for account_id in self.initial_accounts.iter() {
             check_account(env, account_id, &block);
         }
+
+        Ok(())
+    }
+
+    fn should_catchup(rng: &mut StdRng, epoch_length: u64, next_height: u64) -> bool {
+        // Always do catchup before the end of the epoch to ensure it happens at
+        // least once. Doing it in the very last block triggers some error conditions.
+        if (next_height + 1) % epoch_length == 0 {
+            return true;
+        }
+
+        // Don't do catchup in the very first block of the epoch. This is
+        // primarily for the error handling test where we want to corrupt the
+        // databse before catchup happens.
+        if next_height % epoch_length == 1 {
+            return false;
+        }
+
+        rng.gen_bool(P_CATCHUP)
     }
 
     // Submit the tx to all clients for processing and checks:
@@ -1581,6 +1606,92 @@ fn test_latest_protocol_missing_chunks_mid_missing_prob() {
 #[test]
 fn test_latest_protocol_missing_chunks_high_missing_prob() {
     test_latest_protocol_missing_chunks(0.9, 27);
+}
+
+fn test_shard_layout_upgrade_error_handling_impl(
+    resharding_type: ReshardingType,
+    rng_seed: u64,
+    state_snapshot_enabled: bool,
+) {
+    init_test_logger();
+    tracing::info!(target: "test", "test_shard_layout_upgrade_simple_impl starting");
+
+    let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
+    let target_protocol_version = get_target_protocol_version(&resharding_type);
+
+    // setup
+    let epoch_length = 5;
+    let mut test_env = TestReshardingEnv::new(
+        epoch_length,
+        2,
+        2,
+        100,
+        None,
+        genesis_protocol_version,
+        rng_seed,
+        state_snapshot_enabled,
+        Some(resharding_type),
+    );
+    test_env.set_init_tx(vec![]);
+
+    let mut nonce = 100;
+    let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
+    let mut all_accounts: HashSet<_> = test_env.initial_accounts.clone().into_iter().collect();
+    let mut accounts_to_check: Vec<_> = vec![];
+    let initial_accounts = test_env.initial_accounts.clone();
+
+    // add transactions until after sharding upgrade finishes
+    for height in 2..3 * epoch_length {
+        let txs = generate_create_accounts_txs(
+            &mut test_env.rng,
+            genesis_hash,
+            &initial_accounts,
+            &mut accounts_to_check,
+            &mut all_accounts,
+            &mut nonce,
+            10,
+            true,
+        );
+
+        test_env.set_tx_at_height(height, txs);
+    }
+
+    let drop_chunk_condition = DropChunkCondition::new();
+    for _ in 1..4 * epoch_length {
+        let result = test_env.step_err(&drop_chunk_condition, target_protocol_version);
+        if let Err(err) = result {
+            tracing::info!(target: "test", ?err, "step failed, as expected");
+            return;
+        }
+
+        // corrupt the state snapshot if available to make resharding fail
+        currupt_state_snapshot(&test_env);
+    }
+
+    assert!(false, "no error was recorded, something is wrong in error handling");
+}
+
+fn currupt_state_snapshot(test_env: &TestReshardingEnv) {
+    let tries = test_env.env.clients[0].runtime_adapter.get_tries();
+    let Ok(snapshot_hash) = tries.get_state_snapshot_hash() else { return };
+    let (store, flat_storage_manager) = tries.get_state_snapshot(&snapshot_hash).unwrap();
+    let shard_uids = flat_storage_manager.get_shard_uids();
+    let mut store_update = store.store_update();
+    for shard_uid in shard_uids {
+        flat_storage_manager.remove_flat_storage_for_shard(shard_uid, &mut store_update).unwrap();
+    }
+    store_update.commit().unwrap();
+}
+
+#[test]
+fn test_shard_layout_upgrade_error_handling_v1() {
+    test_shard_layout_upgrade_error_handling_impl(ReshardingType::V1, 42, false);
+}
+
+#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
+#[test]
+fn test_shard_layout_upgrade_error_handling_v2() {
+    test_shard_layout_upgrade_error_handling_impl(ReshardingType::V2, 42, false);
 }
 
 // TODO(resharding) add a test with missing blocks
