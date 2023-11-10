@@ -14,13 +14,15 @@ use crate::test_utils;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::types::{
-    AccountKeys, ChainInfo, KnownPeerStatus, PeerManagerMessageRequest, ReasonForBan,
+    AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
+    ReasonForBan,
 };
 use crate::PeerManagerActor;
 use near_async::messaging::IntoSender;
 use near_async::time;
 use near_o11y::WithSpanContextExt;
-use near_primitives::network::PeerId;
+use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::types::AccountId;
 use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
@@ -371,6 +373,17 @@ impl ActorHandler {
         .await;
     }
 
+    pub async fn announce_account(&self, aa: AnnounceAccount) {
+        self.actix
+            .addr
+            .send(
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::AnnounceAccount(aa))
+                    .with_span_context(),
+            )
+            .await
+            .unwrap();
+    }
+
     // Awaits until the accounts_data state satisfies predicate `pred`.
     pub async fn wait_for_accounts_data_pred(
         &self,
@@ -427,6 +440,25 @@ impl ActorHandler {
             events
                 .recv_until(|ev| match ev {
                     Event::PeerManager(PME::EdgesAdded { .. }) => Some(()),
+                    _ => None,
+                })
+                .await;
+        }
+    }
+
+    pub async fn wait_for_account_owner(&self, account: &AccountId) -> PeerId {
+        let mut events = self.events.from_now();
+        loop {
+            let account = account.clone();
+            let got = self
+                .with_state(|s| async move { s.account_announcements.get_account_owner(&account) })
+                .await;
+            if let Some(got) = got {
+                return got;
+            }
+            events
+                .recv_until(|ev| match ev {
+                    Event::PeerManager(PME::AccountsAdded(_)) => Some(()),
                     _ => None,
                 })
                 .await;

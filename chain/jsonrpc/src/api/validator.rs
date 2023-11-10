@@ -88,14 +88,12 @@ mod tests {
         let block_height: u64 = 12345;
         let params = serde_json::json!({"block_id": block_height});
         let result = RpcValidatorRequest::parse(params);
-        assert!(result.is_ok());
-        let result_unwrap = result.unwrap();
-        let res_serialized = format!("{result_unwrap:?}");
-        let expected = RpcValidatorRequest {
-            epoch_reference: EpochReference::BlockId(BlockId::Height(block_height)),
-        };
-        let expected_serialized = format!("{expected:?}");
-        assert_eq!(res_serialized, expected_serialized);
+        assert_eq!(
+            result.unwrap(),
+            RpcValidatorRequest {
+                epoch_reference: EpochReference::BlockId(BlockId::Height(block_height)),
+            }
+        );
     }
 
     #[test]

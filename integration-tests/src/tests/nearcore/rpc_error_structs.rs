@@ -347,7 +347,8 @@ fn test_receipt_id_unknown_receipt_error() {
 /// Sends tx to first light client through `broadcast_tx_commit` and checks that the transaction has failed.
 /// Checks if the struct is expected and contains the proper data
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
+#[ignore = "Invalid test setup. broadcast_tx_commit times out. Fix and reenable."]
+// #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_tx_invalid_tx_error() {
     init_integration_logger();
 

@@ -32,7 +32,8 @@ use near_crypto::Signature;
 use near_o11y::{handler_debug_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
+use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
@@ -812,9 +813,10 @@ impl PeerActor {
             known_edges.retain(|edge| edge.removal_info().is_none());
             metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
         }
+        let known_accounts = self.network_state.account_announcements.get_announcements();
         self.send_message_or_log(&PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
             known_edges,
-            vec![],
+            known_accounts,
         )));
     }
 
@@ -1399,6 +1401,26 @@ impl PeerActor {
             .await
         {
             conn.stop(Some(ban_reason));
+        }
+
+        // For every announce we received, we fetch the last announce with the same account_id
+        // that we already broadcasted. Client actor will both verify signatures of the received announces
+        // as well as filter out those which are older than the fetched ones (to avoid overriding
+        // a newer announce with an older one).
+        let old = network_state
+            .account_announcements
+            .get_broadcasted_announcements(rtu.accounts.iter().map(|a| &a.account_id));
+        let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = rtu
+            .accounts
+            .into_iter()
+            .map(|aa| {
+                let id = aa.account_id.clone();
+                (aa, old.get(&id).map(|old| old.epoch_id.clone()))
+            })
+            .collect();
+        match network_state.client.announce_account(accounts).await {
+            Err(ban_reason) => conn.stop(Some(ban_reason)),
+            Ok(accounts) => network_state.add_accounts(accounts).await,
         }
     }
 

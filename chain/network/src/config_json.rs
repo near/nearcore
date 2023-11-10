@@ -51,6 +51,10 @@ fn default_monitor_peers_max_period() -> Duration {
 fn default_peer_states_cache_size() -> u32 {
     1000
 }
+/// Maximum number of snapshot hosts to keep in memory.
+fn default_snapshot_hosts_cache_size() -> u32 {
+    1000
+}
 /// Remove peers that we didn't hear about for this amount of time.
 fn default_peer_expiration_duration() -> Duration {
     Duration::from_secs(7 * 24 * 60 * 60)
@@ -139,6 +143,9 @@ pub struct Config {
     /// Maximum number of peer states to keep in memory.
     #[serde(default = "default_peer_states_cache_size")]
     pub peer_states_cache_size: u32,
+    /// Maximum number of snapshot hosts to keep in memory.
+    #[serde(default = "default_snapshot_hosts_cache_size")]
+    pub snapshot_hosts_cache_size: u32,
     // Remove peers that were not active for this amount of time.
     #[serde(default = "default_peer_expiration_duration")]
     pub peer_expiration_duration: Duration,
@@ -296,6 +303,7 @@ impl Default for Config {
             handshake_timeout: Duration::from_secs(20),
             skip_sync_wait: false,
             peer_states_cache_size: default_peer_states_cache_size(),
+            snapshot_hosts_cache_size: default_snapshot_hosts_cache_size(),
             ban_window: Duration::from_secs(3 * 60 * 60),
             blacklist: vec![],
             ttl_account_id_router: default_ttl_account_id_router(),
