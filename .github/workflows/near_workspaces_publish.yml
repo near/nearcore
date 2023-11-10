@@ -1,8 +1,8 @@
-name: near-workspaces publish
+name: near workspaces crates publish
 
 on:
   push:
-    branches: main
+    branches: master
   workflow_dispatch:
 
 jobs:
@@ -26,8 +26,6 @@ jobs:
               --tag-msg $$'crates.io snapshot\n---%{\n- %n - https://crates.io/crates/%n/%v}'
 
       - name: Create tag on https://github.com/near/nearcore
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           git push --no-follow-tags https://github.com/near/nearcore.git tag 'crates-*'
 

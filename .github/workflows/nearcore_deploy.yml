@@ -2,24 +2,15 @@ name: Nearcore release
 
 on:
   push:
-    branches: main
+    branches: master
 
   workflow_dispatch:
     inputs:
-      branch_ref:
+      branch:
+        default: 'master'
         description: "Nearcore branch to build and publish"
         type: string
         required: true
-      publish_docker:
-        default: false
-        description: "Publish docker image"
-        type: boolean
-        required: false
-      publish_crates:
-        default: false
-        description: "Publish crates"
-        type: boolean
-        required: false
 
 jobs:
   binary-release:
@@ -28,54 +19,40 @@ jobs:
     environment: deploy
     permissions:
       id-token: write # required to use OIDC authentication
-      contents: write # required for crates push
-    timeout-minutes: 20 
-    
+
     steps:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::754641474505:role/GitHubActionsRunner
-          role-duration-seconds: 900 # the ttl of the session, in seconds.
           aws-region: us-west-1
 
-      - name: list required bucket path 
+      - name: Checkout ${{ github.event.inputs.branch }} branch
+        if: ${{ github.event_name == 'workflow_dispatch'}}
+        uses: actions/checkout@v4
+        with:
+          repository: near/nearcore
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Checkout nearcore master repository
+        if: ${{ github.event_name != 'workflow_dispatch'}}
+        uses: actions/checkout@v4
+        with:
+          repository: near/nearcore
+          ref: master
+          
+      - name: Log rust and cargo versions 
         run: |
-          sleep 915
-          aws s3 ls 
+          rustup --version
+          cargo --version
 
-  docker-release:
-    name: "Build and publish docker image"
-    runs-on: "ubuntu-22.04-8core"
-    if: github.ref == 'refs/heads/master' || ${{ fromJSON(inputs.publish_docker) }}
-    environment: deploy
-    permissions:
-        id-token: write # required to use OIDC authentication
-        contents: write # required for crates push
-    timeout-minutes: 20 
+      - name: Neard binary build and upload to S3
+        run: |
+          chmod +x nearcore/scripts/binary-release.sh
+          nearcore/scripts/binary-release.sh
 
-    steps:
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-            role-to-assume: arn:aws:iam::754641474505:role/GitHubActionsRunner
-            role-duration-seconds: 900 # the ttl of the session, in seconds.
-            aws-region: aaaa
-
-  creates-publish:
-    name: "Build and publish docker image"
-    runs-on: "ubuntu-22.04-8core"
-    if: github.ref == 'refs/heads/master' || ${{ fromJSON(inputs.publish_docker) }}
-    environment: deploy
-    permissions:
-        id-token: write # required to use OIDC authentication
-        contents: write # required for crates push
-    timeout-minutes: 20 
-
-    steps:
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-            role-to-assume: arn:aws:iam::754641474505:role/GitHubActionsRunner
-            role-duration-seconds: 900 # the ttl of the session, in seconds.
-            aws-region: aaaa
+      - name: Update latest version metadata in S3
+        run: |
+          echo $(git rev-parse HEAD) > latest
+          branch=$(git rev-parse --abbrev-ref HEAD)
+          # aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${branch}/latest
