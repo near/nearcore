@@ -179,8 +179,11 @@ fn validate_epoch_sync_info(
             let next_epoch_first_hash = hash_to_next_hash[last_header.hash()];
             tracing::debug!("Creating EpochSyncInfo from block {:?}", last_header);
 
-            let epoch_sync_info =
-                chain_update.create_epoch_sync_info(&last_block_info, &next_epoch_first_hash)?;
+            let epoch_sync_info = chain_update.create_epoch_sync_info(
+                &last_block_info,
+                &next_epoch_first_hash,
+                Some(&hash_to_prev_hash),
+            )?;
 
             let calculated_epoch_sync_data_hash_result =
                 epoch_sync_info.calculate_epoch_sync_data_hash();

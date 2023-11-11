@@ -5923,7 +5923,7 @@ impl<'a> ChainUpdate<'a> {
             .set_ser(
                 DBCol::EpochSyncInfo,
                 last_block_info.epoch_id().as_ref(),
-                &self.create_epoch_sync_info(last_block_info, next_epoch_first_hash)?,
+                &self.create_epoch_sync_info(last_block_info, next_epoch_first_hash, None)?,
             )
             .map_err(EpochError::from)?;
         self.chain_store_update.merge(store_update);
@@ -6025,8 +6025,10 @@ impl<'a> ChainUpdate<'a> {
         &self,
         last_block_info: &BlockInfo,
         next_epoch_first_hash: &CryptoHash,
+        hash_to_prev_hash: Option<&HashMap<CryptoHash, CryptoHash>>,
     ) -> Result<EpochSyncInfo, Error> {
-        let mut all_block_hashes = self.epoch_manager.get_all_epoch_hashes(last_block_info)?;
+        let mut all_block_hashes =
+            self.epoch_manager.get_all_epoch_hashes(last_block_info, hash_to_prev_hash)?;
         all_block_hashes.reverse();
 
         let (headers, headers_to_save) =
