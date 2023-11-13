@@ -271,9 +271,9 @@ impl ForkNetworkCommand {
                 tracing::info!(?shard_uid,?state_root,?key);
                     let value = store.get(DBCol::State, &key).unwrap().unwrap();
                     if let Ok(node) = RawTrieNodeWithSize::try_from_slice(&value) {
-                        format!("Node: {node:?}, {key:?}")
+                        tracing::info!(?node,?key,"Node")
                     } else {
-                        format!("Value: {value:?}, {key:?}")
+                        tracing::info!(?node,?key,"Value")
                     };
 
                 *state_root
