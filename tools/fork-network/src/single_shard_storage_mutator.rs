@@ -8,47 +8,32 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, StateRoot};
 use near_primitives::types::{ShardId, StoreKey, StoreValue};
-use near_store::{flat::FlatStateChanges, DBCol, TrieUpdate};
+use near_store::{flat::FlatStateChanges, DBCol, ShardTries, TrieUpdate};
 use nearcore::NightshadeRuntime;
-use std::sync::Arc;
 
 /// Object that updates the existing state. Combines all changes, commits them
 /// and returns new state roots.
 pub(crate) struct SingleShardStorageMutator {
-    shard_id: ShardId,
-    runtime: Arc<NightshadeRuntime>,
     trie_update: TrieUpdate,
+    shard_tries: ShardTries,
     num_changes: u64,
 }
 
 impl SingleShardStorageMutator {
     pub(crate) fn new(
         shard_id: ShardId,
-        runtime: Arc<NightshadeRuntime>,
+        runtime: &NightshadeRuntime,
+        prev_block_hash: CryptoHash,
         state_root: StateRoot,
     ) -> anyhow::Result<Self> {
-        Ok(Self {
-            shard_id,
-            runtime: runtime.clone(),
-            trie_update: Self::new_trie_update(shard_id, state_root, &runtime)?,
-            num_changes: 0,
-        })
-    }
-
-    fn new_trie_update(
-        shard_id: ShardId,
-        state_root: StateRoot,
-        runtime: &Arc<NightshadeRuntime>,
-    ) -> anyhow::Result<TrieUpdate> {
-        tracing::info!(?shard_id, ?state_root, "new_trie_update");
-        let block_hash = CryptoHash::new();
         let trie = runtime.get_trie_for_shard(
             shard_id,
-            &block_hash, // unused because of use_flat_storage=false
+            &prev_block_hash, // unused because of use_flat_storage=false
             state_root,
             false,
         )?;
-        Ok(TrieUpdate::new(trie))
+        let trie_update = TrieUpdate::new(trie);
+        Ok(Self { trie_update, shard_tries: runtime.get_tries(), num_changes: 0 })
     }
 
     fn trie_update(&mut self) -> &mut TrieUpdate {
@@ -181,12 +166,10 @@ impl SingleShardStorageMutator {
 
     pub(crate) fn commit(mut self, shard_uid: &ShardUId) -> anyhow::Result<StateRoot> {
         tracing::info!(?shard_uid, num_changes = ?self.num_changes, "commit");
-        assert_eq!(1,shard_uid.version);
-        let shard_tries = self.runtime.get_tries();
-        let mut update = shard_tries.store_update();
+        let mut update = self.shard_tries.store_update();
         self.trie_update.commit(near_primitives::types::StateChangeCause::Migration);
         let (_, trie_updates, raw_changes) = self.trie_update.finalize()?;
-        let state_root = shard_tries.apply_all(&trie_updates, *shard_uid, &mut update);
+        let state_root = self.shard_tries.apply_all(&trie_updates, *shard_uid, &mut update);
         let flat_state_changes = FlatStateChanges::from_state_changes(&raw_changes);
         flat_state_changes.apply_to_flat_state(&mut update, *shard_uid);
         tracing::info!(?shard_uid, num_changes = ?self.num_changes, "committing");
@@ -198,8 +181,6 @@ impl SingleShardStorageMutator {
 
         update.commit()?;
         tracing::info!(?shard_uid, ?state_root, "Commit is done");
-
-        self.trie_update = Self::new_trie_update(self.shard_id, state_root, &self.runtime)?;
         Ok(state_root)
     }
 }

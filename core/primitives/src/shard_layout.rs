@@ -146,7 +146,6 @@ impl ShardLayout {
 
     /// Returns the simple nightshade layout that we use in production
     pub fn get_simple_nightshade_layout() -> ShardLayout {
-        tracing::info!("get_simple_nightshade_layout");
         ShardLayout::v1(
             vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
                 .into_iter()
@@ -160,7 +159,6 @@ impl ShardLayout {
     /// Returns the simple nightshade layout, version 2, that will be used in production.
     /// This is work in progress and the exact way of splitting is yet to be determined.
     pub fn get_simple_nightshade_layout_v2() -> ShardLayout {
-        tracing::info!("get_simple_nightshade_layout_v2");
         ShardLayout::v1(
             // TODO(resharding) - find the right boundary to split shards in
             // place of just "sweat". Likely somewhere in between near.social

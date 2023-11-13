@@ -218,7 +218,6 @@ impl NightshadeRuntime {
             epoch_manager.get_epoch_id_from_prev_block(prev_hash).map_err(Error::from)?;
         let shard_version =
             epoch_manager.get_shard_layout(&epoch_id).map_err(Error::from)?.version();
-        assert_eq!(1,shard_version);
         Ok(ShardUId { version: shard_version, shard_id: shard_id as u32 })
     }
 
@@ -593,7 +592,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         use_flat_storage: bool,
     ) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
-        assert_eq!(1,shard_uid.version);
         if use_flat_storage {
             Ok(self
                 .tries

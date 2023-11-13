@@ -128,7 +128,6 @@ impl AllEpochConfig {
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
         let mut config = self.genesis_epoch_config.clone();
-        tracing::info!(use_production_config = self.use_production_config, "for_protocol_version");
         if !self.use_production_config {
             return config;
         }

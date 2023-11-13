@@ -2,7 +2,8 @@ use crate::single_shard_storage_mutator::SingleShardStorageMutator;
 use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::types::{AccountId, EpochId, ShardId, StateRoot};
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{AccountId, EpochId, StateRoot};
 use nearcore::NightshadeRuntime;
 use std::sync::Arc;
 
@@ -17,8 +18,9 @@ pub(crate) struct StorageMutator {
 impl StorageMutator {
     pub(crate) fn new(
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        runtime: Arc<NightshadeRuntime>,
+        runtime: &NightshadeRuntime,
         epoch_id: EpochId,
+        prev_block_hash: CryptoHash,
         state_roots: Vec<StateRoot>,
     ) -> anyhow::Result<Self> {
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
@@ -29,6 +31,7 @@ impl StorageMutator {
             mutators.push(SingleShardStorageMutator::new(
                 shard_id as ShardId,
                 runtime.clone(),
+                prev_block_hash,
                 *state_root,
             )?);
         }
