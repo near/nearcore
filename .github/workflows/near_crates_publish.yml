@@ -3,6 +3,8 @@ name: Near crates publish
 on:
   push:
     branches: master
+    paths:
+      - 'Cargo.toml'
   workflow_dispatch:
 
 jobs:
