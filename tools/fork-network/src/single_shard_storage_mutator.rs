@@ -181,6 +181,7 @@ impl SingleShardStorageMutator {
 
     pub(crate) fn commit(mut self, shard_uid: &ShardUId) -> anyhow::Result<StateRoot> {
         tracing::info!(?shard_uid, num_changes = ?self.num_changes, "commit");
+        assert_eq!(1,shard_uid.version);
         let shard_tries = self.runtime.get_tries();
         let mut update = shard_tries.store_update();
         self.trie_update.commit(near_primitives::types::StateChangeCause::Migration);
