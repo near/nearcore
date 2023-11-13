@@ -273,7 +273,7 @@ impl ForkNetworkCommand {
                     if let Ok(node) = RawTrieNodeWithSize::try_from_slice(&value) {
                         tracing::info!(?node,?key,"Node")
                     } else {
-                        tracing::info!(?node,?key,"Value")
+                        tracing::info!(?key,"Value")
                     };
 
                 *state_root
