@@ -25,8 +25,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::db::RocksDB;
-use near_store::flat::{FlatStorageManager, FlatStorageStatus};
-use near_store::flat::{store_helper, BlockInfo};
+use near_store::flat::{store_helper, BlockInfo, FlatStorageManager, FlatStorageStatus};
 use near_store::{
     checkpoint_hot_storage_and_cleanup_columns, DBCol, Store, TrieDBStorage, TrieStorage,
     FINAL_HEAD_KEY,

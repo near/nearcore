@@ -26,12 +26,7 @@ impl SingleShardStorageMutator {
         prev_block_hash: CryptoHash,
         state_root: StateRoot,
     ) -> anyhow::Result<Self> {
-        let trie = runtime.get_trie_for_shard(
-            shard_id,
-            &prev_block_hash,
-            state_root,
-            false,
-        )?;
+        let trie = runtime.get_trie_for_shard(shard_id, &prev_block_hash, state_root, false)?;
         let trie_update = TrieUpdate::new(trie);
         Ok(Self { trie_update, shard_tries: runtime.get_tries(), num_changes: 0 })
     }
