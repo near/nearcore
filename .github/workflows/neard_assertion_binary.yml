@@ -1,8 +1,8 @@
 name: Neard Assertion binary release
 
 on:
-  push:
-    branches: master
+  schedule:
+    - cron: '23 */8 * * *'
 
   workflow_dispatch:
     inputs:

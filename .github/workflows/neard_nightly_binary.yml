@@ -1,9 +1,6 @@
 name: Neard Nightly binary release
 
 on:
-  push:
-    branches: master
-
   workflow_dispatch:
     inputs:
       branch:
