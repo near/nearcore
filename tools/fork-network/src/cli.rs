@@ -266,8 +266,9 @@ impl ForkNetworkCommand {
                 tracing::info!(?shard_id, ?epoch_id, ?state_root);
 
                 let mut key = Vec::with_capacity(40);
-key.extend_from_slice(&shard_uid.to_bytes());
+                key.extend_from_slice(&shard_uid.to_bytes());
                 key.extend_from_slice(state_root.as_ref());
+                tracing::info!(?shard_uid,?state_root,?key);
                     let value = store.get(DBCol::State, &key).unwrap().unwrap();
                     if let Ok(node) = RawTrieNodeWithSize::try_from_slice(&value) {
                         format!("Node: {node:?}, {key:?}")
