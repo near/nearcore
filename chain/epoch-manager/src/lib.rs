@@ -1564,6 +1564,7 @@ impl EpochManager {
     pub fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
         let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
         let shard_layout = self.config.for_protocol_version(protocol_version).shard_layout;
+        tracing::info!(?protocol_version, ?shard_layout, "get_shard_layout");
         Ok(shard_layout)
     }
 
